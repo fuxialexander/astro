@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { Command } from "cmdk"
 import { useNavigate } from "react-router"
-import { LayoutDashboard, Folder, Inbox, Plus, Sun, Moon, Search } from "lucide-react"
+import { LayoutDashboard, Folder, Inbox, Server, Plus, Sun, Moon, Search } from "lucide-react"
 import { useUIStore } from "@/stores/ui-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useTheme } from "@/components/theme-provider"
@@ -70,6 +70,13 @@ export function CommandPalette() {
               >
                 <Inbox className="h-4 w-4 text-muted-foreground" />
                 Judgment Queue
+              </Command.Item>
+              <Command.Item
+                onSelect={() => runAction(() => navigate("/environments"))}
+                className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm cursor-pointer data-[selected=true]:bg-accent"
+              >
+                <Server className="h-4 w-4 text-muted-foreground" />
+                Environments
               </Command.Item>
             </Command.Group>
 

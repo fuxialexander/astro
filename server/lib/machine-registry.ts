@@ -87,6 +87,45 @@ export class MachineRegistry extends EventEmitter {
   }
 
   /**
+   * Register a simulated machine (no real WebSocket connection).
+   * Used for testing/demo purposes.
+   */
+  registerSimulated(
+    machineId: string,
+    machineInfo: Omit<MachineInfo, 'machineId'>
+  ): MachineRegistryEntry {
+    const existing = this.machines.get(machineId);
+    if (existing) {
+      this.disconnect(machineId, 'reconnected');
+    }
+
+    const sessionId = this.generateSessionId();
+    const now = new Date();
+
+    const entry: MachineRegistryEntry = {
+      machineId,
+      ...machineInfo,
+      connectionStatus: 'connected',
+      connectedAt: now,
+      lastHeartbeat: now,
+      sessionId,
+    };
+
+    const connection: MachineConnection = {
+      socket: null as unknown as WebSocket,
+      entry,
+    };
+
+    this.machines.set(machineId, connection);
+    this.sessionToMachine.set(sessionId, machineId);
+
+    this.emit('machine:connected', entry);
+    console.log(`[registry] Simulated machine ${machineId} registered (session: ${sessionId})`);
+
+    return entry;
+  }
+
+  /**
    * Disconnect a machine
    */
   disconnect(machineId: string, reason?: string): boolean {
@@ -107,7 +146,7 @@ export class MachineRegistry extends EventEmitter {
     this.machines.delete(machineId);
 
     // Close socket if still open
-    if (connection.socket.readyState === 1) { // OPEN
+    if (connection.socket && connection.socket.readyState === 1) { // OPEN
       connection.socket.close(1000, reason);
     }
 
