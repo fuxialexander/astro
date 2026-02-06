@@ -89,11 +89,11 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
 
       {/* Dependency Status */}
       {!canExecuteResult.ready && (
-        <div className="rounded-lg bg-status-warning/10 p-3 text-sm">
+        <div className="rounded-lg bg-warning/10 p-3 text-sm">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-status-warning mt-0.5" />
+            <AlertCircle className="h-4 w-4 text-warning mt-0.5" />
             <div>
-              <p className="font-medium text-status-warning">Dependencies not met</p>
+              <p className="font-medium text-warning">Dependencies not met</p>
               <p className="text-muted-foreground mt-1">{canExecuteResult.reason}</p>
             </div>
           </div>

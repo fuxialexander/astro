@@ -34,9 +34,9 @@ export function ProviderStatus({ compact = false }: ProviderStatusProps) {
               {isLoading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
               ) : availableProvider ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-status-success" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
               ) : (
-                <XCircle className="h-3.5 w-3.5 text-status-warning" />
+                <XCircle className="h-3.5 w-3.5 text-warning" />
               )}
               <span className="text-xs text-muted-foreground">
                 {isLoading ? "Checking..." : availableProvider?.name || "No agent"}
@@ -86,9 +86,9 @@ export function ProviderStatus({ compact = false }: ProviderStatusProps) {
             >
               <div className="flex items-center gap-2">
                 {provider.available ? (
-                  <CheckCircle2 className="h-4 w-4 text-status-success" />
+                  <CheckCircle2 className="h-4 w-4 text-success" />
                 ) : (
-                  <XCircle className="h-4 w-4 text-status-warning" />
+                  <XCircle className="h-4 w-4 text-warning" />
                 )}
                 <span className="text-sm font-medium">{provider.name}</span>
               </div>
@@ -113,8 +113,8 @@ export function ProviderStatus({ compact = false }: ProviderStatusProps) {
       )}
 
       {!availableProvider && providersLoaded && (
-        <div className="rounded-lg bg-status-warning/10 p-3 text-sm">
-          <p className="font-medium text-status-warning">No agent available</p>
+        <div className="rounded-lg bg-warning/10 p-3 text-sm">
+          <p className="font-medium text-warning">No agent available</p>
           <p className="text-muted-foreground mt-1">
             Run <code className="font-mono bg-muted px-1 rounded">claude login</code> to
             authenticate Claude Code.
