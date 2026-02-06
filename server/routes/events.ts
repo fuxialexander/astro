@@ -19,6 +19,7 @@ import type {
   TaskSteerAckMessage,
   TaskToolTraceMessage,
   TaskFileChangeMessage,
+  SessionEvent,
 } from '../types/relay.js'
 
 const eventsRoute = new Hono()
@@ -164,6 +165,28 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'machine:disconnected', data }).catch(() => { alive = false })
     }
 
+    // Session attachment event handlers (MCP bridge)
+    const onSessionAttached = (sessionId: string, taskId: string, machineId: string) => {
+      if (!alive) return
+      const data = JSON.stringify({ sessionId, taskId, machineId, attachedAt: new Date().toISOString() })
+      const id = eventBuffer.push('session:attached', data)
+      stream.writeSSE({ id, event: 'session:attached', data }).catch(() => { alive = false })
+    }
+
+    const onSessionDetached = (sessionId: string, taskId: string, reason?: string) => {
+      if (!alive) return
+      const data = JSON.stringify({ sessionId, taskId, reason })
+      const id = eventBuffer.push('session:detached', data)
+      stream.writeSSE({ id, event: 'session:detached', data }).catch(() => { alive = false })
+    }
+
+    const onSessionEvent = (sessionId: string, taskId: string, event: SessionEvent) => {
+      if (!alive) return
+      const data = JSON.stringify({ sessionId, taskId, event })
+      const id = eventBuffer.push('session:event', data)
+      stream.writeSSE({ id, event: 'session:event', data }).catch(() => { alive = false })
+    }
+
     // Subscribe to relay events
     relayServer.on('task:result', onTaskResult)
     relayServer.on('task:stdout', onTaskStdout)
@@ -173,6 +196,10 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('task:file_change', onTaskFileChange)
     relayServer.on('machine:connected', onMachineConnected)
     relayServer.on('machine:disconnected', onMachineDisconnected)
+    // Session events
+    relayServer.on('session:attached', onSessionAttached)
+    relayServer.on('session:detached', onSessionDetached)
+    relayServer.on('session:event', onSessionEvent)
 
     // Keepalive heartbeat (15s)
     const heartbeat = setInterval(() => {
@@ -200,6 +227,10 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('task:file_change', onTaskFileChange)
       relayServer.off('machine:connected', onMachineConnected)
       relayServer.off('machine:disconnected', onMachineDisconnected)
+      // Session events cleanup
+      relayServer.off('session:attached', onSessionAttached)
+      relayServer.off('session:detached', onSessionDetached)
+      relayServer.off('session:event', onSessionEvent)
     })
 
     // Keep the stream open until aborted

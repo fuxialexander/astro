@@ -36,6 +36,12 @@ import {
   type ErrorMessage,
   type MachineInfo,
   type ProviderType,
+  // Session attachment types (MCP bridge)
+  type SessionAttachMessage,
+  type SessionAttachAckMessage,
+  type SessionDetachMessage,
+  type SessionEventMessage,
+  type SessionEvent,
 } from '../types/relay.js';
 import { machineRegistry } from './machine-registry.js';
 
@@ -161,6 +167,16 @@ interface RateLimitState {
   lastReset: number;
 }
 
+/** Attached session info */
+interface AttachedSession {
+  sessionId: string;
+  taskId: string;
+  machineId: string;
+  socket: WebSocket;
+  attachedAt: Date;
+  eventCount: number;
+}
+
 /** Events emitted by the relay server */
 export interface RelayServerEvents {
   'task:result': (result: TaskResultMessage) => void;
@@ -171,6 +187,10 @@ export interface RelayServerEvents {
   'task:file_change': (change: TaskFileChangeMessage) => void;
   'machine:connected': (machineId: string) => void;
   'machine:disconnected': (machineId: string, reason?: string) => void;
+  // Session attachment events (MCP bridge)
+  'session:attached': (sessionId: string, taskId: string, machineId: string) => void;
+  'session:detached': (sessionId: string, taskId: string, reason?: string) => void;
+  'session:event': (sessionId: string, taskId: string, event: SessionEvent) => void;
   'error': (error: Error) => void;
 }
 
@@ -179,6 +199,8 @@ export class RelayServer extends EventEmitter {
   private config: RelayServerConfig;
   private rateLimitState: Map<string, RateLimitState> = new Map();
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  // Session registry: sessionId -> AttachedSession
+  private attachedSessions: Map<string, AttachedSession> = new Map();
 
   constructor(config: Partial<RelayServerConfig> = {}) {
     super();
@@ -406,6 +428,19 @@ export class RelayServer extends EventEmitter {
       // Support agent-runner's 'heartbeat' message format (legacy compatibility)
       case 'heartbeat':
         this.handleAgentRunnerHeartbeat(socket, message as AgentRunnerHeartbeatMessage);
+        break;
+
+      // Session attachment messages (MCP bridge)
+      case 'session.attach':
+        this.handleSessionAttach(socket, message as SessionAttachMessage);
+        break;
+
+      case 'session.detach':
+        this.handleSessionDetach(message as SessionDetachMessage);
+        break;
+
+      case 'session.event':
+        this.handleSessionEvent(message as SessionEventMessage);
         break;
 
       default:
@@ -975,6 +1010,147 @@ export class RelayServer extends EventEmitter {
       },
     };
     this.emit('task:result', resultMsg);
+  }
+
+  // ============================================================================
+  // Session Attachment Handlers (MCP Bridge)
+  // ============================================================================
+
+  /**
+   * Handle session attach request from MCP bridge
+   */
+  private handleSessionAttach(socket: WebSocket, message: SessionAttachMessage): void {
+    const { taskId, sessionId, machineId } = message;
+
+    console.log(`[relay] Session attach request: session=${sessionId}, task=${taskId}, machine=${machineId}`);
+
+    // Check if session is already attached
+    if (this.attachedSessions.has(sessionId)) {
+      const ack: SessionAttachAckMessage = {
+        type: 'session.attach.ack',
+        timestamp: new Date(),
+        taskId,
+        sessionId,
+        success: false,
+        error: 'Session already attached',
+      };
+      this.sendSessionMessage(socket, ack);
+      return;
+    }
+
+    // TODO: Validate that the task exists in Nexus (would need API call)
+    // For now, we accept all attach requests
+
+    // Register the session
+    const session: AttachedSession = {
+      sessionId,
+      taskId,
+      machineId,
+      socket,
+      attachedAt: new Date(),
+      eventCount: 0,
+    };
+    this.attachedSessions.set(sessionId, session);
+
+    // Send acknowledgment
+    const ack: SessionAttachAckMessage = {
+      type: 'session.attach.ack',
+      timestamp: new Date(),
+      taskId,
+      sessionId,
+      success: true,
+    };
+    this.sendSessionMessage(socket, ack);
+
+    // Emit event for SSE streaming
+    this.emit('session:attached', sessionId, taskId, machineId);
+    console.log(`[relay] Session ${sessionId} attached to task ${taskId}`);
+  }
+
+  /**
+   * Handle session detach request from MCP bridge
+   */
+  private handleSessionDetach(message: SessionDetachMessage): void {
+    const { sessionId, reason } = message;
+
+    const session = this.attachedSessions.get(sessionId);
+    if (!session) {
+      console.warn(`[relay] Session detach for unknown session: ${sessionId}`);
+      return;
+    }
+
+    // Remove from registry
+    this.attachedSessions.delete(sessionId);
+
+    // Emit event for SSE streaming
+    this.emit('session:detached', sessionId, session.taskId, reason);
+    console.log(`[relay] Session ${sessionId} detached from task ${session.taskId} (${session.eventCount} events sent)`);
+  }
+
+  /**
+   * Handle session event from MCP bridge
+   */
+  private handleSessionEvent(message: SessionEventMessage): void {
+    const { sessionId, taskId, event } = message;
+
+    const session = this.attachedSessions.get(sessionId);
+    if (!session) {
+      console.warn(`[relay] Session event for unknown session: ${sessionId}`);
+      return;
+    }
+
+    // Increment event count
+    session.eventCount++;
+
+    // Emit event for SSE streaming
+    this.emit('session:event', sessionId, taskId, event);
+  }
+
+  /**
+   * Send a message to a session socket
+   */
+  private sendSessionMessage(socket: WebSocket, message: SessionAttachAckMessage): void {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(message));
+    }
+  }
+
+  /**
+   * Get all attached sessions
+   */
+  getAttachedSessions(): Array<{
+    sessionId: string;
+    taskId: string;
+    machineId: string;
+    attachedAt: Date;
+    eventCount: number;
+  }> {
+    return Array.from(this.attachedSessions.values()).map((s) => ({
+      sessionId: s.sessionId,
+      taskId: s.taskId,
+      machineId: s.machineId,
+      attachedAt: s.attachedAt,
+      eventCount: s.eventCount,
+    }));
+  }
+
+  /**
+   * Get sessions attached to a specific task
+   */
+  getSessionsForTask(taskId: string): Array<{
+    sessionId: string;
+    machineId: string;
+    attachedAt: Date;
+    eventCount: number;
+  }> {
+    return Array.from(this.attachedSessions.values())
+      .filter((s) => s.taskId === taskId)
+      .map((s) => ({
+        sessionId: s.sessionId,
+        machineId: s.machineId,
+        attachedAt: s.attachedAt,
+        eventCount: s.eventCount,
+      }));
   }
 }
 
