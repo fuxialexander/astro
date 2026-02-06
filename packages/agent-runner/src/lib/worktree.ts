@@ -146,11 +146,13 @@ async function cleanupWorktree(
       timeout: 30_000,
     });
   } catch {
+    // Ignore - worktree may already be removed
   }
 
   try {
     await rm(worktreePath, { recursive: true, force: true });
   } catch {
+    // Ignore - directory may not exist
   }
 
   try {
@@ -160,6 +162,7 @@ async function cleanupWorktree(
       { env: withGitEnv(), timeout: 10_000 }
     );
   } catch {
+    // Ignore - branch may not exist or already deleted
   }
 }
 
@@ -170,6 +173,7 @@ async function pruneWorktrees(gitRoot: string): Promise<void> {
       timeout: 30_000,
     });
   } catch {
+    // Ignore prune errors
   }
 }
 

@@ -14,7 +14,7 @@
 export type EnvironmentType = 'local' | 'hpc' | 'cloud';
 
 /** Provider types available on a machine */
-export type ProviderType = 'claude-code' | 'slurm' | 'aws' | 'gcp' | 'custom';
+export type ProviderType = 'claude-code' | 'claude-sdk' | 'slurm' | 'aws' | 'gcp' | 'custom';
 
 /** Status of a machine connection */
 export type MachineConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';

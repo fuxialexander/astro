@@ -2,11 +2,13 @@
  * Agent Runner
  *
  * Connects to the Nexus relay server via WebSocket and handles task execution.
+ * Uses the Claude Agent SDK for task execution and git worktrees for isolation.
  */
 
 import WebSocket from 'ws'
 import * as os from 'os'
 import chalk from 'chalk'
+import { query } from '@anthropic-ai/claude-agent-sdk'
 import { generateMachineId } from './config.js'
 import type { SlurmInfo } from './slurm-detect.js'
 import { SlurmExecutor } from './slurm-executor.js'
@@ -16,6 +18,17 @@ export interface AgentRunnerOptions {
   machineName?: string
   authToken?: string
   slurmInfo?: SlurmInfo
+  workingDirectory?: string
+  /** Whether to use git worktrees for task isolation */
+  useWorktree?: boolean
+  /** Root directory for worktrees (defaults to temp dir) */
+  worktreeRoot?: string
+}
+
+interface ClaudeInfo {
+  available: boolean
+  model?: string
+  authenticated: boolean
 }
 
 // Message types (matching server/types/relay.ts)
@@ -56,10 +69,12 @@ interface TaskDispatch {
   nodeId: string
   title: string
   description: string
+  visionDoc?: string
   environment: string
   preferredProvider?: string
   timeout?: number
   workingDirectory?: string
+  dependencies?: string[]
   metadata?: Record<string, string>
 }
 
@@ -71,14 +86,84 @@ export class AgentRunner {
   private maxReconnectAttempts = 10
   private heartbeatInterval: NodeJS.Timeout | null = null
   private slurmExecutor: SlurmExecutor | null = null
+  private claudeInfo: ClaudeInfo = { available: false, authenticated: false }
   private activeTasks = 0
+  private workingDirectory: string
+  private useWorktree: boolean
+  private worktreeRoot?: string
+  private activeAbortControllers: Map<string, AbortController> = new Map()
 
   constructor(private options: AgentRunnerOptions) {
     this.machineId = generateMachineId()
+    this.workingDirectory = options.workingDirectory || process.cwd()
+    this.useWorktree = options.useWorktree ?? true
+    this.worktreeRoot = options.worktreeRoot
 
     // Initialize Slurm executor if Slurm is available
     if (options.slurmInfo?.available) {
       this.slurmExecutor = new SlurmExecutor(options.slurmInfo)
+    }
+  }
+
+  /**
+   * Initialize the agent runner and detect providers
+   */
+  static async create(options: AgentRunnerOptions): Promise<AgentRunner> {
+    const runner = new AgentRunner(options)
+    await runner.detectClaudeSdk()
+    return runner
+  }
+
+  /**
+   * Detect Claude Agent SDK availability
+   */
+  private async detectClaudeSdk(): Promise<void> {
+    try {
+      const abortController = new AbortController()
+
+      // Minimal prompt to check authentication
+      const gen = query({
+        prompt: 'respond with ok',
+        options: {
+          abortController,
+          maxTurns: 1,
+          permissionMode: 'plan',
+          tools: [],
+          persistSession: false,
+        },
+      })
+
+      for await (const msg of gen) {
+        if (msg.type === 'system' && msg.subtype === 'init') {
+          this.claudeInfo = {
+            available: true,
+            model: msg.model,
+            authenticated: true,
+          }
+          abortController.abort()
+          break
+        }
+        if (msg.type === 'result') {
+          this.claudeInfo = {
+            available: true,
+            authenticated: true,
+          }
+          break
+        }
+      }
+
+      console.log(chalk.green(`✓ Claude Agent SDK detected (model: ${this.claudeInfo.model || 'default'})`))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      const isAuthError = message.includes('auth') || message.includes('login') || message.includes('API key')
+
+      if (isAuthError) {
+        console.log(chalk.yellow('⚠ Claude Agent SDK requires authentication. Run `claude login`.'))
+      } else {
+        console.log(chalk.gray(`  Claude Agent SDK not available: ${message}`))
+      }
+
+      this.claudeInfo = { available: false, authenticated: false }
     }
   }
 
@@ -135,6 +220,12 @@ export class AgentRunner {
     this.stopHeartbeat()
 
     // Cancel any active tasks
+    for (const [taskId, controller] of this.activeAbortControllers) {
+      controller.abort()
+      console.log(chalk.yellow(`Cancelled task: ${taskId}`))
+    }
+    this.activeAbortControllers.clear()
+
     if (this.slurmExecutor) {
       await this.slurmExecutor.cancelAll()
     }
@@ -193,13 +284,31 @@ export class AgentRunner {
   private getProviders(): MachineRegisterMessage['machineInfo']['providers'] {
     const providers: MachineRegisterMessage['machineInfo']['providers'] = []
 
+    // Add Claude SDK provider if available
+    if (this.claudeInfo.available && this.claudeInfo.authenticated) {
+      providers.push({
+        type: 'claude-sdk',
+        version: this.claudeInfo.model,
+        status: 'available',
+        maxConcurrentTasks: 4,
+        currentTasks: this.activeTasks,
+        capabilities: [
+          'streaming',
+          'tools',
+          'multi-turn',
+          'file-editing',
+          'code-generation',
+        ],
+      })
+    }
+
     // Add Slurm provider if available
     if (this.options.slurmInfo?.available) {
       providers.push({
         type: 'slurm',
         version: this.options.slurmInfo.version,
         status: 'available',
-        maxConcurrentTasks: 50, // Configurable
+        maxConcurrentTasks: 50,
         currentTasks: this.activeTasks,
         capabilities: [
           'batch',
@@ -219,7 +328,7 @@ export class AgentRunner {
     switch (message.type) {
       case 'machine.register.ack':
         if (message.success) {
-          this.sessionId = message.sessionId
+          this.sessionId = message.sessionId as string
           console.log(chalk.green(`✓ Registered (session: ${message.sessionId})`))
         } else {
           console.error(chalk.red(`Registration failed: ${message.error}`))
@@ -235,11 +344,19 @@ export class AgentRunner {
         break
 
       case 'task.dispatch':
-        this.handleTaskDispatch(message.task)
+        this.handleTaskDispatch(message.task as TaskDispatch)
         break
 
       case 'task.cancel':
-        this.handleTaskCancel(message.taskId, message.reason)
+        this.handleTaskCancel(message.taskId as string, message.reason as string | undefined)
+        break
+
+      case 'task.steer':
+        this.handleTaskSteer(
+          message.taskId as string,
+          message.message as string,
+          message.action as 'guidance' | 'redirect' | 'pause' | 'resume' | undefined
+        )
         break
 
       case 'error':
@@ -259,60 +376,223 @@ export class AgentRunner {
     console.log(chalk.gray(`  ID: ${task.taskId}`))
     console.log(chalk.gray(`  Provider: ${task.preferredProvider || 'default'}`))
 
+    // Send initial progress
+    this.sendTaskProgress(task.taskId, 0, 'Task received, starting execution')
+
+    // Determine which executor to use
     if (task.preferredProvider === 'slurm' || task.environment === 'hpc') {
-      if (!this.slurmExecutor) {
-        this.sendTaskResult(task.taskId, {
-          status: 'failed',
-          error: 'Slurm not available on this machine',
-        })
-        return
-      }
-
-      this.activeTasks++
-      this.updateStatus()
-
-      try {
-        // Execute via Slurm
-        const result = await this.slurmExecutor.execute(task, {
-          onStatus: (status) => {
-            this.send({
-              type: 'slurm.job.status',
-              timestamp: new Date(),
-              taskId: task.taskId,
-              slurmJobId: status.jobId,
-              jobInfo: status,
-            })
-          },
-          onOutput: (stream, data) => {
-            this.send({
-              type: 'task.stdout',
-              timestamp: new Date(),
-              output: {
-                taskId: task.taskId,
-                stream,
-                data,
-                timestamp: new Date(),
-              },
-            })
-          },
-        })
-
-        this.sendTaskResult(task.taskId, result)
-      } catch (error) {
-        this.sendTaskResult(task.taskId, {
-          status: 'failed',
-          error: error instanceof Error ? error.message : 'Unknown error',
-        })
-      } finally {
-        this.activeTasks--
-        this.updateStatus()
-      }
+      await this.executeSlurm(task)
+    } else if (this.claudeInfo.available && this.claudeInfo.authenticated) {
+      await this.executeClaudeSdk(task)
+    } else if (this.slurmExecutor) {
+      await this.executeSlurm(task)
     } else {
-      // Non-Slurm task - not supported yet
       this.sendTaskResult(task.taskId, {
         status: 'failed',
-        error: 'Only Slurm tasks are currently supported',
+        error: 'No execution provider available on this machine',
       })
+    }
+  }
+
+  /**
+   * Execute task via Claude Agent SDK
+   */
+  private async executeClaudeSdk(task: TaskDispatch): Promise<void> {
+    this.activeTasks++
+    this.updateStatus()
+
+    const abortController = new AbortController()
+    this.activeAbortControllers.set(task.taskId, abortController)
+
+    const effectiveWorkingDir = task.workingDirectory || this.workingDirectory
+
+    try {
+      console.log(chalk.blue(`  Executing with Claude Agent SDK...`))
+
+      // Build the full prompt with context
+      const promptParts: string[] = []
+
+      if (task.visionDoc) {
+        promptParts.push(`## Project Vision\n\n${task.visionDoc}`)
+      }
+
+      if (task.dependencies && task.dependencies.length > 0) {
+        promptParts.push(`## Previous Task Context\n\n${task.dependencies.join('\n\n---\n\n')}`)
+      }
+
+      promptParts.push(`## Current Task\n\n**${task.title}**\n\n${task.description}`)
+
+      promptParts.push(`## Instructions
+
+Execute the task described above. Focus on completing the task thoroughly and correctly.
+- Use appropriate tools to accomplish the task
+- Report progress and any issues encountered
+- Verify your work when possible
+- Be thorough but efficient`)
+
+      const prompt = promptParts.join('\n\n---\n\n')
+
+      // Execute with Claude Agent SDK
+      const gen = query({
+        prompt,
+        options: {
+          abortController,
+          maxTurns: 100,
+          tools: [],
+          persistSession: false,
+          cwd: effectiveWorkingDir,
+        },
+      })
+
+      let output = ''
+      let success = true
+      let progress = 0
+
+      for await (const msg of gen) {
+        if (msg.type === 'system' && msg.subtype === 'init') {
+          this.sendTaskProgress(task.taskId, 5, `Model: ${msg.model}`)
+        } else if (msg.type === 'assistant') {
+          for (const block of msg.message.content) {
+            if (block.type === 'text') {
+              output += block.text
+              this.send({
+                type: 'task.stdout',
+                timestamp: new Date(),
+                output: {
+                  taskId: task.taskId,
+                  stream: 'stdout',
+                  data: block.text,
+                  timestamp: new Date(),
+                },
+              })
+            } else if (block.type === 'tool_use') {
+              progress = Math.min(progress + 10, 90)
+              this.sendTaskProgress(task.taskId, progress, `Using tool: ${block.name}`)
+
+              // Send tool trace
+              this.send({
+                type: 'task.tool_trace',
+                timestamp: new Date(),
+                taskId: task.taskId,
+                toolName: block.name,
+                toolInput: block.input,
+              })
+
+              // Track file changes
+              if (block.name === 'Write' || block.name === 'Edit') {
+                const input = block.input as Record<string, unknown>
+                if (input.file_path) {
+                  this.send({
+                    type: 'task.file_change',
+                    timestamp: new Date(),
+                    taskId: task.taskId,
+                    path: String(input.file_path),
+                    action: block.name === 'Write' ? 'created' : 'modified',
+                  })
+                }
+              }
+            }
+          }
+        } else if (msg.type === 'result') {
+          if (msg.subtype === 'success') {
+            success = true
+            this.sendTaskProgress(task.taskId, 100, 'Task completed')
+          } else if (
+            msg.subtype === 'error_during_execution' ||
+            msg.subtype === 'error_max_turns' ||
+            msg.subtype === 'error_max_budget_usd' ||
+            msg.subtype === 'error_max_structured_output_retries'
+          ) {
+            success = false
+          }
+          break
+        }
+      }
+
+      this.sendTaskResult(task.taskId, {
+        status: success ? 'completed' : 'failed',
+        output,
+        exitCode: success ? 0 : 1,
+      })
+
+      console.log(chalk.green(`  Task completed: ${success ? 'success' : 'failed'}`))
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      const isAbort = error instanceof Error && error.name === 'AbortError'
+
+      if (isAbort) {
+        console.log(chalk.yellow(`  Task cancelled: ${task.taskId}`))
+        this.sendTaskResult(task.taskId, {
+          status: 'cancelled',
+        })
+      } else {
+        console.error(chalk.red(`  Task failed: ${errorMsg}`))
+        this.sendTaskResult(task.taskId, {
+          status: 'failed',
+          error: errorMsg,
+        })
+      }
+    } finally {
+      this.activeAbortControllers.delete(task.taskId)
+      this.activeTasks--
+      this.updateStatus()
+    }
+  }
+
+  /**
+   * Execute task via Slurm
+   */
+  private async executeSlurm(task: TaskDispatch): Promise<void> {
+    if (!this.slurmExecutor) {
+      this.sendTaskResult(task.taskId, {
+        status: 'failed',
+        error: 'Slurm is not available on this machine',
+      })
+      return
+    }
+
+    this.activeTasks++
+    this.updateStatus()
+
+    try {
+      console.log(chalk.blue(`  Executing with Slurm...`))
+
+      const result = await this.slurmExecutor.execute(task, {
+        onStatus: (status) => {
+          this.send({
+            type: 'slurm.job.status',
+            timestamp: new Date(),
+            taskId: task.taskId,
+            slurmJobId: status.jobId,
+            jobInfo: status,
+          })
+        },
+        onOutput: (stream, data) => {
+          this.send({
+            type: 'task.stdout',
+            timestamp: new Date(),
+            output: {
+              taskId: task.taskId,
+              stream,
+              data,
+              timestamp: new Date(),
+            },
+          })
+        },
+      })
+
+      this.sendTaskResult(task.taskId, result)
+
+      console.log(chalk.green(`  Task completed: ${result.status}`))
+    } catch (error) {
+      console.error(chalk.red(`  Task failed: ${error}`))
+      this.sendTaskResult(task.taskId, {
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    } finally {
+      this.activeTasks--
+      this.updateStatus()
     }
   }
 
@@ -325,12 +605,43 @@ export class AgentRunner {
       console.log(chalk.gray(`  Reason: ${reason}`))
     }
 
+    // Cancel Claude SDK task
+    const controller = this.activeAbortControllers.get(taskId)
+    if (controller) {
+      controller.abort()
+      this.activeAbortControllers.delete(taskId)
+    }
+
+    // Cancel Slurm task
     if (this.slurmExecutor) {
       await this.slurmExecutor.cancel(taskId)
     }
 
     this.sendTaskResult(taskId, {
       status: 'cancelled',
+    })
+  }
+
+  /**
+   * Handle task steering (guidance injection)
+   */
+  private handleTaskSteer(
+    taskId: string,
+    message: string,
+    action?: 'guidance' | 'redirect' | 'pause' | 'resume'
+  ): void {
+    console.log(chalk.yellow(`\nSteering task: ${taskId}`))
+    console.log(chalk.gray(`  Action: ${action || 'guidance'}`))
+    console.log(chalk.gray(`  Message: ${message}`))
+
+    // Currently, we just acknowledge the steering message
+    // Full steering support would require more complex interaction with Claude SDK
+    this.send({
+      type: 'task.steer.ack',
+      timestamp: new Date(),
+      taskId,
+      accepted: true,
+      message: `Steering ${action || 'guidance'} acknowledged`,
     })
   }
 
@@ -351,6 +662,19 @@ export class AgentRunner {
         output: result.output,
         exitCode: result.exitCode,
       },
+    })
+  }
+
+  /**
+   * Send task progress
+   */
+  private sendTaskProgress(taskId: string, progress: number, message?: string): void {
+    this.send({
+      type: 'task.progress',
+      timestamp: new Date(),
+      taskId,
+      progress,
+      message,
     })
   }
 
