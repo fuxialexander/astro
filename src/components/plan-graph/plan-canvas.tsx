@@ -45,7 +45,7 @@ export function PlanCanvas({ projectId, onNodeSelect }: PlanCanvasProps) {
         id: n.id,
         type: "task",
         position: n.position,
-        data: { title: n.title, status: n.status, nodeType: n.type },
+        data: { title: n.title, status: n.status, nodeType: n.type, priority: n.priority, dueDate: n.dueDate },
         selected: n.id === selectedId,
       })),
     [projectNodes, selectedId]

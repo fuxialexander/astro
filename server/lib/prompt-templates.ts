@@ -26,6 +26,10 @@ export const PLAN_GRAPH_SCHEMA = {
           },
           startDate: { type: "string" as const, description: "Start date in YYYY-MM-DD format. Only for milestones." },
           endDate: { type: "string" as const, description: "End date in YYYY-MM-DD format. Only for milestones." },
+          priority: { type: "string" as const, enum: ["urgent", "high", "medium", "low", "none"], description: "Task priority. Default medium." },
+          estimate: { type: "string" as const, enum: ["XS", "S", "M", "L", "XL"], description: "T-shirt effort estimate." },
+          dueDate: { type: "string" as const, description: "Due date YYYY-MM-DD. Optional for tasks." },
+          milestoneId: { type: "string" as const, description: "Node ID of the milestone this task belongs to." },
         },
         required: ["id", "type", "title", "description", "status", "parentId", "dependencies", "verification", "position"],
       },
@@ -67,6 +71,9 @@ ${visionSection}
 - dependencies: array of prerequisite node ids.
 - Tasks do NOT have startDate or endDate — they are agent-solvable work items without time estimates.
 - Milestones MUST have startDate and endDate (both equal, zero duration). Use ISO "YYYY-MM-DD" format. A milestone's date should be after all its dependencies.
+- priority: "urgent" | "high" | "medium" | "low" | "none". Default "medium" for most tasks, "high" for critical path items.
+- estimate: "XS" | "S" | "M" | "L" | "XL". T-shirt estimate for effort. Tasks should be ≤ M (agent-solvable in < 1 day).
+- milestoneId: Optional. Node ID of the milestone this task contributes toward.
 
 ## Edge rules
 - type: "dependency" for sequential, "branch" for parallel paths from a common node.
@@ -77,7 +84,7 @@ ${visionSection}
 - Do NOT include any text before or after the JSON. Do NOT wrap in markdown code fences.
 
 Example structure:
-{"projectName":"...","nodes":[{"id":"n1","type":"task","title":"...","description":"...","status":"planned","parentId":null,"dependencies":[],"environment":"local","verification":"auto","position":{"x":40,"y":40}},{"id":"n2","type":"milestone","title":"MVP Complete","description":"...","status":"planned","parentId":null,"dependencies":["n1"],"verification":"human","position":{"x":40,"y":140},"startDate":"2026-02-10","endDate":"2026-02-10"}],"edges":[{"id":"e1","source":"n1","target":"n2","type":"dependency"}]}`
+{"projectName":"...","nodes":[{"id":"n1","type":"task","title":"...","description":"...","status":"planned","parentId":null,"dependencies":[],"environment":"local","verification":"auto","position":{"x":40,"y":40},"priority":"medium","estimate":"M","milestoneId":"n2"},{"id":"n2","type":"milestone","title":"MVP Complete","description":"...","status":"planned","parentId":null,"dependencies":["n1"],"verification":"human","position":{"x":40,"y":140},"startDate":"2026-02-10","endDate":"2026-02-10"}],"edges":[{"id":"e1","source":"n1","target":"n2","type":"dependency"}]}`
 }
 
 export function buildChatSystemPrompt(visionDoc?: string): string {
