@@ -11,13 +11,22 @@ The product vision is documented in `vision.md`. The UI design is in `UI.pen` (r
 ## Build & Dev Commands
 
 ```bash
-npm run dev              # Start frontend (Vite) + backend (Hono) concurrently
+npm run dev              # Start frontend (Vite) + backend (Hono + relay) concurrently
 npm run dev:frontend     # Vite dev server only (http://localhost:5173)
-npm run dev:backend      # Hono API server only (http://localhost:3001)
+npm run dev:backend      # Hono API server (port 3001) + WebSocket relay (port 3002)
 npm run build            # TypeScript check + Vite production build
 npm run lint             # ESLint
 npm run deploy           # Build + deploy to Cloudflare Pages
 ```
+
+### Local Development
+
+Everything runs locally — no Fly.io, Redis, or external services needed for development:
+- `npm run dev` starts the full stack: Vite (5173) + Hono API (3001) + WebSocket relay (3002)
+- Vite proxies `/api` requests to `localhost:3001` automatically
+- The relay server starts alongside Hono in `server/index.ts`
+- Redis pub/sub is only needed for horizontal scaling (multiple relay instances); single-instance local dev works without it
+- `RELAY_JWT_SECRET` is optional in dev mode
 
 ## Tech Stack
 
@@ -31,7 +40,7 @@ npm run deploy           # Build + deploy to Cloudflare Pages
 - **Command Palette**: cmdk
 - **Backend**: Hono.js on Node.js (port 3001), proxied via Vite `/api` → localhost:3001
 - **AI**: @anthropic-ai/claude-agent-sdk for plan generation + chat
-- **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend + relay)
+- **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend + relay, production only)
 
 ## Architecture
 
@@ -176,8 +185,8 @@ The relay server is a WebSocket hub that brokers communication between the platf
 
 ### Environment Variables
 - `RELAY_PORT` — WebSocket server port (default: 3002)
-- `REDIS_URL` — Redis connection URL for horizontal scaling (optional)
-- `RELAY_JWT_SECRET` — JWT secret for machine authentication (optional in dev)
+- `REDIS_URL` — Redis connection URL for horizontal scaling across multiple relay instances (not needed for local dev)
+- `RELAY_JWT_SECRET` — JWT secret for machine authentication (not needed for local dev)
 
 ### HTTP API Endpoints
 | Method | Endpoint | Description |

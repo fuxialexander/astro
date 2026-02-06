@@ -277,6 +277,7 @@ export interface DiscoveredHost extends SSHHost {
 // Device Auth Types
 // ============================================================================
 
+/** @deprecated Use DeviceAuthServerResponse instead */
 export interface DeviceAuthRequest {
   deviceCode: string;
   userCode: string;
@@ -285,11 +286,49 @@ export interface DeviceAuthRequest {
   interval: number;
 }
 
+/** @deprecated Use DeviceTokenServerResponse instead */
 export interface DeviceAuthResult {
   accessToken: string;
   refreshToken?: string;
   expiresAt: string;
   runnerId: string;
+}
+
+/** Response from POST /api/device/authorize */
+export interface DeviceAuthServerResponse {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete: string;
+  expiresIn: number;
+  interval: number;
+}
+
+/** Successful token response from POST /api/device/token */
+export interface DeviceTokenServerResponse {
+  accessToken: string;
+  tokenType: 'Bearer';
+  expiresIn: number;
+  refreshToken: string;
+  scopes: string[];
+}
+
+/** Error response from POST /api/device/token (RFC 8628) */
+export interface DeviceTokenError {
+  error: 'authorization_pending' | 'slow_down' | 'access_denied' | 'expired_token';
+  errorDescription: string;
+}
+
+/** Response from POST /api/device/register */
+export interface MachineRegisterResponse {
+  machineId: string;
+  machineName: string;
+  relayUrl: string;
+  wsToken: string;
+  message: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
 }
 
 // ============================================================================

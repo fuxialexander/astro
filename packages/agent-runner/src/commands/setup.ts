@@ -5,13 +5,21 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import inquirer from 'inquirer';
+import { execFile as execFileCb } from 'node:child_process';
+import { promisify } from 'node:util';
+import { hostname as osHostname } from 'node:os';
 import { config } from '../lib/config.js';
 import { detectProviders, formatProvidersSummary } from '../lib/providers.js';
 import { getMachineResources, formatResourceSummary } from '../lib/resources.js';
-import { discoverRemoteHosts, formatDiscoveredHosts, buildSSHCommand } from '../lib/ssh-discovery.js';
+import { discoverRemoteHosts, formatDiscoveredHosts } from '../lib/ssh-discovery.js';
+import { requestDeviceCode, pollForToken, registerMachine, DeviceAuthApiError } from '../lib/api-client.js';
+import { detectLocalIP, checkRemoteNode, packAndInstall } from '../lib/ssh-installer.js';
 import type { ProviderType, DiscoveredHost } from '../types.js';
 
+const execFile = promisify(execFileCb);
+
 interface SetupOptions {
+  api?: string;
   relay?: string;
   skipAuth?: boolean;
   nonInteractive?: boolean;
@@ -22,8 +30,9 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
 
   // Step 1: Detect machine resources
   const resourceSpinner = ora('Detecting machine resources...').start();
+  let resources: Awaited<ReturnType<typeof getMachineResources>> | undefined;
   try {
-    const resources = await getMachineResources();
+    resources = await getMachineResources();
     resourceSpinner.succeed('Machine resources detected');
     console.log(chalk.dim(formatResourceSummary(resources)));
     console.log();
@@ -69,7 +78,44 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     discoveredHosts = [];
   }
 
-  // Step 4: Configure relay URL
+  // Step 4a: Configure API URL
+  let apiUrl = options.api ?? config.getApiUrl();
+
+  if (!options.nonInteractive) {
+    const { customApi } = await inquirer.prompt<{ customApi: boolean }>([
+      {
+        type: 'confirm',
+        name: 'customApi',
+        message: `Use default API server (${apiUrl})?`,
+        default: true,
+      },
+    ]);
+
+    if (!customApi) {
+      const { newApi } = await inquirer.prompt<{ newApi: string }>([
+        {
+          type: 'input',
+          name: 'newApi',
+          message: 'Enter API server URL:',
+          default: apiUrl,
+          validate: (input: string) => {
+            try {
+              new URL(input);
+              return true;
+            } catch {
+              return 'Please enter a valid URL';
+            }
+          },
+        },
+      ]);
+      apiUrl = newApi;
+    }
+  }
+
+  config.setApiUrl(apiUrl);
+  console.log(chalk.green(`✓ API server: ${apiUrl}\n`));
+
+  // Step 4b: Configure relay URL
   let relayUrl = options.relay ?? config.getRelayUrl();
 
   if (!options.nonInteractive) {
@@ -110,12 +156,6 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
   if (!options.skipAuth) {
     console.log(chalk.bold('Device Authentication\n'));
 
-    // In a real implementation, this would:
-    // 1. Request a device code from the server
-    // 2. Display the code and verification URL to the user
-    // 3. Poll for the auth result
-    // For now, we simulate this flow
-
     if (!options.nonInteractive) {
       const { authenticate } = await inquirer.prompt<{ authenticate: boolean }>([
         {
@@ -127,35 +167,7 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
       ]);
 
       if (authenticate) {
-        const authSpinner = ora('Initiating device authentication...').start();
-
-        // Simulate device auth flow
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // In production, this would be a real device code
-        const deviceCode = 'NEXUS-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-
-        authSpinner.info('Please authorize this device');
-        console.log();
-        console.log(chalk.bold('  Open this URL in your browser:'));
-        console.log(chalk.cyan(`  https://nexus.dev/device?code=${deviceCode}`));
-        console.log();
-        console.log(chalk.bold('  Or enter the code manually:'));
-        console.log(chalk.yellow(`  ${deviceCode}`));
-        console.log();
-
-        const pollSpinner = ora('Waiting for authorization...').start();
-
-        // In production, this would poll the server
-        // For now, simulate a successful auth after a delay
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-
-        // Generate a mock token
-        const token = `nxt_${randomToken(32)}`;
-        config.setDeviceToken(token);
-
-        pollSpinner.succeed('Device authenticated successfully');
-        console.log();
+        await runDeviceAuthFlow(apiUrl, relayUrl, resources, detectedProviders);
       }
     } else {
       console.log(chalk.yellow('Skipping authentication in non-interactive mode'));
@@ -189,29 +201,7 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     ]);
 
     if (selectedHosts.length > 0) {
-      console.log();
-      for (const hostName of selectedHosts) {
-        const host = discoveredHosts.find((h) => h.name === hostName);
-        if (!host) continue;
-
-        const installSpinner = ora(`Installing on ${hostName}...`).start();
-
-        // Build install command
-        const installCmd = buildSSHCommand(
-          host,
-          '"curl -fsSL https://nexus.dev/install.sh | sh && npx @nexus/agent setup --non-interactive"'
-        );
-
-        // In production, this would actually run the SSH command
-        // For now, just show what would be run
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        installSpinner.info(`Would run: ${chalk.dim(installCmd)}`);
-      }
-      console.log();
-      console.log(chalk.yellow('Note: Remote installation is not yet implemented'));
-      console.log(chalk.dim('You can manually run the following on each host:'));
-      console.log(chalk.dim('  npx @nexus/agent setup'));
-      console.log();
+      await installOnRemoteHosts(selectedHosts, discoveredHosts, apiUrl, relayUrl);
     }
   }
 
@@ -231,9 +221,6 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     if (autoStart) {
       console.log(chalk.green('✓ Auto-start enabled'));
       console.log(chalk.dim('  The agent will start automatically when you log in'));
-
-      // In production, this would set up systemd/launchd service
-      // For now, just note that it's not implemented
       console.log(chalk.yellow('  Note: Auto-start setup is not yet implemented'));
     }
   }
@@ -248,10 +235,15 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
   console.log();
   console.log('Runner ID:', chalk.cyan(config.getRunnerId()));
   console.log('Machine ID:', chalk.cyan(config.getMachineId()));
+  console.log('API URL:  ', chalk.cyan(config.getApiUrl()));
   console.log('Relay URL:', chalk.cyan(config.getRelayUrl()));
   console.log(
+    'Auth:    ',
+    config.getAccessToken() ? chalk.green('authenticated') : chalk.yellow('not configured'),
+  );
+  console.log(
     'Providers:',
-    providerTypes.length > 0 ? chalk.cyan(providerTypes.join(', ')) : chalk.yellow('none')
+    providerTypes.length > 0 ? chalk.cyan(providerTypes.join(', ')) : chalk.yellow('none'),
   );
   console.log();
   console.log(chalk.bold('Next steps:'));
@@ -263,11 +255,211 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
   console.log();
 }
 
-function randomToken(length: number): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+// ============================================================================
+// Device auth flow (real backend)
+// ============================================================================
+
+async function runDeviceAuthFlow(
+  apiUrl: string,
+  _relayUrl: string,
+  resources: Awaited<ReturnType<typeof getMachineResources>> | undefined,
+  detectedProviders: Awaited<ReturnType<typeof detectProviders>>,
+): Promise<void> {
+  const hostname = resources?.hostname ?? osHostname();
+  const platform = resources?.platform ?? process.platform;
+
+  // 1. Request device code
+  const authSpinner = ora('Requesting device code...').start();
+  let deviceAuth;
+  try {
+    deviceAuth = await requestDeviceCode(apiUrl, {
+      hostname,
+      platform,
+      environmentType: 'local',
+    });
+  } catch (err) {
+    authSpinner.fail('Failed to request device code');
+    if (err instanceof DeviceAuthApiError) {
+      console.error(chalk.red(`  ${err.message}`));
+      if (err.code === 'network') {
+        console.log(chalk.dim(`  Is the backend running at ${apiUrl}?`));
+        console.log(chalk.dim('  Start it with: npm run dev:backend'));
+      }
+    } else {
+      console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+    }
+    console.log();
+    return;
   }
-  return result;
+
+  // 2. Show verification URL and code
+  authSpinner.info('Please authorize this device');
+  console.log();
+  console.log(chalk.bold('  Open this URL in your browser:'));
+  console.log(chalk.cyan(`  ${deviceAuth.verificationUriComplete}`));
+  console.log();
+  console.log(chalk.bold('  Device code:'));
+  console.log(chalk.yellow(`  ${deviceAuth.deviceCode}`));
+  console.log();
+
+  // 3. Try to auto-open in browser
+  tryOpenUrl(deviceAuth.verificationUriComplete);
+
+  // 4. Poll for authorization
+  const pollSpinner = ora('Waiting for authorization...').start();
+  let tokenResponse;
+  try {
+    tokenResponse = await pollForToken(
+      apiUrl,
+      deviceAuth.userCode,
+      deviceAuth.interval,
+      deviceAuth.expiresIn,
+    );
+  } catch (err) {
+    if (err instanceof DeviceAuthApiError) {
+      switch (err.code) {
+        case 'denied':
+          pollSpinner.fail('Authorization denied by user');
+          break;
+        case 'expired':
+          pollSpinner.fail('Device code expired. Run setup again to retry.');
+          break;
+        case 'timeout':
+          pollSpinner.fail('Timed out waiting for authorization');
+          break;
+        default:
+          pollSpinner.fail(`Authorization failed: ${err.message}`);
+      }
+    } else {
+      pollSpinner.fail('Authorization failed');
+      console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+    }
+    console.log();
+    return;
+  }
+
+  pollSpinner.succeed('Device authenticated successfully');
+
+  // 5. Register machine
+  const regSpinner = ora('Registering machine...').start();
+  try {
+    const providerTypes = detectedProviders
+      .filter((p) => p.available)
+      .map((p) => ({ type: p.type, name: p.name, version: p.version }));
+
+    const regResponse = await registerMachine(apiUrl, tokenResponse.accessToken, {
+      hostname,
+      name: hostname,
+      platform,
+      environmentType: 'local',
+      providers: providerTypes,
+      resources: resources ?? undefined,
+    });
+
+    regSpinner.succeed(`Machine registered as "${regResponse.machineName}" (${regResponse.machineId})`);
+
+    // 6. Save all tokens and IDs
+    config.setAccessToken(regResponse.accessToken);
+    config.setRefreshToken(regResponse.refreshToken);
+    config.setWsToken(regResponse.wsToken);
+    config.setMachineId(regResponse.machineId);
+
+    // Update relay URL if the server provided one
+    if (regResponse.relayUrl) {
+      config.setRelayUrl(regResponse.relayUrl);
+    }
+
+    console.log();
+  } catch (err) {
+    regSpinner.fail('Failed to register machine');
+    if (err instanceof DeviceAuthApiError) {
+      console.error(chalk.red(`  ${err.message}`));
+    } else {
+      console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+    }
+    // Still save the access/refresh tokens from the auth step
+    config.setAccessToken(tokenResponse.accessToken);
+    config.setRefreshToken(tokenResponse.refreshToken);
+    console.log();
+  }
+}
+
+// ============================================================================
+// Remote SSH install
+// ============================================================================
+
+async function installOnRemoteHosts(
+  selectedHosts: string[],
+  discoveredHosts: DiscoveredHost[],
+  apiUrl: string,
+  relayUrl: string,
+): Promise<void> {
+  console.log();
+  const localIP = detectLocalIP();
+  // Build URLs that remote hosts can reach
+  const remoteApiUrl = apiUrl.replace('localhost', localIP).replace('127.0.0.1', localIP);
+  const remoteRelayUrl = relayUrl.replace('localhost', localIP).replace('127.0.0.1', localIP);
+
+  for (const hostName of selectedHosts) {
+    const host = discoveredHosts.find((h) => h.name === hostName);
+    if (!host) continue;
+
+    const spinner = ora(`Checking Node.js on ${hostName}...`).start();
+
+    // Check remote Node.js availability
+    const nodeCheck = await checkRemoteNode(host);
+    if (!nodeCheck.available) {
+      spinner.fail(
+        `${hostName}: Node.js ${nodeCheck.version ? `${nodeCheck.version} (need ≥18)` : 'not found'}`,
+      );
+      console.log(chalk.dim('  Install Node.js ≥ 18 on this host first'));
+      continue;
+    }
+
+    spinner.text = `Installing on ${hostName}...`;
+
+    // Get tokens for the remote host
+    const accessToken = config.getAccessToken();
+    const refreshToken = config.getRefreshToken();
+    const wsToken = config.getWsToken();
+    const machineId = config.getMachineId();
+
+    if (!accessToken || !refreshToken || !wsToken) {
+      spinner.fail(`${hostName}: No auth tokens available. Authenticate locally first.`);
+      continue;
+    }
+
+    try {
+      await packAndInstall(
+        {
+          host,
+          apiUrl: remoteApiUrl,
+          relayUrl: remoteRelayUrl,
+          accessToken,
+          refreshToken,
+          wsToken,
+          machineId,
+        },
+        (msg) => {
+          spinner.text = `${hostName}: ${msg}`;
+        },
+      );
+      spinner.succeed(`${hostName}: Installed and configured`);
+    } catch (err) {
+      spinner.fail(`${hostName}: Installation failed`);
+      console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
+    }
+  }
+  console.log();
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function tryOpenUrl(url: string): void {
+  const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+  execFile(cmd, [url]).catch(() => {
+    // Silently ignore — user can open manually
+  });
 }

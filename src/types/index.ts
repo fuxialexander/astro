@@ -4,6 +4,12 @@ export interface Project {
   description: string;
   visionDoc: string;
   status: 'active' | 'archived';
+  startDate?: string;     // ISO YYYY-MM-DD
+  targetDate?: string;    // ISO YYYY-MM-DD
+  lead?: string;
+  health?: 'on_track' | 'at_risk' | 'off_track';
+  initiative?: string;
+  progress?: number;      // 0-100
   createdAt: Date;
   updatedAt: Date;
 }

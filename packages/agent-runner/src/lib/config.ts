@@ -7,12 +7,17 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { StoredConfig, ProviderType } from '../types.js';
 
-const DEFAULT_RELAY_URL = 'wss://relay.nexus.dev';
+const DEFAULT_RELAY_URL = 'ws://localhost:3002';
+const DEFAULT_API_URL = 'http://localhost:3001';
 
 interface ConfigSchema {
   runnerId: string;
   machineId: string;
   deviceToken?: string;
+  apiUrl: string;
+  accessToken?: string;
+  refreshToken?: string;
+  wsToken?: string;
   relayUrl: string;
   providers: ProviderType[];
   autoStart: boolean;
@@ -32,6 +37,10 @@ class ConfigManager {
         runnerId: '',
         machineId: '',
         deviceToken: undefined,
+        apiUrl: DEFAULT_API_URL,
+        accessToken: undefined,
+        refreshToken: undefined,
+        wsToken: undefined,
         relayUrl: DEFAULT_RELAY_URL,
         providers: [],
         autoStart: false,
@@ -52,11 +61,15 @@ class ConfigManager {
   /**
    * Get all stored configuration
    */
-  getConfig(): StoredConfig {
+  getConfig(): StoredConfig & { apiUrl: string; accessToken?: string; refreshToken?: string; wsToken?: string } {
     return {
       runnerId: this.conf.get('runnerId'),
       machineId: this.conf.get('machineId'),
       deviceToken: this.conf.get('deviceToken'),
+      apiUrl: this.conf.get('apiUrl'),
+      accessToken: this.conf.get('accessToken'),
+      refreshToken: this.conf.get('refreshToken'),
+      wsToken: this.conf.get('wsToken'),
       relayUrl: this.conf.get('relayUrl'),
       providers: this.conf.get('providers'),
       autoStart: this.conf.get('autoStart'),
@@ -101,6 +114,69 @@ class ConfigManager {
    */
   setRelayUrl(url: string): void {
     this.conf.set('relayUrl', url);
+  }
+
+  /**
+   * Get API URL
+   */
+  getApiUrl(): string {
+    return this.conf.get('apiUrl');
+  }
+
+  /**
+   * Set API URL
+   */
+  setApiUrl(url: string): void {
+    this.conf.set('apiUrl', url);
+  }
+
+  /**
+   * Get access token
+   */
+  getAccessToken(): string | undefined {
+    return this.conf.get('accessToken');
+  }
+
+  /**
+   * Set access token
+   */
+  setAccessToken(token: string): void {
+    this.conf.set('accessToken', token);
+  }
+
+  /**
+   * Get refresh token
+   */
+  getRefreshToken(): string | undefined {
+    return this.conf.get('refreshToken');
+  }
+
+  /**
+   * Set refresh token
+   */
+  setRefreshToken(token: string): void {
+    this.conf.set('refreshToken', token);
+  }
+
+  /**
+   * Get WebSocket token
+   */
+  getWsToken(): string | undefined {
+    return this.conf.get('wsToken');
+  }
+
+  /**
+   * Set WebSocket token
+   */
+  setWsToken(token: string): void {
+    this.conf.set('wsToken', token);
+  }
+
+  /**
+   * Set machine ID (e.g., from backend registration response)
+   */
+  setMachineId(id: string): void {
+    this.conf.set('machineId', id);
   }
 
   /**

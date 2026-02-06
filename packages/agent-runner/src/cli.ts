@@ -27,12 +27,14 @@ program
 program
   .command('setup')
   .description('Run initial setup: detect providers, authenticate, configure relay')
+  .option('--api <url>', 'API server URL')
   .option('--relay <url>', 'Custom relay server URL')
   .option('--skip-auth', 'Skip device authentication')
   .option('--non-interactive', 'Run in non-interactive mode')
   .action(async (options) => {
     try {
       await setupCommand({
+        api: options.api,
         relay: options.relay,
         skipAuth: options.skipAuth,
         nonInteractive: options.nonInteractive,
@@ -115,10 +117,31 @@ program
       }
 
       switch (key) {
+        case 'api':
+        case 'apiUrl':
+          config.setApiUrl(value);
+          console.log(`Set API URL to: ${value}`);
+          break;
         case 'relay':
         case 'relayUrl':
           config.setRelayUrl(value);
           console.log(`Set relay URL to: ${value}`);
+          break;
+        case 'accessToken':
+          config.setAccessToken(value);
+          console.log('Set access token');
+          break;
+        case 'refreshToken':
+          config.setRefreshToken(value);
+          console.log('Set refresh token');
+          break;
+        case 'wsToken':
+          config.setWsToken(value);
+          console.log('Set WebSocket token');
+          break;
+        case 'machineId':
+          config.setMachineId(value);
+          console.log(`Set machine ID to: ${value}`);
           break;
         case 'logLevel':
           if (!['debug', 'info', 'warn', 'error'].includes(value)) {
@@ -134,7 +157,7 @@ program
           break;
         default:
           console.error(`Unknown configuration key: ${key}`);
-          console.log('Available keys: relay, logLevel, autoStart');
+          console.log('Available keys: apiUrl, relayUrl, accessToken, refreshToken, wsToken, machineId, logLevel, autoStart');
           process.exit(1);
       }
       return;
@@ -143,13 +166,15 @@ program
     // Show configuration (default)
     const currentConfig = config.getConfig();
     console.log('\nCurrent Configuration:\n');
-    console.log(`  Runner ID:   ${currentConfig.runnerId || '(not set)'}`);
-    console.log(`  Machine ID:  ${currentConfig.machineId || '(not set)'}`);
-    console.log(`  Relay URL:   ${currentConfig.relayUrl}`);
-    console.log(`  Auto-start:  ${currentConfig.autoStart}`);
-    console.log(`  Log level:   ${currentConfig.logLevel}`);
-    console.log(`  Providers:   ${currentConfig.providers.length > 0 ? currentConfig.providers.join(', ') : '(none)'}`);
-    console.log(`  Device auth: ${currentConfig.deviceToken ? 'configured' : 'not configured'}`);
+    console.log(`  Runner ID:    ${currentConfig.runnerId || '(not set)'}`);
+    console.log(`  Machine ID:   ${currentConfig.machineId || '(not set)'}`);
+    console.log(`  API URL:      ${currentConfig.apiUrl}`);
+    console.log(`  Relay URL:    ${currentConfig.relayUrl}`);
+    console.log(`  Auto-start:   ${currentConfig.autoStart}`);
+    console.log(`  Log level:    ${currentConfig.logLevel}`);
+    console.log(`  Providers:    ${currentConfig.providers.length > 0 ? currentConfig.providers.join(', ') : '(none)'}`);
+    console.log(`  Access token: ${currentConfig.accessToken ? 'configured' : 'not configured'}`);
+    console.log(`  WS token:     ${currentConfig.wsToken ? 'configured' : 'not configured'}`);
     console.log(`\n  Config file: ${config.getConfigPath()}`);
     console.log();
   });

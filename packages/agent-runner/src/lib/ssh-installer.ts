@@ -1,0 +1,188 @@
+/**
+ * Remote SSH installation utilities for local dev.
+ *
+ * Packs the agent-runner locally, SCPs it to the target host,
+ * installs via npm, and pushes pre-provisioned tokens so the
+ * remote host skips its own device auth entirely.
+ */
+
+import { execFile as execFileCb } from 'node:child_process';
+import { promisify } from 'node:util';
+import { networkInterfaces } from 'node:os';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { DiscoveredHost } from '../types.js';
+
+const execFile = promisify(execFileCb);
+
+// ============================================================================
+// Network helpers
+// ============================================================================
+
+/**
+ * Detect the LAN IP of this machine so remote hosts can reach the dev server.
+ * Returns the first non-internal IPv4 address found.
+ */
+export function detectLocalIP(): string {
+  const nets = networkInterfaces();
+
+  for (const ifaces of Object.values(nets)) {
+    if (!ifaces) continue;
+    for (const iface of ifaces) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+
+  return '127.0.0.1';
+}
+
+// ============================================================================
+// Remote checks
+// ============================================================================
+
+/**
+ * SSH to a host and check whether Node.js ≥ 18 is available.
+ * Returns { available, version } or throws on SSH failure.
+ */
+export async function checkRemoteNode(
+  host: DiscoveredHost,
+): Promise<{ available: boolean; version: string | null }> {
+  try {
+    const { stdout } = await sshExec(host, 'node --version');
+    const ver = stdout.trim(); // e.g. "v20.11.0"
+    const major = parseInt(ver.replace(/^v/, ''), 10);
+    return { available: major >= 18, version: ver };
+  } catch {
+    return { available: false, version: null };
+  }
+}
+
+// ============================================================================
+// Pack & Install
+// ============================================================================
+
+export interface InstallOptions {
+  host: DiscoveredHost;
+  apiUrl: string;
+  relayUrl: string;
+  accessToken: string;
+  refreshToken: string;
+  wsToken: string;
+  machineId: string;
+}
+
+/**
+ * Pack the local agent-runner, SCP it to the remote host, install, and configure.
+ *
+ * Steps:
+ *   1. `npm pack` in the agent-runner directory → tarball
+ *   2. `scp` tarball to remote ~/
+ *   3. `ssh npm install -g <tarball>` on remote
+ *   4. `ssh nexus-agent setup --non-interactive --skip-auth` on remote
+ *   5. Push tokens via `ssh nexus-agent config --set` commands
+ */
+export async function packAndInstall(
+  opts: InstallOptions,
+  onProgress?: (msg: string) => void,
+): Promise<void> {
+  const { host, apiUrl, relayUrl, accessToken, refreshToken, wsToken, machineId } = opts;
+  const log = onProgress ?? (() => {});
+
+  // 1. npm pack
+  const agentRunnerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  log('Packing agent-runner...');
+  const { stdout: packOut } = await execFile('npm', ['pack', '--pack-destination', '/tmp'], {
+    cwd: agentRunnerDir,
+  });
+  const tarball = `/tmp/${packOut.trim().split('\n').pop()}`;
+
+  // 2. SCP tarball to remote
+  log(`Copying to ${host.name}...`);
+  const scpArgs = buildScpArgs(host, tarball, '~/nexus-agent.tgz');
+  await execFile('scp', scpArgs);
+
+  // 3. Install globally on remote
+  log(`Installing on ${host.name}...`);
+  await sshExec(host, 'npm install -g ~/nexus-agent.tgz');
+
+  // 4. Run setup --non-interactive --skip-auth
+  log(`Running setup on ${host.name}...`);
+  await sshExec(
+    host,
+    `nexus-agent setup --non-interactive --skip-auth --api ${apiUrl} --relay ${relayUrl}`,
+  );
+
+  // 5. Push tokens
+  log(`Configuring tokens on ${host.name}...`);
+  const setCommands = [
+    `nexus-agent config --set apiUrl=${apiUrl}`,
+    `nexus-agent config --set relayUrl=${relayUrl}`,
+    `nexus-agent config --set accessToken=${accessToken}`,
+    `nexus-agent config --set refreshToken=${refreshToken}`,
+    `nexus-agent config --set wsToken=${wsToken}`,
+    `nexus-agent config --set machineId=${machineId}`,
+  ];
+  await sshExec(host, setCommands.join(' && '));
+
+  // Clean up remote tarball
+  await sshExec(host, 'rm -f ~/nexus-agent.tgz').catch(() => {});
+
+  log(`Done — ${host.name} is configured`);
+}
+
+// ============================================================================
+// SSH / SCP helpers
+// ============================================================================
+
+function buildSshArgs(host: DiscoveredHost, command: string): string[] {
+  const args: string[] = [];
+
+  if (host.port && host.port !== 22) {
+    args.push('-p', String(host.port));
+  }
+  if (host.identityFile) {
+    args.push('-i', host.identityFile);
+  }
+  if (host.proxyJump) {
+    args.push('-J', host.proxyJump);
+  }
+
+  // Batch mode to avoid password prompts hanging
+  args.push('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10');
+
+  const target = host.user ? `${host.user}@${host.hostname}` : host.hostname;
+  args.push(target, command);
+
+  return args;
+}
+
+function buildScpArgs(host: DiscoveredHost, localPath: string, remotePath: string): string[] {
+  const args: string[] = [];
+
+  if (host.port && host.port !== 22) {
+    args.push('-P', String(host.port));
+  }
+  if (host.identityFile) {
+    args.push('-i', host.identityFile);
+  }
+  if (host.proxyJump) {
+    args.push('-o', `ProxyJump=${host.proxyJump}`);
+  }
+
+  args.push('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10');
+
+  const target = host.user ? `${host.user}@${host.hostname}` : host.hostname;
+  args.push(localPath, `${target}:${remotePath}`);
+
+  return args;
+}
+
+async function sshExec(
+  host: DiscoveredHost,
+  command: string,
+): Promise<{ stdout: string; stderr: string }> {
+  const args = buildSshArgs(host, command);
+  return execFile('ssh', args, { timeout: 60_000 });
+}

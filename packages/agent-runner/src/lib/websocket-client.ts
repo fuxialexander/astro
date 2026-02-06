@@ -46,6 +46,7 @@ export interface WebSocketClientOptions {
   onTaskDispatch?: (task: Task) => void;
   onTaskCancel?: (taskId: string) => void;
   version?: string;
+  wsToken?: string;
 }
 
 type IncomingMessage =
@@ -63,6 +64,7 @@ export class WebSocketClient {
   private machineId: string;
   private providers: ProviderInfo[];
   private version: string;
+  private wsToken?: string;
 
   private reconnectAttempts = 0;
   private reconnectTimeout: NodeJS.Timeout | null = null;
@@ -80,6 +82,7 @@ export class WebSocketClient {
     this.machineId = options.machineId;
     this.providers = options.providers;
     this.version = options.version ?? '0.1.0';
+    this.wsToken = options.wsToken;
     this.config = { ...DEFAULT_CONFIG, ...options.config };
     this.onEvent = options.onEvent;
     this.onTaskDispatch = options.onTaskDispatch;
@@ -99,12 +102,14 @@ export class WebSocketClient {
 
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(this.config.relayUrl, {
-          headers: {
-            'X-Runner-Id': this.runnerId,
-            'X-Machine-Id': this.machineId,
-          },
-        });
+        const headers: Record<string, string> = {
+          'X-Runner-Id': this.runnerId,
+          'X-Machine-Id': this.machineId,
+        };
+        if (this.wsToken) {
+          headers['Authorization'] = `Bearer ${this.wsToken}`;
+        }
+        this.ws = new WebSocket(this.config.relayUrl, { headers });
 
         this.ws.on('open', async () => {
           this.isConnecting = false;
