@@ -150,3 +150,167 @@ export async function abortAgent(sessionId: string): Promise<void> {
     body: JSON.stringify({ sessionId }),
   })
 }
+
+// Provider status types
+export interface ProviderStatusResult {
+  total: number
+  available: number
+  installed: number
+  authenticated: number
+  providers: Array<{
+    id: string
+    name: string
+    installed: boolean
+    authStatus: "authenticated" | "unauthenticated" | "expired" | "unknown"
+    available: boolean
+  }>
+}
+
+export async function getProviders(): Promise<ProviderStatusResult> {
+  const response = await fetch("/api/agent/providers")
+  if (!response.ok) {
+    throw new Error(`Failed to fetch providers: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function redetectProviders(): Promise<ProviderStatusResult> {
+  const response = await fetch("/api/agent/providers/detect", {
+    method: "POST",
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to detect providers: ${response.status}`)
+  }
+  return response.json()
+}
+
+// Dispatch types
+export interface DispatchParams {
+  nodeId: string
+  projectId: string
+  taskTitle: string
+  taskDescription: string
+  taskType?: string
+  visionDoc?: string
+  dependencyOutputs?: string
+  workingDirectory?: string
+  model?: string
+  providerId?: string
+  maxTurns?: number
+}
+
+export interface DispatchCallbacks {
+  onInit?: (data: { executionId: string; nodeId: string; providerId: string; providerName: string }) => void
+  onText?: (text: string) => void
+  onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
+  onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
+  onFileChange?: (data: { path: string; action: string; diff?: string }) => void
+  onProgress?: (data: { message: string; percentage?: number }) => void
+  onResult?: (data: {
+    executionId: string
+    nodeId: string
+    status: string
+    output: string
+    metrics?: Record<string, unknown>
+  }) => void
+  onError?: (error: string) => void
+  onDone?: (data: { executionId: string; nodeId: string; sessionId?: string }) => void
+}
+
+export async function dispatchTask(
+  params: DispatchParams,
+  callbacks: DispatchCallbacks,
+  signal?: AbortSignal
+): Promise<void> {
+  const response = await fetch("/api/agent/dispatch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+    signal,
+  })
+
+  if (!response.ok) {
+    callbacks.onError?.(`Server error: ${response.status}`)
+    return
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    callbacks.onError?.("No response body")
+    return
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ""
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split("\n")
+    buffer = lines.pop() || ""
+
+    let currentEvent = ""
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        currentEvent = line.slice(6).trim()
+      } else if (line.startsWith("data:")) {
+        const data = line.slice(5).trim()
+
+        switch (currentEvent) {
+          case "init":
+            try {
+              callbacks.onInit?.(JSON.parse(data))
+            } catch { /* Ignore parse errors for optional callback */ }
+            break
+          case "text":
+            callbacks.onText?.(data)
+            break
+          case "tool_use":
+            try {
+              callbacks.onToolUse?.(JSON.parse(data))
+            } catch { /* Ignore parse errors for optional callback */ }
+            break
+          case "tool_result":
+            try {
+              callbacks.onToolResult?.(JSON.parse(data))
+            } catch { /* Ignore parse errors for optional callback */ }
+            break
+          case "file_change":
+            try {
+              callbacks.onFileChange?.(JSON.parse(data))
+            } catch { /* Ignore parse errors for optional callback */ }
+            break
+          case "progress":
+            try {
+              callbacks.onProgress?.(JSON.parse(data))
+            } catch { /* Ignore parse errors for optional callback */ }
+            break
+          case "result":
+            try {
+              callbacks.onResult?.(JSON.parse(data))
+            } catch { /* Ignore parse errors for optional callback */ }
+            break
+          case "error":
+            try {
+              const parsed = JSON.parse(data)
+              callbacks.onError?.(parsed.error || parsed.message || data)
+            } catch {
+              callbacks.onError?.(data)
+            }
+            break
+          case "done":
+            try {
+              callbacks.onDone?.(JSON.parse(data))
+            } catch { /* Ignore parse errors for optional callback */ }
+            break
+          case "aborted":
+            callbacks.onDone?.({ executionId: "", nodeId: params.nodeId })
+            break
+        }
+        currentEvent = ""
+      }
+    }
+  }
+}

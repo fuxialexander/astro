@@ -89,3 +89,44 @@ export function buildChatSystemPrompt(visionDoc?: string): string {
 Be concise and actionable. When suggesting plan modifications, describe what should change clearly.
 ${visionSection}`
 }
+
+export interface TaskExecutionContext {
+  taskTitle: string
+  taskDescription: string
+  visionDoc?: string
+  dependencyOutputs?: string
+  workingDirectory?: string
+}
+
+export function buildTaskExecutionPrompt(context: TaskExecutionContext): string {
+  const parts: string[] = []
+
+  // Add vision doc if present
+  if (context.visionDoc) {
+    parts.push(`## Project Vision\n\n${context.visionDoc}`)
+  }
+
+  // Add dependency context if present
+  if (context.dependencyOutputs) {
+    parts.push(`## Previous Task Outputs\n\nThe following tasks have already been completed. Use their outputs as context:\n\n${context.dependencyOutputs}`)
+  }
+
+  // Add working directory
+  if (context.workingDirectory) {
+    parts.push(`## Working Directory\n\n${context.workingDirectory}`)
+  }
+
+  // Add the main task
+  parts.push(`## Current Task\n\n**${context.taskTitle}**\n\n${context.taskDescription}`)
+
+  // Add execution instructions
+  parts.push(`## Instructions
+
+Execute the task described above. Focus on completing the task thoroughly and correctly.
+- Use appropriate tools to accomplish the task
+- Report progress and any issues encountered
+- Verify your work when possible
+- Be thorough but efficient`)
+
+  return parts.join('\n\n---\n\n')
+}
