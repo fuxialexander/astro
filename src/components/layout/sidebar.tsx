@@ -1,25 +1,22 @@
 import { NavLink, useNavigate } from "react-router"
-import { Hexagon, LayoutDashboard, Folder, Inbox, Server, Settings, Plus } from "lucide-react"
+import { Hexagon, LayoutDashboard, Eye, Inbox, Scale, Settings, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
-import { useRealtimeStore } from "@/stores/realtime-store"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/projects", icon: Folder, label: "Projects" },
-  { to: "/judgment", icon: Inbox, label: "Judgment Queue" },
-  { to: "/environments", icon: Server, label: "Environments" },
+  { to: "/attention", icon: Eye, label: "My Attention" },
+  { to: "/inbox", icon: Inbox, label: "Inbox" },
+  { to: "/judgment", icon: Scale, label: "Judgment Queue" },
 ]
 
 export function Sidebar() {
   const projects = useProjectStore((s) => s.projects)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
-  const machineCount = useRealtimeStore((s) => s.machines.size)
-  const realtimeConnected = useRealtimeStore((s) => s.connected)
   const navigate = useNavigate()
 
   return (
@@ -58,14 +55,6 @@ export function Sidebar() {
           >
             <item.icon className="h-[18px] w-[18px]" />
             <span className="flex-1">{item.label}</span>
-            {item.to === "/environments" && machineCount > 0 && (
-              <span className={cn(
-                "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-medium",
-                realtimeConnected ? "bg-green-500/20 text-green-600" : "bg-muted text-muted-foreground"
-              )}>
-                {machineCount}
-              </span>
-            )}
           </NavLink>
         ))}
       </nav>

@@ -117,6 +117,9 @@ Missing 3 consecutive heartbeats (90s) triggers automatic disconnection.
 }
 ```
 
+When the `workingDirectory` is a Git repository, the Nexus agent runner executes the task inside a
+temporary Git worktree cloned from the repo root. The worktree is removed after the task finishes.
+
 ### Step 4: Stream Results
 
 While executing, stream events back to the relay:

@@ -1,155 +1,404 @@
-import { CheckCircle2, Clock, XCircle, AlertCircle, Eye, GitBranch } from "lucide-react"
+import { Sparkles, ListFilter, Rocket, FolderKanban, Server, Check } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-type TabFilter = "all" | "judgments" | "decisions" | "errors"
+
+type TabFilter = "all" | "awaiting_review" | "deferred" | "completed"
+
+interface DecisionItem {
+  id: string
+  type: "judgment" | "decision" | "deployment"
+  status: "awaiting_review" | "deferred" | "completed"
+  title: string
+  project: string
+  projectIcon: typeof FolderKanban
+  description: string
+  aiRecommendation?: {
+    text: string
+    bgColor: string
+    iconColor: string
+  }
+  options?: {
+    a: { title: string; points: string[]; selected: boolean }
+    b: { title: string; points: string[]; selected: boolean }
+  }
+}
+
+const mockDecisions: DecisionItem[] = [
+  {
+    id: "d1",
+    type: "judgment",
+    status: "awaiting_review",
+    title: "Navigation UI Component Review",
+    project: "Personal Finance App",
+    projectIcon: FolderKanban,
+    description:
+      "The agent has completed the navigation component implementation with tab-based navigation for desktop and a bottom bar for mobile. The component includes animated transitions, active state indicators, and responsive breakpoints. Ready for visual and UX review before merging.",
+    aiRecommendation: {
+      text: "Approve with minor change: the mobile bottom bar should use 48px touch targets instead of the current 36px to meet accessibility guidelines. All other aspects meet the design spec.",
+      bgColor: "bg-info",
+      iconColor: "text-info-foreground",
+    },
+  },
+  {
+    id: "d2",
+    type: "decision",
+    status: "awaiting_review",
+    title: "API Architecture Decision",
+    project: "Personal Finance App",
+    projectIcon: FolderKanban,
+    description:
+      "The project needs a client API layer. Two approaches have been evaluated: REST with OpenAPI codegen, and GraphQL with Apollo Client. This decision affects the entire frontend data layer and future API evolution.",
+    aiRecommendation: {
+      text: "Recommend GraphQL. The app has complex nested data (accounts > transactions > categories) that maps naturally to GraphQL queries. This avoids over-fetching on the dashboard and simplifies the 12 planned list/detail views.",
+      bgColor: "bg-success",
+      iconColor: "text-success-foreground",
+    },
+  },
+  {
+    id: "d3",
+    type: "deployment",
+    status: "awaiting_review",
+    title: "Deployment Strategy: ML Training Pipeline",
+    project: "ML Training Pipeline",
+    projectIcon: Server,
+    description:
+      "The training pipeline is ready for deployment. Two infrastructure configurations have been evaluated based on cost, latency, and fault tolerance.",
+    options: {
+      a: {
+        title: "Option A: Single Large Instance",
+        points: [
+          "1x p4d.24xlarge (8x A100 GPUs)",
+          "Lower cost per training run ($32/hr)",
+          "Simpler orchestration, no cross-node communication",
+          "Single point of failure",
+        ],
+        selected: true,
+      },
+      b: {
+        title: "Option B: Distributed Multi-Node",
+        points: [
+          "4x p3.8xlarge (4x V100 GPUs each)",
+          "Higher cost ($48/hr combined)",
+          "Fault tolerant: survives single node failure",
+          "Enables larger batch sizes via data parallelism",
+        ],
+        selected: false,
+      },
+    },
+  },
+  {
+    id: "d4",
+    type: "judgment",
+    status: "deferred",
+    title: "Dashboard Layout Approval",
+    project: "ML Training Pipeline",
+    projectIcon: Server,
+    description:
+      "Dashboard wireframe ready. Shows training metrics, loss curves, and GPU utilization in a grid layout. Deferred pending stakeholder availability.",
+    aiRecommendation: {
+      text: "The layout follows standard ML dashboard conventions. Recommend approving with the addition of a model comparison view.",
+      bgColor: "bg-info",
+      iconColor: "text-info-foreground",
+    },
+  },
+  {
+    id: "d5",
+    type: "decision",
+    status: "completed",
+    title: "Branch Strategy: Data Pipeline",
+    project: "Genomic Data Pipeline",
+    projectIcon: Rocket,
+    description:
+      "Hypothesis A (BWA-MEM2) was selected based on 2x speedup benchmark. Memory requirements addressed with 256GB node allocation.",
+    aiRecommendation: {
+      text: "BWA-MEM2 confirmed as optimal. Benchmarks validated on production data.",
+      bgColor: "bg-success",
+      iconColor: "text-success-foreground",
+    },
+  },
+]
+
+const tabs: { key: TabFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "awaiting_review", label: "Awaiting Review" },
+  { key: "deferred", label: "Deferred" },
+  { key: "completed", label: "Completed" },
+]
 
 export function JudgmentQueue() {
   const [tab, setTab] = useState<TabFilter>("all")
 
-  // Mock decision items
-  const mockDecisions = [
-    {
-      id: "d1",
-      type: "judgment" as const,
-      title: "Navigation UI Review",
-      project: "Personal Finance App",
-      description: "The navigation component is ready for review. Agent has implemented tab-based navigation with bottom bar for mobile.",
-      priority: "high" as const,
-    },
-    {
-      id: "d2",
-      type: "decision" as const,
-      title: "API Architecture Decision",
-      project: "Personal Finance App",
-      description: "Choose between REST and GraphQL for the client API layer. Agent recommends GraphQL for flexible queries.",
-      priority: "high" as const,
-    },
-    {
-      id: "d3",
-      type: "judgment" as const,
-      title: "Dashboard Layout Approval",
-      project: "ML Training Pipeline",
-      description: "Dashboard wireframe ready. Shows training metrics, loss curves, and GPU utilization in a grid layout.",
-      priority: "medium" as const,
-    },
-    {
-      id: "d4",
-      type: "decision" as const,
-      title: "Branch Strategy: Data Pipeline",
-      project: "Genomic Data Pipeline",
-      description: "Hypothesis A (BWA-MEM2) shows 2x speedup but higher memory. Hypothesis B (minimap2) is more stable. Choose direction.",
-      priority: "medium" as const,
-    },
-    {
-      id: "d5",
-      type: "error" as const,
-      title: "HPC Job Failure",
-      project: "LLM Benchmark Suite",
-      description: "Slurm job 48291 failed with OOM. Model too large for allocated GPU memory. Need to adjust batch size or request larger node.",
-      priority: "high" as const,
-    },
-  ]
+  const pendingCount = mockDecisions.filter(
+    (d) => d.status === "awaiting_review"
+  ).length
 
-  const filteredItems = tab === "all"
-    ? mockDecisions
-    : mockDecisions.filter((d) => tab === "errors" ? d.type === "error" : d.type === tab.slice(0, -1))
+  const filteredItems =
+    tab === "all"
+      ? mockDecisions
+      : mockDecisions.filter((d) => d.status === tab)
 
-  const tabs: { key: TabFilter; label: string }[] = [
-    { key: "all", label: "All" },
-    { key: "judgments", label: "Judgments" },
-    { key: "decisions", label: "Decisions" },
-    { key: "errors", label: "Errors" },
-  ]
-
-  const typeIcons = {
-    judgment: Eye,
-    decision: GitBranch,
-    error: AlertCircle,
-  }
-
-  const priorityColors = {
-    high: "text-red-500",
-    medium: "text-amber-500",
-    low: "text-muted-foreground",
+  const statusBadge = (status: DecisionItem["status"]) => {
+    switch (status) {
+      case "awaiting_review":
+        return (
+          <Badge className="bg-warning text-warning-foreground border-transparent">
+            Awaiting Judgment
+          </Badge>
+        )
+      case "deferred":
+        return (
+          <Badge className="bg-muted text-muted-foreground border-transparent">
+            Deferred
+          </Badge>
+        )
+      case "completed":
+        return (
+          <Badge className="bg-success text-success-foreground border-transparent">
+            Completed
+          </Badge>
+        )
+    }
   }
 
   return (
-    <div className="flex flex-col gap-6 p-8 px-10">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">Judgment Queue</h1>
-          <Badge className="h-7 rounded-full px-3 font-primary text-xs">
-            {mockDecisions.length} pending
-          </Badge>
+    <div className="flex h-full flex-col">
+      {/* Page Header */}
+      <div className="flex flex-col gap-4 border-b border-border px-10 py-6">
+        {/* Title Row */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold">Judgment Queue</h1>
+            <Badge className="bg-warning text-warning-foreground border-transparent px-3 py-0.5">
+              {pendingCount} pending
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm">
+              Batch Mode
+            </Button>
+            <Button variant="outline" size="sm">
+              <ListFilter className="h-4 w-4" />
+              Filter
+            </Button>
+          </div>
+        </div>
+
+        {/* Tabs Row */}
+        <div className="flex items-center">
+          <div className="flex items-center gap-1 rounded-full border border-border p-1">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={cn(
+                  "cursor-pointer rounded-full px-4 py-1.5 text-[13px] font-medium transition-all",
+                  tab === t.key
+                    ? "bg-secondary shadow-sm text-foreground"
+                    : "bg-white text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              "rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors cursor-pointer",
-              tab === t.key
-                ? "bg-foreground text-background"
-                : "border border-border text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Cards */}
-      <div className="flex flex-col gap-3">
+      {/* Content Area */}
+      <div className="flex flex-col gap-5 overflow-auto px-10 py-6">
         {filteredItems.map((item) => {
-          const Icon = typeIcons[item.type]
-          return (
-            <Card key={item.id} className="hover:border-primary/40 transition-colors cursor-pointer">
-              <CardContent className="p-5">
-                <div className="flex items-start gap-3">
-                  <div className="flex flex-col gap-3 flex-1 min-w-0">
-                    <div className="flex items-center gap-2.5">
-                      <Icon className={cn("h-4 w-4 shrink-0", item.type === "error" ? "text-red-500" : "text-primary")} />
-                      <span className="font-medium text-sm">{item.title}</span>
-                      <Badge variant={item.type === "error" ? "destructive" : item.type === "decision" ? "info" : "warning"} className="text-[10px]">
-                        {item.type}
-                      </Badge>
-                      <span className={cn("text-[10px] font-medium", priorityColors[item.priority])}>
-                        {item.priority}
+          const ProjectIcon = item.projectIcon
+
+          if (item.type === "deployment" && item.options) {
+            return (
+              <Card key={item.id} className="shadow-sm">
+                {/* Card Header */}
+                <div className="flex flex-col gap-3 p-5 px-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ProjectIcon className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">
+                        {item.project}
                       </span>
                     </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
-                    <span className="text-xs text-muted-foreground">{item.project}</span>
+                    {statusBadge(item.status)}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button size="sm" variant="outline">
-                      <Clock className="h-3.5 w-3.5" />
-                      Defer
-                    </Button>
-                    {item.type === "error" ? (
-                      <Button size="sm" variant="destructive">
-                        <XCircle className="h-3.5 w-3.5" />
-                        Retry
-                      </Button>
-                    ) : (
-                      <Button size="sm">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Approve
-                      </Button>
-                    )}
-                  </div>
+                  <h3 className="text-lg font-semibold">{item.title}</h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {item.description}
+                  </p>
                 </div>
-              </CardContent>
+
+                {/* Card Content - Options */}
+                <CardContent className="px-6 pb-5">
+                  <div className="flex gap-4">
+                    <div
+                      className={cn(
+                        "flex-1 rounded-xl bg-muted p-4",
+                        item.options.a.selected
+                          ? "border-2 border-primary"
+                          : "border border-border"
+                      )}
+                    >
+                      <div className="mb-3 flex items-center gap-2">
+                        <h4 className="text-sm font-semibold">
+                          {item.options.a.title}
+                        </h4>
+                        {item.options.a.selected && (
+                          <Check className="h-4 w-4 text-primary" />
+                        )}
+                      </div>
+                      <ul className="flex flex-col gap-1.5">
+                        {item.options.a.points.map((point, i) => (
+                          <li
+                            key={i}
+                            className="flex items-start gap-2 text-sm text-muted-foreground"
+                          >
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                            {point}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div
+                      className={cn(
+                        "flex-1 rounded-xl bg-muted p-4",
+                        item.options.b.selected
+                          ? "border-2 border-primary"
+                          : "border border-border"
+                      )}
+                    >
+                      <div className="mb-3 flex items-center gap-2">
+                        <h4 className="text-sm font-semibold">
+                          {item.options.b.title}
+                        </h4>
+                        {item.options.b.selected && (
+                          <Check className="h-4 w-4 text-primary" />
+                        )}
+                      </div>
+                      <ul className="flex flex-col gap-1.5">
+                        {item.options.b.points.map((point, i) => (
+                          <li
+                            key={i}
+                            className="flex items-start gap-2 text-sm text-muted-foreground"
+                          >
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                            {point}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </CardContent>
+
+                {/* Card Actions */}
+                <div className="flex items-center justify-between border-t border-border px-6 py-4">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="bg-muted hover:bg-muted/80"
+                  >
+                    Defer
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-primary text-white hover:bg-primary/90"
+                  >
+                    Confirm Selection
+                  </Button>
+                </div>
+              </Card>
+            )
+          }
+
+          return (
+            <Card key={item.id} className="shadow-sm">
+              {/* Card Header */}
+              <div className="flex flex-col gap-3 p-5 px-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ProjectIcon className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">
+                      {item.project}
+                    </span>
+                  </div>
+                  {statusBadge(item.status)}
+                </div>
+                <h3 className="text-lg font-semibold">{item.title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {item.description}
+                </p>
+              </div>
+
+              {/* Card Content - AI Recommendation */}
+              {item.aiRecommendation && (
+                <CardContent className="px-6 pb-5">
+                  <div
+                    className={cn(
+                      "flex gap-3 rounded-xl p-4",
+                      item.aiRecommendation.bgColor
+                    )}
+                  >
+                    <Sparkles
+                      className={cn(
+                        "mt-0.5 h-5 w-5 shrink-0",
+                        item.aiRecommendation.iconColor
+                      )}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold">
+                        AI Recommendation
+                      </span>
+                      <p className="text-sm leading-relaxed">
+                        {item.aiRecommendation.text}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              )}
+
+              {/* Card Actions */}
+              <div className="flex items-center justify-between border-t border-border px-6 py-4">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="bg-muted hover:bg-muted/80"
+                  >
+                    Defer
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="bg-destructive hover:bg-destructive/90"
+                  >
+                    Reject
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm">
+                    Modify
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-primary text-white hover:bg-primary/90"
+                  >
+                    Approve
+                  </Button>
+                </div>
+              </div>
             </Card>
           )
         })}
+
+        {filteredItems.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <p className="text-sm">No items in this category</p>
+          </div>
+        )}
       </div>
     </div>
   )

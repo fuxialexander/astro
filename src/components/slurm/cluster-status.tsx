@@ -54,9 +54,9 @@ export function ClusterStatus({ compact = false, showPartitions = false }: Clust
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
               ) : connectedClusters.length > 0 ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-status-success" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
               ) : (
-                <XCircle className="h-3.5 w-3.5 text-status-warning" />
+                <XCircle className="h-3.5 w-3.5 text-warning" />
               )}
               <span className="text-xs text-muted-foreground">
                 {loading

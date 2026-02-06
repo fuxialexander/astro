@@ -7,8 +7,7 @@ import { CommandPalette } from "@/components/command-palette"
 import { Dashboard } from "@/pages/dashboard"
 import { Projects } from "@/pages/projects"
 import { ProjectNew } from "@/pages/project-new"
-import { PlanView } from "@/pages/plan-view"
-import { PlanTimeline } from "@/pages/plan-timeline"
+import { ProjectOverview } from "@/pages/project-overview"
 import { JudgmentQueue } from "@/pages/judgment-queue"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
@@ -18,6 +17,7 @@ import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
+import { Inbox } from "@/pages/inbox"
 
 function DataLoader({ children }: { children: React.ReactNode }) {
   const loadProjects = useProjectStore((s) => s.load)
@@ -63,10 +63,11 @@ export default function App() {
                 <Route index element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="projects/new" element={<ProjectNew />} />
-                <Route path="project/:id" element={<PlanView />} />
+                <Route path="project/:id" element={<ProjectOverview />} />
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
-                <Route path="project/:id/timeline" element={<PlanTimeline />} />
                 <Route path="judgment" element={<JudgmentQueue />} />
+                <Route path="inbox" element={<Inbox />} />
+                <Route path="attention" element={<Dashboard />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="settings" element={<Settings />} />
               </Route>
