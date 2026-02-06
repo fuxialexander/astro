@@ -8,6 +8,7 @@
 import type { Task, TaskStatus, ProviderType } from '../types.js';
 import type { WebSocketClient } from './websocket-client.js';
 import { createProviderAdapter, type ProviderAdapter } from '../providers/index.js';
+import { createWorktree } from './worktree.js';
 
 interface RunningTask {
   task: Task;
@@ -20,6 +21,8 @@ export interface TaskExecutorOptions {
   wsClient: WebSocketClient;
   maxConcurrentTasks?: number;
   defaultTimeout?: number;
+  useWorktree?: boolean;
+  worktreeRoot?: string;
 }
 
 export class TaskExecutor {
@@ -29,11 +32,15 @@ export class TaskExecutor {
   private maxConcurrentTasks: number;
   private defaultTimeout: number;
   private adapters: Map<ProviderType, ProviderAdapter> = new Map();
+  private useWorktree: boolean;
+  private worktreeRoot?: string;
 
   constructor(options: TaskExecutorOptions) {
     this.wsClient = options.wsClient;
     this.maxConcurrentTasks = options.maxConcurrentTasks ?? 4;
     this.defaultTimeout = options.defaultTimeout ?? 3600000; // 1 hour
+    this.useWorktree = options.useWorktree ?? true;
+    this.worktreeRoot = options.worktreeRoot;
   }
 
   /**
@@ -142,17 +149,7 @@ export class TaskExecutor {
     const abortController = new AbortController();
     const outputSequence = { stdout: 0, stderr: 0 };
 
-    const runningTask: RunningTask = {
-      task,
-      abortController,
-      adapter,
-      outputSequence,
-    };
-
-    this.runningTasks.set(task.id, runningTask);
-    this.wsClient.addActiveTask(task.id);
-
-    // Create stream handlers that send output over WebSocket
+    // Create stream handlers before workspace prep so setup output is captured
     const stream = {
       stdout: (data: string) => {
         this.wsClient.sendTaskOutput(task.id, 'stdout', data, outputSequence.stdout++);
@@ -165,6 +162,20 @@ export class TaskExecutor {
       },
     };
 
+    const runningTask: RunningTask = {
+      task,
+      abortController,
+      adapter,
+      outputSequence,
+    };
+
+    this.runningTasks.set(task.id, runningTask);
+    this.wsClient.addActiveTask(task.id);
+
+    const prepared = await this.prepareTaskWorkspace(task, stream);
+    const taskWithWorkspace = { ...task, workingDirectory: prepared.workingDirectory };
+    runningTask.task = taskWithWorkspace;
+
     // Execute with timeout
     const timeout = task.timeout ?? this.defaultTimeout;
     const timeoutId = setTimeout(() => {
@@ -176,7 +187,7 @@ export class TaskExecutor {
       this.wsClient.sendTaskStatus(task.id, 'running', 0, 'Starting');
 
       // Execute the task
-      const result = await adapter.execute(task, stream, abortController.signal);
+      const result = await adapter.execute(taskWithWorkspace, stream, abortController.signal);
 
       // Send final result
       this.wsClient.sendTaskResult(result);
@@ -191,9 +202,42 @@ export class TaskExecutor {
       });
     } finally {
       clearTimeout(timeoutId);
+      await prepared.cleanup();
       this.runningTasks.delete(task.id);
       this.wsClient.removeActiveTask(task.id);
       this.processQueue();
+    }
+  }
+
+  private async prepareTaskWorkspace(
+    task: Task,
+    stream: { stdout: (data: string) => void; stderr: (data: string) => void },
+  ): Promise<{
+    workingDirectory: string;
+    cleanup: () => Promise<void>;
+  }> {
+    if (!this.useWorktree) {
+      return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
+    }
+
+    try {
+      const worktree = await createWorktree({
+        workingDirectory: task.workingDirectory,
+        taskId: task.id,
+        rootOverride: this.worktreeRoot,
+        projectId: task.projectId,
+        nodeId: task.planNodeId,
+        stdout: stream.stdout,
+        stderr: stream.stderr,
+      });
+      if (!worktree) {
+        return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
+      }
+      return worktree;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.wsClient.sendTaskStatus(task.id, 'running', 0, `Worktree setup failed: ${errorMsg}`);
+      return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
     }
   }
 
