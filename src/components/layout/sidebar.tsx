@@ -1,22 +1,19 @@
 import { NavLink, useNavigate } from "react-router"
-import { Hexagon, LayoutDashboard, Eye, Inbox, Scale, Server, Settings, Plus } from "lucide-react"
+import { Hexagon, LayoutDashboard, CheckSquare, Inbox, Scale, Settings, Folder } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/attention", icon: Eye, label: "My Attention" },
+  { to: "/projects", icon: Folder, label: "Projects" },
+  { to: "/tasks", icon: CheckSquare, label: "My Tasks" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/judgment", icon: Scale, label: "Judgment Queue" },
-  { to: "/environments", icon: Server, label: "Environments" },
 ]
 
 export function Sidebar() {
-  const projects = useProjectStore((s) => s.projects)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const navigate = useNavigate()
 
@@ -39,7 +36,7 @@ export function Sidebar() {
 
       <Separator className="bg-sidebar-border" />
 
-      <nav className="flex flex-col gap-0.5 px-4 py-2">
+      <nav className="flex flex-1 flex-col gap-0.5 px-4 py-2">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
@@ -59,41 +56,6 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-
-      <Separator className="mx-4 bg-sidebar-border" />
-
-      <div className="flex items-center justify-between px-4 pt-3 pb-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/60">
-          Projects
-        </span>
-        <button
-          onClick={() => navigate("/projects/new")}
-          className="rounded p-0.5 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground cursor-pointer"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
-      </div>
-
-      <ScrollArea className="flex-1 px-4 py-1">
-        <div className="flex flex-col gap-0.5">
-          {projects.filter(p => p.status === "active").map((project) => (
-            <NavLink
-              key={project.id}
-              to={`/project/${project.id}`}
-              className={({ isActive }) =>
-                cn(
-                  "flex h-8 items-center rounded-md px-2.5 text-sm truncate transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-                )
-              }
-            >
-              {project.name}
-            </NavLink>
-          ))}
-        </div>
-      </ScrollArea>
 
       <Separator className="bg-sidebar-border" />
 

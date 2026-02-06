@@ -33,6 +33,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           health: "on_track",
           initiative: "Platform Development",
           progress: 65,
+          labels: [
+            { id: "l1", name: "Frontend", color: "#3b82f6" },
+            { id: "l2", name: "Backend", color: "#10b981" },
+            { id: "l3", name: "Testing", color: "#f59e0b" },
+          ],
           createdAt: new Date("2026-01-15"),
           updatedAt: new Date("2026-02-04"),
         },
@@ -48,6 +53,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           health: "on_track",
           initiative: "Platform Development",
           progress: 30,
+          labels: [
+            { id: "l1", name: "Infrastructure", color: "#8b5cf6" },
+            { id: "l2", name: "Research", color: "#ec4899" },
+          ],
           createdAt: new Date("2026-02-01"),
           updatedAt: new Date("2026-02-05"),
         },
