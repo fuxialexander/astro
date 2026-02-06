@@ -34,8 +34,125 @@ import {
   type HeartbeatPingMessage,
   type MachineRegisterAckMessage,
   type ErrorMessage,
+  type MachineInfo,
+  type ProviderType,
 } from '../types/relay.js';
 import { machineRegistry } from './machine-registry.js';
+
+// ============================================================================
+// Agent Runner Message Types (for compatibility with @nexus/agent package)
+// ============================================================================
+
+/** Agent runner's provider info format */
+interface AgentRunnerProviderInfo {
+  type: string;
+  name: string;
+  version: string | null;
+  path: string;
+  available: boolean;
+  capabilities: {
+    streaming: boolean;
+    tools: boolean;
+    multiTurn: boolean;
+    maxConcurrentTasks: number;
+  };
+}
+
+/** Agent runner's resource format */
+interface AgentRunnerResources {
+  hostname: string;
+  platform: string;
+  arch: string;
+  cpu: {
+    model: string;
+    cores: number;
+    speed: number;
+    loadAvg: number[];
+  };
+  memory: {
+    total: number;
+    free: number;
+    used: number;
+    usedPercent: number;
+  };
+  gpu: Array<{
+    name: string;
+    vendor: string;
+    memoryTotal: number;
+    memoryFree: number;
+    utilization: number;
+  }>;
+}
+
+/** Agent runner's register message format */
+interface AgentRunnerRegisterMessage {
+  type: 'register';
+  timestamp: string;
+  payload: {
+    runnerId: string;
+    machineId: string;
+    providers: AgentRunnerProviderInfo[];
+    resources: AgentRunnerResources;
+    version: string;
+  };
+}
+
+/** Agent runner's heartbeat message format */
+interface AgentRunnerHeartbeatMessage {
+  type: 'heartbeat';
+  timestamp: string;
+  payload: {
+    runnerId: string;
+    activeTasks: string[];
+    resources: AgentRunnerResources;
+  };
+}
+
+/** Agent runner's task status message format */
+interface AgentRunnerTaskStatusMessage {
+  type: 'task_status';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    status: string;
+    progress?: number;
+    message?: string;
+  };
+}
+
+/** Agent runner's task output message format */
+interface AgentRunnerTaskOutputMessage {
+  type: 'task_output';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    stream: 'stdout' | 'stderr';
+    data: string;
+    sequence: number;
+  };
+}
+
+/** Agent runner's task result message format */
+interface AgentRunnerTaskResultMessage {
+  type: 'task_result';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    status: string;
+    exitCode?: number;
+    output?: string;
+    error?: string;
+    startedAt?: string;
+    completedAt?: string;
+    artifacts?: Array<{
+      type: string;
+      name: string;
+      path?: string;
+      content?: string;
+      metadata?: Record<string, unknown>;
+    }>;
+  };
+}
 
 /** Rate limit state per machine */
 interface RateLimitState {
@@ -226,6 +343,11 @@ export class RelayServer extends EventEmitter {
         this.handleMachineRegister(socket, message as MachineRegisterMessage, setMachineId);
         break;
 
+      // Support agent-runner's 'register' message format (legacy compatibility)
+      case 'register':
+        this.handleAgentRunnerRegister(socket, message as AgentRunnerRegisterMessage, setMachineId);
+        break;
+
       case 'machine.unregister':
         this.handleMachineUnregister(message as MachineUnregisterMessage);
         break;
@@ -242,12 +364,27 @@ export class RelayServer extends EventEmitter {
         this.handleTaskResult(message as TaskResultMessage);
         break;
 
+      // Support agent-runner's 'task_result' message format (legacy compatibility)
+      case 'task_result':
+        this.handleAgentRunnerTaskResult(message as AgentRunnerTaskResultMessage);
+        break;
+
       case 'task.stdout':
         this.handleTaskStdout(message as TaskStdoutMessage);
         break;
 
+      // Support agent-runner's 'task_output' message format (legacy compatibility)
+      case 'task_output':
+        this.handleAgentRunnerTaskOutput(message as AgentRunnerTaskOutputMessage);
+        break;
+
       case 'task.progress':
         this.handleTaskProgress(message as TaskProgressMessage);
+        break;
+
+      // Support agent-runner's 'task_status' message format (legacy compatibility)
+      case 'task_status':
+        this.handleAgentRunnerTaskStatus(message as AgentRunnerTaskStatusMessage);
         break;
 
       case 'task.steer.ack':
@@ -264,6 +401,11 @@ export class RelayServer extends EventEmitter {
 
       case 'heartbeat.pong':
         this.handleHeartbeatPong(message as HeartbeatPongMessage);
+        break;
+
+      // Support agent-runner's 'heartbeat' message format (legacy compatibility)
+      case 'heartbeat':
+        this.handleAgentRunnerHeartbeat(socket, message as AgentRunnerHeartbeatMessage);
         break;
 
       default:
@@ -631,6 +773,208 @@ export class RelayServer extends EventEmitter {
       machines: machineRegistry.size,
       config: this.config,
     };
+  }
+
+  // ============================================================================
+  // Agent Runner Message Handlers (for compatibility with @nexus/agent package)
+  // ============================================================================
+
+  /**
+   * Handle agent runner's register message format
+   * Converts to the standard machine.register format
+   */
+  private handleAgentRunnerRegister(
+    socket: WebSocket,
+    message: AgentRunnerRegisterMessage,
+    setMachineId: (id: string) => void
+  ): void {
+    const { payload } = message;
+    const { runnerId, machineId, providers, resources, version } = payload;
+
+    try {
+      // Convert agent runner format to relay server format
+      const machineInfo: Omit<MachineInfo, 'machineId'> = {
+        name: resources.hostname || machineId,
+        environmentType: 'local', // Agent runner is always local
+        hostname: resources.hostname,
+        platform: resources.platform,
+        providers: providers.map((p) => ({
+          type: (p.type === 'claude-code' ? 'claude-code' : p.type === 'codex' ? 'custom' : 'custom') as ProviderType,
+          version: p.version || undefined,
+          status: p.available ? 'available' : 'unavailable',
+          maxConcurrentTasks: p.capabilities.maxConcurrentTasks,
+          currentTasks: 0,
+          capabilities: ['streaming', 'tools', 'multi-turn'].filter((_, i) =>
+            [p.capabilities.streaming, p.capabilities.tools, p.capabilities.multiTurn][i]
+          ),
+        })),
+        resources: {
+          cpuCores: resources.cpu.cores,
+          memoryMB: Math.round(resources.memory.total / (1024 * 1024)),
+          gpuCount: resources.gpu.length,
+          gpuMemoryMB: resources.gpu.length > 0
+            ? Math.round(resources.gpu.reduce((sum, g) => sum + g.memoryTotal, 0) / (1024 * 1024))
+            : undefined,
+        },
+        load: {
+          cpuPercent: resources.cpu.loadAvg[0] ? resources.cpu.loadAvg[0] * 100 / resources.cpu.cores : 0,
+          memoryPercent: resources.memory.usedPercent,
+          gpuPercent: resources.gpu.length > 0
+            ? resources.gpu.reduce((sum, g) => sum + g.utilization, 0) / resources.gpu.length
+            : undefined,
+          activeTasks: 0,
+          queuedTasks: 0,
+        },
+        tags: [runnerId, version],
+        metadata: { runnerId, version },
+      };
+
+      machineRegistry.register(machineId, machineInfo, socket);
+      setMachineId(machineId);
+
+      // Set up heartbeat timeout
+      this.resetHeartbeatTimer(machineId);
+
+      // Send acknowledgment in agent runner's expected format
+      const ack = {
+        type: 'registered',
+        timestamp: new Date().toISOString(),
+        payload: {
+          runnerId,
+          serverTime: new Date().toISOString(),
+          config: {
+            heartbeatInterval: this.config.heartbeatIntervalMs,
+            maxConcurrentTasks: 4,
+          },
+        },
+      };
+      socket.send(JSON.stringify(ack));
+
+      this.emit('machine:connected', machineId);
+      console.log(`[relay] Agent runner ${runnerId} (machine ${machineId}) registered successfully`);
+    } catch (err) {
+      console.error(`[relay] Error registering agent runner ${runnerId}:`, err);
+      const errorAck = {
+        type: 'error',
+        timestamp: new Date().toISOString(),
+        payload: {
+          code: 'REGISTRATION_FAILED',
+          message: (err as Error).message,
+        },
+      };
+      socket.send(JSON.stringify(errorAck));
+    }
+  }
+
+  /**
+   * Handle agent runner's heartbeat message format
+   */
+  private handleAgentRunnerHeartbeat(
+    socket: WebSocket,
+    message: AgentRunnerHeartbeatMessage
+  ): void {
+    const { payload } = message;
+    const { runnerId, activeTasks, resources } = payload;
+
+    // Find machine by runner ID (stored in metadata)
+    const machines = machineRegistry.getAll();
+    const machine = machines.find((m) => m.metadata?.runnerId === runnerId);
+
+    if (machine) {
+      // Update load
+      machineRegistry.updateLoad(machine.machineId, {
+        cpuPercent: resources.cpu.loadAvg[0] ? resources.cpu.loadAvg[0] * 100 / resources.cpu.cores : 0,
+        memoryPercent: resources.memory.usedPercent,
+        gpuPercent: resources.gpu.length > 0
+          ? resources.gpu.reduce((sum, g) => sum + g.utilization, 0) / resources.gpu.length
+          : undefined,
+        activeTasks: activeTasks.length,
+        queuedTasks: 0,
+      });
+
+      // Reset heartbeat timer
+      this.resetHeartbeatTimer(machine.machineId);
+
+      // Send acknowledgment
+      const ack = {
+        type: 'heartbeat_ack',
+        timestamp: new Date().toISOString(),
+        payload: {
+          serverTime: new Date().toISOString(),
+        },
+      };
+      socket.send(JSON.stringify(ack));
+    }
+  }
+
+  /**
+   * Handle agent runner's task status message format
+   */
+  private handleAgentRunnerTaskStatus(message: AgentRunnerTaskStatusMessage): void {
+    const { payload } = message;
+    const { taskId, status, progress, message: statusMessage } = payload;
+
+    // Convert to standard progress message
+    const progressMsg: TaskProgressMessage = {
+      type: 'task.progress',
+      timestamp: new Date(),
+      taskId,
+      progress: progress ?? (status === 'running' ? 50 : status === 'completed' ? 100 : 0),
+      message: statusMessage || status,
+    };
+    this.emit('task:progress', progressMsg);
+  }
+
+  /**
+   * Handle agent runner's task output message format
+   */
+  private handleAgentRunnerTaskOutput(message: AgentRunnerTaskOutputMessage): void {
+    const { payload } = message;
+    const { taskId, stream, data } = payload;
+
+    // Convert to standard stdout message
+    const stdoutMsg: TaskStdoutMessage = {
+      type: 'task.stdout',
+      timestamp: new Date(),
+      output: {
+        taskId,
+        stream,
+        data,
+        timestamp: new Date(),
+      },
+    };
+    this.emit('task:stdout', stdoutMsg);
+  }
+
+  /**
+   * Handle agent runner's task result message format
+   */
+  private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {
+    const { payload } = message;
+    const { taskId, status, exitCode, output, error, artifacts } = payload;
+
+    // Convert to standard result message
+    const resultMsg: TaskResultMessage = {
+      type: 'task.result',
+      timestamp: new Date(),
+      result: {
+        taskId,
+        status: status === 'completed' ? 'completed'
+          : status === 'failed' ? 'failed'
+          : status === 'cancelled' ? 'cancelled'
+          : status === 'timeout' ? 'timeout'
+          : 'failed',
+        exitCode,
+        output,
+        error,
+        artifacts: artifacts?.map((a) => ({
+          name: a.name,
+          type: a.type === 'file' ? 'file' : a.type === 'log' ? 'log' : 'other',
+          path: a.path,
+        })),
+      },
+    };
+    this.emit('task:result', resultMsg);
   }
 }
 

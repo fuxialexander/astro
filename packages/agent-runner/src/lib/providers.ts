@@ -66,31 +66,96 @@ async function getCommandPath(command: string): Promise<string | null> {
 }
 
 /**
+ * Common installation paths for Claude Code
+ * These are checked if 'which claude' fails (e.g., ~/.local/bin not in PATH)
+ */
+function getClaudeCodePaths(): string[] {
+  const home = homedir();
+  const platform = process.platform;
+
+  const paths: string[] = [];
+
+  // Standard installation path for Claude Code
+  paths.push(join(home, '.local', 'bin', 'claude'));
+
+  // npm global installs
+  paths.push(join(home, '.npm', 'bin', 'claude'));
+  paths.push(join(home, '.npm-global', 'bin', 'claude'));
+
+  // Platform-specific paths
+  if (platform === 'darwin') {
+    // macOS: Homebrew and user local
+    paths.push('/usr/local/bin/claude');
+    paths.push('/opt/homebrew/bin/claude');
+    paths.push(join(home, 'Library', 'Application Support', 'claude', 'bin', 'claude'));
+  } else if (platform === 'win32') {
+    // Windows: AppData locations
+    const appData = process.env.APPDATA ?? join(home, 'AppData', 'Roaming');
+    const localAppData = process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local');
+    paths.push(join(appData, 'claude', 'bin', 'claude.exe'));
+    paths.push(join(localAppData, 'claude', 'bin', 'claude.exe'));
+    paths.push(join(appData, 'npm', 'claude.cmd'));
+  } else {
+    // Linux: Standard locations
+    paths.push('/usr/local/bin/claude');
+    paths.push('/usr/bin/claude');
+    paths.push(join(home, '.local', 'share', 'claude', 'bin', 'claude'));
+  }
+
+  return paths;
+}
+
+/**
  * Detect Claude Code installation
  */
 async function detectClaudeCode(): Promise<ProviderInfo | null> {
-  // Check for 'claude' command (Claude Code CLI)
-  const exists = await commandExists('claude');
-  if (!exists) {
-    return null;
+  // First, check if 'claude' is in PATH
+  const existsInPath = await commandExists('claude');
+  if (existsInPath) {
+    const path = await getCommandPath('claude');
+    const version = await getCommandVersion('claude', '--version');
+
+    return {
+      type: 'claude-code',
+      name: 'Claude Code',
+      version,
+      path: path ?? 'claude',
+      available: true,
+      capabilities: {
+        streaming: true,
+        tools: true,
+        multiTurn: true,
+        maxConcurrentTasks: 1, // Claude Code runs one task at a time per instance
+      },
+    };
   }
 
-  const path = await getCommandPath('claude');
-  const version = await getCommandVersion('claude', '--version');
+  // If not in PATH, check common installation locations
+  const commonPaths = getClaudeCodePaths();
 
-  return {
-    type: 'claude-code',
-    name: 'Claude Code',
-    version,
-    path: path ?? 'claude',
-    available: true,
-    capabilities: {
-      streaming: true,
-      tools: true,
-      multiTurn: true,
-      maxConcurrentTasks: 1, // Claude Code runs one task at a time per instance
-    },
-  };
+  for (const claudePath of commonPaths) {
+    const isExecutable = await fileExecutable(claudePath);
+    if (isExecutable) {
+      // Found Claude Code at this path, get version
+      const version = await getCommandVersion(claudePath, '--version');
+
+      return {
+        type: 'claude-code',
+        name: 'Claude Code',
+        version,
+        path: claudePath,
+        available: true,
+        capabilities: {
+          streaming: true,
+          tools: true,
+          multiTurn: true,
+          maxConcurrentTasks: 1,
+        },
+      };
+    }
+  }
+
+  return null;
 }
 
 /**
