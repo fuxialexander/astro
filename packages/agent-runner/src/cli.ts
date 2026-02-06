@@ -14,7 +14,7 @@
  */
 
 import { Command } from 'commander';
-import { setupCommand, startCommand, statusCommand, stopCommand } from './commands/index.js';
+import { setupCommand, startCommand, statusCommand, stopCommand, mcpCommand } from './commands/index.js';
 
 const program = new Command();
 
@@ -215,6 +215,24 @@ program
     console.log('\nDiscovering remote hosts...\n');
     const hosts = await discoverRemoteHosts();
     console.log(formatDiscoveredHosts(hosts));
+  });
+
+// MCP command (start MCP server for Claude Code integration)
+program
+  .command('mcp')
+  .description('Start MCP server for Claude Code integration (stdio mode)')
+  .option('--relay <url>', 'Override relay server URL')
+  .option('--log-level <level>', 'Log level: debug, info, warn, error', 'info')
+  .action(async (options) => {
+    try {
+      await mcpCommand({
+        relay: options.relay,
+        logLevel: options.logLevel,
+      });
+    } catch (error) {
+      console.error('MCP server error:', error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
   });
 
 // Parse arguments

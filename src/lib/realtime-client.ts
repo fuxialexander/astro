@@ -15,6 +15,9 @@ export type RealtimeEventType =
   | 'task:file_change'
   | 'machine:connected'
   | 'machine:disconnected'
+  | 'session:attached'
+  | 'session:detached'
+  | 'session:event'
   | 'heartbeat'
 
 export interface RealtimeEvent {
@@ -69,6 +72,9 @@ export class RealtimeClient {
       'task:file_change',
       'machine:connected',
       'machine:disconnected',
+      'session:attached',
+      'session:detached',
+      'session:event',
       'heartbeat',
     ]
 

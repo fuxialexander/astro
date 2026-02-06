@@ -11,6 +11,7 @@ import { TaskOutputView } from "@/components/task-detail/task-output-view"
 import { ToolTraceView } from "@/components/task-detail/tool-trace-view"
 import { FileChangesView } from "@/components/task-detail/file-changes-view"
 import { SteerChat } from "@/components/task-detail/steer-chat"
+import { SessionActivityView } from "@/components/task-detail/session-activity-view"
 
 const statusBadgeVariants: Record<string, "default" | "secondary" | "destructive" | "warning" | "success" | "info"> = {
   planned: "secondary",
@@ -42,11 +43,16 @@ export function TaskDetail() {
   const cancelExecution = useExecutionStore((s) => s.cancelExecution)
   const isExecuting = useExecutionStore((s) => nodeId ? s.isExecuting(nodeId) : false)
 
+  // Compute executionId early for use in hooks
+  const executionId = node?.executionId || execution?.executionId || ""
+
   // Get realtime stream data
   const taskStream = useRealtimeStore((s) => {
-    const execId = node?.executionId || execution?.executionId
-    return execId ? s.taskStreams.get(execId) : undefined
+    return executionId ? s.taskStreams.get(executionId) : undefined
   })
+
+  // Get attached sessions for this task
+  const attachedSessions = useRealtimeStore((s) => s.getSessionsForTask(executionId))
 
   if (!node || !projectId) {
     return (
@@ -60,7 +66,6 @@ export function TaskDetail() {
   }
 
   const isRunning = node.status === "in_progress" || node.status === "dispatched"
-  const executionId = node.executionId || execution?.executionId || ""
 
   // Combine output from execution store (local) and realtime store (relay)
   const outputText = execution?.streamText || taskStream?.stdout || node.executionOutput || ""
@@ -146,6 +151,9 @@ export function TaskDetail() {
             <TabsTrigger value="files">
               Files {fileChanges.length > 0 && `(${fileChanges.length})`}
             </TabsTrigger>
+            <TabsTrigger value="sessions">
+              Sessions {attachedSessions.length > 0 && `(${attachedSessions.length})`}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="output" className="flex-1 m-0 min-h-0">
@@ -156,6 +164,9 @@ export function TaskDetail() {
           </TabsContent>
           <TabsContent value="files" className="flex-1 m-0 min-h-0">
             <FileChangesView changes={fileChanges} />
+          </TabsContent>
+          <TabsContent value="sessions" className="flex-1 m-0 min-h-0">
+            <SessionActivityView sessions={attachedSessions} />
           </TabsContent>
         </Tabs>
       </div>

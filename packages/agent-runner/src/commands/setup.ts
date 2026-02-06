@@ -225,6 +225,28 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     }
   }
 
+  // Step 9: Configure MCP for Claude Code integration
+  let mcpConfigured = false;
+  if (!options.nonInteractive) {
+    console.log();
+    console.log(chalk.bold('Claude Code Integration\n'));
+    console.log(chalk.dim('The MCP bridge allows you to attach existing Claude Code sessions'));
+    console.log(chalk.dim('to Nexus tasks, streaming your activity for monitoring.\n'));
+
+    const { configureMcp } = await inquirer.prompt<{ configureMcp: boolean }>([
+      {
+        type: 'confirm',
+        name: 'configureMcp',
+        message: 'Configure MCP integration for Claude Code?',
+        default: true,
+      },
+    ]);
+
+    if (configureMcp) {
+      mcpConfigured = await configureMcpForClaudeCode();
+    }
+  }
+
   // Mark setup as complete
   config.completeSetup();
 
@@ -245,6 +267,10 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     'Providers:',
     providerTypes.length > 0 ? chalk.cyan(providerTypes.join(', ')) : chalk.yellow('none'),
   );
+  console.log(
+    'MCP:     ',
+    mcpConfigured ? chalk.green('configured for Claude Code') : chalk.yellow('not configured'),
+  );
   console.log();
   console.log(chalk.bold('Next steps:'));
   console.log('  1. Start the agent runner:');
@@ -253,6 +279,14 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
   console.log('  2. Or run in the foreground for testing:');
   console.log(chalk.cyan('     npx @nexus/agent start --foreground'));
   console.log();
+
+  if (mcpConfigured) {
+    console.log('  3. In Claude Code, use these tools to connect to Nexus:');
+    console.log(chalk.cyan('     nexus_attach("TASK-ID")  # Attach to a task'));
+    console.log(chalk.cyan('     nexus_status()           # Check connection status'));
+    console.log(chalk.cyan('     nexus_detach()           # Detach from task'));
+    console.log();
+  }
 }
 
 // ============================================================================
@@ -451,6 +485,64 @@ async function installOnRemoteHosts(
     }
   }
   console.log();
+}
+
+// ============================================================================
+// MCP Configuration for Claude Code
+// ============================================================================
+
+async function configureMcpForClaudeCode(): Promise<boolean> {
+  const { getClaudeCodeMcpConfig, getClaudeCodeConfigPath } = await import('../mcp/server.js');
+  const { readFile, writeFile, mkdir } = await import('node:fs/promises');
+  const { dirname } = await import('node:path');
+
+  const configPath = getClaudeCodeConfigPath();
+  const mcpConfig = getClaudeCodeMcpConfig();
+
+  const spinner = ora('Configuring Claude Code MCP integration...').start();
+
+  try {
+    // Ensure the config directory exists
+    await mkdir(dirname(configPath), { recursive: true });
+
+    // Read existing config or start fresh
+    let existingConfig: Record<string, unknown> = {};
+    try {
+      const content = await readFile(configPath, 'utf-8');
+      existingConfig = JSON.parse(content);
+    } catch {
+      // File doesn't exist or invalid JSON - start fresh
+    }
+
+    // Merge configurations
+    const mcpServers = (existingConfig.mcpServers as Record<string, unknown>) ?? {};
+    const updatedConfig = {
+      ...existingConfig,
+      mcpServers: {
+        ...mcpServers,
+        ...mcpConfig.mcpServers,
+      },
+    };
+
+    // Write updated config
+    await writeFile(configPath, JSON.stringify(updatedConfig, null, 2));
+
+    spinner.succeed('Claude Code MCP integration configured');
+    console.log(chalk.dim(`  Config: ${configPath}`));
+    console.log(chalk.dim('  Server: nexus (npx @nexus/agent mcp)'));
+    console.log();
+
+    return true;
+  } catch (error) {
+    spinner.fail('Failed to configure Claude Code MCP integration');
+    console.error(chalk.red(`  ${error instanceof Error ? error.message : String(error)}`));
+    console.log();
+    console.log(chalk.dim('You can manually add this to your Claude Code MCP config:'));
+    console.log(chalk.cyan(JSON.stringify(mcpConfig, null, 2)));
+    console.log();
+
+    return false;
+  }
 }
 
 // ============================================================================
