@@ -5,12 +5,14 @@ import { healthRoute } from './routes/health.js'
 import { agentRoute } from './routes/agent.js'
 import { relayRoute } from './routes/relay.js'
 import { dispatchRoute } from './routes/dispatch.js'
+import { deviceAuthRoute } from './routes/device-auth.js'
 import { eventsRoute } from './routes/events.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
 import { dispatchEngine } from './lib/dispatch/index.js'
+import { updateMachineConnectionStatus } from './lib/registered-machines-store.js'
 
 const app = new Hono()
 
@@ -25,6 +27,7 @@ app.route('/api', healthRoute)
 app.route('/api/agent', agentRoute)
 app.route('/api/relay', relayRoute)
 app.route('/api/dispatch', dispatchRoute)
+app.route('/api/device', deviceAuthRoute)
 app.route('/api/events', eventsRoute)
 
 const port = 3001
@@ -81,6 +84,8 @@ async function start() {
 
     relayServer.on('machine:connected', async (machineId) => {
       console.log(`[relay] Machine ${machineId} connected`)
+      // Update registered machine status
+      updateMachineConnectionStatus(machineId, true)
       const entry = machineRegistry.get(machineId)
       if (entry && redisPubSub.isConnected()) {
         await redisPubSub.registerMachine(machineId, entry)
@@ -95,6 +100,8 @@ async function start() {
 
     relayServer.on('machine:disconnected', async (machineId, reason) => {
       console.log(`[relay] Machine ${machineId} disconnected: ${reason}`)
+      // Update registered machine status
+      updateMachineConnectionStatus(machineId, false)
       if (redisPubSub.isConnected()) {
         await redisPubSub.unregisterMachine(machineId)
         await redisPubSub.publishMachineState({
