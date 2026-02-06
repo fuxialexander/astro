@@ -1,11 +1,15 @@
 import { Link } from "react-router"
-import { Plus, AlertCircle, Activity, CheckCircle2, FileText, Monitor, XCircle } from "lucide-react"
+import { Plus, AlertCircle, Activity, CheckCircle2, FileText, Monitor, XCircle, Server } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
+import { useSlurmStore } from "@/stores/slurm-store"
+import { ClusterStatus } from "@/components/slurm/cluster-status"
+import { JobList } from "@/components/slurm/job-list"
+import { useEffect } from "react"
 
 function formatRelativeTime(date: Date): string {
   const now = Date.now()
@@ -50,7 +54,22 @@ export function Dashboard() {
   const activityFeed = useRealtimeStore((s) => s.activityFeed)
   const connected = useRealtimeStore((s) => s.connected)
 
-  const activeTasks = nodes.filter((n) => n.status === "in_progress" || n.status === "dispatched").length
+  // Slurm/HPC state
+  const slurmClusters = useSlurmStore((s) => s.clusters)
+  const fetchClusters = useSlurmStore((s) => s.fetchClusters)
+  const getActiveJobs = useSlurmStore((s) => s.getActiveJobs)
+  const getQueuedJobs = useSlurmStore((s) => s.getQueuedJobs)
+
+  // Fetch Slurm clusters on mount
+  useEffect(() => {
+    fetchClusters()
+  }, [fetchClusters])
+
+  const connectedClusters = slurmClusters.filter(c => c.connectionStatus === 'connected')
+  const activeHpcJobs = getActiveJobs()
+  const queuedHpcJobs = getQueuedJobs()
+
+  const activeTasks = nodes.filter((n) => n.status === "in_progress" || n.status === "dispatched").length + activeHpcJobs.length
   const completedToday = nodes.filter((n) => n.status === "completed" || n.status === "auto_verified").length
   const pendingDecisions = nodes.filter((n) => n.status === "awaiting_judgment").length
 
@@ -78,7 +97,7 @@ export function Dashboard() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <Card>
           <CardContent className="flex items-center justify-between p-6">
             <div className="flex flex-col gap-1">
@@ -109,6 +128,20 @@ export function Dashboard() {
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-500/10">
               <CheckCircle2 className="h-6 w-6 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center justify-between p-6">
+            <div className="flex flex-col gap-1">
+              <p className="text-sm text-muted-foreground">HPC Clusters</p>
+              <p className="font-primary text-[32px] font-bold">{connectedClusters.length}</p>
+              <p className="text-xs text-muted-foreground">
+                {activeHpcJobs.length + queuedHpcJobs.length} jobs
+              </p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-500/10">
+              <Server className="h-6 w-6 text-purple-500" />
             </div>
           </CardContent>
         </Card>
@@ -149,7 +182,7 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Right: Projects + Agent Activity */}
+        {/* Right: Projects + Agent Activity + HPC */}
         <div className="flex w-[400px] shrink-0 flex-col gap-6">
           {/* Active Projects */}
           <div className="flex flex-col gap-3">
@@ -201,6 +234,33 @@ export function Dashboard() {
               </div>
             </CardContent>
           </Card>
+
+          {/* HPC Cluster Status */}
+          {connectedClusters.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h2 className="text-base font-semibold">HPC Jobs</h2>
+              {activeHpcJobs.length > 0 || queuedHpcJobs.length > 0 ? (
+                <>
+                  <JobList filter="active" maxItems={3} compact showCluster />
+                  {queuedHpcJobs.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {queuedHpcJobs.length} job{queuedHpcJobs.length > 1 ? 's' : ''} queued
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No active HPC jobs</p>
+              )}
+            </div>
+          )}
+
+          {/* Cluster Status Compact */}
+          {slurmClusters.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h2 className="text-base font-semibold">Clusters</h2>
+              <ClusterStatus compact />
+            </div>
+          )}
         </div>
       </div>
     </div>
