@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router"
-import { Hexagon, LayoutDashboard, Eye, Inbox, Scale, Settings, Plus } from "lucide-react"
+import { Hexagon, LayoutDashboard, Eye, Inbox, Scale, Server, Settings, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -12,6 +12,7 @@ const navItems = [
   { to: "/attention", icon: Eye, label: "My Attention" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/judgment", icon: Scale, label: "Judgment Queue" },
+  { to: "/environments", icon: Server, label: "Environments" },
 ]
 
 export function Sidebar() {

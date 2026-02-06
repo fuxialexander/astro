@@ -55,6 +55,8 @@ import {
   revokeMachine,
   getMachineStats,
 } from '../lib/registered-machines-store.js';
+import { machineRegistry } from '../lib/machine-registry.js';
+import { relayServer } from '../lib/relay-server.js';
 
 export const deviceAuthRoute = new Hono();
 
@@ -542,6 +544,74 @@ deviceAuthRoute.delete('/machines/:id', (c) => {
 // ============================================================================
 // Admin / Debug Endpoints
 // ============================================================================
+
+/**
+ * POST /device/simulate-machine
+ * Create a simulated machine for testing/demo purposes.
+ * Registers in both the persistent store and live registry.
+ */
+deviceAuthRoute.post('/simulate-machine', async (c) => {
+  try {
+    const body = await c.req.json() as { type?: 'local' | 'hpc'; name?: string };
+    const envType = body.type || 'local';
+    const isHpc = envType === 'hpc';
+
+    const machineId = `sim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const machineName = body.name || (isHpc ? 'Sherlock HPC' : `Dev Machine ${machineId.slice(-4)}`);
+    const hostname = isHpc ? 'sh03-ln01.stanford.edu' : `${machineName.toLowerCase().replace(/\s+/g, '-')}.local`;
+    const platform = isHpc ? 'linux' : 'darwin';
+    const providers: Array<'claude-code' | 'slurm' | 'aws' | 'gcp' | 'custom'> = isHpc ? ['slurm'] : ['claude-code'];
+
+    // Register in persistent store
+    const machine = registerMachine({
+      name: machineName,
+      hostname,
+      platform,
+      environmentType: envType,
+      providers,
+      userId: 'current-user',
+      refreshTokenHash: '',
+      metadata: { simulated: 'true' },
+    });
+
+    // Register in live registry (simulated — no real WebSocket)
+    machineRegistry.registerSimulated(machine.id, {
+      name: machineName,
+      hostname,
+      platform,
+      environmentType: envType,
+      providers: providers.map((p) => ({
+        type: p,
+        status: 'available' as const,
+        currentTasks: 0,
+        maxConcurrentTasks: isHpc ? 10 : 3,
+      })),
+      load: {
+        cpuPercent: Math.round(Math.random() * 30 + 5),
+        memoryPercent: Math.round(Math.random() * 40 + 20),
+        activeTasks: 0,
+      },
+    });
+
+    // Emit machine:connected so the SSE bridge picks it up
+    relayServer.emit('machine:connected', machine.id);
+
+    return c.json({
+      success: true,
+      machine: {
+        id: machine.id,
+        name: machineName,
+        hostname,
+        platform,
+        environmentType: envType,
+        providers,
+      },
+    });
+  } catch (err) {
+    console.error('[device-auth] Error simulating machine:', err);
+    return c.json({ error: 'Failed to simulate machine' }, 500);
+  }
+});
 
 /**
  * GET /device/stats
