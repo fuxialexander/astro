@@ -139,7 +139,7 @@ export async function getPartitionInfo(): Promise<
 > {
   try {
     const { stdout } = await execAsync(
-      'sinfo --parsable2 --noheader -o "%P|%a|%l|%D|%T|%f"'
+      'sinfo -h -o "%P|%a|%l|%D|%T|%f"'
     )
 
     const partitionMap = new Map<
