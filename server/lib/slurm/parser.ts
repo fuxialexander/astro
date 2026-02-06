@@ -185,7 +185,7 @@ function normalizeSacctState(state: string): SlurmJobState {
 
 /**
  * Parse sinfo output for partition info
- * Expected format: sinfo --parsable2 --noheader -o "%P|%a|%l|%D|%T|%c|%m|%f|%G"
+ * Expected format: sinfo -h -o "%P|%a|%l|%D|%T|%c|%m|%f|%G"
  */
 export function parseSinfoOutput(output: string): SlurmPartitionInfo[] {
   const partitionMap = new Map<string, SlurmPartitionInfo>()

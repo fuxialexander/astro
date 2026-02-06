@@ -71,9 +71,9 @@ export async function getClusterInfo(): Promise<SlurmClusterInfo | undefined> {
     // Get Slurm version
     const slurmVersion = await getSlurmVersion() || 'unknown'
 
-    // Get partition info
+    // Get partition info (use -h instead of --parsable2 for compatibility)
     const { stdout: sinfoOutput } = await execAsync(
-      'sinfo --parsable2 --noheader -o "%P|%a|%l|%D|%T|%c|%m|%f|%G"'
+      'sinfo -h -o "%P|%a|%l|%D|%T|%c|%m|%f|%G"'
     )
     const partitions = parseSinfoOutput(sinfoOutput)
 
