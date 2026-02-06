@@ -31,7 +31,7 @@ npm run deploy           # Build + deploy to Cloudflare Pages
 - **Command Palette**: cmdk
 - **Backend**: Hono.js on Node.js (port 3001), proxied via Vite `/api` → localhost:3001
 - **AI**: @anthropic-ai/claude-agent-sdk for plan generation + chat
-- **Deployment**: Cloudflare Pages (wrangler)
+- **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend + relay)
 
 ## Architecture
 
@@ -45,11 +45,12 @@ src/
 ├── main.tsx                      # React DOM entry point
 ├── globals.css                   # Tailwind v4 theme, CSS variables, light/dark tokens
 ├── pages/
-│   ├── dashboard.tsx             # Home: stats, pending decisions, active projects, agent activity
+│   ├── dashboard.tsx             # Home: live stats, pending decisions, active projects, agent activity feed
 │   ├── projects.tsx              # Project list with table (grouped, sortable columns)
 │   ├── project-new.tsx           # New project form + AI plan generation
 │   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat
 │   ├── plan-timeline.tsx         # Gantt chart: date-based bars, click-to-edit dialog
+│   ├── task-detail.tsx           # Task-agent detail: output, tool traces, file changes, steer chat
 │   ├── judgment-queue.tsx        # Queue of tasks awaiting human judgment
 │   └── settings.tsx              # Backend connection, model selection
 ├── components/
@@ -60,7 +61,12 @@ src/
 │   │   └── header.tsx            # Reusable page header
 │   ├── plan-graph/
 │   │   ├── plan-canvas.tsx       # React Flow wrapper (background, controls, fitView)
-│   │   └── task-node.tsx         # Custom node component with status styling
+│   │   └── task-node.tsx         # Custom node component with status styling + live progress
+│   ├── task-detail/
+│   │   ├── task-output-view.tsx  # Terminal-style output viewer with search, copy, auto-scroll
+│   │   ├── tool-trace-view.tsx   # Vertical timeline of tool calls with collapsible I/O
+│   │   ├── file-changes-view.tsx # File change list with diff display
+│   │   └── steer-chat.tsx        # Agent steering chat (sends guidance to running agent)
 │   ├── agent/
 │   │   ├── generation-overlay.tsx # Modal overlay during AI plan generation
 │   │   └── chat-panel.tsx        # Sidebar chat for plan refinement
@@ -70,11 +76,14 @@ src/
 │   ├── project-store.ts          # Projects CRUD, IndexedDB persistence, mock seed data
 │   ├── plan-store.ts             # Plan nodes/edges per project, bulk updates
 │   ├── agent-store.ts            # AI generation state, SSE streaming, abort
+│   ├── execution-store.ts        # Task execution state, SSE stream processing
+│   ├── realtime-store.ts         # Real-time events: machines, activity feed, task streams
 │   ├── ui-store.ts               # Sidebar collapsed, command palette open
 │   └── settings-store.ts         # Model selection, backend health, IndexedDB persistence
 ├── lib/
 │   ├── db.ts                     # idb-keyval wrapper for IndexedDB
 │   ├── api-client.ts             # HTTP + SSE client for /api/agent/* endpoints
+│   ├── realtime-client.ts        # EventSource wrapper for /api/events/stream
 │   └── utils.ts                  # cn() = clsx + tailwind-merge
 └── types/
     └── index.ts                  # Project, PlanNode (with startDate/endDate), PlanEdge
@@ -84,12 +93,16 @@ server/
 ├── routes/
 │   ├── health.ts                 # GET /api/health (Claude SDK auth check)
 │   ├── agent.ts                  # POST /api/agent/generate-plan, /chat, /abort (SSE streaming)
+│   ├── dispatch.ts               # POST /api/dispatch/task, /cancel, /steer, /prune (task execution)
+│   ├── events.ts                 # GET /api/events/stream (SSE bridge: relay → browser)
 │   └── relay.ts                  # GET/POST /api/relay/* (machine registry, task dispatch)
 ├── lib/
 │   ├── session-manager.ts        # In-memory AbortController map for agent sessions
 │   ├── prompt-templates.ts       # System prompts + JSON schema for plan generation
 │   ├── relay-server.ts           # WebSocket relay server for agent runner communication
 │   ├── machine-registry.ts       # Live machine registry with connection tracking
+│   ├── event-buffer.ts           # Ring buffer for SSE reconnection replay (Last-Event-ID)
+│   ├── stdout-throttle.ts        # Batches stdout chunks per task (100ms flush)
 │   └── redis-pubsub.ts           # Redis pub/sub for horizontal scaling
 ├── types/
 │   └── relay.ts                  # WebSocket protocol types for relay communication
@@ -104,6 +117,7 @@ server/
 | `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
 | `/projects/new` | New Project | Implemented (AI plan generation works) |
 | `/project/:id` | Plan View | Implemented (graph + detail panel + chat) |
+| `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat) |
 | `/project/:id/timeline` | Timeline | Implemented (date-based Gantt, click-to-edit dialog) |
 | `/judgment` | Judgment Queue | Implemented (UI only, actions not wired) |
 | `/settings` | Settings | Implemented (health check + model selection) |

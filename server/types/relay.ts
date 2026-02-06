@@ -199,6 +199,36 @@ export interface TaskProgressMessage extends BaseMessage {
   message?: string;
 }
 
+/** Task steer acknowledgment (agent runner confirms it received steering) */
+export interface TaskSteerAckMessage extends BaseMessage {
+  type: 'task.steer.ack';
+  taskId: string;
+  accepted: boolean;
+  message?: string;
+}
+
+/** Task tool trace (detailed tool call information from agent) */
+export interface TaskToolTraceMessage extends BaseMessage {
+  type: 'task.tool_trace';
+  taskId: string;
+  toolName: string;
+  toolInput: unknown;
+  toolResult?: unknown;
+  success?: boolean;
+  duration?: number;  // milliseconds
+}
+
+/** Task file change (file modification by agent) */
+export interface TaskFileChangeMessage extends BaseMessage {
+  type: 'task.file_change';
+  taskId: string;
+  path: string;
+  action: 'created' | 'modified' | 'deleted';
+  linesAdded?: number;
+  linesRemoved?: number;
+  diff?: string;
+}
+
 /** Heartbeat pong response */
 export interface HeartbeatPongMessage extends BaseMessage {
   type: 'heartbeat.pong';
@@ -232,6 +262,14 @@ export interface MachineRegisterAckMessage extends BaseMessage {
   sessionId: string;
   success: boolean;
   error?: string;
+}
+
+/** Task steer message (inject guidance into running agent) */
+export interface TaskSteerMessage extends BaseMessage {
+  type: 'task.steer';
+  taskId: string;
+  message: string;
+  action?: 'guidance' | 'redirect' | 'pause' | 'resume';
 }
 
 /** Error message */
@@ -274,12 +312,16 @@ export type AgentToRelayMessage =
   | TaskResultMessage
   | TaskStdoutMessage
   | TaskProgressMessage
+  | TaskSteerAckMessage
+  | TaskToolTraceMessage
+  | TaskFileChangeMessage
   | HeartbeatPongMessage;
 
 /** All messages from relay to agent runner */
 export type RelayToAgentMessage =
   | TaskDispatchMessage
   | TaskCancelMessage
+  | TaskSteerMessage
   | HeartbeatPingMessage
   | MachineRegisterAckMessage
   | ErrorMessage;
@@ -334,3 +376,140 @@ export const DEFAULT_RELAY_CONFIG: RelayServerConfig = {
     maxStdoutBytesPerSecond: 1024 * 1024,  // 1MB/s
   },
 };
+
+// ============================================================================
+// Slurm/HPC Extensions
+// ============================================================================
+
+/** Slurm cluster information */
+export interface SlurmClusterInfo {
+  clusterName: string;
+  slurmVersion: string;
+  defaultPartition?: string;
+  partitions: SlurmPartitionInfo[];
+  qosLevels: string[];
+  accounts: string[];
+}
+
+/** Slurm partition information */
+export interface SlurmPartitionInfo {
+  name: string;
+  isDefault: boolean;
+  totalNodes: number;
+  availableNodes: number;
+  maxTime?: string;
+  defaultTime?: string;
+  maxMemPerNode?: string;
+  features: string[];
+  gpuInfo?: {
+    totalGpus: number;
+    availableGpus: number;
+    gpuTypes: string[];
+  };
+}
+
+/** Slurm-specific provider info extension */
+export interface SlurmProviderInfo extends ProviderInfo {
+  type: 'slurm';
+  /** Cluster information */
+  clusterInfo?: SlurmClusterInfo;
+  /** User's default account */
+  defaultAccount?: string;
+  /** Available QOS for the user */
+  availableQos?: string[];
+}
+
+/** Slurm job state */
+export type SlurmJobState =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'SUSPENDED'
+  | 'COMPLETING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'TIMEOUT'
+  | 'PREEMPTED'
+  | 'NODE_FAIL'
+  | 'OUT_OF_MEMORY'
+  | 'UNKNOWN';
+
+/** Slurm job info */
+export interface SlurmJobInfo {
+  jobId: string;
+  arrayTaskId?: string;
+  name: string;
+  state: SlurmJobState;
+  stateReason?: string;
+  user: string;
+  partition: string;
+  nodes: number;
+  cpus: number;
+  timeLimit?: string;
+  timeUsed?: string;
+  submitTime?: Date;
+  startTime?: Date;
+  endTime?: Date;
+  exitCode?: number;
+  nodeList?: string;
+  priority?: number;
+  queuePosition?: number;
+  startTimeEstimate?: Date;
+}
+
+/** Slurm task dispatch extension */
+export interface SlurmTaskDispatch extends TaskDispatch {
+  environment: 'hpc';
+  preferredProvider: 'slurm';
+  /** Slurm-specific configuration */
+  slurmConfig?: {
+    partition?: string;
+    nodes?: number;
+    ntasks?: number;
+    cpusPerTask?: number;
+    mem?: string;
+    time?: string;
+    gpu?: {
+      type?: string;
+      count: number;
+    };
+    qos?: string;
+    account?: string;
+    modules?: string[];
+    workdir?: string;
+  };
+}
+
+/** Slurm job status message (agent → relay) */
+export interface SlurmJobStatusMessage extends BaseMessage {
+  type: 'slurm.job.status';
+  taskId: string;
+  slurmJobId: string;
+  jobInfo: SlurmJobInfo;
+}
+
+/** Slurm job output message (agent → relay) */
+export interface SlurmJobOutputMessage extends BaseMessage {
+  type: 'slurm.job.output';
+  taskId: string;
+  slurmJobId: string;
+  stream: 'stdout' | 'stderr';
+  data: string;
+}
+
+/** Slurm job submitted message (agent → relay) */
+export interface SlurmJobSubmittedMessage extends BaseMessage {
+  type: 'slurm.job.submitted';
+  taskId: string;
+  slurmJobId: string;
+  scriptPath: string;
+  outputPath: string;
+  errorPath: string;
+}
+
+/** Extended agent to relay messages including Slurm types */
+export type AgentToRelayMessageExtended =
+  | AgentToRelayMessage
+  | SlurmJobStatusMessage
+  | SlurmJobOutputMessage
+  | SlurmJobSubmittedMessage;
