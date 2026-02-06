@@ -68,17 +68,37 @@ export interface TaskStream {
   error?: string
 }
 
+/** Attached session from MCP bridge */
+export interface AttachedSession {
+  sessionId: string
+  taskId: string
+  machineId: string
+  attachedAt: Date
+  eventCount: number
+  events: SessionEventEntry[]
+}
+
+/** Session event from MCP bridge */
+export interface SessionEventEntry {
+  type: string
+  timestamp: Date
+  data: unknown
+}
+
 interface RealtimeState {
   connected: boolean
   machines: Map<string, MachineEntry>
   activityFeed: ActivityEvent[]
   taskStreams: Map<string, TaskStream>
+  // Attached sessions from MCP bridge
+  attachedSessions: Map<string, AttachedSession>
 
   // Actions
   connect: () => void
   disconnect: () => void
   getTaskStream: (taskId: string) => TaskStream | undefined
   addSteerMessage: (taskId: string, message: string) => void
+  getSessionsForTask: (taskId: string) => AttachedSession[]
 }
 
 let activityCounter = 0
@@ -88,6 +108,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   machines: new Map(),
   activityFeed: [],
   taskStreams: new Map(),
+  attachedSessions: new Map(),
 
   connect: () => {
     realtimeClient.connect()
@@ -124,6 +145,11 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       streams.set(taskId, stream)
       return { taskStreams: streams }
     })
+  },
+
+  getSessionsForTask: (taskId: string) => {
+    const sessions = get().attachedSessions
+    return Array.from(sessions.values()).filter((s) => s.taskId === taskId)
   },
 }))
 
@@ -327,6 +353,84 @@ function handleRealtimeEvent(
         }
         return { taskStreams: streams }
       })
+      break
+    }
+
+    // Session attachment events (MCP bridge)
+    case 'session:attached': {
+      const sessionId = data.sessionId as string
+      const taskId = data.taskId as string
+      const machineId = data.machineId as string
+      const attachedAt = data.attachedAt ? new Date(data.attachedAt as string) : new Date()
+
+      set((state) => {
+        const sessions = new Map(state.attachedSessions)
+        sessions.set(sessionId, {
+          sessionId,
+          taskId,
+          machineId,
+          attachedAt,
+          eventCount: 0,
+          events: [],
+        })
+        return { attachedSessions: sessions }
+      })
+
+      addActivity(set, 'session', `Session attached to task ${taskId}`, { taskId, machineId })
+      break
+    }
+
+    case 'session:detached': {
+      const sessionId = data.sessionId as string
+      const taskId = data.taskId as string
+      const reason = data.reason as string | undefined
+
+      set((state) => {
+        const sessions = new Map(state.attachedSessions)
+        sessions.delete(sessionId)
+        return { attachedSessions: sessions }
+      })
+
+      addActivity(set, 'session', `Session detached from task ${taskId}${reason ? `: ${reason}` : ''}`, { taskId })
+      break
+    }
+
+    case 'session:event': {
+      const sessionId = data.sessionId as string
+      const taskId = data.taskId as string
+      const eventData = data.event as { type: string; [key: string]: unknown }
+
+      set((state) => {
+        const sessions = new Map(state.attachedSessions)
+        const session = sessions.get(sessionId)
+        if (session) {
+          session.eventCount++
+          session.events.push({
+            type: eventData.type,
+            timestamp: new Date(),
+            data: eventData,
+          })
+          // Keep last 100 events per session
+          if (session.events.length > 100) {
+            session.events = session.events.slice(-100)
+          }
+          sessions.set(sessionId, session)
+        }
+        return { attachedSessions: sessions }
+      })
+
+      // Add activity for significant events
+      if (eventData.type === 'tool_call') {
+        const toolName = (eventData as { toolName?: string }).toolName || 'unknown'
+        addActivity(set, 'tool', `Tool call: ${toolName}`, { taskId })
+      } else if (eventData.type === 'file_change') {
+        const path = (eventData as { path?: string }).path || 'unknown'
+        const action = (eventData as { action?: string }).action || 'changed'
+        addActivity(set, 'file_change', `File ${action}: ${path}`, { taskId })
+      } else if (eventData.type === 'error') {
+        const message = (eventData as { message?: string }).message || 'Unknown error'
+        addActivity(set, 'error', `Session error: ${message}`, { taskId })
+      }
       break
     }
   }

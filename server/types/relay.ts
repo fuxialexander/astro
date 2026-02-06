@@ -300,6 +300,59 @@ export interface TaskStateChangeEvent {
 }
 
 // ============================================================================
+// Session Attachment Types (MCP Bridge)
+// ============================================================================
+
+/** Session event types from MCP bridge */
+export type SessionEventType =
+  | 'tool_call'
+  | 'tool_result'
+  | 'file_change'
+  | 'message'
+  | 'error';
+
+/** Base session event */
+export interface SessionEvent {
+  type: SessionEventType;
+  timestamp: Date;
+  sessionId: string;
+  taskId: string;
+  [key: string]: unknown;
+}
+
+/** Session attach request from MCP bridge */
+export interface SessionAttachMessage extends BaseMessage {
+  type: 'session.attach';
+  taskId: string;
+  sessionId: string;
+  machineId: string;
+}
+
+/** Session attach acknowledgment from relay */
+export interface SessionAttachAckMessage extends BaseMessage {
+  type: 'session.attach.ack';
+  taskId: string;
+  sessionId: string;
+  success: boolean;
+  error?: string;
+}
+
+/** Session detach message */
+export interface SessionDetachMessage extends BaseMessage {
+  type: 'session.detach';
+  sessionId: string;
+  reason?: string;
+}
+
+/** Session event message (MCP bridge → relay → platform) */
+export interface SessionEventMessage extends BaseMessage {
+  type: 'session.event';
+  sessionId: string;
+  taskId: string;
+  event: SessionEvent;
+}
+
+// ============================================================================
 // Union Types for Message Handling
 // ============================================================================
 
@@ -317,6 +370,17 @@ export type AgentToRelayMessage =
   | TaskFileChangeMessage
   | HeartbeatPongMessage;
 
+/** All session-related messages from MCP bridge to relay */
+export type SessionToRelayMessage =
+  | SessionAttachMessage
+  | SessionDetachMessage
+  | SessionEventMessage;
+
+/** All messages from relay to MCP bridge */
+export type RelayToSessionMessage =
+  | SessionAttachAckMessage
+  | ErrorMessage;
+
 /** All messages from relay to agent runner */
 export type RelayToAgentMessage =
   | TaskDispatchMessage
@@ -327,7 +391,11 @@ export type RelayToAgentMessage =
   | ErrorMessage;
 
 /** All relay messages */
-export type RelayMessage = AgentToRelayMessage | RelayToAgentMessage;
+export type RelayMessage =
+  | AgentToRelayMessage
+  | RelayToAgentMessage
+  | SessionToRelayMessage
+  | RelayToSessionMessage;
 
 // ============================================================================
 // Utility Types
