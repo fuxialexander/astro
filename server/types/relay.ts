@@ -1,0 +1,336 @@
+/**
+ * Relay Server WebSocket Protocol Types
+ *
+ * Defines the message protocol for communication between:
+ * - Platform (plan graph, dispatch engine) → Relay Server → Agent Runners
+ * - Agent Runners → Relay Server → Platform
+ */
+
+// ============================================================================
+// Core Types
+// ============================================================================
+
+/** Environment types where agents can run */
+export type EnvironmentType = 'local' | 'hpc' | 'cloud';
+
+/** Provider types available on a machine */
+export type ProviderType = 'claude-code' | 'slurm' | 'aws' | 'gcp' | 'custom';
+
+/** Status of a machine connection */
+export type MachineConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+/** Status of a provider on a machine */
+export type ProviderStatus = 'available' | 'busy' | 'unavailable' | 'error';
+
+/** Task execution status */
+export type TaskStatus =
+  | 'queued'
+  | 'dispatched'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout';
+
+// ============================================================================
+// Machine & Resource Types
+// ============================================================================
+
+/** Resource information for a machine */
+export interface MachineResources {
+  cpuCores: number;
+  memoryMB: number;
+  gpuCount?: number;
+  gpuMemoryMB?: number;
+  diskSpaceMB?: number;
+}
+
+/** Current load on a machine */
+export interface MachineLoad {
+  cpuPercent: number;
+  memoryPercent: number;
+  gpuPercent?: number;
+  activeTasks: number;
+  queuedTasks: number;
+}
+
+/** Provider configuration on a machine */
+export interface ProviderInfo {
+  type: ProviderType;
+  version?: string;
+  status: ProviderStatus;
+  maxConcurrentTasks: number;
+  currentTasks: number;
+  capabilities?: string[];
+}
+
+/** Machine registration information */
+export interface MachineInfo {
+  machineId: string;
+  name: string;
+  environmentType: EnvironmentType;
+  hostname?: string;
+  platform?: string;
+  providers: ProviderInfo[];
+  resources: MachineResources;
+  load: MachineLoad;
+  tags?: string[];
+  metadata?: Record<string, string>;
+}
+
+/** Machine entry in the registry */
+export interface MachineRegistryEntry extends MachineInfo {
+  connectionStatus: MachineConnectionStatus;
+  connectedAt: Date;
+  lastHeartbeat: Date;
+  sessionId: string;
+}
+
+// ============================================================================
+// Task Types
+// ============================================================================
+
+/** Task dispatch request */
+export interface TaskDispatch {
+  taskId: string;
+  projectId: string;
+  nodeId: string;  // Reference to PlanNode
+  title: string;
+  description: string;
+  visionDoc?: string;  // Project vision context
+  environment: EnvironmentType;
+  preferredProvider?: ProviderType;
+  priority?: number;
+  timeout?: number;  // Timeout in milliseconds
+  workingDirectory?: string;
+  dependencies?: string[];  // Other task IDs that must complete first
+  metadata?: Record<string, string>;
+}
+
+/** Task result from agent runner */
+export interface TaskResult {
+  taskId: string;
+  status: TaskStatus;
+  exitCode?: number;
+  output?: string;
+  error?: string;
+  artifacts?: TaskArtifact[];
+  duration?: number;  // Execution time in milliseconds
+  metadata?: Record<string, string>;
+}
+
+/** Artifact produced by a task */
+export interface TaskArtifact {
+  name: string;
+  type: 'file' | 'log' | 'report' | 'other';
+  path?: string;
+  url?: string;
+  size?: number;
+  checksum?: string;
+}
+
+/** Task stdout/stderr streaming */
+export interface TaskOutput {
+  taskId: string;
+  stream: 'stdout' | 'stderr';
+  data: string;
+  timestamp: Date;
+}
+
+// ============================================================================
+// WebSocket Message Types
+// ============================================================================
+
+/** Base message structure */
+export interface BaseMessage {
+  type: string;
+  timestamp: Date;
+  correlationId?: string;  // For request/response matching
+}
+
+// --- Messages from Agent Runner to Relay ---
+
+/** Machine registration message */
+export interface MachineRegisterMessage extends BaseMessage {
+  type: 'machine.register';
+  machineId: string;
+  machineInfo: Omit<MachineInfo, 'machineId'>;
+}
+
+/** Machine unregister message */
+export interface MachineUnregisterMessage extends BaseMessage {
+  type: 'machine.unregister';
+  machineId: string;
+  reason?: string;
+}
+
+/** Machine status update */
+export interface MachineStatusMessage extends BaseMessage {
+  type: 'machine.status';
+  machineId: string;
+  load: MachineLoad;
+  providers?: ProviderInfo[];
+}
+
+/** Provider status update */
+export interface ProviderStatusMessage extends BaseMessage {
+  type: 'provider.status';
+  machineId: string;
+  provider: ProviderInfo;
+}
+
+/** Task result message */
+export interface TaskResultMessage extends BaseMessage {
+  type: 'task.result';
+  result: TaskResult;
+}
+
+/** Task stdout/stderr message */
+export interface TaskStdoutMessage extends BaseMessage {
+  type: 'task.stdout';
+  output: TaskOutput;
+}
+
+/** Task progress update */
+export interface TaskProgressMessage extends BaseMessage {
+  type: 'task.progress';
+  taskId: string;
+  progress: number;  // 0-100
+  message?: string;
+}
+
+/** Heartbeat pong response */
+export interface HeartbeatPongMessage extends BaseMessage {
+  type: 'heartbeat.pong';
+  machineId: string;
+}
+
+// --- Messages from Relay to Agent Runner ---
+
+/** Task dispatch message */
+export interface TaskDispatchMessage extends BaseMessage {
+  type: 'task.dispatch';
+  task: TaskDispatch;
+}
+
+/** Task cancel message */
+export interface TaskCancelMessage extends BaseMessage {
+  type: 'task.cancel';
+  taskId: string;
+  reason?: string;
+}
+
+/** Heartbeat ping request */
+export interface HeartbeatPingMessage extends BaseMessage {
+  type: 'heartbeat.ping';
+}
+
+/** Registration acknowledgment */
+export interface MachineRegisterAckMessage extends BaseMessage {
+  type: 'machine.register.ack';
+  machineId: string;
+  sessionId: string;
+  success: boolean;
+  error?: string;
+}
+
+/** Error message */
+export interface ErrorMessage extends BaseMessage {
+  type: 'error';
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+// --- Platform-internal messages (for Redis pub/sub) ---
+
+/** Message published when machine state changes */
+export interface MachineStateChangeEvent {
+  event: 'machine.connected' | 'machine.disconnected' | 'machine.updated';
+  machineId: string;
+  machineInfo?: MachineRegistryEntry;
+  timestamp: Date;
+}
+
+/** Message published when task state changes */
+export interface TaskStateChangeEvent {
+  event: 'task.dispatched' | 'task.started' | 'task.completed' | 'task.failed' | 'task.cancelled';
+  taskId: string;
+  machineId: string;
+  result?: TaskResult;
+  timestamp: Date;
+}
+
+// ============================================================================
+// Union Types for Message Handling
+// ============================================================================
+
+/** All messages from agent runner to relay */
+export type AgentToRelayMessage =
+  | MachineRegisterMessage
+  | MachineUnregisterMessage
+  | MachineStatusMessage
+  | ProviderStatusMessage
+  | TaskResultMessage
+  | TaskStdoutMessage
+  | TaskProgressMessage
+  | HeartbeatPongMessage;
+
+/** All messages from relay to agent runner */
+export type RelayToAgentMessage =
+  | TaskDispatchMessage
+  | TaskCancelMessage
+  | HeartbeatPingMessage
+  | MachineRegisterAckMessage
+  | ErrorMessage;
+
+/** All relay messages */
+export type RelayMessage = AgentToRelayMessage | RelayToAgentMessage;
+
+// ============================================================================
+// Utility Types
+// ============================================================================
+
+/** JWT payload for machine authentication */
+export interface MachineJWTPayload {
+  sub: string;  // Machine ID
+  iat: number;
+  exp: number;
+  scopes: string[];
+  machineId: string;
+  userId?: string;
+  workspaceId?: string;
+}
+
+/** Rate limit configuration */
+export interface RateLimitConfig {
+  windowMs: number;
+  maxRequests: number;
+  maxTasksPerMinute: number;
+  maxStdoutBytesPerSecond: number;
+}
+
+/** Relay server configuration */
+export interface RelayServerConfig {
+  port: number;
+  heartbeatIntervalMs: number;
+  heartbeatTimeoutMs: number;
+  maxConnectionsPerMachine: number;
+  rateLimit: RateLimitConfig;
+  redisUrl?: string;
+  jwtSecret?: string;
+}
+
+/** Default relay server configuration */
+export const DEFAULT_RELAY_CONFIG: RelayServerConfig = {
+  port: 3002,
+  heartbeatIntervalMs: 30000,  // 30 seconds
+  heartbeatTimeoutMs: 90000,   // 3 missed heartbeats
+  maxConnectionsPerMachine: 1,
+  rateLimit: {
+    windowMs: 60000,  // 1 minute
+    maxRequests: 1000,
+    maxTasksPerMinute: 100,
+    maxStdoutBytesPerSecond: 1024 * 1024,  // 1MB/s
+  },
+};
