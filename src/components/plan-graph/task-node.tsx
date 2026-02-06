@@ -2,6 +2,7 @@ import { memo } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
 import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useRealtimeStore } from "@/stores/realtime-store"
 
 const statusConfig: Record<string, { icon: typeof Circle; bg: string; border: string; iconColor: string }> = {
   planned: { icon: Circle, bg: "bg-card", border: "border-border", iconColor: "text-muted-foreground" },
@@ -17,6 +18,7 @@ type TaskNodeData = Node<{
   title: string
   status: string
   nodeType: string
+  executionId?: string
 }>
 
 export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>) {
@@ -24,10 +26,17 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>
   const Icon = config.icon
   const isMilestone = data.nodeType === "milestone"
 
+  // Get live progress from realtime store
+  const taskStream = useRealtimeStore((s) =>
+    data.executionId ? s.taskStreams.get(data.executionId) : undefined
+  )
+  const progress = taskStream?.progress ?? 0
+  const isRunning = data.status === "in_progress" || data.status === "dispatched"
+
   return (
     <div
       className={cn(
-        "flex items-center gap-2.5 border-[1.5px] px-3.5",
+        "relative flex items-center gap-2.5 border-[1.5px] px-3.5 overflow-hidden",
         config.bg,
         config.border,
         isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-[10px]",
@@ -35,13 +44,30 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-border !w-2 !h-2 !border-none" />
-      <Icon className={cn("h-3.5 w-3.5 shrink-0", config.iconColor, data.status === "in_progress" && "animate-spin")} />
+
+      {/* Progress bar overlay for running tasks */}
+      {isRunning && progress > 0 && (
+        <div
+          className="absolute left-0 top-0 bottom-0 bg-blue-500/10 transition-all duration-500"
+          style={{ width: `${progress}%` }}
+        />
+      )}
+
+      <Icon className={cn("h-3.5 w-3.5 shrink-0 relative z-10", config.iconColor, data.status === "in_progress" && "animate-spin")} />
       <span className={cn(
-        "truncate text-xs font-medium",
+        "truncate text-xs font-medium relative z-10",
         data.status === "pruned" ? "text-muted-foreground line-through" : "text-foreground"
       )}>
         {data.title}
       </span>
+
+      {/* Progress percentage for running tasks */}
+      {isRunning && progress > 0 && (
+        <span className="text-[10px] font-medium text-blue-500 relative z-10 ml-auto">
+          {progress}%
+        </span>
+      )}
+
       <Handle type="source" position={Position.Bottom} className="!bg-border !w-2 !h-2 !border-none" />
     </div>
   )

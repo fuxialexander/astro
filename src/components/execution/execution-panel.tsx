@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react"
-import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle } from "lucide-react"
+import { Link } from "react-router"
+import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -123,6 +124,16 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
           </Button>
         )}
       </div>
+
+      {/* View Details link */}
+      {(execution || node.executionOutput) && (
+        <Button variant="outline" size="sm" className="gap-1.5" asChild>
+          <Link to={`/project/${projectId}/task/${node.id}`}>
+            <ExternalLink className="h-3.5 w-3.5" />
+            View Details
+          </Link>
+        </Button>
+      )}
 
       {/* Execution Status & Output */}
       {execution && (

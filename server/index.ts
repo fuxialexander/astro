@@ -5,6 +5,7 @@ import { healthRoute } from './routes/health.js'
 import { agentRoute } from './routes/agent.js'
 import { relayRoute } from './routes/relay.js'
 import { dispatchRoute } from './routes/dispatch.js'
+import { eventsRoute } from './routes/events.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
@@ -13,12 +14,18 @@ import { dispatchEngine } from './lib/dispatch/index.js'
 
 const app = new Hono()
 
-app.use('/*', cors({ origin: 'http://localhost:5173' }))
+app.use('/*', cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? (process.env.CORS_ORIGIN || 'https://nexus.pages.dev')
+    : 'http://localhost:5173',
+  allowHeaders: ['Content-Type', 'Authorization', 'Last-Event-ID'],
+}))
 
 app.route('/api', healthRoute)
 app.route('/api/agent', agentRoute)
 app.route('/api/relay', relayRoute)
 app.route('/api/dispatch', dispatchRoute)
+app.route('/api/events', eventsRoute)
 
 const port = 3001
 const relayPort = parseInt(process.env.RELAY_PORT || '3002', 10)
