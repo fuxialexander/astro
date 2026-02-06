@@ -65,3 +65,51 @@ export interface PlanEdge {
   target: string;
   type: 'dependency' | 'branch';
 }
+
+// Domain expertise options for planning personalization
+export type DomainExpertise =
+  | 'computational-biology'
+  | 'web-development'
+  | 'data-engineering'
+  | 'ml-ai'
+  | 'devops-infrastructure'
+  | 'mobile-development'
+  | 'systems-programming'
+  | 'scientific-computing'
+  | 'security'
+  | 'other';
+
+// Experience level for calibrating plan granularity
+export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
+
+// Preferred environment for task dispatch
+export type PreferredEnvironment = 'local' | 'hpc' | 'cloud';
+
+// API key entry for agent providers
+export interface ApiKey {
+  id: string;
+  provider: string;
+  name: string;
+  maskedKey: string;  // Only store masked version for display
+  createdAt: Date;
+}
+
+// User profile for identity and domain context
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  bio?: string;
+  // Domain expertise for planning personalization (Vision Section 5)
+  domains: DomainExpertise[];
+  experienceLevel: ExperienceLevel;
+  // Preferences
+  preferredEnvironments: PreferredEnvironment[];
+  notificationsEnabled: boolean;
+  emailNotifications: boolean;
+  // API keys for agent providers
+  apiKeys: ApiKey[];
+  createdAt: Date;
+  updatedAt: Date;
+}

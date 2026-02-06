@@ -13,15 +13,50 @@ import {
   Keyboard,
   RefreshCw,
   Terminal,
+  Camera,
+  Plus,
+  Trash2,
+  Key,
+  AlertTriangle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useUserProfileStore } from "@/stores/user-profile-store"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import type { DomainExpertise, ExperienceLevel, PreferredEnvironment } from "@/types"
 
 const models = [
   { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
   { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
+]
+
+const domainOptions: { value: DomainExpertise; label: string; description: string }[] = [
+  { value: "computational-biology", label: "Computational Biology", description: "Bioinformatics, genomics, protein analysis" },
+  { value: "web-development", label: "Web Development", description: "Frontend, backend, full-stack applications" },
+  { value: "data-engineering", label: "Data Engineering", description: "Pipelines, ETL, data infrastructure" },
+  { value: "ml-ai", label: "ML / AI", description: "Machine learning, deep learning, LLMs" },
+  { value: "devops-infrastructure", label: "DevOps & Infrastructure", description: "CI/CD, cloud, containerization" },
+  { value: "mobile-development", label: "Mobile Development", description: "iOS, Android, cross-platform apps" },
+  { value: "systems-programming", label: "Systems Programming", description: "Low-level, embedded, operating systems" },
+  { value: "scientific-computing", label: "Scientific Computing", description: "HPC, simulations, numerical methods" },
+  { value: "security", label: "Security", description: "Application security, penetration testing" },
+  { value: "other", label: "Other", description: "General software development" },
+]
+
+const experienceLevelOptions: { value: ExperienceLevel; label: string; description: string }[] = [
+  { value: "beginner", label: "Beginner", description: "Learning fundamentals, needs detailed guidance" },
+  { value: "intermediate", label: "Intermediate", description: "Comfortable with basics, growing expertise" },
+  { value: "advanced", label: "Advanced", description: "Strong skills, can work independently" },
+  { value: "expert", label: "Expert", description: "Deep expertise, can lead complex projects" },
+]
+
+const environmentOptions: { value: PreferredEnvironment; label: string; description: string }[] = [
+  { value: "local", label: "Local Machine", description: "Run tasks on your development machine" },
+  { value: "hpc", label: "HPC Cluster", description: "High-performance computing with Slurm" },
+  { value: "cloud", label: "Cloud (AWS/GCP)", description: "Scalable cloud compute resources" },
 ]
 
 type SettingsTab =
@@ -279,6 +314,412 @@ function PreferencesContent() {
   )
 }
 
+function DomainChip({
+  label,
+  selected,
+  onClick,
+}: {
+  label: string
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-full px-3 py-1.5 text-sm transition-colors",
+        selected
+          ? "bg-primary text-primary-foreground"
+          : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+      )}
+    >
+      {label}
+    </button>
+  )
+}
+
+function ProfileContent() {
+  const {
+    profile,
+    setName,
+    setEmail,
+    setBio,
+    toggleDomain,
+    setExperienceLevel,
+    togglePreferredEnvironment,
+    setNotificationsEnabled,
+    setEmailNotifications,
+    addApiKey,
+    removeApiKey,
+  } = useUserProfileStore()
+
+  const [newKeyProvider, setNewKeyProvider] = useState("")
+  const [newKeyName, setNewKeyName] = useState("")
+  const [newKeyValue, setNewKeyValue] = useState("")
+  const [showAddKey, setShowAddKey] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  const handleAddApiKey = () => {
+    if (newKeyProvider && newKeyName && newKeyValue) {
+      // Mask the key for storage (show first 4 and last 4 chars)
+      const masked =
+        newKeyValue.length > 8
+          ? `${newKeyValue.slice(0, 4)}${"*".repeat(newKeyValue.length - 8)}${newKeyValue.slice(-4)}`
+          : "*".repeat(newKeyValue.length)
+      addApiKey(newKeyProvider, newKeyName, masked)
+      setNewKeyProvider("")
+      setNewKeyName("")
+      setNewKeyValue("")
+      setShowAddKey(false)
+    }
+  }
+
+  const getInitials = (name: string) => {
+    if (!name) return "U"
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2)
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      <h1 className="text-[28px] font-semibold">Profile</h1>
+
+      {/* User Identity */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Identity</h2>
+        <div className="rounded-xl border border-border bg-card">
+          {/* Avatar */}
+          <div className="flex items-center gap-4 border-b border-border px-4 py-4">
+            <Avatar className="h-16 w-16">
+              <AvatarImage src={profile.avatarUrl} />
+              <AvatarFallback className="text-lg">{getInitials(profile.name)}</AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Profile photo</span>
+              <Button variant="outline" size="sm" className="w-fit">
+                <Camera className="mr-1.5 h-3.5 w-3.5" />
+                Change photo
+              </Button>
+            </div>
+          </div>
+          {/* Name */}
+          <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3.5">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm">Name</span>
+              <span className="text-[13px] text-muted-foreground">Your display name</span>
+            </div>
+            <Input
+              value={profile.name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter your name"
+              className="w-[240px]"
+            />
+          </div>
+          {/* Email */}
+          <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3.5">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm">Email</span>
+              <span className="text-[13px] text-muted-foreground">Your email address</span>
+            </div>
+            <Input
+              type="email"
+              value={profile.email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="w-[240px]"
+            />
+          </div>
+          {/* Bio */}
+          <div className="flex flex-col gap-2 px-4 py-3.5">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm">Bio</span>
+              <span className="text-[13px] text-muted-foreground">
+                Brief description of your work (helps personalize planning)
+              </span>
+            </div>
+            <textarea
+              value={profile.bio || ""}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="e.g., Computational biologist working on single-cell analysis pipelines..."
+              className="h-[80px] w-full resize-none rounded-md border border-border bg-background p-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Domain Expertise */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Domain Expertise</h2>
+        <p className="text-[13px] text-muted-foreground">
+          Select your areas of expertise. This helps the planning system provide more relevant
+          context and suggestions.
+        </p>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="flex flex-wrap gap-2">
+            {domainOptions.map((option) => (
+              <DomainChip
+                key={option.value}
+                label={option.label}
+                selected={profile.domains.includes(option.value)}
+                onClick={() => toggleDomain(option.value)}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Experience Level */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Experience Level</h2>
+        <p className="text-[13px] text-muted-foreground">
+          This helps calibrate plan granularity and the level of detail in guidance.
+        </p>
+        <div className="rounded-xl border border-border bg-card">
+          {experienceLevelOptions.map((option, idx) => (
+            <label
+              key={option.value}
+              className={cn(
+                "flex cursor-pointer items-center gap-3 px-4 py-3",
+                idx !== experienceLevelOptions.length - 1 && "border-b border-border"
+              )}
+            >
+              <input
+                type="radio"
+                name="experienceLevel"
+                value={option.value}
+                checked={profile.experienceLevel === option.value}
+                onChange={() => setExperienceLevel(option.value)}
+                className="h-4 w-4 accent-primary"
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm">{option.label}</span>
+                <span className="text-[13px] text-muted-foreground">{option.description}</span>
+              </div>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      {/* Preferred Environments */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Preferred Environments</h2>
+        <p className="text-[13px] text-muted-foreground">
+          Select your default environments for task dispatch.
+        </p>
+        <div className="rounded-xl border border-border bg-card">
+          {environmentOptions.map((option, idx) => (
+            <label
+              key={option.value}
+              className={cn(
+                "flex cursor-pointer items-center gap-3 px-4 py-3",
+                idx !== environmentOptions.length - 1 && "border-b border-border"
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={profile.preferredEnvironments.includes(option.value)}
+                onChange={() => togglePreferredEnvironment(option.value)}
+                className="h-4 w-4 rounded accent-primary"
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm">{option.label}</span>
+                <span className="text-[13px] text-muted-foreground">{option.description}</span>
+              </div>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      {/* Notification Preferences */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Notifications</h2>
+        <div className="rounded-xl border border-border bg-card">
+          <SettingsRow
+            label="Enable notifications"
+            description="Receive in-app notifications for task updates and decisions"
+          >
+            <Toggle
+              checked={profile.notificationsEnabled}
+              onChange={setNotificationsEnabled}
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="Email notifications"
+            description="Receive email digests for important updates"
+            last
+          >
+            <Toggle
+              checked={profile.emailNotifications}
+              onChange={setEmailNotifications}
+            />
+          </SettingsRow>
+        </div>
+      </section>
+
+      {/* API Keys */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">API Keys</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAddKey(!showAddKey)}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Add Key
+          </Button>
+        </div>
+        <p className="text-[13px] text-muted-foreground">
+          Manage API keys for agent providers. Keys are stored securely and masked for display.
+        </p>
+
+        {showAddKey && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm">Provider</label>
+                  <Input
+                    value={newKeyProvider}
+                    onChange={(e) => setNewKeyProvider(e.target.value)}
+                    placeholder="e.g., OpenAI, Anthropic"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm">Name</label>
+                  <Input
+                    value={newKeyName}
+                    onChange={(e) => setNewKeyName(e.target.value)}
+                    placeholder="e.g., Production Key"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm">API Key</label>
+                <Input
+                  type="password"
+                  value={newKeyValue}
+                  onChange={(e) => setNewKeyValue(e.target.value)}
+                  placeholder="sk-..."
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowAddKey(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleAddApiKey}
+                  disabled={!newKeyProvider || !newKeyName || !newKeyValue}
+                >
+                  Add Key
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-xl border border-border bg-card">
+          {profile.apiKeys.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+              <Key className="mb-2 h-8 w-8" />
+              <span className="text-sm">No API keys configured</span>
+            </div>
+          ) : (
+            profile.apiKeys.map((key, idx) => (
+              <div
+                key={key.id}
+                className={cn(
+                  "flex items-center justify-between px-4 py-3",
+                  idx !== profile.apiKeys.length - 1 && "border-b border-border"
+                )}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">{key.name}</span>
+                  <span className="text-[13px] text-muted-foreground">
+                    {key.provider} &middot; {key.maskedKey}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeApiKey(key.id)}
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* Account Actions */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Account</h2>
+        <div className="rounded-xl border border-border bg-card">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm">Change password</span>
+              <span className="text-[13px] text-muted-foreground">Update your account password</span>
+            </div>
+            <Button variant="outline" size="sm">
+              Change password
+            </Button>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3.5">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm text-destructive">Delete account</span>
+              <span className="text-[13px] text-muted-foreground">
+                Permanently delete your account and all data
+              </span>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              Delete account
+            </Button>
+          </div>
+        </div>
+
+        {showDeleteConfirm && (
+          <div className="rounded-xl border border-destructive bg-destructive/10 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
+                  <span className="text-sm font-medium text-destructive">
+                    Are you sure you want to delete your account?
+                  </span>
+                  <span className="text-[13px] text-muted-foreground">
+                    This action cannot be undone. All your projects, plans, and data will be
+                    permanently deleted.
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="destructive" size="sm">
+                    Yes, delete my account
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
 function ModelsContent() {
   const { model, setModel, connectionStatus, checkConnection } = useSettingsStore()
 
@@ -405,6 +846,8 @@ export function Settings() {
     switch (activeTab) {
       case "preferences":
         return <PreferencesContent />
+      case "profile":
+        return <ProfileContent />
       case "models":
         return <ModelsContent />
       default:
