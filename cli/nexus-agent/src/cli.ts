@@ -2,8 +2,8 @@
 /**
  * Nexus Agent CLI
  *
- * Runs on HPC cluster login nodes to connect to the Nexus relay server
- * and execute tasks via Slurm.
+ * Runs on local machines or HPC cluster login nodes to connect to the Nexus relay server
+ * and execute tasks via Claude Agent SDK or Slurm.
  */
 
 import { program } from 'commander'
@@ -17,7 +17,7 @@ import { loadConfig, saveConfig } from './config.js'
 const banner = `
 ╔═══════════════════════════════════════╗
 ║     ${chalk.cyan('N E X U S')}   ${chalk.gray('Agent Runner')}       ║
-║     ${chalk.gray('HPC Cluster Integration')}          ║
+║     ${chalk.gray('Local & HPC Task Execution')}       ║
 ╚═══════════════════════════════════════╝
 `
 
@@ -32,6 +32,9 @@ program
   .option('-u, --url <url>', 'Relay server WebSocket URL')
   .option('-n, --name <name>', 'Machine name (defaults to hostname)')
   .option('-t, --token <token>', 'Authentication token')
+  .option('-d, --dir <dir>', 'Working directory for task execution')
+  .option('--no-worktree', 'Disable git worktree isolation for tasks')
+  .option('--worktree-root <path>', 'Root directory for worktrees')
   .option('--config <path>', 'Path to config file')
   .action(async (options) => {
     console.log(banner)
@@ -56,8 +59,7 @@ program
     const slurmInfo = await detectSlurm()
 
     if (!slurmInfo.available) {
-      console.warn(chalk.yellow('Warning: Slurm not detected on this system'))
-      console.log(chalk.gray('This agent will have limited HPC capabilities'))
+      console.log(chalk.gray('  Slurm not available (not an HPC environment)'))
     } else {
       console.log(chalk.green(`✓ Slurm ${slurmInfo.version} detected`))
       if (slurmInfo.clusterName) {
@@ -68,12 +70,16 @@ program
       }
     }
 
-    // Create and start agent runner
-    const runner = new AgentRunner({
+    // Create and start agent runner (Claude SDK detection happens inside)
+    console.log(chalk.gray('Initializing agent runner...'))
+    const runner = await AgentRunner.create({
       relayUrl: config.relayUrl,
       machineName: config.machineName,
       authToken: config.authToken,
       slurmInfo,
+      workingDirectory: options.dir || process.cwd(),
+      useWorktree: options.worktree !== false,
+      worktreeRoot: options.worktreeRoot,
     })
 
     // Handle shutdown
@@ -95,13 +101,19 @@ program
 
 program
   .command('status')
-  .description('Check Slurm status and configuration')
+  .description('Check provider status and system configuration')
   .action(async () => {
     console.log(banner)
     console.log(chalk.cyan('Checking system status...\n'))
 
+    // Check Claude Agent SDK by attempting detection via runner
+    console.log(chalk.bold('Claude Agent SDK Status:'))
+    console.log(chalk.gray('  Use `nexus-agent connect` to detect SDK availability'))
+
+    // Check Slurm
     const slurmInfo = await detectSlurm()
 
+    console.log()
     console.log(chalk.bold('Slurm Status:'))
     if (slurmInfo.available) {
       console.log(chalk.green(`  ✓ Available (version ${slurmInfo.version})`))
@@ -114,8 +126,7 @@ program
         console.log(`  Accounts: ${slurmInfo.accounts.join(', ')}`)
       }
     } else {
-      console.log(chalk.red('  ✗ Not available'))
-      console.log(chalk.gray('  Slurm commands not found in PATH'))
+      console.log(chalk.gray('  ✗ Not available (not an HPC environment)'))
     }
 
     console.log()
@@ -123,6 +134,8 @@ program
     console.log(`  Hostname: ${process.env.HOSTNAME || os.hostname()}`)
     console.log(`  Platform: ${process.platform}`)
     console.log(`  Node.js: ${process.version}`)
+    console.log(`  CPU Cores: ${os.cpus().length}`)
+    console.log(`  Memory: ${Math.round(os.totalmem() / 1024 / 1024 / 1024)}GB`)
   })
 
 program

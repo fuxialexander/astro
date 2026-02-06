@@ -182,9 +182,10 @@ export class SlurmExecutor {
 
     // GPU
     if (config.gpu) {
-      const gpuSpec = config.gpu.type
-        ? `${config.gpu.type}:${config.gpu.count}`
-        : config.gpu.count.toString()
+      const gpu = config.gpu as { type?: string; count: number }
+      const gpuSpec = gpu.type
+        ? `${gpu.type}:${gpu.count}`
+        : gpu.count.toString()
       lines.push(`#SBATCH --gres=gpu:${gpuSpec}`)
     }
 

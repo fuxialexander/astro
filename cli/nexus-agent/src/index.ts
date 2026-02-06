@@ -2,6 +2,7 @@
  * Nexus Agent Runner
  *
  * Main entry point for programmatic usage.
+ * Uses the Claude Agent SDK for task execution.
  */
 
 export { AgentRunner, type AgentRunnerOptions } from './runner.js'
