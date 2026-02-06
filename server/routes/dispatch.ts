@@ -429,7 +429,10 @@ Execute the task described above. Focus on completing the task thoroughly and co
 }
 
 /**
- * Dispatch via relay server for remote execution
+ * Dispatch via relay server for remote execution (SSE streaming)
+ *
+ * Dispatches the task, then subscribes to relay events filtered by
+ * executionId and streams them back as SSE until the task completes.
  */
 async function dispatchViaRelay(
   c: Parameters<Parameters<typeof dispatchRoute.post>[1]>[0],
@@ -508,14 +511,135 @@ async function dispatchViaRelay(
     )
   }
 
-  return c.json({
-    success: true,
-    executionId,
-    machineId,
-    dispatched: true,
-    message: 'Task dispatched to relay server. Use /api/dispatch/status/:executionId to track progress.',
+  // Stream relay events for this execution back to the client
+  return streamSSE(c, async (stream) => {
+    let alive = true
+
+    // Send init event
+    await stream.writeSSE({
+      event: 'init',
+      data: JSON.stringify({ executionId, nodeId, machineId }),
+    })
+
+    // Subscribe to relay events filtered by this executionId
+    const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
+      if (!alive || msg.result.taskId !== executionId) return
+      stream.writeSSE({
+        event: 'result',
+        data: JSON.stringify({
+          executionId,
+          nodeId,
+          status: msg.result.status === 'completed' ? 'success' : 'failure',
+          output: msg.result.output,
+          error: msg.result.error,
+          duration: msg.result.duration,
+        }),
+      }).catch(() => { alive = false })
+      // Task is done, close stream after sending result
+      stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      alive = false
+    }
+
+    const onStdout = (msg: import('../types/relay.js').TaskStdoutMessage) => {
+      if (!alive || msg.output.taskId !== executionId) return
+      stream.writeSSE({ event: 'text', data: msg.output.data }).catch(() => { alive = false })
+    }
+
+    const onProgress = (msg: import('../types/relay.js').TaskProgressMessage) => {
+      if (!alive || msg.taskId !== executionId) return
+      stream.writeSSE({
+        event: 'progress',
+        data: JSON.stringify({ message: msg.message, percentage: msg.progress }),
+      }).catch(() => { alive = false })
+    }
+
+    const onToolTrace = (msg: import('../types/relay.js').TaskToolTraceMessage) => {
+      if (!alive || msg.taskId !== executionId) return
+      stream.writeSSE({
+        event: 'tool_use',
+        data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
+      }).catch(() => { alive = false })
+      if (msg.toolResult !== undefined) {
+        stream.writeSSE({
+          event: 'tool_result',
+          data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
+        }).catch(() => { alive = false })
+      }
+    }
+
+    const onFileChange = (msg: import('../types/relay.js').TaskFileChangeMessage) => {
+      if (!alive || msg.taskId !== executionId) return
+      stream.writeSSE({
+        event: 'file_change',
+        data: JSON.stringify({ path: msg.path, action: msg.action, linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved }),
+      }).catch(() => { alive = false })
+    }
+
+    relayServer.on('task:result', onResult)
+    relayServer.on('task:stdout', onStdout)
+    relayServer.on('task:progress', onProgress)
+    relayServer.on('task:tool_trace', onToolTrace)
+    relayServer.on('task:file_change', onFileChange)
+
+    // Keepalive
+    const heartbeat = setInterval(() => {
+      if (!alive) { clearInterval(heartbeat); return }
+      stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => {
+        alive = false
+        clearInterval(heartbeat)
+      })
+    }, 15000)
+
+    stream.onAbort(() => {
+      alive = false
+      clearInterval(heartbeat)
+      relayServer.off('task:result', onResult)
+      relayServer.off('task:stdout', onStdout)
+      relayServer.off('task:progress', onProgress)
+      relayServer.off('task:tool_trace', onToolTrace)
+      relayServer.off('task:file_change', onFileChange)
+    })
+
+    // Wait for completion or disconnect
+    await new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (!alive) { clearInterval(check); resolve() }
+      }, 500)
+    })
   })
 }
+
+/**
+ * Steer a running agent task
+ *
+ * POST /api/dispatch/steer
+ *
+ * Sends a guidance message to a running agent via the relay server.
+ * The agent runner receives the message and injects it into the session.
+ */
+dispatchRoute.post('/steer', async (c) => {
+  const { taskId, machineId, message, action } = await c.req.json<{
+    taskId: string
+    machineId: string
+    message: string
+    action?: 'guidance' | 'redirect' | 'pause' | 'resume'
+  }>()
+
+  if (!taskId || !machineId || !message) {
+    return c.json({ success: false, error: 'taskId, machineId, and message are required' }, 400)
+  }
+
+  const sent = relayServer.steerTask(taskId, machineId, message, action)
+
+  if (!sent) {
+    return c.json(
+      { success: false, error: `Failed to steer task ${taskId} on machine ${machineId}` },
+      500
+    )
+  }
+
+  return c.json({ success: true, taskId, machineId, message: 'Steer message sent' })
+})
 
 /**
  * Cancel a task

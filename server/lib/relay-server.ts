@@ -23,10 +23,14 @@ import {
   type TaskResultMessage,
   type TaskStdoutMessage,
   type TaskProgressMessage,
+  type TaskSteerAckMessage,
+  type TaskToolTraceMessage,
+  type TaskFileChangeMessage,
   type HeartbeatPongMessage,
   type TaskDispatch,
   type TaskDispatchMessage,
   type TaskCancelMessage,
+  type TaskSteerMessage,
   type HeartbeatPingMessage,
   type MachineRegisterAckMessage,
   type ErrorMessage,
@@ -45,6 +49,9 @@ export interface RelayServerEvents {
   'task:result': (result: TaskResultMessage) => void;
   'task:stdout': (output: TaskStdoutMessage) => void;
   'task:progress': (progress: TaskProgressMessage) => void;
+  'task:steer_ack': (ack: TaskSteerAckMessage) => void;
+  'task:tool_trace': (trace: TaskToolTraceMessage) => void;
+  'task:file_change': (change: TaskFileChangeMessage) => void;
   'machine:connected': (machineId: string) => void;
   'machine:disconnected': (machineId: string, reason?: string) => void;
   'error': (error: Error) => void;
@@ -243,6 +250,18 @@ export class RelayServer extends EventEmitter {
         this.handleTaskProgress(message as TaskProgressMessage);
         break;
 
+      case 'task.steer.ack':
+        this.handleTaskSteerAck(message as TaskSteerAckMessage);
+        break;
+
+      case 'task.tool_trace':
+        this.handleTaskToolTrace(message as TaskToolTraceMessage);
+        break;
+
+      case 'task.file_change':
+        this.handleTaskFileChange(message as TaskFileChangeMessage);
+        break;
+
       case 'heartbeat.pong':
         this.handleHeartbeatPong(message as HeartbeatPongMessage);
         break;
@@ -365,6 +384,28 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
+   * Handle task steer acknowledgment
+   */
+  private handleTaskSteerAck(message: TaskSteerAckMessage): void {
+    console.log(`[relay] Steer ack for task ${message.taskId}: accepted=${message.accepted}`);
+    this.emit('task:steer_ack', message);
+  }
+
+  /**
+   * Handle task tool trace
+   */
+  private handleTaskToolTrace(message: TaskToolTraceMessage): void {
+    this.emit('task:tool_trace', message);
+  }
+
+  /**
+   * Handle task file change
+   */
+  private handleTaskFileChange(message: TaskFileChangeMessage): void {
+    this.emit('task:file_change', message);
+  }
+
+  /**
    * Handle heartbeat pong
    */
   private handleHeartbeatPong(message: HeartbeatPongMessage): void {
@@ -439,6 +480,35 @@ export class RelayServer extends EventEmitter {
       return true;
     } catch (err) {
       console.error(`[relay] Error cancelling task ${taskId}:`, err);
+      return false;
+    }
+  }
+
+  /**
+   * Steer a running task on an agent runner
+   */
+  steerTask(taskId: string, machineId: string, message: string, action?: 'guidance' | 'redirect' | 'pause' | 'resume'): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for task steering`);
+      return false;
+    }
+
+    const steerMsg: TaskSteerMessage = {
+      type: 'task.steer',
+      timestamp: new Date(),
+      correlationId: taskId,
+      taskId,
+      message,
+      action: action || 'guidance',
+    };
+
+    try {
+      this.sendMessage(connection.socket, steerMsg);
+      console.log(`[relay] Steer message sent for task ${taskId} to machine ${machineId}`);
+      return true;
+    } catch (err) {
+      console.error(`[relay] Error steering task ${taskId}:`, err);
       return false;
     }
   }
