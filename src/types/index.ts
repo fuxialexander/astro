@@ -24,6 +24,33 @@ export interface PlanNode {
   endDate?: string;
   createdAt: Date;
   updatedAt: Date;
+  // Execution metadata
+  executionId?: string;
+  executionOutput?: string;
+  executionError?: string;
+  executionStartedAt?: Date;
+  executionCompletedAt?: Date;
+}
+
+// Execution state for tracking active task execution
+export interface TaskExecution {
+  nodeId: string;
+  projectId: string;
+  executionId: string;
+  status: 'pending' | 'running' | 'success' | 'failure' | 'cancelled';
+  streamText: string;
+  error?: string;
+  startedAt: Date;
+  completedAt?: Date;
+}
+
+// Provider status for displaying in UI
+export interface ProviderStatus {
+  id: string;
+  name: string;
+  installed: boolean;
+  authStatus: 'authenticated' | 'unauthenticated' | 'expired' | 'unknown';
+  available: boolean;
 }
 
 export interface PlanEdge {

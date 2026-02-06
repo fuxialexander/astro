@@ -3,9 +3,10 @@ import { streamSSE } from 'hono/streaming'
 import {
   providerRegistry,
   type TaskDispatch,
+  type TaskType,
 } from '../lib/providers/index.js'
-import { createSession, abortSession, removeSession, getSession } from '../lib/session-manager.js'
-import { buildPlanSystemPrompt, buildChatSystemPrompt } from '../lib/prompt-templates.js'
+import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
+import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt } from '../lib/prompt-templates.js'
 
 const agentRoute = new Hono()
 
@@ -242,6 +243,264 @@ agentRoute.post('/abort', async (c) => {
   }
 
   return c.json({ aborted })
+})
+
+/**
+ * Dispatch a task node for execution via a local provider (Claude Code).
+ * This is the core endpoint for zero-config local dispatch.
+ */
+agentRoute.post('/dispatch', async (c) => {
+  const body = await c.req.json<{
+    nodeId: string
+    projectId: string
+    taskTitle: string
+    taskDescription: string
+    taskType?: TaskType
+    visionDoc?: string
+    dependencyOutputs?: string
+    workingDirectory?: string
+    model?: string
+    providerId?: string
+    maxTurns?: number
+  }>()
+
+  const {
+    nodeId,
+    projectId,
+    taskTitle,
+    taskDescription,
+    taskType = 'code_generation',
+    visionDoc,
+    dependencyOutputs,
+    workingDirectory,
+    model,
+    providerId,
+    maxTurns = 50,
+  } = body
+
+  const executionId = `exec-${nodeId}-${Date.now()}`
+  const abortController = createSession(executionId, providerId, {
+    taskType,
+    projectId,
+  })
+
+  return streamSSE(c, async (stream) => {
+    try {
+      // Get provider (prefer specified, then default available provider)
+      const provider = providerId
+        ? providerRegistry.getProvider(providerId)
+        : providerRegistry.getDefaultProvider()
+
+      if (!provider) {
+        await stream.writeSSE({
+          event: 'error',
+          data: JSON.stringify({
+            error: 'No agent provider available',
+            message: 'No local agent provider found. Ensure Claude Code is installed and authenticated.',
+            suggestion: 'Run `claude login` to authenticate Claude Code.',
+          }),
+        })
+        return
+      }
+
+      // Check if provider is available
+      const registration = providerRegistry.getRegisteredProvider(provider.id)
+      if (!registration?.available) {
+        await stream.writeSSE({
+          event: 'error',
+          data: JSON.stringify({
+            error: 'Provider not available',
+            message: `${provider.name} is installed but not authenticated.`,
+            suggestion: 'Run `claude login` to authenticate.',
+          }),
+        })
+        return
+      }
+
+      // Build the execution prompt with context injection
+      const prompt = buildTaskExecutionPrompt({
+        taskTitle,
+        taskDescription,
+        visionDoc,
+        dependencyOutputs,
+        workingDirectory,
+      })
+
+      // Build task dispatch
+      const task: TaskDispatch = {
+        taskId: executionId,
+        type: taskType,
+        prompt,
+        model,
+        maxTurns,
+        context: {
+          projectId,
+          visionDoc,
+          dependencyContext: dependencyOutputs,
+          workingDirectory,
+        },
+        abortController,
+      }
+
+      // Send init event
+      await stream.writeSSE({
+        event: 'init',
+        data: JSON.stringify({
+          executionId,
+          nodeId,
+          providerId: provider.id,
+          providerName: provider.name,
+        }),
+      })
+
+      // Stream the execution
+      let fullOutput = ''
+      let sessionId: string | undefined
+
+      for await (const event of provider.stream(task)) {
+        switch (event.type) {
+          case 'init':
+            sessionId = event.sessionId
+            updateSession(executionId, { sessionId })
+            await stream.writeSSE({
+              event: 'session_init',
+              data: JSON.stringify({
+                sessionId: event.sessionId,
+                model: event.model,
+              }),
+            })
+            break
+
+          case 'text':
+            fullOutput += event.text
+            await stream.writeSSE({ event: 'text', data: event.text })
+            break
+
+          case 'tool_use':
+            await stream.writeSSE({
+              event: 'tool_use',
+              data: JSON.stringify({
+                toolName: event.toolName,
+                toolInput: event.toolInput,
+              }),
+            })
+            break
+
+          case 'tool_result':
+            await stream.writeSSE({
+              event: 'tool_result',
+              data: JSON.stringify({
+                toolName: event.toolName,
+                success: event.success,
+                // Truncate large results
+                result: typeof event.result === 'string'
+                  ? event.result.slice(0, 5000)
+                  : event.result,
+              }),
+            })
+            break
+
+          case 'file_change':
+            await stream.writeSSE({
+              event: 'file_change',
+              data: JSON.stringify(event.change),
+            })
+            break
+
+          case 'progress':
+            await stream.writeSSE({
+              event: 'progress',
+              data: JSON.stringify({
+                message: event.message,
+                percentage: event.percentage,
+              }),
+            })
+            break
+
+          case 'result':
+            await stream.writeSSE({
+              event: 'result',
+              data: JSON.stringify({
+                executionId,
+                nodeId,
+                status: event.result.status,
+                output: fullOutput,
+                metrics: event.result.metrics,
+                verification: event.result.verification,
+                sessionId: event.result.sessionId,
+              }),
+            })
+            break
+
+          case 'error':
+            await stream.writeSSE({
+              event: 'error',
+              data: JSON.stringify({
+                error: event.error,
+                recoverable: event.recoverable,
+              }),
+            })
+            break
+
+          case 'aborted':
+            await stream.writeSSE({
+              event: 'aborted',
+              data: JSON.stringify({
+                reason: event.reason,
+              }),
+            })
+            break
+        }
+      }
+
+      // Send done event
+      await stream.writeSSE({
+        event: 'done',
+        data: JSON.stringify({
+          executionId,
+          nodeId,
+          sessionId,
+        }),
+      })
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        await stream.writeSSE({
+          event: 'aborted',
+          data: JSON.stringify({ reason: 'User cancelled' }),
+        })
+      } else {
+        const message = e instanceof Error ? e.message : 'Unknown error'
+        await stream.writeSSE({
+          event: 'error',
+          data: JSON.stringify({ error: message }),
+        })
+      }
+    } finally {
+      removeSession(executionId)
+    }
+  })
+})
+
+/**
+ * Get provider status - used for zero-config detection.
+ * Returns the status of all registered providers.
+ */
+agentRoute.get('/providers', async (c) => {
+  const summary = providerRegistry.getStatusSummary()
+  return c.json(summary)
+})
+
+/**
+ * Re-detect providers - force a re-probe of all providers.
+ */
+agentRoute.post('/providers/detect', async (c) => {
+  const results = await providerRegistry.detectAll()
+  const summary = providerRegistry.getStatusSummary()
+
+  return c.json({
+    detected: results.size,
+    ...summary,
+  })
 })
 
 export { agentRoute }
