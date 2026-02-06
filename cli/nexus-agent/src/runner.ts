@@ -2,34 +2,33 @@
  * Agent Runner
  *
  * Connects to the Nexus relay server via WebSocket and handles task execution.
- * Supports both Claude Code (local) and Slurm (HPC) execution.
+ * Uses the Claude Agent SDK for task execution and git worktrees for isolation.
  */
 
 import WebSocket from 'ws'
 import * as os from 'os'
 import chalk from 'chalk'
+import { query } from '@anthropic-ai/claude-agent-sdk'
 import { generateMachineId } from './config.js'
 import type { SlurmInfo } from './slurm-detect.js'
 import { SlurmExecutor } from './slurm-executor.js'
-import {
-  ClaudeCodeExecutor,
-  detectClaudeCode,
-  type ClaudeCodeInfo,
-  type TaskDispatch as ClaudeTaskDispatch,
-} from './claude-code-executor.js'
-import { createWorktree, type WorktreeSetup } from './worktree.js'
 
 export interface AgentRunnerOptions {
   relayUrl: string
   machineName?: string
   authToken?: string
   slurmInfo?: SlurmInfo
-  claudeCodeInfo?: ClaudeCodeInfo
   workingDirectory?: string
   /** Whether to use git worktrees for task isolation */
   useWorktree?: boolean
   /** Root directory for worktrees (defaults to temp dir) */
   worktreeRoot?: string
+}
+
+interface ClaudeInfo {
+  available: boolean
+  model?: string
+  authenticated: boolean
 }
 
 // Message types (matching server/types/relay.ts)
@@ -87,13 +86,12 @@ export class AgentRunner {
   private maxReconnectAttempts = 10
   private heartbeatInterval: NodeJS.Timeout | null = null
   private slurmExecutor: SlurmExecutor | null = null
-  private claudeCodeExecutor: ClaudeCodeExecutor | null = null
-  private claudeCodeInfo: ClaudeCodeInfo | null = null
+  private claudeInfo: ClaudeInfo = { available: false, authenticated: false }
   private activeTasks = 0
   private workingDirectory: string
   private useWorktree: boolean
   private worktreeRoot?: string
-  private activeWorktrees: Map<string, WorktreeSetup> = new Map()
+  private activeAbortControllers: Map<string, AbortController> = new Map()
 
   constructor(private options: AgentRunnerOptions) {
     this.machineId = generateMachineId()
@@ -105,25 +103,68 @@ export class AgentRunner {
     if (options.slurmInfo?.available) {
       this.slurmExecutor = new SlurmExecutor(options.slurmInfo)
     }
-
-    // Initialize Claude Code executor if available
-    if (options.claudeCodeInfo?.available) {
-      this.claudeCodeInfo = options.claudeCodeInfo
-      this.claudeCodeExecutor = new ClaudeCodeExecutor(options.claudeCodeInfo)
-    }
   }
 
   /**
    * Initialize the agent runner and detect providers
    */
-  static async create(options: Omit<AgentRunnerOptions, 'claudeCodeInfo'>): Promise<AgentRunner> {
-    // Detect Claude Code availability
-    const claudeCodeInfo = await detectClaudeCode()
+  static async create(options: AgentRunnerOptions): Promise<AgentRunner> {
+    const runner = new AgentRunner(options)
+    await runner.detectClaudeSdk()
+    return runner
+  }
 
-    return new AgentRunner({
-      ...options,
-      claudeCodeInfo,
-    })
+  /**
+   * Detect Claude Agent SDK availability
+   */
+  private async detectClaudeSdk(): Promise<void> {
+    try {
+      const abortController = new AbortController()
+
+      // Minimal prompt to check authentication
+      const gen = query({
+        prompt: 'respond with ok',
+        options: {
+          abortController,
+          maxTurns: 1,
+          permissionMode: 'plan',
+          tools: [],
+          persistSession: false,
+        },
+      })
+
+      for await (const msg of gen) {
+        if (msg.type === 'system' && msg.subtype === 'init') {
+          this.claudeInfo = {
+            available: true,
+            model: msg.model,
+            authenticated: true,
+          }
+          abortController.abort()
+          break
+        }
+        if (msg.type === 'result') {
+          this.claudeInfo = {
+            available: true,
+            authenticated: true,
+          }
+          break
+        }
+      }
+
+      console.log(chalk.green(`✓ Claude Agent SDK detected (model: ${this.claudeInfo.model || 'default'})`))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      const isAuthError = message.includes('auth') || message.includes('login') || message.includes('API key')
+
+      if (isAuthError) {
+        console.log(chalk.yellow('⚠ Claude Agent SDK requires authentication. Run `claude login`.'))
+      } else {
+        console.log(chalk.gray(`  Claude Agent SDK not available: ${message}`))
+      }
+
+      this.claudeInfo = { available: false, authenticated: false }
+    }
   }
 
   /**
@@ -179,22 +220,15 @@ export class AgentRunner {
     this.stopHeartbeat()
 
     // Cancel any active tasks
+    for (const [taskId, controller] of this.activeAbortControllers) {
+      controller.abort()
+      console.log(chalk.yellow(`Cancelled task: ${taskId}`))
+    }
+    this.activeAbortControllers.clear()
+
     if (this.slurmExecutor) {
       await this.slurmExecutor.cancelAll()
     }
-    if (this.claudeCodeExecutor) {
-      await this.claudeCodeExecutor.cancelAll()
-    }
-
-    // Clean up any active worktrees
-    for (const [taskId, worktree] of this.activeWorktrees) {
-      try {
-        await worktree.cleanup()
-      } catch (err) {
-        console.error(chalk.yellow(`Warning: Failed to clean up worktree for task ${taskId}: ${err}`))
-      }
-    }
-    this.activeWorktrees.clear()
 
     if (this.ws) {
       // Send unregister message
@@ -250,13 +284,13 @@ export class AgentRunner {
   private getProviders(): MachineRegisterMessage['machineInfo']['providers'] {
     const providers: MachineRegisterMessage['machineInfo']['providers'] = []
 
-    // Add Claude Code provider if available
-    if (this.claudeCodeInfo?.available) {
+    // Add Claude SDK provider if available
+    if (this.claudeInfo.available && this.claudeInfo.authenticated) {
       providers.push({
-        type: 'claude-code',
-        version: this.claudeCodeInfo.version,
-        status: this.claudeCodeInfo.authStatus === 'authenticated' ? 'available' : 'unavailable',
-        maxConcurrentTasks: 4, // Configurable
+        type: 'claude-sdk',
+        version: this.claudeInfo.model,
+        status: 'available',
+        maxConcurrentTasks: 4,
         currentTasks: this.activeTasks,
         capabilities: [
           'streaming',
@@ -274,7 +308,7 @@ export class AgentRunner {
         type: 'slurm',
         version: this.options.slurmInfo.version,
         status: 'available',
-        maxConcurrentTasks: 50, // Configurable
+        maxConcurrentTasks: 50,
         currentTasks: this.activeTasks,
         capabilities: [
           'batch',
@@ -348,13 +382,9 @@ export class AgentRunner {
     // Determine which executor to use
     if (task.preferredProvider === 'slurm' || task.environment === 'hpc') {
       await this.executeSlurm(task)
-    } else if (task.preferredProvider === 'claude-code' || task.environment === 'local') {
-      await this.executeClaudeCode(task)
-    } else if (this.claudeCodeExecutor) {
-      // Default to Claude Code if available
-      await this.executeClaudeCode(task)
+    } else if (this.claudeInfo.available && this.claudeInfo.authenticated) {
+      await this.executeClaudeSdk(task)
     } else if (this.slurmExecutor) {
-      // Fall back to Slurm if Claude Code not available
       await this.executeSlurm(task)
     } else {
       this.sendTaskResult(task.taskId, {
@@ -365,129 +395,140 @@ export class AgentRunner {
   }
 
   /**
-   * Execute task via Claude Code
+   * Execute task via Claude Agent SDK
    */
-  private async executeClaudeCode(task: TaskDispatch): Promise<void> {
-    if (!this.claudeCodeExecutor) {
-      this.sendTaskResult(task.taskId, {
-        status: 'failed',
-        error: 'Claude Code is not available on this machine',
-      })
-      return
-    }
-
+  private async executeClaudeSdk(task: TaskDispatch): Promise<void> {
     this.activeTasks++
     this.updateStatus()
 
-    let worktreeSetup: WorktreeSetup | null = null
-    let effectiveWorkingDir = task.workingDirectory || this.workingDirectory
+    const abortController = new AbortController()
+    this.activeAbortControllers.set(task.taskId, abortController)
+
+    const effectiveWorkingDir = task.workingDirectory || this.workingDirectory
 
     try {
-      console.log(chalk.blue(`  Executing with Claude Code...`))
+      console.log(chalk.blue(`  Executing with Claude Agent SDK...`))
 
-      // Set up worktree for task isolation
-      if (this.useWorktree) {
-        this.sendTaskProgress(task.taskId, 5, 'Setting up isolated worktree...')
-        worktreeSetup = await createWorktree({
+      // Build the full prompt with context
+      const promptParts: string[] = []
+
+      if (task.visionDoc) {
+        promptParts.push(`## Project Vision\n\n${task.visionDoc}`)
+      }
+
+      if (task.dependencies && task.dependencies.length > 0) {
+        promptParts.push(`## Previous Task Context\n\n${task.dependencies.join('\n\n---\n\n')}`)
+      }
+
+      promptParts.push(`## Current Task\n\n**${task.title}**\n\n${task.description}`)
+
+      promptParts.push(`## Instructions
+
+Execute the task described above. Focus on completing the task thoroughly and correctly.
+- Use appropriate tools to accomplish the task
+- Report progress and any issues encountered
+- Verify your work when possible
+- Be thorough but efficient`)
+
+      const prompt = promptParts.join('\n\n---\n\n')
+
+      // Execute with Claude Agent SDK
+      const gen = query({
+        prompt,
+        options: {
+          abortController,
+          maxTurns: 100,
+          tools: [],
+          persistSession: false,
           workingDirectory: effectiveWorkingDir,
-          taskId: task.taskId,
-          projectId: task.projectId,
-          rootOverride: this.worktreeRoot,
-          onOutput: (stream, data) => {
-            this.send({
-              type: 'task.stdout',
-              timestamp: new Date(),
-              output: {
-                taskId: task.taskId,
-                stream,
-                data,
-                timestamp: new Date(),
-              },
-            })
-          },
-        })
+        },
+      })
 
-        if (worktreeSetup) {
-          effectiveWorkingDir = worktreeSetup.workingDirectory
-          this.activeWorktrees.set(task.taskId, worktreeSetup)
-          console.log(chalk.gray(`  Worktree: ${effectiveWorkingDir}`))
-          console.log(chalk.gray(`  Branch: ${worktreeSetup.branchName}`))
+      let output = ''
+      let success = true
+      let progress = 0
+
+      for await (const msg of gen) {
+        if (msg.type === 'system' && msg.subtype === 'init') {
+          this.sendTaskProgress(task.taskId, 5, `Model: ${msg.model}`)
+        } else if (msg.type === 'assistant') {
+          for (const block of msg.message.content) {
+            if (block.type === 'text') {
+              output += block.text
+              this.send({
+                type: 'task.stdout',
+                timestamp: new Date(),
+                output: {
+                  taskId: task.taskId,
+                  stream: 'stdout',
+                  data: block.text,
+                  timestamp: new Date(),
+                },
+              })
+            } else if (block.type === 'tool_use') {
+              progress = Math.min(progress + 10, 90)
+              this.sendTaskProgress(task.taskId, progress, `Using tool: ${block.name}`)
+
+              // Send tool trace
+              this.send({
+                type: 'task.tool_trace',
+                timestamp: new Date(),
+                taskId: task.taskId,
+                toolName: block.name,
+                toolInput: block.input,
+              })
+
+              // Track file changes
+              if (block.name === 'Write' || block.name === 'Edit') {
+                const input = block.input as Record<string, unknown>
+                if (input.file_path) {
+                  this.send({
+                    type: 'task.file_change',
+                    timestamp: new Date(),
+                    taskId: task.taskId,
+                    path: String(input.file_path),
+                    action: block.name === 'Write' ? 'created' : 'modified',
+                  })
+                }
+              }
+            }
+          }
+        } else if (msg.type === 'result') {
+          if (msg.subtype === 'success') {
+            success = true
+            this.sendTaskProgress(task.taskId, 100, 'Task completed')
+          } else if (msg.subtype === 'error') {
+            success = false
+          }
+          break
         }
       }
 
-      const result = await this.claudeCodeExecutor.execute(
-        {
-          ...task,
-          workingDirectory: effectiveWorkingDir,
-        } as ClaudeTaskDispatch,
-        {
-          onOutput: (stream, data) => {
-            this.send({
-              type: 'task.stdout',
-              timestamp: new Date(),
-              output: {
-                taskId: task.taskId,
-                stream,
-                data,
-                timestamp: new Date(),
-              },
-            })
-          },
-          onProgress: (progress, message) => {
-            // Adjust progress to account for worktree setup
-            const adjustedProgress = this.useWorktree ? 5 + (progress * 0.95) : progress
-            this.sendTaskProgress(task.taskId, Math.round(adjustedProgress), message)
-          },
-          onToolTrace: (toolName, toolInput, toolResult, success, duration) => {
-            this.send({
-              type: 'task.tool_trace',
-              timestamp: new Date(),
-              taskId: task.taskId,
-              toolName,
-              toolInput,
-              toolResult,
-              success,
-              duration,
-            })
-          },
-          onFileChange: (path, action, linesAdded, linesRemoved) => {
-            this.send({
-              type: 'task.file_change',
-              timestamp: new Date(),
-              taskId: task.taskId,
-              path,
-              action,
-              linesAdded,
-              linesRemoved,
-            })
-          },
-        }
-      )
-
       this.sendTaskResult(task.taskId, {
-        status: result.status,
-        output: result.output,
-        error: result.error,
-        exitCode: result.exitCode,
+        status: success ? 'completed' : 'failed',
+        output,
+        exitCode: success ? 0 : 1,
       })
 
-      console.log(chalk.green(`  Task completed: ${result.status}`))
+      console.log(chalk.green(`  Task completed: ${success ? 'success' : 'failed'}`))
     } catch (error) {
-      console.error(chalk.red(`  Task failed: ${error}`))
-      this.sendTaskResult(task.taskId, {
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      })
-    } finally {
-      // Clean up worktree
-      if (worktreeSetup) {
-        try {
-          await worktreeSetup.cleanup()
-          this.activeWorktrees.delete(task.taskId)
-        } catch (err) {
-          console.error(chalk.yellow(`  Warning: Failed to clean up worktree: ${err}`))
-        }
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      const isAbort = error instanceof Error && error.name === 'AbortError'
+
+      if (isAbort) {
+        console.log(chalk.yellow(`  Task cancelled: ${task.taskId}`))
+        this.sendTaskResult(task.taskId, {
+          status: 'cancelled',
+        })
+      } else {
+        console.error(chalk.red(`  Task failed: ${errorMsg}`))
+        this.sendTaskResult(task.taskId, {
+          status: 'failed',
+          error: errorMsg,
+        })
       }
+    } finally {
+      this.activeAbortControllers.delete(task.taskId)
       this.activeTasks--
       this.updateStatus()
     }
@@ -559,11 +600,16 @@ export class AgentRunner {
       console.log(chalk.gray(`  Reason: ${reason}`))
     }
 
+    // Cancel Claude SDK task
+    const controller = this.activeAbortControllers.get(taskId)
+    if (controller) {
+      controller.abort()
+      this.activeAbortControllers.delete(taskId)
+    }
+
+    // Cancel Slurm task
     if (this.slurmExecutor) {
       await this.slurmExecutor.cancel(taskId)
-    }
-    if (this.claudeCodeExecutor) {
-      await this.claudeCodeExecutor.cancel(taskId)
     }
 
     this.sendTaskResult(taskId, {
@@ -584,7 +630,7 @@ export class AgentRunner {
     console.log(chalk.gray(`  Message: ${message}`))
 
     // Currently, we just acknowledge the steering message
-    // Full steering support would require more complex interaction with Claude Code
+    // Full steering support would require more complex interaction with Claude SDK
     this.send({
       type: 'task.steer.ack',
       timestamp: new Date(),

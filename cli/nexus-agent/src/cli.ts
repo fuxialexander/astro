@@ -3,7 +3,7 @@
  * Nexus Agent CLI
  *
  * Runs on local machines or HPC cluster login nodes to connect to the Nexus relay server
- * and execute tasks via Claude Code or Slurm.
+ * and execute tasks via Claude Agent SDK or Slurm.
  */
 
 import { program } from 'commander'
@@ -11,7 +11,6 @@ import chalk from 'chalk'
 import * as os from 'os'
 import { AgentRunner } from './runner.js'
 import { detectSlurm } from './slurm-detect.js'
-import { detectClaudeCode } from './claude-code-executor.js'
 import { loadConfig, saveConfig } from './config.js'
 
 // ASCII art banner
@@ -55,18 +54,6 @@ program
       process.exit(1)
     }
 
-    // Detect Claude Code
-    console.log(chalk.gray('Detecting Claude Code...'))
-    const claudeCodeInfo = await detectClaudeCode()
-
-    if (!claudeCodeInfo.available) {
-      console.warn(chalk.yellow('Warning: Claude Code not detected on this system'))
-      console.log(chalk.gray('Install Claude Code CLI with: npm install -g @anthropic-ai/claude-code'))
-    } else {
-      console.log(chalk.green(`✓ Claude Code ${claudeCodeInfo.version} detected`))
-      console.log(chalk.gray(`  Auth: ${claudeCodeInfo.authStatus}`))
-    }
-
     // Detect Slurm
     console.log(chalk.gray('Detecting Slurm...'))
     const slurmInfo = await detectSlurm()
@@ -83,20 +70,13 @@ program
       }
     }
 
-    // Check if any provider is available
-    if (!claudeCodeInfo.available && !slurmInfo.available) {
-      console.error(chalk.red('Error: No execution providers available'))
-      console.log(chalk.gray('Install Claude Code CLI or run on an HPC system with Slurm'))
-      process.exit(1)
-    }
-
-    // Create and start agent runner
-    const runner = new AgentRunner({
+    // Create and start agent runner (Claude SDK detection happens inside)
+    console.log(chalk.gray('Initializing agent runner...'))
+    const runner = await AgentRunner.create({
       relayUrl: config.relayUrl,
       machineName: config.machineName,
       authToken: config.authToken,
       slurmInfo,
-      claudeCodeInfo,
       workingDirectory: options.dir || process.cwd(),
       useWorktree: options.worktree !== false,
       worktreeRoot: options.worktreeRoot,
@@ -126,20 +106,9 @@ program
     console.log(banner)
     console.log(chalk.cyan('Checking system status...\n'))
 
-    // Check Claude Code
-    const claudeCodeInfo = await detectClaudeCode()
-
-    console.log(chalk.bold('Claude Code Status:'))
-    if (claudeCodeInfo.available) {
-      console.log(chalk.green(`  ✓ Available (version ${claudeCodeInfo.version})`))
-      console.log(`  Auth: ${claudeCodeInfo.authStatus}`)
-      if (claudeCodeInfo.authStatus !== 'authenticated') {
-        console.log(chalk.yellow('  Run `claude login` to authenticate'))
-      }
-    } else {
-      console.log(chalk.red('  ✗ Not available'))
-      console.log(chalk.gray('  Install with: npm install -g @anthropic-ai/claude-code'))
-    }
+    // Check Claude Agent SDK by attempting detection via runner
+    console.log(chalk.bold('Claude Agent SDK Status:'))
+    console.log(chalk.gray('  Use `nexus-agent connect` to detect SDK availability'))
 
     // Check Slurm
     const slurmInfo = await detectSlurm()
