@@ -1,4 +1,4 @@
-import { Link } from "react-router"
+import { Link, useNavigate } from "react-router"
 import {
   Plus,
   Eye,
@@ -12,10 +12,13 @@ import {
   Monitor,
   CheckCircle2,
   XCircle,
+  Folder,
+  Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/ui/empty-state"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
@@ -63,6 +66,7 @@ export function Dashboard() {
   const machines = useRealtimeStore((s) => s.machines)
   const activityFeed = useRealtimeStore((s) => s.activityFeed)
   const connected = useRealtimeStore((s) => s.connected)
+  const navigate = useNavigate()
 
   const activeTasks = nodes.filter(
     (n) => n.status === "in_progress" || n.status === "dispatched"
@@ -212,9 +216,24 @@ export function Dashboard() {
                 )
               })
             ) : (
-              <p className="text-sm text-muted-foreground py-8 text-center">
-                No items need your attention
-              </p>
+              <Card className="rounded-xl">
+                <CardContent className="p-0">
+                  <EmptyState
+                    icon={CheckCircle2}
+                    title="All caught up!"
+                    description={activeTasks > 0
+                      ? `Your agents are working on ${activeTasks} task${activeTasks !== 1 ? 's' : ''}. You'll be notified when decisions need your input.`
+                      : "No active tasks running. Start executing your plan to see progress here."
+                    }
+                    action={activeTasks === 0 && projects.length > 0 ? {
+                      label: "View Projects",
+                      onClick: () => navigate("/projects"),
+                    } : undefined}
+                    variant="success"
+                    className="py-6"
+                  />
+                </CardContent>
+              </Card>
             )}
           </div>
         </div>
@@ -230,29 +249,46 @@ export function Dashboard() {
               </Button>
             </div>
             <div className="flex flex-col gap-2">
-              {activeProjects.slice(0, 4).map((project) => {
-                const projectTasks = nodes.filter(
-                  (n) =>
-                    n.projectId === project.id &&
-                    (n.status === "in_progress" || n.status === "dispatched")
-                )
-                return (
-                  <Link key={project.id} to={`/project/${project.id}`}>
-                    <Card className="rounded-xl hover:border-primary/40 transition-colors">
-                      <CardContent className="flex items-center justify-between p-4">
-                        <div className="flex flex-col gap-0.5">
-                          <p className="text-sm font-semibold">{project.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {projectTasks.length} task{projectTasks.length !== 1 ? "s" : ""} in
-                            progress
-                          </p>
-                        </div>
-                        <Badge variant="success">Active</Badge>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                )
-              })}
+              {activeProjects.length > 0 ? (
+                activeProjects.slice(0, 4).map((project) => {
+                  const projectTasks = nodes.filter(
+                    (n) =>
+                      n.projectId === project.id &&
+                      (n.status === "in_progress" || n.status === "dispatched")
+                  )
+                  return (
+                    <Link key={project.id} to={`/project/${project.id}`}>
+                      <Card className="rounded-xl hover:border-primary/40 transition-colors">
+                        <CardContent className="flex items-center justify-between p-4">
+                          <div className="flex flex-col gap-0.5">
+                            <p className="text-sm font-semibold">{project.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {projectTasks.length} task{projectTasks.length !== 1 ? "s" : ""} in
+                              progress
+                            </p>
+                          </div>
+                          <Badge variant="success">Active</Badge>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  )
+                })
+              ) : (
+                <Card className="rounded-xl">
+                  <CardContent className="p-0">
+                    <EmptyState
+                      icon={Folder}
+                      title="No active projects"
+                      description="Create a project to get started with AI-assisted planning and execution."
+                      action={{
+                        label: "Create Project",
+                        onClick: () => navigate("/projects/new"),
+                      }}
+                      className="py-6"
+                    />
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
 
@@ -344,11 +380,14 @@ export function Dashboard() {
                       <ActivityItem key={event.id} event={event} />
                     ))
                   ) : (
-                    <p className="text-xs text-muted-foreground py-2">
-                      {connected
-                        ? "Waiting for activity..."
-                        : "Connect to see real-time events"}
-                    </p>
+                    <div className="flex flex-col items-center gap-2 py-4 text-center">
+                      <Zap className="h-5 w-5 text-muted-foreground" />
+                      <p className="text-xs text-muted-foreground">
+                        {connected
+                          ? "No agents running. Start executing your plan to see activity."
+                          : "Connect to see real-time agent activity."}
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>
