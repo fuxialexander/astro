@@ -15,6 +15,10 @@ interface PlanGraphResult {
     position: { x: number; y: number }
     startDate?: string
     endDate?: string
+    priority?: string
+    estimate?: string
+    dueDate?: string
+    milestoneId?: string
   }>
   edges: Array<{
     id: string

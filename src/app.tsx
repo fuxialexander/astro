@@ -8,6 +8,8 @@ import { Dashboard } from "@/pages/dashboard"
 import { Projects } from "@/pages/projects"
 import { ProjectNew } from "@/pages/project-new"
 import { ProjectOverview } from "@/pages/project-overview"
+import { PlanView } from "@/pages/plan-view"
+import { ProjectTimeline } from "@/pages/project-timeline"
 import { JudgmentQueue } from "@/pages/judgment-queue"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
@@ -19,6 +21,7 @@ import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
 import { Inbox } from "@/pages/inbox"
+import { Welcome } from "@/pages/welcome"
 
 function DataLoader({ children }: { children: React.ReactNode }) {
   const loadProjects = useProjectStore((s) => s.load)
@@ -60,18 +63,21 @@ export default function App() {
           <DataLoader>
             <CommandPalette />
             <Routes>
-              {/* Device auth page - standalone without app layout */}
+              {/* Standalone pages without app layout */}
               <Route path="device" element={<DeviceAuth />} />
+              <Route path="welcome" element={<Welcome />} />
 
               <Route element={<AppLayout />}>
                 <Route index element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="projects/new" element={<ProjectNew />} />
                 <Route path="project/:id" element={<ProjectOverview />} />
+                <Route path="project/:id/plan" element={<PlanView />} />
+                <Route path="project/:id/timeline" element={<ProjectTimeline />} />
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
                 <Route path="judgment" element={<JudgmentQueue />} />
                 <Route path="inbox" element={<Inbox />} />
-                <Route path="attention" element={<Dashboard />} />
+                <Route path="tasks" element={<Dashboard />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="settings" element={<Settings />} />
               </Route>

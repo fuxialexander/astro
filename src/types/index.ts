@@ -1,3 +1,12 @@
+export type Priority = 'urgent' | 'high' | 'medium' | 'low' | 'none';
+export type Estimate = 'XS' | 'S' | 'M' | 'L' | 'XL';
+
+export interface Label {
+  id: string;
+  name: string;
+  color: string;  // hex color
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -10,6 +19,7 @@ export interface Project {
   health?: 'on_track' | 'at_risk' | 'off_track';
   initiative?: string;
   progress?: number;      // 0-100
+  labels?: Label[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +38,11 @@ export interface PlanNode {
   position: { x: number; y: number };
   startDate?: string;
   endDate?: string;
+  priority?: Priority;
+  labelIds?: string[];
+  dueDate?: string;       // ISO YYYY-MM-DD, distinct from startDate/endDate
+  estimate?: Estimate;
+  milestoneId?: string;   // references a PlanNode.id where type=milestone
   createdAt: Date;
   updatedAt: Date;
   // Execution metadata

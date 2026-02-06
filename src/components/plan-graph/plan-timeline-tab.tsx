@@ -1,133 +1,21 @@
 import { useMemo, useState } from "react"
+import { X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePlanStore } from "@/stores/plan-store"
-import type { PlanNode, PlanEdge } from "@/types"
-
-const DAY_WIDTH = 20
-
-const statusColors: Record<string, string> = {
-  completed: "bg-green-500",
-  auto_verified: "bg-green-500",
-  in_progress: "bg-blue-500",
-  dispatched: "bg-blue-500",
-  awaiting_judgment: "bg-amber-500",
-  planned: "bg-primary/70",
-  pruned: "bg-border opacity-40",
-}
-
-const progressColors: Record<string, string> = {
-  in_progress: "bg-blue-700",
-  dispatched: "bg-blue-700",
-}
-
-function parseDate(s: string): Date {
-  const [y, m, d] = s.split("-").map(Number)
-  return new Date(Date.UTC(y, m - 1, d))
-}
-
-function fmtDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-function diffDays(a: Date, b: Date): number {
-  return Math.round((b.getTime() - a.getTime()) / 86400000)
-}
-
-function addDays(d: Date, n: number): Date {
-  return new Date(d.getTime() + n * 86400000)
-}
-
-function snapToMonday(d: Date): Date {
-  const day = d.getUTCDay()
-  const diff = day === 0 ? 6 : day - 1
-  return addDays(d, -diff)
-}
-
-/**
- * Topological sort + assign default dates to nodes missing startDate/endDate.
- * Milestones keep their authored dates. Tasks get auto-derived positions.
- */
-function assignDefaultDates(nodes: PlanNode[], edges: PlanEdge[]): PlanNode[] {
-  const nodeMap = new Map(nodes.map((n) => [n.id, { ...n }]))
-
-  const inDeps = new Map<string, string[]>()
-  for (const n of nodes) inDeps.set(n.id, [])
-  for (const e of edges) {
-    inDeps.get(e.target)?.push(e.source)
-  }
-
-  for (const n of nodes) {
-    const list = inDeps.get(n.id) || []
-    for (const dep of n.dependencies) {
-      if (!list.includes(dep)) list.push(dep)
-    }
-    inDeps.set(n.id, list)
-  }
-
-  // Kahn's topological sort
-  const inDegree = new Map<string, number>()
-  for (const n of nodes) inDegree.set(n.id, inDeps.get(n.id)!.length)
-  const queue: string[] = []
-  for (const [id, deg] of inDegree) {
-    if (deg === 0) queue.push(id)
-  }
-
-  const sorted: string[] = []
-  const outEdges = new Map<string, string[]>()
-  for (const n of nodes) outEdges.set(n.id, [])
-  for (const e of edges) {
-    outEdges.get(e.source)?.push(e.target)
-  }
-  for (const n of nodes) {
-    for (const dep of n.dependencies) {
-      const outs = outEdges.get(dep) || []
-      if (!outs.includes(n.id)) outs.push(n.id)
-      outEdges.set(dep, outs)
-    }
-  }
-
-  while (queue.length > 0) {
-    const id = queue.shift()!
-    sorted.push(id)
-    for (const next of outEdges.get(id) || []) {
-      const deg = (inDegree.get(next) || 1) - 1
-      inDegree.set(next, deg)
-      if (deg === 0) queue.push(next)
-    }
-  }
-
-  for (const n of nodes) {
-    if (!sorted.includes(n.id)) sorted.push(n.id)
-  }
-
-  const today = fmtDate(new Date())
-
-  for (const id of sorted) {
-    const node = nodeMap.get(id)!
-    if (node.startDate && node.endDate) continue
-
-    const deps = inDeps.get(id) || []
-    let earliest = today
-    for (const depId of deps) {
-      const dep = nodeMap.get(depId)
-      if (dep?.endDate && dep.endDate > earliest) {
-        earliest = dep.endDate
-      }
-    }
-
-    if (!node.startDate) {
-      node.startDate = earliest
-    }
-    if (!node.endDate) {
-      const duration = node.type === "milestone" ? 0 : 3
-      node.endDate = fmtDate(addDays(parseDate(node.startDate), duration))
-    }
-  }
-
-  return nodes.map((n) => nodeMap.get(n.id)!)
-}
+import { PRIORITIES, ESTIMATES, PRIORITY_CONFIG } from "@/lib/constants"
+import {
+  DAY_WIDTH,
+  statusColors,
+  progressColors,
+  parseDate,
+  fmtDate,
+  diffDays,
+  addDays,
+  snapToMonday,
+  assignDefaultDates,
+} from "@/lib/timeline-utils"
+import type { PlanNode, Priority, Estimate } from "@/types"
 
 interface PlanTimelineTabProps {
   projectId: string
@@ -143,6 +31,10 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
   const [editDesc, setEditDesc] = useState("")
   const [editStart, setEditStart] = useState("")
   const [editEnd, setEditEnd] = useState("")
+  const [editPriority, setEditPriority] = useState<Priority>("none")
+  const [editEstimate, setEditEstimate] = useState<Estimate | "">("")
+  const [editDueDate, setEditDueDate] = useState("")
+  const [editMilestoneId, setEditMilestoneId] = useState("")
 
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(nodes.filter((n) => n.projectId === projectId).map((n) => n.id))
@@ -200,12 +92,20 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
 
   const isMilestone = editingNode?.type === "milestone"
 
+  const milestoneNodes = useMemo(() => {
+    return nodes.filter((n) => n.projectId === projectId && n.type === "milestone")
+  }, [nodes, projectId])
+
   function openEdit(node: PlanNode) {
     setEditingNode(node)
     setEditTitle(node.title)
     setEditDesc(node.description)
     setEditStart(node.startDate || "")
     setEditEnd(node.endDate || "")
+    setEditPriority(node.priority || "none")
+    setEditEstimate(node.estimate || "")
+    setEditDueDate(node.dueDate || "")
+    setEditMilestoneId(node.milestoneId || "")
   }
 
   function saveEdit() {
@@ -213,6 +113,10 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
     const updates: Partial<PlanNode> = {
       title: editTitle,
       description: editDesc,
+      priority: editPriority === "none" ? undefined : editPriority,
+      estimate: editEstimate || undefined,
+      dueDate: editDueDate || undefined,
+      milestoneId: editMilestoneId || undefined,
     }
     // Only save dates for milestones
     if (editingNode.type === "milestone") {
@@ -227,23 +131,36 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
   const weekColWidth = 7 * DAY_WIDTH
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div className="flex flex-1 overflow-hidden relative">
       {/* Task labels */}
       <div className="w-[240px] shrink-0 border-r border-border">
         <div className="flex h-10 items-center border-b border-border px-4">
           <span className="text-[11px] font-semibold text-muted-foreground uppercase">Tasks</span>
         </div>
-        {projectNodes.map((node) => (
-          <div
-            key={node.id}
-            className="flex h-11 items-center border-b border-border px-4 cursor-pointer hover:bg-secondary/50"
-            onClick={() => openEdit(node)}
-          >
-            <span className={`truncate text-xs ${node.status === "pruned" ? "text-muted-foreground line-through" : ""}`}>
-              {node.type === "milestone" ? "◆ " : ""}{node.title}
-            </span>
-          </div>
-        ))}
+        {projectNodes.map((node) => {
+          // Compute milestone completion
+          const milestoneCompletion = node.type === "milestone" ? (() => {
+            const tasks = nodes.filter((n) => n.milestoneId === node.id && n.type !== "milestone")
+            if (tasks.length === 0) return null
+            const done = tasks.filter((t) => t.status === "completed" || t.status === "auto_verified").length
+            return Math.round((done / tasks.length) * 100)
+          })() : null
+
+          return (
+            <div
+              key={node.id}
+              className="flex h-11 items-center border-b border-border px-4 cursor-pointer hover:bg-secondary/50"
+              onClick={() => openEdit(node)}
+            >
+              <span className={`truncate text-xs flex-1 ${node.status === "pruned" ? "text-muted-foreground line-through" : ""}`}>
+                {node.type === "milestone" ? "◆ " : ""}{node.title}
+              </span>
+              {milestoneCompletion !== null && (
+                <span className="text-[10px] text-muted-foreground ml-1">{milestoneCompletion}%</span>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {/* Gantt area */}
@@ -282,6 +199,17 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
             const end = parseDate(node.endDate!)
             const barLeft = diffDays(timelineStart, start) * DAY_WIDTH
             const barWidth = Math.max(diffDays(start, end) * DAY_WIDTH, 6)
+
+            // Due date marker
+            const hasDueDate = !!node.dueDate
+            const dueDateOffset = hasDueDate ? diffDays(timelineStart, parseDate(node.dueDate!)) * DAY_WIDTH : 0
+            const isDueDateOverdue = hasDueDate && (() => {
+              const due = parseDate(node.dueDate!)
+              const today = new Date()
+              today.setHours(0, 0, 0, 0)
+              return due < today && node.status !== "completed" && node.status !== "pruned" && node.status !== "auto_verified"
+            })()
+
             return (
               <div key={node.id} className="flex h-11 items-center border-b border-border relative">
                 <div
@@ -301,19 +229,30 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
                     </span>
                   )}
                 </div>
+                {/* Due date marker */}
+                {hasDueDate && (
+                  <div
+                    className={`absolute top-2 w-0.5 h-7 ${isDueDateOverdue ? "bg-red-500" : "bg-orange-400"}`}
+                    style={{ left: `${dueDateOffset}px` }}
+                    title={`Due: ${node.dueDate}`}
+                  />
+                )}
               </div>
             )
           })}
         </div>
       </div>
 
-      {/* Edit dialog */}
-      <Dialog open={!!editingNode} onOpenChange={(open) => { if (!open) setEditingNode(null) }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit {isMilestone ? "Milestone" : "Task"}</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col gap-4">
+      {/* Floating edit panel */}
+      {editingNode && (
+        <div className="absolute top-2 right-2 bottom-2 w-[340px] z-20 flex flex-col rounded-lg border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-4 h-11 border-b border-border shrink-0">
+            <span className="text-sm font-semibold">Edit {isMilestone ? "Milestone" : "Task"}</span>
+            <button onClick={() => setEditingNode(null)} className="rounded-sm p-0.5 opacity-70 hover:opacity-100 transition-opacity cursor-pointer">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Title</label>
               <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
@@ -326,7 +265,6 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
                 onChange={(e) => setEditDesc(e.target.value)}
               />
             </div>
-            {/* Only show date fields for milestones */}
             {isMilestone && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -341,19 +279,69 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
             )}
             {!isMilestone && (
               <p className="text-xs text-muted-foreground">
-                Tasks don't have dates. Their timeline position is derived from dependencies.
+                Task timeline position is derived from dependencies.
               </p>
             )}
             {isMilestone && editEnd && editStart && editEnd < editStart && (
               <p className="text-xs text-destructive">End date must be on or after start date.</p>
             )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Priority</label>
+                <select
+                  value={editPriority}
+                  onChange={(e) => setEditPriority(e.target.value as Priority)}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {PRIORITIES.map((p) => (
+                    <option key={p} value={p}>{PRIORITY_CONFIG[p].label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Estimate</label>
+                <select
+                  value={editEstimate}
+                  onChange={(e) => setEditEstimate(e.target.value as Estimate | "")}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="">—</option>
+                  {ESTIMATES.map((e) => (
+                    <option key={e} value={e}>{e}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Due Date</label>
+                <Input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
+              </div>
+              {!isMilestone && milestoneNodes.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Milestone</label>
+                  <select
+                    value={editMilestoneId}
+                    onChange={(e) => setEditMilestoneId(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">—</option>
+                    {milestoneNodes.map((m) => (
+                      <option key={m.id} value={m.id}>◆ {m.title}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => setEditingNode(null)}>Cancel</Button>
               <Button size="sm" onClick={saveEdit} disabled={!!(isMilestone && editEnd && editStart && editEnd < editStart)}>Save</Button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   )
 }

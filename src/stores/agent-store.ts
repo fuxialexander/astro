@@ -52,6 +52,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               position: n.position,
               startDate: n.startDate,
               endDate: n.endDate,
+              priority: n.priority as PlanNode["priority"],
+              estimate: n.estimate as PlanNode["estimate"],
+              dueDate: n.dueDate,
+              milestoneId: n.milestoneId,
               createdAt: now,
               updatedAt: now,
             }))

@@ -8,6 +8,8 @@ import { useSettingsStore } from "@/stores/settings-store"
 
 export function ProjectNew() {
   const [description, setDescription] = useState("")
+  const [startDate, setStartDate] = useState("")
+  const [targetDate, setTargetDate] = useState("")
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
   const startGeneration = useAgentStore((s) => s.startGeneration)
@@ -23,6 +25,8 @@ export function ProjectNew() {
       description: description.trim(),
       visionDoc: "",
       status: "active",
+      startDate: startDate || undefined,
+      targetDate: targetDate || undefined,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -70,6 +74,31 @@ export function ProjectNew() {
                 <LinkIcon className="h-4 w-4" />
                 Link repo
               </button>
+            </div>
+          </div>
+
+          {/* Timeline & Constraints */}
+          <div className="flex flex-col gap-3">
+            <span className="text-[13px] font-medium text-muted-foreground">Timeline & Constraints</span>
+            <div className="flex gap-3">
+              <div className="flex flex-col gap-1 flex-1">
+                <label className="text-[11px] text-muted-foreground">Start Date</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div className="flex flex-col gap-1 flex-1">
+                <label className="text-[11px] text-muted-foreground">Target Date</label>
+                <input
+                  type="date"
+                  value={targetDate}
+                  onChange={(e) => setTargetDate(e.target.value)}
+                  className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
             </div>
           </div>
         </div>
