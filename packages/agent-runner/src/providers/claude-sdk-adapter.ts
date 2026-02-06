@@ -137,7 +137,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       maxTurns: 100, // Allow multi-turn for complex tasks
       tools: [], // Use default tools
       persistSession: false,
-      workingDirectory: task.workingDirectory,
+      cwd: task.workingDirectory,
     };
 
     // Add environment variables if provided
@@ -189,10 +189,15 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
         if (msg.subtype === 'success') {
           success = true;
           stream.status('completed', 100, 'Task completed successfully');
-        } else if (msg.subtype === 'error') {
+        } else if (
+          msg.subtype === 'error_during_execution' ||
+          msg.subtype === 'error_max_turns' ||
+          msg.subtype === 'error_max_budget_usd' ||
+          msg.subtype === 'error_max_structured_output_retries'
+        ) {
           success = false;
-          errorMessage = 'Task failed';
-          stream.status('failed', progress, 'Task failed');
+          errorMessage = `Task failed: ${msg.subtype}`;
+          stream.status('failed', progress, errorMessage);
         }
         break;
       }

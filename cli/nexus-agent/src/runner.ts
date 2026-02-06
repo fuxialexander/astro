@@ -440,7 +440,7 @@ Execute the task described above. Focus on completing the task thoroughly and co
           maxTurns: 100,
           tools: [],
           persistSession: false,
-          workingDirectory: effectiveWorkingDir,
+          cwd: effectiveWorkingDir,
         },
       })
 
@@ -497,7 +497,12 @@ Execute the task described above. Focus on completing the task thoroughly and co
           if (msg.subtype === 'success') {
             success = true
             this.sendTaskProgress(task.taskId, 100, 'Task completed')
-          } else if (msg.subtype === 'error') {
+          } else if (
+            msg.subtype === 'error_during_execution' ||
+            msg.subtype === 'error_max_turns' ||
+            msg.subtype === 'error_max_budget_usd' ||
+            msg.subtype === 'error_max_structured_output_retries'
+          ) {
             success = false
           }
           break
