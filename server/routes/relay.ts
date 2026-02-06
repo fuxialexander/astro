@@ -428,3 +428,214 @@ relayRoute.get('/best-machine', (c) => {
     },
   });
 });
+
+// ============================================================================
+// Slurm/HPC Specific Routes
+// ============================================================================
+
+/**
+ * GET /relay/slurm/clusters
+ * Get all HPC clusters with Slurm providers
+ */
+relayRoute.get('/slurm/clusters', (c) => {
+  const hpcMachines = machineRegistry.getByEnvironment('hpc');
+  const slurmMachines = hpcMachines.filter(m =>
+    m.providers.some(p => p.type === 'slurm')
+  );
+
+  return c.json({
+    clusters: slurmMachines.map(m => {
+      const slurmProvider = m.providers.find(p => p.type === 'slurm');
+      return {
+        machineId: m.machineId,
+        name: m.name,
+        hostname: m.hostname,
+        connectionStatus: m.connectionStatus,
+        provider: slurmProvider ? {
+          status: slurmProvider.status,
+          version: slurmProvider.version,
+          maxConcurrentTasks: slurmProvider.maxConcurrentTasks,
+          currentTasks: slurmProvider.currentTasks,
+          capabilities: slurmProvider.capabilities,
+        } : null,
+        resources: m.resources,
+        load: m.load,
+        lastHeartbeat: m.lastHeartbeat,
+        metadata: m.metadata,
+      };
+    }),
+    count: slurmMachines.length,
+  });
+});
+
+/**
+ * GET /relay/slurm/clusters/:machineId
+ * Get detailed Slurm cluster info for a specific machine
+ */
+relayRoute.get('/slurm/clusters/:machineId', (c) => {
+  const machineId = c.req.param('machineId');
+  const machine = machineRegistry.get(machineId);
+
+  if (!machine) {
+    return c.json({ error: 'Machine not found' }, 404);
+  }
+
+  if (machine.environmentType !== 'hpc') {
+    return c.json({ error: 'Machine is not an HPC cluster' }, 400);
+  }
+
+  const slurmProvider = machine.providers.find(p => p.type === 'slurm');
+  if (!slurmProvider) {
+    return c.json({ error: 'Machine does not have Slurm provider' }, 400);
+  }
+
+  return c.json({
+    cluster: {
+      machineId: machine.machineId,
+      name: machine.name,
+      hostname: machine.hostname,
+      platform: machine.platform,
+      connectionStatus: machine.connectionStatus,
+      slurm: {
+        status: slurmProvider.status,
+        version: slurmProvider.version,
+        maxConcurrentTasks: slurmProvider.maxConcurrentTasks,
+        currentTasks: slurmProvider.currentTasks,
+        capabilities: slurmProvider.capabilities,
+      },
+      resources: machine.resources,
+      load: machine.load,
+      tags: machine.tags,
+      metadata: machine.metadata,
+      connectedAt: machine.connectedAt,
+      lastHeartbeat: machine.lastHeartbeat,
+    },
+  });
+});
+
+/**
+ * GET /relay/slurm/jobs
+ * Get all active Slurm jobs across all clusters
+ * (This would require tracking Slurm jobs in the registry)
+ */
+relayRoute.get('/slurm/jobs', (c) => {
+  // For now, return structure for frontend integration
+  // In production, this would query the NexusSlurmJobRegistry
+  return c.json({
+    jobs: [],
+    clusters: machineRegistry.getByEnvironment('hpc')
+      .filter(m => m.providers.some(p => p.type === 'slurm'))
+      .map(m => m.machineId),
+    message: 'Query individual clusters for job status',
+  });
+});
+
+/**
+ * POST /relay/slurm/dispatch
+ * Dispatch a task specifically to Slurm
+ * Enhanced version of /relay/dispatch for HPC workflows
+ */
+relayRoute.post('/slurm/dispatch', async (c) => {
+  try {
+    const body = await c.req.json() as {
+      task: TaskDispatch;
+      targetClusterId?: string;
+      slurmConfig?: {
+        partition?: string;
+        nodes?: number;
+        ntasks?: number;
+        cpusPerTask?: number;
+        mem?: string;
+        time?: string;
+        gpu?: { type?: string; count: number };
+        qos?: string;
+        account?: string;
+        modules?: string[];
+        workdir?: string;
+      };
+    };
+
+    if (!body.task) {
+      return c.json({ error: 'Missing task object' }, 400);
+    }
+
+    const { task, targetClusterId, slurmConfig } = body;
+
+    // Validate required fields
+    if (!task.taskId || !task.projectId || !task.nodeId || !task.title) {
+      return c.json({
+        error: 'Missing required task fields',
+        required: ['taskId', 'projectId', 'nodeId', 'title'],
+      }, 400);
+    }
+
+    // Force HPC environment and Slurm provider
+    const slurmTask: TaskDispatch = {
+      ...task,
+      environment: 'hpc',
+      preferredProvider: 'slurm',
+      metadata: {
+        ...task.metadata,
+        slurmConfig: slurmConfig ? JSON.stringify(slurmConfig) : undefined,
+      },
+    };
+
+    // Find target cluster
+    let targetMachineId = targetClusterId;
+    if (!targetMachineId) {
+      const bestMachine = machineRegistry.findBestMachine('hpc', 'slurm');
+      if (!bestMachine) {
+        return c.json({
+          error: 'No Slurm cluster available',
+          hint: 'Connect an HPC cluster with Slurm provider',
+        }, 503);
+      }
+      targetMachineId = bestMachine.machineId;
+    }
+
+    // Verify target has Slurm
+    const targetMachine = machineRegistry.get(targetMachineId);
+    if (!targetMachine) {
+      return c.json({ error: 'Target cluster not found' }, 404);
+    }
+
+    const hasSlurmProvider = targetMachine.providers.some(
+      p => p.type === 'slurm' && p.status === 'available'
+    );
+    if (!hasSlurmProvider) {
+      return c.json({
+        error: 'Target machine does not have available Slurm provider',
+        machineId: targetMachineId,
+      }, 400);
+    }
+
+    // Dispatch to relay server
+    const success = relayServer.dispatchTask(slurmTask, targetMachineId);
+
+    if (!success) {
+      return c.json({
+        error: 'Failed to dispatch task to Slurm cluster',
+        machineId: targetMachineId,
+      }, 503);
+    }
+
+    // Track task mapping if Redis is available
+    if (redisPubSub.isConnected()) {
+      await redisPubSub.mapTaskToMachine(task.taskId, targetMachineId);
+    }
+
+    return c.json({
+      success: true,
+      taskId: task.taskId,
+      machineId: targetMachineId,
+      clusterName: targetMachine.name,
+      environment: 'hpc',
+      provider: 'slurm',
+      slurmConfig,
+      message: 'Task dispatched to Slurm cluster',
+    });
+  } catch (err) {
+    console.error('[relay] Error dispatching Slurm task:', err);
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+});

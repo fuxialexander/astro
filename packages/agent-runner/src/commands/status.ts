@@ -38,7 +38,7 @@ export async function statusCommand(): Promise<void> {
   try {
     const resources = await getMachineResources();
     console.log(chalk.dim(formatResourceSummary(resources).split('\n').map(l => '  ' + l).join('\n')));
-  } catch (error) {
+  } catch {
     console.log(chalk.red('  Failed to detect resources'));
   }
   console.log();
@@ -54,7 +54,7 @@ export async function statusCommand(): Promise<void> {
       console.log(chalk.yellow('  No providers detected'));
       console.log(chalk.dim('  Install Claude Code or Codex to enable task execution'));
     }
-  } catch (error) {
+  } catch {
     console.log(chalk.red('  Failed to detect providers'));
   }
   console.log();
