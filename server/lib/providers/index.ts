@@ -72,6 +72,7 @@ export type { ContextInjectionStrategy } from './context.js'
 // Provider adapters
 export { ClaudeCodeProvider, claudeCodeProvider } from './adapters/claude-code.js'
 export { SlurmProvider, slurmProvider } from './adapters/slurm.js'
+export { CodexProvider, codexProvider } from './adapters/codex.js'
 
 /**
  * Initialize the provider registry with all known providers.
@@ -81,13 +82,15 @@ export async function initializeProviders(): Promise<void> {
   const { providerRegistry } = await import('./registry.js')
   const { claudeCodeProvider } = await import('./adapters/claude-code.js')
   const { slurmProvider } = await import('./adapters/slurm.js')
+  const { codexProvider } = await import('./adapters/codex.js')
 
   // Register built-in providers
   providerRegistry.register(claudeCodeProvider)
   providerRegistry.register(slurmProvider)
+  providerRegistry.register(codexProvider)
 
-  // Note: Additional providers (Codex, Gemini, etc.) will be registered here
-  // when their adapters are implemented (SUP-176, SUP-185)
+  // Note: Additional providers (Gemini, etc.) will be registered here
+  // when their adapters are implemented
 
   // Detect all providers
   await providerRegistry.detectAll()
