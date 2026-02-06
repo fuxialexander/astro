@@ -18,7 +18,7 @@ export function Sidebar() {
   const navigate = useNavigate()
 
   return (
-    <aside className="flex h-full w-[260px] shrink-0 flex-col bg-sidebar text-sidebar-foreground">
+    <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 items-center gap-2.5 px-4">
         <div className="relative">
           <Hexagon className="h-6 w-6 text-primary" />

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, ChevronDown, Rocket, FlaskConical, SlidersHorizontal, Users, CircleCheck } from "lucide-react"
+import { Folder, ListFilter, Plus, ChevronDown, Rocket, FlaskConical, Users, CircleCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
+import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
+import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { DAY_WIDTH, parseDate, fmtDate, diffDays, addDays, snapToMonday } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
 import type { Project } from "@/types"
@@ -44,6 +46,28 @@ const initiativeIconColors: Record<string, string> = {
   "Research Projects": "text-destructive",
 }
 
+const projectsDisplayConfig: DisplayPopoverConfig = {
+  viewKey: "projects",
+  groupByOptions: [
+    { value: "none", label: "No grouping" },
+    { value: "initiative", label: "Initiative" },
+    { value: "status", label: "Status" },
+    { value: "health", label: "Health" },
+  ],
+  orderByOptions: [
+    { value: "name", label: "Name" },
+    { value: "targetDate", label: "Target date" },
+    { value: "progress", label: "Progress" },
+    { value: "health", label: "Health" },
+  ],
+  propertyOptions: [
+    { value: "status", label: "Status" },
+    { value: "health", label: "Health" },
+    { value: "progress", label: "Progress" },
+    { value: "targetDate", label: "Target date" },
+  ],
+}
+
 function formatShortDate(dateStr?: string): string {
   if (!dateStr) return "—"
   const d = new Date(dateStr + "T00:00:00Z")
@@ -56,9 +80,9 @@ export function Projects() {
   const projects = useProjectStore((s) => s.projects)
   const allNodes = usePlanStore((s) => s.nodes)
   const navigate = useNavigate()
+  const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
   const [viewTab, setViewTab] = useState<ViewTab>("all")
   const [showFilter, setShowFilter] = useState(false)
-  const [showDisplay, setShowDisplay] = useState(false)
   const [dayWidth, setDayWidth] = useState(DAY_WIDTH)
   const ganttRef = useRef<HTMLDivElement>(null)
   const dayWidthRef = useRef(dayWidth)
@@ -189,14 +213,59 @@ export function Projects() {
     return todayStart >= colDate && todayStart < colEnd
   }
 
-  // Group by initiative
+  // Sort projects
+  const sortedProjects = useMemo(() => {
+    const filtered = displaySettings.showCompleted
+      ? projects
+      : projects.filter((p) => (p.progress ?? 0) < 100)
+    const sorted = [...filtered]
+    const dir = displaySettings.orderDirection === "asc" ? 1 : -1
+    sorted.sort((a, b) => {
+      switch (displaySettings.orderBy) {
+        case "name":
+          return dir * a.name.localeCompare(b.name)
+        case "targetDate": {
+          const da = a.targetDate ?? ""
+          const db = b.targetDate ?? ""
+          return dir * da.localeCompare(db)
+        }
+        case "progress":
+          return dir * ((a.progress ?? 0) - (b.progress ?? 0))
+        case "health": {
+          const order = { on_track: 0, at_risk: 1, off_track: 2 }
+          return dir * ((order[a.health ?? "on_track"] ?? 0) - (order[b.health ?? "on_track"] ?? 0))
+        }
+        default:
+          return 0
+      }
+    })
+    return sorted
+  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted])
+
+  // Group projects based on display settings
   const groups = useMemo(() => {
-    return projects.reduce<Record<string, Project[]>>((acc, p) => {
-      const group = p.initiative ?? "Other"
+    if (displaySettings.groupBy === "none") {
+      return { "All Projects": sortedProjects }
+    }
+    return sortedProjects.reduce<Record<string, Project[]>>((acc, p) => {
+      let group: string
+      switch (displaySettings.groupBy) {
+        case "initiative":
+          group = p.initiative ?? "Other"
+          break
+        case "status":
+          group = p.status === "active" ? "Active" : "Archived"
+          break
+        case "health":
+          group = healthConfig[p.health ?? "on_track"]?.label ?? "On track"
+          break
+        default:
+          group = "All Projects"
+      }
       ;(acc[group] ??= []).push(p)
       return acc
     }, {})
-  }, [projects])
+  }, [sortedProjects, displaySettings.groupBy])
 
   // Initiative counts for right panel
   const initiativeCounts = useMemo(() => {
@@ -246,14 +315,7 @@ export function Projects() {
                 Add project
               </Link>
             </Button>
-            <Button
-              variant={showDisplay ? "default" : "outline"}
-              size="sm"
-              onClick={() => setShowDisplay(!showDisplay)}
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              Display
-            </Button>
+            <DisplayPopover config={projectsDisplayConfig} />
           </div>
         </div>
 
@@ -286,10 +348,7 @@ export function Projects() {
                   </button>
                 ))}
               </div>
-              <Button variant="outline" size="sm" className="h-7 text-xs">
-                <SlidersHorizontal className="h-3 w-3" />
-                Display
-              </Button>
+              <DisplayPopover config={projectsDisplayConfig} />
             </div>
           )}
         </div>
@@ -299,10 +358,18 @@ export function Projects() {
             {/* Column Headers */}
             <div className="flex items-center border-b border-border px-6 h-9 shrink-0">
               <span className="flex-1 text-[13px] font-medium text-muted-foreground">Name</span>
-              <span className="w-[100px] text-[13px] font-medium text-muted-foreground">Status</span>
-              <span className="w-[100px] text-[13px] font-medium text-muted-foreground">Health</span>
-              <span className="w-[80px] text-[13px] font-medium text-muted-foreground">Progress</span>
-              <span className="w-[100px] text-[13px] font-medium text-muted-foreground">Target date</span>
+              {displaySettings.visibleProperties.includes("status") && (
+                <span className="w-[100px] text-[13px] font-medium text-muted-foreground">Status</span>
+              )}
+              {displaySettings.visibleProperties.includes("health") && (
+                <span className="w-[100px] text-[13px] font-medium text-muted-foreground">Health</span>
+              )}
+              {displaySettings.visibleProperties.includes("progress") && (
+                <span className="w-[80px] text-[13px] font-medium text-muted-foreground">Progress</span>
+              )}
+              {displaySettings.visibleProperties.includes("targetDate") && (
+                <span className="w-[100px] text-[13px] font-medium text-muted-foreground">Target date</span>
+              )}
             </div>
 
             {/* Table Body */}
@@ -319,18 +386,20 @@ export function Projects() {
                   className="h-full"
                 />
               ) : (
-                Object.entries(groups).map(([initiative, items]) => {
-                  const Icon = initiativeIcons[initiative] ?? Users
-                  const iconColor = initiativeIconColors[initiative] ?? "text-green-600"
+                Object.entries(groups).map(([groupName, items]) => {
+                  const Icon = displaySettings.groupBy === "initiative" ? (initiativeIcons[groupName] ?? Users) : Folder
+                  const iconColor = displaySettings.groupBy === "initiative" ? (initiativeIconColors[groupName] ?? "text-green-600") : "text-muted-foreground"
                   return (
-                    <div key={initiative}>
-                      {/* Initiative Group Header */}
-                      <div className="flex items-center gap-2 bg-muted px-6 py-2.5">
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                        <Icon className={`h-4 w-4 ${iconColor}`} />
-                        <span className="text-sm font-medium">{initiative}</span>
-                        <span className="text-[13px] text-muted-foreground">{items.length}</span>
-                      </div>
+                    <div key={groupName}>
+                      {/* Group Header */}
+                      {displaySettings.groupBy !== "none" && (
+                        <div className="flex items-center gap-2 bg-muted px-6 py-2.5">
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          <Icon className={`h-4 w-4 ${iconColor}`} />
+                          <span className="text-sm font-medium">{groupName}</span>
+                          <span className="text-[13px] text-muted-foreground">{items.length}</span>
+                        </div>
+                      )}
 
                       {/* Project Rows */}
                       {items.map((project) => {
@@ -339,7 +408,10 @@ export function Projects() {
                           <Link
                             key={project.id}
                             to={`/project/${project.id}`}
-                            className="flex items-center border-b border-border px-6 pl-12 py-2.5 hover:bg-muted/30 transition-colors"
+                            className={cn(
+                              "flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-colors",
+                              displaySettings.groupBy !== "none" && "pl-12"
+                            )}
                           >
                             {/* Name */}
                             <div className="flex flex-1 items-center gap-2.5 min-w-0">
@@ -348,34 +420,42 @@ export function Projects() {
                             </div>
 
                             {/* Status */}
-                            <div className="w-[100px]">
-                              <Badge variant="success" className="text-xs">
-                                {project.status === "active" ? "Active" : "Archived"}
-                              </Badge>
-                            </div>
+                            {displaySettings.visibleProperties.includes("status") && (
+                              <div className="w-[100px]">
+                                <Badge variant="success" className="text-xs">
+                                  {project.status === "active" ? "Active" : "Archived"}
+                                </Badge>
+                              </div>
+                            )}
 
                             {/* Health */}
-                            <div className="w-[100px] flex items-center gap-1.5">
-                              <span className={`h-2 w-2 rounded-full ${health.dotClass}`} />
-                              <span className={`text-xs ${health.textClass}`}>{health.label}</span>
-                            </div>
+                            {displaySettings.visibleProperties.includes("health") && (
+                              <div className="w-[100px] flex items-center gap-1.5">
+                                <span className={`h-2 w-2 rounded-full ${health.dotClass}`} />
+                                <span className={`text-xs ${health.textClass}`}>{health.label}</span>
+                              </div>
+                            )}
 
                             {/* Progress */}
-                            <div className="w-[80px]">
-                              <span className="text-xs">{project.progress ?? 0}%</span>
-                            </div>
+                            {displaySettings.visibleProperties.includes("progress") && (
+                              <div className="w-[80px]">
+                                <span className="text-xs">{project.progress ?? 0}%</span>
+                              </div>
+                            )}
 
                             {/* Target Date */}
-                            <div className="w-[100px]">
-                              <span className={cn(
-                                "text-xs",
-                                project.targetDate && new Date(project.targetDate + "T00:00:00Z") < new Date() && (project.progress ?? 0) < 100
-                                  ? "text-red-500"
-                                  : "text-muted-foreground"
-                              )}>
-                                {formatShortDate(project.targetDate)}
-                              </span>
-                            </div>
+                            {displaySettings.visibleProperties.includes("targetDate") && (
+                              <div className="w-[100px]">
+                                <span className={cn(
+                                  "text-xs",
+                                  project.targetDate && new Date(project.targetDate + "T00:00:00Z") < new Date() && (project.progress ?? 0) < 100
+                                    ? "text-red-500"
+                                    : "text-muted-foreground"
+                                )}>
+                                  {formatShortDate(project.targetDate)}
+                                </span>
+                              </div>
+                            )}
                           </Link>
                         )
                       })}
