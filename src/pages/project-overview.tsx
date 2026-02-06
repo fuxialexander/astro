@@ -284,7 +284,7 @@ export function ProjectOverview() {
   const tabs: TabDef[] = [
     { id: "overview", label: "Overview" },
     { id: "graph", label: "Graph", route: `/project/${id}/plan` },
-    { id: "timeline", label: "Timeline", route: `/project/${id}/timeline` },
+    { id: "timeline", label: "Timeline", route: `/project/${id}/plan` },
     { id: "list", label: "List", route: `/project/${id}/plan` },
     { id: "updates", label: "Updates" },
   ]
