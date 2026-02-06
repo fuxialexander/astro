@@ -376,3 +376,140 @@ export const DEFAULT_RELAY_CONFIG: RelayServerConfig = {
     maxStdoutBytesPerSecond: 1024 * 1024,  // 1MB/s
   },
 };
+
+// ============================================================================
+// Slurm/HPC Extensions
+// ============================================================================
+
+/** Slurm cluster information */
+export interface SlurmClusterInfo {
+  clusterName: string;
+  slurmVersion: string;
+  defaultPartition?: string;
+  partitions: SlurmPartitionInfo[];
+  qosLevels: string[];
+  accounts: string[];
+}
+
+/** Slurm partition information */
+export interface SlurmPartitionInfo {
+  name: string;
+  isDefault: boolean;
+  totalNodes: number;
+  availableNodes: number;
+  maxTime?: string;
+  defaultTime?: string;
+  maxMemPerNode?: string;
+  features: string[];
+  gpuInfo?: {
+    totalGpus: number;
+    availableGpus: number;
+    gpuTypes: string[];
+  };
+}
+
+/** Slurm-specific provider info extension */
+export interface SlurmProviderInfo extends ProviderInfo {
+  type: 'slurm';
+  /** Cluster information */
+  clusterInfo?: SlurmClusterInfo;
+  /** User's default account */
+  defaultAccount?: string;
+  /** Available QOS for the user */
+  availableQos?: string[];
+}
+
+/** Slurm job state */
+export type SlurmJobState =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'SUSPENDED'
+  | 'COMPLETING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'TIMEOUT'
+  | 'PREEMPTED'
+  | 'NODE_FAIL'
+  | 'OUT_OF_MEMORY'
+  | 'UNKNOWN';
+
+/** Slurm job info */
+export interface SlurmJobInfo {
+  jobId: string;
+  arrayTaskId?: string;
+  name: string;
+  state: SlurmJobState;
+  stateReason?: string;
+  user: string;
+  partition: string;
+  nodes: number;
+  cpus: number;
+  timeLimit?: string;
+  timeUsed?: string;
+  submitTime?: Date;
+  startTime?: Date;
+  endTime?: Date;
+  exitCode?: number;
+  nodeList?: string;
+  priority?: number;
+  queuePosition?: number;
+  startTimeEstimate?: Date;
+}
+
+/** Slurm task dispatch extension */
+export interface SlurmTaskDispatch extends TaskDispatch {
+  environment: 'hpc';
+  preferredProvider: 'slurm';
+  /** Slurm-specific configuration */
+  slurmConfig?: {
+    partition?: string;
+    nodes?: number;
+    ntasks?: number;
+    cpusPerTask?: number;
+    mem?: string;
+    time?: string;
+    gpu?: {
+      type?: string;
+      count: number;
+    };
+    qos?: string;
+    account?: string;
+    modules?: string[];
+    workdir?: string;
+  };
+}
+
+/** Slurm job status message (agent → relay) */
+export interface SlurmJobStatusMessage extends BaseMessage {
+  type: 'slurm.job.status';
+  taskId: string;
+  slurmJobId: string;
+  jobInfo: SlurmJobInfo;
+}
+
+/** Slurm job output message (agent → relay) */
+export interface SlurmJobOutputMessage extends BaseMessage {
+  type: 'slurm.job.output';
+  taskId: string;
+  slurmJobId: string;
+  stream: 'stdout' | 'stderr';
+  data: string;
+}
+
+/** Slurm job submitted message (agent → relay) */
+export interface SlurmJobSubmittedMessage extends BaseMessage {
+  type: 'slurm.job.submitted';
+  taskId: string;
+  slurmJobId: string;
+  scriptPath: string;
+  outputPath: string;
+  errorPath: string;
+}
+
+/** Extended agent to relay messages including Slurm types */
+export type AgentToRelayMessageExtended =
+  | AgentToRelayMessage
+  | SlurmJobStatusMessage
+  | SlurmJobOutputMessage
+  | SlurmJobSubmittedMessage;

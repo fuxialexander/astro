@@ -47,7 +47,7 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
       console.log(chalk.dim('  Codex: https://openai.com/codex'));
     }
     console.log();
-  } catch (error) {
+  } catch {
     providerSpinner.fail('Failed to detect providers');
     detectedProviders = [];
   }
@@ -64,7 +64,7 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
       sshSpinner.info('No remote hosts discovered');
     }
     console.log();
-  } catch (error) {
+  } catch {
     sshSpinner.fail('Failed to discover remote hosts');
     discoveredHosts = [];
   }
