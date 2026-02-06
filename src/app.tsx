@@ -15,6 +15,7 @@ import { usePlanStore } from "@/stores/plan-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { Settings } from "@/pages/settings"
+import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
 
 function DataLoader({ children }: { children: React.ReactNode }) {
@@ -54,6 +55,9 @@ export default function App() {
           <DataLoader>
             <CommandPalette />
             <Routes>
+              {/* Device auth page - standalone without app layout */}
+              <Route path="device" element={<DeviceAuth />} />
+
               <Route element={<AppLayout />}>
                 <Route index element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
