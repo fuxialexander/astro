@@ -13,6 +13,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
+import { useUserProfileStore } from "@/stores/user-profile-store"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
@@ -23,21 +24,24 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadProjects = useProjectStore((s) => s.load)
   const loadPlan = usePlanStore((s) => s.load)
   const loadSettings = useSettingsStore((s) => s.load)
+  const loadUserProfile = useUserProfileStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const projectsLoaded = useProjectStore((s) => s.loaded)
   const planLoaded = usePlanStore((s) => s.loaded)
   const settingsLoaded = useSettingsStore((s) => s.loaded)
+  const userProfileLoaded = useUserProfileStore((s) => s.loaded)
 
   useEffect(() => {
     loadProjects()
     loadPlan()
     loadSettings()
+    loadUserProfile()
     connectRealtime()
     return () => disconnectRealtime()
-  }, [loadProjects, loadPlan, loadSettings, connectRealtime, disconnectRealtime])
+  }, [loadProjects, loadPlan, loadSettings, loadUserProfile, connectRealtime, disconnectRealtime])
 
-  if (!projectsLoaded || !planLoaded || !settingsLoaded) {
+  if (!projectsLoaded || !planLoaded || !settingsLoaded || !userProfileLoaded) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         Loading...

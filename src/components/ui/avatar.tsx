@@ -14,6 +14,18 @@ const Avatar = forwardRef<
 ))
 Avatar.displayName = "Avatar"
 
+const AvatarImage = forwardRef<
+  HTMLImageElement,
+  ComponentPropsWithoutRef<typeof AvatarPrimitive.Image>
+>(({ className, ...props }, ref) => (
+  <AvatarPrimitive.Image
+    ref={ref}
+    className={cn("aspect-square h-full w-full", className)}
+    {...props}
+  />
+))
+AvatarImage.displayName = "AvatarImage"
+
 const AvatarFallback = forwardRef<
   HTMLSpanElement,
   ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>
@@ -26,4 +38,4 @@ const AvatarFallback = forwardRef<
 ))
 AvatarFallback.displayName = "AvatarFallback"
 
-export { Avatar, AvatarFallback }
+export { Avatar, AvatarImage, AvatarFallback }

@@ -6,7 +6,7 @@ import { Separator } from "@/components/ui/separator"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { GenerationOverlay } from "@/components/agent/generation-overlay"
 import { ChatPanel } from "@/components/agent/chat-panel"
-import { ExecutionPanel, ProviderStatus } from "@/components/execution"
+import { ExecutionPanel } from "@/components/execution"
 import { useAgentStore } from "@/stores/agent-store"
 import { usePlanStore } from "@/stores/plan-store"
 import type { PlanNode } from "@/types"
@@ -40,7 +40,7 @@ export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
   const isGenerating = useAgentStore((s) => s.isGenerating)
   const updateNode = usePlanStore((s) => s.updateNode)
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
-  const [chatOpen, setChatOpen] = useState(false)
+  const chatOpen = false // TODO: wire up chat toggle
 
   const handleApprove = () => {
     if (selectedNode) {
