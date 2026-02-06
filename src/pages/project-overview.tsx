@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { useParams, Link } from "react-router"
+import { useState, useMemo } from "react"
+import { useParams, useNavigate } from "react-router"
 import {
   Rocket,
   Star,
@@ -13,21 +13,18 @@ import {
   User,
   MessageSquare,
   GitPullRequest,
+  Diamond,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { PlanGraphTab } from "@/components/plan-graph/plan-graph-tab"
-import { PlanTimelineTab } from "@/components/plan-graph/plan-timeline-tab"
-import { GenerationOverlay } from "@/components/agent/generation-overlay"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { cn } from "@/lib/utils"
 import type { Project } from "@/types"
 
-type TabId = "overview" | "graph" | "timeline" | "list" | "updates"
+type TabId = "overview" | "updates"
 
 const healthLabels: Record<string, string> = {
   on_track: "On Track",
@@ -41,16 +38,6 @@ const healthColors: Record<string, string> = {
   off_track: "bg-red-500",
 }
 
-const statusBadgeVariant: Record<string, "success" | "warning" | "secondary" | "info" | "outline"> = {
-  planned: "secondary",
-  dispatched: "info",
-  in_progress: "info",
-  auto_verified: "success",
-  awaiting_judgment: "warning",
-  completed: "success",
-  pruned: "outline",
-}
-
 function formatDate(dateStr?: string): string {
   if (!dateStr) return "—"
   const d = new Date(dateStr + "T00:00:00Z")
@@ -59,6 +46,8 @@ function formatDate(dateStr?: string): string {
 
 // --- Overview Tab Content ---
 function OverviewTab({ project }: { project: Project }) {
+  const planNodes = usePlanStore((s) => s.nodes)
+  const allNodes = useMemo(() => planNodes.filter((n) => n.projectId === project.id), [planNodes, project.id])
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* Main Content */}
@@ -181,6 +170,49 @@ function OverviewTab({ project }: { project: Project }) {
               <span className="text-[13px]">{project.initiative ?? "—"}</span>
             </div>
           </div>
+
+          {/* Labels */}
+          {project.labels && project.labels.length > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">Labels</span>
+              <div className="flex items-center gap-1 flex-wrap justify-end">
+                {project.labels.map((label) => (
+                  <span
+                    key={label.id}
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                    style={{ backgroundColor: label.color }}
+                  >
+                    {label.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Milestones */}
+          {(() => {
+            const milestones = allNodes.filter((n) => n.type === "milestone")
+            if (milestones.length === 0) return null
+            return (
+              <div className="flex flex-col gap-2">
+                <span className="text-[13px] text-muted-foreground">Milestones</span>
+                <div className="flex flex-col gap-1.5">
+                  {milestones.map((m) => {
+                    const tasks = allNodes.filter((n) => n.milestoneId === m.id && n.type !== "milestone")
+                    const completed = tasks.filter((t) => t.status === "completed" || t.status === "auto_verified").length
+                    const pct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0
+                    return (
+                      <div key={m.id} className="flex items-center gap-2">
+                        <Diamond className="h-3 w-3 text-primary shrink-0" />
+                        <span className="text-[12px] flex-1 truncate">{m.title}</span>
+                        <span className="text-[11px] text-muted-foreground">{pct}%</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
         </div>
 
         <Separator />
@@ -220,82 +252,6 @@ function OverviewTab({ project }: { project: Project }) {
   )
 }
 
-// --- List Tab Content ---
-function ListTab({ projectId }: { projectId: string }) {
-  const nodes = usePlanStore((s) => s.nodes.filter((n) => n.projectId === projectId))
-
-  const milestones = nodes.filter((n) => n.type === "milestone")
-  const tasks = nodes.filter((n) => n.type !== "milestone")
-
-  return (
-    <div className="flex-1 overflow-auto">
-      {/* Column headers */}
-      <div className="flex items-center border-b border-border px-6 h-9 bg-muted/30">
-        <span className="flex-1 text-[11px] font-semibold text-muted-foreground uppercase">Name</span>
-        <span className="w-[120px] text-[11px] font-semibold text-muted-foreground uppercase">Status</span>
-        <span className="w-[100px] text-[11px] font-semibold text-muted-foreground uppercase">Type</span>
-        <span className="w-[120px] text-[11px] font-semibold text-muted-foreground uppercase">Verification</span>
-        <span className="w-[100px] text-[11px] font-semibold text-muted-foreground uppercase">Environment</span>
-      </div>
-
-      {/* Milestones group */}
-      {milestones.length > 0 && (
-        <>
-          <div className="flex items-center gap-2 bg-muted/50 px-6 h-8">
-            <span className="text-xs font-semibold text-muted-foreground">Milestones</span>
-            <span className="text-[11px] text-muted-foreground">{milestones.length}</span>
-          </div>
-          {milestones.map((node) => (
-            <Link
-              key={node.id}
-              to={`/project/${projectId}/task/${node.id}`}
-              className="flex items-center border-b border-border px-6 h-11 hover:bg-muted/30 transition-colors"
-            >
-              <span className="flex-1 text-sm truncate">◆ {node.title}</span>
-              <div className="w-[120px]">
-                <Badge variant={statusBadgeVariant[node.status] ?? "secondary"} className="text-[10px]">
-                  {node.status.replace(/_/g, " ")}
-                </Badge>
-              </div>
-              <span className="w-[100px] text-xs text-muted-foreground capitalize">{node.type}</span>
-              <span className="w-[120px] text-xs text-muted-foreground capitalize">{node.verification}</span>
-              <span className="w-[100px] text-xs text-muted-foreground">—</span>
-            </Link>
-          ))}
-        </>
-      )}
-
-      {/* Tasks group */}
-      <div className="flex items-center gap-2 bg-muted/50 px-6 h-8">
-        <span className="text-xs font-semibold text-muted-foreground">Tasks</span>
-        <span className="text-[11px] text-muted-foreground">{tasks.length}</span>
-      </div>
-      {tasks.map((node) => (
-        <Link
-          key={node.id}
-          to={`/project/${projectId}/task/${node.id}`}
-          className={cn(
-            "flex items-center border-b border-border px-6 h-11 hover:bg-muted/30 transition-colors",
-            node.status === "pruned" && "opacity-50"
-          )}
-        >
-          <span className={cn("flex-1 text-sm truncate", node.status === "pruned" && "line-through")}>
-            {node.title}
-          </span>
-          <div className="w-[120px]">
-            <Badge variant={statusBadgeVariant[node.status] ?? "secondary"} className="text-[10px]">
-              {node.status.replace(/_/g, " ")}
-            </Badge>
-          </div>
-          <span className="w-[100px] text-xs text-muted-foreground capitalize">{node.type}</span>
-          <span className="w-[120px] text-xs text-muted-foreground capitalize">{node.verification}</span>
-          <span className="w-[100px] text-xs text-muted-foreground capitalize">{node.environment ?? "—"}</span>
-        </Link>
-      ))}
-    </div>
-  )
-}
-
 // --- Updates Tab Content ---
 function UpdatesTab() {
   return (
@@ -312,8 +268,8 @@ function UpdatesTab() {
 // --- Main Project Overview Page ---
 export function ProjectOverview() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
-  const isGenerating = useAgentStore((s) => s.isGenerating)
   const [activeTab, setActiveTab] = useState<TabId>("overview")
 
   if (!project) {
@@ -324,13 +280,22 @@ export function ProjectOverview() {
     )
   }
 
-  const tabs: { id: TabId; label: string }[] = [
+  type TabDef = { id: string; label: string; route?: string }
+  const tabs: TabDef[] = [
     { id: "overview", label: "Overview" },
-    { id: "graph", label: "Graph" },
-    { id: "timeline", label: "Timeline" },
-    { id: "list", label: "List" },
+    { id: "graph", label: "Graph", route: `/project/${id}/plan` },
+    { id: "timeline", label: "Timeline", route: `/project/${id}/timeline` },
+    { id: "list", label: "List", route: `/project/${id}/plan` },
     { id: "updates", label: "Updates" },
   ]
+
+  function handleTabClick(tab: TabDef) {
+    if (tab.route) {
+      navigate(tab.route)
+    } else {
+      setActiveTab(tab.id as TabId)
+    }
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -359,7 +324,7 @@ export function ProjectOverview() {
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabClick(tab)}
             className={cn(
               "px-4 py-3 text-[13px] transition-colors cursor-pointer",
               activeTab === tab.id
@@ -375,11 +340,7 @@ export function ProjectOverview() {
       {/* Tab Content */}
       <div className="flex flex-1 overflow-hidden relative">
         {activeTab === "overview" && <OverviewTab project={project} />}
-        {activeTab === "graph" && <PlanGraphTab projectId={project.id} visionDoc={project.visionDoc} />}
-        {activeTab === "timeline" && <PlanTimelineTab projectId={project.id} />}
-        {activeTab === "list" && <ListTab projectId={project.id} />}
         {activeTab === "updates" && <UpdatesTab />}
-        {isGenerating && activeTab === "graph" && <GenerationOverlay />}
       </div>
     </div>
   )

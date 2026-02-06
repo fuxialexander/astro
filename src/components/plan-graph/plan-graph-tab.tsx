@@ -9,7 +9,10 @@ import { ChatPanel } from "@/components/agent/chat-panel"
 import { ExecutionPanel } from "@/components/execution"
 import { useAgentStore } from "@/stores/agent-store"
 import { usePlanStore } from "@/stores/plan-store"
-import type { PlanNode } from "@/types"
+import { useProjectStore } from "@/stores/project-store"
+import { PRIORITY_CONFIG, PRIORITIES, ESTIMATES } from "@/lib/constants"
+import { cn } from "@/lib/utils"
+import type { PlanNode, Priority, Estimate } from "@/types"
 
 const statusLabels: Record<string, string> = {
   planned: "Planned",
@@ -36,9 +39,24 @@ interface PlanGraphTabProps {
   visionDoc?: string
 }
 
+function formatDueDate(dateStr?: string): { text: string; className: string } {
+  if (!dateStr) return { text: "—", className: "text-muted-foreground" }
+  const due = new Date(dateStr + "T00:00:00Z")
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const diffMs = due.getTime() - today.getTime()
+  const diffDays = Math.ceil(diffMs / 86400000)
+  const text = due.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+  if (diffDays < 0) return { text, className: "text-red-500 font-medium" }
+  if (diffDays < 7) return { text, className: "text-orange-500" }
+  return { text, className: "text-foreground" }
+}
+
 export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
   const isGenerating = useAgentStore((s) => s.isGenerating)
   const updateNode = usePlanStore((s) => s.updateNode)
+  const allNodes = usePlanStore((s) => s.nodes)
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
   const chatOpen = false // TODO: wire up chat toggle
 
@@ -81,6 +99,128 @@ export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
             <Badge variant={statusVariant[selectedNode.status] ?? "secondary"}>
               {statusLabels[selectedNode.status]}
             </Badge>
+          </div>
+          <Separator />
+
+          {/* Priority / Due Date / Estimate / Labels / Milestone */}
+          <div className="flex flex-col gap-3">
+            {/* Priority */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Priority</span>
+              <select
+                value={selectedNode.priority || "none"}
+                onChange={(e) => {
+                  const priority = e.target.value as Priority
+                  updateNode(selectedNode.id, { priority })
+                  setSelectedNode({ ...selectedNode, priority })
+                }}
+                className="bg-transparent text-sm text-right cursor-pointer focus:outline-none"
+              >
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{PRIORITY_CONFIG[p].label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Due Date */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Due Date</span>
+              <div className="flex items-center gap-1.5">
+                {selectedNode.dueDate && (() => {
+                  const { text, className: cls } = formatDueDate(selectedNode.dueDate)
+                  return <span className={cn("text-xs", cls)}>{text}</span>
+                })()}
+                <input
+                  type="date"
+                  value={selectedNode.dueDate || ""}
+                  onChange={(e) => {
+                    const dueDate = e.target.value || undefined
+                    updateNode(selectedNode.id, { dueDate })
+                    setSelectedNode({ ...selectedNode, dueDate })
+                  }}
+                  className="bg-transparent text-sm w-5 opacity-50 hover:opacity-100 cursor-pointer focus:outline-none [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Estimate */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Estimate</span>
+              <select
+                value={selectedNode.estimate || ""}
+                onChange={(e) => {
+                  const estimate = (e.target.value || undefined) as Estimate | undefined
+                  updateNode(selectedNode.id, { estimate })
+                  setSelectedNode({ ...selectedNode, estimate })
+                }}
+                className="bg-transparent text-sm text-right cursor-pointer focus:outline-none"
+              >
+                <option value="">—</option>
+                {ESTIMATES.map((e) => (
+                  <option key={e} value={e}>{e}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Labels */}
+            {project?.labels && project.labels.length > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Labels</span>
+                <div className="flex items-center gap-1 flex-wrap justify-end">
+                  {project.labels.map((label) => {
+                    const isActive = selectedNode.labelIds?.includes(label.id)
+                    return (
+                      <button
+                        key={label.id}
+                        onClick={() => {
+                          const current = selectedNode.labelIds || []
+                          const labelIds = isActive
+                            ? current.filter((id) => id !== label.id)
+                            : [...current, label.id]
+                          updateNode(selectedNode.id, { labelIds })
+                          setSelectedNode({ ...selectedNode, labelIds })
+                        }}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border cursor-pointer transition-colors",
+                          isActive
+                            ? "border-transparent text-white"
+                            : "border-border text-muted-foreground hover:border-foreground/30"
+                        )}
+                        style={isActive ? { backgroundColor: label.color } : undefined}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: label.color }} />
+                        {label.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Milestone */}
+            {selectedNode.type !== "milestone" && (() => {
+              const milestones = allNodes.filter((n) => n.projectId === projectId && n.type === "milestone")
+              if (milestones.length === 0) return null
+              return (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Milestone</span>
+                  <select
+                    value={selectedNode.milestoneId || ""}
+                    onChange={(e) => {
+                      const milestoneId = e.target.value || undefined
+                      updateNode(selectedNode.id, { milestoneId })
+                      setSelectedNode({ ...selectedNode, milestoneId })
+                    }}
+                    className="bg-transparent text-sm text-right cursor-pointer focus:outline-none max-w-[180px] truncate"
+                  >
+                    <option value="">—</option>
+                    {milestones.map((m) => (
+                      <option key={m.id} value={m.id}>◆ {m.title}</option>
+                    ))}
+                  </select>
+                </div>
+              )
+            })()}
           </div>
           <Separator />
 

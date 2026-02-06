@@ -19,6 +19,8 @@ type TaskNodeData = Node<{
   status: string
   nodeType: string
   executionId?: string
+  priority?: string
+  dueDate?: string
 }>
 
 export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>) {
@@ -33,6 +35,19 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>
   const progress = taskStream?.progress ?? 0
   const isRunning = data.status === "in_progress" || data.status === "dispatched"
 
+  // Priority dot for urgent/high
+  const showPriorityDot = data.priority === "urgent" || data.priority === "high"
+  const priorityDotColor = data.priority === "urgent" ? "bg-red-500" : "bg-orange-500"
+
+  // Overdue detection
+  const isOverdue = (() => {
+    if (!data.dueDate || data.status === "completed" || data.status === "pruned" || data.status === "auto_verified") return false
+    const due = new Date(data.dueDate + "T00:00:00Z")
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return due < today
+  })()
+
   return (
     <div
       className={cn(
@@ -40,7 +55,8 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>
         config.bg,
         config.border,
         isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-[10px]",
-        data.status === "pruned" && "opacity-50"
+        data.status === "pruned" && "opacity-50",
+        isOverdue && "border-l-red-500 border-l-[3px]"
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-border !w-2 !h-2 !border-none" />
@@ -66,6 +82,11 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>
         <span className="text-[10px] font-medium text-blue-500 relative z-10 ml-auto">
           {progress}%
         </span>
+      )}
+
+      {/* Priority dot for urgent/high */}
+      {showPriorityDot && (
+        <span className={cn("absolute top-1 right-1.5 h-[6px] w-[6px] rounded-full z-10", priorityDotColor)} />
       )}
 
       <Handle type="source" position={Position.Bottom} className="!bg-border !w-2 !h-2 !border-none" />
