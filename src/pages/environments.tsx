@@ -10,10 +10,12 @@ import {
   Plus,
   Cloud,
   Laptop,
+  Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/ui/empty-state"
 import { useRealtimeStore, type MachineEntry } from "@/stores/realtime-store"
 import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
 import { useSlurmStore } from "@/stores/slurm-store"
@@ -268,12 +270,17 @@ export function Environments() {
           </div>
         ) : (
           <Card>
-            <CardContent className="flex flex-col items-center gap-2 p-8 text-center">
-              <Monitor className="h-8 w-8 text-muted-foreground" />
-              <p className="text-sm font-medium">No local machines</p>
-              <p className="text-xs text-muted-foreground">
-                Run the Nexus agent runner on your machine to connect it
-              </p>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Zap}
+                title="Connect your first agent in 30 seconds"
+                description="Agent runners execute tasks on your machines. Connect your local machine to start running plan tasks with Claude Code or other AI agents."
+                action={{
+                  label: "Add Local Machine",
+                  onClick: () => setDialogOpen(true),
+                }}
+                className="py-8"
+              />
             </CardContent>
           </Card>
         )}
@@ -300,12 +307,17 @@ export function Environments() {
           <h2 className="text-lg font-semibold">Cloud</h2>
         </div>
         <Card>
-          <CardContent className="flex flex-col items-center gap-2 p-8 text-center">
-            <Cloud className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-medium">No cloud environments configured</p>
-            <p className="text-xs text-muted-foreground">
-              Add AWS or GCP credentials to integrate cloud compute
-            </p>
+          <CardContent className="p-0">
+            <EmptyState
+              icon={Cloud}
+              title="Scale with cloud compute"
+              description="Connect AWS or GCP to automatically scale compute for demanding tasks. Your agents will dispatch work to cloud instances when local resources are insufficient."
+              action={{
+                label: "Add Cloud Provider",
+                onClick: () => setDialogOpen(true),
+              }}
+              className="py-8"
+            />
           </CardContent>
         </Card>
       </div>

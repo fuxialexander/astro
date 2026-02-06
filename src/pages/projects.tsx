@@ -1,8 +1,9 @@
 import { useMemo } from "react"
-import { Link } from "react-router"
+import { Link, useNavigate } from "react-router"
 import { Folder, ListFilter, Plus, ChevronDown, Rocket, FlaskConical, SlidersHorizontal, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/ui/empty-state"
 import { useProjectStore } from "@/stores/project-store"
 import type { Project } from "@/types"
 
@@ -30,6 +31,7 @@ function formatShortDate(dateStr?: string): string {
 
 export function Projects() {
   const projects = useProjectStore((s) => s.projects)
+  const navigate = useNavigate()
 
   // Group by initiative
   const groups = useMemo(() => {
@@ -95,62 +97,75 @@ export function Projects() {
 
         {/* Table Body */}
         <div className="flex-1 overflow-auto">
-          {Object.entries(groups).map(([initiative, items]) => {
-            const Icon = initiativeIcons[initiative] ?? Users
-            const iconColor = initiativeIconColors[initiative] ?? "text-green-600"
-            return (
-              <div key={initiative}>
-                {/* Initiative Group Header */}
-                <div className="flex items-center gap-2 bg-muted px-6 py-2.5">
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  <Icon className={`h-4 w-4 ${iconColor}`} />
-                  <span className="text-sm font-medium">{initiative}</span>
-                  <span className="text-[13px] text-muted-foreground">{items.length}</span>
+          {projects.length === 0 ? (
+            <EmptyState
+              icon={Folder}
+              title="What are you working on?"
+              description="Create your first project and let AI help you break it down into a structured plan with clear dependencies and verification steps."
+              action={{
+                label: "Create Project",
+                onClick: () => navigate("/projects/new"),
+              }}
+              className="h-full"
+            />
+          ) : (
+            Object.entries(groups).map(([initiative, items]) => {
+              const Icon = initiativeIcons[initiative] ?? Users
+              const iconColor = initiativeIconColors[initiative] ?? "text-green-600"
+              return (
+                <div key={initiative}>
+                  {/* Initiative Group Header */}
+                  <div className="flex items-center gap-2 bg-muted px-6 py-2.5">
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    <Icon className={`h-4 w-4 ${iconColor}`} />
+                    <span className="text-sm font-medium">{initiative}</span>
+                    <span className="text-[13px] text-muted-foreground">{items.length}</span>
+                  </div>
+
+                  {/* Project Rows */}
+                  {items.map((project) => {
+                    const health = healthConfig[project.health ?? "on_track"]
+                    return (
+                      <Link
+                        key={project.id}
+                        to={`/project/${project.id}`}
+                        className="flex items-center border-b border-border px-6 pl-12 py-2.5 hover:bg-muted/30 transition-colors"
+                      >
+                        {/* Name */}
+                        <div className="flex flex-1 items-center gap-2.5 min-w-0">
+                          <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+                          <span className="text-sm truncate">{project.name}</span>
+                        </div>
+
+                        {/* Status */}
+                        <div className="w-[100px]">
+                          <Badge variant="success" className="text-xs">
+                            {project.status === "active" ? "Active" : "Archived"}
+                          </Badge>
+                        </div>
+
+                        {/* Health */}
+                        <div className="w-[100px] flex items-center gap-1.5">
+                          <span className={`h-2 w-2 rounded-full ${health.dotClass}`} />
+                          <span className={`text-xs ${health.textClass}`}>{health.label}</span>
+                        </div>
+
+                        {/* Progress */}
+                        <div className="w-[80px]">
+                          <span className="text-xs">{project.progress ?? 0}%</span>
+                        </div>
+
+                        {/* Start Date */}
+                        <div className="w-[100px]">
+                          <span className="text-xs text-muted-foreground">{formatShortDate(project.startDate)}</span>
+                        </div>
+                      </Link>
+                    )
+                  })}
                 </div>
-
-                {/* Project Rows */}
-                {items.map((project) => {
-                  const health = healthConfig[project.health ?? "on_track"]
-                  return (
-                    <Link
-                      key={project.id}
-                      to={`/project/${project.id}`}
-                      className="flex items-center border-b border-border px-6 pl-12 py-2.5 hover:bg-muted/30 transition-colors"
-                    >
-                      {/* Name */}
-                      <div className="flex flex-1 items-center gap-2.5 min-w-0">
-                        <Folder className="h-4 w-4 shrink-0 text-blue-500" />
-                        <span className="text-sm truncate">{project.name}</span>
-                      </div>
-
-                      {/* Status */}
-                      <div className="w-[100px]">
-                        <Badge variant="success" className="text-xs">
-                          {project.status === "active" ? "Active" : "Archived"}
-                        </Badge>
-                      </div>
-
-                      {/* Health */}
-                      <div className="w-[100px] flex items-center gap-1.5">
-                        <span className={`h-2 w-2 rounded-full ${health.dotClass}`} />
-                        <span className={`text-xs ${health.textClass}`}>{health.label}</span>
-                      </div>
-
-                      {/* Progress */}
-                      <div className="w-[80px]">
-                        <span className="text-xs">{project.progress ?? 0}%</span>
-                      </div>
-
-                      {/* Start Date */}
-                      <div className="w-[100px]">
-                        <span className="text-xs text-muted-foreground">{formatShortDate(project.startDate)}</span>
-                      </div>
-                    </Link>
-                  )
-                })}
-              </div>
-            )
-          })}
+              )
+            })
+          )}
         </div>
       </div>
 

@@ -1,8 +1,9 @@
-import { Sparkles, ListFilter, Rocket, FolderKanban, Server, Check } from "lucide-react"
+import { Sparkles, ListFilter, Rocket, FolderKanban, Server, Check, CheckCircle2 } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/ui/empty-state"
 import { cn } from "@/lib/utils"
 
 type TabFilter = "all" | "awaiting_review" | "deferred" | "completed"
@@ -395,9 +396,45 @@ export function JudgmentQueue() {
         })}
 
         {filteredItems.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-            <p className="text-sm">No items in this category</p>
-          </div>
+          tab === "all" ? (
+            // Main empty state when no items at all - celebratory
+            <EmptyState
+              icon={CheckCircle2}
+              title="All caught up!"
+              description="Nothing needs your attention right now. Your agents are working autonomously. Check back later or view your active projects to see progress."
+              action={{
+                label: "View Projects",
+                href: "/projects",
+              }}
+              variant="success"
+              className="py-20"
+            />
+          ) : tab === "awaiting_review" ? (
+            // Empty awaiting review - celebratory
+            <EmptyState
+              icon={CheckCircle2}
+              title="No pending reviews"
+              description="Your agents are working through the plan. You'll be notified when decisions need your input."
+              variant="success"
+              className="py-20"
+            />
+          ) : tab === "deferred" ? (
+            // Empty deferred
+            <EmptyState
+              icon={CheckCircle2}
+              title="No deferred items"
+              description="You haven't deferred any decisions. Items you defer will appear here for later review."
+              className="py-20"
+            />
+          ) : (
+            // Empty completed
+            <EmptyState
+              icon={CheckCircle2}
+              title="No completed reviews yet"
+              description="Items you approve, reject, or complete will appear here for reference."
+              className="py-20"
+            />
+          )
         )}
       </div>
     </div>
