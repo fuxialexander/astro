@@ -199,6 +199,36 @@ export interface TaskProgressMessage extends BaseMessage {
   message?: string;
 }
 
+/** Task steer acknowledgment (agent runner confirms it received steering) */
+export interface TaskSteerAckMessage extends BaseMessage {
+  type: 'task.steer.ack';
+  taskId: string;
+  accepted: boolean;
+  message?: string;
+}
+
+/** Task tool trace (detailed tool call information from agent) */
+export interface TaskToolTraceMessage extends BaseMessage {
+  type: 'task.tool_trace';
+  taskId: string;
+  toolName: string;
+  toolInput: unknown;
+  toolResult?: unknown;
+  success?: boolean;
+  duration?: number;  // milliseconds
+}
+
+/** Task file change (file modification by agent) */
+export interface TaskFileChangeMessage extends BaseMessage {
+  type: 'task.file_change';
+  taskId: string;
+  path: string;
+  action: 'created' | 'modified' | 'deleted';
+  linesAdded?: number;
+  linesRemoved?: number;
+  diff?: string;
+}
+
 /** Heartbeat pong response */
 export interface HeartbeatPongMessage extends BaseMessage {
   type: 'heartbeat.pong';
@@ -232,6 +262,14 @@ export interface MachineRegisterAckMessage extends BaseMessage {
   sessionId: string;
   success: boolean;
   error?: string;
+}
+
+/** Task steer message (inject guidance into running agent) */
+export interface TaskSteerMessage extends BaseMessage {
+  type: 'task.steer';
+  taskId: string;
+  message: string;
+  action?: 'guidance' | 'redirect' | 'pause' | 'resume';
 }
 
 /** Error message */
@@ -274,12 +312,16 @@ export type AgentToRelayMessage =
   | TaskResultMessage
   | TaskStdoutMessage
   | TaskProgressMessage
+  | TaskSteerAckMessage
+  | TaskToolTraceMessage
+  | TaskFileChangeMessage
   | HeartbeatPongMessage;
 
 /** All messages from relay to agent runner */
 export type RelayToAgentMessage =
   | TaskDispatchMessage
   | TaskCancelMessage
+  | TaskSteerMessage
   | HeartbeatPingMessage
   | MachineRegisterAckMessage
   | ErrorMessage;
