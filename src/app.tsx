@@ -14,6 +14,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { Settings } from "@/pages/settings"
+import { DeviceAuth } from "@/pages/device-auth"
 
 function DataLoader({ children }: { children: React.ReactNode }) {
   const loadProjects = useProjectStore((s) => s.load)
@@ -48,6 +49,9 @@ export default function App() {
           <DataLoader>
             <CommandPalette />
             <Routes>
+              {/* Device auth page - standalone without app layout */}
+              <Route path="device" element={<DeviceAuth />} />
+
               <Route element={<AppLayout />}>
                 <Route index element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
