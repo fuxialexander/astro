@@ -24,10 +24,10 @@ export const PLAN_GRAPH_SCHEMA = {
             },
             required: ["x", "y"],
           },
-          startDate: { type: "string" as const, description: "Start date in YYYY-MM-DD format" },
-          endDate: { type: "string" as const, description: "End date in YYYY-MM-DD format" },
+          startDate: { type: "string" as const, description: "Start date in YYYY-MM-DD format. Only for milestones." },
+          endDate: { type: "string" as const, description: "End date in YYYY-MM-DD format. Only for milestones." },
         },
-        required: ["id", "type", "title", "description", "status", "parentId", "dependencies", "verification", "position", "startDate", "endDate"],
+        required: ["id", "type", "title", "description", "status", "parentId", "dependencies", "verification", "position"],
       },
     },
     edges: {
@@ -65,7 +65,8 @@ ${visionSection}
 - position: top-to-bottom layout starting at {x:40,y:40}, increment y by 100. Parallel branches offset x by 260.
 - parentId: null for all nodes.
 - dependencies: array of prerequisite node ids.
-- startDate / endDate: ISO "YYYY-MM-DD". Start from today (${new Date().toISOString().slice(0, 10)}). Each task 1–5 days. A node's startDate must be >= the endDate of every dependency. Milestones: startDate == endDate (zero duration).
+- Tasks do NOT have startDate or endDate — they are agent-solvable work items without time estimates.
+- Milestones MUST have startDate and endDate (both equal, zero duration). Use ISO "YYYY-MM-DD" format. A milestone's date should be after all its dependencies.
 
 ## Edge rules
 - type: "dependency" for sequential, "branch" for parallel paths from a common node.
@@ -76,7 +77,7 @@ ${visionSection}
 - Do NOT include any text before or after the JSON. Do NOT wrap in markdown code fences.
 
 Example structure:
-{"projectName":"...","nodes":[{"id":"n1","type":"task","title":"...","description":"...","status":"planned","parentId":null,"dependencies":[],"environment":"local","verification":"auto","position":{"x":40,"y":40},"startDate":"2026-02-05","endDate":"2026-02-07"}],"edges":[{"id":"e1","source":"n1","target":"n2","type":"dependency"}]}`
+{"projectName":"...","nodes":[{"id":"n1","type":"task","title":"...","description":"...","status":"planned","parentId":null,"dependencies":[],"environment":"local","verification":"auto","position":{"x":40,"y":40}},{"id":"n2","type":"milestone","title":"MVP Complete","description":"...","status":"planned","parentId":null,"dependencies":["n1"],"verification":"human","position":{"x":40,"y":140},"startDate":"2026-02-10","endDate":"2026-02-10"}],"edges":[{"id":"e1","source":"n1","target":"n2","type":"dependency"}]}`
 }
 
 export function buildChatSystemPrompt(visionDoc?: string): string {

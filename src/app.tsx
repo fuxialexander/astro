@@ -17,6 +17,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
+import { Environments } from "@/pages/environments"
 
 function DataLoader({ children }: { children: React.ReactNode }) {
   const loadProjects = useProjectStore((s) => s.load)
@@ -66,6 +67,7 @@ export default function App() {
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
                 <Route path="project/:id/timeline" element={<PlanTimeline />} />
                 <Route path="judgment" element={<JudgmentQueue />} />
+                <Route path="environments" element={<Environments />} />
                 <Route path="settings" element={<Settings />} />
               </Route>
             </Routes>
