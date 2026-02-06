@@ -80,13 +80,21 @@ src/
     └── index.ts                  # Project, PlanNode (with startDate/endDate), PlanEdge
 
 server/
-├── index.ts                      # Hono server setup, CORS, port 3001
+├── index.ts                      # Hono server setup, CORS, port 3001 + relay init
 ├── routes/
 │   ├── health.ts                 # GET /api/health (Claude SDK auth check)
-│   └── agent.ts                  # POST /api/agent/generate-plan, /chat, /abort (SSE streaming)
-└── lib/
-    ├── session-manager.ts        # In-memory AbortController map for agent sessions
-    └── prompt-templates.ts       # System prompts + JSON schema for plan generation (includes date scheduling)
+│   ├── agent.ts                  # POST /api/agent/generate-plan, /chat, /abort (SSE streaming)
+│   └── relay.ts                  # GET/POST /api/relay/* (machine registry, task dispatch)
+├── lib/
+│   ├── session-manager.ts        # In-memory AbortController map for agent sessions
+│   ├── prompt-templates.ts       # System prompts + JSON schema for plan generation
+│   ├── relay-server.ts           # WebSocket relay server for agent runner communication
+│   ├── machine-registry.ts       # Live machine registry with connection tracking
+│   └── redis-pubsub.ts           # Redis pub/sub for horizontal scaling
+├── types/
+│   └── relay.ts                  # WebSocket protocol types for relay communication
+└── test/
+    └── relay-server.test.ts      # Integration tests for relay server
 ```
 
 ### Routes
@@ -136,6 +144,56 @@ server/
 - Status types: `planned | dispatched | in_progress | auto_verified | awaiting_judgment | completed | pruned`
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
 
+## Relay Server
+
+The relay server is a WebSocket hub that brokers communication between the platform and agent runners on user machines.
+
+### Architecture
+- **WebSocket Server** (port 3002): Accepts connections from agent runners
+- **Machine Registry**: Tracks connected machines, their capabilities, and load
+- **Redis Pub/Sub** (optional): Enables horizontal scaling across multiple relay instances
+
+### Key Files
+- `server/lib/relay-server.ts` — WebSocket server, message routing, heartbeat
+- `server/lib/machine-registry.ts` — In-memory registry of connected machines
+- `server/lib/redis-pubsub.ts` — Cross-instance communication via Redis
+- `server/routes/relay.ts` — HTTP API for machine/task management
+- `server/types/relay.ts` — Protocol types and message definitions
+
+### Environment Variables
+- `RELAY_PORT` — WebSocket server port (default: 3002)
+- `REDIS_URL` — Redis connection URL for horizontal scaling (optional)
+- `RELAY_JWT_SECRET` — JWT secret for machine authentication (optional in dev)
+
+### HTTP API Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/relay/health` | Health check |
+| GET | `/api/relay/status` | Detailed relay status |
+| GET | `/api/relay/machines` | List connected machines |
+| GET | `/api/relay/machines/:id` | Get specific machine |
+| POST | `/api/relay/dispatch` | Dispatch task to agent runner |
+| POST | `/api/relay/cancel` | Cancel running task |
+| GET | `/api/relay/best-machine` | Find optimal machine for task |
+
+### WebSocket Protocol
+Messages use JSON with a `type` field. Key message types:
+- `machine.register` / `machine.register.ack` — Machine registration
+- `machine.status` / `provider.status` — Status updates
+- `task.dispatch` / `task.cancel` — Task management
+- `task.result` / `task.stdout` / `task.progress` — Task output
+- `heartbeat.ping` / `heartbeat.pong` — Connection health (30s interval)
+
+### Testing
+```bash
+# Start server
+npm run dev:backend
+
+# Run integration tests
+npx tsx server/test/relay-server.test.ts
+```
+
 ## File Reference
 
 - `vision.md` — Full product vision document (confidential, Feb 2026 draft)
+- `server/types/relay.ts` — Relay server protocol documentation (see type definitions)
