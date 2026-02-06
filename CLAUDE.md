@@ -57,25 +57,40 @@ src/
 │   ├── dashboard.tsx             # Home: live stats, pending decisions, active projects, agent activity feed
 │   ├── projects.tsx              # Project list with table (grouped, sortable columns)
 │   ├── project-new.tsx           # New project form + AI plan generation
-│   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat
-│   ├── plan-timeline.tsx         # Gantt chart: date-based bars, click-to-edit dialog
+│   ├── project-overview.tsx      # Project details: overview + updates tabs
+│   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List toggle)
+│   ├── project-timeline.tsx      # Gantt chart: date-based bars, click-to-edit dialog
 │   ├── task-detail.tsx           # Task-agent detail: output, tool traces, file changes, steer chat
 │   ├── judgment-queue.tsx        # Queue of tasks awaiting human judgment
+│   ├── environments.tsx          # Machine/environment management, SLURM cluster display
+│   ├── inbox.tsx                 # Notification center
+│   ├── device-auth.tsx           # Device code OAuth2 authentication flow
+│   ├── welcome.tsx               # Multi-step onboarding (user type, domains, repo)
 │   └── settings.tsx              # Backend connection, model selection
 ├── components/
-│   ├── ui/                       # shadcn/ui Radix primitives (button, input, badge, card, dialog, etc.)
+│   ├── ui/                       # shadcn/ui Radix primitives (button, input, badge, card, dialog, sheet, etc.)
 │   ├── layout/
 │   │   ├── app-layout.tsx        # Sidebar + <Outlet /> wrapper
 │   │   ├── sidebar.tsx           # Nav items, project list, user profile
 │   │   └── header.tsx            # Reusable page header
 │   ├── plan-graph/
 │   │   ├── plan-canvas.tsx       # React Flow wrapper (background, controls, fitView)
-│   │   └── task-node.tsx         # Custom node component with status styling + live progress
+│   │   ├── task-node.tsx         # Custom node component with status styling + live progress
+│   │   ├── plan-graph-tab.tsx    # Graph view tab with node editor
+│   │   └── plan-timeline-tab.tsx # Gantt timeline view (tabbed)
 │   ├── task-detail/
 │   │   ├── task-output-view.tsx  # Terminal-style output viewer with search, copy, auto-scroll
 │   │   ├── tool-trace-view.tsx   # Vertical timeline of tool calls with collapsible I/O
 │   │   ├── file-changes-view.tsx # File change list with diff display
 │   │   └── steer-chat.tsx        # Agent steering chat (sends guidance to running agent)
+│   ├── execution/
+│   │   ├── execution-panel.tsx   # Task execution UI with play/cancel/output
+│   │   └── provider-status.tsx   # Provider availability display
+│   ├── slurm/
+│   │   ├── cluster-status.tsx    # Cluster health/capacity display
+│   │   └── job-list.tsx          # Active HPC jobs list
+│   ├── environments/
+│   │   └── add-environment-dialog.tsx # Dialog for adding local/HPC/cloud machines
 │   ├── agent/
 │   │   ├── generation-overlay.tsx # Modal overlay during AI plan generation
 │   │   └── chat-panel.tsx        # Sidebar chat for plan refinement
@@ -87,15 +102,20 @@ src/
 │   ├── agent-store.ts            # AI generation state, SSE streaming, abort
 │   ├── execution-store.ts        # Task execution state, SSE stream processing
 │   ├── realtime-store.ts         # Real-time events: machines, activity feed, task streams
+│   ├── machines-store.ts         # Registered machines (fetch, revoke, rename)
+│   ├── slurm-store.ts            # HPC/Slurm cluster state (clusters, jobs, queue tracking)
+│   ├── user-profile-store.ts     # User identity and preferences (name, email, domains, API keys)
 │   ├── ui-store.ts               # Sidebar collapsed, command palette open
 │   └── settings-store.ts         # Model selection, backend health, IndexedDB persistence
 ├── lib/
 │   ├── db.ts                     # idb-keyval wrapper for IndexedDB
 │   ├── api-client.ts             # HTTP + SSE client for /api/agent/* endpoints
 │   ├── realtime-client.ts        # EventSource wrapper for /api/events/stream
+│   ├── constants.ts              # Priority/estimate config, default labels
+│   ├── timeline-utils.ts         # Gantt timeline calculations (topological sort, date assignment)
 │   └── utils.ts                  # cn() = clsx + tailwind-merge
 └── types/
-    └── index.ts                  # Project, PlanNode (with startDate/endDate), PlanEdge
+    └── index.ts                  # Project, PlanNode, PlanEdge, TaskExecution, ProviderStatus, UserProfile, etc.
 
 server/
 ├── index.ts                      # Hono server setup, CORS, port 3001 + relay init
@@ -104,7 +124,8 @@ server/
 │   ├── agent.ts                  # POST /api/agent/generate-plan, /chat, /abort (SSE streaming)
 │   ├── dispatch.ts               # POST /api/dispatch/task, /cancel, /steer, /prune (task execution)
 │   ├── events.ts                 # GET /api/events/stream (SSE bridge: relay → browser)
-│   └── relay.ts                  # GET/POST /api/relay/* (machine registry, task dispatch)
+│   ├── relay.ts                  # GET/POST /api/relay/* (machine registry, task dispatch)
+│   └── device-auth.ts            # Device authorization flow (RFC 8628): authorize, token, register, refresh, revoke
 ├── lib/
 │   ├── session-manager.ts        # In-memory AbortController map for agent sessions
 │   ├── prompt-templates.ts       # System prompts + JSON schema for plan generation
@@ -112,25 +133,60 @@ server/
 │   ├── machine-registry.ts       # Live machine registry with connection tracking
 │   ├── event-buffer.ts           # Ring buffer for SSE reconnection replay (Last-Event-ID)
 │   ├── stdout-throttle.ts        # Batches stdout chunks per task (100ms flush)
-│   └── redis-pubsub.ts           # Redis pub/sub for horizontal scaling
+│   ├── redis-pubsub.ts           # Redis pub/sub for horizontal scaling
+│   ├── device-code-store.ts      # Device code state management
+│   ├── token-manager.ts          # JWT token lifecycle (create, verify, refresh, revoke)
+│   ├── registered-machines-store.ts # Machine registration persistence
+│   ├── providers/                # Pluggable agent provider system
+│   │   ├── types.ts              # AgentProvider, TaskDispatch, TaskResult, StreamEvent interfaces
+│   │   ├── registry.ts           # Provider registry management
+│   │   ├── context.ts            # Context assembly for providers
+│   │   └── adapters/             # Provider implementations
+│   │       ├── claude-code.ts    # Claude Code provider adapter
+│   │       ├── codex.ts          # Codex provider adapter
+│   │       └── slurm.ts          # SLURM provider adapter
+│   ├── dispatch/                 # Task dispatch engine
+│   │   ├── dispatch-engine.ts    # Core dispatch execution logic
+│   │   ├── dispatch-queue.ts     # Task queue management
+│   │   ├── branch-manager.ts     # Branch tracking/pruning
+│   │   ├── context-assembler.ts  # Assembles execution context (vision doc + dependencies)
+│   │   └── result-router.ts      # Routes task results to storage
+│   └── slurm/                    # HPC cluster support
+│       ├── types.ts              # SLURM job/partition types
+│       ├── job-manager.ts        # Submit/cancel/monitor jobs
+│       ├── script-generator.ts   # Generates SBATCH scripts
+│       └── parser.ts             # Parses SLURM output
 ├── types/
 │   └── relay.ts                  # WebSocket protocol types for relay communication
 └── test/
     └── relay-server.test.ts      # Integration tests for relay server
+
+packages/
+└── agent-runner/                 # Compiled agent runner distribution
+
+cli/
+└── nexus-agent/                  # CLI tools for agent runner
+
+docs/
+└── ...                           # Architecture documentation
 ```
 
 ### Routes
 | Path | Page | Status |
 |------|------|--------|
-| `/` | Dashboard | Implemented (hardcoded agent activity) |
+| `/` | Dashboard | Implemented (live stats, pending decisions, active projects) |
 | `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
 | `/projects/new` | New Project | Implemented (AI plan generation works) |
-| `/project/:id` | Plan View | Implemented (graph + detail panel + chat) |
+| `/project/:id` | Project Overview | Implemented (overview + updates tabs) |
+| `/project/:id/plan` | Plan View | Implemented (graph + list toggle, detail panel + chat) |
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat) |
 | `/project/:id/timeline` | Timeline | Implemented (date-based Gantt, click-to-edit dialog) |
 | `/judgment` | Judgment Queue | Implemented (UI only, actions not wired) |
+| `/inbox` | Inbox | Implemented (notification center) |
+| `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow) |
 | `/settings` | Settings | Implemented (health check + model selection) |
-| `/environments` | Environments | **Not implemented** (sidebar link exists, no route) |
+| `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
+| `/welcome` | Welcome | Implemented (standalone multi-step onboarding) |
 | `/issues` | Issues List | **Not implemented** (designed in UI.pen, no code) |
 | `/issues/board` | Issues Board | **Not implemented** (designed in UI.pen, no code) |
 
@@ -141,6 +197,13 @@ server/
 4. Plan nodes/edges stored in Zustand → rendered in React Flow graph
 5. AI generates `startDate`/`endDate` for each plan node; timeline uses topological sort fallback for legacy data
 6. All state persisted to IndexedDB on change
+
+### Provider & Dispatch System
+- **Provider adapters** (Claude Code, Codex, SLURM) implement a common `AgentProvider` interface
+- **Dispatch engine** routes tasks through a queue → provider selection → execution → result routing
+- **Context assembler** injects vision doc + dependency context into each task
+- **Streaming events**: `init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`
+- **Device auth flow**: OAuth2 Device Authorization Grant (RFC 8628) for machine registration
 
 ## Key Concepts
 
@@ -166,6 +229,8 @@ server/
 - SSE streaming: use `readSSE()` from `api-client.ts` for server-sent events
 - Status types: `planned | dispatched | in_progress | auto_verified | awaiting_judgment | completed | pruned`
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
+- PlanNode execution fields: `executionId`, `executionOutput`, `executionError`, `executionStartedAt`, `executionCompletedAt`
+- Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`
 
 ## Relay Server
 
@@ -206,6 +271,17 @@ Messages use JSON with a `type` field. Key message types:
 - `task.dispatch` / `task.cancel` — Task management
 - `task.result` / `task.stdout` / `task.progress` — Task output
 - `heartbeat.ping` / `heartbeat.pong` — Connection health (30s interval)
+
+### Device Authentication API
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/device/authorize` | Request device code |
+| POST | `/api/device/token` | Poll/exchange for tokens |
+| POST | `/api/device/register` | Register authenticated machine |
+| POST | `/api/device/refresh` | Refresh tokens |
+| POST | `/api/device/revoke` | Revoke tokens |
+| GET | `/api/device/machines` | List registered machines |
+| DELETE | `/api/device/machines/:id` | Revoke machine |
 
 ### Testing
 ```bash
