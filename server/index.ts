@@ -4,10 +4,12 @@ import { serve } from '@hono/node-server'
 import { healthRoute } from './routes/health.js'
 import { agentRoute } from './routes/agent.js'
 import { relayRoute } from './routes/relay.js'
+import { dispatchRoute } from './routes/dispatch.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
+import { dispatchEngine } from './lib/dispatch/index.js'
 
 const app = new Hono()
 
@@ -16,6 +18,7 @@ app.use('/*', cors({ origin: 'http://localhost:5173' }))
 app.route('/api', healthRoute)
 app.route('/api/agent', agentRoute)
 app.route('/api/relay', relayRoute)
+app.route('/api/dispatch', dispatchRoute)
 
 const port = 3001
 const relayPort = parseInt(process.env.RELAY_PORT || '3002', 10)
@@ -65,7 +68,8 @@ async function start() {
         // Task machine mapping cleanup happens when task completes
         await redisPubSub.removeTaskMapping(message.result.taskId)
       }
-      // TODO: Update plan node status in the store
+      // Emit event for dispatch engine to handle result routing
+      dispatchEngine.emit('relay:task:result', message)
     })
 
     relayServer.on('machine:connected', async (machineId) => {
@@ -99,6 +103,11 @@ async function start() {
     console.error('[relay] Failed to initialize:', err)
   }
 
+  // Initialize dispatch engine
+  console.log('[dispatch] Initializing dispatch engine...')
+  dispatchEngine.start()
+  console.log('[dispatch] Dispatch engine started')
+
   console.log(`[backend] listening on http://localhost:${port}`)
   serve({ fetch: app.fetch, port })
 }
@@ -106,6 +115,7 @@ async function start() {
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('[server] SIGTERM received, shutting down gracefully')
+  dispatchEngine.stop()
   await relayServer.stop()
   await redisPubSub.disconnect()
   process.exit(0)
@@ -113,6 +123,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('[server] SIGINT received, shutting down gracefully')
+  dispatchEngine.stop()
   await relayServer.stop()
   await redisPubSub.disconnect()
   process.exit(0)
