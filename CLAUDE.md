@@ -111,12 +111,6 @@ server/
 5. AI generates `startDate`/`endDate` for each plan node; timeline uses topological sort fallback for legacy data
 6. All state persisted to IndexedDB on change
 
-### Design Tokens
-- **Primary**: `#FF8400` (orange)
-- **Fonts**: JetBrains Mono (primary/mono), Geist (secondary/sans)
-- **Status colors**: Green (success), Blue (info), Amber (warning), Red (destructive)
-- **CSS variables**: Defined in `globals.css` with `:root` (light) and `.dark` overrides
-
 ## Key Concepts
 
 - **Plan graph**: Core data model is a directed graph (not a flat list) supporting linear pipelines and branching exploration trees with explicit dependencies
@@ -145,4 +139,3 @@ server/
 ## File Reference
 
 - `vision.md` — Full product vision document (confidential, Feb 2026 draft)
-- `UI.pen` — UI/UX designs (access via Pencil MCP tools). Key frames: Dashboard (`Wmtsn`), Plan View (`CwRu4`), Projects (`l7PjP`), Projects Board (`5kGZp`), Projects List (`ZOHAE`), Projects Timeline (`WhG7c`), Issues List (`YORRp`), Issues Board (`bvmJz`), Judgment Queue (`slkwB`), Settings (`OrOgy`)
