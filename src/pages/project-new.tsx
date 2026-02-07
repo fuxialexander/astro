@@ -1,10 +1,12 @@
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { useNavigate } from "react-router"
 import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { useProjectStore } from "@/stores/project-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 
 export function ProjectNew() {
   const [description, setDescription] = useState("")
@@ -15,6 +17,27 @@ export function ProjectNew() {
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const isGenerating = useAgentStore((s) => s.isGenerating)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+
+  // Voice transcription for project description
+  const handleTranscript = useCallback((text: string) => {
+    setDescription((prev) => {
+      // Add a space separator if there's existing text
+      if (prev.trim()) {
+        return prev.trim() + " " + text
+      }
+      return text
+    })
+  }, [])
+
+  const {
+    isRecording,
+    isTranscribing,
+    isAvailable,
+    duration,
+    toggleRecording,
+  } = useVoiceTranscription({
+    onTranscript: handleTranscript,
+  })
 
   function handleGenerate() {
     if (!description.trim()) return
@@ -55,12 +78,38 @@ export function ProjectNew() {
 
         {/* Input area */}
         <div className="flex w-full flex-col gap-4">
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="I'm building a personal finance app with AI-powered budgeting, transaction categorization, and savings goals tracking..."
-            className="h-[140px] w-full resize-none rounded-xl border border-border bg-card p-4 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          />
+          <div className="relative">
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="I'm building a personal finance app with AI-powered budgeting, transaction categorization, and savings goals tracking..."
+              className="h-[140px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            {/* Voice input button */}
+            <div className="absolute right-3 top-3">
+              <VoiceInputButton
+                isRecording={isRecording}
+                isTranscribing={isTranscribing}
+                isAvailable={isAvailable}
+                duration={duration}
+                onClick={toggleRecording}
+                disabled={isGenerating}
+              />
+            </div>
+            {/* Recording indicator */}
+            {isRecording && (
+              <div className="absolute right-3 bottom-3 flex items-center gap-2 text-xs text-red-500">
+                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                Recording... {Math.floor(duration / 60)}:{(duration % 60).toString().padStart(2, '0')}
+              </div>
+            )}
+            {isTranscribing && (
+              <div className="absolute right-3 bottom-3 flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Transcribing...
+              </div>
+            )}
+          </div>
 
           {/* Optional context */}
           <div className="flex flex-col gap-3">

@@ -1,9 +1,11 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Send, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { chatWithAgent } from "@/lib/api-client"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 
 interface Message {
   role: "user" | "assistant"
@@ -18,6 +20,26 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const model = useSettingsStore((s) => s.model)
+
+  // Voice transcription for chat input
+  const handleTranscript = useCallback((text: string) => {
+    setInput((prev) => {
+      if (prev.trim()) {
+        return prev.trim() + " " + text
+      }
+      return text
+    })
+  }, [])
+
+  const {
+    isRecording,
+    isTranscribing,
+    isAvailable,
+    duration,
+    toggleRecording,
+  } = useVoiceTranscription({
+    onTranscript: handleTranscript,
+  })
 
   useEffect(() => {
     // Auto-scroll to bottom when messages change
@@ -122,11 +144,20 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
 
       {/* Input */}
       <div className="flex items-end gap-2 border-t border-border p-3">
+        <VoiceInputButton
+          isRecording={isRecording}
+          isTranscribing={isTranscribing}
+          isAvailable={isAvailable}
+          duration={duration}
+          onClick={toggleRecording}
+          disabled={isStreaming}
+          className="h-9 w-9 shrink-0"
+        />
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask about your plan..."
+          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Ask about your plan..."}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
@@ -134,7 +165,7 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
           size="icon"
           className="h-9 w-9 shrink-0"
           onClick={handleSend}
-          disabled={!input.trim() || isStreaming}
+          disabled={!input.trim() || isStreaming || isRecording || isTranscribing}
         >
           {isStreaming ? (
             <Loader2 className="h-4 w-4 animate-spin" />
