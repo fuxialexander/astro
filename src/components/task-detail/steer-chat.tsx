@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Send, Loader2, CheckCircle2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { useRealtimeStore, type TaskStream } from "@/stores/realtime-store"
+import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 
 interface SteerChatProps {
   taskId: string
@@ -17,6 +19,26 @@ export function SteerChat({ taskId, machineId, taskStream }: SteerChatProps) {
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
 
   const steerMessages = taskStream?.steerMessages || []
+
+  // Voice transcription for steering input
+  const handleTranscript = useCallback((text: string) => {
+    setInput((prev) => {
+      if (prev.trim()) {
+        return prev.trim() + " " + text
+      }
+      return text
+    })
+  }, [])
+
+  const {
+    isRecording,
+    isTranscribing,
+    isAvailable,
+    duration,
+    toggleRecording,
+  } = useVoiceTranscription({
+    onTranscript: handleTranscript,
+  })
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -121,11 +143,20 @@ export function SteerChat({ taskId, machineId, taskStream }: SteerChatProps) {
 
       {/* Input */}
       <div className="flex items-end gap-2 border-t border-border p-3">
+        <VoiceInputButton
+          isRecording={isRecording}
+          isTranscribing={isTranscribing}
+          isAvailable={isAvailable}
+          duration={duration}
+          onClick={toggleRecording}
+          disabled={sending}
+          className="h-9 w-9 shrink-0"
+        />
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Guide the agent..."
+          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Guide the agent..."}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
@@ -133,7 +164,7 @@ export function SteerChat({ taskId, machineId, taskStream }: SteerChatProps) {
           size="icon"
           className="h-9 w-9 shrink-0"
           onClick={handleSend}
-          disabled={!input.trim() || sending}
+          disabled={!input.trim() || sending || isRecording || isTranscribing}
         >
           {sending ? (
             <Loader2 className="h-4 w-4 animate-spin" />
