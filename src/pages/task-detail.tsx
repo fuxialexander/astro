@@ -12,6 +12,7 @@ import { ToolTraceView } from "@/components/task-detail/tool-trace-view"
 import { FileChangesView } from "@/components/task-detail/file-changes-view"
 import { SteerChat } from "@/components/task-detail/steer-chat"
 import { SessionActivityView } from "@/components/task-detail/session-activity-view"
+import { TaskChat } from "@/components/task-detail/task-chat"
 
 const statusBadgeVariants: Record<string, "default" | "secondary" | "destructive" | "warning" | "success" | "info"> = {
   planned: "secondary",
@@ -154,6 +155,7 @@ export function TaskDetail() {
             <TabsTrigger value="sessions">
               Sessions {attachedSessions.length > 0 && `(${attachedSessions.length})`}
             </TabsTrigger>
+            <TabsTrigger value="chat">Chat</TabsTrigger>
           </TabsList>
 
           <TabsContent value="output" className="flex-1 m-0 min-h-0">
@@ -167,6 +169,14 @@ export function TaskDetail() {
           </TabsContent>
           <TabsContent value="sessions" className="flex-1 m-0 min-h-0">
             <SessionActivityView sessions={attachedSessions} />
+          </TabsContent>
+          <TabsContent value="chat" className="flex-1 m-0 min-h-0">
+            <TaskChat
+              node={node}
+              projectId={projectId}
+              visionDoc={project?.visionDoc}
+              taskOutput={outputText}
+            />
           </TabsContent>
         </Tabs>
       </div>
