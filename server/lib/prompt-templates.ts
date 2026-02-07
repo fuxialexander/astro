@@ -106,6 +106,45 @@ export interface TaskExecutionContext {
   workingDirectory?: string
 }
 
+export interface TaskChatContext {
+  taskTitle: string
+  taskDescription: string
+  taskOutput?: string
+  visionDoc?: string
+}
+
+export function buildTaskChatSystemPrompt(context: TaskChatContext): string {
+  const parts: string[] = []
+
+  parts.push(`You are a task-focused AI assistant for Nexus. You help users understand, analyze, and refine individual tasks within their project plan.
+
+You have context about the current task and can help with:
+- Explaining agent reasoning and approach
+- Evaluating task output and results
+- Suggesting task modifications or refinements
+- Answering questions about the task
+
+Be concise and helpful. Focus on the specific task at hand.`)
+
+  // Add vision doc if present
+  if (context.visionDoc) {
+    parts.push(`## Project Vision\n\n${context.visionDoc}`)
+  }
+
+  // Add task details
+  parts.push(`## Current Task\n\n**${context.taskTitle}**\n\n${context.taskDescription}`)
+
+  // Add task output if present
+  if (context.taskOutput) {
+    const truncatedOutput = context.taskOutput.length > 10000
+      ? context.taskOutput.slice(0, 10000) + '\n\n[... output truncated ...]'
+      : context.taskOutput
+    parts.push(`## Task Output (Agent Execution Results)\n\n\`\`\`\n${truncatedOutput}\n\`\`\``)
+  }
+
+  return parts.join('\n\n---\n\n')
+}
+
 export function buildTaskExecutionPrompt(context: TaskExecutionContext): string {
   const parts: string[] = []
 

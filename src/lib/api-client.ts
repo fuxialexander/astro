@@ -155,6 +155,46 @@ export async function abortAgent(sessionId: string): Promise<void> {
   })
 }
 
+export interface TaskChatParams {
+  message: string
+  sessionId?: string
+  nodeId: string
+  projectId: string
+  taskTitle: string
+  taskDescription: string
+  taskOutput?: string
+  visionDoc?: string
+  model?: string
+}
+
+export async function chatWithTask(
+  params: TaskChatParams,
+  callbacks: {
+    onText: (text: string) => void
+    onDone: (sessionId: string) => void
+    onError: (error: string) => void
+  },
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch("/api/agent/task-chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+    signal,
+  })
+
+  if (!res.ok) {
+    callbacks.onError(`Server error: ${res.status}`)
+    return
+  }
+
+  await readSSE(res, {
+    onText: callbacks.onText,
+    onDone: callbacks.onDone,
+    onError: callbacks.onError,
+  })
+}
+
 // Provider status types
 export interface ProviderStatusResult {
   total: number

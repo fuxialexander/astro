@@ -6,7 +6,7 @@ import {
   type TaskType,
 } from '../lib/providers/index.js'
 import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
-import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt } from '../lib/prompt-templates.js'
+import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt } from '../lib/prompt-templates.js'
 
 const agentRoute = new Hono()
 
@@ -179,6 +179,119 @@ agentRoute.post('/chat', async (c) => {
         context: {
           projectId,
           visionDoc,
+        },
+        abortController,
+      }
+
+      // Stream the execution
+      for await (const event of provider.stream(task)) {
+        switch (event.type) {
+          case 'text':
+            await stream.writeSSE({ event: 'text', data: event.text })
+            break
+
+          case 'result':
+            await stream.writeSSE({
+              event: 'done',
+              data: JSON.stringify({
+                sessionId: event.result.sessionId ?? taskId,
+                providerId: provider.id,
+              }),
+            })
+            break
+
+          case 'error':
+            await stream.writeSSE({ event: 'error', data: event.error })
+            break
+
+          case 'aborted':
+            await stream.writeSSE({ event: 'aborted', data: event.reason ?? '' })
+            break
+        }
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        await stream.writeSSE({ event: 'aborted', data: '' })
+      } else {
+        const message = e instanceof Error ? e.message : 'unknown error'
+        await stream.writeSSE({ event: 'error', data: message })
+      }
+    } finally {
+      removeSession(taskId)
+    }
+  })
+})
+
+/**
+ * Task-level chat for per-task AI assistance.
+ * Context-aware: knows the task description, its position in the plan graph, the vision doc, and agent output.
+ */
+agentRoute.post('/task-chat', async (c) => {
+  const body = await c.req.json<{
+    message: string
+    sessionId?: string
+    nodeId: string
+    projectId: string
+    taskTitle: string
+    taskDescription: string
+    taskOutput?: string
+    visionDoc?: string
+    model?: string
+    providerId?: string
+  }>()
+
+  const {
+    message,
+    sessionId: existingSessionId,
+    nodeId,
+    projectId,
+    taskTitle,
+    taskDescription,
+    taskOutput,
+    visionDoc,
+    model,
+    providerId,
+  } = body
+
+  const taskId = existingSessionId || `task-chat-${nodeId}-${Date.now()}`
+  const abortController = createSession(taskId, providerId)
+
+  return streamSSE(c, async (stream) => {
+    try {
+      // Get provider (use specified or default)
+      const provider = providerId
+        ? providerRegistry.getProvider(providerId)
+        : providerRegistry.getDefaultProvider()
+
+      if (!provider) {
+        await stream.writeSSE({
+          event: 'error',
+          data: 'No agent provider available. Ensure a provider is installed and authenticated.',
+        })
+        return
+      }
+
+      const systemPrompt = buildTaskChatSystemPrompt({
+        taskTitle,
+        taskDescription,
+        taskOutput,
+        visionDoc,
+      })
+
+      // Build task dispatch
+      const task: TaskDispatch = {
+        taskId,
+        sessionId: existingSessionId,
+        type: 'chat',
+        prompt: message,
+        systemPrompt,
+        model,
+        maxTurns: 1,
+        context: {
+          projectId,
+          nodeId,
+          visionDoc,
+          taskOutput,
         },
         abortController,
       }
