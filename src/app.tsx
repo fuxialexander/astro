@@ -16,6 +16,7 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { useTaskChatStore } from "@/stores/task-chat-store"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
@@ -29,6 +30,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadSettings = useSettingsStore((s) => s.load)
   const loadUserProfile = useUserProfileStore((s) => s.load)
   const loadDisplaySettings = useDisplaySettingsStore((s) => s.load)
+  const loadTaskChat = useTaskChatStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -36,6 +38,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const settingsLoaded = useSettingsStore((s) => s.loaded)
   const userProfileLoaded = useUserProfileStore((s) => s.loaded)
   const displaySettingsLoaded = useDisplaySettingsStore((s) => s.loaded)
+  const taskChatLoaded = useTaskChatStore((s) => s.loaded)
 
   useEffect(() => {
     loadProjects()
@@ -43,11 +46,12 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     loadSettings()
     loadUserProfile()
     loadDisplaySettings()
+    loadTaskChat()
     connectRealtime()
     return () => disconnectRealtime()
-  }, [loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, connectRealtime, disconnectRealtime])
+  }, [loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, connectRealtime, disconnectRealtime])
 
-  if (!projectsLoaded || !planLoaded || !settingsLoaded || !userProfileLoaded || !displaySettingsLoaded) {
+  if (!projectsLoaded || !planLoaded || !settingsLoaded || !userProfileLoaded || !displaySettingsLoaded || !taskChatLoaded) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         Loading...
