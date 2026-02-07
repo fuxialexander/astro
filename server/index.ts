@@ -7,12 +7,19 @@ import { relayRoute } from './routes/relay.js'
 import { dispatchRoute } from './routes/dispatch.js'
 import { deviceAuthRoute } from './routes/device-auth.js'
 import { eventsRoute } from './routes/events.js'
+import { notificationsRoute } from './routes/notifications.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
 import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus } from './lib/registered-machines-store.js'
+import {
+  notificationHub,
+  sseChannel,
+  createWebSocketChannel,
+  createPushChannel,
+} from './lib/notifications/index.js'
 
 const app = new Hono()
 
@@ -29,6 +36,7 @@ app.route('/api/relay', relayRoute)
 app.route('/api/dispatch', dispatchRoute)
 app.route('/api/device', deviceAuthRoute)
 app.route('/api/events', eventsRoute)
+app.route('/api/notifications', notificationsRoute)
 
 const port = 3001
 const relayPort = parseInt(process.env.RELAY_PORT || '3002', 10)
@@ -122,6 +130,36 @@ async function start() {
   dispatchEngine.start()
   console.log('[dispatch] Dispatch engine started')
 
+  // Initialize notification hub
+  console.log('[notifications] Initializing notification hub...')
+  try {
+    // Connect hub to relay server for event fan-out
+    notificationHub.connectToRelay(relayServer)
+
+    // Register SSE channel (for browser clients)
+    notificationHub.registerChannel(sseChannel)
+    await sseChannel.start()
+
+    // Register WebSocket channel (for native apps)
+    const wsChannel = createWebSocketChannel({
+      port: parseInt(process.env.WS_NOTIFICATIONS_PORT || '3003', 10),
+      jwtSecret: process.env.RELAY_JWT_SECRET,
+    })
+    notificationHub.registerChannel(wsChannel)
+    await wsChannel.start()
+
+    // Register Push channel (stub - requires APNS/FCM credentials)
+    const pushChannel = createPushChannel({
+      // APNS and FCM config loaded from env in production
+    })
+    notificationHub.registerChannel(pushChannel)
+    await pushChannel.start()
+
+    console.log('[notifications] Notification hub initialized with', notificationHub.getChannels().length, 'channels')
+  } catch (err) {
+    console.error('[notifications] Failed to initialize:', err)
+  }
+
   console.log(`[backend] listening on http://localhost:${port}`)
   serve({ fetch: app.fetch, port })
 }
@@ -130,6 +168,7 @@ async function start() {
 process.on('SIGTERM', async () => {
   console.log('[server] SIGTERM received, shutting down gracefully')
   dispatchEngine.stop()
+  await notificationHub.stopAll()
   await relayServer.stop()
   await redisPubSub.disconnect()
   process.exit(0)
@@ -138,6 +177,7 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
   console.log('[server] SIGINT received, shutting down gracefully')
   dispatchEngine.stop()
+  await notificationHub.stopAll()
   await relayServer.stop()
   await redisPubSub.disconnect()
   process.exit(0)
