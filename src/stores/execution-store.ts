@@ -1,7 +1,35 @@
 import { create } from "zustand"
-import type { TaskExecution, ProviderStatus, PlanNode } from "@/types"
+import type { TaskExecution, ProviderStatus, PlanNode, ToolTrace, FileChange } from "@/types"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
+
+// Available machine info from relay server
+export interface MachineInfo {
+  machineId: string
+  name: string
+  environmentType: 'local' | 'hpc' | 'cloud'
+  hostname?: string
+  status: 'online' | 'offline' | 'busy'
+  load?: {
+    cpuPercent: number
+    memoryPercent: number
+    activeTasks: number
+  }
+  providers: Array<{
+    type: string
+    status: string
+  }>
+}
+
+// Execution options for dispatch
+export interface ExecutionOptions {
+  environment?: 'local' | 'hpc' | 'cloud'
+  targetMachineId?: string
+  preferredProvider?: string
+  model?: string
+  maxTurns?: number
+  workingDirectory?: string
+}
 
 interface ExecutionState {
   // Active executions keyed by nodeId
@@ -11,12 +39,17 @@ interface ExecutionState {
   providers: ProviderStatus[]
   providersLoaded: boolean
 
+  // Available machines from relay
+  machines: MachineInfo[]
+  machinesLoaded: boolean
+
   // Currently selected execution for detail view
   selectedExecutionId: string | null
 
   // Actions
-  startExecution: (nodeId: string, projectId: string) => Promise<void>
+  startExecution: (nodeId: string, projectId: string, options?: ExecutionOptions) => Promise<void>
   cancelExecution: (nodeId: string) => Promise<void>
+  steerExecution: (nodeId: string, message: string, action?: 'guidance' | 'redirect') => Promise<boolean>
   getExecution: (nodeId: string) => TaskExecution | undefined
   isExecuting: (nodeId: string) => boolean
   hasActiveExecution: () => boolean
@@ -25,6 +58,10 @@ interface ExecutionState {
   loadProviders: () => Promise<void>
   redetectProviders: () => Promise<void>
   getAvailableProvider: () => ProviderStatus | null
+
+  // Machine actions
+  loadMachines: () => Promise<void>
+  getMachinesForEnvironment: (env: 'local' | 'hpc' | 'cloud') => MachineInfo[]
 
   // Selection
   selectExecution: (nodeId: string | null) => void
@@ -37,9 +74,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   executions: new Map(),
   providers: [],
   providersLoaded: false,
+  machines: [],
+  machinesLoaded: false,
   selectedExecutionId: null,
 
-  startExecution: async (nodeId: string, projectId: string) => {
+  startExecution: async (nodeId: string, projectId: string, options?: ExecutionOptions) => {
     // Get node and project info
     const planStore = usePlanStore.getState()
     const node = planStore.nodes.find((n) => n.id === nodeId)
@@ -69,7 +108,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
 
     // Build dependency outputs from completed dependencies
-    const dependencyOutputs = buildDependencyOutputs(node.dependencies, planStore.nodes)
+    const dependencyOutputs = buildDependencyOutputsArray(node.dependencies, planStore.nodes)
+
+    // Determine environment from node or options
+    const environment = options?.environment ?? node.environment ?? 'local'
 
     // Initialize execution state
     const execution: TaskExecution = {
@@ -78,6 +120,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       executionId: "",
       status: "pending",
       streamText: "",
+      toolTraces: [],
+      fileChanges: [],
       startedAt: new Date(),
     }
 
@@ -91,18 +135,25 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     planStore.updateNode(nodeId, { status: "dispatched" })
 
     try {
-      const response = await fetch("/api/agent/dispatch", {
+      // Use the dispatch/task endpoint for full environment support
+      const response = await fetch("/api/dispatch/task", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nodeId,
           projectId,
-          taskTitle: node.title,
-          taskDescription: node.description,
-          taskType: getTaskType(node),
+          title: node.title,
+          description: node.description,
+          dependencies: node.dependencies,
+          environment,
+          verification: node.verification,
           visionDoc: project?.visionDoc,
           dependencyOutputs,
-          maxTurns: 50,
+          preferredProvider: options?.preferredProvider,
+          targetMachineId: options?.targetMachineId,
+          model: options?.model,
+          maxTurns: options?.maxTurns ?? 50,
+          workingDirectory: options?.workingDirectory,
         }),
         signal: abortController.signal,
       })
@@ -159,14 +210,54 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     const execution = get().executions.get(nodeId)
     if (execution?.executionId) {
       try {
-        await fetch("/api/agent/abort", {
+        await fetch("/api/dispatch/cancel", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ taskId: execution.executionId }),
+          body: JSON.stringify({
+            nodeId,
+            executionId: execution.executionId
+          }),
         })
       } catch {
         // Ignore abort errors
       }
+    }
+  },
+
+  steerExecution: async (nodeId: string, message: string, action: 'guidance' | 'redirect' = 'guidance') => {
+    const execution = get().executions.get(nodeId)
+    if (!execution || execution.status !== 'running') {
+      console.warn("Cannot steer non-running execution:", nodeId)
+      return false
+    }
+
+    if (!execution.machineId) {
+      console.warn("No machine ID for steering:", nodeId)
+      return false
+    }
+
+    try {
+      const response = await fetch("/api/dispatch/steer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId: execution.executionId,
+          machineId: execution.machineId,
+          message,
+          action,
+        }),
+      })
+
+      if (!response.ok) {
+        console.error("Failed to steer execution:", response.status)
+        return false
+      }
+
+      const result = await response.json()
+      return result.success
+    } catch (error) {
+      console.error("Error steering execution:", error)
+      return false
     }
   },
 
@@ -223,6 +314,25 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   getAvailableProvider: () => {
     const available = get().providers.find((p) => p.available)
     return available || null
+  },
+
+  loadMachines: async () => {
+    try {
+      const response = await fetch("/api/relay/machines")
+      if (response.ok) {
+        const data = await response.json()
+        set({
+          machines: data.machines || [],
+          machinesLoaded: true,
+        })
+      }
+    } catch {
+      set({ machinesLoaded: true })
+    }
+  },
+
+  getMachinesForEnvironment: (env: 'local' | 'hpc' | 'cloud') => {
+    return get().machines.filter((m) => m.environmentType === env && m.status !== 'offline')
   },
 
   selectExecution: (nodeId: string | null) => {
@@ -284,6 +394,9 @@ function handleSSEEvent(
           if (exec) {
             exec.executionId = parsed.executionId
             exec.status = "running"
+            exec.machineId = parsed.machineId
+            exec.providerId = parsed.providerId
+            exec.providerName = parsed.providerName
           }
           return { executions: newExecutions }
         })
@@ -291,6 +404,23 @@ function handleSSEEvent(
           status: "in_progress",
           executionId: parsed.executionId,
           executionStartedAt: new Date(),
+        })
+      } catch {
+        // Ignore parse errors
+      }
+      break
+    }
+
+    case "session_init": {
+      try {
+        const parsed = JSON.parse(data)
+        set((state) => {
+          const newExecutions = new Map(state.executions)
+          const exec = newExecutions.get(nodeId)
+          if (exec) {
+            exec.sessionId = parsed.sessionId
+          }
+          return { executions: newExecutions }
         })
       } catch {
         // Ignore parse errors
@@ -310,6 +440,87 @@ function handleSSEEvent(
       break
     }
 
+    case "tool_use": {
+      try {
+        const parsed = JSON.parse(data)
+        const trace: ToolTrace = {
+          id: `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          toolName: parsed.toolName,
+          toolInput: parsed.toolInput,
+          timestamp: new Date(),
+        }
+        set((state) => {
+          const newExecutions = new Map(state.executions)
+          const exec = newExecutions.get(nodeId)
+          if (exec) {
+            exec.toolTraces = [...exec.toolTraces, trace]
+          }
+          return { executions: newExecutions }
+        })
+      } catch {
+        // Ignore parse errors
+      }
+      break
+    }
+
+    case "tool_result": {
+      try {
+        const parsed = JSON.parse(data)
+        set((state) => {
+          const newExecutions = new Map(state.executions)
+          const exec = newExecutions.get(nodeId)
+          if (exec && exec.toolTraces.length > 0) {
+            // Update the last tool trace with the result
+            const lastTrace = exec.toolTraces[exec.toolTraces.length - 1]
+            if (lastTrace.toolName === parsed.toolName) {
+              lastTrace.toolResult = parsed.result
+              lastTrace.success = parsed.success
+            }
+          }
+          return { executions: newExecutions }
+        })
+      } catch {
+        // Ignore parse errors
+      }
+      break
+    }
+
+    case "file_change": {
+      try {
+        const parsed = JSON.parse(data)
+        const change: FileChange = {
+          path: parsed.path,
+          action: parsed.action || 'modify',
+          linesAdded: parsed.linesAdded,
+          linesRemoved: parsed.linesRemoved,
+          timestamp: new Date(),
+        }
+        set((state) => {
+          const newExecutions = new Map(state.executions)
+          const exec = newExecutions.get(nodeId)
+          if (exec) {
+            exec.fileChanges = [...exec.fileChanges, change]
+          }
+          return { executions: newExecutions }
+        })
+      } catch {
+        // Ignore parse errors
+      }
+      break
+    }
+
+    case "progress": {
+      // Progress updates are informational, could be used for progress bar
+      // For now, just log them
+      try {
+        const parsed = JSON.parse(data)
+        console.log(`[execution] Progress for ${nodeId}:`, parsed.message, parsed.percentage)
+      } catch {
+        // Ignore parse errors
+      }
+      break
+    }
+
     case "result": {
       try {
         const parsed = JSON.parse(data)
@@ -322,19 +533,24 @@ function handleSSEEvent(
           if (exec) {
             exec.status = isSuccess ? "success" : "failure"
             exec.completedAt = new Date()
+            if (parsed.sessionId) {
+              exec.sessionId = parsed.sessionId
+            }
           }
           return { executions: newExecutions }
         })
 
         // Determine final node status based on verification type
         const node = planStore.nodes.find((n) => n.id === nodeId)
-        let finalStatus: PlanNode["status"]
+        // Use finalStatus from server if provided, otherwise determine locally
+        let finalStatus: PlanNode["status"] = parsed.finalStatus
 
-        if (isSuccess) {
-          // Check verification type
-          finalStatus = node?.verification === "auto" ? "auto_verified" : "awaiting_judgment"
-        } else {
-          finalStatus = "awaiting_judgment"
+        if (!finalStatus) {
+          if (isSuccess) {
+            finalStatus = node?.verification === "auto" ? "auto_verified" : "awaiting_judgment"
+          } else {
+            finalStatus = "awaiting_judgment"
+          }
         }
 
         planStore.updateNode(nodeId, {
@@ -351,19 +567,20 @@ function handleSSEEvent(
     case "error": {
       try {
         const parsed = JSON.parse(data)
+        const errorMessage = typeof parsed === 'string' ? parsed : parsed.error || 'Unknown error'
         set((state) => {
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
             exec.status = "failure"
-            exec.error = parsed.error
+            exec.error = errorMessage
             exec.completedAt = new Date()
           }
           return { executions: newExecutions }
         })
         planStore.updateNode(nodeId, {
           status: "awaiting_judgment",
-          executionError: parsed.error,
+          executionError: errorMessage,
         })
       } catch {
         // Ignore parse errors
@@ -384,6 +601,11 @@ function handleSSEEvent(
       planStore.updateNode(nodeId, { status: "planned" })
       break
     }
+
+    case "heartbeat":
+    case "done":
+      // Heartbeat and done events are informational, no action needed
+      break
   }
 }
 
@@ -425,33 +647,24 @@ export function canExecuteNode(node: PlanNode, allNodes: PlanNode[]): CanExecute
   return { ready: true }
 }
 
-// Helper: Build dependency outputs string from completed dependencies
-function buildDependencyOutputs(dependencyIds: string[], allNodes: PlanNode[]): string | undefined {
-  const outputs: string[] = []
+// Helper: Build dependency outputs array for dispatch endpoint
+function buildDependencyOutputsArray(
+  dependencyIds: string[],
+  allNodes: PlanNode[]
+): Array<{ nodeId: string; title: string; output: string }> {
+  const outputs: Array<{ nodeId: string; title: string; output: string }> = []
 
   for (const depId of dependencyIds) {
     const depNode = allNodes.find((n) => n.id === depId)
     if (depNode?.executionOutput) {
-      outputs.push(`### ${depNode.title}\n\n${depNode.executionOutput}`)
+      outputs.push({
+        nodeId: depNode.id,
+        title: depNode.title,
+        output: depNode.executionOutput,
+      })
     }
   }
 
-  return outputs.length > 0 ? outputs.join("\n\n---\n\n") : undefined
+  return outputs
 }
 
-// Helper: Map node type to task type
-function getTaskType(node: PlanNode): string {
-  // Map node types to task types
-  switch (node.type) {
-    case "task":
-      return "code_generation"
-    case "milestone":
-      return "code_review"
-    case "decision":
-      return "general"
-    case "branch":
-      return "code_analysis"
-    default:
-      return "general"
-  }
-}
