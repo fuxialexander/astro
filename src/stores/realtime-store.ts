@@ -38,6 +38,9 @@ export interface ActivityEvent {
 
 export interface TaskStream {
   taskId: string
+  machineId?: string
+  providerId?: string
+  providerName?: string
   stdout: string
   progress: number
   progressMessage?: string
