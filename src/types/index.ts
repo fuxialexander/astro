@@ -53,6 +53,26 @@ export interface PlanNode {
   executionCompletedAt?: Date;
 }
 
+// Tool trace for execution detail view
+export interface ToolTrace {
+  id: string;
+  toolName: string;
+  toolInput: Record<string, unknown> | unknown;
+  toolResult?: unknown;
+  success?: boolean;
+  duration?: number;
+  timestamp: Date;
+}
+
+// File change for execution detail view
+export interface FileChange {
+  path: string;
+  action: 'create' | 'modify' | 'delete';
+  linesAdded?: number;
+  linesRemoved?: number;
+  timestamp: Date;
+}
+
 // Execution state for tracking active task execution
 export interface TaskExecution {
   nodeId: string;
@@ -63,6 +83,13 @@ export interface TaskExecution {
   error?: string;
   startedAt: Date;
   completedAt?: Date;
+  // Rich execution data
+  toolTraces: ToolTrace[];
+  fileChanges: FileChange[];
+  sessionId?: string;
+  machineId?: string;
+  providerId?: string;
+  providerName?: string;
 }
 
 // Provider status for displaying in UI

@@ -46,4 +46,16 @@ const DropdownMenuSeparator = forwardRef<
 ))
 DropdownMenuSeparator.displayName = "DropdownMenuSeparator"
 
-export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator }
+const DropdownMenuLabel = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Label>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.Label
+    ref={ref}
+    className={cn("px-2 py-1.5 text-sm font-semibold", className)}
+    {...props}
+  />
+))
+DropdownMenuLabel.displayName = "DropdownMenuLabel"
+
+export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel }

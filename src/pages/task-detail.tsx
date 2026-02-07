@@ -69,8 +69,31 @@ export function TaskDetail() {
 
   // Combine output from execution store (local) and realtime store (relay)
   const outputText = execution?.streamText || taskStream?.stdout || node.executionOutput || ""
-  const toolTraces = taskStream?.toolTraces || []
-  const fileChanges = taskStream?.fileChanges || []
+
+  // Combine tool traces and file changes from execution store and realtime store
+  // Normalize to the format expected by the views
+  const toolTraces = execution?.toolTraces?.length
+    ? execution.toolTraces.map(t => ({
+        toolName: t.toolName,
+        toolInput: t.toolInput,
+        toolResult: t.toolResult,
+        success: t.success,
+        duration: t.duration,
+        timestamp: t.timestamp,
+      }))
+    : taskStream?.toolTraces || []
+  const fileChanges = execution?.fileChanges?.length
+    ? execution.fileChanges.map(f => ({
+        path: f.path,
+        action: f.action,
+        linesAdded: f.linesAdded,
+        linesRemoved: f.linesRemoved,
+        timestamp: f.timestamp,
+      }))
+    : taskStream?.fileChanges || []
+
+  // Get machine ID for steering (from execution or realtime stream)
+  const machineId = execution?.machineId || taskStream?.machineId || ""
 
   return (
     <div className="flex h-full">
@@ -175,7 +198,7 @@ export function TaskDetail() {
       {isRunning && executionId && (
         <SteerChat
           taskId={executionId}
-          machineId=""
+          machineId={machineId}
           taskStream={taskStream}
         />
       )}
