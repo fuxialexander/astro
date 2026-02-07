@@ -1,6 +1,8 @@
 import { useState, useMemo, useRef, useCallback } from "react"
 import { useParams, Link } from "react-router"
 import { ArrowLeft, FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { TaskCreationForm } from "@/components/task-creation-form"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -115,6 +117,7 @@ function ListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect
   const planNodes = usePlanStore((s) => s.nodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
+  const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
 
   // Filter and sort nodes
   const nodes = useMemo(() => {
@@ -251,6 +254,30 @@ function ListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect
     )
   }
 
+  function renderAddTaskRow(groupKey: string, defaultMilestoneId?: string) {
+    if (creatingInGroup === groupKey) {
+      return (
+        <TaskCreationForm
+          mode="inline"
+          projectId={projectId}
+          defaultMilestoneId={defaultMilestoneId}
+          onCreated={() => setCreatingInGroup(null)}
+          onCancel={() => setCreatingInGroup(null)}
+        />
+      )
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => setCreatingInGroup(groupKey)}
+        className="flex items-center gap-2 px-6 h-9 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer border-b border-border"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add task
+      </button>
+    )
+  }
+
   return (
     <div className="flex-1 overflow-auto">
       <div className="flex items-center border-b border-border px-6 h-9 bg-muted/30">
@@ -288,6 +315,7 @@ function ListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect
                   <span className="text-[11px] text-muted-foreground">&middot; {tasks.length} tasks</span>
                 </div>
                 {tasks.map(renderNodeRow)}
+                {renderAddTaskRow(`milestone-${milestone.id}`, milestone.id)}
               </div>
             )
           })}
@@ -300,6 +328,7 @@ function ListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect
               {groupedNodes.groups.unassigned.map(renderNodeRow)}
             </div>
           )}
+          {renderAddTaskRow("bottom")}
         </>
       ) : groupedNodes && groupedNodes.type === "generic" ? (
         <>
@@ -312,6 +341,7 @@ function ListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect
               {groupNodes.map(renderNodeRow)}
             </div>
           ))}
+          {renderAddTaskRow("bottom")}
         </>
       ) : (
         <>
@@ -329,6 +359,7 @@ function ListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect
             <span className="text-[11px] text-muted-foreground">{nodes.filter((n) => n.type !== "milestone").length}</span>
           </div>
           {nodes.filter((n) => n.type !== "milestone").map(renderNodeRow)}
+          {renderAddTaskRow("bottom")}
         </>
       )}
     </div>
@@ -344,6 +375,7 @@ function TimelineView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const zoom = (displaySettings.zoom ?? "month") as ZoomLevel
+  const [isCreating, setIsCreating] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const leftRef = useRef<HTMLDivElement>(null)
 
@@ -500,6 +532,23 @@ function TimelineView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
               </span>
             </div>
           ))}
+          {isCreating ? (
+            <TaskCreationForm
+              mode="inline"
+              projectId={projectId}
+              onCreated={() => setIsCreating(false)}
+              onCancel={() => setIsCreating(false)}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsCreating(true)}
+              className="flex items-center gap-2 px-4 h-9 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer border-b border-border"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add task
+            </button>
+          )}
         </div>
       </div>
 
@@ -616,6 +665,7 @@ export function PlanView() {
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>("graph")
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
   if (!project) {
     return (
@@ -685,7 +735,7 @@ export function PlanView() {
             <FileText className="h-3.5 w-3.5" />
             Vision
           </Button>
-          <Button size="sm">
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
             <Plus className="h-3.5 w-3.5" />
             Add Task
           </Button>
@@ -797,6 +847,21 @@ export function PlanView() {
           </div>
         )}
       </div>
+
+      {/* Create Task Dialog */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Task</DialogTitle>
+          </DialogHeader>
+          <TaskCreationForm
+            mode="dialog"
+            projectId={project.id}
+            onCreated={() => setCreateDialogOpen(false)}
+            onCancel={() => setCreateDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -1,6 +1,6 @@
-import { memo } from "react"
+import { memo, useState } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2 } from "lucide-react"
+import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 
@@ -21,12 +21,14 @@ type TaskNodeData = Node<{
   executionId?: string
   priority?: string
   dueDate?: string
+  onAddChild?: (nodeId: string) => void
 }>
 
-export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>) {
+export const TaskNode = memo(function TaskNode({ data, id }: NodeProps<TaskNodeData>) {
   const config = statusConfig[data.status] ?? statusConfig.planned
   const Icon = config.icon
   const isMilestone = data.nodeType === "milestone"
+  const [hovered, setHovered] = useState(false)
 
   // Get live progress from realtime store
   const taskStream = useRealtimeStore((s) =>
@@ -58,6 +60,8 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>
         data.status === "pruned" && "opacity-50",
         isOverdue && "border-l-red-500 border-l-[3px]"
       )}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       <Handle type="target" position={Position.Top} className="!bg-border !w-2 !h-2 !border-none" />
 
@@ -90,6 +94,17 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>
       )}
 
       <Handle type="source" position={Position.Bottom} className="!bg-border !w-2 !h-2 !border-none" />
+
+      {/* Add child button on hover */}
+      {hovered && data.status !== "pruned" && data.onAddChild && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); data.onAddChild!(id) }}
+          className="absolute -bottom-4 left-1/2 -translate-x-1/2 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:brightness-110 transition-all cursor-pointer"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      )}
     </div>
   )
 })
