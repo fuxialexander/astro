@@ -1,0 +1,207 @@
+import { useState, useRef, useEffect } from "react"
+import { Send, Loader2, Trash2, MessageSquare } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { chatWithTask } from "@/lib/api-client"
+import { useTaskChatStore } from "@/stores/task-chat-store"
+import { useSettingsStore } from "@/stores/settings-store"
+import type { PlanNode } from "@/types"
+
+interface TaskChatProps {
+  node: PlanNode
+  projectId: string
+  visionDoc?: string
+  taskOutput?: string
+}
+
+export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatProps) {
+  const [input, setInput] = useState("")
+  const [isStreaming, setIsStreaming] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const model = useSettingsStore((s) => s.model)
+
+  // Store actions
+  const getOrCreateSession = useTaskChatStore((s) => s.getOrCreateSession)
+  const addMessage = useTaskChatStore((s) => s.addMessage)
+  const appendToLastAssistantMessage = useTaskChatStore((s) => s.appendToLastAssistantMessage)
+  const setSessionId = useTaskChatStore((s) => s.setSessionId)
+  const clearSession = useTaskChatStore((s) => s.clearSession)
+
+  // Get session for this task
+  const session = useTaskChatStore((s) => s.getSession(node.id))
+  const messages = session?.messages || []
+  const messagesLength = messages.length
+
+  // Ensure session exists
+  useEffect(() => {
+    getOrCreateSession(node.id, projectId)
+  }, [node.id, projectId, getOrCreateSession])
+
+  useEffect(() => {
+    // Auto-scroll to bottom when messages change
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [messagesLength])
+
+  async function handleSend() {
+    const text = input.trim()
+    if (!text || isStreaming) return
+
+    setInput("")
+
+    // Add user message
+    addMessage(node.id, { role: "user", content: text })
+
+    // Add placeholder for assistant response
+    addMessage(node.id, { role: "assistant", content: "" })
+
+    setIsStreaming(true)
+    abortRef.current = new AbortController()
+
+    try {
+      await chatWithTask(
+        {
+          message: text,
+          sessionId: session?.sessionId,
+          nodeId: node.id,
+          projectId,
+          taskTitle: node.title,
+          taskDescription: node.description,
+          taskOutput,
+          visionDoc,
+          model,
+        },
+        {
+          onText: (chunk) => {
+            appendToLastAssistantMessage(node.id, chunk)
+          },
+          onDone: (newSessionId) => {
+            if (newSessionId) setSessionId(node.id, newSessionId)
+            setIsStreaming(false)
+          },
+          onError: (error) => {
+            appendToLastAssistantMessage(node.id, `\n\nError: ${error}`)
+            setIsStreaming(false)
+          },
+        },
+        abortRef.current.signal,
+      )
+    } catch {
+      setIsStreaming(false)
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  function handleClear() {
+    if (isStreaming) {
+      abortRef.current?.abort()
+    }
+    clearSession(node.id)
+    // Recreate the session
+    getOrCreateSession(node.id, projectId)
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Header */}
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-xs font-medium text-muted-foreground">Task Assistant</span>
+        </div>
+        {messages.length > 0 && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={handleClear}
+            title="Clear chat"
+          >
+            <Trash2 className="h-3 w-3 text-muted-foreground" />
+          </Button>
+        )}
+      </div>
+
+      {/* Messages */}
+      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+        <div className="flex flex-col gap-4">
+          {messages.length === 0 && (
+            <div className="flex flex-col gap-3 py-4">
+              <p className="text-xs text-muted-foreground text-center">
+                Ask questions about this task, get help reviewing agent output, or request suggestions.
+              </p>
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {[
+                  "Why did the agent approach it this way?",
+                  "Is this result correct?",
+                  "How should I modify this task?",
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => setInput(suggestion)}
+                    className="text-[10px] px-2 py-1 rounded-full border border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex flex-col gap-1 ${msg.role === "user" ? "items-end" : "items-start"}`}
+            >
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {msg.role === "user" ? "You" : "Claude"}
+              </span>
+              <div
+                className={`rounded-lg px-3 py-2 text-sm leading-relaxed max-w-[90%] ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground"
+                }`}
+              >
+                <pre className="whitespace-pre-wrap font-secondary text-sm">
+                  {msg.content || (isStreaming && msg.role === "assistant" ? "..." : "")}
+                </pre>
+              </div>
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+
+      {/* Input */}
+      <div className="flex items-end gap-2 border-t border-border p-3">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask about this task..."
+          rows={1}
+          className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <Button
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          onClick={handleSend}
+          disabled={!input.trim() || isStreaming}
+        >
+          {isStreaming ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Send className="h-4 w-4" />
+          )}
+        </Button>
+      </div>
+    </div>
+  )
+}
