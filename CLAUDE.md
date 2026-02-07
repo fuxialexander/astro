@@ -73,9 +73,10 @@ src/
 │   │   ├── app-layout.tsx        # Sidebar + <Outlet /> wrapper
 │   │   ├── sidebar.tsx           # Nav items, project list, user profile
 │   │   └── header.tsx            # Reusable page header
+│   ├── task-creation-form.tsx    # Reusable task creation (inline/popover/dialog modes)
 │   ├── plan-graph/
-│   │   ├── plan-canvas.tsx       # React Flow wrapper (background, controls, fitView)
-│   │   ├── task-node.tsx         # Custom node component with status styling + live progress
+│   │   ├── plan-canvas.tsx       # React Flow wrapper (ReactFlowProvider, background, controls, graph popover creation)
+│   │   ├── task-node.tsx         # Custom node component with status styling, live progress, hover '+' button
 │   │   ├── plan-graph-tab.tsx    # Graph view tab with node editor
 │   │   └── plan-timeline-tab.tsx # Gantt timeline view (tabbed)
 │   ├── task-detail/
@@ -112,6 +113,7 @@ src/
 │   ├── api-client.ts             # HTTP + SSE client for /api/agent/* endpoints
 │   ├── realtime-client.ts        # EventSource wrapper for /api/events/stream
 │   ├── constants.ts              # Priority/estimate config, default labels
+│   ├── graph-utils.ts            # Graph node position calculation for child placement
 │   ├── timeline-utils.ts         # Gantt timeline calculations (topological sort, date assignment)
 │   └── utils.ts                  # cn() = clsx + tailwind-merge
 └── types/
@@ -178,7 +180,7 @@ docs/
 | `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
 | `/projects/new` | New Project | Implemented (AI plan generation works) |
 | `/project/:id` | Project Overview | Implemented (overview + updates tabs) |
-| `/project/:id/plan` | Plan View | Implemented (graph + list toggle, detail panel + chat) |
+| `/project/:id/plan` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation across all views) |
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat) |
 | `/project/:id/timeline` | Timeline | Implemented (date-based Gantt, click-to-edit dialog) |
 | `/judgment` | Judgment Queue | Implemented (UI only, actions not wired) |
@@ -225,7 +227,8 @@ docs/
 - Use `cn()` from `@/lib/utils` for Tailwind class merging
 - Follow existing shadcn/ui component patterns in `src/components/ui/`
 - Zustand stores: use `(s) => s.field` selectors, persist via `idb-keyval`
-- React Flow: define node data type as `type TaskNodeData = Node<{ ... }>`, use `NodeProps<TaskNodeData>`, cast `nodeTypes` to `any`
+- React Flow: define node data type as `type TaskNodeData = Node<{ ... }>`, use `NodeProps<TaskNodeData>`, cast `nodeTypes` to `any`; wrap in `ReactFlowProvider` when using `useReactFlow()` hooks
+- Task creation: use `TaskCreationForm` component with `mode="inline"|"popover"|"dialog"`; creates nodes via `usePlanStore.addNode()` + `addEdge()`
 - SSE streaming: use `readSSE()` from `api-client.ts` for server-sent events
 - Status types: `planned | dispatched | in_progress | auto_verified | awaiting_judgment | completed | pruned`
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
