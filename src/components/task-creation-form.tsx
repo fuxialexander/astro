@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { usePlanStore } from "@/stores/plan-store"
 import { PRIORITIES, ESTIMATES } from "@/lib/constants"
@@ -40,8 +40,10 @@ export function TaskCreationForm({
   const titleRef = useRef<HTMLInputElement>(null)
 
   // Get milestones for the project
-  const milestones = usePlanStore((s) =>
-    s.nodes.filter((n) => n.projectId === projectId && n.type === "milestone")
+  const allNodes = usePlanStore((s) => s.nodes)
+  const milestones = useMemo(
+    () => allNodes.filter((n) => n.projectId === projectId && n.type === "milestone"),
+    [allNodes, projectId]
   )
 
   useEffect(() => {
