@@ -7,6 +7,7 @@ import { relayRoute } from './routes/relay.js'
 import { dispatchRoute } from './routes/dispatch.js'
 import { deviceAuthRoute } from './routes/device-auth.js'
 import { eventsRoute } from './routes/events.js'
+import { transcribeRoute } from './routes/transcribe.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
@@ -29,6 +30,7 @@ app.route('/api/relay', relayRoute)
 app.route('/api/dispatch', dispatchRoute)
 app.route('/api/device', deviceAuthRoute)
 app.route('/api/events', eventsRoute)
+app.route('/api/transcribe', transcribeRoute)
 
 const port = 3001
 const relayPort = parseInt(process.env.RELAY_PORT || '3002', 10)
