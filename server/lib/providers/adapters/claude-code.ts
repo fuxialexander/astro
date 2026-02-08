@@ -41,15 +41,16 @@ export class ClaudeCodeProvider implements AgentProvider {
     try {
       const abortController = new AbortController()
 
+      // Timeout detection after 30 seconds
+      const timeout = setTimeout(() => abortController.abort(), 30_000)
+
       // Use a minimal prompt to check auth — immediately abort after init
       const gen = query({
         prompt: 'respond with ok',
         options: {
           abortController,
           maxTurns: 1,
-          permissionMode: 'plan',
           tools: [],
-          persistSession: false,
         },
       })
 
@@ -68,6 +69,8 @@ export class ClaudeCodeProvider implements AgentProvider {
           break
         }
       }
+
+      clearTimeout(timeout)
 
       this.cachedDetection = {
         installed: true,
@@ -150,13 +153,24 @@ export class ClaudeCodeProvider implements AgentProvider {
         fullPrompt = `${preparedContext.promptContent}\n\n---\n\n${task.prompt}`
       }
 
+      // Determine if this is an execution task (needs full tools) vs planning/chat (limited)
+      const isExecution = task.type !== 'planning' && task.type !== 'chat'
+
       // Build options
       const options: Parameters<typeof query>[0]['options'] = {
         abortController,
         model: task.model ?? this.defaultModel,
         maxTurns: task.maxTurns ?? 1,
-        tools: [],
-        persistSession: false,
+        ...(isExecution
+          ? {
+              // Execution tasks: full tool access, auto-accept permissions
+              permissionMode: 'bypassPermissions' as const,
+              ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
+            }
+          : {
+              // Planning/chat tasks: no tools needed, just text generation
+              tools: [],
+            }),
       }
 
       // Add system prompt if provided
@@ -275,13 +289,24 @@ export class ClaudeCodeProvider implements AgentProvider {
         fullPrompt = `${preparedContext.promptContent}\n\n---\n\n${task.prompt}`
       }
 
+      // Determine if this is an execution task (needs full tools) vs planning/chat (limited)
+      const isExecution = task.type !== 'planning' && task.type !== 'chat'
+
       // Build options
       const options: Parameters<typeof query>[0]['options'] = {
         abortController,
         model: task.model ?? this.defaultModel,
         maxTurns: task.maxTurns ?? 1,
-        tools: [],
-        persistSession: false,
+        ...(isExecution
+          ? {
+              // Execution tasks: full tool access, auto-accept permissions
+              permissionMode: 'bypassPermissions' as const,
+              ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
+            }
+          : {
+              // Planning/chat tasks: no tools needed, just text generation
+              tools: [],
+            }),
       }
 
       // Add system prompt if provided
@@ -324,6 +349,32 @@ export class ClaudeCodeProvider implements AgentProvider {
                 type: 'text',
                 taskId: task.taskId,
                 text: block.text,
+                timestamp: new Date(),
+              }
+            } else if (block.type === 'tool_use') {
+              yield {
+                type: 'tool_use',
+                taskId: task.taskId,
+                toolName: block.name,
+                toolInput: block.input,
+                timestamp: new Date(),
+              }
+            }
+          }
+        } else if (msg.type === 'user') {
+          // Tool results come back as user messages with tool_result blocks
+          const content = Array.isArray(msg.message?.content) ? msg.message.content : []
+          for (const block of content) {
+            if ((block as Record<string, unknown>).type === 'tool_result') {
+              const toolResult = block as Record<string, unknown>
+              yield {
+                type: 'tool_result',
+                taskId: task.taskId,
+                toolName: (toolResult.tool_use_id as string) ?? 'unknown',
+                success: !toolResult.is_error,
+                result: typeof toolResult.content === 'string'
+                  ? toolResult.content.slice(0, 5000)
+                  : JSON.stringify(toolResult.content).slice(0, 5000),
                 timestamp: new Date(),
               }
             }

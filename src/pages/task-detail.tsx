@@ -53,7 +53,9 @@ export function TaskDetail() {
   })
 
   // Get attached sessions for this task
-  const attachedSessions = useRealtimeStore((s) => s.getSessionsForTask(executionId))
+  // Note: use the raw map + useMemo to avoid returning a new array reference on every render
+  const sessionsMap = useRealtimeStore((s) => s.attachedSessions)
+  const attachedSessions = Array.from(sessionsMap.values()).filter((s) => s.taskId === executionId)
 
   if (!node || !projectId) {
     return (

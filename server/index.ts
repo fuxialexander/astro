@@ -40,7 +40,11 @@ async function start() {
   console.log('[backend] initializing provider registry...')
 
   try {
-    await initializeProviders()
+    // Timeout provider detection after 15 seconds so server starts even if detection hangs
+    await Promise.race([
+      initializeProviders(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Provider detection timed out')), 15_000)),
+    ])
     console.log('[backend] provider registry initialized')
   } catch (error) {
     console.warn('[backend] provider initialization warning:', error)
