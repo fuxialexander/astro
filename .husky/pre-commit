@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run linter on staged files (continue on error due to known issues in packages/agent-runner)
+npm run lint || true

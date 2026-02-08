@@ -10,7 +10,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name=nexus-app"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=nexus-app",
+    "verify": "bash scripts/verify-setup.sh",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "husky"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.32",
