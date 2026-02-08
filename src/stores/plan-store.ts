@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import type { PlanNode, PlanEdge } from "@/types"
 import { loadState, saveState } from "@/lib/db"
+import { layoutGraph } from "@/lib/graph-utils"
 
 interface PlanState {
   nodes: PlanNode[]
@@ -11,6 +12,7 @@ interface PlanState {
   updateNode: (id: string, updates: Partial<PlanNode>) => void
   addEdge: (edge: PlanEdge) => void
   setProjectPlan: (projectId: string, nodes: PlanNode[], edges: PlanEdge[]) => void
+  reorganizeProject: (projectId: string) => void
 }
 
 // ── proj-1: Personal Finance App (65 %, Jan 15 → Mar 30) ─────────────
@@ -241,5 +243,22 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ nodes: nextNodes, edges: nextEdges })
     saveState("nexus-plan-nodes", nextNodes)
     saveState("nexus-plan-edges", nextEdges)
+  },
+
+  reorganizeProject: (projectId) => {
+    const allNodes = get().nodes
+    const allEdges = get().edges
+    const projectNodes = allNodes.filter((n) => n.projectId === projectId)
+    const nodeIds = new Set(projectNodes.map((n) => n.id))
+    const projectEdges = allEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+
+    const positions = layoutGraph(projectNodes, projectEdges)
+
+    const nextNodes = allNodes.map((n) => {
+      const newPos = positions.get(n.id)
+      return newPos ? { ...n, position: newPos, updatedAt: new Date() } : n
+    })
+    set({ nodes: nextNodes })
+    saveState("nexus-plan-nodes", nextNodes)
   },
 }))
