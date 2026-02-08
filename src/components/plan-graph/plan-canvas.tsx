@@ -1,15 +1,17 @@
-import { useMemo, useCallback, useState } from "react"
+import { useMemo, useCallback, useState, useRef } from "react"
 import {
   ReactFlow,
   ReactFlowProvider,
   Background,
   Controls,
   useReactFlow,
+  ConnectionLineType,
   type Node,
   type Edge,
+  type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { GitBranch } from "lucide-react"
+import { GitBranch, LayoutGrid } from "lucide-react"
 import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -22,6 +24,25 @@ import type { PlanNode } from "@/types"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes = { task: TaskNode as any }
+
+const POPOVER_WIDTH = 320
+const POPOVER_HEIGHT_EST = 180
+const POPOVER_MARGIN = 12
+
+/** Clamps a screen position so a popover of known size stays within a container. */
+function clampPopoverPosition(
+  screenPos: { x: number; y: number },
+  container: HTMLElement | null,
+): { x: number; y: number } {
+  if (!container) return screenPos
+  const rect = container.getBoundingClientRect()
+  const maxX = rect.width - POPOVER_WIDTH - POPOVER_MARGIN
+  const maxY = rect.height - POPOVER_HEIGHT_EST - POPOVER_MARGIN
+  return {
+    x: Math.max(POPOVER_MARGIN, Math.min(screenPos.x, maxX)),
+    y: Math.max(POPOVER_MARGIN, Math.min(screenPos.y, maxY)),
+  }
+}
 
 interface PlanCanvasProps {
   projectId: string
@@ -37,34 +58,25 @@ interface AddChildState {
 function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
   const planNodes = usePlanStore((s) => s.nodes)
   const planEdges = usePlanStore((s) => s.edges)
+  const addEdge = usePlanStore((s) => s.addEdge)
+  const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const isGenerating = useAgentStore((s) => s.isGenerating)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addChildState, setAddChildState] = useState<AddChildState | null>(null)
+  const connectingNodeId = useRef<string | null>(null)
+  const justCreatedChild = useRef(false)
+  const canvasRef = useRef<HTMLDivElement>(null)
 
-  const { flowToScreenPosition } = useReactFlow()
+  const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView } = useReactFlow()
 
   const projectNodes = useMemo(() => planNodes.filter((n) => n.projectId === projectId), [planNodes, projectId])
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
     return planEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
   }, [planEdges, projectNodes])
-
-  const handleAddChild = useCallback((parentNodeId: string) => {
-    const parentNode = projectNodes.find((n) => n.id === parentNodeId)
-    if (!parentNode) return
-
-    const position = calculateChildPosition(parentNode, projectNodes, projectEdges)
-    const screenPos = flowToScreenPosition(position)
-
-    setAddChildState({
-      parentNodeId,
-      position,
-      screenPosition: screenPos,
-    })
-  }, [projectNodes, projectEdges, flowToScreenPosition])
 
   const rfNodes: Node[] = useMemo(
     () =>
@@ -78,11 +90,10 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
           nodeType: n.type,
           priority: n.priority,
           dueDate: n.dueDate,
-          onAddChild: handleAddChild,
         },
         selected: n.id === selectedId,
       })),
-    [projectNodes, selectedId, handleAddChild]
+    [projectNodes, selectedId]
   )
 
   const rfEdges: Edge[] = useMemo(
@@ -98,6 +109,78 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
     [projectEdges]
   )
 
+  // Connection handlers for mindmap-like drag interactions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const onConnectStart = useCallback((_: any, params: any) => {
+    if (params.handleType === "source") {
+      connectingNodeId.current = params.nodeId
+    }
+  }, [])
+
+  const onConnect = useCallback((connection: Connection) => {
+    if (!connection.source || !connection.target) return
+    if (connection.source === connection.target) return
+    const exists = projectEdges.some(
+      (e) => e.source === connection.source && e.target === connection.target
+    )
+    if (exists) return
+
+    addEdge({
+      id: crypto.randomUUID(),
+      source: connection.source,
+      target: connection.target,
+      type: "dependency",
+    })
+    connectingNodeId.current = null
+    // Auto-reorganize after adding a link
+    reorganizeProject(projectId)
+    setTimeout(() => rfFitView({ padding: 0.3, duration: 300 }), 50)
+  }, [projectEdges, addEdge, reorganizeProject, projectId, rfFitView])
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, connectionState?: any) => {
+    if (!connectingNodeId.current) return
+
+    // If connection was valid (connected to another handle), onConnect handled it
+    if (connectionState?.isValid) {
+      connectingNodeId.current = null
+      return
+    }
+
+    const parentNode = projectNodes.find((n) => n.id === connectingNodeId.current)
+    if (!parentNode) {
+      connectingNodeId.current = null
+      return
+    }
+
+    const { clientX, clientY } = "changedTouches" in event
+      ? event.changedTouches[0]
+      : event
+    const dropPosition = screenToFlowPosition({ x: clientX, y: clientY })
+
+    // If drop is close to the source node (click or very short drag), use calculated child position
+    const dx = dropPosition.x - parentNode.position.x
+    const dy = dropPosition.y - parentNode.position.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+
+    const position = distance < 60
+      ? calculateChildPosition(parentNode, projectNodes, projectEdges)
+      : dropPosition
+
+    const screenPos = clampPopoverPosition(
+      flowToScreenPosition(position),
+      canvasRef.current,
+    )
+    justCreatedChild.current = true
+    setAddChildState({
+      parentNodeId: connectingNodeId.current,
+      position,
+      screenPosition: screenPos,
+    })
+
+    connectingNodeId.current = null
+  }, [projectNodes, projectEdges, screenToFlowPosition, flowToScreenPosition])
+
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       setSelectedId(node.id)
@@ -108,10 +191,26 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
   )
 
   const handlePaneClick = useCallback(() => {
+    // Skip clearing if a connection just created a child form
+    if (justCreatedChild.current) {
+      justCreatedChild.current = false
+      return
+    }
     setSelectedId(null)
     setAddChildState(null)
     onNodeSelect?.(null)
   }, [onNodeSelect])
+
+  const handleReorganize = useCallback(() => {
+    reorganizeProject(projectId)
+    // Fit view after layout with a short delay for React to re-render
+    setTimeout(() => rfFitView({ padding: 0.3, duration: 300 }), 50)
+  }, [reorganizeProject, projectId, rfFitView])
+
+  const handleTaskCreated = useCallback(() => {
+    setAddChildState(null)
+    handleReorganize()
+  }, [handleReorganize])
 
   const handleGeneratePlan = useCallback(() => {
     if (project && connectionStatus === "connected") {
@@ -144,13 +243,19 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
   }
 
   return (
-    <div className="relative h-full w-full">
+    <div ref={canvasRef} className="relative h-full w-full">
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
         nodeTypes={nodeTypes}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
+        onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
+        connectionLineType={ConnectionLineType.SmoothStep}
+        connectionLineStyle={{ stroke: "var(--border)", strokeWidth: 1.5 }}
+        connectionRadius={40}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         proOptions={{ hideAttribution: true }}
@@ -161,6 +266,17 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
           showInteractive={false}
           className="!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground"
         />
+        {/* Reorganize button positioned above the Controls */}
+        <div className="react-flow__panel absolute bottom-[130px] left-2.5 z-10">
+          <button
+            type="button"
+            onClick={handleReorganize}
+            title="Reorganize layout"
+            className="flex h-[26px] w-[26px] items-center justify-center rounded-sm border border-border bg-card text-foreground shadow-md hover:bg-muted cursor-pointer"
+          >
+            <LayoutGrid className="h-3 w-3" />
+          </button>
+        </div>
       </ReactFlow>
 
       {/* Floating creation form when adding child from graph */}
@@ -177,7 +293,7 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
             projectId={projectId}
             parentNodeId={addChildState.parentNodeId}
             position={addChildState.position}
-            onCreated={() => setAddChildState(null)}
+            onCreated={handleTaskCreated}
             onCancel={() => setAddChildState(null)}
           />
         </div>

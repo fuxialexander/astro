@@ -21,10 +21,9 @@ type TaskNodeData = Node<{
   executionId?: string
   priority?: string
   dueDate?: string
-  onAddChild?: (nodeId: string) => void
 }>
 
-export const TaskNode = memo(function TaskNode({ data, id }: NodeProps<TaskNodeData>) {
+export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>) {
   const config = statusConfig[data.status] ?? statusConfig.planned
   const Icon = config.icon
   const isMilestone = data.nodeType === "milestone"
@@ -53,7 +52,7 @@ export const TaskNode = memo(function TaskNode({ data, id }: NodeProps<TaskNodeD
   return (
     <div
       className={cn(
-        "relative flex items-center gap-2.5 border-[1.5px] px-3.5 overflow-hidden",
+        "relative flex items-center gap-2.5 border-[1.5px] px-3.5",
         config.bg,
         config.border,
         isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-[10px]",
@@ -65,12 +64,17 @@ export const TaskNode = memo(function TaskNode({ data, id }: NodeProps<TaskNodeD
     >
       <Handle type="target" position={Position.Top} className="!bg-border !w-2 !h-2 !border-none" />
 
-      {/* Progress bar overlay for running tasks */}
+      {/* Progress bar overlay for running tasks (clipped to node border) */}
       {isRunning && progress > 0 && (
-        <div
-          className="absolute left-0 top-0 bottom-0 bg-blue-500/10 transition-all duration-500"
-          style={{ width: `${progress}%` }}
-        />
+        <div className={cn(
+          "absolute inset-0 overflow-hidden pointer-events-none",
+          isMilestone ? "rounded-[20px]" : "rounded-[10px]"
+        )}>
+          <div
+            className="absolute left-0 top-0 bottom-0 bg-blue-500/10 transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
       )}
 
       <Icon className={cn("h-3.5 w-3.5 shrink-0 relative z-10", config.iconColor, data.status === "in_progress" && "animate-spin")} />
@@ -93,17 +97,23 @@ export const TaskNode = memo(function TaskNode({ data, id }: NodeProps<TaskNodeD
         <span className={cn("absolute top-1 right-1.5 h-[6px] w-[6px] rounded-full z-10", priorityDotColor)} />
       )}
 
-      <Handle type="source" position={Position.Bottom} className="!bg-border !w-2 !h-2 !border-none" />
+      {/* Source handle - grows into draggable '+' button on hover */}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className={cn(
+          "!border-none !rounded-full transition-all duration-150",
+          hovered && data.status !== "pruned"
+            ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
+            : "!w-2 !h-2 !bg-border"
+        )}
+      />
 
-      {/* Add child button on hover */}
-      {hovered && data.status !== "pruned" && data.onAddChild && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); data.onAddChild!(id) }}
-          className="absolute -bottom-4 left-1/2 -translate-x-1/2 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:brightness-110 transition-all cursor-pointer"
-        >
-          <Plus className="h-3 w-3" />
-        </button>
+      {/* Plus icon overlaid on source handle */}
+      {hovered && data.status !== "pruned" && (
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+          <Plus className="h-3 w-3 text-primary-foreground" />
+        </div>
       )}
     </div>
   )
