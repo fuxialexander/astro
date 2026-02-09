@@ -21,6 +21,7 @@ export interface Project {
   progress?: number;      // 0-100
   labels?: Label[];
   workingDirectory?: string; // Absolute path for task execution (cwd for agents)
+  repository?: string;       // Git clone URL (e.g., https://github.com/user/repo.git)
   createdAt: Date;
   updatedAt: Date;
 }

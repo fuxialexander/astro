@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { loadState, saveState } from "@/lib/db"
+import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client"
 
 export type ViewKey = "projects" | "plan-list" | "my-tasks"
 
@@ -56,9 +57,34 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
   loaded: false,
 
   load: async () => {
+    const supabase = getSupabase()
+
+    if (supabase && isSupabaseConfigured()) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data } = await supabase
+          .from("display_settings")
+          .select("*")
+          .eq("user_id", user.id)
+
+        if (data && data.length > 0) {
+          const merged = { ...DEFAULTS }
+          for (const row of data) {
+            const key = row.view_key as ViewKey
+            if (merged[key]) {
+              merged[key] = { ...DEFAULTS[key], ...(row.settings as DisplaySettings) }
+            }
+          }
+          set({ settings: merged, loaded: true })
+          await saveState(DB_KEY, merged)
+          return
+        }
+      }
+    }
+
+    // Fallback to IndexedDB
     const saved = await loadState<Record<ViewKey, DisplaySettings>>(DB_KEY)
     if (saved) {
-      // Merge with defaults so new keys are always present
       const merged = { ...DEFAULTS }
       for (const key of Object.keys(merged) as ViewKey[]) {
         if (saved[key]) {
@@ -81,6 +107,23 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
     }
     set({ settings: updated })
     saveState(DB_KEY, updated)
+
+    // Sync to Supabase
+    const supabase = getSupabase()
+    if (supabase && isSupabaseConfigured()) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) {
+          supabase
+            .from("display_settings")
+            .upsert({
+              user_id: user.id,
+              view_key: view,
+              settings: updated[view],
+            }, { onConflict: "user_id,view_key" })
+            .then()
+        }
+      })
+    }
   },
 
   reset: (view) => {
@@ -88,6 +131,23 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
     const updated = { ...current, [view]: { ...DEFAULTS[view] } }
     set({ settings: updated })
     saveState(DB_KEY, updated)
+
+    // Sync to Supabase
+    const supabase = getSupabase()
+    if (supabase && isSupabaseConfigured()) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) {
+          supabase
+            .from("display_settings")
+            .upsert({
+              user_id: user.id,
+              view_key: view,
+              settings: DEFAULTS[view],
+            }, { onConflict: "user_id,view_key" })
+            .then()
+        }
+      })
+    }
   },
 }))
 

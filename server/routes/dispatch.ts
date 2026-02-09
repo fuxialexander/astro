@@ -21,8 +21,17 @@ import { relayServer } from '../lib/relay-server.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import type { ExecutionEnvironment } from '../lib/providers/types.js'
 import type { ProviderType } from '../types/relay.js'
+import { requireAuth } from '../middleware/auth.js'
+import { executionEventBus } from '../lib/execution-event-bus.js'
+import { existsSync } from 'node:fs'
+import { execSync } from 'node:child_process'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
 
 const dispatchRoute = new Hono()
+
+// All dispatch routes require authentication
+dispatchRoute.use('/*', requireAuth)
 
 /**
  * Dispatch a task for execution
@@ -84,6 +93,14 @@ dispatchRoute.post('/task', async (c) => {
     force = false,
     dryRun = false,
   } = body
+
+  // Validate working directory
+  if (!workingDirectory) {
+    return c.json(
+      { success: false, error: 'No working directory or repository configured' },
+      400
+    )
+  }
 
   // Dry run validation
   if (dryRun) {
@@ -148,6 +165,18 @@ dispatchRoute.post('/task', async (c) => {
     })
   }
 
+  // Resolve working directory (clone repo if needed)
+  let resolvedDir = workingDirectory
+  try {
+    resolvedDir = resolveWorkingDirectory(workingDirectory, projectId)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error'
+    return c.json(
+      { success: false, error: `Failed to resolve working directory: ${msg}` },
+      500
+    )
+  }
+
   // Local dispatch via provider
   return await dispatchLocal(c, {
     nodeId,
@@ -160,10 +189,36 @@ dispatchRoute.post('/task', async (c) => {
     verification,
     model,
     maxTurns,
-    workingDirectory,
+    workingDirectory: resolvedDir,
     preferredProvider,
   })
 })
+
+/**
+ * Resolve a working directory value. If it looks like a git URL, clone to
+ * ~/.nexus/repos/{projectId}/ and return the local path. Otherwise return as-is.
+ */
+function resolveWorkingDirectory(value: string, projectId: string): string {
+  const isGitUrl = value.startsWith('http://') || value.startsWith('https://') || value.startsWith('git@')
+  if (!isGitUrl) return value
+
+  const repoDir = join(homedir(), '.nexus', 'repos', projectId)
+  if (existsSync(join(repoDir, '.git'))) {
+    // Already cloned — fetch latest
+    try {
+      execSync('git fetch --all', { cwd: repoDir, stdio: 'ignore', timeout: 30_000 })
+    } catch {
+      // Non-fatal: proceed with stale clone
+    }
+  } else {
+    // Clone the repo
+    execSync(`git clone ${JSON.stringify(value)} ${JSON.stringify(repoDir)}`, {
+      stdio: 'ignore',
+      timeout: 120_000,
+    })
+  }
+  return repoDir
+}
 
 /**
  * Local dispatch via provider (streaming SSE)
@@ -309,6 +364,9 @@ Execute the task described above. Focus on completing the task thoroughly and co
           case 'text':
             fullOutput += event.text
             await stream.writeSSE({ event: 'text', data: event.text })
+            executionEventBus.emit('task:stdout', {
+              output: { taskId: executionId, data: event.text, stream: 'stdout', timestamp: new Date() },
+            })
             break
 
           case 'tool_use':
@@ -318,6 +376,11 @@ Execute the task described above. Focus on completing the task thoroughly and co
                 toolName: event.toolName,
                 toolInput: event.toolInput,
               }),
+            })
+            executionEventBus.emit('task:tool_trace', {
+              taskId: executionId,
+              toolName: event.toolName,
+              toolInput: event.toolInput,
             })
             break
 
@@ -333,12 +396,24 @@ Execute the task described above. Focus on completing the task thoroughly and co
                     : event.result,
               }),
             })
+            executionEventBus.emit('task:tool_trace', {
+              taskId: executionId,
+              toolName: event.toolName,
+              toolResult: typeof event.result === 'string'
+                ? event.result.slice(0, 5000)
+                : event.result,
+              success: event.success,
+            })
             break
 
           case 'file_change':
             await stream.writeSSE({
               event: 'file_change',
               data: JSON.stringify(event.change),
+            })
+            executionEventBus.emit('task:file_change', {
+              taskId: executionId,
+              ...event.change,
             })
             break
 
@@ -349,6 +424,11 @@ Execute the task described above. Focus on completing the task thoroughly and co
                 message: event.message,
                 percentage: event.percentage,
               }),
+            })
+            executionEventBus.emit('task:progress', {
+              taskId: executionId,
+              progress: event.percentage,
+              message: event.message,
             })
             break
 
@@ -375,6 +455,14 @@ Execute the task described above. Focus on completing the task thoroughly and co
                 verification: event.result.verification,
                 sessionId: event.result.sessionId,
               }),
+            })
+            executionEventBus.emit('task:result', {
+              result: {
+                taskId: executionId,
+                status: event.result.status === 'success' ? 'completed' : 'failed',
+                output: fullOutput,
+                duration: event.result.metrics?.durationMs,
+              },
             })
             break
           }

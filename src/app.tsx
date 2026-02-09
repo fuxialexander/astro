@@ -4,11 +4,13 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppLayout } from "@/components/layout/app-layout"
 import { CommandPalette } from "@/components/command-palette"
+import { AuthGuard } from "@/components/auth-guard"
 import { Dashboard } from "@/pages/dashboard"
 import { Projects } from "@/pages/projects"
 import { ProjectNew } from "@/pages/project-new"
 import { ProjectOverview } from "@/pages/project-overview"
 import { PlanView } from "@/pages/plan-view"
+import { Login } from "@/pages/login"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -73,11 +75,13 @@ export default function App() {
           <DataLoader>
             <CommandPalette />
             <Routes>
-              {/* Standalone pages without app layout */}
+              {/* Public routes (no auth required) */}
+              <Route path="login" element={<Login />} />
               <Route path="device" element={<DeviceAuth />} />
               <Route path="welcome" element={<Welcome />} />
 
-              <Route element={<AppLayout />}>
+              {/* Authenticated routes */}
+              <Route element={<AuthGuard><AppLayout /></AuthGuard>}>
                 <Route index element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="projects/new" element={<ProjectNew />} />

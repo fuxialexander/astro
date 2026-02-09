@@ -38,7 +38,7 @@ export class ContextAssembler {
       visionDoc: project?.visionDoc,
       dependencyOutputs,
       graphPosition,
-      workingDirectory: undefined, // Can be set from environment registry
+      workingDirectory: project?.workingDirectory || project?.repository,
     }
   }
 

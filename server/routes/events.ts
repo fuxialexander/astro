@@ -21,8 +21,13 @@ import type {
   TaskFileChangeMessage,
   SessionEvent,
 } from '../types/relay.js'
+import { requireAuth } from '../middleware/auth.js'
+import { executionEventBus } from '../lib/execution-event-bus.js'
 
 const eventsRoute = new Hono()
+
+// All events routes require authentication
+eventsRoute.use('/*', requireAuth)
 
 /**
  * SSE event stream endpoint
@@ -201,6 +206,13 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('session:detached', onSessionDetached)
     relayServer.on('session:event', onSessionEvent)
 
+    // Subscribe to local execution events (same message shapes as relay)
+    executionEventBus.on('task:result', onTaskResult)
+    executionEventBus.on('task:stdout', onTaskStdout)
+    executionEventBus.on('task:progress', onTaskProgress)
+    executionEventBus.on('task:tool_trace', onTaskToolTrace)
+    executionEventBus.on('task:file_change', onTaskFileChange)
+
     // Keepalive heartbeat (15s)
     const heartbeat = setInterval(() => {
       if (!alive) {
@@ -231,6 +243,13 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('session:attached', onSessionAttached)
       relayServer.off('session:detached', onSessionDetached)
       relayServer.off('session:event', onSessionEvent)
+
+      // Local execution event bus cleanup
+      executionEventBus.off('task:result', onTaskResult)
+      executionEventBus.off('task:stdout', onTaskStdout)
+      executionEventBus.off('task:progress', onTaskProgress)
+      executionEventBus.off('task:tool_trace', onTaskToolTrace)
+      executionEventBus.off('task:file_change', onTaskFileChange)
     })
 
     // Keep the stream open until aborted

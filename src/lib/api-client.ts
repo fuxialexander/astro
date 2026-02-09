@@ -1,4 +1,18 @@
 import type { PlanNode, PlanEdge } from "@/types"
+import { getAccessToken } from "@/lib/supabase-client"
+
+/**
+ * Build headers for authenticated API calls.
+ * Includes Supabase access token when available.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  const token = await getAccessToken()
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+  return headers
+}
 
 interface PlanGraphResult {
   projectName: string
@@ -101,7 +115,7 @@ export async function generatePlan(
 ): Promise<void> {
   const res = await fetch("/api/agent/generate-plan", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await authHeaders(),
     body: JSON.stringify(params),
     signal,
   })
@@ -130,7 +144,7 @@ export async function chatWithAgent(
 ): Promise<void> {
   const res = await fetch("/api/agent/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await authHeaders(),
     body: JSON.stringify(params),
     signal,
   })
@@ -150,7 +164,7 @@ export async function chatWithAgent(
 export async function abortAgent(sessionId: string): Promise<void> {
   await fetch("/api/agent/abort", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await authHeaders(),
     body: JSON.stringify({ sessionId }),
   })
 }
@@ -178,7 +192,7 @@ export async function chatWithTask(
 ): Promise<void> {
   const res = await fetch("/api/agent/task-chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await authHeaders(),
     body: JSON.stringify(params),
     signal,
   })
@@ -211,7 +225,9 @@ export interface ProviderStatusResult {
 }
 
 export async function getProviders(): Promise<ProviderStatusResult> {
-  const response = await fetch("/api/agent/providers")
+  const response = await fetch("/api/agent/providers", {
+    headers: await authHeaders(),
+  })
   if (!response.ok) {
     throw new Error(`Failed to fetch providers: ${response.status}`)
   }
@@ -221,6 +237,7 @@ export async function getProviders(): Promise<ProviderStatusResult> {
 export async function redetectProviders(): Promise<ProviderStatusResult> {
   const response = await fetch("/api/agent/providers/detect", {
     method: "POST",
+    headers: await authHeaders(),
   })
   if (!response.ok) {
     throw new Error(`Failed to detect providers: ${response.status}`)
@@ -268,7 +285,7 @@ export async function dispatchTask(
 ): Promise<void> {
   const response = await fetch("/api/agent/dispatch", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await authHeaders(),
     body: JSON.stringify(params),
     signal,
   })

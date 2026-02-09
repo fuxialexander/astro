@@ -13,6 +13,7 @@ import {
   User,
   MessageSquare,
   GitPullRequest,
+  FolderGit2,
   Diamond,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -20,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
+import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { cn } from "@/lib/utils"
@@ -50,9 +52,11 @@ function OverviewTab({ project }: { project: Project }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const allNodes = useMemo(() => planNodes.filter((n) => n.projectId === project.id), [planNodes, project.id])
   const [visionOpen, setVisionOpen] = useState(false)
+  const [repoOpen, setRepoOpen] = useState(false)
   return (
     <div className="flex flex-1 overflow-hidden">
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
+      <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
       {/* Main Content */}
       <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
         {/* Description Section */}
@@ -126,6 +130,23 @@ function OverviewTab({ project }: { project: Project }) {
               </div>
               <span className="text-xs font-medium text-primary">
                 {project.visionDoc ? "Edit" : "Add"}
+              </span>
+            </div>
+            <div
+              className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
+              onClick={() => setRepoOpen(true)}
+            >
+              <FolderGit2 className="h-[18px] w-[18px] text-primary" />
+              <div className="flex-1 flex flex-col gap-0.5">
+                <span className="text-sm font-medium">Repository & Directory</span>
+                <span className="text-xs text-muted-foreground">
+                  {project.workingDirectory || project.repository
+                    ? (project.workingDirectory || project.repository)
+                    : "Click to configure working directory for agents"}
+                </span>
+              </div>
+              <span className="text-xs font-medium text-primary">
+                {project.workingDirectory || project.repository ? "Edit" : "Add"}
               </span>
             </div>
             <div className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4">

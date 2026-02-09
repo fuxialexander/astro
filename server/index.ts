@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { healthRoute } from './routes/health.js'
 import { agentRoute } from './routes/agent.js'
+import { authRoute } from './routes/auth.js'
 import { relayRoute } from './routes/relay.js'
 import { dispatchRoute } from './routes/dispatch.js'
 import { deviceAuthRoute } from './routes/device-auth.js'
@@ -18,13 +19,23 @@ import { updateMachineConnectionStatus } from './lib/registered-machines-store.j
 const app = new Hono()
 
 app.use('/*', cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? (process.env.CORS_ORIGIN || 'https://nexus.pages.dev')
-    : 'http://localhost:5173',
+  origin: (origin) => {
+    if (process.env.NODE_ENV === 'production') {
+      const allowed = process.env.CORS_ORIGIN || 'https://nexus.pages.dev'
+      return origin === allowed ? allowed : null
+    }
+    // Dev mode: allow localhost and null origin (native apps)
+    if (!origin || origin === 'http://localhost:5173' || origin.startsWith('nexus://')) {
+      return origin || 'http://localhost:5173'
+    }
+    return null
+  },
   allowHeaders: ['Content-Type', 'Authorization', 'Last-Event-ID'],
+  credentials: true,
 }))
 
 app.route('/api', healthRoute)
+app.route('/api/auth', authRoute)
 app.route('/api/agent', agentRoute)
 app.route('/api/relay', relayRoute)
 app.route('/api/dispatch', dispatchRoute)
@@ -91,7 +102,7 @@ async function start() {
     relayServer.on('machine:connected', async (machineId) => {
       console.log(`[relay] Machine ${machineId} connected`)
       // Update registered machine status
-      updateMachineConnectionStatus(machineId, true)
+      void updateMachineConnectionStatus(machineId, true)
       const entry = machineRegistry.get(machineId)
       if (entry && redisPubSub.isConnected()) {
         await redisPubSub.registerMachine(machineId, entry)
@@ -107,7 +118,7 @@ async function start() {
     relayServer.on('machine:disconnected', async (machineId, reason) => {
       console.log(`[relay] Machine ${machineId} disconnected: ${reason}`)
       // Update registered machine status
-      updateMachineConnectionStatus(machineId, false)
+      void updateMachineConnectionStatus(machineId, false)
       if (redisPubSub.isConnected()) {
         await redisPubSub.unregisterMachine(machineId)
         await redisPubSub.publishMachineState({
