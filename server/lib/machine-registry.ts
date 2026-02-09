@@ -53,11 +53,18 @@ export class MachineRegistry extends EventEmitter {
     machineInfo: Omit<MachineInfo, 'machineId'>,
     socket: WebSocket
   ): MachineRegistryEntry {
-    // Check if machine already exists
+    // Check if machine already exists — close old socket without removing from registry
+    // (the new entry will replace it immediately below)
     const existing = this.machines.get(machineId);
     if (existing) {
-      // Close old connection and update with new one
-      this.disconnect(machineId, 'reconnected');
+      if (existing.heartbeatTimer) {
+        clearTimeout(existing.heartbeatTimer);
+      }
+      this.sessionToMachine.delete(existing.entry.sessionId);
+      if (existing.socket && existing.socket.readyState === 1) {
+        existing.socket.close(1000, 'reconnected');
+      }
+      console.log(`[registry] Machine ${machineId} replacing existing connection`);
     }
 
     const sessionId = this.generateSessionId();
@@ -96,7 +103,13 @@ export class MachineRegistry extends EventEmitter {
   ): MachineRegistryEntry {
     const existing = this.machines.get(machineId);
     if (existing) {
-      this.disconnect(machineId, 'reconnected');
+      if (existing.heartbeatTimer) {
+        clearTimeout(existing.heartbeatTimer);
+      }
+      this.sessionToMachine.delete(existing.entry.sessionId);
+      if (existing.socket && existing.socket.readyState === 1) {
+        existing.socket.close(1000, 'reconnected');
+      }
     }
 
     const sessionId = this.generateSessionId();

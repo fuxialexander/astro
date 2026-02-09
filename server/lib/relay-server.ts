@@ -327,18 +327,29 @@ export class RelayServer extends EventEmitter {
 
     socket.on('close', (code, reason) => {
       if (currentMachineId) {
-        console.log(`[relay] Connection closed for machine ${currentMachineId}: ${code} - ${reason.toString()}`);
-        machineRegistry.disconnect(currentMachineId, reason.toString() || `close_code_${code}`);
-        this.rateLimitState.delete(currentMachineId);
-        this.emit('machine:disconnected', currentMachineId, reason.toString());
+        // Only disconnect if this socket is still the active connection for this machine.
+        // When a machine re-registers, the old socket is closed but the registry already
+        // has the new socket — disconnecting here would kill the new connection.
+        const current = machineRegistry.getConnection(currentMachineId);
+        if (current && current.socket === socket) {
+          console.log(`[relay] Connection closed for machine ${currentMachineId}: ${code} - ${reason.toString()}`);
+          machineRegistry.disconnect(currentMachineId, reason.toString() || `close_code_${code}`);
+          this.rateLimitState.delete(currentMachineId);
+          this.emit('machine:disconnected', currentMachineId, reason.toString());
+        } else {
+          console.log(`[relay] Stale connection closed for machine ${currentMachineId}: ${code} - ${reason.toString()} (ignored, new connection active)`);
+        }
       }
     });
 
     socket.on('error', (err) => {
       console.error(`[relay] Socket error for machine ${currentMachineId}:`, err);
       if (currentMachineId) {
-        machineRegistry.disconnect(currentMachineId, 'socket_error');
-        this.emit('machine:disconnected', currentMachineId, 'socket_error');
+        const current = machineRegistry.getConnection(currentMachineId);
+        if (current && current.socket === socket) {
+          machineRegistry.disconnect(currentMachineId, 'socket_error');
+          this.emit('machine:disconnected', currentMachineId, 'socket_error');
+        }
       }
     });
   }
