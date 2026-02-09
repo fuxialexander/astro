@@ -67,6 +67,27 @@ program
     }
   });
 
+// Connect command (alias for start --foreground)
+program
+  .command('connect')
+  .description('Connect to relay server in foreground (alias for start --foreground)')
+  .option('--relay <url>', 'Override relay server URL')
+  .option('--max-tasks <number>', 'Maximum concurrent tasks', parseInt)
+  .option('--log-level <level>', 'Log level: debug, info, warn, error')
+  .action(async (options) => {
+    try {
+      await startCommand({
+        foreground: true,
+        relay: options.relay,
+        maxTasks: options.maxTasks,
+        logLevel: options.logLevel,
+      });
+    } catch (error) {
+      console.error('Connect failed:', error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  });
+
 // Stop command
 program
   .command('stop')

@@ -6,7 +6,7 @@
 // Provider Types
 // ============================================================================
 
-export type ProviderType = 'claude-code' | 'codex' | 'custom';
+export type ProviderType = 'claude-code' | 'codex' | 'slurm' | 'custom';
 
 export interface ProviderInfo {
   type: ProviderType;
@@ -346,3 +346,47 @@ export type RunnerEvent =
   | { type: 'error'; error: Error };
 
 export type RunnerEventHandler = (event: RunnerEvent) => void;
+
+// ============================================================================
+// Slurm Types
+// ============================================================================
+
+export interface SlurmInfo {
+  available: boolean;
+  version?: string;
+  clusterName?: string;
+  partitions: string[];
+  defaultPartition?: string;
+  accounts: string[];
+  qosLevels: string[];
+}
+
+export interface SlurmPartitionDetail {
+  name: string;
+  isDefault: boolean;
+  totalNodes: number;
+  availableNodes: number;
+  maxTime?: string;
+  features: string[];
+}
+
+export interface SlurmJobStatus {
+  jobId: string;
+  state: string;
+  stateReason?: string;
+  nodeList?: string;
+  exitCode?: number;
+}
+
+export interface SlurmJobConfig {
+  partition?: string;
+  nodes?: number;
+  ntasks?: number;
+  cpusPerTask?: number;
+  mem?: string;
+  gpu?: { type?: string; count: number };
+  time?: string;
+  qos?: string;
+  account?: string;
+  modules?: string[];
+}

@@ -8,6 +8,7 @@ import { access, constants, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { ProviderInfo, ProviderType, ProviderCapabilities } from '../types.js';
+import { detectSlurm } from './slurm-detect.js';
 
 const execAsync = promisify(exec);
 
@@ -230,19 +231,46 @@ interface CustomProviderConfig {
 }
 
 /**
+ * Detect Slurm HPC scheduler
+ */
+async function detectSlurmProvider(): Promise<ProviderInfo | null> {
+  try {
+    const info = await detectSlurm();
+    if (!info.available) return null;
+
+    return {
+      type: 'slurm',
+      name: 'Slurm HPC',
+      version: info.version ?? null,
+      path: 'sinfo', // Slurm is a system service, not a single binary
+      available: true,
+      capabilities: {
+        streaming: false,
+        tools: false,
+        multiTurn: false,
+        maxConcurrentTasks: 50,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Detect all available providers on the system
  */
 export async function detectProviders(): Promise<ProviderInfo[]> {
   const detectionResults = await Promise.all([
     detectClaudeCode(),
     detectCodex(),
+    detectSlurmProvider(),
     detectCustomProviders(),
   ]);
 
   const providers: ProviderInfo[] = [];
 
   // Add built-in providers if detected
-  const [claudeCode, codex, customProviders] = detectionResults;
+  const [claudeCode, codex, slurm, customProviders] = detectionResults;
 
   if (claudeCode) {
     providers.push(claudeCode);
@@ -250,6 +278,10 @@ export async function detectProviders(): Promise<ProviderInfo[]> {
 
   if (codex) {
     providers.push(codex);
+  }
+
+  if (slurm) {
+    providers.push(slurm);
   }
 
   // Add custom providers
