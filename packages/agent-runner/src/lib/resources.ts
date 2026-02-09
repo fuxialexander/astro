@@ -27,19 +27,45 @@ function getCpuInfo(): CpuInfo {
 
 /**
  * Get memory information
+ *
+ * On macOS, os.freemem() only counts truly free pages and ignores
+ * inactive/purgeable pages that the OS can reclaim instantly, causing
+ * memory to appear ~99% used. We parse vm_stat to get accurate numbers.
  */
-function getMemoryInfo(): MemoryInfo {
+async function getMemoryInfo(): Promise<MemoryInfo> {
   const total = os.totalmem();
+
+  if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execAsync('vm_stat', { timeout: 5000 });
+      const pageMatch = stdout.match(/page size of (\d+) bytes/);
+      const pageSize = pageMatch ? parseInt(pageMatch[1]) : 16384;
+
+      const parse = (label: string): number => {
+        const match = stdout.match(new RegExp(`${label}:\\s+(\\d+)`));
+        return match ? parseInt(match[1]) * pageSize : 0;
+      };
+
+      const free = parse('Pages free');
+      const inactive = parse('Pages inactive');
+      const purgeable = parse('Pages purgeable');
+
+      // Available = free + inactive + purgeable (all reclaimable by the OS)
+      const available = free + inactive + purgeable;
+      const used = total - available;
+      const usedPercent = (used / total) * 100;
+
+      return { total, free: available, used, usedPercent };
+    } catch {
+      // Fall through to os.freemem()
+    }
+  }
+
   const free = os.freemem();
   const used = total - free;
   const usedPercent = (used / total) * 100;
 
-  return {
-    total,
-    free,
-    used,
-    usedPercent,
-  };
+  return { total, free, used, usedPercent };
 }
 
 /**
@@ -186,14 +212,14 @@ async function getGpuInfo(): Promise<GpuInfo[]> {
  * Get complete machine resource information
  */
 export async function getMachineResources(): Promise<MachineResources> {
-  const [gpu] = await Promise.all([getGpuInfo()]);
+  const [gpu, memory] = await Promise.all([getGpuInfo(), getMemoryInfo()]);
 
   return {
     hostname: os.hostname(),
     platform: os.platform(),
     arch: os.arch(),
     cpu: getCpuInfo(),
-    memory: getMemoryInfo(),
+    memory,
     gpu,
   };
 }
