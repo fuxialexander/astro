@@ -54,16 +54,14 @@ src/
 ├── main.tsx                      # React DOM entry point
 ├── globals.css                   # Tailwind v4 theme, CSS variables, light/dark tokens
 ├── pages/
-│   ├── dashboard.tsx             # Home: live stats, pending decisions, active projects, agent activity feed
+│   ├── dashboard.tsx             # Home: stats, pending decisions, active projects, system health, usage metrics
 │   ├── projects.tsx              # Project list with table (grouped, sortable columns)
 │   ├── project-new.tsx           # New project form + AI plan generation
-│   ├── project-overview.tsx      # Project details: overview + updates tabs
-│   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List toggle)
-│   ├── project-timeline.tsx      # Gantt chart: date-based bars, click-to-edit dialog
+│   ├── project-overview.tsx      # Project details: overview + updates tabs, vision doc dialog
+│   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List/Timeline toggle)
+│   ├── my-tasks.tsx              # Cross-project task list with filters, grouping, display settings
 │   ├── task-detail.tsx           # Task-agent detail: output, tool traces, file changes, steer chat
-│   ├── judgment-queue.tsx        # Queue of tasks awaiting human judgment
 │   ├── environments.tsx          # Machine/environment management, SLURM cluster display
-│   ├── inbox.tsx                 # Notification center
 │   ├── device-auth.tsx           # Device code OAuth2 authentication flow
 │   ├── welcome.tsx               # Multi-step onboarding (user type, domains, repo)
 │   └── settings.tsx              # Backend connection, model selection
@@ -71,9 +69,11 @@ src/
 │   ├── ui/                       # shadcn/ui Radix primitives (button, input, badge, card, dialog, sheet, etc.)
 │   ├── layout/
 │   │   ├── app-layout.tsx        # Sidebar + <Outlet /> wrapper
-│   │   ├── sidebar.tsx           # Nav items, project list, user profile
+│   │   ├── sidebar.tsx           # Nav items (Dashboard, Projects, My Tasks, Environments), user profile
 │   │   └── header.tsx            # Reusable page header
 │   ├── task-creation-form.tsx    # Reusable task creation (inline/popover/dialog modes)
+│   ├── display-popover.tsx       # Reusable display settings popover (groupBy, orderBy, properties)
+│   ├── vision-doc-dialog.tsx     # Vision document editor dialog (per-project)
 │   ├── plan-graph/
 │   │   ├── plan-canvas.tsx       # React Flow wrapper (ReactFlowProvider, background, controls, graph popover creation)
 │   │   ├── task-node.tsx         # Custom node component with status styling, live progress, hover '+' button
@@ -83,7 +83,9 @@ src/
 │   │   ├── task-output-view.tsx  # Terminal-style output viewer with search, copy, auto-scroll
 │   │   ├── tool-trace-view.tsx   # Vertical timeline of tool calls with collapsible I/O
 │   │   ├── file-changes-view.tsx # File change list with diff display
-│   │   └── steer-chat.tsx        # Agent steering chat (sends guidance to running agent)
+│   │   ├── steer-chat.tsx        # Agent steering chat (sends guidance to running agent)
+│   │   ├── task-chat.tsx         # Task-level chat interface
+│   │   └── session-activity-view.tsx # Session activity timeline view
 │   ├── execution/
 │   │   ├── execution-panel.tsx   # Task execution UI with play/cancel/output
 │   │   └── provider-status.tsx   # Provider availability display
@@ -96,16 +98,19 @@ src/
 │   │   ├── generation-overlay.tsx # Modal overlay during AI plan generation
 │   │   └── chat-panel.tsx        # Sidebar chat for plan refinement
 │   ├── theme-provider.tsx        # Light/dark/system theme context
-│   └── command-palette.tsx       # Cmd+K palette (navigation + theme toggle)
+│   └── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
 ├── stores/
 │   ├── project-store.ts          # Projects CRUD, IndexedDB persistence, mock seed data
 │   ├── plan-store.ts             # Plan nodes/edges per project, bulk updates
 │   ├── agent-store.ts            # AI generation state, SSE streaming, abort
-│   ├── execution-store.ts        # Task execution state, SSE stream processing
+│   ├── execution-store.ts        # Task execution state, SSE stream processing, provider/machine management
 │   ├── realtime-store.ts         # Real-time events: machines, activity feed, task streams
 │   ├── machines-store.ts         # Registered machines (fetch, revoke, rename)
 │   ├── slurm-store.ts            # HPC/Slurm cluster state (clusters, jobs, queue tracking)
 │   ├── user-profile-store.ts     # User identity and preferences (name, email, domains, API keys)
+│   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties), IndexedDB persistence
+│   ├── usage-store.ts            # Session usage metrics (cost, tokens, task counts), IndexedDB persistence
+│   ├── task-chat-store.ts        # Task-level chat history, IndexedDB persistence
 │   ├── ui-store.ts               # Sidebar collapsed, command palette open
 │   └── settings-store.ts         # Model selection, backend health, IndexedDB persistence
 ├── lib/
@@ -176,15 +181,13 @@ docs/
 ### Routes
 | Path | Page | Status |
 |------|------|--------|
-| `/` | Dashboard | Implemented (live stats, pending decisions, active projects) |
+| `/` | Dashboard | Implemented (stats, pending decisions, active projects, system health, usage metrics) |
 | `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
 | `/projects/new` | New Project | Implemented (AI plan generation works) |
-| `/project/:id` | Project Overview | Implemented (overview + updates tabs) |
+| `/project/:id` | Project Overview | Implemented (overview + updates tabs, vision doc dialog) |
 | `/project/:id/plan` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation across all views) |
-| `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat) |
-| `/project/:id/timeline` | Timeline | Implemented (date-based Gantt, click-to-edit dialog) |
-| `/judgment` | Judgment Queue | Implemented (UI only, actions not wired) |
-| `/inbox` | Inbox | Implemented (notification center) |
+| `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat, session activity) |
+| `/tasks` | My Tasks | Implemented (cross-project task list with filters, grouping, display settings) |
 | `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow) |
 | `/settings` | Settings | Implemented (health check + model selection) |
 | `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
@@ -204,7 +207,8 @@ docs/
 - **Provider adapters** (Claude Code, Codex, SLURM) implement a common `AgentProvider` interface
 - **Dispatch engine** routes tasks through a queue → provider selection → execution → result routing
 - **Context assembler** injects vision doc + dependency context into each task
-- **Streaming events**: `init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`
+- **Streaming events**: `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
+- **Usage metrics**: Execution results include `UsageMetrics` (cost, tokens, model, turns); accumulated in `usage-store` per session
 - **Device auth flow**: OAuth2 Device Authorization Grant (RFC 8628) for machine registration
 
 ## Key Concepts
@@ -233,7 +237,10 @@ docs/
 - Status types: `planned | dispatched | in_progress | auto_verified | awaiting_judgment | completed | pruned`
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
 - PlanNode execution fields: `executionId`, `executionOutput`, `executionError`, `executionStartedAt`, `executionCompletedAt`
-- Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`
+- PlanNode list fields: `dueDate` (ISO YYYY-MM-DD), `estimate` (XS/S/M/L/XL), `milestoneId`
+- Display settings: `DisplayPopover` component with `DisplayPopoverConfig` for per-view groupBy/orderBy/properties
+- Usage tracking: `useUsageStore` accumulates session metrics (cost, tokens, task counts) from execution results
+- Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`
 
 ## Relay Server
 

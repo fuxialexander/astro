@@ -1,7 +1,8 @@
 import { create } from "zustand"
-import type { TaskExecution, ProviderStatus, PlanNode, ToolTrace, FileChange } from "@/types"
+import type { TaskExecution, ProviderStatus, PlanNode, ToolTrace, FileChange, UsageMetrics } from "@/types"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
+import { useUsageStore } from "./usage-store"
 
 // Available machine info from relay server
 export interface MachineInfo {
@@ -108,7 +109,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
 
     // Build dependency outputs from completed dependencies
-    const dependencyOutputs = buildDependencyOutputsArray(node.dependencies, planStore.nodes)
+    const dependencyOutputs = buildDependencyOutputsArray(node.dependencies, planStore.nodes, projectId)
 
     // Determine environment from node or options
     const environment = options?.environment ?? node.environment ?? 'local'
@@ -153,7 +154,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           targetMachineId: options?.targetMachineId,
           model: options?.model,
           maxTurns: options?.maxTurns ?? 50,
-          workingDirectory: options?.workingDirectory,
+          workingDirectory: options?.workingDirectory || project?.workingDirectory,
         }),
         signal: abortController.signal,
       })
@@ -527,6 +528,17 @@ function handleSSEEvent(
         const isSuccess = parsed.status === "success"
         const execution = get().executions.get(nodeId)
 
+        // Extract metrics from result event
+        const metrics: UsageMetrics | undefined = parsed.metrics ? {
+          durationMs: parsed.metrics.durationMs,
+          inputTokens: parsed.metrics.inputTokens,
+          outputTokens: parsed.metrics.outputTokens,
+          tokensUsed: parsed.metrics.tokensUsed,
+          estimatedCostUsd: parsed.metrics.estimatedCostUsd,
+          model: parsed.metrics.model,
+          turnsUsed: parsed.metrics.turnsUsed,
+        } : undefined
+
         set((state) => {
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
@@ -536,9 +548,17 @@ function handleSSEEvent(
             if (parsed.sessionId) {
               exec.sessionId = parsed.sessionId
             }
+            if (metrics) {
+              exec.metrics = metrics
+            }
           }
           return { executions: newExecutions }
         })
+
+        // Accumulate metrics in usage store
+        if (metrics) {
+          useUsageStore.getState().addTaskMetrics(metrics, isSuccess)
+        }
 
         // Determine final node status based on verification type
         const node = planStore.nodes.find((n) => n.id === nodeId)
@@ -621,10 +641,12 @@ export function canExecuteNode(node: PlanNode, allNodes: PlanNode[]): CanExecute
     return { ready: true }
   }
 
+  // Filter to same project to avoid cross-project ID collisions
+  const projectNodes = allNodes.filter((n) => n.projectId === node.projectId)
   const pendingDependencies: string[] = []
 
   for (const depId of node.dependencies) {
-    const depNode = allNodes.find((n) => n.id === depId)
+    const depNode = projectNodes.find((n) => n.id === depId)
     if (!depNode) {
       return { ready: false, reason: `Dependency ${depId} not found` }
     }
@@ -650,12 +672,15 @@ export function canExecuteNode(node: PlanNode, allNodes: PlanNode[]): CanExecute
 // Helper: Build dependency outputs array for dispatch endpoint
 function buildDependencyOutputsArray(
   dependencyIds: string[],
-  allNodes: PlanNode[]
+  allNodes: PlanNode[],
+  projectId?: string
 ): Array<{ nodeId: string; title: string; output: string }> {
   const outputs: Array<{ nodeId: string; title: string; output: string }> = []
+  // Filter to same project to avoid cross-project ID collisions
+  const searchNodes = projectId ? allNodes.filter((n) => n.projectId === projectId) : allNodes
 
   for (const depId of dependencyIds) {
-    const depNode = allNodes.find((n) => n.id === depId)
+    const depNode = searchNodes.find((n) => n.id === depId)
     if (depNode?.executionOutput) {
       outputs.push({
         nodeId: depNode.id,

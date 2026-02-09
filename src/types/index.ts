@@ -20,6 +20,7 @@ export interface Project {
   initiative?: string;
   progress?: number;      // 0-100
   labels?: Label[];
+  workingDirectory?: string; // Absolute path for task execution (cwd for agents)
   createdAt: Date;
   updatedAt: Date;
 }
@@ -73,6 +74,17 @@ export interface FileChange {
   timestamp: Date;
 }
 
+// Usage metrics from provider execution
+export interface UsageMetrics {
+  durationMs?: number
+  inputTokens?: number
+  outputTokens?: number
+  tokensUsed?: number
+  estimatedCostUsd?: number
+  model?: string
+  turnsUsed?: number
+}
+
 // Execution state for tracking active task execution
 export interface TaskExecution {
   nodeId: string;
@@ -90,6 +102,7 @@ export interface TaskExecution {
   machineId?: string;
   providerId?: string;
   providerName?: string;
+  metrics?: UsageMetrics;
 }
 
 // Provider status for displaying in UI
@@ -101,11 +114,13 @@ export interface ProviderStatus {
   available: boolean;
 }
 
+export type EdgeType = 'dependency' | 'branch';
+
 export interface PlanEdge {
   id: string;
   source: string;
   target: string;
-  type: 'dependency' | 'branch';
+  type: EdgeType;
 }
 
 // Domain expertise options for planning personalization

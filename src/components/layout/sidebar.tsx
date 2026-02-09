@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router"
-import { Hexagon, LayoutDashboard, CheckSquare, Inbox, Scale, Settings, Folder } from "lucide-react"
+import { Hexagon, LayoutDashboard, CheckSquare, Settings, Folder, Monitor } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
 import { Separator } from "@/components/ui/separator"
@@ -9,8 +9,7 @@ const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/projects", icon: Folder, label: "Projects" },
   { to: "/tasks", icon: CheckSquare, label: "My Tasks" },
-  { to: "/inbox", icon: Inbox, label: "Inbox" },
-  { to: "/judgment", icon: Scale, label: "Judgment Queue" },
+  { to: "/environments", icon: Monitor, label: "Environments" },
 ]
 
 export function Sidebar() {

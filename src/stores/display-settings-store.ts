@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { loadState, saveState } from "@/lib/db"
 
-export type ViewKey = "projects" | "plan-list"
+export type ViewKey = "projects" | "plan-list" | "my-tasks"
 
 export interface DisplaySettings {
   groupBy: string
@@ -30,6 +30,13 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     showCompleted: true,
     visibleProperties: ["priority", "status", "dueDate", "estimate", "labels"],
     zoom: "month",
+  },
+  "my-tasks": {
+    groupBy: "project",
+    orderBy: "updatedAt",
+    orderDirection: "desc",
+    showCompleted: false,
+    visibleProperties: ["status", "priority", "project", "dueDate", "estimate"],
   },
 }
 
