@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { loadState, saveState } from "@/lib/db"
+import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client"
 
 export interface TaskChatMessage {
   id: string
@@ -66,11 +67,94 @@ function deserializeSessions(obj: Record<string, TaskChatSession>): Map<string, 
   return map
 }
 
+/** Sync a session to Supabase (fire-and-forget) */
+function syncSessionToSupabase(session: TaskChatSession) {
+  const supabase = getSupabase()
+  if (!supabase || !isSupabaseConfigured()) return
+
+  supabase.auth.getUser().then(({ data: { user } }) => {
+    if (!user) return
+
+    // Upsert session
+    supabase
+      .from("task_chat_sessions")
+      .upsert({
+        node_id: session.nodeId,
+        project_id: session.projectId,
+        user_id: user.id,
+        session_id: session.sessionId || null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "node_id,user_id" })
+      .select("id")
+      .single()
+      .then(({ data: sessionRow }) => {
+        if (!sessionRow) return
+
+        // Upsert latest messages (only sync the last message to avoid conflicts)
+        const lastMsg = session.messages[session.messages.length - 1]
+        if (lastMsg) {
+          supabase
+            .from("task_chat_messages")
+            .upsert({
+              id: lastMsg.id,
+              session_id: sessionRow.id,
+              role: lastMsg.role,
+              content: lastMsg.content,
+              created_at: lastMsg.timestamp.toISOString(),
+            }, { onConflict: "id" })
+            .then()
+        }
+      })
+  })
+}
+
 export const useTaskChatStore = create<TaskChatState>((set, get) => ({
   sessions: new Map(),
   loaded: false,
 
   load: async () => {
+    const supabase = getSupabase()
+
+    if (supabase && isSupabaseConfigured()) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: sessionRows } = await supabase
+          .from("task_chat_sessions")
+          .select("*, task_chat_messages(*)")
+          .eq("user_id", user.id)
+          .order("updated_at", { ascending: false })
+
+        if (sessionRows && sessionRows.length > 0) {
+          const sessions = new Map<string, TaskChatSession>()
+          for (const row of sessionRows) {
+            const messages: TaskChatMessage[] = (row.task_chat_messages || [])
+              .sort((a: { created_at: string }, b: { created_at: string }) =>
+                new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              )
+              .map((m: { id: string; role: string; content: string; created_at: string }) => ({
+                id: m.id,
+                role: m.role as "user" | "assistant",
+                content: m.content,
+                timestamp: new Date(m.created_at),
+              }))
+
+            sessions.set(row.node_id, {
+              nodeId: row.node_id,
+              projectId: row.project_id,
+              sessionId: row.session_id || undefined,
+              messages,
+              createdAt: new Date(row.created_at),
+              updatedAt: new Date(row.updated_at),
+            })
+          }
+          set({ sessions, loaded: true })
+          await saveState("nexus-task-chats", serializeSessions(sessions))
+          return
+        }
+      }
+    }
+
+    // Fallback to IndexedDB
     const saved = await loadState<Record<string, TaskChatSession>>("nexus-task-chats")
     if (saved) {
       set({ sessions: deserializeSessions(saved), loaded: true })
@@ -99,6 +183,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     sessions.set(nodeId, session)
     set({ sessions })
     saveState("nexus-task-chats", serializeSessions(sessions))
+    syncSessionToSupabase(session)
 
     return session
   },
@@ -123,6 +208,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     sessions.set(nodeId, updatedSession)
     set({ sessions })
     saveState("nexus-task-chats", serializeSessions(sessions))
+    syncSessionToSupabase(updatedSession)
   },
 
   updateLastAssistantMessage: (nodeId, content) => {
@@ -148,6 +234,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     sessions.set(nodeId, updatedSession)
     set({ sessions })
     saveState("nexus-task-chats", serializeSessions(sessions))
+    syncSessionToSupabase(updatedSession)
   },
 
   appendToLastAssistantMessage: (nodeId, chunk) => {
@@ -190,12 +277,31 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     sessions.set(nodeId, updatedSession)
     set({ sessions })
     saveState("nexus-task-chats", serializeSessions(sessions))
+    syncSessionToSupabase(updatedSession)
   },
 
   clearSession: (nodeId) => {
     const sessions = new Map(get().sessions)
+    const session = sessions.get(nodeId)
     sessions.delete(nodeId)
     set({ sessions })
     saveState("nexus-task-chats", serializeSessions(sessions))
+
+    // Delete from Supabase
+    if (session) {
+      const supabase = getSupabase()
+      if (supabase && isSupabaseConfigured()) {
+        supabase.auth.getUser().then(({ data: { user } }) => {
+          if (user) {
+            supabase
+              .from("task_chat_sessions")
+              .delete()
+              .eq("node_id", nodeId)
+              .eq("user_id", user.id)
+              .then()
+          }
+        })
+      }
+    }
   },
 }))

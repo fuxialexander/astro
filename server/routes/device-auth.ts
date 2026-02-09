@@ -53,7 +53,6 @@ import {
   getMachine,
   getUserMachines,
   revokeMachine,
-  getMachineStats,
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
@@ -233,7 +232,7 @@ deviceAuthRoute.post('/register', async (c) => {
     const { machineInfo } = body;
 
     // Register the machine
-    const machine = registerMachine({
+    const machine = await registerMachine({
       name: machineInfo.name || machineInfo.hostname || 'Unknown',
       hostname: machineInfo.hostname || 'unknown',
       platform: machineInfo.platform || 'unknown',
@@ -434,15 +433,16 @@ deviceAuthRoute.post('/code/:code/deny', (c) => {
  * GET /device/machines
  * List registered machines for the authenticated user
  */
-deviceAuthRoute.get('/machines', (c) => {
-  // In a real app, get userId from auth middleware
-  const userId = c.req.query('userId');
+deviceAuthRoute.get('/machines', async (c) => {
+  // Get userId from auth middleware or query param
+  const user = c.get('user') as { id: string } | undefined;
+  const userId = user?.id || c.req.query('userId');
 
   if (!userId) {
     return c.json({ error: 'Missing userId' }, 400);
   }
 
-  const machines = getUserMachines(userId);
+  const machines = await getUserMachines(userId);
 
   return c.json({
     machines: machines.map((m) => ({
@@ -465,9 +465,9 @@ deviceAuthRoute.get('/machines', (c) => {
  * GET /device/machines/:id
  * Get a specific registered machine
  */
-deviceAuthRoute.get('/machines/:id', (c) => {
+deviceAuthRoute.get('/machines/:id', async (c) => {
   const id = c.req.param('id');
-  const machine = getMachine(id);
+  const machine = await getMachine(id);
 
   if (!machine) {
     return c.json({ error: 'Machine not found' }, 404);
@@ -496,7 +496,7 @@ deviceAuthRoute.get('/machines/:id', (c) => {
  */
 deviceAuthRoute.patch('/machines/:id', async (c) => {
   const id = c.req.param('id');
-  const machine = getMachine(id);
+  const machine = await getMachine(id);
 
   if (!machine) {
     return c.json({ error: 'Machine not found' }, 404);
@@ -521,9 +521,9 @@ deviceAuthRoute.patch('/machines/:id', async (c) => {
  * DELETE /device/machines/:id
  * Revoke a machine's access (soft delete)
  */
-deviceAuthRoute.delete('/machines/:id', (c) => {
+deviceAuthRoute.delete('/machines/:id', async (c) => {
   const id = c.req.param('id');
-  const machine = getMachine(id);
+  const machine = await getMachine(id);
 
   if (!machine) {
     return c.json({ error: 'Machine not found' }, 404);
@@ -533,7 +533,7 @@ deviceAuthRoute.delete('/machines/:id', (c) => {
   revokeAllMachineTokens(id);
 
   // Mark machine as revoked
-  revokeMachine(id);
+  await revokeMachine(id);
 
   return c.json({
     success: true,
@@ -563,7 +563,7 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
     const providers: Array<'claude-code' | 'slurm' | 'aws' | 'gcp' | 'custom'> = isHpc ? ['slurm'] : ['claude-code'];
 
     // Register in persistent store
-    const machine = registerMachine({
+    const machine = await registerMachine({
       name: machineName,
       hostname,
       platform,
@@ -617,12 +617,10 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
  * GET /device/stats
  * Get device auth statistics (for admin/debug)
  */
-deviceAuthRoute.get('/stats', (c) => {
-  const machineStats = getMachineStats();
+deviceAuthRoute.get('/stats', async (c) => {
   const pendingCodes = getPendingDeviceCodes();
 
   return c.json({
-    machines: machineStats,
     pendingDeviceCodes: pendingCodes.length,
   });
 });

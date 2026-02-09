@@ -1,8 +1,27 @@
 import { create } from "zustand"
-import type { TaskExecution, ProviderStatus, PlanNode, ToolTrace, FileChange, UsageMetrics } from "@/types"
+import type { TaskExecution, ProviderStatus, PlanNode, ToolTrace, FileChange, UsageMetrics, Project } from "@/types"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
+
+// Helper: Resolve working directory from project config
+export function getProjectWorkingDir(project: Project | undefined): {
+  ok: boolean
+  dir?: string
+  source?: 'local' | 'repository'
+  message?: string
+} {
+  if (project?.workingDirectory) {
+    return { ok: true, dir: project.workingDirectory, source: 'local' }
+  }
+  if (project?.repository) {
+    return { ok: true, dir: project.repository, source: 'repository' }
+  }
+  return {
+    ok: false,
+    message: 'No working directory or repository configured. Configure one in project settings.',
+  }
+}
 
 // Available machine info from relay server
 export interface MachineInfo {
@@ -105,8 +124,32 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     const abortController = new AbortController()
     abortControllers.set(nodeId, abortController)
 
-    // Get project for vision doc
+    // Get project for vision doc and working directory
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+
+    // Resolve working directory
+    const resolvedDir = options?.workingDirectory || project?.workingDirectory || project?.repository
+    if (!resolvedDir) {
+      // Fail early: no working directory configured
+      const execution: TaskExecution = {
+        nodeId,
+        projectId,
+        executionId: `exec-${nodeId}-${Date.now()}`,
+        status: "failure",
+        streamText: "",
+        error: "No working directory or repository configured. Configure one in project settings.",
+        toolTraces: [],
+        fileChanges: [],
+        startedAt: new Date(),
+        completedAt: new Date(),
+      }
+      set((state) => {
+        const newExecutions = new Map(state.executions)
+        newExecutions.set(nodeId, execution)
+        return { executions: newExecutions }
+      })
+      return
+    }
 
     // Build dependency outputs from completed dependencies
     const dependencyOutputs = buildDependencyOutputsArray(node.dependencies, planStore.nodes, projectId)
@@ -154,7 +197,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           targetMachineId: options?.targetMachineId,
           model: options?.model,
           maxTurns: options?.maxTurns ?? 50,
-          workingDirectory: options?.workingDirectory || project?.workingDirectory,
+          workingDirectory: resolvedDir,
         }),
         signal: abortController.signal,
       })

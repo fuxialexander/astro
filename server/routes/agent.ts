@@ -7,8 +7,12 @@ import {
 } from '../lib/providers/index.js'
 import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt } from '../lib/prompt-templates.js'
+import { requireAuth } from '../middleware/auth.js'
 
 const agentRoute = new Hono()
+
+// All agent routes require authentication
+agentRoute.use('/*', requireAuth)
 
 agentRoute.post('/generate-plan', async (c) => {
   const body = await c.req.json<{

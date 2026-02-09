@@ -1,0 +1,424 @@
+/**
+ * Auth Routes — WebAuthn/Passkey Authentication
+ *
+ * Implements passkey registration and authentication using @simplewebauthn/server.
+ * Both web (navigator.credentials) and iOS (ASAuthorizationController) use these endpoints.
+ *
+ * Flow:
+ * 1. Register: generateRegistrationOptions → verifyRegistrationResponse → create user + store credential
+ * 2. Login: generateAuthenticationOptions → verifyAuthenticationResponse → return session tokens
+ */
+
+import { Hono } from 'hono'
+import {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} from '@simplewebauthn/server'
+import type {
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
+} from '@simplewebauthn/server'
+import { getServiceClient, isSupabaseConfigured } from '../lib/supabase.js'
+
+const authRoute = new Hono()
+
+// Configuration from environment
+const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'Nexus'
+const RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost'
+const ORIGIN = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173'
+
+// In-memory challenge store (short-lived, per-request)
+// In production, use Redis or a database with TTL
+const challengeStore = new Map<string, { challenge: string; expiresAt: number }>()
+
+function storeChallenge(key: string, challenge: string) {
+  challengeStore.set(key, {
+    challenge,
+    expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+function getChallenge(key: string): string | null {
+  const entry = challengeStore.get(key)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    challengeStore.delete(key)
+    return null
+  }
+  challengeStore.delete(key) // One-time use
+  return entry.challenge
+}
+
+// Periodic cleanup of expired challenges
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, entry] of challengeStore) {
+    if (now > entry.expiresAt) challengeStore.delete(key)
+  }
+}, 60000)
+
+/**
+ * POST /api/auth/webauthn/register-options
+ *
+ * Generate registration options for a new passkey.
+ */
+authRoute.post('/webauthn/register-options', async (c) => {
+  if (!isSupabaseConfigured()) {
+    return c.json({ error: 'Supabase not configured' }, 503)
+  }
+
+  const { email, name } = await c.req.json<{ email: string; name?: string }>()
+
+  if (!email) {
+    return c.json({ error: 'Email is required' }, 400)
+  }
+
+  // Check if user already exists
+  const supabase = getServiceClient()
+  const { data: existingUsers } = await supabase
+    .from('user_profiles')
+    .select('id')
+    .eq('email', email)
+    .limit(1)
+
+  // Get existing credentials to exclude
+  let existingCredentials: Array<{ id: string; transports?: string[] }> = []
+  if (existingUsers && existingUsers.length > 0) {
+    const userId = existingUsers[0].id
+    const { data: creds } = await supabase
+      .from('passkey_credentials')
+      .select('id, transports')
+      .eq('user_id', userId)
+
+    if (creds) {
+      existingCredentials = creds.map((cred) => ({
+        id: cred.id,
+        transports: cred.transports as AuthenticatorTransport[] | undefined,
+      }))
+    }
+  }
+
+  const userId = existingUsers?.[0]?.id || `pending-${Date.now()}`
+
+  const options = await generateRegistrationOptions({
+    rpName: RP_NAME,
+    rpID: RP_ID,
+    userName: email,
+    userDisplayName: name || email,
+    userID: new TextEncoder().encode(userId),
+    attestationType: 'none',
+    excludeCredentials: existingCredentials.map((c) => ({
+      id: c.id,
+      transports: c.transports as AuthenticatorTransport[] | undefined,
+    })),
+    authenticatorSelection: {
+      residentKey: 'preferred',
+      userVerification: 'preferred',
+    },
+  })
+
+  // Store challenge for verification
+  storeChallenge(`reg:${email}`, options.challenge)
+
+  return c.json({
+    options,
+    email,
+    existingUser: !!(existingUsers && existingUsers.length > 0),
+  })
+})
+
+/**
+ * POST /api/auth/webauthn/register-verify
+ *
+ * Verify registration attestation and create/update user.
+ */
+authRoute.post('/webauthn/register-verify', async (c) => {
+  if (!isSupabaseConfigured()) {
+    return c.json({ error: 'Supabase not configured' }, 503)
+  }
+
+  const { email, name, credential } = await c.req.json<{
+    email: string
+    name?: string
+    credential: RegistrationResponseJSON
+  }>()
+
+  const expectedChallenge = getChallenge(`reg:${email}`)
+  if (!expectedChallenge) {
+    return c.json({ error: 'Challenge expired or not found' }, 400)
+  }
+
+  try {
+    const verification = await verifyRegistrationResponse({
+      response: credential,
+      expectedChallenge,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+    })
+
+    if (!verification.verified || !verification.registrationInfo) {
+      return c.json({ error: 'Verification failed' }, 400)
+    }
+
+    const { credential: regCredential, credentialDeviceType } = verification.registrationInfo
+    const supabase = getServiceClient()
+
+    // Create or get existing user
+    let userId: string
+
+    const { data: existingUsers } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('email', email)
+      .limit(1)
+
+    if (existingUsers && existingUsers.length > 0) {
+      userId = existingUsers[0].id
+    } else {
+      // Create user in Supabase Auth
+      const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+        email,
+        email_confirm: true,
+        user_metadata: { name: name || email },
+      })
+
+      if (authError || !authUser.user) {
+        return c.json({ error: 'Failed to create user' }, 500)
+      }
+
+      userId = authUser.user.id
+    }
+
+    // Store passkey credential
+    const { error: credError } = await supabase.from('passkey_credentials').insert({
+      id: regCredential.id,
+      user_id: userId,
+      public_key: Buffer.from(regCredential.publicKey).toString('base64'),
+      counter: regCredential.counter,
+      transports: credential.response.transports,
+      device_name: credentialDeviceType || 'passkey',
+    })
+
+    if (credError) {
+      return c.json({ error: 'Failed to store credential' }, 500)
+    }
+
+    // Generate session tokens
+    const { data: session, error: sessionError } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email,
+    })
+
+    if (sessionError) {
+      // Fallback: create session directly
+      const { data: signIn } = await supabase.auth.admin.generateLink({
+        type: 'magiclink',
+        email,
+        options: { redirectTo: ORIGIN },
+      })
+
+      return c.json({
+        verified: true,
+        userId,
+        session: signIn,
+      })
+    }
+
+    return c.json({
+      verified: true,
+      userId,
+      session,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+/**
+ * POST /api/auth/webauthn/login-options
+ *
+ * Generate authentication options for passkey login.
+ */
+authRoute.post('/webauthn/login-options', async (c) => {
+  if (!isSupabaseConfigured()) {
+    return c.json({ error: 'Supabase not configured' }, 503)
+  }
+
+  const { email } = await c.req.json<{ email?: string }>()
+
+  const supabase = getServiceClient()
+  let allowCredentials: Array<{ id: string; transports?: string[] }> = []
+
+  if (email) {
+    // Get user's credentials
+    const { data: users } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('email', email)
+      .limit(1)
+
+    if (users && users.length > 0) {
+      const { data: creds } = await supabase
+        .from('passkey_credentials')
+        .select('id, transports')
+        .eq('user_id', users[0].id)
+
+      if (creds) {
+        allowCredentials = creds.map((cred) => ({
+          id: cred.id,
+          transports: cred.transports as AuthenticatorTransport[] | undefined,
+        }))
+      }
+    }
+  }
+
+  const options = await generateAuthenticationOptions({
+    rpID: RP_ID,
+    allowCredentials: allowCredentials.map((c) => ({
+      id: c.id,
+      transports: c.transports as AuthenticatorTransport[] | undefined,
+    })),
+    userVerification: 'preferred',
+  })
+
+  // Store challenge
+  const challengeKey = email ? `auth:${email}` : `auth:${options.challenge}`
+  storeChallenge(challengeKey, options.challenge)
+
+  return c.json({ options, challengeKey })
+})
+
+/**
+ * POST /api/auth/webauthn/login-verify
+ *
+ * Verify authentication assertion and return session tokens.
+ */
+authRoute.post('/webauthn/login-verify', async (c) => {
+  if (!isSupabaseConfigured()) {
+    return c.json({ error: 'Supabase not configured' }, 503)
+  }
+
+  const { credential, challengeKey } = await c.req.json<{
+    credential: AuthenticationResponseJSON
+    challengeKey: string
+  }>()
+
+  const expectedChallenge = getChallenge(challengeKey)
+  if (!expectedChallenge) {
+    return c.json({ error: 'Challenge expired or not found' }, 400)
+  }
+
+  const supabase = getServiceClient()
+
+  // Look up the credential
+  const { data: storedCred } = await supabase
+    .from('passkey_credentials')
+    .select('*')
+    .eq('id', credential.id)
+    .single()
+
+  if (!storedCred) {
+    return c.json({ error: 'Credential not found' }, 400)
+  }
+
+  try {
+    const verification = await verifyAuthenticationResponse({
+      response: credential,
+      expectedChallenge,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+      credential: {
+        id: storedCred.id,
+        publicKey: new Uint8Array(Buffer.from(storedCred.public_key, 'base64')),
+        counter: storedCred.counter,
+        transports: storedCred.transports as AuthenticatorTransport[] | undefined,
+      },
+    })
+
+    if (!verification.verified) {
+      return c.json({ error: 'Verification failed' }, 400)
+    }
+
+    // Update credential counter
+    await supabase
+      .from('passkey_credentials')
+      .update({
+        counter: verification.authenticationInfo.newCounter,
+        last_used_at: new Date().toISOString(),
+      })
+      .eq('id', credential.id)
+
+    // Get user info
+    const { data: userProfile } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', storedCred.user_id)
+      .single()
+
+    // Generate Supabase session via admin
+    const { data: authUser } = await supabase.auth.admin.getUserById(storedCred.user_id)
+
+    if (!authUser?.user?.email) {
+      return c.json({ error: 'User not found' }, 500)
+    }
+
+    // Generate a magic link token that the client can exchange for a session
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: authUser.user.email,
+    })
+
+    if (linkError) {
+      return c.json({ error: 'Failed to generate session' }, 500)
+    }
+
+    return c.json({
+      verified: true,
+      userId: storedCred.user_id,
+      user: userProfile,
+      session: linkData,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return c.json({ error: message }, 500)
+  }
+})
+
+/**
+ * GET /api/auth/session
+ *
+ * Check current session status.
+ */
+authRoute.get('/session', async (c) => {
+  if (!isSupabaseConfigured()) {
+    return c.json({
+      authenticated: true,
+      user: { id: 'dev-user', email: 'dev@localhost' },
+      mode: 'development',
+    })
+  }
+
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader?.startsWith('Bearer ')) {
+    return c.json({ authenticated: false }, 401)
+  }
+
+  const token = authHeader.slice(7)
+  const supabase = getServiceClient()
+
+  const { data: { user }, error } = await supabase.auth.admin.getUserById(token)
+
+  if (error || !user) {
+    return c.json({ authenticated: false }, 401)
+  }
+
+  return c.json({
+    authenticated: true,
+    user: { id: user.id, email: user.email },
+  })
+})
+
+export { authRoute }

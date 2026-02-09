@@ -221,6 +221,7 @@ function displayPlan(plan: PlanResult) {
 
 // ─── Step 4: Execute first task ─────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function executeTask(node: PlanNode, plan: PlanResult) {
   log('exec', `Dispatching task: "${node.title}"`)
   log('exec', `Working directory: ${WORKING_DIR}`)

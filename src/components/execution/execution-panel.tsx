@@ -13,8 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useExecutionStore, canExecuteNode, type ExecutionOptions, type MachineInfo } from "@/stores/execution-store"
+import { useExecutionStore, canExecuteNode, getProjectWorkingDir, type ExecutionOptions, type MachineInfo } from "@/stores/execution-store"
 import { usePlanStore } from "@/stores/plan-store"
+import { useProjectStore } from "@/stores/project-store"
 import type { PlanNode } from "@/types"
 
 interface ExecutionPanelProps {
@@ -39,6 +40,8 @@ const environmentConfig = {
 export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const outputRef = useRef<HTMLDivElement>(null)
   const nodes = usePlanStore((s) => s.nodes)
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const dirCheck = getProjectWorkingDir(project)
 
   // Execution state
   const execution = useExecutionStore((s) => s.getExecution(node.id))
@@ -100,7 +103,8 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
     canExecuteResult.ready &&
     !isExecuting &&
     executableStatuses.includes(node.status) &&
-    hasExecutionTarget
+    hasExecutionTarget &&
+    dirCheck.ok
 
   const handleExecute = () => {
     const options: ExecutionOptions = {
@@ -253,6 +257,35 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
               No agent available
             </Badge>
           )}
+        </div>
+      )}
+
+      {/* Working Directory Status */}
+      {!dirCheck.ok && (
+        <div className="rounded-lg bg-amber-500/10 p-3 text-sm">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5" />
+            <div>
+              <p className="font-medium text-amber-500">No working directory configured</p>
+              <p className="text-muted-foreground mt-1">
+                Configure a local directory or repository URL in{" "}
+                <Link to={`/project/${projectId}`} className="text-primary underline underline-offset-2">
+                  project settings
+                </Link>{" "}
+                to enable execution.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Effective Working Directory */}
+      {dirCheck.ok && (
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Directory</span>
+          <span className="text-xs font-mono text-muted-foreground max-w-[200px] truncate" title={dirCheck.dir}>
+            {dirCheck.dir}
+          </span>
         </div>
       )}
 

@@ -9,6 +9,7 @@
 import { EventEmitter } from 'events'
 import type { PlanNode, PlanEdge, Project } from '../../../src/types/index.js'
 import type { TaskResult, StreamEvent } from '../providers/types.js'
+import { executionEventBus } from '../execution-event-bus.js'
 import {
   DEFAULT_DISPATCH_CONFIG,
   type DispatchEngineConfig,
@@ -430,9 +431,50 @@ export class DispatchEngine extends EventEmitter {
         switch (event.type) {
           case 'text':
             fullOutput += event.text
+            executionEventBus.emit('task:stdout', {
+              output: { taskId: executionId, data: event.text, stream: 'stdout', timestamp: new Date() },
+            })
+            break
+          case 'tool_use':
+            executionEventBus.emit('task:tool_trace', {
+              taskId: executionId,
+              toolName: event.toolName,
+              toolInput: event.toolInput,
+            })
+            break
+          case 'tool_result':
+            executionEventBus.emit('task:tool_trace', {
+              taskId: executionId,
+              toolName: event.toolName,
+              toolResult: typeof event.result === 'string'
+                ? event.result.slice(0, 5000)
+                : event.result,
+              success: event.success,
+            })
+            break
+          case 'file_change':
+            executionEventBus.emit('task:file_change', {
+              taskId: executionId,
+              ...event.change,
+            })
+            break
+          case 'progress':
+            executionEventBus.emit('task:progress', {
+              taskId: executionId,
+              progress: event.percentage,
+              message: event.message,
+            })
             break
           case 'result':
             result = event.result
+            executionEventBus.emit('task:result', {
+              result: {
+                taskId: executionId,
+                status: event.result.status === 'success' ? 'completed' : 'failed',
+                output: fullOutput,
+                duration: event.result.metrics?.durationMs,
+              },
+            })
             break
         }
       }
