@@ -191,6 +191,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       let sessionId: string | undefined
       let model = task.model ?? this.defaultModel
       let status: TaskStatus = 'success'
+      const resultMetrics: Partial<TaskMetrics> = {}
 
       for await (const msg of gen) {
         if (msg.type === 'system' && msg.subtype === 'init') {
@@ -204,6 +205,24 @@ export class ClaudeCodeProvider implements AgentProvider {
           }
         } else if (msg.type === 'result') {
           sessionId = msg.sessionId
+
+          // Extract SDK usage metrics
+          const msgAny = msg as Record<string, unknown>
+          const usage = msgAny.usage as Record<string, number> | undefined
+          if (usage) {
+            resultMetrics.inputTokens = usage.input_tokens
+            resultMetrics.outputTokens = usage.output_tokens
+            resultMetrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
+          }
+          if (typeof msgAny.total_cost_usd === 'number') {
+            resultMetrics.estimatedCostUsd = msgAny.total_cost_usd
+          }
+          if (typeof msgAny.num_turns === 'number') {
+            resultMetrics.turnsUsed = msgAny.num_turns
+          }
+          if (typeof msgAny.duration_ms === 'number') {
+            resultMetrics.durationMs = msgAny.duration_ms
+          }
 
           if (msg.subtype === 'success') {
             status = 'success'
@@ -242,9 +261,13 @@ export class ClaudeCodeProvider implements AgentProvider {
         output: structuredOutput,
         stdout: assistantText,
         metrics: {
-          durationMs,
+          durationMs: resultMetrics.durationMs ?? durationMs,
           model,
-          turnsUsed: 1,
+          turnsUsed: resultMetrics.turnsUsed ?? 1,
+          inputTokens: resultMetrics.inputTokens,
+          outputTokens: resultMetrics.outputTokens,
+          tokensUsed: resultMetrics.tokensUsed,
+          estimatedCostUsd: resultMetrics.estimatedCostUsd,
         },
         providerId: this.id,
         completedAt: new Date(),
@@ -327,6 +350,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       let sessionId: string | undefined
       let model = task.model ?? this.defaultModel
       let status: TaskStatus = 'success'
+      const resultMetrics: Partial<TaskMetrics> = {}
 
       for await (const msg of gen) {
         if (msg.type === 'system' && msg.subtype === 'init') {
@@ -382,6 +406,24 @@ export class ClaudeCodeProvider implements AgentProvider {
         } else if (msg.type === 'result') {
           sessionId = msg.sessionId
 
+          // Extract SDK usage metrics
+          const msgAny = msg as Record<string, unknown>
+          const usage = msgAny.usage as Record<string, number> | undefined
+          if (usage) {
+            resultMetrics.inputTokens = usage.input_tokens
+            resultMetrics.outputTokens = usage.output_tokens
+            resultMetrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
+          }
+          if (typeof msgAny.total_cost_usd === 'number') {
+            resultMetrics.estimatedCostUsd = msgAny.total_cost_usd
+          }
+          if (typeof msgAny.num_turns === 'number') {
+            resultMetrics.turnsUsed = msgAny.num_turns
+          }
+          if (typeof msgAny.duration_ms === 'number') {
+            resultMetrics.durationMs = msgAny.duration_ms
+          }
+
           if (msg.subtype === 'success') {
             status = 'success'
 
@@ -433,9 +475,13 @@ export class ClaudeCodeProvider implements AgentProvider {
 
       const durationMs = Date.now() - startTime
       const metrics: TaskMetrics = {
-        durationMs,
+        durationMs: resultMetrics.durationMs ?? durationMs,
         model,
-        turnsUsed: 1,
+        turnsUsed: resultMetrics.turnsUsed ?? 1,
+        inputTokens: resultMetrics.inputTokens,
+        outputTokens: resultMetrics.outputTokens,
+        tokensUsed: resultMetrics.tokensUsed,
+        estimatedCostUsd: resultMetrics.estimatedCostUsd,
       }
 
       const result: TaskResult = {

@@ -94,10 +94,12 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
       ? availableProvider !== null
       : selectedMachine !== null || availableMachines.length > 0
 
+  // Allow execution for planned nodes, and re-execution for stuck/failed nodes
+  const executableStatuses: PlanNode["status"][] = ["planned", "in_progress", "awaiting_judgment"]
   const canExecuteNow =
     canExecuteResult.ready &&
     !isExecuting &&
-    node.status === "planned" &&
+    executableStatuses.includes(node.status) &&
     hasExecutionTarget
 
   const handleExecute = () => {

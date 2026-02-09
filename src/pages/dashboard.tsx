@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
+import { useUsageStore } from "@/stores/usage-store"
 import { cn } from "@/lib/utils"
 
 function formatRelativeTime(date: Date): string {
@@ -66,6 +67,7 @@ export function Dashboard() {
   const machines = useRealtimeStore((s) => s.machines)
   const activityFeed = useRealtimeStore((s) => s.activityFeed)
   const connected = useRealtimeStore((s) => s.connected)
+  const sessionMetrics = useUsageStore((s) => s.sessionMetrics)
   const navigate = useNavigate()
 
   const activeTasks = nodes.filter(
@@ -154,7 +156,7 @@ export function Dashboard() {
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">My Attention</h2>
             <Button variant="outline" size="sm" asChild>
-              <Link to="/judgment">View All</Link>
+              <Link to="/tasks">View All</Link>
             </Button>
           </div>
           <div className="flex flex-col gap-3">
@@ -322,12 +324,12 @@ export function Dashboard() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-lg bg-muted p-3">
                     <p className="text-[11px] font-medium text-muted-foreground">Token Spend</p>
-                    <p className="text-lg font-semibold">$4.82</p>
-                    <p className="text-[11px] text-muted-foreground">today</p>
+                    <p className="text-lg font-semibold">${sessionMetrics.totalCostUsd.toFixed(2)}</p>
+                    <p className="text-[11px] text-muted-foreground">session</p>
                   </div>
                   <div className="rounded-lg bg-muted p-3">
                     <p className="text-[11px] font-medium text-muted-foreground">Throughput</p>
-                    <p className="text-lg font-semibold">14/18</p>
+                    <p className="text-lg font-semibold">{sessionMetrics.tasksCompleted}/{sessionMetrics.tasksCompleted + sessionMetrics.tasksFailed}</p>
                     <p className="text-[11px] text-muted-foreground">tasks</p>
                   </div>
                 </div>

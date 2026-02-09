@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { usePlanStore } from "@/stores/plan-store"
 import { PRIORITIES, ESTIMATES } from "@/lib/constants"
 import { cn } from "@/lib/utils"
-import type { PlanNode, PlanEdge, Priority, Estimate } from "@/types"
+import type { PlanNode, PlanEdge, Priority, Estimate, EdgeType } from "@/types"
 
 interface TaskCreationFormProps {
   projectId: string
@@ -34,6 +34,7 @@ export function TaskCreationForm({
   const [priority, setPriority] = useState<Priority>("none")
   const [estimate, setEstimate] = useState<Estimate | "">("")
   const [dueDate, setDueDate] = useState("")
+  const [edgeType, setEdgeType] = useState<EdgeType>("dependency")
   const [milestoneId, setMilestoneId] = useState(defaultMilestoneId ?? "")
   const [createMore, setCreateMore] = useState(false)
 
@@ -58,6 +59,7 @@ export function TaskCreationForm({
     setPriority("none")
     setEstimate("")
     setDueDate("")
+    setEdgeType("dependency")
     setMilestoneId(defaultMilestoneId ?? "")
   }, [defaultMilestoneId])
 
@@ -94,7 +96,7 @@ export function TaskCreationForm({
         id: edgeId,
         source: parentNodeId,
         target: nodeId,
-        type: "dependency",
+        type: edgeType,
       }
       addEdge(newEdge)
     }
@@ -108,7 +110,7 @@ export function TaskCreationForm({
       onCancel?.()
     }
   }, [
-    title, description, nodeType, priority, estimate, dueDate, milestoneId,
+    title, description, nodeType, priority, estimate, dueDate, milestoneId, edgeType,
     projectId, parentNodeId, position, createMore,
     addNode, addEdge, onCreated, onCancel, resetForm,
   ])
@@ -203,6 +205,17 @@ export function TaskCreationForm({
               ))}
             </select>
           </>
+        )}
+
+        {parentNodeId && (
+          <select
+            value={edgeType}
+            onChange={(e) => setEdgeType(e.target.value as EdgeType)}
+            className="h-7 rounded-md border border-border bg-background px-2 text-xs cursor-pointer"
+          >
+            <option value="dependency">Dependency</option>
+            <option value="branch">Branch</option>
+          </select>
         )}
 
         <input

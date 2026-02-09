@@ -9,7 +9,6 @@ import { Projects } from "@/pages/projects"
 import { ProjectNew } from "@/pages/project-new"
 import { ProjectOverview } from "@/pages/project-overview"
 import { PlanView } from "@/pages/plan-view"
-import { JudgmentQueue } from "@/pages/judgment-queue"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -17,11 +16,12 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useTaskChatStore } from "@/stores/task-chat-store"
+import { useUsageStore } from "@/stores/usage-store"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
-import { Inbox } from "@/pages/inbox"
+import { MyTasks } from "@/pages/my-tasks"
 import { Welcome } from "@/pages/welcome"
 
 function DataLoader({ children }: { children: React.ReactNode }) {
@@ -31,6 +31,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadUserProfile = useUserProfileStore((s) => s.load)
   const loadDisplaySettings = useDisplaySettingsStore((s) => s.load)
   const loadTaskChat = useTaskChatStore((s) => s.load)
+  const loadUsage = useUsageStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -39,6 +40,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const userProfileLoaded = useUserProfileStore((s) => s.loaded)
   const displaySettingsLoaded = useDisplaySettingsStore((s) => s.loaded)
   const taskChatLoaded = useTaskChatStore((s) => s.loaded)
+  const usageLoaded = useUsageStore((s) => s.loaded)
 
   useEffect(() => {
     loadProjects()
@@ -47,11 +49,12 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     loadUserProfile()
     loadDisplaySettings()
     loadTaskChat()
+    loadUsage()
     connectRealtime()
     return () => disconnectRealtime()
-  }, [loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, connectRealtime, disconnectRealtime])
+  }, [loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, loadUsage, connectRealtime, disconnectRealtime])
 
-  if (!projectsLoaded || !planLoaded || !settingsLoaded || !userProfileLoaded || !displaySettingsLoaded || !taskChatLoaded) {
+  if (!projectsLoaded || !planLoaded || !settingsLoaded || !userProfileLoaded || !displaySettingsLoaded || !taskChatLoaded || !usageLoaded) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         Loading...
@@ -81,9 +84,7 @@ export default function App() {
                 <Route path="project/:id" element={<ProjectOverview />} />
                 <Route path="project/:id/plan" element={<PlanView />} />
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
-                <Route path="judgment" element={<JudgmentQueue />} />
-                <Route path="inbox" element={<Inbox />} />
-                <Route path="tasks" element={<Dashboard />} />
+                <Route path="tasks" element={<MyTasks />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="settings" element={<Settings />} />
               </Route>

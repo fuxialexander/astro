@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
+import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { cn } from "@/lib/utils"
@@ -48,8 +49,10 @@ function formatDate(dateStr?: string): string {
 function OverviewTab({ project }: { project: Project }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const allNodes = useMemo(() => planNodes.filter((n) => n.projectId === project.id), [planNodes, project.id])
+  const [visionOpen, setVisionOpen] = useState(false)
   return (
     <div className="flex flex-1 overflow-hidden">
+      <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
       {/* Main Content */}
       <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
         {/* Description Section */}
@@ -110,13 +113,20 @@ function OverviewTab({ project }: { project: Project }) {
             <Plus className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4">
+            <div
+              className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
+              onClick={() => setVisionOpen(true)}
+            >
               <FileText className="h-[18px] w-[18px] text-primary" />
               <div className="flex-1 flex flex-col gap-0.5">
                 <span className="text-sm font-medium">Vision Document</span>
-                <span className="text-xs text-muted-foreground">Product vision and context for agents</span>
+                <span className="text-xs text-muted-foreground">
+                  {project.visionDoc ? "Product vision and context for agents" : "Click to add vision context for agents"}
+                </span>
               </div>
-              <span className="text-xs font-medium text-primary cursor-pointer">Open</span>
+              <span className="text-xs font-medium text-primary">
+                {project.visionDoc ? "Edit" : "Add"}
+              </span>
             </div>
             <div className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4">
               <GitPullRequest className="h-[18px] w-[18px]" />

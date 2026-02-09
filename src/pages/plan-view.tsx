@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback } from "react"
 import { useParams, Link } from "react-router"
 import { ArrowLeft, FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -234,7 +235,7 @@ function ListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect
                 {node.estimate}
               </span>
             ) : (
-              <span className="text-xs text-muted-foreground">\u2014</span>
+              <span className="text-xs text-muted-foreground">{"\u2014"}</span>
             )}
           </div>
         )}
@@ -666,6 +667,7 @@ export function PlanView() {
   const [chatOpen, setChatOpen] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>("graph")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [visionOpen, setVisionOpen] = useState(false)
 
   if (!project) {
     return (
@@ -731,7 +733,7 @@ export function PlanView() {
           </div>
           {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
           {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)}>
             <FileText className="h-3.5 w-3.5" />
             Vision
           </Button>
@@ -862,6 +864,9 @@ export function PlanView() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Vision Document Dialog */}
+      <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
     </div>
   )
 }
