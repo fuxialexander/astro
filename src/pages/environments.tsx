@@ -11,6 +11,10 @@ import {
   Cloud,
   Laptop,
   Zap,
+  Globe,
+  CheckCircle2,
+  XCircle,
+  Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -18,6 +22,7 @@ import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useRealtimeStore, type MachineEntry } from "@/stores/realtime-store"
 import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
+import { useExecutionStore } from "@/stores/execution-store"
 import { useSlurmStore } from "@/stores/slurm-store"
 import { ClusterStatus } from "@/components/slurm/cluster-status"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
@@ -54,7 +59,7 @@ function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
   )
 }
 
-function MachineCard({ machine, registeredMachine }: { machine: MachineEntry; registeredMachine?: RegisteredMachine }) {
+function MachineCard({ machine, registeredMachine, onRemove }: { machine: MachineEntry; registeredMachine?: RegisteredMachine; onRemove?: () => void }) {
   const providers = machine.providers.map((p) => p.type)
 
   return (
@@ -70,10 +75,17 @@ function MachineCard({ machine, registeredMachine }: { machine: MachineEntry; re
             <p className="text-xs text-muted-foreground">{machine.machineId}</p>
           </div>
         </div>
-        <Badge className="gap-1.5 bg-success/10 text-success border-0">
-          <span className="h-1.5 w-1.5 rounded-full bg-success" />
-          Connected
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge className="gap-1.5 bg-success/10 text-success border-0">
+            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+            Connected
+          </Badge>
+          {onRemove && (
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onRemove}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Content */}
@@ -113,7 +125,74 @@ function MachineCard({ machine, registeredMachine }: { machine: MachineEntry; re
   )
 }
 
-function OfflineMachineCard({ machine }: { machine: RegisteredMachine }) {
+function LocalMachineCard() {
+  const providers = useExecutionStore((s) => s.providers)
+  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
+  const loadProviders = useExecutionStore((s) => s.loadProviders)
+
+  useEffect(() => {
+    if (!providersLoaded) loadProviders()
+  }, [providersLoaded, loadProviders])
+
+  // Only show providers that are at least installed (skip irrelevant ones like Slurm on a laptop)
+  const installedProviders = providers.filter((p) => p.installed)
+  const hasAvailable = installedProviders.some((p) => p.available)
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+            <Laptop className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <p className="font-medium">This Machine</p>
+            <p className="text-xs text-muted-foreground">
+              Providers detected from local auth
+            </p>
+          </div>
+        </div>
+        <Badge className="gap-1.5 bg-success/10 text-success border-0">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" />
+          Active
+        </Badge>
+      </div>
+
+      <div className="flex flex-col gap-3 px-6 pb-6">
+        {!providersLoaded ? (
+          <p className="text-sm text-muted-foreground">Detecting providers...</p>
+        ) : installedProviders.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No providers detected</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {installedProviders.map((p) => (
+              <div key={p.id} className="flex items-center justify-between rounded-lg bg-muted p-3">
+                <div className="flex items-center gap-2">
+                  {p.available ? (
+                    <CheckCircle2 className="h-4 w-4 text-success" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-warning" />
+                  )}
+                  <span className="text-sm font-medium">{p.name}</span>
+                </div>
+                <Badge variant={p.available ? "success" : "warning"}>
+                  {p.available ? "Ready" : "Not authenticated"}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+        {!hasAvailable && providersLoaded && (
+          <p className="text-xs text-muted-foreground">
+            Run <code className="font-mono bg-muted px-1 rounded text-[11px]">claude login</code> to authenticate.
+          </p>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function OfflineMachineCard({ machine, onRemove }: { machine: RegisteredMachine; onRemove?: () => void }) {
   return (
     <Card className="opacity-60">
       {/* Header */}
@@ -129,7 +208,14 @@ function OfflineMachineCard({ machine }: { machine: RegisteredMachine }) {
             </p>
           </div>
         </div>
-        <Badge variant="secondary">Offline</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary">Offline</Badge>
+          {onRemove && (
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onRemove}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Content */}
@@ -159,6 +245,7 @@ export function Environments() {
 
   const registeredMachines = useMachinesStore((s) => s.machines)
   const fetchRegistered = useMachinesStore((s) => s.fetchMachines)
+  const revokeMachine = useMachinesStore((s) => s.revokeMachine)
 
   const slurmClusters = useSlurmStore((s) => s.clusters)
   const fetchClusters = useSlurmStore((s) => s.fetchClusters)
@@ -174,14 +261,17 @@ export function Environments() {
   // Build a lookup from machine ID → registered machine for footer dates
   const registeredLookup = new Map(registeredMachines.map((m) => [m.id, m]))
 
+  // All registered machines (from device auth) that are currently connected
+  const remoteLiveMachines = liveMachines.filter((m) => registeredLookup.has(m.machineId))
+
   // Registered machines that are not currently connected live
   const offlineMachines = registeredMachines.filter(
     (m) => !m.isRevoked && !m.isConnected && !liveMachineIds.has(m.id)
   )
 
-  const localLiveMachines = liveMachines.filter((m) => m.environmentType === "local")
-  const totalMachines = liveMachines.length + offlineMachines.length
-  const connectedCount = liveMachines.length
+  // +1 for the local machine (this server)
+  const totalMachines = 1 + remoteLiveMachines.length + offlineMachines.length
+  const connectedCount = 1 + remoteLiveMachines.length
   const activeTasks = liveMachines.reduce((sum, m) => sum + m.load.activeTasks, 0)
   const hpcClusterCount = slurmClusters.length
 
@@ -250,33 +340,49 @@ export function Environments() {
         />
       </div>
 
-      {/* Local Machines */}
+      {/* Local */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <Laptop className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Local Machines</h2>
-          <Badge variant="success">{connectedCount} connected</Badge>
+          <h2 className="text-lg font-semibold">Local</h2>
         </div>
-        {localLiveMachines.length > 0 || offlineMachines.filter((m) => m.environmentType === "local").length > 0 ? (
+        <div className="grid grid-cols-2 gap-4">
+          <LocalMachineCard />
+        </div>
+      </div>
+
+      {/* Remote */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <Globe className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Remote</h2>
+          {remoteLiveMachines.length > 0 && (
+            <Badge variant="success">{remoteLiveMachines.length} connected</Badge>
+          )}
+        </div>
+        {remoteLiveMachines.length > 0 || offlineMachines.length > 0 ? (
           <div className="grid grid-cols-2 gap-4">
-            {localLiveMachines.map((m) => (
-              <MachineCard key={m.machineId} machine={m} registeredMachine={registeredLookup.get(m.machineId)} />
+            {remoteLiveMachines.map((m) => (
+              <MachineCard
+                key={m.machineId}
+                machine={m}
+                registeredMachine={registeredLookup.get(m.machineId)}
+                onRemove={() => revokeMachine(m.machineId)}
+              />
             ))}
-            {offlineMachines
-              .filter((m) => m.environmentType === "local")
-              .map((m) => (
-                <OfflineMachineCard key={m.id} machine={m} />
-              ))}
+            {offlineMachines.map((m) => (
+              <OfflineMachineCard key={m.id} machine={m} onRemove={() => revokeMachine(m.id)} />
+            ))}
           </div>
         ) : (
           <Card>
             <CardContent className="p-0">
               <EmptyState
                 icon={Zap}
-                title="Connect your first agent in 30 seconds"
-                description="Agent runners execute tasks on your machines. Connect your local machine to start running plan tasks with Claude Code or other AI agents."
+                title="Connect a remote machine"
+                description="Run the agent setup command on a remote machine, or use the device code flow to register it with the platform."
                 action={{
-                  label: "Add Local Machine",
+                  label: "Add Remote Machine",
                   onClick: () => setDialogOpen(true),
                 }}
                 className="py-8"

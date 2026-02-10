@@ -68,6 +68,37 @@ npm run dev:frontend
 npm run dev:backend
 ```
 
+### Remote Agent Setup
+
+To connect a remote machine (e.g. HPC, cloud VM) to your local Nexus dev server, you need two things: a Cloudflare tunnel on the server and the agent runner on the remote machine.
+
+**Prerequisites**: [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) installed on the server machine, a Cloudflare domain configured.
+
+**1. Server — start the tunnel**
+
+Set your domain in `.env`:
+```
+CLOUDFLARED_DOMAIN=yourdomain.com
+```
+
+Then start the tunnel (creates it on first run):
+```bash
+./scripts/start-tunnel.sh
+```
+
+This exposes `nexus-api.yourdomain.com` (port 3001) and `nexus-relay.yourdomain.com` (port 3002) via Cloudflare Tunnel.
+
+**2. Remote machine — setup and start the agent**
+
+On the remote machine, clone the repo and run:
+```bash
+git clone git@github.com:fuxialexander/nexus.git
+cd nexus
+./scripts/agent-setup.sh yourdomain.com
+```
+
+This builds the agent runner, runs the device auth flow (you approve in your browser), and starts the agent. The machine will appear in `/environments`.
+
 ### Building for Production
 
 ```bash
