@@ -26,15 +26,7 @@ TUNNEL_NAME="nexus"
 API_SUBDOMAIN="nexus-api.$DOMAIN"
 RELAY_SUBDOMAIN="nexus-relay.$DOMAIN"
 
-# Create tunnel if it doesn't exist
-if ! cloudflared tunnel list | grep -q "$TUNNEL_NAME"; then
-  echo "Creating tunnel '$TUNNEL_NAME'..."
-  cloudflared tunnel create "$TUNNEL_NAME"
-else
-  echo "Tunnel '$TUNNEL_NAME' already exists"
-fi
-
-# Get tunnel ID
+# Get tunnel ID (create if it doesn't exist)
 TUNNEL_ID=$(cloudflared tunnel list --output json | python3 -c "
 import json, sys
 tunnels = json.load(sys.stdin)
@@ -42,7 +34,22 @@ for t in tunnels:
     if t['name'] == '$TUNNEL_NAME':
         print(t['id'])
         break
+" 2>/dev/null || true)
+
+if [[ -z "$TUNNEL_ID" ]]; then
+  echo "Creating tunnel '$TUNNEL_NAME'..."
+  cloudflared tunnel create "$TUNNEL_NAME"
+  TUNNEL_ID=$(cloudflared tunnel list --output json | python3 -c "
+import json, sys
+tunnels = json.load(sys.stdin)
+for t in tunnels:
+    if t['name'] == '$TUNNEL_NAME':
+        print(t['id'])
+        break
 ")
+else
+  echo "Tunnel '$TUNNEL_NAME' already exists"
+fi
 
 if [[ -z "$TUNNEL_ID" ]]; then
   echo "Error: could not determine tunnel ID"
