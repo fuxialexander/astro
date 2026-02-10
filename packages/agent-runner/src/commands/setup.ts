@@ -21,6 +21,7 @@ const execFile = promisify(execFileCb);
 interface SetupOptions {
   api?: string;
   relay?: string;
+  type?: string;
   skipAuth?: boolean;
   nonInteractive?: boolean;
 }
@@ -151,6 +152,11 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
 
   config.setRelayUrl(relayUrl);
   console.log(chalk.green(`✓ Relay server: ${relayUrl}\n`));
+
+  // Step 4c: Set environment type
+  if (options.type) {
+    config.setEnvironmentType(options.type);
+  }
 
   // Step 5: Device authentication (if not skipped)
   if (!options.skipAuth) {
@@ -386,7 +392,7 @@ async function runDeviceAuthFlow(
       hostname,
       name: hostname,
       platform,
-      environmentType: 'local',
+      environmentType: config.getEnvironmentType() || 'local',
       providers: providerTypes,
       resources: resources ?? undefined,
     });

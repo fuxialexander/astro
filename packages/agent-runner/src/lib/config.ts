@@ -13,6 +13,7 @@ const DEFAULT_API_URL = 'http://localhost:3001';
 interface ConfigSchema {
   runnerId: string;
   machineId: string;
+  environmentType: string;
   deviceToken?: string;
   apiUrl: string;
   accessToken?: string;
@@ -36,6 +37,7 @@ class ConfigManager {
       defaults: {
         runnerId: '',
         machineId: '',
+        environmentType: 'local',
         deviceToken: undefined,
         apiUrl: DEFAULT_API_URL,
         accessToken: undefined,
@@ -100,6 +102,20 @@ class ConfigManager {
       this.conf.set('machineId', machineId);
     }
     return machineId;
+  }
+
+  /**
+   * Get environment type
+   */
+  getEnvironmentType(): string {
+    return this.conf.get('environmentType');
+  }
+
+  /**
+   * Set environment type
+   */
+  setEnvironmentType(type: string): void {
+    this.conf.set('environmentType', type);
   }
 
   /**

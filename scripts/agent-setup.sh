@@ -36,7 +36,7 @@ echo "  Relay: $RELAY_URL"
 echo ""
 echo "You will be prompted to approve the device in your browser."
 echo ""
-node "$RUNNER_DIR/dist/cli.js" setup --api "$API_URL" --relay "$RELAY_URL"
+node "$RUNNER_DIR/dist/cli.js" setup --api "$API_URL" --relay "$RELAY_URL" --type remote
 
 # Start the agent runner
 echo ""

@@ -141,7 +141,7 @@ relayRoute.get('/machines/:machineId', (c) => {
 relayRoute.get('/machines/environment/:environment', (c) => {
   const environment = c.req.param('environment') as EnvironmentType;
 
-  if (!['local', 'hpc', 'cloud'].includes(environment)) {
+  if (!['local', 'remote', 'hpc', 'cloud'].includes(environment)) {
     return c.json({ error: 'Invalid environment type' }, 400);
   }
 

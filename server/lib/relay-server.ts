@@ -97,6 +97,7 @@ interface AgentRunnerRegisterMessage {
   payload: {
     runnerId: string;
     machineId: string;
+    environmentType?: string;
     providers: AgentRunnerProviderInfo[];
     resources: AgentRunnerResources;
     version: string;
@@ -835,13 +836,14 @@ export class RelayServer extends EventEmitter {
     setMachineId: (id: string) => void
   ): void {
     const { payload } = message;
-    const { runnerId, machineId, providers, resources, version } = payload;
+    const { runnerId, machineId, environmentType, providers, resources, version } = payload;
 
     try {
       // Convert agent runner format to relay server format
+      const validEnvTypes = ['local', 'remote', 'hpc', 'cloud'];
       const machineInfo: Omit<MachineInfo, 'machineId'> = {
         name: resources.hostname || machineId,
-        environmentType: 'local', // Agent runner is always local
+        environmentType: (validEnvTypes.includes(environmentType || '') ? environmentType : 'local') as EnvironmentType,
         hostname: resources.hostname,
         platform: resources.platform,
         providers: providers.map((p) => ({

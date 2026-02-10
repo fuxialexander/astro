@@ -131,8 +131,10 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   const wsClient = new WebSocketClient({
     runnerId,
     machineId,
+    environmentType: config.getEnvironmentType(),
     providers,
     version,
+    wsToken: config.getWsToken(),
     config: {
       relayUrl,
       maxConcurrentTasks: maxTasks,

@@ -29,6 +29,7 @@ program
   .description('Run initial setup: detect providers, authenticate, configure relay')
   .option('--api <url>', 'API server URL')
   .option('--relay <url>', 'Custom relay server URL')
+  .option('--type <type>', 'Environment type: local, remote, hpc, cloud')
   .option('--skip-auth', 'Skip device authentication')
   .option('--non-interactive', 'Run in non-interactive mode')
   .action(async (options) => {
@@ -36,6 +37,7 @@ program
       await setupCommand({
         api: options.api,
         relay: options.relay,
+        type: options.type,
         skipAuth: options.skipAuth,
         nonInteractive: options.nonInteractive,
       });

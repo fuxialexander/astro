@@ -40,6 +40,7 @@ const DEFAULT_CONFIG: RunnerConfig = {
 export interface WebSocketClientOptions {
   runnerId: string;
   machineId: string;
+  environmentType?: string;
   providers: ProviderInfo[];
   config?: Partial<RunnerConfig>;
   onEvent?: RunnerEventHandler;
@@ -64,6 +65,7 @@ export class WebSocketClient {
   private machineId: string;
   private providers: ProviderInfo[];
   private version: string;
+  private environmentType?: string;
   private wsToken?: string;
 
   private reconnectAttempts = 0;
@@ -82,6 +84,7 @@ export class WebSocketClient {
     this.machineId = options.machineId;
     this.providers = options.providers;
     this.version = options.version ?? '0.1.0';
+    this.environmentType = options.environmentType;
     this.wsToken = options.wsToken;
     this.config = { ...DEFAULT_CONFIG, ...options.config };
     this.onEvent = options.onEvent;
@@ -269,6 +272,7 @@ export class WebSocketClient {
       payload: {
         runnerId: this.runnerId,
         machineId: this.machineId,
+        environmentType: this.environmentType,
         providers: this.providers,
         resources,
         version: this.version,
