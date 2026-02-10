@@ -398,6 +398,9 @@ async function processExecutionStream(
   const decoder = new TextDecoder()
   let buffer = ""
 
+  let currentEvent = ""
+  let dataLines: string[] = []
+
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -406,16 +409,30 @@ async function processExecutionStream(
     const lines = buffer.split("\n")
     buffer = lines.pop() || ""
 
-    let currentEvent = ""
     for (const line of lines) {
       if (line.startsWith("event:")) {
+        // Flush any pending event before starting a new one
+        if (currentEvent && dataLines.length > 0) {
+          handleSSEEvent(currentEvent, dataLines.join("\n"), nodeId, set, get, planStore)
+          dataLines = []
+        }
         currentEvent = line.slice(6).trim()
       } else if (line.startsWith("data:")) {
-        const data = line.slice(5).trim()
-        handleSSEEvent(currentEvent, data, nodeId, set, get, planStore)
+        dataLines.push(line.slice(5))
+      } else if (line === "") {
+        // Empty line = end of SSE message, flush the event
+        if (currentEvent && dataLines.length > 0) {
+          handleSSEEvent(currentEvent, dataLines.join("\n").trim(), nodeId, set, get, planStore)
+        }
         currentEvent = ""
+        dataLines = []
       }
     }
+  }
+
+  // Flush any remaining event
+  if (currentEvent && dataLines.length > 0) {
+    handleSSEEvent(currentEvent, dataLines.join("\n").trim(), nodeId, set, get, planStore)
   }
 }
 

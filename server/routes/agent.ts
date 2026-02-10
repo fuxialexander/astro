@@ -509,9 +509,8 @@ agentRoute.post('/dispatch', async (c) => {
               data: JSON.stringify({
                 toolName: event.toolName,
                 success: event.success,
-                // Truncate large results
                 result: typeof event.result === 'string'
-                  ? event.result.slice(0, 5000)
+                  ? event.result.slice(0, 100000)
                   : event.result,
               }),
             })

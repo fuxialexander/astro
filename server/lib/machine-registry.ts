@@ -19,7 +19,7 @@ import { EventEmitter } from 'events';
 
 /** Connection metadata stored with each machine */
 export interface MachineConnection {
-  socket: WebSocket;
+  socket: WebSocket | null;
   entry: MachineRegistryEntry;
   heartbeatTimer?: ReturnType<typeof setTimeout>;
   lastPingTime?: number;
@@ -125,7 +125,7 @@ export class MachineRegistry extends EventEmitter {
     };
 
     const connection: MachineConnection = {
-      socket: null as unknown as WebSocket,
+      socket: null,
       entry,
     };
 

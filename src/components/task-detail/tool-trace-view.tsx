@@ -87,8 +87,8 @@ function TraceItem({ trace }: { trace: ToolTrace; index: number }) {
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Result</p>
                 <pre className="font-mono text-xs whitespace-pre-wrap break-all text-foreground max-h-[200px] overflow-auto">
                   {typeof trace.toolResult === "string"
-                    ? trace.toolResult.slice(0, 5000)
-                    : JSON.stringify(trace.toolResult, null, 2)?.slice(0, 5000)}
+                    ? trace.toolResult
+                    : JSON.stringify(trace.toolResult, null, 2)}
                 </pre>
               </div>
             )}

@@ -71,14 +71,21 @@ interface BoardViewProps {
   onAddTask?: (columnId: string) => void
 }
 
+/** Column label for the catch-all "unset" bucket per columnBy */
+const UNSET_COLUMN: Record<ColumnBy, { id: string; label: string }> = {
+  status: { id: "planned", label: "Planned" },
+  priority: { id: "none", label: "None" },
+  milestone: { id: "unassigned", label: "Unassigned" },
+}
+
 function getColumnId(node: PlanNode, columnBy: ColumnBy): string {
   switch (columnBy) {
     case "status":
-      return node.status
+      return node.status || "planned"
     case "priority":
-      return node.priority ?? "none"
+      return node.priority || "none"
     case "milestone":
-      return node.milestoneId ?? "unassigned"
+      return node.milestoneId || "unassigned"
   }
 }
 
@@ -293,9 +300,29 @@ export function BoardView({
     return tasks
   }, [nodes, showCompleted, columnBy])
 
+  // Track extra columns needed for tasks that don't match any predefined column
+  const extraColumns = useMemo((): ColumnDef[] => {
+    const knownIds = new Set(columns.map((c) => c.id))
+    const extras = new Set<string>()
+    for (const node of filteredNodes) {
+      const colId = getColumnId(node, columnBy)
+      if (!knownIds.has(colId)) {
+        extras.add(colId)
+      }
+    }
+    if (extras.size === 0) return []
+    // Create catch-all columns for unmatched values
+    return Array.from(extras).map((id) => ({
+      id,
+      label: id.charAt(0).toUpperCase() + id.slice(1).replace(/_/g, " "),
+    }))
+  }, [columns, filteredNodes, columnBy])
+
+  const allColumns = useMemo(() => [...columns, ...extraColumns], [columns, extraColumns])
+
   const columnNodes = useMemo(() => {
     const map = new Map<string, PlanNode[]>()
-    for (const col of columns) {
+    for (const col of allColumns) {
       map.set(col.id, [])
     }
     for (const node of filteredNodes) {
@@ -304,10 +331,9 @@ export function BoardView({
       if (list) {
         list.push(node)
       } else {
-        const first = columns[0]
-        if (first) {
-          map.get(first.id)?.push(node)
-        }
+        // Fallback: put in the unset bucket for this columnBy
+        const fallbackId = UNSET_COLUMN[columnBy].id
+        map.get(fallbackId)?.push(node)
       }
     }
     // Sort each column by orderBy property, boardOrder as tiebreaker
@@ -324,15 +350,15 @@ export function BoardView({
       })
     }
     return map
-  }, [filteredNodes, columns, columnBy, orderBy, orderDirection])
+  }, [filteredNodes, allColumns, columnBy, orderBy, orderDirection])
 
   // Filter out columns with hidden completed statuses
   const visibleColumns = useMemo(() => {
     if (!showCompleted && columnBy === "status") {
-      return columns.filter((c) => !COMPLETED_STATUSES.has(c.id))
+      return allColumns.filter((c) => !COMPLETED_STATUSES.has(c.id))
     }
-    return columns
-  }, [columns, showCompleted, columnBy])
+    return allColumns
+  }, [allColumns, showCompleted, columnBy])
 
   const activeNode = activeId ? filteredNodes.find((n) => n.id === activeId) : null
 
@@ -368,7 +394,7 @@ export function BoardView({
     // In dnd-kit, over.id is always a column (only columns are droppable)
     // For column mode: just track which column we're over
     // For reorder mode: compute insert index from pointer Y vs card DOM positions
-    const isColumn = columns.some((c) => c.id === overId)
+    const isColumn = allColumns.some((c) => c.id === overId)
     if (!isColumn) return
 
     updateOverColumnId(overId)
@@ -388,7 +414,7 @@ export function BoardView({
         }
       }
     }
-  }, [columns, dragMode, updateOverColumnId, updateReorderInsertIndex])
+  }, [allColumns, dragMode, updateOverColumnId, updateReorderInsertIndex])
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const currentDragMode = dragMode
@@ -410,7 +436,7 @@ export function BoardView({
     if (!targetColumnId) return
 
     // Check if the column accepts drops
-    const targetColumn = columns.find((c) => c.id === targetColumnId)
+    const targetColumn = allColumns.find((c) => c.id === targetColumnId)
     if (targetColumn?.acceptsDrop === false) return
 
     const sourceNode = filteredNodes.find((n) => n.id === nodeId)
@@ -452,7 +478,7 @@ export function BoardView({
         onNodeUpdate(nodeId, updates)
       }
     }
-  }, [columns, filteredNodes, columnBy, columnNodes, onNodeUpdate, dragMode, orderBy, orderDirection, updateOverColumnId, updateReorderInsertIndex])
+  }, [allColumns, filteredNodes, columnBy, columnNodes, onNodeUpdate, dragMode, orderBy, orderDirection, updateOverColumnId, updateReorderInsertIndex])
 
   const handleDragCancel = useCallback(() => {
     setActiveId(null)

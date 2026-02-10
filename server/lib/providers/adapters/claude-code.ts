@@ -397,8 +397,8 @@ export class ClaudeCodeProvider implements AgentProvider {
                 toolName: (toolResult.tool_use_id as string) ?? 'unknown',
                 success: !toolResult.is_error,
                 result: typeof toolResult.content === 'string'
-                  ? toolResult.content.slice(0, 5000)
-                  : JSON.stringify(toolResult.content).slice(0, 5000),
+                  ? toolResult.content.slice(0, 100000)
+                  : JSON.stringify(toolResult.content).slice(0, 100000),
                 timestamp: new Date(),
               }
             }

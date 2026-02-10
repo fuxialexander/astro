@@ -72,7 +72,7 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
 
   const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView } = useReactFlow()
 
-  const projectNodes = useMemo(() => planNodes.filter((n) => n.projectId === projectId), [planNodes, projectId])
+  const projectNodes = useMemo(() => planNodes.filter((n) => n.projectId === projectId && n.type !== "milestone"), [planNodes, projectId])
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
     return planEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))

@@ -447,7 +447,7 @@ export class DispatchEngine extends EventEmitter {
               taskId: executionId,
               toolName: event.toolName,
               toolResult: typeof event.result === 'string'
-                ? event.result.slice(0, 5000)
+                ? event.result.slice(0, 100000)
                 : event.result,
               success: event.success,
             })

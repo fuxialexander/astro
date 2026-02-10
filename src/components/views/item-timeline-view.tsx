@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useCallback, useEffect, type ReactNode } from "react"
-import { ChevronRight, Plus } from "lucide-react"
+import { ChevronRight, Diamond, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useDisplaySettingsStore, type ViewKey } from "@/stores/display-settings-store"
 import {
@@ -27,11 +27,18 @@ export type TimelineRow<T> =
   | { kind: "header"; label: string; count: number }
   | { kind: "item"; item: T; timeline: TimelineItem }
 
+export interface MilestoneMarker {
+  id: string
+  date: string     // YYYY-MM-DD
+  label: string
+}
+
 interface ItemTimelineViewProps<T> {
   rows: TimelineRow<T>[]
   viewKey: ViewKey
   renderLeftCell: (item: T) => ReactNode
   onItemClick?: (item: T) => void
+  milestoneMarkers?: MilestoneMarker[]
   leftColumnWidth?: number
   rowHeight?: number
   footer?: ReactNode
@@ -85,6 +92,7 @@ export function ItemTimelineView<T>({
   viewKey,
   renderLeftCell,
   onItemClick,
+  milestoneMarkers,
   leftColumnWidth = 280,
   rowHeight = ROW_HEIGHT_DEFAULT,
   footer,
@@ -382,7 +390,7 @@ export function ItemTimelineView<T>({
             ))}
           </div>
 
-          {/* Grid lines + today line */}
+          {/* Grid lines + today line + milestone markers */}
           <div className="absolute top-10 left-0 bottom-0" style={{ width: `${totalWidth}px` }}>
             {columnInfos.map((col, i) => (
               <div
@@ -397,6 +405,22 @@ export function ItemTimelineView<T>({
                 style={{ left: `${todayOffset}px` }}
               />
             )}
+            {milestoneMarkers?.map((m) => {
+              const mOffset = diffDays(timelineStart, parseDate(m.date)) * effectivePpd
+              if (mOffset < 0 || mOffset > totalWidth) return null
+              return (
+                <div
+                  key={m.id}
+                  className="absolute top-0 bottom-0 flex flex-col items-center pointer-events-none"
+                  style={{ left: `${mOffset}px` }}
+                >
+                  <div className="w-px h-full bg-amber-500/40" />
+                  <div className="absolute -top-0.5 -translate-x-1/2 flex flex-col items-center pointer-events-auto" title={m.label}>
+                    <Diamond className="h-3.5 w-3.5 fill-amber-500 text-amber-600" />
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           {/* Gantt rows */}

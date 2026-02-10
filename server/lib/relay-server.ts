@@ -785,8 +785,8 @@ export class RelayServer extends EventEmitter {
   /**
    * Send a message to a socket
    */
-  private sendMessage(socket: WebSocket, message: RelayToAgentMessage): void {
-    if (socket.readyState === WebSocket.OPEN) {
+  private sendMessage(socket: WebSocket | null, message: RelayToAgentMessage): void {
+    if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(message));
     }
   }

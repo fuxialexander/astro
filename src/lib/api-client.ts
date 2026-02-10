@@ -56,6 +56,41 @@ async function readSSE(
 
   const decoder = new TextDecoder()
   let buffer = ""
+  let currentEvent = ""
+  let dataLines: string[] = []
+
+  function flushEvent() {
+    if (!currentEvent || dataLines.length === 0) return
+    const data = dataLines.join("\n").trim()
+    switch (currentEvent) {
+      case "text":
+        handlers.onText?.(data)
+        break
+      case "plan_result":
+        try {
+          handlers.onPlanResult?.(JSON.parse(data))
+        } catch {
+          handlers.onError?.("Failed to parse plan result")
+        }
+        break
+      case "done":
+        try {
+          const { sessionId } = JSON.parse(data)
+          handlers.onDone?.(sessionId)
+        } catch {
+          handlers.onDone?.("")
+        }
+        break
+      case "error":
+        handlers.onError?.(data)
+        break
+      case "aborted":
+        handlers.onDone?.("")
+        break
+    }
+    currentEvent = ""
+    dataLines = []
+  }
 
   while (true) {
     const { done, value } = await reader.read()
@@ -65,42 +100,20 @@ async function readSSE(
     const lines = buffer.split("\n")
     buffer = lines.pop() || ""
 
-    let currentEvent = ""
     for (const line of lines) {
       if (line.startsWith("event:")) {
+        flushEvent()
         currentEvent = line.slice(6).trim()
       } else if (line.startsWith("data:")) {
-        const data = line.slice(5).trim()
-        switch (currentEvent) {
-          case "text":
-            handlers.onText?.(data)
-            break
-          case "plan_result":
-            try {
-              handlers.onPlanResult?.(JSON.parse(data))
-            } catch {
-              handlers.onError?.("Failed to parse plan result")
-            }
-            break
-          case "done":
-            try {
-              const { sessionId } = JSON.parse(data)
-              handlers.onDone?.(sessionId)
-            } catch {
-              handlers.onDone?.("")
-            }
-            break
-          case "error":
-            handlers.onError?.(data)
-            break
-          case "aborted":
-            handlers.onDone?.("")
-            break
-        }
-        currentEvent = ""
+        dataLines.push(line.slice(5))
+      } else if (line === "") {
+        flushEvent()
       }
     }
   }
+
+  // Flush any remaining event
+  flushEvent()
 }
 
 export async function generatePlan(
@@ -303,6 +316,67 @@ export async function dispatchTask(
 
   const decoder = new TextDecoder()
   let buffer = ""
+  let currentEvent = ""
+  let dataLines: string[] = []
+
+  function flushEvent() {
+    if (!currentEvent || dataLines.length === 0) return
+    const data = dataLines.join("\n").trim()
+
+    switch (currentEvent) {
+      case "init":
+        try {
+          callbacks.onInit?.(JSON.parse(data))
+        } catch { /* Ignore parse errors for optional callback */ }
+        break
+      case "text":
+        callbacks.onText?.(data)
+        break
+      case "tool_use":
+        try {
+          callbacks.onToolUse?.(JSON.parse(data))
+        } catch { /* Ignore parse errors for optional callback */ }
+        break
+      case "tool_result":
+        try {
+          callbacks.onToolResult?.(JSON.parse(data))
+        } catch { /* Ignore parse errors for optional callback */ }
+        break
+      case "file_change":
+        try {
+          callbacks.onFileChange?.(JSON.parse(data))
+        } catch { /* Ignore parse errors for optional callback */ }
+        break
+      case "progress":
+        try {
+          callbacks.onProgress?.(JSON.parse(data))
+        } catch { /* Ignore parse errors for optional callback */ }
+        break
+      case "result":
+        try {
+          callbacks.onResult?.(JSON.parse(data))
+        } catch { /* Ignore parse errors for optional callback */ }
+        break
+      case "error":
+        try {
+          const parsed = JSON.parse(data)
+          callbacks.onError?.(parsed.error || parsed.message || data)
+        } catch {
+          callbacks.onError?.(data)
+        }
+        break
+      case "done":
+        try {
+          callbacks.onDone?.(JSON.parse(data))
+        } catch { /* Ignore parse errors for optional callback */ }
+        break
+      case "aborted":
+        callbacks.onDone?.({ executionId: "", nodeId: params.nodeId })
+        break
+    }
+    currentEvent = ""
+    dataLines = []
+  }
 
   while (true) {
     const { done, value } = await reader.read()
@@ -312,66 +386,18 @@ export async function dispatchTask(
     const lines = buffer.split("\n")
     buffer = lines.pop() || ""
 
-    let currentEvent = ""
     for (const line of lines) {
       if (line.startsWith("event:")) {
+        flushEvent()
         currentEvent = line.slice(6).trim()
       } else if (line.startsWith("data:")) {
-        const data = line.slice(5).trim()
-
-        switch (currentEvent) {
-          case "init":
-            try {
-              callbacks.onInit?.(JSON.parse(data))
-            } catch { /* Ignore parse errors for optional callback */ }
-            break
-          case "text":
-            callbacks.onText?.(data)
-            break
-          case "tool_use":
-            try {
-              callbacks.onToolUse?.(JSON.parse(data))
-            } catch { /* Ignore parse errors for optional callback */ }
-            break
-          case "tool_result":
-            try {
-              callbacks.onToolResult?.(JSON.parse(data))
-            } catch { /* Ignore parse errors for optional callback */ }
-            break
-          case "file_change":
-            try {
-              callbacks.onFileChange?.(JSON.parse(data))
-            } catch { /* Ignore parse errors for optional callback */ }
-            break
-          case "progress":
-            try {
-              callbacks.onProgress?.(JSON.parse(data))
-            } catch { /* Ignore parse errors for optional callback */ }
-            break
-          case "result":
-            try {
-              callbacks.onResult?.(JSON.parse(data))
-            } catch { /* Ignore parse errors for optional callback */ }
-            break
-          case "error":
-            try {
-              const parsed = JSON.parse(data)
-              callbacks.onError?.(parsed.error || parsed.message || data)
-            } catch {
-              callbacks.onError?.(data)
-            }
-            break
-          case "done":
-            try {
-              callbacks.onDone?.(JSON.parse(data))
-            } catch { /* Ignore parse errors for optional callback */ }
-            break
-          case "aborted":
-            callbacks.onDone?.({ executionId: "", nodeId: params.nodeId })
-            break
-        }
-        currentEvent = ""
+        dataLines.push(line.slice(5))
+      } else if (line === "") {
+        flushEvent()
       }
     }
   }
+
+  // Flush any remaining event
+  flushEvent()
 }

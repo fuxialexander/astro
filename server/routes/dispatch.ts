@@ -392,7 +392,7 @@ Execute the task described above. Focus on completing the task thoroughly and co
                 success: event.success,
                 result:
                   typeof event.result === 'string'
-                    ? event.result.slice(0, 5000)
+                    ? event.result.slice(0, 100000)
                     : event.result,
               }),
             })
@@ -400,7 +400,7 @@ Execute the task described above. Focus on completing the task thoroughly and co
               taskId: executionId,
               toolName: event.toolName,
               toolResult: typeof event.result === 'string'
-                ? event.result.slice(0, 5000)
+                ? event.result.slice(0, 100000)
                 : event.result,
               success: event.success,
             })

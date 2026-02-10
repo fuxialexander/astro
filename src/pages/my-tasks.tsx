@@ -18,10 +18,11 @@ import { BoardView } from "@/components/board/board-view"
 import { ItemListView, type ListColumn, type ListGroup } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { FilterSelect } from "@/components/views/filter-select"
+import { PropertyPicker } from "@/components/property-picker"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
-import { PRIORITY_CONFIG } from "@/lib/constants"
+import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusColors, progressColors, assignDefaultDates } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/view-utils"
 import { cn } from "@/lib/utils"
@@ -126,7 +127,10 @@ const STATUS_ORDER: Record<string, number> = {
 type MyTasksViewMode = "list" | "timeline" | "board"
 
 // --- Column definitions for task list ---
-function makeTaskColumns(projectMap: Map<string, string>): ListColumn<PlanNode>[] {
+function makeTaskColumns(
+  projectMap: Map<string, string>,
+  onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void,
+): ListColumn<PlanNode>[] {
   return [
     {
       id: "name",
@@ -156,15 +160,23 @@ function makeTaskColumns(projectMap: Map<string, string>): ListColumn<PlanNode>[
       render: (node) => {
         const status = STATUS_CONFIG[node.status]
         return (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-              status.bg,
-              status.color
-            )}
+          <PropertyPicker
+            value={node.status}
+            options={STATUS_OPTIONS}
+            title="Set status"
+            disabled={!onNodeUpdate}
+            onSelect={(id) => onNodeUpdate?.(node.id, { status: id as PlanNode["status"] })}
           >
-            {status.label}
-          </span>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                status.bg,
+                status.color
+              )}
+            >
+              {status.label}
+            </span>
+          </PropertyPicker>
         )
       },
     },
@@ -176,10 +188,18 @@ function makeTaskColumns(projectMap: Map<string, string>): ListColumn<PlanNode>[
         const priority = PRIORITY_CONFIG[node.priority ?? "none"]
         const PriorityIcon = priority.icon
         return (
-          <div className="flex items-center gap-1.5">
-            <PriorityIcon className={cn("h-3.5 w-3.5", priority.color)} />
-            <span className="text-xs text-muted-foreground">{priority.label}</span>
-          </div>
+          <PropertyPicker
+            value={node.priority ?? "none"}
+            options={PRIORITY_OPTIONS}
+            title="Set priority"
+            disabled={!onNodeUpdate}
+            onSelect={(id) => onNodeUpdate?.(node.id, { priority: id as Priority })}
+          >
+            <div className="flex items-center gap-1.5">
+              <PriorityIcon className={cn("h-3.5 w-3.5", priority.color)} />
+              <span className="text-xs text-muted-foreground">{priority.label}</span>
+            </div>
+          </PropertyPicker>
         )
       },
     },
@@ -212,11 +232,19 @@ function makeTaskColumns(projectMap: Map<string, string>): ListColumn<PlanNode>[
       id: "estimate",
       label: "Estimate",
       width: "w-[70px]",
-      render: (node) => node.estimate ? (
-        <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-          {node.estimate}
-        </span>
-      ) : null,
+      render: (node) => (
+        <PropertyPicker
+          value={node.estimate}
+          options={ESTIMATE_OPTIONS}
+          title="Set estimate"
+          disabled={!onNodeUpdate}
+          onSelect={(id) => onNodeUpdate?.(node.id, { estimate: id as PlanNode["estimate"] })}
+        >
+          <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+            {node.estimate ?? "\u2014"}
+          </span>
+        </PropertyPicker>
+      ),
     },
   ]
 }
@@ -241,7 +269,11 @@ export function MyTasks() {
     return m
   }, [projects])
 
-  const columns = useMemo(() => makeTaskColumns(projectMap), [projectMap])
+  const handleListNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
+    updateNode(id, updates)
+  }, [updateNode])
+
+  const columns = useMemo(() => makeTaskColumns(projectMap, handleListNodeUpdate), [projectMap, handleListNodeUpdate])
 
   // Filter tasks
   const filteredTasks = useMemo(() => {

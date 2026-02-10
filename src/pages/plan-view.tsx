@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
-import { ArrowLeft, FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond } from "lucide-react"
+import { ArrowLeft, FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond, X, Calendar } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -15,11 +15,12 @@ import { BoardView } from "@/components/board/board-view"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { ItemListView, type ListColumn, type ListGroup } from "@/components/views/item-list-view"
 import { ItemTimelineView, TimelineAddTaskFooter, type TimelineRow } from "@/components/views/item-timeline-view"
+import { PropertyPicker } from "@/components/property-picker"
 import { useProjectStore } from "@/stores/project-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
-import { PRIORITY_CONFIG } from "@/lib/constants"
+import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import {
   statusColors,
   progressColors,
@@ -69,6 +70,7 @@ const planListDisplayConfig: DisplayPopoverConfig = {
     { value: "status", label: "Status" },
     { value: "dueDate", label: "Due date" },
     { value: "estimate", label: "Estimate" },
+    { value: "milestone", label: "Milestone" },
     { value: "labels", label: "Labels" },
   ],
 }
@@ -159,7 +161,11 @@ function sortPlanNodes(nodes: PlanNode[], orderBy: string, dir: number): PlanNod
 }
 
 // --- Plan List Column Definitions ---
-function makePlanColumns(project: { labels?: { id: string; name: string; color: string }[] } | undefined): ListColumn<PlanNode>[] {
+function makePlanColumns(
+  project: { labels?: { id: string; name: string; color: string }[] } | undefined,
+  milestoneMap: Map<string, string>,
+  onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void,
+): ListColumn<PlanNode>[] {
   return [
     {
       id: "name",
@@ -167,7 +173,7 @@ function makePlanColumns(project: { labels?: { id: string; name: string; color: 
       width: "flex-1",
       render: (node) => (
         <span className={cn("text-sm truncate", node.status === "pruned" && "line-through")}>
-          {node.type === "milestone" ? "\u25C6 " : ""}{node.title}
+          {node.title}
         </span>
       ),
     },
@@ -176,9 +182,19 @@ function makePlanColumns(project: { labels?: { id: string; name: string; color: 
       label: "Priority",
       width: "w-[60px]",
       render: (node) => {
-        const config = node.priority ? PRIORITY_CONFIG[node.priority as Priority] : null
-        const PIcon = config?.icon
-        return PIcon ? <PIcon className={cn("h-3.5 w-3.5", config?.color)} /> : null
+        const config = PRIORITY_CONFIG[(node.priority ?? "none") as Priority]
+        const PIcon = config.icon
+        return (
+          <PropertyPicker
+            value={node.priority ?? "none"}
+            options={PRIORITY_OPTIONS}
+            title="Set priority"
+            disabled={!onNodeUpdate}
+            onSelect={(id) => onNodeUpdate?.(node.id, { priority: id as Priority })}
+          >
+            <PIcon className={cn("h-3.5 w-3.5", config.color)} />
+          </PropertyPicker>
+        )
       },
     },
     {
@@ -186,9 +202,17 @@ function makePlanColumns(project: { labels?: { id: string; name: string; color: 
       label: "Status",
       width: "w-[120px]",
       render: (node) => (
-        <Badge variant={statusVariant[node.status] ?? "secondary"} className="text-[10px]">
-          {node.status.replace(/_/g, " ")}
-        </Badge>
+        <PropertyPicker
+          value={node.status}
+          options={STATUS_OPTIONS}
+          title="Set status"
+          disabled={!onNodeUpdate}
+          onSelect={(id) => onNodeUpdate?.(node.id, { status: id as PlanNode["status"] })}
+        >
+          <Badge variant={statusVariant[node.status] ?? "secondary"} className="text-[10px]">
+            {node.status.replace(/_/g, " ")}
+          </Badge>
+        </PropertyPicker>
       ),
     },
     {
@@ -204,13 +228,33 @@ function makePlanColumns(project: { labels?: { id: string; name: string; color: 
       id: "estimate",
       label: "Estimate",
       width: "w-[70px]",
-      render: (node) => node.estimate ? (
-        <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">
-          {node.estimate}
-        </span>
-      ) : (
-        <span className="text-xs text-muted-foreground">{"\u2014"}</span>
+      render: (node) => (
+        <PropertyPicker
+          value={node.estimate}
+          options={ESTIMATE_OPTIONS}
+          title="Set estimate"
+          disabled={!onNodeUpdate}
+          onSelect={(id) => onNodeUpdate?.(node.id, { estimate: id as PlanNode["estimate"] })}
+        >
+          <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {node.estimate ?? "\u2014"}
+          </span>
+        </PropertyPicker>
       ),
+    },
+    {
+      id: "milestone",
+      label: "Milestone",
+      width: "w-[120px]",
+      render: (node) => {
+        const name = node.milestoneId ? milestoneMap.get(node.milestoneId) : undefined
+        return name ? (
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground truncate">
+            <Diamond className="h-3 w-3 shrink-0 text-primary" />
+            {name}
+          </span>
+        ) : null
+      },
     },
     {
       id: "labels",
@@ -240,39 +284,54 @@ function makePlanColumns(project: { labels?: { id: string; name: string; color: 
 // --- List View ---
 function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
   const planNodes = usePlanStore((s) => s.nodes)
+  const updateNode = usePlanStore((s) => s.updateNode)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
 
-  const columns = useMemo(() => makePlanColumns(project), [project])
+  const handleNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
+    updateNode(id, updates)
+  }, [updateNode])
 
-  const nodes = useMemo(() => {
-    let filtered = planNodes.filter((n) => n.projectId === projectId)
+  const allProjectNodes = useMemo(() => {
+    return planNodes.filter((n) => n.projectId === projectId)
+  }, [planNodes, projectId])
+
+  const milestones = useMemo(() => allProjectNodes.filter((n) => n.type === "milestone"), [allProjectNodes])
+
+  const milestoneMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const ms of milestones) m.set(ms.id, ms.title)
+    return m
+  }, [milestones])
+
+  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate), [project, milestoneMap, handleNodeUpdate])
+
+  const tasks = useMemo(() => {
+    let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
     if (!displaySettings.showCompleted) {
       filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)
-  }, [planNodes, projectId, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted])
-
-  const milestones = nodes.filter((n) => n.type === "milestone")
+  }, [allProjectNodes, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted])
 
   const groups = useMemo((): ListGroup<PlanNode>[] => {
     if (displaySettings.groupBy === "milestone") {
       const result: ListGroup<PlanNode>[] = []
       for (const m of milestones) {
-        const tasks = nodes.filter((n) => n.type !== "milestone" && n.milestoneId === m.id)
-        const completedCount = tasks.filter((t) => t.status === "completed" || t.status === "auto_verified").length
-        const completion = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0
+        const grouped = tasks.filter((n) => n.milestoneId === m.id)
+        const completedCount = grouped.filter((t) => t.status === "completed" || t.status === "auto_verified").length
+        const completion = grouped.length > 0 ? Math.round((completedCount / grouped.length) * 100) : 0
         result.push({
           key: `milestone-${m.id}`,
           label: m.title,
           icon: <Diamond className="h-3 w-3 text-primary" />,
-          items: tasks,
-          meta: <span className="text-[11px] text-muted-foreground">{completion}% &middot; {tasks.length} tasks</span>,
+          items: grouped,
+          meta: <span className="text-[11px] text-muted-foreground">{completion}% &middot; {grouped.length} tasks</span>,
         })
       }
-      const unassigned = nodes.filter((n) => n.type !== "milestone" && !n.milestoneId)
+      const unassigned = tasks.filter((n) => !n.milestoneId)
       if (unassigned.length > 0) {
         result.push({
           key: "unassigned",
@@ -285,8 +344,7 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
 
     if (displaySettings.groupBy === "status") {
       const grouped: Record<string, PlanNode[]> = {}
-      for (const node of nodes) {
-        if (node.type === "milestone") continue
+      for (const node of tasks) {
         const key = statusLabels[node.status] ?? node.status
         ;(grouped[key] ??= []).push(node)
       }
@@ -299,8 +357,7 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
 
     if (displaySettings.groupBy === "priority") {
       const grouped: Record<string, PlanNode[]> = {}
-      for (const node of nodes) {
-        if (node.type === "milestone") continue
+      for (const node of tasks) {
         const key = node.priority ? (node.priority.charAt(0).toUpperCase() + node.priority.slice(1)) : "No priority"
         ;(grouped[key] ??= []).push(node)
       }
@@ -311,16 +368,8 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
       }))
     }
 
-    // No grouping — show milestones header then tasks
-    const tasks = nodes.filter((n) => n.type !== "milestone")
-    if (milestones.length > 0) {
-      return [
-        { key: "milestones", label: "Milestones", items: milestones },
-        { key: "tasks", label: "Tasks", items: tasks },
-      ]
-    }
     return [{ key: "all", label: "All Tasks", items: tasks }]
-  }, [nodes, milestones, displaySettings.groupBy])
+  }, [tasks, milestones, displaySettings.groupBy])
 
   function renderAddTaskRow(groupKey: string) {
     const defaultMilestoneId = groupKey.startsWith("milestone-") ? groupKey.replace("milestone-", "") : undefined
@@ -367,26 +416,38 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
   const [isCreating, setIsCreating] = useState(false)
 
-  const nodes = useMemo(() => {
-    let filtered = planNodes.filter((n) => n.projectId === projectId)
+  const allProjectNodes = useMemo(() => {
+    return planNodes.filter((n) => n.projectId === projectId)
+  }, [planNodes, projectId])
+
+  const milestones = useMemo(() => allProjectNodes.filter((n) => n.type === "milestone"), [allProjectNodes])
+
+  const tasks = useMemo(() => {
+    let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
     if (!displaySettings.showCompleted) {
       filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)
-  }, [planNodes, projectId, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted])
+  }, [allProjectNodes, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted])
 
   const edges = useMemo(() => {
-    const nodeIds = new Set(nodes.map((n) => n.id))
+    const nodeIds = new Set(tasks.map((n) => n.id))
     return planEdges.filter((e) => nodeIds.has(e.source) || nodeIds.has(e.target))
-  }, [nodes, planEdges])
+  }, [tasks, planEdges])
 
-  const datedNodes = useMemo(() => assignDefaultDates(nodes, edges), [nodes, edges])
-  const milestones = useMemo(() => nodes.filter((n) => n.type === "milestone"), [nodes])
+  const datedTasks = useMemo(() => assignDefaultDates(tasks, edges), [tasks, edges])
+
+  // Milestone markers for the timeline (vertical lines with diamond)
+  const milestoneMarkers = useMemo(() => {
+    return milestones
+      .filter((m) => m.endDate || m.dueDate)
+      .map((m) => ({ id: m.id, date: (m.dueDate ?? m.endDate)!, label: m.title }))
+  }, [milestones])
 
   const timelineRows = useMemo((): TimelineRow<PlanNode>[] => {
     function nodeToRow(node: PlanNode): TimelineRow<PlanNode> {
-      const dated = datedNodes.find((n) => n.id === node.id) ?? node
+      const dated = datedTasks.find((n) => n.id === node.id) ?? node
       return {
         kind: "item",
         item: node,
@@ -403,18 +464,17 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
     }
 
     if (displaySettings.groupBy === "none") {
-      return datedNodes.map(nodeToRow)
+      return datedTasks.map(nodeToRow)
     }
 
     if (displaySettings.groupBy === "milestone") {
       const rows: TimelineRow<PlanNode>[] = []
       for (const m of milestones) {
-        const tasks = datedNodes.filter((n) => n.type !== "milestone" && n.milestoneId === m.id)
-        rows.push({ kind: "header", label: m.title, count: tasks.length })
-        rows.push(nodeToRow(m))
-        for (const t of tasks) rows.push(nodeToRow(t))
+        const grouped = datedTasks.filter((n) => n.milestoneId === m.id)
+        rows.push({ kind: "header", label: m.title, count: grouped.length })
+        for (const t of grouped) rows.push(nodeToRow(t))
       }
-      const unassigned = datedNodes.filter((n) => n.type !== "milestone" && !n.milestoneId)
+      const unassigned = datedTasks.filter((n) => !n.milestoneId)
       if (unassigned.length > 0) {
         rows.push({ kind: "header", label: "Unassigned", count: unassigned.length })
         for (const t of unassigned) rows.push(nodeToRow(t))
@@ -424,8 +484,7 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
 
     if (displaySettings.groupBy === "status") {
       const grouped: Record<string, PlanNode[]> = {}
-      for (const node of datedNodes) {
-        if (node.type === "milestone") continue
+      for (const node of datedTasks) {
         const key = statusLabels[node.status] ?? node.status
         ;(grouped[key] ??= []).push(node)
       }
@@ -439,8 +498,7 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
 
     if (displaySettings.groupBy === "priority") {
       const grouped: Record<string, PlanNode[]> = {}
-      for (const node of datedNodes) {
-        if (node.type === "milestone") continue
+      for (const node of datedTasks) {
         const key = node.priority ? (node.priority.charAt(0).toUpperCase() + node.priority.slice(1)) : "No priority"
         ;(grouped[key] ??= []).push(node)
       }
@@ -452,19 +510,20 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
       return rows
     }
 
-    return datedNodes.map(nodeToRow)
-  }, [datedNodes, milestones, displaySettings.groupBy])
+    return datedTasks.map(nodeToRow)
+  }, [datedTasks, milestones, displaySettings.groupBy])
 
   return (
     <ItemTimelineView
       rows={timelineRows}
       viewKey="plan-list"
+      milestoneMarkers={milestoneMarkers}
       renderLeftCell={(node) => (
         <span className={cn(
           "text-sm truncate",
           node.status === "pruned" && "line-through opacity-50"
         )}>
-          {node.type === "milestone" ? "\u25C6 " : ""}{node.title}
+          {node.title}
         </span>
       )}
       onItemClick={(node) => onNodeSelect(node)}
@@ -654,23 +713,117 @@ export function PlanView() {
         {/* Detail pane with Execution Panel */}
         {selectedNode && !chatOpen && (
           <div className="flex w-[400px] shrink-0 flex-col gap-5 border-l border-border bg-card p-6 overflow-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">{selectedNode.title}</h3>
-              <Badge variant={statusVariant[selectedNode.status] ?? "secondary"}>
-                {statusLabels[selectedNode.status]}
-              </Badge>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold truncate flex-1">{selectedNode.title}</h3>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={() => setSelectedNode(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
             <Separator />
 
             <div className="flex flex-col gap-3">
+              {/* Status — editable */}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Status</span>
+                <PropertyPicker
+                  value={selectedNode.status}
+                  options={STATUS_OPTIONS}
+                  title="Set status"
+                  onSelect={(id) => {
+                    updateNode(selectedNode.id, { status: id as PlanNode["status"] })
+                    setSelectedNode({ ...selectedNode, status: id as PlanNode["status"] })
+                  }}
+                >
+                  <Badge variant={statusVariant[selectedNode.status] ?? "secondary"} className="text-[10px]">
+                    {statusLabels[selectedNode.status]}
+                  </Badge>
+                </PropertyPicker>
+              </div>
+
+              {/* Priority — editable */}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Priority</span>
+                <PropertyPicker
+                  value={selectedNode.priority ?? "none"}
+                  options={PRIORITY_OPTIONS}
+                  title="Set priority"
+                  onSelect={(id) => {
+                    updateNode(selectedNode.id, { priority: id as Priority })
+                    setSelectedNode({ ...selectedNode, priority: id as Priority })
+                  }}
+                >
+                  {(() => {
+                    const config = PRIORITY_CONFIG[(selectedNode.priority ?? "none") as Priority]
+                    const PIcon = config.icon
+                    return (
+                      <span className="inline-flex items-center gap-1.5">
+                        <PIcon className={cn("h-3.5 w-3.5", config.color)} />
+                        <span className="text-sm">{config.label}</span>
+                      </span>
+                    )
+                  })()}
+                </PropertyPicker>
+              </div>
+
+              {/* Estimate — editable */}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Estimate</span>
+                <PropertyPicker
+                  value={selectedNode.estimate}
+                  options={ESTIMATE_OPTIONS}
+                  title="Set estimate"
+                  onSelect={(id) => {
+                    updateNode(selectedNode.id, { estimate: id as PlanNode["estimate"] })
+                    setSelectedNode({ ...selectedNode, estimate: id as PlanNode["estimate"] })
+                  }}
+                >
+                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    {selectedNode.estimate ?? "\u2014"}
+                  </span>
+                </PropertyPicker>
+              </div>
+
+              {/* Due date — editable */}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Due date</span>
+                <label className="inline-flex items-center gap-1.5 rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer">
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className={cn("text-sm", selectedNode.dueDate ? "text-foreground" : "text-muted-foreground")}>
+                    {selectedNode.dueDate
+                      ? new Date(selectedNode.dueDate + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+                      : "\u2014"}
+                  </span>
+                  <input
+                    type="date"
+                    className="sr-only"
+                    value={selectedNode.dueDate ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value || undefined
+                      updateNode(selectedNode.id, { dueDate: val })
+                      setSelectedNode({ ...selectedNode, dueDate: val })
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Type — read-only */}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Type</span>
                 <span className="capitalize">{selectedNode.type}</span>
               </div>
+
+              {/* Verification — read-only */}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Verification</span>
                 <span className="capitalize">{selectedNode.verification}</span>
               </div>
+
+              {/* Environment — read-only */}
               {selectedNode.environment && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Environment</span>
