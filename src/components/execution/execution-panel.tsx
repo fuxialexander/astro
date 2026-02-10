@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
-import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, ChevronDown } from "lucide-react"
+import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -33,6 +33,7 @@ const statusConfig = {
 
 const environmentConfig = {
   local: { icon: Laptop, label: "Local", description: "Run on local machine" },
+  remote: { icon: Globe, label: "Remote", description: "Run on remote machine" },
   hpc: { icon: Server, label: "HPC", description: "Run on HPC cluster" },
   cloud: { icon: Cloud, label: "Cloud", description: "Run on cloud instance" },
 }
@@ -60,7 +61,7 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
 
   // Local state for execution options
-  const [selectedEnvironment, setSelectedEnvironment] = useState<'local' | 'hpc' | 'cloud'>(
+  const [selectedEnvironment, setSelectedEnvironment] = useState<'local' | 'remote' | 'hpc' | 'cloud'>(
     node.environment || 'local'
   )
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
@@ -140,7 +141,7 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Select Environment</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {(Object.keys(environmentConfig) as Array<'local' | 'hpc' | 'cloud'>).map((env) => {
+            {(Object.keys(environmentConfig) as Array<'local' | 'remote' | 'hpc' | 'cloud'>).map((env) => {
               const config = environmentConfig[env]
               const Icon = config.icon
               const machineCount = getMachinesForEnvironment(env).length

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Monitor, Server, Cloud, Copy, Check, Loader2 } from "lucide-react"
+import { Monitor, Server, Cloud, Globe, Copy, Check, Loader2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -72,6 +72,10 @@ export function AddEnvironmentDialog({ open, onOpenChange, onMachineAdded }: Add
               <Monitor className="h-4 w-4" />
               Local
             </TabsTrigger>
+            <TabsTrigger value="remote" className="flex-1 gap-1.5">
+              <Globe className="h-4 w-4" />
+              Remote
+            </TabsTrigger>
             <TabsTrigger value="hpc" className="flex-1 gap-1.5">
               <Server className="h-4 w-4" />
               HPC
@@ -113,6 +117,19 @@ export function AddEnvironmentDialog({ open, onOpenChange, onMachineAdded }: Add
                 Simulate Machine
               </Button>
             </div>
+          </TabsContent>
+
+          <TabsContent value="remote" className="mt-4 flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted-foreground">
+                On the remote machine, clone the repo and run:
+              </p>
+              <CopyBlock text="./scripts/agent-setup.sh yourdomain.com" />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This requires a Cloudflare Tunnel running on the server.
+              See <code className="font-mono bg-muted px-1 rounded">scripts/start-tunnel.sh</code> for setup.
+            </p>
           </TabsContent>
 
           <TabsContent value="hpc" className="mt-4 flex flex-col gap-4">

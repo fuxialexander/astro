@@ -11,7 +11,7 @@ export interface RegisteredMachine {
   name: string
   hostname: string
   platform: string
-  environmentType: 'local' | 'hpc' | 'cloud'
+  environmentType: 'local' | 'remote' | 'hpc' | 'cloud'
   providers: string[]
   registeredAt: string
   lastSeenAt: string

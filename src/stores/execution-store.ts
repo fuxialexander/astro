@@ -27,7 +27,7 @@ export function getProjectWorkingDir(project: Project | undefined): {
 export interface MachineInfo {
   machineId: string
   name: string
-  environmentType: 'local' | 'hpc' | 'cloud'
+  environmentType: 'local' | 'remote' | 'hpc' | 'cloud'
   hostname?: string
   status: 'online' | 'offline' | 'busy'
   load?: {
@@ -43,7 +43,7 @@ export interface MachineInfo {
 
 // Execution options for dispatch
 export interface ExecutionOptions {
-  environment?: 'local' | 'hpc' | 'cloud'
+  environment?: 'local' | 'remote' | 'hpc' | 'cloud'
   targetMachineId?: string
   preferredProvider?: string
   model?: string
@@ -81,7 +81,7 @@ interface ExecutionState {
 
   // Machine actions
   loadMachines: () => Promise<void>
-  getMachinesForEnvironment: (env: 'local' | 'hpc' | 'cloud') => MachineInfo[]
+  getMachinesForEnvironment: (env: 'local' | 'remote' | 'hpc' | 'cloud') => MachineInfo[]
 
   // Selection
   selectExecution: (nodeId: string | null) => void
@@ -375,7 +375,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
   },
 
-  getMachinesForEnvironment: (env: 'local' | 'hpc' | 'cloud') => {
+  getMachinesForEnvironment: (env: 'local' | 'remote' | 'hpc' | 'cloud') => {
     return get().machines.filter((m) => m.environmentType === env && m.status !== 'offline')
   },
 

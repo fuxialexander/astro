@@ -35,7 +35,7 @@ export interface PlanNode {
   status: 'planned' | 'dispatched' | 'in_progress' | 'auto_verified' | 'awaiting_judgment' | 'completed' | 'pruned';
   parentId: string | null;
   dependencies: string[];
-  environment?: 'local' | 'hpc' | 'cloud';
+  environment?: 'local' | 'remote' | 'hpc' | 'cloud';
   verification: 'auto' | 'human';
   position: { x: number; y: number };
   startDate?: string;
@@ -142,7 +142,7 @@ export type DomainExpertise =
 export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
 
 // Preferred environment for task dispatch
-export type PreferredEnvironment = 'local' | 'hpc' | 'cloud';
+export type PreferredEnvironment = 'local' | 'remote' | 'hpc' | 'cloud';
 
 // API key entry for agent providers
 export interface ApiKey {

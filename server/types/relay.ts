@@ -11,7 +11,7 @@
 // ============================================================================
 
 /** Environment types where agents can run */
-export type EnvironmentType = 'local' | 'hpc' | 'cloud';
+export type EnvironmentType = 'local' | 'remote' | 'hpc' | 'cloud';
 
 /** Provider types available on a machine */
 export type ProviderType = 'claude-code' | 'claude-sdk' | 'slurm' | 'aws' | 'gcp' | 'custom';
