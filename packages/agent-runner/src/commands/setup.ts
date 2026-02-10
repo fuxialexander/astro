@@ -167,7 +167,7 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
       ]);
 
       if (authenticate) {
-        await runDeviceAuthFlow(apiUrl, relayUrl, resources, detectedProviders);
+        await runDeviceAuthFlow(apiUrl, relayUrl, resources, detectedProviders, !!options.relay);
       }
     } else {
       console.log(chalk.yellow('Skipping authentication in non-interactive mode'));
@@ -298,6 +298,7 @@ async function runDeviceAuthFlow(
   _relayUrl: string,
   resources: Awaited<ReturnType<typeof getMachineResources>> | undefined,
   detectedProviders: Awaited<ReturnType<typeof detectProviders>>,
+  relayExplicit = false,
 ): Promise<void> {
   const hostname = resources?.hostname ?? osHostname();
   const platform = resources?.platform ?? process.platform;
@@ -398,8 +399,8 @@ async function runDeviceAuthFlow(
     config.setWsToken(regResponse.wsToken);
     config.setMachineId(regResponse.machineId);
 
-    // Update relay URL if the server provided one
-    if (regResponse.relayUrl) {
+    // Update relay URL if the server provided one (but not if explicitly passed via --relay)
+    if (regResponse.relayUrl && !relayExplicit) {
       config.setRelayUrl(regResponse.relayUrl);
     }
 

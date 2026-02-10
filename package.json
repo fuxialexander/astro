@@ -4,9 +4,9 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n fe,be -c blue,green \"vite\" \"tsx watch server/index.ts\"",
+    "dev": "concurrently -n fe,be -c blue,green \"vite\" \"tsx watch --env-file-if-exists=.env server/index.ts\"",
     "dev:frontend": "vite",
-    "dev:backend": "tsx watch server/index.ts",
+    "dev:backend": "tsx watch --env-file-if-exists=.env server/index.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
