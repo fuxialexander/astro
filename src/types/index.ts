@@ -45,6 +45,7 @@ export interface PlanNode {
   dueDate?: string;       // ISO YYYY-MM-DD, distinct from startDate/endDate
   estimate?: Estimate;
   milestoneId?: string;   // references a PlanNode.id where type=milestone
+  boardOrder?: number;    // manual sort order for board reorder (Cmd+drag)
   createdAt: Date;
   updatedAt: Date;
   // Execution metadata

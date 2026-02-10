@@ -314,9 +314,10 @@ export function ProjectOverview() {
   type TabDef = { id: string; label: string; route?: string }
   const tabs: TabDef[] = [
     { id: "overview", label: "Overview" },
-    { id: "graph", label: "Graph", route: `/project/${id}/plan` },
-    { id: "timeline", label: "Timeline", route: `/project/${id}/plan` },
-    { id: "list", label: "List", route: `/project/${id}/plan` },
+    { id: "graph", label: "Graph", route: `/project/${id}/plan?view=graph` },
+    { id: "timeline", label: "Timeline", route: `/project/${id}/plan?view=timeline` },
+    { id: "list", label: "List", route: `/project/${id}/plan?view=list` },
+    { id: "board", label: "Board", route: `/project/${id}/plan?view=board` },
     { id: "updates", label: "Updates" },
   ]
 

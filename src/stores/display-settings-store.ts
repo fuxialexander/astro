@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { loadState, saveState } from "@/lib/db"
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client"
 
-export type ViewKey = "projects" | "plan-list" | "my-tasks"
+export type ViewKey = "projects" | "projects-timeline" | "plan-list" | "my-tasks" | "my-tasks-timeline" | "plan-board" | "my-tasks-board"
 
 export interface DisplaySettings {
   groupBy: string
@@ -10,6 +10,7 @@ export interface DisplaySettings {
   orderDirection: "asc" | "desc"
   showCompleted: boolean
   visibleProperties: string[]
+  columnBy?: "status" | "priority" | "milestone"
   zoom?: "month" | "quarter" | "year"
   showProjectList?: boolean
   showWeekNumbers?: boolean
@@ -23,6 +24,14 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderDirection: "asc",
     showCompleted: true,
     visibleProperties: ["status", "health", "progress", "targetDate"],
+  },
+  "projects-timeline": {
+    groupBy: "none",
+    orderBy: "name",
+    orderDirection: "asc",
+    showCompleted: true,
+    visibleProperties: [],
+    zoom: "month",
   },
   "plan-list": {
     groupBy: "none",
@@ -38,6 +47,30 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderDirection: "desc",
     showCompleted: false,
     visibleProperties: ["status", "priority", "project", "dueDate", "estimate"],
+  },
+  "my-tasks-timeline": {
+    groupBy: "none",
+    orderBy: "dueDate",
+    orderDirection: "asc",
+    showCompleted: false,
+    visibleProperties: [],
+    zoom: "month",
+  },
+  "plan-board": {
+    groupBy: "none",
+    orderBy: "priority",
+    orderDirection: "asc",
+    showCompleted: false,
+    columnBy: "status",
+    visibleProperties: ["priority", "estimate", "dueDate"],
+  },
+  "my-tasks-board": {
+    groupBy: "none",
+    orderBy: "priority",
+    orderDirection: "asc",
+    showCompleted: false,
+    columnBy: "status",
+    visibleProperties: ["priority", "project", "dueDate"],
   },
 }
 

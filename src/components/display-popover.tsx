@@ -16,6 +16,7 @@ export interface DisplayPopoverConfig {
   groupByOptions: DisplayOption[]
   orderByOptions: DisplayOption[]
   propertyOptions: DisplayOption[]
+  columnByOptions?: DisplayOption[]
   showZoom?: boolean
   showTimelineOptions?: boolean
 }
@@ -125,13 +126,25 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
       </PopoverTrigger>
       <PopoverContent className="w-72">
         <div className="flex flex-col gap-3">
-          {/* Grouping */}
-          <InlineSelect
-            label="Grouping"
-            value={settings.groupBy}
-            options={config.groupByOptions}
-            onChange={(v) => handleUpdate({ groupBy: v })}
-          />
+          {/* Grouping (board views) */}
+          {config.columnByOptions && (
+            <InlineSelect
+              label="Grouping"
+              value={settings.columnBy ?? "status"}
+              options={config.columnByOptions}
+              onChange={(v) => handleUpdate({ columnBy: v as "status" | "priority" | "milestone" })}
+            />
+          )}
+
+          {/* Grouping (list/timeline views — hidden when columnBy is shown) */}
+          {!config.columnByOptions && (
+            <InlineSelect
+              label="Grouping"
+              value={settings.groupBy}
+              options={config.groupByOptions}
+              onChange={(v) => handleUpdate({ groupBy: v })}
+            />
+          )}
 
           {/* Ordering */}
           <div className="flex items-center justify-between">

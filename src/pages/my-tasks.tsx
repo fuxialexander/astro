@@ -1,9 +1,7 @@
-import { useMemo, useState } from "react"
-import { Link } from "react-router"
+import { useMemo, useState, useCallback } from "react"
 import {
   CheckSquare,
   ListFilter,
-  ChevronDown,
   Circle,
   Loader,
   CheckCircle2,
@@ -16,10 +14,16 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
+import { BoardView } from "@/components/board/board-view"
+import { ItemListView, type ListColumn, type ListGroup } from "@/components/views/item-list-view"
+import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
+import { FilterSelect } from "@/components/views/filter-select"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { PRIORITY_CONFIG } from "@/lib/constants"
+import { statusColors, progressColors, assignDefaultDates } from "@/lib/timeline-utils"
+import { formatShortDate, isOverdue } from "@/lib/view-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
 
@@ -69,15 +73,43 @@ const myTasksDisplayConfig: DisplayPopoverConfig = {
   ],
 }
 
-function formatShortDate(dateStr?: string): string {
-  if (!dateStr) return ""
-  const d = new Date(dateStr + "T00:00:00Z")
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+const myTasksBoardDisplayConfig: DisplayPopoverConfig = {
+  viewKey: "my-tasks-board",
+  columnByOptions: [
+    { value: "status", label: "Status" },
+    { value: "priority", label: "Priority" },
+  ],
+  groupByOptions: [
+    { value: "none", label: "No grouping" },
+  ],
+  orderByOptions: [
+    { value: "priority", label: "Priority" },
+    { value: "name", label: "Name" },
+    { value: "dueDate", label: "Due date" },
+    { value: "updatedAt", label: "Last updated" },
+  ],
+  propertyOptions: [
+    { value: "priority", label: "Priority" },
+    { value: "project", label: "Project" },
+    { value: "dueDate", label: "Due date" },
+    { value: "estimate", label: "Estimate" },
+  ],
 }
 
-function isOverdue(dateStr?: string, status?: string): boolean {
-  if (!dateStr || status === "completed" || status === "auto_verified" || status === "pruned") return false
-  return new Date(dateStr + "T00:00:00Z") < new Date()
+const myTasksTimelineDisplayConfig: DisplayPopoverConfig = {
+  viewKey: "my-tasks-timeline",
+  groupByOptions: [
+    { value: "none", label: "No grouping" },
+    { value: "project", label: "Project" },
+    { value: "status", label: "Status" },
+  ],
+  orderByOptions: [
+    { value: "dueDate", label: "Due date" },
+    { value: "name", label: "Name" },
+    { value: "priority", label: "Priority" },
+  ],
+  propertyOptions: [],
+  showZoom: true,
 }
 
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 }
@@ -91,11 +123,113 @@ const STATUS_ORDER: Record<string, number> = {
   pruned: 6,
 }
 
+type MyTasksViewMode = "list" | "timeline" | "board"
+
+// --- Column definitions for task list ---
+function makeTaskColumns(projectMap: Map<string, string>): ListColumn<PlanNode>[] {
+  return [
+    {
+      id: "name",
+      label: "Task",
+      width: "flex-1",
+      render: (node) => {
+        const status = STATUS_CONFIG[node.status]
+        const StatusIcon = status.icon
+        return (
+          <div className="flex items-center gap-2.5 min-w-0">
+            <StatusIcon
+              className={cn(
+                "h-4 w-4 shrink-0",
+                status.color,
+                node.status === "in_progress" && "animate-spin"
+              )}
+            />
+            <span className="text-sm truncate">{node.title}</span>
+          </div>
+        )
+      },
+    },
+    {
+      id: "status",
+      label: "Status",
+      width: "w-[120px]",
+      render: (node) => {
+        const status = STATUS_CONFIG[node.status]
+        return (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+              status.bg,
+              status.color
+            )}
+          >
+            {status.label}
+          </span>
+        )
+      },
+    },
+    {
+      id: "priority",
+      label: "Priority",
+      width: "w-[90px]",
+      render: (node) => {
+        const priority = PRIORITY_CONFIG[node.priority ?? "none"]
+        const PriorityIcon = priority.icon
+        return (
+          <div className="flex items-center gap-1.5">
+            <PriorityIcon className={cn("h-3.5 w-3.5", priority.color)} />
+            <span className="text-xs text-muted-foreground">{priority.label}</span>
+          </div>
+        )
+      },
+    },
+    {
+      id: "project",
+      label: "Project",
+      width: "w-[140px]",
+      render: (node) => (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground truncate">{projectMap.get(node.projectId) ?? ""}</span>
+        </div>
+      ),
+    },
+    {
+      id: "dueDate",
+      label: "Due date",
+      width: "w-[90px]",
+      render: (node) => {
+        const dueDate = node.dueDate ?? node.endDate
+        const overdue = isOverdue(dueDate, node.status)
+        return (
+          <span className={cn("text-xs", overdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
+            {formatShortDate(dueDate)}
+          </span>
+        )
+      },
+    },
+    {
+      id: "estimate",
+      label: "Estimate",
+      width: "w-[70px]",
+      render: (node) => node.estimate ? (
+        <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+          {node.estimate}
+        </span>
+      ) : null,
+    },
+  ]
+}
+
 export function MyTasks() {
   const projects = useProjectStore((s) => s.projects)
   const nodes = usePlanStore((s) => s.nodes)
+  const edges = usePlanStore((s) => s.edges)
   const displaySettings = useDisplaySettingsStore((s) => s.get("my-tasks"))
+  const boardSettings = useDisplaySettingsStore((s) => s.get("my-tasks-board"))
+  const updateNode = usePlanStore((s) => s.updateNode)
 
+  const [viewMode, setViewMode] = useState<MyTasksViewMode>("list")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all")
   const [projectFilter, setProjectFilter] = useState<string>("all")
@@ -107,23 +241,17 @@ export function MyTasks() {
     return m
   }, [projects])
 
-  // Filter tasks (exclude milestones)
+  const columns = useMemo(() => makeTaskColumns(projectMap), [projectMap])
+
+  // Filter tasks
   const filteredTasks = useMemo(() => {
     let tasks = nodes.filter((n) => n.type !== "milestone")
-
     if (!displaySettings.showCompleted) {
       tasks = tasks.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
     }
-    if (statusFilter !== "all") {
-      tasks = tasks.filter((n) => n.status === statusFilter)
-    }
-    if (priorityFilter !== "all") {
-      tasks = tasks.filter((n) => (n.priority ?? "none") === priorityFilter)
-    }
-    if (projectFilter !== "all") {
-      tasks = tasks.filter((n) => n.projectId === projectFilter)
-    }
-
+    if (statusFilter !== "all") tasks = tasks.filter((n) => n.status === statusFilter)
+    if (priorityFilter !== "all") tasks = tasks.filter((n) => (n.priority ?? "none") === priorityFilter)
+    if (projectFilter !== "all") tasks = tasks.filter((n) => n.projectId === projectFilter)
     return tasks
   }, [nodes, displaySettings.showCompleted, statusFilter, priorityFilter, projectFilter])
 
@@ -156,12 +284,12 @@ export function MyTasks() {
     return sorted
   }, [filteredTasks, displaySettings.orderBy, displaySettings.orderDirection])
 
-  // Group
-  const groups = useMemo(() => {
+  // Group for list view
+  const listGroups = useMemo((): ListGroup<PlanNode>[] => {
     if (displaySettings.groupBy === "none") {
-      return { "All Tasks": sortedTasks }
+      return [{ key: "all", label: "All Tasks", items: sortedTasks }]
     }
-    return sortedTasks.reduce<Record<string, PlanNode[]>>((acc, node) => {
+    const grouped = sortedTasks.reduce<Record<string, PlanNode[]>>((acc, node) => {
       let group: string
       switch (displaySettings.groupBy) {
         case "project":
@@ -179,7 +307,79 @@ export function MyTasks() {
       ;(acc[group] ??= []).push(node)
       return acc
     }, {})
+    return Object.entries(grouped).map(([label, items]) => {
+      let icon = undefined
+      if (displaySettings.groupBy === "project") {
+        icon = <Folder className="h-4 w-4 text-blue-500" />
+      } else if (displaySettings.groupBy === "status") {
+        const entry = Object.values(STATUS_CONFIG).find((s) => s.label === label)
+        if (entry) {
+          const Icon = entry.icon
+          icon = <Icon className={cn("h-4 w-4", entry.color)} />
+        }
+      } else if (displaySettings.groupBy === "priority") {
+        const entry = Object.values(PRIORITY_CONFIG).find((p) => p.label === label)
+        if (entry) {
+          const Icon = entry.icon
+          icon = <Icon className={cn("h-4 w-4", entry.color)} />
+        }
+      }
+      return { key: label, label, icon, items }
+    })
   }, [sortedTasks, displaySettings.groupBy, projectMap])
+
+  // Timeline rows
+  const timelineRows = useMemo((): TimelineRow<PlanNode>[] => {
+    const datedTasks = assignDefaultDates(sortedTasks, edges)
+    const timelineDisplaySettings = useDisplaySettingsStore.getState().get("my-tasks-timeline")
+
+    function nodeToRow(node: PlanNode): TimelineRow<PlanNode> {
+      const dated = datedTasks.find((n) => n.id === node.id) ?? node
+      return {
+        kind: "item",
+        item: node,
+        timeline: {
+          id: node.id,
+          startDate: dated.startDate ?? "",
+          endDate: dated.endDate ?? "",
+          barClass: statusColors[node.status] ?? "bg-primary/70",
+          progressClass: progressColors[node.status],
+          progressPct: progressColors[node.status] ? 40 : undefined,
+          label: node.title,
+        },
+      }
+    }
+
+    if (timelineDisplaySettings.groupBy === "project") {
+      const rows: TimelineRow<PlanNode>[] = []
+      const grouped: Record<string, PlanNode[]> = {}
+      for (const node of sortedTasks) {
+        const name = projectMap.get(node.projectId) ?? "Unknown"
+        ;(grouped[name] ??= []).push(node)
+      }
+      for (const [label, items] of Object.entries(grouped)) {
+        rows.push({ kind: "header", label, count: items.length })
+        for (const item of items) rows.push(nodeToRow(item))
+      }
+      return rows
+    }
+
+    if (timelineDisplaySettings.groupBy === "status") {
+      const rows: TimelineRow<PlanNode>[] = []
+      const grouped: Record<string, PlanNode[]> = {}
+      for (const node of sortedTasks) {
+        const key = STATUS_CONFIG[node.status]?.label ?? node.status
+        ;(grouped[key] ??= []).push(node)
+      }
+      for (const [label, items] of Object.entries(grouped)) {
+        rows.push({ kind: "header", label, count: items.length })
+        for (const item of items) rows.push(nodeToRow(item))
+      }
+      return rows
+    }
+
+    return sortedTasks.map(nodeToRow)
+  }, [sortedTasks, edges, projectMap])
 
   // Stats
   const activeCount = nodes.filter((n) => n.type !== "milestone" && (n.status === "in_progress" || n.status === "dispatched")).length
@@ -191,6 +391,32 @@ export function MyTasks() {
     setPriorityFilter("all")
     setProjectFilter("all")
   }
+
+  const getProjectName = useCallback((node: PlanNode) => projectMap.get(node.projectId), [projectMap])
+  const handleBoardNodeSelect = useCallback((node: PlanNode) => {
+    window.location.href = `/project/${node.projectId}/plan`
+  }, [])
+  const handleBoardNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
+    updateNode(id, updates)
+  }, [updateNode])
+
+  const emptyState = (
+    <EmptyState
+      icon={CheckSquare}
+      title={hasActiveFilters ? "No matching tasks" : "No tasks yet"}
+      description={
+        hasActiveFilters
+          ? "Try adjusting your filters to see more tasks."
+          : "Tasks from all your projects will appear here. Create a project and generate a plan to get started."
+      }
+      action={
+        hasActiveFilters
+          ? { label: "Clear Filters", onClick: clearFilters }
+          : { label: "View Projects", href: "/projects" }
+      }
+      className="h-full"
+    />
+  )
 
   return (
     <div className="flex h-full flex-col">
@@ -209,7 +435,25 @@ export function MyTasks() {
             </Badge>
           )}
         </div>
-        <DisplayPopover config={myTasksDisplayConfig} />
+        <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-lg bg-secondary p-1 gap-0.5">
+            {(["list", "timeline", "board"] as MyTasksViewMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={cn(
+                  "rounded-md px-3.5 py-1 text-xs font-medium transition-colors cursor-pointer capitalize",
+                  viewMode === mode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+          {viewMode === "list" && <DisplayPopover config={myTasksDisplayConfig} />}
+          {viewMode === "timeline" && <DisplayPopover config={myTasksTimelineDisplayConfig} />}
+          {viewMode === "board" && <DisplayPopover config={myTasksBoardDisplayConfig} />}
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -232,10 +476,8 @@ export function MyTasks() {
           </button>
         )}
 
-        {/* Inline filter chips */}
         {showFilters && (
           <div className="flex items-center gap-2 ml-2">
-            {/* Status filter */}
             <FilterSelect
               label="Status"
               value={statusFilter}
@@ -250,8 +492,6 @@ export function MyTasks() {
               ]}
               onChange={(v) => setStatusFilter(v as StatusFilter)}
             />
-
-            {/* Priority filter */}
             <FilterSelect
               label="Priority"
               value={priorityFilter}
@@ -265,8 +505,6 @@ export function MyTasks() {
               ]}
               onChange={(v) => setPriorityFilter(v as PriorityFilter)}
             />
-
-            {/* Project filter */}
             <FilterSelect
               label="Project"
               value={projectFilter}
@@ -280,215 +518,56 @@ export function MyTasks() {
         )}
       </div>
 
-      {/* Column Headers */}
-      <div className="flex items-center border-b border-border px-6 h-9 shrink-0">
-        <span className="flex-1 text-[13px] font-medium text-muted-foreground">Task</span>
-        {displaySettings.visibleProperties.includes("status") && (
-          <span className="w-[120px] text-[13px] font-medium text-muted-foreground">Status</span>
-        )}
-        {displaySettings.visibleProperties.includes("priority") && (
-          <span className="w-[90px] text-[13px] font-medium text-muted-foreground">Priority</span>
-        )}
-        {displaySettings.visibleProperties.includes("project") && (
-          <span className="w-[140px] text-[13px] font-medium text-muted-foreground">Project</span>
-        )}
-        {displaySettings.visibleProperties.includes("dueDate") && (
-          <span className="w-[90px] text-[13px] font-medium text-muted-foreground">Due date</span>
-        )}
-        {displaySettings.visibleProperties.includes("estimate") && (
-          <span className="w-[70px] text-[13px] font-medium text-muted-foreground">Estimate</span>
-        )}
-      </div>
-
-      {/* Table Body */}
-      <div className="flex-1 overflow-auto">
-        {sortedTasks.length === 0 ? (
-          <EmptyState
-            icon={CheckSquare}
-            title={hasActiveFilters ? "No matching tasks" : "No tasks yet"}
-            description={
-              hasActiveFilters
-                ? "Try adjusting your filters to see more tasks."
-                : "Tasks from all your projects will appear here. Create a project and generate a plan to get started."
-            }
-            action={
-              hasActiveFilters
-                ? { label: "Clear Filters", onClick: clearFilters }
-                : { label: "View Projects", href: "/projects" }
-            }
-            className="h-full"
-          />
+      {viewMode === "board" ? (
+        <div className="flex-1 overflow-hidden">
+          {sortedTasks.length === 0 ? (
+            emptyState
+          ) : (
+            <BoardView
+              nodes={sortedTasks}
+              columnBy={(boardSettings.columnBy ?? "status") as "status" | "priority" | "milestone"}
+              visibleProperties={boardSettings.visibleProperties}
+              showCompleted={boardSettings.showCompleted}
+              orderBy={boardSettings.orderBy}
+              orderDirection={boardSettings.orderDirection}
+              projectName={getProjectName}
+              onNodeSelect={handleBoardNodeSelect}
+              onNodeUpdate={handleBoardNodeUpdate}
+            />
+          )}
+        </div>
+      ) : viewMode === "timeline" ? (
+        sortedTasks.length === 0 ? (
+          emptyState
         ) : (
-          Object.entries(groups).map(([groupName, items]) => (
-            <div key={groupName}>
-              {/* Group Header */}
-              {displaySettings.groupBy !== "none" && (
-                <div className="flex items-center gap-2 bg-muted px-6 py-2.5">
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  {displaySettings.groupBy === "project" && (
-                    <Folder className="h-4 w-4 text-blue-500" />
-                  )}
-                  {displaySettings.groupBy === "status" && (() => {
-                    const entry = Object.values(STATUS_CONFIG).find((s) => s.label === groupName)
-                    if (!entry) return null
-                    const Icon = entry.icon
-                    return <Icon className={cn("h-4 w-4", entry.color)} />
-                  })()}
-                  {displaySettings.groupBy === "priority" && (() => {
-                    const entry = Object.values(PRIORITY_CONFIG).find((p) => p.label === groupName)
-                    if (!entry) return null
-                    const Icon = entry.icon
-                    return <Icon className={cn("h-4 w-4", entry.color)} />
-                  })()}
-                  <span className="text-sm font-medium">{groupName}</span>
-                  <span className="text-[13px] text-muted-foreground">{items.length}</span>
-                </div>
-              )}
-
-              {/* Task Rows */}
-              {items.map((node) => {
-                const status = STATUS_CONFIG[node.status]
-                const priority = PRIORITY_CONFIG[node.priority ?? "none"]
-                const StatusIcon = status.icon
-                const PriorityIcon = priority.icon
-                const projectName = projectMap.get(node.projectId) ?? ""
-                const dueDate = node.dueDate ?? node.endDate
-                const overdue = isOverdue(dueDate, node.status)
-
-                return (
-                  <Link
-                    key={node.id}
-                    to={`/project/${node.projectId}/plan`}
-                    className={cn(
-                      "flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-colors",
-                      displaySettings.groupBy !== "none" && "pl-12"
-                    )}
-                  >
-                    {/* Title */}
-                    <div className="flex flex-1 items-center gap-2.5 min-w-0">
-                      <StatusIcon
-                        className={cn(
-                          "h-4 w-4 shrink-0",
-                          status.color,
-                          node.status === "in_progress" && "animate-spin"
-                        )}
-                      />
-                      <span className="text-sm truncate">{node.title}</span>
-                    </div>
-
-                    {/* Status */}
-                    {displaySettings.visibleProperties.includes("status") && (
-                      <div className="w-[120px]">
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-                            status.bg,
-                            status.color
-                          )}
-                        >
-                          {status.label}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Priority */}
-                    {displaySettings.visibleProperties.includes("priority") && (
-                      <div className="w-[90px] flex items-center gap-1.5">
-                        <PriorityIcon className={cn("h-3.5 w-3.5", priority.color)} />
-                        <span className="text-xs text-muted-foreground">{priority.label}</span>
-                      </div>
-                    )}
-
-                    {/* Project */}
-                    {displaySettings.visibleProperties.includes("project") && (
-                      <div className="w-[140px] flex items-center gap-1.5 min-w-0">
-                        <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground truncate">{projectName}</span>
-                      </div>
-                    )}
-
-                    {/* Due Date */}
-                    {displaySettings.visibleProperties.includes("dueDate") && (
-                      <div className="w-[90px]">
-                        <span className={cn("text-xs", overdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
-                          {formatShortDate(dueDate)}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Estimate */}
-                    {displaySettings.visibleProperties.includes("estimate") && (
-                      <div className="w-[70px]">
-                        {node.estimate && (
-                          <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                            {node.estimate}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </Link>
-                )
-              })}
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  )
-}
-
-// --- Filter dropdown component ---
-
-function FilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: { value: string; label: string }[]
-  onChange: (value: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const selected = options.find((o) => o.value === value)
-  const isActive = value !== "all"
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs transition-colors cursor-pointer",
-          isActive
-            ? "bg-primary/10 text-primary"
-            : "bg-secondary text-muted-foreground hover:text-foreground"
-        )}
-      >
-        {isActive ? selected?.label : label}
-        <ChevronDown className={cn("h-3 w-3 transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-50 mt-1 min-w-[160px] rounded-md border bg-popover p-1 shadow-md">
-            {options.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => {
-                  onChange(opt.value)
-                  setOpen(false)
-                }}
-                className={cn(
-                  "w-full rounded-sm px-2 py-1.5 text-left text-xs transition-colors cursor-pointer hover:bg-accent",
-                  value === opt.value && "bg-accent font-medium"
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </>
+          <ItemTimelineView
+            rows={timelineRows}
+            viewKey="my-tasks-timeline"
+            renderLeftCell={(node) => (
+              <div className="flex items-center gap-2 min-w-0 w-full">
+                {(() => {
+                  const status = STATUS_CONFIG[node.status]
+                  const StatusIcon = status.icon
+                  return <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", status.color)} />
+                })()}
+                <span className="text-sm truncate">{node.title}</span>
+              </div>
+            )}
+            onItemClick={(node) => { window.location.href = `/project/${node.projectId}/plan` }}
+          />
+        )
+      ) : (
+        sortedTasks.length === 0 ? (
+          <div className="flex-1 overflow-auto">{emptyState}</div>
+        ) : (
+          <ItemListView
+            columns={columns}
+            groups={listGroups}
+            visibleColumns={displaySettings.visibleProperties}
+            onItemClick={(node) => { window.location.href = `/project/${node.projectId}/plan` }}
+            getItemId={(n) => n.id}
+          />
+        )
       )}
     </div>
   )
