@@ -122,7 +122,14 @@ export class WebSocketClient {
           this.handleMessage(data);
         });
 
+        const thisSocket = this.ws;
         this.ws.on('close', (code, reason) => {
+          // Only handle close if this is still the active socket.
+          // When the server closes a stale connection after re-registration,
+          // the old socket's close handler fires — ignore it to prevent a reconnect loop.
+          if (this.ws !== thisSocket) {
+            return;
+          }
           this.handleClose(code, reason.toString());
         });
 

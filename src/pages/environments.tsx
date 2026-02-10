@@ -251,7 +251,7 @@ export function Environments() {
   const fetchClusters = useSlurmStore((s) => s.fetchClusters)
 
   useEffect(() => {
-    fetchRegistered("current-user")
+    fetchRegistered("user-1")
     fetchClusters()
   }, [fetchRegistered, fetchClusters])
 
@@ -276,13 +276,13 @@ export function Environments() {
   const hpcClusterCount = slurmClusters.length
 
   const handleRefresh = () => {
-    fetchRegistered("current-user")
+    fetchRegistered("user-1")
     fetchClusters()
     if (!realtimeConnected) connectRealtime()
   }
 
   const handleMachineAdded = () => {
-    fetchRegistered("current-user")
+    fetchRegistered("user-1")
     if (!realtimeConnected) connectRealtime()
   }
 

@@ -84,7 +84,13 @@ EOF
 
 echo "Wrote $CONFIG_DIR/config.yml"
 
-echo ""
+# Warn if backend isn't running
+if ! curl -sf http://localhost:3001/api/health &>/dev/null; then
+  echo "WARNING: Backend not running on localhost:3001"
+  echo "Run 'npm run dev:backend' in another terminal first."
+  echo ""
+fi
+
 echo "Starting tunnel..."
 echo "  API:   https://$API_SUBDOMAIN -> localhost:3001"
 echo "  Relay: https://$RELAY_SUBDOMAIN -> localhost:3002"
