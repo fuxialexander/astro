@@ -7,6 +7,8 @@
  */
 
 import { query, type Query } from '@anthropic-ai/claude-agent-sdk';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { Task, TaskResult, TaskArtifact } from '../types.js';
 import type { ProviderAdapter, TaskOutputStream, ProviderStatus } from './base-adapter.js';
 
@@ -177,6 +179,13 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     error?: string;
     artifacts?: TaskArtifact[];
   }> {
+    // Ensure CLAUDE_CONFIG_DIR points to a user-writable location.
+    // The SDK derives internal storage paths from cwd, and /tmp/claude/ may be
+    // owned by another user on shared machines, causing EACCES errors.
+    if (!process.env.CLAUDE_CONFIG_DIR) {
+      process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
+    }
+
     // Build options for the query
     const options: Parameters<typeof query>[0]['options'] = {
       abortController,
