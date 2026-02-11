@@ -762,7 +762,7 @@ export class RelayServer extends EventEmitter {
         id: task.taskId,
         projectId: task.projectId,
         planNodeId: task.nodeId,
-        provider: task.preferredProvider || 'claude-code',
+        provider: task.preferredProvider || 'claude-sdk',
         prompt: promptParts.join('\n\n---\n\n'),
         workingDirectory: task.workingDirectory || '',
         timeout: task.timeout,

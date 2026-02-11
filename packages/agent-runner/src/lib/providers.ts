@@ -264,7 +264,7 @@ async function detectClaudeSdk(): Promise<ProviderInfo | null> {
     // Try dynamic import to check if SDK is available
     await import('@anthropic-ai/claude-agent-sdk');
     return {
-      type: 'claude-code' as ProviderType, // Reports as claude-code type for dispatch compatibility
+      type: 'claude-sdk' as ProviderType,
       name: 'Claude Agent SDK',
       version: null,
       path: '@anthropic-ai/claude-agent-sdk',

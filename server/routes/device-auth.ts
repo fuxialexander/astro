@@ -561,7 +561,7 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
     const machineName = body.name || (isHpc ? 'Sherlock HPC' : `Dev Machine ${machineId.slice(-4)}`);
     const hostname = isHpc ? 'sh03-ln01.stanford.edu' : `${machineName.toLowerCase().replace(/\s+/g, '-')}.local`;
     const platform = isHpc ? 'linux' : 'darwin';
-    const providers: Array<'claude-code' | 'slurm' | 'aws' | 'gcp' | 'custom'> = isHpc ? ['slurm'] : ['claude-code'];
+    const providers: Array<'claude-code' | 'claude-sdk' | 'slurm' | 'aws' | 'gcp' | 'custom'> = isHpc ? ['slurm'] : ['claude-sdk'];
 
     // Register in persistent store
     const machine = await registerMachine({

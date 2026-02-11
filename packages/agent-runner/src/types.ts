@@ -6,7 +6,7 @@
 // Provider Types
 // ============================================================================
 
-export type ProviderType = 'claude-code' | 'codex' | 'slurm' | 'custom';
+export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'slurm' | 'custom';
 
 export interface ProviderInfo {
   type: ProviderType;
