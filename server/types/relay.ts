@@ -137,6 +137,22 @@ export interface TaskOutput {
   timestamp: Date;
 }
 
+/** Structured text output (bypasses stdout throttle) */
+export interface TaskTextMessage extends BaseMessage {
+  type: 'task.text';
+  taskId: string;
+  text: string;
+  sequence: number;
+}
+
+/** Session initialization info */
+export interface TaskSessionInitMessage extends BaseMessage {
+  type: 'task.session_init';
+  taskId: string;
+  sessionId: string;
+  model?: string;
+}
+
 // ============================================================================
 // WebSocket Message Types
 // ============================================================================

@@ -9,10 +9,12 @@ export type RealtimeEventType =
   | 'machines:snapshot'
   | 'task:result'
   | 'task:stdout'
+  | 'task:text'
   | 'task:progress'
   | 'task:steer_ack'
   | 'task:tool_trace'
   | 'task:file_change'
+  | 'task:session_init'
   | 'machine:connected'
   | 'machine:disconnected'
   | 'session:attached'
@@ -66,10 +68,12 @@ export class RealtimeClient {
       'machines:snapshot',
       'task:result',
       'task:stdout',
+      'task:text',
       'task:progress',
       'task:steer_ack',
       'task:tool_trace',
       'task:file_change',
+      'task:session_init',
       'machine:connected',
       'machine:disconnected',
       'session:attached',

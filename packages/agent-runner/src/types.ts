@@ -115,12 +115,19 @@ export type WSMessageType =
   | 'task_output'
   | 'task_result'
   | 'task_tool_trace'
+  | 'task_text'
+  | 'task_tool_use'
+  | 'task_tool_result'
+  | 'task_file_change'
+  | 'task_session_init'
+  | 'task_steer_ack'
   | 'resource_update'
   // Server -> Client
   | 'registered'
   | 'heartbeat_ack'
   | 'task_dispatch'
   | 'task_cancel'
+  | 'task_steer'
   | 'config_update'
   | 'error';
 
@@ -189,6 +196,64 @@ export interface TaskToolTraceMessage extends WSMessage {
   };
 }
 
+export interface TaskTextMessage extends WSMessage {
+  type: 'task_text';
+  payload: {
+    taskId: string;
+    text: string;
+    sequence: number;
+  };
+}
+
+export interface TaskToolUseMessage extends WSMessage {
+  type: 'task_tool_use';
+  payload: {
+    taskId: string;
+    toolName: string;
+    toolInput: unknown;
+  };
+}
+
+export interface TaskToolResultWSMessage extends WSMessage {
+  type: 'task_tool_result';
+  payload: {
+    taskId: string;
+    toolName: string;
+    result: unknown;
+    success: boolean;
+  };
+}
+
+export interface TaskFileChangeMessage extends WSMessage {
+  type: 'task_file_change';
+  payload: {
+    taskId: string;
+    path: string;
+    action: 'created' | 'modified' | 'deleted';
+    linesAdded?: number;
+    linesRemoved?: number;
+    diff?: string;
+  };
+}
+
+export interface TaskSessionInitMessage extends WSMessage {
+  type: 'task_session_init';
+  payload: {
+    taskId: string;
+    sessionId: string;
+    model?: string;
+  };
+}
+
+export interface TaskSteerAckWSMessage extends WSMessage {
+  type: 'task_steer_ack';
+  payload: {
+    taskId: string;
+    accepted: boolean;
+    message?: string;
+  };
+}
+
 export interface ResourceUpdateMessage extends WSMessage {
   type: 'resource_update';
   payload: {
@@ -225,6 +290,15 @@ export interface TaskCancelMessage extends WSMessage {
   payload: {
     taskId: string;
     reason?: string;
+  };
+}
+
+export interface TaskSteerIncomingMessage extends WSMessage {
+  type: 'task_steer';
+  payload: {
+    taskId: string;
+    message: string;
+    action?: string;
   };
 }
 

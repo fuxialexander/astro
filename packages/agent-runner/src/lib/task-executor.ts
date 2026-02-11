@@ -12,6 +12,7 @@ import { homedir } from 'node:os';
 import type { Task, TaskStatus, ProviderType } from '../types.js';
 import type { WebSocketClient } from './websocket-client.js';
 import { createProviderAdapter, type ProviderAdapter } from '../providers/index.js';
+import { ClaudeSdkAdapter } from '../providers/claude-sdk-adapter.js';
 import { createWorktree } from './worktree.js';
 
 interface RunningTask {
@@ -132,6 +133,27 @@ export class TaskExecutor {
     this.processQueue();
   }
 
+  /**
+   * Steer a running task by injecting a message into the agent session
+   */
+  steerTask(taskId: string, message: string): { accepted: boolean; reason?: string } {
+    const running = this.runningTasks.get(taskId);
+    if (!running) {
+      return { accepted: false, reason: 'Task not found or not running' };
+    }
+
+    // Check if the adapter supports message injection
+    if (running.adapter instanceof ClaudeSdkAdapter && typeof running.adapter.injectMessage === 'function') {
+      const injected = running.adapter.injectMessage(taskId, message);
+      if (injected) {
+        return { accepted: true };
+      }
+      return { accepted: false, reason: 'Failed to inject message into running session' };
+    }
+
+    return { accepted: false, reason: 'Provider does not support mid-execution steering' };
+  }
+
   // ============================================================================
   // Private Methods
   // ============================================================================
@@ -163,6 +185,7 @@ export class TaskExecutor {
     const outputSequence = { stdout: 0, stderr: 0 };
 
     // Create stream handlers before workspace prep so setup output is captured
+    let textSequence = 0;
     const stream = {
       stdout: (data: string) => {
         this.wsClient.sendTaskOutput(normalizedTask.id, 'stdout', data, outputSequence.stdout++);
@@ -175,6 +198,21 @@ export class TaskExecutor {
       },
       toolTrace: (toolName: string, toolInput?: unknown, toolResult?: unknown, success?: boolean) => {
         this.wsClient.sendToolTrace(normalizedTask.id, toolName, toolInput, toolResult, success);
+      },
+      text: (data: string) => {
+        this.wsClient.sendTaskText(normalizedTask.id, data, textSequence++);
+      },
+      toolUse: (toolName: string, toolInput: unknown) => {
+        this.wsClient.sendTaskToolUse(normalizedTask.id, toolName, toolInput);
+      },
+      toolResult: (toolName: string, result: unknown, success: boolean) => {
+        this.wsClient.sendTaskToolResult(normalizedTask.id, toolName, result, success);
+      },
+      fileChange: (path: string, action: 'created' | 'modified' | 'deleted', linesAdded?: number, linesRemoved?: number, diff?: string) => {
+        this.wsClient.sendTaskFileChange(normalizedTask.id, path, action, linesAdded, linesRemoved, diff);
+      },
+      sessionInit: (sessionId: string, model?: string) => {
+        this.wsClient.sendTaskSessionInit(normalizedTask.id, sessionId, model);
       },
     };
 

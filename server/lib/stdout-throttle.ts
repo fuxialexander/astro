@@ -11,7 +11,7 @@ export class StdoutThrottle {
   private flushInterval: number;
   private onFlush: (taskId: string, data: string) => void;
 
-  constructor(onFlush: (taskId: string, data: string) => void, flushInterval = 100) {
+  constructor(onFlush: (taskId: string, data: string) => void, flushInterval = 16) {
     this.onFlush = onFlush;
     this.flushInterval = flushInterval;
   }

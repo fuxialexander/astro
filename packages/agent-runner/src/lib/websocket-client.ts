@@ -11,6 +11,13 @@ import type {
   TaskOutputMessage,
   TaskResultMessage,
   TaskToolTraceMessage,
+  TaskTextMessage,
+  TaskToolUseMessage,
+  TaskToolResultWSMessage,
+  TaskFileChangeMessage,
+  TaskSessionInitMessage,
+  TaskSteerAckWSMessage,
+  TaskSteerIncomingMessage,
   ResourceUpdateMessage,
   RegisteredMessage,
   HeartbeatAckMessage,
@@ -47,6 +54,7 @@ export interface WebSocketClientOptions {
   onEvent?: RunnerEventHandler;
   onTaskDispatch?: (task: Task) => void;
   onTaskCancel?: (taskId: string) => void;
+  onTaskSteer?: (taskId: string, message: string, action?: string) => void;
   version?: string;
   wsToken?: string;
 }
@@ -56,6 +64,7 @@ type IncomingMessage =
   | HeartbeatAckMessage
   | TaskDispatchMessage
   | TaskCancelMessage
+  | TaskSteerIncomingMessage
   | ConfigUpdateMessage
   | ErrorMessage;
 
@@ -79,6 +88,7 @@ export class WebSocketClient {
   private onEvent?: RunnerEventHandler;
   private onTaskDispatch?: (task: Task) => void;
   private onTaskCancel?: (taskId: string) => void;
+  private onTaskSteer?: (taskId: string, message: string, action?: string) => void;
 
   constructor(options: WebSocketClientOptions) {
     this.runnerId = options.runnerId;
@@ -91,6 +101,7 @@ export class WebSocketClient {
     this.onEvent = options.onEvent;
     this.onTaskDispatch = options.onTaskDispatch;
     this.onTaskCancel = options.onTaskCancel;
+    this.onTaskSteer = options.onTaskSteer;
   }
 
   /**
@@ -225,6 +236,78 @@ export class WebSocketClient {
   }
 
   /**
+   * Send structured text (bypasses stdout throttle on relay)
+   */
+  sendTaskText(taskId: string, text: string, sequence: number): void {
+    const msg: TaskTextMessage = {
+      type: 'task_text',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, text, sequence },
+    };
+    this.send(msg);
+  }
+
+  /**
+   * Send structured tool use event
+   */
+  sendTaskToolUse(taskId: string, toolName: string, toolInput: unknown): void {
+    const msg: TaskToolUseMessage = {
+      type: 'task_tool_use',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, toolName, toolInput },
+    };
+    this.send(msg);
+  }
+
+  /**
+   * Send structured tool result event
+   */
+  sendTaskToolResult(taskId: string, toolName: string, result: unknown, success: boolean): void {
+    const msg: TaskToolResultWSMessage = {
+      type: 'task_tool_result',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, toolName, result, success },
+    };
+    this.send(msg);
+  }
+
+  /**
+   * Send structured file change event
+   */
+  sendTaskFileChange(taskId: string, path: string, action: 'created' | 'modified' | 'deleted', linesAdded?: number, linesRemoved?: number, diff?: string): void {
+    const msg: TaskFileChangeMessage = {
+      type: 'task_file_change',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, path, action, linesAdded, linesRemoved, diff },
+    };
+    this.send(msg);
+  }
+
+  /**
+   * Send structured session init event
+   */
+  sendTaskSessionInit(taskId: string, sessionId: string, model?: string): void {
+    const msg: TaskSessionInitMessage = {
+      type: 'task_session_init',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, sessionId, model },
+    };
+    this.send(msg);
+  }
+
+  /**
+   * Send steer acknowledgment
+   */
+  sendSteerAck(taskId: string, accepted: boolean, message?: string): void {
+    const msg: TaskSteerAckWSMessage = {
+      type: 'task_steer_ack',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, accepted, message },
+    };
+    this.send(msg);
+  }
+
+  /**
    * Send resource update
    */
   async sendResourceUpdate(): Promise<void> {
@@ -301,7 +384,26 @@ export class WebSocketClient {
 
   private handleMessage(data: WebSocket.RawData): void {
     try {
-      const message = JSON.parse(data.toString()) as IncomingMessage;
+      const raw = JSON.parse(data.toString()) as { type: string; [key: string]: unknown };
+
+      // Handle task.steer (dot notation from relay) by normalizing to task_steer
+      if (raw.type === 'task.steer') {
+        // Relay sends: { type: 'task.steer', taskId, message, action }
+        // Normalize to agent-runner format: { type: 'task_steer', payload: { taskId, message, action } }
+        const steerMsg: TaskSteerIncomingMessage = {
+          type: 'task_steer',
+          timestamp: raw.timestamp as string ?? new Date().toISOString(),
+          payload: {
+            taskId: raw.taskId as string,
+            message: raw.message as string,
+            action: raw.action as string | undefined,
+          },
+        };
+        this.handleTaskSteer(steerMsg);
+        return;
+      }
+
+      const message = raw as unknown as IncomingMessage;
       this.routeMessage(message);
     } catch (error) {
       this.emitEvent({ type: 'error', error: error as Error });
@@ -321,6 +423,9 @@ export class WebSocketClient {
         break;
       case 'task_cancel':
         this.handleTaskCancel(message);
+        break;
+      case 'task_steer':
+        this.handleTaskSteer(message as unknown as TaskSteerIncomingMessage);
         break;
       case 'config_update':
         this.handleConfigUpdate(message);
@@ -357,6 +462,11 @@ export class WebSocketClient {
     this.activeTasks.delete(taskId);
     this.emitEvent({ type: 'task_cancelled', taskId });
     this.onTaskCancel?.(taskId);
+  }
+
+  private handleTaskSteer(message: TaskSteerIncomingMessage): void {
+    const { taskId, message: steerMessage, action } = message.payload;
+    this.onTaskSteer?.(taskId, steerMessage, action);
   }
 
   private handleConfigUpdate(message: ConfigUpdateMessage): void {

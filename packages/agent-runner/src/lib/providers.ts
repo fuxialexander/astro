@@ -257,10 +257,36 @@ async function detectSlurmProvider(): Promise<ProviderInfo | null> {
 }
 
 /**
+ * Detect Claude Agent SDK availability (in-process, preferred over CLI)
+ */
+async function detectClaudeSdk(): Promise<ProviderInfo | null> {
+  try {
+    // Try dynamic import to check if SDK is available
+    await import('@anthropic-ai/claude-agent-sdk');
+    return {
+      type: 'claude-code' as ProviderType, // Reports as claude-code type for dispatch compatibility
+      name: 'Claude Agent SDK',
+      version: null,
+      path: '@anthropic-ai/claude-agent-sdk',
+      available: true,
+      capabilities: {
+        streaming: true,
+        tools: true,
+        multiTurn: true,
+        maxConcurrentTasks: 4,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Detect all available providers on the system
  */
 export async function detectProviders(): Promise<ProviderInfo[]> {
   const detectionResults = await Promise.all([
+    detectClaudeSdk(),
     detectClaudeCode(),
     detectCodex(),
     detectSlurmProvider(),
@@ -269,10 +295,12 @@ export async function detectProviders(): Promise<ProviderInfo[]> {
 
   const providers: ProviderInfo[] = [];
 
-  // Add built-in providers if detected
-  const [claudeCode, codex, slurm, customProviders] = detectionResults;
+  // Add built-in providers if detected (SDK preferred over CLI)
+  const [claudeSdk, claudeCode, codex, slurm, customProviders] = detectionResults;
 
-  if (claudeCode) {
+  if (claudeSdk) {
+    providers.push(claudeSdk);
+  } else if (claudeCode) {
     providers.push(claudeCode);
   }
 

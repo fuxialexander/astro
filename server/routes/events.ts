@@ -19,6 +19,8 @@ import type {
   TaskSteerAckMessage,
   TaskToolTraceMessage,
   TaskFileChangeMessage,
+  TaskTextMessage,
+  TaskSessionInitMessage,
   SessionEvent,
 } from '../types/relay.js'
 import { requireAuth } from '../middleware/auth.js'
@@ -149,6 +151,27 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:file_change', data }).catch(() => { alive = false })
     }
 
+    const onTaskText = (msg: TaskTextMessage) => {
+      if (!alive) return
+      const data = JSON.stringify({
+        taskId: msg.taskId,
+        data: msg.text,
+      })
+      const id = eventBuffer.push('task:text', data)
+      stream.writeSSE({ id, event: 'task:text', data }).catch(() => { alive = false })
+    }
+
+    const onTaskSessionInit = (msg: TaskSessionInitMessage) => {
+      if (!alive) return
+      const data = JSON.stringify({
+        taskId: msg.taskId,
+        sessionId: msg.sessionId,
+        model: msg.model,
+      })
+      const id = eventBuffer.push('task:session_init', data)
+      stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
+    }
+
     const onMachineConnected = (machineId: string) => {
       if (!alive) return
       const entry = machineRegistry.get(machineId)
@@ -195,10 +218,12 @@ eventsRoute.get('/stream', async (c) => {
     // Subscribe to relay events
     relayServer.on('task:result', onTaskResult)
     relayServer.on('task:stdout', onTaskStdout)
+    relayServer.on('task:text', onTaskText)
     relayServer.on('task:progress', onTaskProgress)
     relayServer.on('task:steer_ack', onTaskSteerAck)
     relayServer.on('task:tool_trace', onTaskToolTrace)
     relayServer.on('task:file_change', onTaskFileChange)
+    relayServer.on('task:session_init', onTaskSessionInit)
     relayServer.on('machine:connected', onMachineConnected)
     relayServer.on('machine:disconnected', onMachineDisconnected)
     // Session events
@@ -209,9 +234,11 @@ eventsRoute.get('/stream', async (c) => {
     // Subscribe to local execution events (same message shapes as relay)
     executionEventBus.on('task:result', onTaskResult)
     executionEventBus.on('task:stdout', onTaskStdout)
+    executionEventBus.on('task:text', onTaskText)
     executionEventBus.on('task:progress', onTaskProgress)
     executionEventBus.on('task:tool_trace', onTaskToolTrace)
     executionEventBus.on('task:file_change', onTaskFileChange)
+    executionEventBus.on('task:session_init', onTaskSessionInit)
 
     // Keepalive heartbeat (15s)
     const heartbeat = setInterval(() => {
@@ -233,10 +260,12 @@ eventsRoute.get('/stream', async (c) => {
 
       relayServer.off('task:result', onTaskResult)
       relayServer.off('task:stdout', onTaskStdout)
+      relayServer.off('task:text', onTaskText)
       relayServer.off('task:progress', onTaskProgress)
       relayServer.off('task:steer_ack', onTaskSteerAck)
       relayServer.off('task:tool_trace', onTaskToolTrace)
       relayServer.off('task:file_change', onTaskFileChange)
+      relayServer.off('task:session_init', onTaskSessionInit)
       relayServer.off('machine:connected', onMachineConnected)
       relayServer.off('machine:disconnected', onMachineDisconnected)
       // Session events cleanup
@@ -247,9 +276,11 @@ eventsRoute.get('/stream', async (c) => {
       // Local execution event bus cleanup
       executionEventBus.off('task:result', onTaskResult)
       executionEventBus.off('task:stdout', onTaskStdout)
+      executionEventBus.off('task:text', onTaskText)
       executionEventBus.off('task:progress', onTaskProgress)
       executionEventBus.off('task:tool_trace', onTaskToolTrace)
       executionEventBus.off('task:file_change', onTaskFileChange)
+      executionEventBus.off('task:session_init', onTaskSessionInit)
     })
 
     // Keep the stream open until aborted

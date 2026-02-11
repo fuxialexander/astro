@@ -9,6 +9,16 @@ export interface TaskOutputStream {
   stderr: (data: string) => void;
   status: (status: TaskStatus, progress?: number, message?: string) => void;
   toolTrace: (toolName: string, toolInput?: unknown, toolResult?: unknown, success?: boolean) => void;
+  /** Structured text output (bypasses stdout throttle) */
+  text: (data: string) => void;
+  /** Structured tool use event */
+  toolUse: (toolName: string, toolInput: unknown) => void;
+  /** Structured tool result event */
+  toolResult: (toolName: string, result: unknown, success: boolean) => void;
+  /** Structured file change event */
+  fileChange: (path: string, action: 'created' | 'modified' | 'deleted', linesAdded?: number, linesRemoved?: number, diff?: string) => void;
+  /** Structured session init event */
+  sessionInit: (sessionId: string, model?: string) => void;
 }
 
 export interface ProviderAdapter {

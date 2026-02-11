@@ -2,12 +2,14 @@
  * Claude Agent SDK Adapter
  *
  * Executes tasks using the @anthropic-ai/claude-agent-sdk.
- * This provides programmatic access to Claude Code with full streaming support.
+ * Uses StreamingPrompt for zero-serialization in-process execution
+ * and supports mid-execution steering via message injection.
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Task, TaskResult, TaskArtifact } from '../types.js';
 import type { ProviderAdapter, TaskOutputStream, ProviderStatus } from './base-adapter.js';
+import { StreamingPrompt } from '../lib/streaming-prompt.js';
 
 export class ClaudeSdkAdapter implements ProviderAdapter {
   readonly type = 'claude-sdk';
@@ -18,6 +20,9 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
   private lastError?: string;
   private isAuthenticated = false;
   private model = 'unknown';
+
+  /** Active StreamingPrompt instances per task ID */
+  private activePrompts = new Map<string, StreamingPrompt>();
 
   async isAvailable(): Promise<boolean> {
     try {
@@ -105,8 +110,20 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       };
     } finally {
       signal.removeEventListener('abort', abortHandler);
+      this.activePrompts.delete(task.id);
       this.activeTasks--;
     }
+  }
+
+  /**
+   * Inject a steering message into a running task's session.
+   * Returns true if the message was successfully queued.
+   */
+  injectMessage(taskId: string, content: string): boolean {
+    const prompt = this.activePrompts.get(taskId);
+    if (!prompt) return false;
+    prompt.addMessage(content);
+    return true;
   }
 
   async getStatus(): Promise<ProviderStatus> {
@@ -131,6 +148,10 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     error?: string;
     artifacts?: TaskArtifact[];
   }> {
+    // Create StreamingPrompt for this task
+    const streamingPrompt = new StreamingPrompt(task.prompt);
+    this.activePrompts.set(task.id, streamingPrompt);
+
     // Build options for the query
     const options: Parameters<typeof query>[0]['options'] = {
       abortController,
@@ -145,8 +166,9 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       (options as Record<string, unknown>).env = task.environment;
     }
 
+    // Pass StreamingPrompt as the prompt — SDK accepts AsyncIterable<SDKUserMessage>
     const gen = query({
-      prompt: task.prompt,
+      prompt: streamingPrompt as unknown as string,
       options,
     });
 
@@ -159,17 +181,21 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     for await (const msg of gen) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         this.model = msg.model;
+        const sid = (msg as unknown as Record<string, unknown>).session_id as string ?? '';
+        streamingPrompt.updateSessionId(sid);
         stream.status('running', 5, `Model: ${msg.model}`);
+        stream.sessionInit(sid, msg.model);
       } else if (msg.type === 'assistant') {
-        // Stream assistant text
+        // Stream assistant content blocks
         for (const block of msg.message.content) {
           if (block.type === 'text') {
             output += block.text;
-            stream.stdout(block.text);
+            stream.text(block.text);
           } else if (block.type === 'tool_use') {
-            // Track tool usage
+            // Emit structured tool use
             progress = Math.min(progress + 10, 90);
             stream.status('running', progress, `Using tool: ${block.name}`);
+            stream.toolUse(block.name, block.input);
 
             // Record file operations as artifacts
             if (block.name === 'Write' || block.name === 'Edit') {
@@ -181,8 +207,26 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
                   path: String(input.file_path),
                   metadata: { tool: block.name },
                 });
+                // Emit file change event
+                const action = block.name === 'Write' ? 'created' : 'modified';
+                stream.fileChange(String(input.file_path), action as 'created' | 'modified' | 'deleted');
               }
             }
+          }
+        }
+      } else if (msg.type === 'user') {
+        // Tool results from the SDK
+        for (const block of msg.message.content) {
+          if (block.type === 'tool_result') {
+            const resultContent = typeof block.content === 'string'
+              ? block.content
+              : JSON.stringify(block.content);
+            const isError = block.is_error ?? false;
+            stream.toolResult(
+              block.tool_use_id ?? 'unknown',
+              resultContent,
+              !isError,
+            );
           }
         }
       } else if (msg.type === 'result') {
@@ -202,6 +246,9 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
         break;
       }
     }
+
+    // Signal completion to the streaming prompt
+    streamingPrompt.complete();
 
     return {
       success,

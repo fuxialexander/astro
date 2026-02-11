@@ -160,6 +160,13 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     taskExecutor.cancelTask(taskId);
   };
 
+  wsClient['onTaskSteer'] = (taskId: string, message: string, action?: string) => {
+    log('info', `Received steer for task ${taskId}: "${message.slice(0, 100)}"${action ? ` (action: ${action})` : ''}`, logLevel);
+    const result = taskExecutor.steerTask(taskId, message);
+    wsClient.sendSteerAck(taskId, result.accepted, result.reason);
+    log('info', `Steer ack for task ${taskId}: accepted=${result.accepted}${result.reason ? ` reason=${result.reason}` : ''}`, logLevel);
+  };
+
   // Handle graceful shutdown
   let isShuttingDown = false;
 
@@ -240,7 +247,7 @@ function handleEvent(event: RunnerEvent, logLevel: string): void {
     case 'task_completed':
       log('info', `Completed task: ${event.result.taskId} (${event.result.status})`, logLevel);
       if (event.result.error) {
-        log('debug', `  Error: ${event.result.error}`, logLevel);
+        log('info', `  Error: ${event.result.error}`, logLevel);
       }
       break;
     case 'task_cancelled':

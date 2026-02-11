@@ -41,6 +41,8 @@ export interface TaskStream {
   machineId?: string
   providerId?: string
   providerName?: string
+  sessionId?: string
+  model?: string
   stdout: string
   progress: number
   progressMessage?: string
@@ -239,6 +241,34 @@ function handleRealtimeEvent(
         const streams = new Map(state.taskStreams)
         const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
         stream.stdout += text
+        streams.set(taskId, stream)
+        return { taskStreams: streams }
+      })
+      break
+    }
+
+    case 'task:text': {
+      const taskId = data.taskId as string
+      const text = data.data as string
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
+        stream.stdout += text
+        streams.set(taskId, stream)
+        return { taskStreams: streams }
+      })
+      break
+    }
+
+    case 'task:session_init': {
+      const taskId = data.taskId as string
+      const sessionId = data.sessionId as string
+      const model = data.model as string | undefined
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
+        stream.sessionId = sessionId
+        stream.model = model
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })

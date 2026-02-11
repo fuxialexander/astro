@@ -19,12 +19,15 @@ import { SlurmAdapter } from './slurm-adapter.js';
 export type ExtendedProviderType = ProviderType | 'claude-sdk';
 
 /**
- * Create a provider adapter by type
+ * Create a provider adapter by type.
+ * For 'claude-code', prefers the SDK adapter (in-process, supports steering)
+ * and falls back to the CLI adapter.
  */
 export function createProviderAdapter(type: ProviderType | ExtendedProviderType): ProviderAdapter | null {
   switch (type) {
     case 'claude-code':
-      return new ClaudeCodeAdapter();
+      // Prefer SDK adapter over CLI adapter for claude-code type
+      return new ClaudeSdkAdapter();
     case 'claude-sdk':
       return new ClaudeSdkAdapter();
     case 'codex':
@@ -37,6 +40,13 @@ export function createProviderAdapter(type: ProviderType | ExtendedProviderType)
     default:
       return null;
   }
+}
+
+/**
+ * Create a CLI-only provider adapter (for fallback when SDK is unavailable)
+ */
+export function createCliProviderAdapter(): ProviderAdapter {
+  return new ClaudeCodeAdapter();
 }
 
 /**

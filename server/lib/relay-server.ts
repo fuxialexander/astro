@@ -26,6 +26,8 @@ import {
   type TaskSteerAckMessage,
   type TaskToolTraceMessage,
   type TaskFileChangeMessage,
+  type TaskTextMessage,
+  type TaskSessionInitMessage,
   type HeartbeatPongMessage,
   type TaskDispatch,
   type TaskSteerMessage,
@@ -150,6 +152,76 @@ interface AgentRunnerTaskToolTraceMessage {
   };
 }
 
+/** Agent runner's structured text message format */
+interface AgentRunnerTaskTextMessage {
+  type: 'task_text';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    text: string;
+    sequence: number;
+  };
+}
+
+/** Agent runner's structured tool use message format */
+interface AgentRunnerTaskToolUseMessage {
+  type: 'task_tool_use';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    toolName: string;
+    toolInput: unknown;
+  };
+}
+
+/** Agent runner's structured tool result message format */
+interface AgentRunnerTaskToolResultMessage {
+  type: 'task_tool_result';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    toolName: string;
+    result: unknown;
+    success: boolean;
+  };
+}
+
+/** Agent runner's structured file change message format */
+interface AgentRunnerTaskFileChangeMessage {
+  type: 'task_file_change';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    path: string;
+    action: 'created' | 'modified' | 'deleted';
+    linesAdded?: number;
+    linesRemoved?: number;
+    diff?: string;
+  };
+}
+
+/** Agent runner's session init message format */
+interface AgentRunnerTaskSessionInitMessage {
+  type: 'task_session_init';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    sessionId: string;
+    model?: string;
+  };
+}
+
+/** Agent runner's steer ack message format */
+interface AgentRunnerTaskSteerAckMessage {
+  type: 'task_steer_ack';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    accepted: boolean;
+    message?: string;
+  };
+}
+
 /** Agent runner's task result message format */
 interface AgentRunnerTaskResultMessage {
   type: 'task_result';
@@ -193,10 +265,12 @@ interface AttachedSession {
 export interface RelayServerEvents {
   'task:result': (result: TaskResultMessage) => void;
   'task:stdout': (output: TaskStdoutMessage) => void;
+  'task:text': (msg: TaskTextMessage) => void;
   'task:progress': (progress: TaskProgressMessage) => void;
   'task:steer_ack': (ack: TaskSteerAckMessage) => void;
   'task:tool_trace': (trace: TaskToolTraceMessage) => void;
   'task:file_change': (change: TaskFileChangeMessage) => void;
+  'task:session_init': (msg: TaskSessionInitMessage) => void;
   'machine:connected': (machineId: string) => void;
   'machine:disconnected': (machineId: string, reason?: string) => void;
   // Session attachment events (MCP bridge)
@@ -435,6 +509,31 @@ export class RelayServer extends EventEmitter {
       // Support agent-runner's 'task_tool_trace' message format
       case 'task_tool_trace':
         this.handleAgentRunnerTaskToolTrace(message as AgentRunnerTaskToolTraceMessage);
+        break;
+
+      // Structured message types from agent-runner
+      case 'task_text':
+        this.handleAgentRunnerTaskText(message as AgentRunnerTaskTextMessage);
+        break;
+
+      case 'task_tool_use':
+        this.handleAgentRunnerTaskToolUse(message as AgentRunnerTaskToolUseMessage);
+        break;
+
+      case 'task_tool_result':
+        this.handleAgentRunnerTaskToolResult(message as AgentRunnerTaskToolResultMessage);
+        break;
+
+      case 'task_file_change':
+        this.handleAgentRunnerTaskFileChange(message as AgentRunnerTaskFileChangeMessage);
+        break;
+
+      case 'task_session_init':
+        this.handleAgentRunnerTaskSessionInit(message as AgentRunnerTaskSessionInitMessage);
+        break;
+
+      case 'task_steer_ack':
+        this.handleAgentRunnerTaskSteerAck(message as AgentRunnerTaskSteerAckMessage);
         break;
 
       case 'task.steer.ack':
@@ -1052,6 +1151,101 @@ export class RelayServer extends EventEmitter {
       success,
     };
     this.emit('task:tool_trace', traceMsg);
+  }
+
+  /**
+   * Handle agent runner's structured text message
+   * Emits as task:text (NOT task:stdout to avoid double-counting)
+   */
+  private handleAgentRunnerTaskText(message: AgentRunnerTaskTextMessage): void {
+    const { payload } = message;
+    const textMsg: TaskTextMessage = {
+      type: 'task.text',
+      timestamp: new Date(),
+      taskId: payload.taskId,
+      text: payload.text,
+      sequence: payload.sequence,
+    };
+    this.emit('task:text', textMsg);
+  }
+
+  /**
+   * Handle agent runner's structured tool use message
+   */
+  private handleAgentRunnerTaskToolUse(message: AgentRunnerTaskToolUseMessage): void {
+    const { payload } = message;
+    const traceMsg: TaskToolTraceMessage = {
+      type: 'task.tool_trace',
+      timestamp: new Date(),
+      taskId: payload.taskId,
+      toolName: payload.toolName,
+      toolInput: payload.toolInput,
+    };
+    this.emit('task:tool_trace', traceMsg);
+  }
+
+  /**
+   * Handle agent runner's structured tool result message
+   */
+  private handleAgentRunnerTaskToolResult(message: AgentRunnerTaskToolResultMessage): void {
+    const { payload } = message;
+    const traceMsg: TaskToolTraceMessage = {
+      type: 'task.tool_trace',
+      timestamp: new Date(),
+      taskId: payload.taskId,
+      toolName: payload.toolName,
+      toolResult: payload.result,
+      success: payload.success,
+    };
+    this.emit('task:tool_trace', traceMsg);
+  }
+
+  /**
+   * Handle agent runner's structured file change message
+   */
+  private handleAgentRunnerTaskFileChange(message: AgentRunnerTaskFileChangeMessage): void {
+    const { payload } = message;
+    const changeMsg: TaskFileChangeMessage = {
+      type: 'task.file_change',
+      timestamp: new Date(),
+      taskId: payload.taskId,
+      path: payload.path,
+      action: payload.action,
+      linesAdded: payload.linesAdded,
+      linesRemoved: payload.linesRemoved,
+      diff: payload.diff,
+    };
+    this.emit('task:file_change', changeMsg);
+  }
+
+  /**
+   * Handle agent runner's session init message
+   */
+  private handleAgentRunnerTaskSessionInit(message: AgentRunnerTaskSessionInitMessage): void {
+    const { payload } = message;
+    const initMsg: TaskSessionInitMessage = {
+      type: 'task.session_init',
+      timestamp: new Date(),
+      taskId: payload.taskId,
+      sessionId: payload.sessionId,
+      model: payload.model,
+    };
+    this.emit('task:session_init', initMsg);
+  }
+
+  /**
+   * Handle agent runner's steer ack message
+   */
+  private handleAgentRunnerTaskSteerAck(message: AgentRunnerTaskSteerAckMessage): void {
+    const { payload } = message;
+    const ackMsg: TaskSteerAckMessage = {
+      type: 'task.steer.ack',
+      timestamp: new Date(),
+      taskId: payload.taskId,
+      accepted: payload.accepted,
+      message: payload.message,
+    };
+    this.emit('task:steer_ack', ackMsg);
   }
 
   private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {

@@ -235,9 +235,15 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       const type = event.type as string;
 
       switch (type) {
-        case 'system':
-          // Init event — skip (contains session info, tool list, etc.)
+        case 'system': {
+          // Init event — extract session info
+          const sessionId = event.session_id as string | undefined;
+          const model = event.model as string | undefined;
+          if (sessionId) {
+            stream.sessionInit(sessionId, model);
+          }
           break;
+        }
 
         case 'assistant': {
           // Assistant message with content blocks
@@ -245,11 +251,11 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
           if (message?.content) {
             for (const block of message.content) {
               if (block.type === 'text' && block.text) {
-                stream.stdout(block.text + '\n');
+                // Use structured text instead of raw stdout
+                stream.text(block.text + '\n');
               } else if (block.type === 'tool_use') {
-                // Send structured tool trace for the Tools panel
-                stream.toolTrace(block.name ?? 'unknown', block.input);
-                stream.stdout(`\n[Tool: ${block.name}]\n`);
+                // Send structured tool use for the Tools panel
+                stream.toolUse(block.name ?? 'unknown', block.input);
               }
             }
           }
@@ -259,16 +265,15 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         case 'user': {
           // Tool results
           const message = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> } | undefined;
-          const toolResult = event.tool_use_result as { stdout?: string; stderr?: string } | undefined;
+          const toolResultData = event.tool_use_result as { stdout?: string; stderr?: string } | undefined;
 
           // Send structured tool result for the Tools panel
           if (message?.content) {
             for (const block of message.content) {
               if (block.type === 'tool_result') {
-                const resultContent = toolResult?.stdout || block.content || '';
-                stream.toolTrace(
+                const resultContent = toolResultData?.stdout || block.content || '';
+                stream.toolResult(
                   block.tool_use_id ?? 'unknown',
-                  undefined,
                   resultContent,
                   !block.is_error,
                 );
@@ -276,11 +281,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
             }
           }
 
-          if (toolResult?.stdout) {
-            stream.stdout(toolResult.stdout + '\n');
-          }
-          if (toolResult?.stderr) {
-            stream.stderr(toolResult.stderr);
+          if (toolResultData?.stderr) {
+            stream.stderr(toolResultData.stderr);
           }
           break;
         }

@@ -625,6 +625,21 @@ async function dispatchViaRelay(
       stream.writeSSE({ event: 'text', data: msg.output.data }).catch(() => { alive = false })
     }
 
+    const onText = (msg: import('../types/relay.js').TaskTextMessage) => {
+      if (!alive || msg.taskId !== executionId) return
+      lastActivity = Date.now()
+      stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
+    }
+
+    const onSessionInit = (msg: import('../types/relay.js').TaskSessionInitMessage) => {
+      if (!alive || msg.taskId !== executionId) return
+      lastActivity = Date.now()
+      stream.writeSSE({
+        event: 'session_init',
+        data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
+      }).catch(() => { alive = false })
+    }
+
     const onProgress = (msg: import('../types/relay.js').TaskProgressMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
@@ -672,6 +687,8 @@ async function dispatchViaRelay(
 
     relayServer.on('task:result', onResult)
     relayServer.on('task:stdout', onStdout)
+    relayServer.on('task:text', onText)
+    relayServer.on('task:session_init', onSessionInit)
     relayServer.on('task:progress', onProgress)
     relayServer.on('task:tool_trace', onToolTrace)
     relayServer.on('task:file_change', onFileChange)
@@ -684,6 +701,8 @@ async function dispatchViaRelay(
       // Clean up listeners
       relayServer.off('task:result', onResult)
       relayServer.off('task:stdout', onStdout)
+      relayServer.off('task:text', onText)
+      relayServer.off('task:session_init', onSessionInit)
       relayServer.off('task:progress', onProgress)
       relayServer.off('task:tool_trace', onToolTrace)
       relayServer.off('task:file_change', onFileChange)
@@ -728,6 +747,8 @@ async function dispatchViaRelay(
       clearInterval(heartbeat)
       relayServer.off('task:result', onResult)
       relayServer.off('task:stdout', onStdout)
+      relayServer.off('task:text', onText)
+      relayServer.off('task:session_init', onSessionInit)
       relayServer.off('task:progress', onProgress)
       relayServer.off('task:tool_trace', onToolTrace)
       relayServer.off('task:file_change', onFileChange)
