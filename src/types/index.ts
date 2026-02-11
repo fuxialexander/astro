@@ -22,6 +22,8 @@ export interface Project {
   labels?: Label[];
   workingDirectory?: string; // Absolute path for task execution (cwd for agents)
   repository?: string;       // Git clone URL (e.g., https://github.com/user/repo.git)
+  fileTree?: string[];           // Cached git ls-files output (relative paths)
+  fileTreeUpdatedAt?: string;    // ISO timestamp for staleness check
   createdAt: Date;
   updatedAt: Date;
 }

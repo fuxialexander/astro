@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
+import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { usePlanStore } from "@/stores/plan-store"
+import { useProjectStore } from "@/stores/project-store"
 import { PRIORITIES, ESTIMATES } from "@/lib/constants"
 import { cn } from "@/lib/utils"
 import type { PlanNode, PlanEdge, Priority, Estimate, EdgeType } from "@/types"
@@ -26,6 +28,7 @@ export function TaskCreationForm({
 }: TaskCreationFormProps) {
   const addNode = usePlanStore((s) => s.addNode)
   const addEdge = usePlanStore((s) => s.addEdge)
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
@@ -154,10 +157,13 @@ export function TaskCreationForm({
 
       {/* Description */}
       {showDescription ? (
-        <textarea
-          placeholder="Add description..."
+        <FileCompletionTextarea
+          projectId={projectId}
+          workingDirectory={project?.workingDirectory}
+          fileTree={project?.fileTree}
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          onChange={setDescription}
+          placeholder="Add description... (type @ to reference files)"
           rows={2}
           className="w-full resize-none bg-transparent text-sm text-muted-foreground outline-none placeholder:text-muted-foreground"
         />

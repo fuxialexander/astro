@@ -3,20 +3,24 @@ import { Send, Loader2, CheckCircle2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
+import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { useRealtimeStore, type TaskStream } from "@/stores/realtime-store"
+import { useProjectStore } from "@/stores/project-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 
 interface SteerChatProps {
   taskId: string
   machineId: string
+  projectId: string
   taskStream?: TaskStream
 }
 
-export function SteerChat({ taskId, machineId, taskStream }: SteerChatProps) {
+export function SteerChat({ taskId, machineId, projectId, taskStream }: SteerChatProps) {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
   const steerMessages = taskStream?.steerMessages || []
 
@@ -75,13 +79,6 @@ export function SteerChat({ taskId, machineId, taskStream }: SteerChatProps) {
       console.error("Steer error:", error)
     } finally {
       setSending(false)
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
     }
   }
 
@@ -152,11 +149,15 @@ export function SteerChat({ taskId, machineId, taskStream }: SteerChatProps) {
           disabled={sending}
           className="h-9 w-9 shrink-0"
         />
-        <textarea
+        <FileCompletionTextarea
+          projectId={projectId}
+          machineId={machineId}
+          workingDirectory={project?.workingDirectory}
+          fileTree={project?.fileTree}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Guide the agent..."}
+          onChange={setInput}
+          onSubmit={handleSend}
+          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Guide the agent... (type @ to reference files)"}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />

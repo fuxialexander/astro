@@ -9,12 +9,14 @@ import { dispatchRoute } from './routes/dispatch.js'
 import { deviceAuthRoute } from './routes/device-auth.js'
 import { eventsRoute } from './routes/events.js'
 import { transcribeRoute } from './routes/transcribe.js'
+import { fsRoute } from './routes/fs.js'
+import { repoRoute } from './routes/repo.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
 import { dispatchEngine } from './lib/dispatch/index.js'
-import { updateMachineConnectionStatus } from './lib/registered-machines-store.js'
+import { updateMachineConnectionStatus, ensureMachineRegistered } from './lib/registered-machines-store.js'
 
 const app = new Hono()
 
@@ -42,9 +44,13 @@ app.route('/api/dispatch', dispatchRoute)
 app.route('/api/device', deviceAuthRoute)
 app.route('/api/events', eventsRoute)
 app.route('/api/transcribe', transcribeRoute)
+app.route('/api/fs', fsRoute)
+app.route('/api/repo', repoRoute)
 
 const port = 3001
 const relayPort = parseInt(process.env.RELAY_PORT || '3002', 10)
+
+let httpServer: ReturnType<typeof serve> | null = null
 
 // Initialize providers and relay server before starting
 async function start() {
@@ -101,9 +107,16 @@ async function start() {
 
     relayServer.on('machine:connected', async (machineId) => {
       console.log(`[relay] Machine ${machineId} connected`)
-      // Update registered machine status
-      void updateMachineConnectionStatus(machineId, true)
       const entry = machineRegistry.get(machineId)
+      // Ensure machine exists in persistent store (survives server restarts)
+      await ensureMachineRegistered(machineId, {
+        name: entry?.name || machineId,
+        hostname: entry?.hostname || 'unknown',
+        platform: entry?.platform || 'unknown',
+        environmentType: entry?.environmentType || 'remote',
+        providers: entry?.providers?.map(p => p.type) || [],
+        userId: 'user-1',
+      })
       if (entry && redisPubSub.isConnected()) {
         await redisPubSub.registerMachine(machineId, entry)
         await redisPubSub.publishMachineState({
@@ -140,24 +153,31 @@ async function start() {
   console.log('[dispatch] Dispatch engine started')
 
   console.log(`[backend] listening on http://localhost:${port}`)
-  serve({ fetch: app.fetch, port })
+  httpServer = serve({ fetch: app.fetch, port })
 }
 
-// Handle graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('[server] SIGTERM received, shutting down gracefully')
-  dispatchEngine.stop()
-  await relayServer.stop()
-  await redisPubSub.disconnect()
-  process.exit(0)
-})
+// Shared shutdown logic with a hard timeout so the process never hangs
+async function shutdown(signal: string) {
+  console.log(`[server] ${signal} received, shutting down gracefully`)
+  // Hard kill after 3 seconds if cleanup stalls
+  const timer = setTimeout(() => {
+    console.log('[server] Shutdown timed out, forcing exit')
+    process.exit(1)
+  }, 3_000)
+  timer.unref()
 
-process.on('SIGINT', async () => {
-  console.log('[server] SIGINT received, shutting down gracefully')
-  dispatchEngine.stop()
-  await relayServer.stop()
-  await redisPubSub.disconnect()
+  try {
+    dispatchEngine.stop()
+    httpServer?.close()
+    await relayServer.stop()
+    await redisPubSub.disconnect()
+  } catch (e) {
+    console.error('[server] Error during shutdown:', e)
+  }
   process.exit(0)
-})
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
 
 start()

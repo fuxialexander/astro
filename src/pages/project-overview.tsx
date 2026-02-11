@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useParams, useNavigate } from "react-router"
 import {
   Rocket,
@@ -297,11 +297,31 @@ function UpdatesTab() {
 }
 
 // --- Main Project Overview Page ---
+const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
+
 export function ProjectOverview() {
   const { id } = useParams()
   const navigate = useNavigate()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
+  const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const [activeTab, setActiveTab] = useState<TabId>("overview")
+
+  // Refresh file tree cache if stale or missing (only on mount / project change)
+  useEffect(() => {
+    if (!project?.workingDirectory) return
+    const updatedAt = project.fileTreeUpdatedAt ? new Date(project.fileTreeUpdatedAt).getTime() : 0
+    if (Date.now() - updatedAt < FILE_TREE_STALE_MS && project.fileTree?.length) return
+
+    fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.files?.length) {
+          updateFileTree(project.id, data.files)
+        }
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, project?.workingDirectory])
 
   if (!project) {
     return (

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
 import { ArrowLeft, FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond, X, Calendar } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -593,11 +593,14 @@ function PlanBoardView({ projectId, onNodeSelect }: { projectId: string; onNodeS
 // --- Main Plan View Page ---
 const VALID_VIEWS = new Set<ViewMode>(["graph", "list", "timeline", "board"])
 
+const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
+
 export function PlanView() {
   const { id } = useParams()
   const [searchParams] = useSearchParams()
   const initialView = searchParams.get("view") as ViewMode | null
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
+  const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const isGenerating = useAgentStore((s) => s.isGenerating)
   const updateNode = usePlanStore((s) => s.updateNode)
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
@@ -605,6 +608,23 @@ export function PlanView() {
   const [viewMode, setViewMode] = useState<ViewMode>(initialView && VALID_VIEWS.has(initialView) ? initialView : "graph")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [visionOpen, setVisionOpen] = useState(false)
+
+  // Refresh file tree cache if stale or missing (only on mount / project change)
+  useEffect(() => {
+    if (!project?.workingDirectory) return
+    const updatedAt = project.fileTreeUpdatedAt ? new Date(project.fileTreeUpdatedAt).getTime() : 0
+    if (Date.now() - updatedAt < FILE_TREE_STALE_MS && project.fileTree?.length) return
+
+    fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.files?.length) {
+          updateFileTree(project.id, data.files)
+        }
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, project?.workingDirectory])
 
   if (!project) {
     return (

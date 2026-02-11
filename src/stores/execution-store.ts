@@ -641,6 +641,21 @@ function handleSSEEvent(
           executionOutput: execution?.streamText || parsed.output,
           executionCompletedAt: new Date(),
         })
+
+        // Refresh file tree cache after task completion
+        const projectForRefresh = useProjectStore.getState().projects.find(
+          (p) => p.id === execution?.projectId
+        )
+        if (projectForRefresh?.workingDirectory) {
+          fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(projectForRefresh.workingDirectory)}`)
+            .then((r) => r.json())
+            .then((data) => {
+              if (data.files?.length) {
+                useProjectStore.getState().updateFileTree(projectForRefresh.id, data.files)
+              }
+            })
+            .catch(() => {})
+        }
       } catch {
         // Ignore parse errors
       }

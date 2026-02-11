@@ -2,9 +2,11 @@ import { useState, useRef, useEffect } from "react"
 import { Send, Loader2, Trash2, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { chatWithTask } from "@/lib/api-client"
 import { useTaskChatStore } from "@/stores/task-chat-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useProjectStore } from "@/stores/project-store"
 import type { PlanNode } from "@/types"
 
 interface TaskChatProps {
@@ -20,6 +22,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const model = useSettingsStore((s) => s.model)
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
   // Store actions
   const getOrCreateSession = useTaskChatStore((s) => s.getOrCreateSession)
@@ -90,13 +93,6 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
       )
     } catch {
       setIsStreaming(false)
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
     }
   }
 
@@ -181,11 +177,14 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
 
       {/* Input */}
       <div className="flex items-end gap-2 border-t border-border p-3">
-        <textarea
+        <FileCompletionTextarea
+          projectId={projectId}
+          workingDirectory={project?.workingDirectory}
+          fileTree={project?.fileTree}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask about this task..."
+          onChange={setInput}
+          onSubmit={handleSend}
+          placeholder="Ask about this task... (type @ to reference files)"
           rows={1}
           className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
