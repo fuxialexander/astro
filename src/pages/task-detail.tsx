@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router"
+import { useParams, Link, useNavigate } from "react-router"
 import { ArrowLeft, Clock, Monitor, Square, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -37,6 +37,7 @@ function formatDuration(start?: Date, end?: Date): string {
 }
 
 export function TaskDetail() {
+  const navigate = useNavigate()
   const { id: projectId, nodeId } = useParams<{ id: string; nodeId: string }>()
   const node = usePlanStore((s) => s.nodes.find((n) => n.id === nodeId))
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
@@ -104,10 +105,8 @@ export function TaskDetail() {
       <div className="flex flex-1 flex-col min-w-0">
         {/* Header */}
         <div className="flex items-center gap-4 border-b border-border px-6 py-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link to={`/project/${projectId}`}>
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">

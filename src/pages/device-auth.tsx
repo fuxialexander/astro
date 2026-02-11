@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { useSearchParams } from "react-router"
+import { useSearchParams, useNavigate } from "react-router"
 import { Monitor, CheckCircle2, XCircle, Loader2, AlertCircle, Laptop, Server, Cloud } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,6 +50,7 @@ function getPlatformLabel(platform?: string) {
 
 export function DeviceAuth() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const codeFromUrl = searchParams.get("code")
 
   const [code, setCode] = useState(codeFromUrl || "")
@@ -123,6 +124,9 @@ export function DeviceAuth() {
       }
 
       setStatus("success")
+
+      // Redirect to dashboard after a short delay
+      setTimeout(() => navigate("/"), 2000)
     } catch {
       setStatus("error")
       setError("Failed to authorize device. Please try again.")
