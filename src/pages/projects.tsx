@@ -10,6 +10,7 @@ import { ItemTimelineView, type TimelineRow } from "@/components/views/item-time
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/view-utils"
 import { cn } from "@/lib/utils"
 import type { Project } from "@/types"
@@ -237,20 +238,47 @@ export function Projects() {
   // Timeline-specific settings
   const timelineDisplaySettings = useDisplaySettingsStore((s) => s.get("projects-timeline"))
 
+  // Derive date ranges for projects that lack explicit startDate/targetDate
+  // by looking at their plan nodes' startDate/endDate
+  const projectDateRanges = useMemo(() => {
+    const ranges: Record<string, { startDate: string; targetDate: string }> = {}
+    for (const p of projects) {
+      if (isValidDateStr(p.startDate) && isValidDateStr(p.targetDate)) {
+        ranges[p.id] = { startDate: p.startDate, targetDate: p.targetDate }
+        continue
+      }
+      // Derive from plan nodes
+      const projectNodes = allNodes.filter((n) => n.projectId === p.id)
+      let minDate: string | undefined
+      let maxDate: string | undefined
+      for (const n of projectNodes) {
+        if (isValidDateStr(n.startDate) && (!minDate || n.startDate < minDate)) minDate = n.startDate
+        if (isValidDateStr(n.endDate) && (!maxDate || n.endDate > maxDate)) maxDate = n.endDate
+        if (isValidDateStr(n.dueDate) && (!maxDate || n.dueDate > maxDate)) maxDate = n.dueDate
+      }
+      const today = fmtDate(new Date())
+      ranges[p.id] = {
+        startDate: p.startDate ?? minDate ?? today,
+        targetDate: p.targetDate ?? maxDate ?? fmtDate(addDays(new Date(), 30)),
+      }
+    }
+    return ranges
+  }, [projects, allNodes])
+
   // Sort projects for timeline (uses timeline display settings)
   const timelineSortedProjects = useMemo(() => {
     const filtered = timelineDisplaySettings.showCompleted
       ? projects
       : projects.filter((p) => (p.progress ?? 0) < 100)
-    const sorted = [...filtered].filter((p) => p.startDate && p.targetDate)
+    const sorted = [...filtered]
     const dir = timelineDisplaySettings.orderDirection === "asc" ? 1 : -1
     sorted.sort((a, b) => {
       switch (timelineDisplaySettings.orderBy) {
         case "name":
           return dir * a.name.localeCompare(b.name)
         case "targetDate": {
-          const da = a.targetDate ?? ""
-          const db = b.targetDate ?? ""
+          const da = projectDateRanges[a.id]?.targetDate ?? ""
+          const db = projectDateRanges[b.id]?.targetDate ?? ""
           return dir * da.localeCompare(db)
         }
         case "progress":
@@ -264,20 +292,21 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, timelineDisplaySettings.orderBy, timelineDisplaySettings.orderDirection, timelineDisplaySettings.showCompleted])
+  }, [projects, projectDateRanges, timelineDisplaySettings.orderBy, timelineDisplaySettings.orderDirection, timelineDisplaySettings.showCompleted])
 
   // Timeline rows (with grouping support)
   const timelineRows = useMemo((): TimelineRow<Project>[] => {
     const makeItemRow = (p: Project): TimelineRow<Project> => {
       const { bg, progress } = getProjectBarColors(p)
       const pct = p.progress ?? 0
+      const dates = projectDateRanges[p.id]
       return {
         kind: "item" as const,
         item: p,
         timeline: {
           id: p.id,
-          startDate: p.startDate!,
-          endDate: p.targetDate!,
+          startDate: dates?.startDate ?? "",
+          endDate: dates?.targetDate ?? "",
           barClass: bg,
           progressClass: progress || undefined,
           progressPct: pct,
@@ -318,7 +347,7 @@ export function Projects() {
       }
     }
     return result
-  }, [timelineSortedProjects, timelineDisplaySettings.groupBy])
+  }, [timelineSortedProjects, projectDateRanges, timelineDisplaySettings.groupBy])
 
   // Initiative counts for right panel
   const initiativeCounts = useMemo(() => {
@@ -451,8 +480,14 @@ export function Projects() {
               onItemClick={(proj) => navigate(`/project/${proj.id}`)}
             />
           ) : (
-            <div className="flex flex-1 items-center justify-center text-muted-foreground">
-              <p className="text-sm">No projects with dates to display</p>
+            <div className="flex-1 overflow-auto">
+              <EmptyState
+                icon={Folder}
+                title="No projects to display"
+                description="Create a project to see it on the timeline."
+                action={{ label: "Create Project", onClick: () => navigate("/projects/new") }}
+                className="h-full"
+              />
             </div>
           )
         )}

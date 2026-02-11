@@ -8,6 +8,7 @@ import {
   diffDays,
   addDays,
   snapToMonday,
+  isValidDateStr,
 } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
 
@@ -167,7 +168,7 @@ export function ItemTimelineView<T>({
   const datedItems = useMemo(() => {
     return rows
       .filter((r): r is Extract<typeof r, { kind: "item" }> => r.kind === "item")
-      .filter((r) => r.timeline.startDate && r.timeline.endDate)
+      .filter((r) => isValidDateStr(r.timeline.startDate) && isValidDateStr(r.timeline.endDate))
   }, [rows])
 
   // Compute the full date span (independent of ppd) — used to derive min ppd
@@ -431,7 +432,7 @@ export function ItemTimelineView<T>({
               }
 
               const tl = row.timeline
-              if (!tl.startDate || !tl.endDate) {
+              if (!isValidDateStr(tl.startDate) || !isValidDateStr(tl.endDate)) {
                 return <div key={tl.id} className="border-b border-border" style={{ height: `${rowHeight}px` }} />
               }
 
