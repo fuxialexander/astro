@@ -2,14 +2,19 @@
  * Claude Agent SDK Adapter
  *
  * Executes tasks using the @anthropic-ai/claude-agent-sdk.
- * Uses StreamingPrompt for zero-serialization in-process execution
- * and supports mid-execution steering via message injection.
+ * Runs in-process with zero serialization overhead.
+ * Supports mid-execution steering via Query.streamInput().
  */
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Query } from '@anthropic-ai/claude-agent-sdk';
 import type { Task, TaskResult, TaskArtifact } from '../types.js';
 import type { ProviderAdapter, TaskOutputStream, ProviderStatus } from './base-adapter.js';
-import { StreamingPrompt } from '../lib/streaming-prompt.js';
+
+/** Active query state for a running task */
+interface ActiveQuery {
+  query: Query;
+  sessionId: string;
+}
 
 export class ClaudeSdkAdapter implements ProviderAdapter {
   readonly type = 'claude-sdk';
@@ -21,8 +26,8 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
   private isAuthenticated = false;
   private model = 'unknown';
 
-  /** Active StreamingPrompt instances per task ID */
-  private activePrompts = new Map<string, StreamingPrompt>();
+  /** Active Query instances per task ID for steering */
+  private activeQueries = new Map<string, ActiveQuery>();
 
   async isAvailable(): Promise<boolean> {
     try {
@@ -110,19 +115,43 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       };
     } finally {
       signal.removeEventListener('abort', abortHandler);
-      this.activePrompts.delete(task.id);
+      this.activeQueries.delete(task.id);
       this.activeTasks--;
     }
   }
 
   /**
    * Inject a steering message into a running task's session.
-   * Returns true if the message was successfully queued.
+   * Uses Query.streamInput() to feed a new user message into the running query.
+   * Returns true if the message was successfully injected.
    */
   injectMessage(taskId: string, content: string): boolean {
-    const prompt = this.activePrompts.get(taskId);
-    if (!prompt) return false;
-    prompt.addMessage(content);
+    const active = this.activeQueries.get(taskId);
+    if (!active) return false;
+
+    // Create a single-message async iterable with proper SDKUserMessage shape
+    const message = {
+      type: 'user' as const,
+      message: {
+        role: 'user' as const,
+        content,
+      },
+      parent_tool_use_id: null,
+      session_id: active.sessionId,
+    };
+
+    // Single-shot async iterable
+    const iterable = {
+      async *[Symbol.asyncIterator]() {
+        yield message;
+      },
+    };
+
+    // streamInput returns a Promise — fire and forget
+    active.query.streamInput(iterable).catch((err: Error) => {
+      console.error(`[claude-sdk] Failed to inject steer message for task ${taskId}:`, err.message);
+    });
+
     return true;
   }
 
@@ -148,10 +177,6 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     error?: string;
     artifacts?: TaskArtifact[];
   }> {
-    // Create StreamingPrompt for this task
-    const streamingPrompt = new StreamingPrompt(task.prompt);
-    this.activePrompts.set(task.id, streamingPrompt);
-
     // Build options for the query
     const options: Parameters<typeof query>[0]['options'] = {
       abortController,
@@ -166,9 +191,9 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       (options as Record<string, unknown>).env = task.environment;
     }
 
-    // Pass StreamingPrompt as the prompt — SDK accepts AsyncIterable<SDKUserMessage>
+    // Use plain string prompt — simple and reliable
     const gen = query({
-      prompt: streamingPrompt as unknown as string,
+      prompt: task.prompt,
       options,
     });
 
@@ -181,10 +206,12 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     for await (const msg of gen) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         this.model = msg.model;
-        const sid = (msg as unknown as Record<string, unknown>).session_id as string ?? '';
-        streamingPrompt.updateSessionId(sid);
+        const sessionId = (msg as unknown as Record<string, unknown>).session_id as string ?? '';
         stream.status('running', 5, `Model: ${msg.model}`);
-        stream.sessionInit(sid, msg.model);
+        stream.sessionInit(sessionId, msg.model);
+
+        // Store the query instance for steering
+        this.activeQueries.set(task.id, { query: gen, sessionId });
       } else if (msg.type === 'assistant') {
         // Stream assistant content blocks
         for (const block of msg.message.content) {
@@ -246,9 +273,6 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
         break;
       }
     }
-
-    // Signal completion to the streaming prompt
-    streamingPrompt.complete();
 
     return {
       success,
