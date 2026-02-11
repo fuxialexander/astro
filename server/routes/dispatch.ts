@@ -598,7 +598,7 @@ async function dispatchViaRelay(
   return streamSSE(c, async (stream) => {
     let alive = true
     let lastActivity = Date.now()
-    const ACTIVITY_TIMEOUT_MS = 120_000
+    const ACTIVITY_TIMEOUT_MS = 300_000
 
     // Subscribe to relay events filtered by this executionId BEFORE dispatching
     const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
