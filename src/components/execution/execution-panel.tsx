@@ -3,6 +3,7 @@ import { Link } from "react-router"
 import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -65,6 +66,14 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
     node.environment || 'local'
   )
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
+  const [workingDir, setWorkingDir] = useState(dirCheck.dir || '')
+  const [prevEnv, setPrevEnv] = useState(selectedEnvironment)
+  const [prevDirCheck, setPrevDirCheck] = useState(dirCheck.dir)
+  if (prevEnv !== selectedEnvironment || prevDirCheck !== dirCheck.dir) {
+    setPrevEnv(selectedEnvironment)
+    setPrevDirCheck(dirCheck.dir)
+    setWorkingDir(dirCheck.dir || '')
+  }
 
   // Load providers and machines on mount
   useEffect(() => {
@@ -105,11 +114,12 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
     !isExecuting &&
     executableStatuses.includes(node.status) &&
     hasExecutionTarget &&
-    dirCheck.ok
+    !!workingDir.trim()
 
   const handleExecute = () => {
     const options: ExecutionOptions = {
       environment: selectedEnvironment,
+      workingDirectory: workingDir.trim() || undefined,
     }
 
     if (selectedMachine) {
@@ -261,34 +271,16 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
         </div>
       )}
 
-      {/* Working Directory Status */}
-      {!dirCheck.ok && (
-        <div className="rounded-lg bg-amber-500/10 p-3 text-sm">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5" />
-            <div>
-              <p className="font-medium text-amber-500">No working directory configured</p>
-              <p className="text-muted-foreground mt-1">
-                Configure a local directory or repository URL in{" "}
-                <Link to={`/project/${projectId}`} className="text-primary underline underline-offset-2">
-                  project settings
-                </Link>{" "}
-                to enable execution.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Effective Working Directory */}
-      {dirCheck.ok && (
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Directory</span>
-          <span className="text-xs font-mono text-muted-foreground max-w-[200px] truncate" title={dirCheck.dir}>
-            {dirCheck.dir}
-          </span>
-        </div>
-      )}
+      {/* Working Directory */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm text-muted-foreground">Working Directory</span>
+        <Input
+          value={workingDir}
+          onChange={(e) => setWorkingDir(e.target.value)}
+          placeholder="/path/to/project or git@github.com:..."
+          className="h-8 font-mono text-xs"
+        />
+      </div>
 
       {/* Dependency Status */}
       {!canExecuteResult.ready && (
