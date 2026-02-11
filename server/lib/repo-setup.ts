@@ -70,8 +70,7 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
 
   // Case 1: No directory and no repository — create a fresh project dir
   if (!workingDirectory && !repository) {
-    const sanitized = sanitizeName(projectName)
-    const dir = join(homedir(), '.nexus', 'projects', sanitized)
+    const dir = join(homedir(), '.nexus', 'projects', projectId)
     mkdirSync(dir, { recursive: true })
     gitInit(dir)
     const gitignoreCreated = generateGitignoreIfMissing(dir)
@@ -152,14 +151,6 @@ export function getFileTree(workingDirectory: string): string[] {
 }
 
 // --- Internal helpers ---
-
-function sanitizeName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 60) || 'untitled'
-}
 
 function isGitRepo(dir: string): boolean {
   try {

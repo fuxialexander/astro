@@ -46,10 +46,14 @@ export function ProjectNew() {
     onTranscript: handleTranscript,
   })
 
+  const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
+
   async function handleGenerate() {
     if (!description.trim()) return
     const id = `proj-${crypto.randomUUID().slice(0, 8)}`
     const projectName = description.slice(0, 50).trim() || "New Project"
+    const hasRepo = !!(repoUrl.trim() || workingDir.trim())
+
     addProject({
       id,
       name: projectName,
@@ -64,15 +68,29 @@ export function ProjectNew() {
       updatedAt: new Date(),
     })
     navigate(`/project/${id}`)
-    // Trigger plan generation after navigation
-    if (connectionStatus === "connected") {
+
+    if (connectionStatus !== "connected") return
+
+    if (hasRepo) {
+      // Repo-aware flow: clone/setup first, then generate with context
+      setGenerationPhase('repo_setup')
+      const repoResult = await setupRepo(id, projectName, description.trim())
+      if (repoResult?.workingDirectory) {
+        startGeneration(id, description.trim(), undefined, {
+          workingDirectory: repoResult.workingDirectory,
+          fileTree: repoResult.fileTree,
+        })
+      } else {
+        // Repo setup failed or needs git init — generate without repo context
+        startGeneration(id, description.trim())
+      }
+    } else {
+      // Fast path: no repo, generate immediately
       startGeneration(id, description.trim())
     }
-    // Repo setup runs in parallel with plan generation (non-blocking)
-    setupRepo(id, projectName, description.trim())
   }
 
-  async function setupRepo(projectId: string, projectName: string, projectDescription: string) {
+  async function setupRepo(projectId: string, projectName: string, projectDescription: string): Promise<{ workingDirectory?: string; fileTree?: string[] } | null> {
     try {
       const res = await fetch("/api/repo/setup", {
         method: "POST",
@@ -85,13 +103,13 @@ export function ProjectNew() {
           repository: repoUrl.trim() || undefined,
         }),
       })
-      if (!res.ok) return
+      if (!res.ok) return null
       const data = await res.json()
 
       if (data.needsGitInit) {
         // Prompt user to confirm git init
         setGitInitPrompt({ projectId, dir: data.workingDirectory, name: projectName })
-        return
+        return null
       }
 
       // Update project with resolved working directory and file tree
@@ -101,8 +119,11 @@ export function ProjectNew() {
       if (data.fileTree) {
         updateFileTree(projectId, data.fileTree)
       }
+
+      return { workingDirectory: data.workingDirectory, fileTree: data.fileTree }
     } catch (error) {
       console.error("[project-new] Repo setup failed:", error)
+      return null
     }
   }
 

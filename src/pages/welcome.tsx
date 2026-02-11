@@ -85,7 +85,10 @@ export function Welcome() {
 
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
+  const updateProject = useProjectStore((s) => s.updateProject)
+  const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const startGeneration = useAgentStore((s) => s.startGeneration)
+  const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
   const isGenerating = useAgentStore((s) => s.isGenerating)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
 
@@ -126,28 +129,72 @@ export function Welcome() {
     return desc
   }
 
-  function handleStructurePlan() {
+  async function handleStructurePlan() {
     const input = primaryInput.trim()
     if (!input && !hasRepo) return
 
     const id = `proj-${Date.now()}`
     const fullDescription = buildDescription()
+    const repoUrlVal = repoUrl.trim()
+    const repoPathVal = repoPath.trim()
+    const hasRepoContext = !!(repoUrlVal || repoPathVal)
 
     addProject({
       id,
-      name: input.slice(0, 50).trim() || repoUrl.split("/").pop() || "New Project",
+      name: input.slice(0, 50).trim() || repoUrlVal.split("/").pop() || "New Project",
       description: fullDescription,
       visionDoc: inputMode === "paste" ? pastedDoc : "",
       status: "active",
       startDate: startDate || undefined,
       targetDate: targetDate || undefined,
+      repository: repoUrlVal || undefined,
+      workingDirectory: repoPathVal || undefined,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
 
     navigate(`/project/${id}`)
 
-    if (connectionStatus === "connected") {
+    if (connectionStatus !== "connected") return
+
+    if (hasRepoContext) {
+      // Repo-aware flow: setup repo first, then generate with context
+      setGenerationPhase('repo_setup')
+      try {
+        const res = await fetch("/api/repo/setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: id,
+            projectName: input.slice(0, 50).trim() || "New Project",
+            projectDescription: fullDescription,
+            workingDirectory: repoPathVal || undefined,
+            repository: repoUrlVal || undefined,
+          }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.workingDirectory) {
+            updateProject(id, { workingDirectory: data.workingDirectory })
+          }
+          if (data.fileTree) {
+            updateFileTree(id, data.fileTree)
+          }
+          if (data.workingDirectory && !data.needsGitInit) {
+            startGeneration(id, fullDescription, undefined, {
+              workingDirectory: data.workingDirectory,
+              fileTree: data.fileTree,
+            })
+            return
+          }
+        }
+      } catch (error) {
+        console.error("[welcome] Repo setup failed:", error)
+      }
+      // Fallback: generate without repo context
+      startGeneration(id, fullDescription)
+    } else {
+      // Fast path: no repo
       startGeneration(id, fullDescription)
     }
   }

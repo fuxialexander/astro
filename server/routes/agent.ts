@@ -7,6 +7,7 @@ import {
 } from '../lib/providers/index.js'
 import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt } from '../lib/prompt-templates.js'
+import { readRepoContext } from '../lib/repo-context.js'
 import { requireAuth } from '../middleware/auth.js'
 
 const agentRoute = new Hono()
@@ -21,9 +22,11 @@ agentRoute.post('/generate-plan', async (c) => {
     projectId: string
     model?: string
     providerId?: string
+    workingDirectory?: string
+    fileTree?: string[]
   }>()
 
-  const { description, visionDoc, projectId, model, providerId } = body
+  const { description, visionDoc, projectId, model, providerId, workingDirectory, fileTree } = body
   const taskId = `gen-${projectId}-${Date.now()}`
   const abortController = createSession(taskId, providerId)
 
@@ -42,25 +45,32 @@ agentRoute.post('/generate-plan', async (c) => {
         return
       }
 
-      const systemPrompt = buildPlanSystemPrompt(visionDoc)
+      // Read repo context if working directory is provided
+      const repoContext = workingDirectory
+        ? readRepoContext(workingDirectory, fileTree)
+        : undefined
 
-      // Build task dispatch
+      const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext)
+
+      // Build task dispatch — more turns when repo context available (agent may explore)
       const task: TaskDispatch = {
         taskId,
         type: 'planning',
         prompt: description,
         systemPrompt,
         model,
-        maxTurns: 1,
+        maxTurns: workingDirectory ? 10 : 1,
         context: {
           projectId,
           visionDoc,
+          ...(workingDirectory ? { workingDirectory } : {}),
         },
         abortController,
       }
 
       // Stream the execution
       let assistantText = ''
+      let planResultSent = false
 
       for await (const event of provider.stream(task)) {
         switch (event.type) {
@@ -83,6 +93,7 @@ agentRoute.post('/generate-plan', async (c) => {
             // Check if this is a plan result
             const data = event.output.data as Record<string, unknown>
             if (data && typeof data === 'object' && 'nodes' in data && 'edges' in data) {
+              planResultSent = true
               await stream.writeSSE({
                 event: 'plan_result',
                 data: JSON.stringify(data),
@@ -92,20 +103,14 @@ agentRoute.post('/generate-plan', async (c) => {
           }
 
           case 'result':
-            // Try to extract plan from assistant text if no structured output
-            if (!event.result.output && assistantText) {
-              const jsonMatch = assistantText.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, assistantText]
-              const candidate = (jsonMatch[1] || assistantText).trim()
-              try {
-                const parsed = JSON.parse(candidate)
-                if (parsed.nodes && parsed.edges) {
-                  await stream.writeSSE({
-                    event: 'plan_result',
-                    data: JSON.stringify(parsed),
-                  })
-                }
-              } catch {
-                // Not valid JSON — that's fine, text was already streamed
+            // Try to extract plan from assistant text if no structured output already sent
+            if (!planResultSent && assistantText) {
+              const parsed = extractPlanJson(assistantText)
+              if (parsed) {
+                await stream.writeSSE({
+                  event: 'plan_result',
+                  data: JSON.stringify(parsed),
+                })
               }
             }
 
@@ -139,6 +144,60 @@ agentRoute.post('/generate-plan', async (c) => {
     }
   })
 })
+
+/**
+ * Extract a plan JSON object from accumulated assistant text.
+ * Handles multi-turn conversations where the JSON may appear in the last message
+ * mixed with prose or wrapped in code fences.
+ */
+function extractPlanJson(text: string): Record<string, unknown> | null {
+  // Try code fence extraction first
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenceMatch) {
+    try {
+      const parsed = JSON.parse(fenceMatch[1].trim())
+      if (parsed.nodes && parsed.edges) return parsed
+    } catch { /* continue */ }
+  }
+
+  // Find the last complete JSON object containing nodes and edges
+  // Search backwards for the last '{' that starts a valid plan object
+  let lastValidPlan: Record<string, unknown> | null = null
+  let searchFrom = 0
+
+  while (true) {
+    const start = text.indexOf('{', searchFrom)
+    if (start === -1) break
+
+    // Find matching closing brace
+    let depth = 0
+    let end = -1
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === '{') depth++
+      else if (text[i] === '}') {
+        depth--
+        if (depth === 0) {
+          end = i
+          break
+        }
+      }
+    }
+
+    if (end === -1) break
+
+    const candidate = text.slice(start, end + 1)
+    try {
+      const parsed = JSON.parse(candidate)
+      if (parsed && typeof parsed === 'object' && parsed.nodes && parsed.edges) {
+        lastValidPlan = parsed
+      }
+    } catch { /* not valid JSON, skip */ }
+
+    searchFrom = start + 1
+  }
+
+  return lastValidPlan
+}
 
 agentRoute.post('/chat', async (c) => {
   const body = await c.req.json<{

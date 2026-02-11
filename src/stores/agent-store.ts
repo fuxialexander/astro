@@ -5,11 +5,20 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import type { PlanNode, PlanEdge } from "@/types"
 
+export type GenerationPhase = 'idle' | 'repo_setup' | 'generating'
+
+interface RepoContext {
+  workingDirectory: string
+  fileTree?: string[]
+}
+
 interface AgentState {
   isGenerating: boolean
+  generationPhase: GenerationPhase
   streamText: string
   error: string | null
-  startGeneration: (projectId: string, description: string, visionDoc?: string) => Promise<void>
+  setGenerationPhase: (phase: GenerationPhase) => void
+  startGeneration: (projectId: string, description: string, visionDoc?: string, repoContext?: RepoContext) => Promise<void>
   abort: () => void
   clearState: () => void
 }
@@ -18,20 +27,32 @@ let currentAbortController: AbortController | null = null
 
 export const useAgentStore = create<AgentState>((set, get) => ({
   isGenerating: false,
+  generationPhase: 'idle',
   streamText: "",
   error: null,
 
-  startGeneration: async (projectId, description, visionDoc) => {
+  setGenerationPhase: (phase) => {
+    set({ generationPhase: phase })
+  },
+
+  startGeneration: async (projectId, description, visionDoc, repoContext) => {
     if (get().isGenerating) return
 
     currentAbortController = new AbortController()
-    set({ isGenerating: true, streamText: "", error: null })
+    set({ isGenerating: true, generationPhase: 'generating', streamText: "", error: null })
 
     const model = useSettingsStore.getState().model
 
     try {
       await generatePlan(
-        { description, visionDoc, projectId, model },
+        {
+          description,
+          visionDoc,
+          projectId,
+          model,
+          workingDirectory: repoContext?.workingDirectory,
+          fileTree: repoContext?.fileTree,
+        },
         {
           onText: (text) => {
             set((s) => ({ streamText: s.streamText + text }))
@@ -92,17 +113,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
     } finally {
       // Always ensure generating state is cleared
-      set({ isGenerating: false })
+      set({ isGenerating: false, generationPhase: 'idle' })
     }
   },
 
   abort: () => {
     currentAbortController?.abort()
     currentAbortController = null
-    set({ isGenerating: false })
+    set({ isGenerating: false, generationPhase: 'idle' })
   },
 
   clearState: () => {
-    set({ isGenerating: false, streamText: "", error: null })
+    set({ isGenerating: false, generationPhase: 'idle', streamText: "", error: null })
   },
 }))

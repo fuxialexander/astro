@@ -51,15 +51,54 @@ export const PLAN_GRAPH_SCHEMA = {
   required: ["projectName", "nodes", "edges"],
 }
 
-export function buildPlanSystemPrompt(visionDoc?: string): string {
+export interface RepoContextForPrompt {
+  claudeMd?: string
+  readmeMd?: string
+  packageInfo?: string
+  fileTreeSummary?: string
+}
+
+export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt): string {
   const visionSection = visionDoc
     ? `\n\n## Project Vision Document\n${visionDoc}\n`
     : ""
 
-  return `You are a JSON-only project planning API. You receive a project description and output ONLY a JSON object — no prose, no explanation, no markdown fences.
+  // Build repo context sections
+  let repoSection = ""
+  if (repoContext) {
+    const parts: string[] = []
+    if (repoContext.claudeMd) {
+      parts.push(`## CLAUDE.md (Project Instructions)\n${repoContext.claudeMd}`)
+    }
+    if (repoContext.readmeMd) {
+      parts.push(`## README.md\n${repoContext.readmeMd}`)
+    }
+    if (repoContext.packageInfo) {
+      parts.push(`## Package Metadata\n${repoContext.packageInfo}`)
+    }
+    if (repoContext.fileTreeSummary) {
+      parts.push(`## File Tree\n\`\`\`\n${repoContext.fileTreeSummary}\n\`\`\``)
+    }
+    if (parts.length > 0) {
+      repoSection = '\n\n' + parts.join('\n\n') + '\n'
+    }
+  }
 
-You decompose the project into a directed acyclic graph of tasks and milestones.
-${visionSection}
+  const hasRepo = repoSection.length > 0
+
+  const outputInstructions = hasRepo
+    ? `You are a project planning assistant with access to the repository. The key files and file tree are provided above.
+You may use tools (Read, Glob, Grep) to explore the codebase for additional context before generating the plan.
+When you are done exploring, output your final plan as a single JSON object.
+Your FINAL message must contain ONLY the JSON object — no prose before or after.
+
+You decompose the project into a directed acyclic graph of tasks and milestones.`
+    : `You are a JSON-only project planning API. You receive a project description and output ONLY a JSON object — no prose, no explanation, no markdown fences.
+
+You decompose the project into a directed acyclic graph of tasks and milestones.`
+
+  return `${outputInstructions}
+${visionSection}${repoSection}
 ## Node rules
 - Each node has a unique id: "n1", "n2", etc.
 - type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points.

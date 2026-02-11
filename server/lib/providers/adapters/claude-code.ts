@@ -153,22 +153,23 @@ export class ClaudeCodeProvider implements AgentProvider {
         fullPrompt = `${preparedContext.promptContent}\n\n---\n\n${task.prompt}`
       }
 
-      // Determine if this is an execution task (needs full tools) vs planning/chat (limited)
+      // Determine if this task needs full tool access
       const isExecution = task.type !== 'planning' && task.type !== 'chat'
+      const isPlanningWithRepo = task.type === 'planning' && !!task.context.workingDirectory
 
       // Build options
       const options: Parameters<typeof query>[0]['options'] = {
         abortController,
         model: task.model ?? this.defaultModel,
         maxTurns: task.maxTurns ?? 1,
-        ...(isExecution
+        ...((isExecution || isPlanningWithRepo)
           ? {
-              // Execution tasks: full tool access, auto-accept permissions
+              // Execution & planning-with-repo: full tool access, auto-accept permissions
               permissionMode: 'bypassPermissions' as const,
               ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
             }
           : {
-              // Planning/chat tasks: no tools needed, just text generation
+              // Planning-without-repo & chat: no tools needed, just text generation
               tools: [],
             }),
       }
@@ -312,22 +313,23 @@ export class ClaudeCodeProvider implements AgentProvider {
         fullPrompt = `${preparedContext.promptContent}\n\n---\n\n${task.prompt}`
       }
 
-      // Determine if this is an execution task (needs full tools) vs planning/chat (limited)
+      // Determine if this task needs full tool access
       const isExecution = task.type !== 'planning' && task.type !== 'chat'
+      const isPlanningWithRepo = task.type === 'planning' && !!task.context.workingDirectory
 
       // Build options
       const options: Parameters<typeof query>[0]['options'] = {
         abortController,
         model: task.model ?? this.defaultModel,
         maxTurns: task.maxTurns ?? 1,
-        ...(isExecution
+        ...((isExecution || isPlanningWithRepo)
           ? {
-              // Execution tasks: full tool access, auto-accept permissions
+              // Execution & planning-with-repo: full tool access, auto-accept permissions
               permissionMode: 'bypassPermissions' as const,
               ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
             }
           : {
-              // Planning/chat tasks: no tools needed, just text generation
+              // Planning-without-repo & chat: no tools needed, just text generation
               tools: [],
             }),
       }
