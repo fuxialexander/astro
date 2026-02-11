@@ -605,6 +605,9 @@ function handleSSEEvent(
           if (exec) {
             exec.status = isSuccess ? "success" : "failure"
             exec.completedAt = new Date()
+            if (!isSuccess && parsed.error) {
+              exec.error = parsed.error
+            }
             if (parsed.sessionId) {
               exec.sessionId = parsed.sessionId
             }

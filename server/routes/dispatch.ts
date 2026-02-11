@@ -162,6 +162,7 @@ dispatchRoute.post('/task', async (c) => {
       preferredProvider,
       targetMachineId,
       priority,
+      workingDirectory,
     })
   }
 
@@ -536,6 +537,7 @@ async function dispatchViaRelay(
     preferredProvider?: ProviderType
     targetMachineId?: string
     priority: DispatchPriority
+    workingDirectory?: string
   }
 ) {
   const {
@@ -550,6 +552,7 @@ async function dispatchViaRelay(
     preferredProvider,
     targetMachineId,
     priority,
+    workingDirectory,
   } = params
 
   // Find target machine
@@ -585,33 +588,21 @@ async function dispatchViaRelay(
     preferredProvider,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     dependencies: dependencyContext ? [dependencyContext] : undefined,
-  }
-
-  const dispatched = relayServer.dispatchTask(taskDispatch, machineId)
-
-  if (!dispatched) {
-    return c.json(
-      {
-        success: false,
-        error: `Failed to dispatch to machine: ${machineId}`,
-      },
-      500
-    )
+    workingDirectory,
   }
 
   // Stream relay events for this execution back to the client
+  // IMPORTANT: Register event listeners BEFORE dispatching to avoid race conditions
+  // where fast-failing tasks send results before listeners are set up.
   return streamSSE(c, async (stream) => {
     let alive = true
+    let lastActivity = Date.now()
+    const ACTIVITY_TIMEOUT_MS = 30_000
 
-    // Send init event
-    await stream.writeSSE({
-      event: 'init',
-      data: JSON.stringify({ executionId, nodeId, machineId }),
-    })
-
-    // Subscribe to relay events filtered by this executionId
+    // Subscribe to relay events filtered by this executionId BEFORE dispatching
     const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
       if (!alive || msg.result.taskId !== executionId) return
+      lastActivity = Date.now()
       stream.writeSSE({
         event: 'result',
         data: JSON.stringify({
@@ -630,11 +621,13 @@ async function dispatchViaRelay(
 
     const onStdout = (msg: import('../types/relay.js').TaskStdoutMessage) => {
       if (!alive || msg.output.taskId !== executionId) return
+      lastActivity = Date.now()
       stream.writeSSE({ event: 'text', data: msg.output.data }).catch(() => { alive = false })
     }
 
     const onProgress = (msg: import('../types/relay.js').TaskProgressMessage) => {
       if (!alive || msg.taskId !== executionId) return
+      lastActivity = Date.now()
       stream.writeSSE({
         event: 'progress',
         data: JSON.stringify({ message: msg.message, percentage: msg.progress }),
@@ -643,6 +636,7 @@ async function dispatchViaRelay(
 
     const onToolTrace = (msg: import('../types/relay.js').TaskToolTraceMessage) => {
       if (!alive || msg.taskId !== executionId) return
+      lastActivity = Date.now()
       stream.writeSSE({
         event: 'tool_use',
         data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
@@ -657,10 +651,23 @@ async function dispatchViaRelay(
 
     const onFileChange = (msg: import('../types/relay.js').TaskFileChangeMessage) => {
       if (!alive || msg.taskId !== executionId) return
+      lastActivity = Date.now()
       stream.writeSSE({
         event: 'file_change',
         data: JSON.stringify({ path: msg.path, action: msg.action, linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved }),
       }).catch(() => { alive = false })
+    }
+
+    // Listen for machine disconnect during streaming
+    const onMachineDisconnected = (disconnectedId: string) => {
+      if (!alive || disconnectedId !== machineId) return
+      console.log(`[dispatch] Machine ${machineId} disconnected during task ${executionId}`)
+      stream.writeSSE({
+        event: 'error',
+        data: JSON.stringify({ error: 'Remote machine disconnected during task execution', recoverable: false }),
+      }).catch(() => {})
+      stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      alive = false
     }
 
     relayServer.on('task:result', onResult)
@@ -668,10 +675,48 @@ async function dispatchViaRelay(
     relayServer.on('task:progress', onProgress)
     relayServer.on('task:tool_trace', onToolTrace)
     relayServer.on('task:file_change', onFileChange)
+    relayServer.on('machine:disconnected', onMachineDisconnected)
 
-    // Keepalive
+    // Now dispatch the task (after listeners are registered to avoid race conditions)
+    const dispatched = relayServer.dispatchTask(taskDispatch, machineId)
+
+    if (!dispatched) {
+      // Clean up listeners
+      relayServer.off('task:result', onResult)
+      relayServer.off('task:stdout', onStdout)
+      relayServer.off('task:progress', onProgress)
+      relayServer.off('task:tool_trace', onToolTrace)
+      relayServer.off('task:file_change', onFileChange)
+      relayServer.off('machine:disconnected', onMachineDisconnected)
+      await stream.writeSSE({
+        event: 'error',
+        data: JSON.stringify({ error: `Failed to dispatch to machine: ${machineId}` }),
+      })
+      await stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) })
+      return
+    }
+
+    // Send init event after successful dispatch
+    await stream.writeSSE({
+      event: 'init',
+      data: JSON.stringify({ executionId, nodeId, machineId }),
+    })
+
+    // Keepalive + activity timeout check
     const heartbeat = setInterval(() => {
       if (!alive) { clearInterval(heartbeat); return }
+      // Check for inactivity timeout
+      if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
+        console.log(`[dispatch] Activity timeout for task ${executionId} on machine ${machineId}`)
+        stream.writeSSE({
+          event: 'error',
+          data: JSON.stringify({ error: 'Remote machine stopped responding (activity timeout)', recoverable: false }),
+        }).catch(() => {})
+        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+        alive = false
+        clearInterval(heartbeat)
+        return
+      }
       stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => {
         alive = false
         clearInterval(heartbeat)
@@ -686,6 +731,7 @@ async function dispatchViaRelay(
       relayServer.off('task:progress', onProgress)
       relayServer.off('task:tool_trace', onToolTrace)
       relayServer.off('task:file_change', onFileChange)
+      relayServer.off('machine:disconnected', onMachineDisconnected)
     })
 
     // Wait for completion or disconnect
