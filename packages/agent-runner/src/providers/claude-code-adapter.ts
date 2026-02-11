@@ -121,6 +121,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
       let proc: ChildProcess;
 
+      console.log(`[claude-code] Spawning: ${this.claudePath} --print --output-format stream-json <prompt>`);
+      console.log(`[claude-code] cwd: ${task.workingDirectory}`);
+      console.log(`[claude-code] prompt length: ${task.prompt.length} chars`);
+
       try {
         proc = spawn(this.claudePath!, args, {
           cwd: task.workingDirectory,
@@ -128,9 +132,15 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
           stdio: ['pipe', 'pipe', 'pipe'],
         });
       } catch (error) {
+        console.error(`[claude-code] Spawn failed:`, error);
         reject(error);
         return;
       }
+
+      // Close stdin immediately - we pass the prompt as an argument, not via stdin
+      proc.stdin?.end();
+
+      console.log(`[claude-code] Process spawned, pid=${proc.pid}`);
 
       let stdout = '';
       let stderr = '';
@@ -160,16 +170,19 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
       proc.stderr?.on('data', (data: Buffer) => {
         const text = data.toString();
+        console.log(`[claude-code] stderr: ${text.slice(0, 200)}`);
         stderr += text;
         stream.stderr(text);
       });
 
       proc.on('error', (error) => {
+        console.error(`[claude-code] Process error:`, error);
         signal.removeEventListener('abort', abortHandler);
         reject(error);
       });
 
       proc.on('close', (code) => {
+        console.log(`[claude-code] Process exited with code ${code}, stdout=${stdout.length} chars, stderr=${stderr.length} chars`);
         signal.removeEventListener('abort', abortHandler);
 
         resolve({

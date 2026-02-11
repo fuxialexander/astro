@@ -5,6 +5,10 @@
  * and streaming output back over WebSocket
  */
 
+import { execFileSync, type ExecFileSyncOptions } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import type { Task, TaskStatus, ProviderType } from '../types.js';
 import type { WebSocketClient } from './websocket-client.js';
 import { createProviderAdapter, type ProviderAdapter } from '../providers/index.js';
@@ -133,18 +137,27 @@ export class TaskExecutor {
   // ============================================================================
 
   private async executeTask(task: Task): Promise<void> {
+    // Resolve workingDirectory: git URL → local clone, empty → cwd
+    const normalizedTask = {
+      ...task,
+      workingDirectory: resolveWorkingDirectory(task.workingDirectory, task.projectId),
+    };
+    console.log(`[executor] Task ${task.id}: workingDirectory resolved to ${normalizedTask.workingDirectory}`);
+
     // Get or create adapter for this provider
-    const adapter = await this.getAdapter(task.provider);
+    const adapter = await this.getAdapter(normalizedTask.provider);
     if (!adapter) {
+      console.error(`[executor] Task ${task.id}: provider ${normalizedTask.provider} not available`);
       this.wsClient.sendTaskResult({
-        taskId: task.id,
+        taskId: normalizedTask.id,
         status: 'failed',
-        error: `Provider ${task.provider} not available`,
+        error: `Provider ${normalizedTask.provider} not available`,
         completedAt: new Date().toISOString(),
       });
       this.processQueue();
       return;
     }
+    console.log(`[executor] Task ${task.id}: adapter ${normalizedTask.provider} ready`);
 
     const abortController = new AbortController();
     const outputSequence = { stdout: 0, stderr: 0 };
@@ -152,29 +165,30 @@ export class TaskExecutor {
     // Create stream handlers before workspace prep so setup output is captured
     const stream = {
       stdout: (data: string) => {
-        this.wsClient.sendTaskOutput(task.id, 'stdout', data, outputSequence.stdout++);
+        this.wsClient.sendTaskOutput(normalizedTask.id, 'stdout', data, outputSequence.stdout++);
       },
       stderr: (data: string) => {
-        this.wsClient.sendTaskOutput(task.id, 'stderr', data, outputSequence.stderr++);
+        this.wsClient.sendTaskOutput(normalizedTask.id, 'stderr', data, outputSequence.stderr++);
       },
       status: (status: TaskStatus, progress?: number, message?: string) => {
-        this.wsClient.sendTaskStatus(task.id, status, progress, message);
+        this.wsClient.sendTaskStatus(normalizedTask.id, status, progress, message);
       },
     };
 
     const runningTask: RunningTask = {
-      task,
+      task: normalizedTask,
       abortController,
       adapter,
       outputSequence,
     };
 
-    this.runningTasks.set(task.id, runningTask);
-    this.wsClient.addActiveTask(task.id);
+    this.runningTasks.set(normalizedTask.id, runningTask);
+    this.wsClient.addActiveTask(normalizedTask.id);
 
-    const prepared = await this.prepareTaskWorkspace(task, stream);
-    const taskWithWorkspace = { ...task, workingDirectory: prepared.workingDirectory };
+    const prepared = await this.prepareTaskWorkspace(normalizedTask, stream);
+    const taskWithWorkspace = { ...normalizedTask, workingDirectory: prepared.workingDirectory };
     runningTask.task = taskWithWorkspace;
+    console.log(`[executor] Task ${task.id}: workspace prepared, cwd=${prepared.workingDirectory}`);
 
     // Execute with timeout
     const timeout = task.timeout ?? this.defaultTimeout;
@@ -185,15 +199,18 @@ export class TaskExecutor {
     try {
       // Notify task started
       this.wsClient.sendTaskStatus(task.id, 'running', 0, 'Starting');
+      console.log(`[executor] Task ${task.id}: executing with ${normalizedTask.provider}...`);
 
       // Execute the task
       const result = await adapter.execute(taskWithWorkspace, stream, abortController.signal);
 
+      console.log(`[executor] Task ${task.id}: completed with status=${result.status}${result.error ? ` error=${result.error}` : ''}`);
       // Send final result
       this.wsClient.sendTaskResult(result);
     } catch (error) {
       // Unexpected error during execution
       const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[executor] Task ${task.id}: execution error: ${errorMsg}`);
       this.wsClient.sendTaskResult({
         taskId: task.id,
         status: 'failed',
@@ -275,4 +292,34 @@ export class TaskExecutor {
       }
     }
   }
+}
+
+/**
+ * Resolve a working directory value.
+ * - Git URL (http/https/git@) → clone to ~/.nexus/repos/{projectId}/ and return local path
+ * - Empty/missing → process.cwd()
+ * - Otherwise → return as-is
+ */
+function resolveWorkingDirectory(value: string | undefined, projectId: string): string {
+  if (!value) return process.cwd();
+
+  const isGitUrl = value.startsWith('http://') || value.startsWith('https://') || value.startsWith('git@');
+  if (!isGitUrl) return value;
+
+  const repoDir = join(homedir(), '.nexus', 'repos', projectId);
+  const execOpts: ExecFileSyncOptions = { stdio: 'ignore', timeout: 120_000 };
+
+  if (existsSync(join(repoDir, '.git'))) {
+    // Already cloned — fetch latest (non-fatal)
+    try {
+      execFileSync('git', ['fetch', '--all'], { ...execOpts, cwd: repoDir });
+    } catch {
+      // Proceed with stale clone
+    }
+  } else {
+    // Clone the repo
+    execFileSync('git', ['clone', value, repoDir], execOpts);
+  }
+
+  return repoDir;
 }
