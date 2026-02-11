@@ -107,6 +107,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       // Build claude command arguments
       const args = [
         '--print', // Non-interactive mode, print output
+        '--verbose', // Required for stream-json with --print
         '--output-format', 'stream-json', // JSON streaming output for structured parsing
       ];
 
