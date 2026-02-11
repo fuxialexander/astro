@@ -211,6 +211,16 @@ interface AgentRunnerTaskSessionInitMessage {
   };
 }
 
+/** Agent runner's file list response message format */
+interface AgentRunnerFileListResponseMessage {
+  type: 'file_list_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    files: string[];
+  };
+}
+
 /** Agent runner's steer ack message format */
 interface AgentRunnerTaskSteerAckMessage {
   type: 'task_steer_ack';
@@ -277,6 +287,7 @@ export interface RelayServerEvents {
   'session:attached': (sessionId: string, taskId: string, machineId: string) => void;
   'session:detached': (sessionId: string, taskId: string, reason?: string) => void;
   'session:event': (sessionId: string, taskId: string, event: SessionEvent) => void;
+  'file_list:response': (data: { correlationId: string; files: string[] }) => void;
   'error': (error: Error) => void;
 }
 
@@ -555,6 +566,15 @@ export class RelayServer extends EventEmitter {
       // Support agent-runner's 'heartbeat' message format (legacy compatibility)
       case 'heartbeat':
         this.handleAgentRunnerHeartbeat(socket, message as AgentRunnerHeartbeatMessage);
+        break;
+
+      // File list response from agent runner
+      case 'file_list.response':
+        this.handleFileListResponse(message as unknown as { type: 'file_list.response'; correlationId: string; files: string[] });
+        break;
+
+      case 'file_list_response':
+        this.handleAgentRunnerFileListResponse(message as unknown as AgentRunnerFileListResponseMessage);
         break;
 
       // Session attachment messages (MCP bridge)
@@ -1274,6 +1294,55 @@ export class RelayServer extends EventEmitter {
       },
     };
     this.emit('task:result', resultMsg);
+  }
+
+  // ============================================================================
+  // File List Handlers
+  // ============================================================================
+
+  /**
+   * Request a file list from a connected machine
+   */
+  requestFileList(machineId: string, path: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for file list request`);
+      return false;
+    }
+
+    // Send in agent-runner's expected format
+    const msg = {
+      type: 'file_list_request',
+      timestamp: new Date().toISOString(),
+      payload: { path, correlationId },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle file_list.response (dot notation)
+   */
+  private handleFileListResponse(message: { correlationId: string; files: string[] }): void {
+    this.emit('file_list:response', {
+      correlationId: message.correlationId,
+      files: message.files,
+    });
+  }
+
+  /**
+   * Handle agent runner's file_list_response format
+   */
+  private handleAgentRunnerFileListResponse(message: AgentRunnerFileListResponseMessage): void {
+    this.emit('file_list:response', {
+      correlationId: message.payload.correlationId,
+      files: message.payload.files,
+    });
   }
 
   // ============================================================================

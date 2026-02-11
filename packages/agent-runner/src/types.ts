@@ -122,6 +122,7 @@ export type WSMessageType =
   | 'task_session_init'
   | 'task_steer_ack'
   | 'resource_update'
+  | 'file_list_response'
   // Server -> Client
   | 'registered'
   | 'heartbeat_ack'
@@ -129,6 +130,7 @@ export type WSMessageType =
   | 'task_cancel'
   | 'task_steer'
   | 'config_update'
+  | 'file_list_request'
   | 'error';
 
 export interface WSMessage {
@@ -313,6 +315,22 @@ export interface ErrorMessage extends WSMessage {
     code: string;
     message: string;
     details?: unknown;
+  };
+}
+
+export interface FileListRequestMessage extends WSMessage {
+  type: 'file_list_request';
+  payload: {
+    path: string;
+    correlationId: string;
+  };
+}
+
+export interface FileListResponseMessage extends WSMessage {
+  type: 'file_list_response';
+  payload: {
+    correlationId: string;
+    files: string[];
   };
 }
 

@@ -4,7 +4,7 @@
 
 import chalk from 'chalk';
 import ora from 'ora';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { config } from '../lib/config.js';
@@ -165,6 +165,25 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     const result = taskExecutor.steerTask(taskId, message);
     wsClient.sendSteerAck(taskId, result.accepted, result.reason);
     log('info', `Steer ack for task ${taskId}: accepted=${result.accepted}${result.reason ? ` reason=${result.reason}` : ''}`, logLevel);
+  };
+
+  wsClient['onFileList'] = (path: string, correlationId: string) => {
+    log('debug', `File list request for path: ${path || '(cwd)'}`, logLevel);
+    try {
+      const cwd = path || process.cwd();
+      const output = execFileSync('git', ['ls-files'], {
+        cwd,
+        encoding: 'utf-8',
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+      });
+      const files = output.trim().split('\n').filter(Boolean);
+      wsClient.sendFileListResponse(correlationId, files);
+      log('debug', `Sent ${files.length} files for path: ${cwd}`, logLevel);
+    } catch (error) {
+      log('warn', `Failed to list files: ${error instanceof Error ? error.message : String(error)}`, logLevel);
+      wsClient.sendFileListResponse(correlationId, []);
+    }
   };
 
   // Handle graceful shutdown

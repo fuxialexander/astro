@@ -210,6 +210,7 @@ export function TaskDetail() {
         <SteerChat
           taskId={executionId}
           machineId={machineId}
+          projectId={projectId}
           taskStream={taskStream}
         />
       )}

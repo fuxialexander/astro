@@ -288,6 +288,20 @@ export interface TaskSteerMessage extends BaseMessage {
   action?: 'guidance' | 'redirect' | 'pause' | 'resume';
 }
 
+/** File list request (relay → agent) */
+export interface FileListRequestMessage extends BaseMessage {
+  type: 'file_list.request';
+  path: string;
+  correlationId: string;
+}
+
+/** File list response (agent → relay) */
+export interface FileListResponseMessage extends BaseMessage {
+  type: 'file_list.response';
+  correlationId: string;
+  files: string[];
+}
+
 /** Error message */
 export interface ErrorMessage extends BaseMessage {
   type: 'error';
@@ -384,7 +398,8 @@ export type AgentToRelayMessage =
   | TaskSteerAckMessage
   | TaskToolTraceMessage
   | TaskFileChangeMessage
-  | HeartbeatPongMessage;
+  | HeartbeatPongMessage
+  | FileListResponseMessage;
 
 /** All session-related messages from MCP bridge to relay */
 export type SessionToRelayMessage =
@@ -404,6 +419,7 @@ export type RelayToAgentMessage =
   | TaskSteerMessage
   | HeartbeatPingMessage
   | MachineRegisterAckMessage
+  | FileListRequestMessage
   | ErrorMessage;
 
 /** All relay messages */

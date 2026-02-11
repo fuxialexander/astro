@@ -85,6 +85,70 @@ export async function registerMachine(params: {
 }
 
 /**
+ * Ensure a machine exists in the persistent store.
+ * If found, marks it connected and updates lastSeenAt.
+ * If not found, creates a new entry with the given machineId.
+ */
+export async function ensureMachineRegistered(machineId: string, params: {
+  name: string
+  hostname: string
+  platform: string
+  environmentType: EnvironmentType
+  providers: ProviderType[]
+  userId: string
+}): Promise<void> {
+  const existing = await getMachine(machineId)
+
+  if (existing) {
+    // Machine exists — just update connection status
+    await updateMachineConnectionStatus(machineId, true)
+    return
+  }
+
+  // Machine not found — create a new entry
+  const now = new Date()
+  const machine: RegisteredMachine = {
+    id: machineId,
+    name: params.name,
+    hostname: params.hostname,
+    platform: params.platform,
+    environmentType: params.environmentType,
+    providers: params.providers,
+    userId: params.userId,
+    registeredAt: now,
+    lastSeenAt: now,
+    isConnected: true,
+    refreshTokenHash: '',
+    isRevoked: false,
+  }
+
+  if (isSupabaseConfigured()) {
+    const supabase = getServiceClient()
+    await supabase.from('registered_machines').insert({
+      id: machine.id,
+      user_id: machine.userId,
+      name: machine.name,
+      hostname: machine.hostname,
+      platform: machine.platform,
+      environment_type: machine.environmentType,
+      providers: machine.providers,
+      is_connected: true,
+      refresh_token_hash: '',
+    })
+  } else {
+    memStore.set(machineId, machine)
+    let userMachines = memUserIndex.get(params.userId)
+    if (!userMachines) {
+      userMachines = new Set()
+      memUserIndex.set(params.userId, userMachines)
+    }
+    userMachines.add(machineId)
+  }
+
+  console.log(`[machines-store] Auto-registered machine ${machineId} on reconnect`)
+}
+
+/**
  * Get a registered machine by ID
  */
 export async function getMachine(machineId: string): Promise<RegisteredMachine | null> {

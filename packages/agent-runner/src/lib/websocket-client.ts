@@ -25,6 +25,8 @@ import type {
   TaskCancelMessage,
   ConfigUpdateMessage,
   ErrorMessage,
+  FileListRequestMessage,
+  FileListResponseMessage,
   ProviderInfo,
   RunnerConfig,
   RunnerEvent,
@@ -55,6 +57,7 @@ export interface WebSocketClientOptions {
   onTaskDispatch?: (task: Task) => void;
   onTaskCancel?: (taskId: string) => void;
   onTaskSteer?: (taskId: string, message: string, action?: string) => void;
+  onFileList?: (path: string, correlationId: string) => void;
   version?: string;
   wsToken?: string;
 }
@@ -66,6 +69,7 @@ type IncomingMessage =
   | TaskCancelMessage
   | TaskSteerIncomingMessage
   | ConfigUpdateMessage
+  | FileListRequestMessage
   | ErrorMessage;
 
 export class WebSocketClient {
@@ -89,6 +93,7 @@ export class WebSocketClient {
   private onTaskDispatch?: (task: Task) => void;
   private onTaskCancel?: (taskId: string) => void;
   private onTaskSteer?: (taskId: string, message: string, action?: string) => void;
+  private onFileList?: (path: string, correlationId: string) => void;
 
   constructor(options: WebSocketClientOptions) {
     this.runnerId = options.runnerId;
@@ -102,6 +107,7 @@ export class WebSocketClient {
     this.onTaskDispatch = options.onTaskDispatch;
     this.onTaskCancel = options.onTaskCancel;
     this.onTaskSteer = options.onTaskSteer;
+    this.onFileList = options.onFileList;
   }
 
   /**
@@ -403,6 +409,20 @@ export class WebSocketClient {
         return;
       }
 
+      // Handle file_list.request (dot notation from relay)
+      if (raw.type === 'file_list.request') {
+        const fileListMsg: FileListRequestMessage = {
+          type: 'file_list_request',
+          timestamp: raw.timestamp as string ?? new Date().toISOString(),
+          payload: {
+            path: raw.path as string,
+            correlationId: raw.correlationId as string,
+          },
+        };
+        this.handleFileListRequest(fileListMsg);
+        return;
+      }
+
       const message = raw as unknown as IncomingMessage;
       this.routeMessage(message);
     } catch (error) {
@@ -429,6 +449,9 @@ export class WebSocketClient {
         break;
       case 'config_update':
         this.handleConfigUpdate(message);
+        break;
+      case 'file_list_request':
+        this.handleFileListRequest(message as FileListRequestMessage);
         break;
       case 'error':
         this.handleError(message);
@@ -482,6 +505,23 @@ export class WebSocketClient {
   private handleError(message: ErrorMessage): void {
     const error = new Error(`${message.payload.code}: ${message.payload.message}`);
     this.emitEvent({ type: 'error', error });
+  }
+
+  private handleFileListRequest(message: FileListRequestMessage): void {
+    const { path, correlationId } = message.payload;
+    this.onFileList?.(path, correlationId);
+  }
+
+  /**
+   * Send file list response
+   */
+  sendFileListResponse(correlationId: string, files: string[]): void {
+    const msg: FileListResponseMessage = {
+      type: 'file_list_response',
+      timestamp: new Date().toISOString(),
+      payload: { correlationId, files },
+    };
+    this.send(msg);
   }
 
   private handleClose(code: number, reason: string): void {
