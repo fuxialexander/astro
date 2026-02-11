@@ -267,11 +267,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         }
 
         case 'result': {
-          // Final result
-          const resultText = event.result as string | undefined;
-          if (resultText) {
-            stream.stdout('\n' + resultText);
-          }
+          // Final result — don't send text (already streamed via assistant events)
           // Extract cost/usage info
           const cost = event.total_cost_usd as number | undefined;
           const numTurns = event.num_turns as number | undefined;
