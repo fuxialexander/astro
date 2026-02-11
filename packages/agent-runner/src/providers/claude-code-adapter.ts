@@ -247,6 +247,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
               if (block.type === 'text' && block.text) {
                 stream.stdout(block.text + '\n');
               } else if (block.type === 'tool_use') {
+                // Send structured tool trace for the Tools panel
+                stream.toolTrace(block.name ?? 'unknown', block.input);
                 stream.stdout(`\n[Tool: ${block.name}]\n`);
               }
             }
@@ -256,7 +258,24 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
         case 'user': {
           // Tool results
+          const message = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }> } | undefined;
           const toolResult = event.tool_use_result as { stdout?: string; stderr?: string } | undefined;
+
+          // Send structured tool result for the Tools panel
+          if (message?.content) {
+            for (const block of message.content) {
+              if (block.type === 'tool_result') {
+                const resultContent = toolResult?.stdout || block.content || '';
+                stream.toolTrace(
+                  block.tool_use_id ?? 'unknown',
+                  undefined,
+                  resultContent,
+                  !block.is_error,
+                );
+              }
+            }
+          }
+
           if (toolResult?.stdout) {
             stream.stdout(toolResult.stdout + '\n');
           }

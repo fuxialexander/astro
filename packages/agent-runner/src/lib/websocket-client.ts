@@ -10,6 +10,7 @@ import type {
   TaskStatusMessage,
   TaskOutputMessage,
   TaskResultMessage,
+  TaskToolTraceMessage,
   ResourceUpdateMessage,
   RegisteredMessage,
   HeartbeatAckMessage,
@@ -209,6 +210,18 @@ export class WebSocketClient {
 
     // Remove from active tasks
     this.activeTasks.delete(result.taskId);
+  }
+
+  /**
+   * Send tool trace
+   */
+  sendToolTrace(taskId: string, toolName: string, toolInput?: unknown, toolResult?: unknown, success?: boolean): void {
+    const msg: TaskToolTraceMessage = {
+      type: 'task_tool_trace',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, toolName, toolInput, toolResult, success },
+    };
+    this.send(msg);
   }
 
   /**

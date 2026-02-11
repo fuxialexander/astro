@@ -8,6 +8,7 @@ export interface TaskOutputStream {
   stdout: (data: string) => void;
   stderr: (data: string) => void;
   status: (status: TaskStatus, progress?: number, message?: string) => void;
+  toolTrace: (toolName: string, toolInput?: unknown, toolResult?: unknown, success?: boolean) => void;
 }
 
 export interface ProviderAdapter {

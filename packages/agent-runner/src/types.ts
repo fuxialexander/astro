@@ -114,6 +114,7 @@ export type WSMessageType =
   | 'task_status'
   | 'task_output'
   | 'task_result'
+  | 'task_tool_trace'
   | 'resource_update'
   // Server -> Client
   | 'registered'
@@ -175,6 +176,17 @@ export interface TaskOutputMessage extends WSMessage {
 export interface TaskResultMessage extends WSMessage {
   type: 'task_result';
   payload: TaskResult;
+}
+
+export interface TaskToolTraceMessage extends WSMessage {
+  type: 'task_tool_trace';
+  payload: {
+    taskId: string;
+    toolName: string;
+    toolInput?: unknown;
+    toolResult?: unknown;
+    success?: boolean;
+  };
 }
 
 export interface ResourceUpdateMessage extends WSMessage {

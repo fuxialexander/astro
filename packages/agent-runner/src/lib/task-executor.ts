@@ -173,6 +173,9 @@ export class TaskExecutor {
       status: (status: TaskStatus, progress?: number, message?: string) => {
         this.wsClient.sendTaskStatus(normalizedTask.id, status, progress, message);
       },
+      toolTrace: (toolName: string, toolInput?: unknown, toolResult?: unknown, success?: boolean) => {
+        this.wsClient.sendToolTrace(normalizedTask.id, toolName, toolInput, toolResult, success);
+      },
     };
 
     const runningTask: RunningTask = {

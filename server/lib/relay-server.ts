@@ -28,8 +28,6 @@ import {
   type TaskFileChangeMessage,
   type HeartbeatPongMessage,
   type TaskDispatch,
-  type TaskDispatchMessage,
-  type TaskCancelMessage,
   type TaskSteerMessage,
   type HeartbeatPingMessage,
   type MachineRegisterAckMessage,
@@ -136,6 +134,19 @@ interface AgentRunnerTaskOutputMessage {
     stream: 'stdout' | 'stderr';
     data: string;
     sequence: number;
+  };
+}
+
+/** Agent runner's task tool trace message format */
+interface AgentRunnerTaskToolTraceMessage {
+  type: 'task_tool_trace';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    toolName: string;
+    toolInput?: unknown;
+    toolResult?: unknown;
+    success?: boolean;
   };
 }
 
@@ -421,6 +432,11 @@ export class RelayServer extends EventEmitter {
         this.handleAgentRunnerTaskStatus(message as AgentRunnerTaskStatusMessage);
         break;
 
+      // Support agent-runner's 'task_tool_trace' message format
+      case 'task_tool_trace':
+        this.handleAgentRunnerTaskToolTrace(message as AgentRunnerTaskToolTraceMessage);
+        break;
+
       case 'task.steer.ack':
         this.handleTaskSteerAck(message as TaskSteerAckMessage);
         break;
@@ -628,21 +644,41 @@ export class RelayServer extends EventEmitter {
       return false;
     }
 
-    const message: TaskDispatchMessage = {
-      type: 'task.dispatch',
-      timestamp: new Date(),
-      correlationId: task.taskId,
-      task,
+    // Build prompt from task context (title + description + vision doc + deps)
+    const promptParts: string[] = [];
+    if (task.visionDoc) {
+      promptParts.push(`## Project Vision\n\n${task.visionDoc}`);
+    }
+    if (task.dependencies && task.dependencies.length > 0) {
+      promptParts.push(`## Previous Task Outputs\n\n${task.dependencies.join('\n\n---\n\n')}`);
+    }
+    promptParts.push(`## Current Task\n\n**${task.title}**\n\n${task.description}`);
+    promptParts.push(`## Instructions\n\nExecute the task described above. Focus on completing the task thoroughly and correctly.\n- Use appropriate tools to accomplish the task\n- Report progress and any issues encountered\n- Verify your work when possible\n- Be thorough but efficient`);
+
+    // Send in agent-runner's expected format (type: 'task_dispatch', payload: Task)
+    const agentRunnerMsg = {
+      type: 'task_dispatch',
+      timestamp: new Date().toISOString(),
+      payload: {
+        id: task.taskId,
+        projectId: task.projectId,
+        planNodeId: task.nodeId,
+        provider: task.preferredProvider || 'claude-code',
+        prompt: promptParts.join('\n\n---\n\n'),
+        workingDirectory: task.workingDirectory || '',
+        timeout: task.timeout,
+        createdAt: new Date().toISOString(),
+      },
     };
 
-    try {
-      this.sendMessage(connection.socket, message);
-      console.log(`[relay] Task ${task.taskId} dispatched to machine ${machineId}`);
-      return true;
-    } catch (err) {
-      console.error(`[relay] Error dispatching task ${task.taskId}:`, err);
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      console.error(`[relay] Failed to send dispatch for task ${task.taskId} to machine ${machineId} (socket not open)`);
       return false;
     }
+    socket.send(JSON.stringify(agentRunnerMsg));
+    console.log(`[relay] Task ${task.taskId} dispatched to machine ${machineId}`);
+    return true;
   }
 
   /**
@@ -655,22 +691,21 @@ export class RelayServer extends EventEmitter {
       return false;
     }
 
-    const message: TaskCancelMessage = {
-      type: 'task.cancel',
-      timestamp: new Date(),
-      correlationId: taskId,
-      taskId,
-      reason,
+    // Send in agent-runner's expected format (type: 'task_cancel')
+    const agentRunnerMsg = {
+      type: 'task_cancel',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, reason },
     };
 
-    try {
-      this.sendMessage(connection.socket, message);
-      console.log(`[relay] Task ${taskId} cancel request sent to machine ${machineId}`);
-      return true;
-    } catch (err) {
-      console.error(`[relay] Error cancelling task ${taskId}:`, err);
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      console.error(`[relay] Failed to send cancel for task ${taskId} to machine ${machineId} (socket not open)`);
       return false;
     }
+    socket.send(JSON.stringify(agentRunnerMsg));
+    console.log(`[relay] Task ${taskId} cancel request sent to machine ${machineId}`);
+    return true;
   }
 
   /**
@@ -784,12 +819,14 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
-   * Send a message to a socket
+   * Send a message to a socket. Returns true if the message was sent.
    */
-  private sendMessage(socket: WebSocket | null, message: RelayToAgentMessage): void {
+  private sendMessage(socket: WebSocket | null, message: RelayToAgentMessage): boolean {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(message));
+      return true;
     }
+    return false;
   }
 
   /**
@@ -997,6 +1034,26 @@ export class RelayServer extends EventEmitter {
   /**
    * Handle agent runner's task result message format
    */
+  /**
+   * Handle agent runner's task tool trace message format
+   */
+  private handleAgentRunnerTaskToolTrace(message: AgentRunnerTaskToolTraceMessage): void {
+    const { payload } = message;
+    const { taskId, toolName, toolInput, toolResult, success } = payload;
+
+    // Convert to standard tool trace message
+    const traceMsg: TaskToolTraceMessage = {
+      type: 'task.tool_trace',
+      timestamp: new Date(),
+      taskId,
+      toolName,
+      toolInput,
+      toolResult,
+      success,
+    };
+    this.emit('task:tool_trace', traceMsg);
+  }
+
   private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {
     const { payload } = message;
     const { taskId, status, exitCode, output, error, artifacts } = payload;
