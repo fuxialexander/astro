@@ -160,13 +160,20 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
       signal.addEventListener('abort', abortHandler);
 
+      let lineBuf = '';
       proc.stdout?.on('data', (data: Buffer) => {
         const text = data.toString();
         stdout += text;
-        stream.stdout(text);
 
-        // Try to parse JSON streaming output for progress/artifacts
-        this.parseStreamOutput(text, stream, artifacts);
+        // Parse stream-json lines and forward only meaningful content
+        lineBuf += text;
+        const lines = lineBuf.split('\n');
+        lineBuf = lines.pop() || ''; // keep incomplete last line in buffer
+        for (const line of lines) {
+          if (line.trim()) {
+            this.handleStreamLine(line, stream);
+          }
+        }
       });
 
       proc.stderr?.on('data', (data: Buffer) => {
@@ -183,6 +190,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       });
 
       proc.on('close', (code) => {
+        // Flush remaining buffer
+        if (lineBuf.trim()) {
+          this.handleStreamLine(lineBuf, stream);
+        }
         console.log(`[claude-code] Process exited with code ${code}, stdout=${stdout.length} chars, stderr=${stderr.length} chars`);
         signal.removeEventListener('abort', abortHandler);
 
@@ -210,71 +221,75 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     });
   }
 
-  private parseStreamOutput(
-    text: string,
+  /**
+   * Handle a single JSON line from Claude Code's stream-json output.
+   * Extracts human-readable text and structured events, forwarding only
+   * meaningful content to the stream (not raw JSON).
+   */
+  private handleStreamLine(
+    line: string,
     stream: TaskOutputStream,
-    artifacts: TaskArtifact[]
   ): void {
-    // Claude Code with --output-format stream-json outputs JSON lines
-    // Each line is a JSON object with type and content
-    const lines = text.split('\n').filter((l) => l.trim());
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      const type = event.type as string;
 
-    for (const line of lines) {
-      try {
-        const event = JSON.parse(line) as StreamEvent;
+      switch (type) {
+        case 'system':
+          // Init event — skip (contains session info, tool list, etc.)
+          break;
 
-        switch (event.type) {
-          case 'assistant':
-            // Assistant response text, already streamed via stdout
-            break;
-          case 'result':
-            // Final result with potential artifacts
-            if (event.result?.files_created) {
-              for (const file of event.result.files_created) {
-                artifacts.push({
-                  type: 'file',
-                  name: file.path,
-                  path: file.path,
-                  metadata: { created: true },
-                });
+        case 'assistant': {
+          // Assistant message with content blocks
+          const message = event.message as { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> } | undefined;
+          if (message?.content) {
+            for (const block of message.content) {
+              if (block.type === 'text' && block.text) {
+                stream.stdout(block.text);
+              } else if (block.type === 'tool_use') {
+                stream.stdout(`\n[Tool: ${block.name}]\n`);
               }
             }
-            if (event.result?.files_modified) {
-              for (const file of event.result.files_modified) {
-                artifacts.push({
-                  type: 'file',
-                  name: file.path,
-                  path: file.path,
-                  metadata: { modified: true },
-                });
-              }
-            }
-            stream.status('running', 100, 'Completed');
-            break;
-          case 'progress':
-            // Progress update
-            if (event.progress !== undefined) {
-              stream.status('running', event.progress, event.message);
-            }
-            break;
-          case 'error':
-            stream.status('running', undefined, `Error: ${event.message}`);
-            break;
+          }
+          break;
         }
-      } catch {
-        // Not valid JSON, just raw text output - already handled
+
+        case 'user': {
+          // Tool results
+          const toolResult = event.tool_use_result as { stdout?: string; stderr?: string } | undefined;
+          if (toolResult?.stdout) {
+            stream.stdout(toolResult.stdout + '\n');
+          }
+          if (toolResult?.stderr) {
+            stream.stderr(toolResult.stderr);
+          }
+          break;
+        }
+
+        case 'result': {
+          // Final result
+          const resultText = event.result as string | undefined;
+          if (resultText) {
+            stream.stdout('\n' + resultText);
+          }
+          // Extract cost/usage info
+          const cost = event.total_cost_usd as number | undefined;
+          const numTurns = event.num_turns as number | undefined;
+          if (cost !== undefined) {
+            stream.status('running', 100, `Completed (${numTurns ?? 0} turns, $${cost.toFixed(4)})`);
+          } else {
+            stream.status('running', 100, 'Completed');
+          }
+          break;
+        }
+
+        default:
+          // Unknown event type — skip
+          break;
       }
+    } catch {
+      // Not valid JSON — send as raw text
+      stream.stdout(line);
     }
   }
-}
-
-interface StreamEvent {
-  type: 'assistant' | 'result' | 'progress' | 'error' | 'tool_use' | 'tool_result';
-  content?: string;
-  message?: string;
-  progress?: number;
-  result?: {
-    files_created?: Array<{ path: string }>;
-    files_modified?: Array<{ path: string }>;
-  };
 }
