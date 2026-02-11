@@ -23,6 +23,7 @@ import type { ExecutionEnvironment } from '../lib/providers/types.js'
 import type { ProviderType } from '../types/relay.js'
 import { requireAuth } from '../middleware/auth.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
+import { errorMessage, isAbortError } from '../lib/error-utils.js'
 import { existsSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
@@ -171,7 +172,7 @@ dispatchRoute.post('/task', async (c) => {
   try {
     resolvedDir = resolveWorkingDirectory(workingDirectory, projectId)
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Unknown error'
+    const msg = errorMessage(e)
     return c.json(
       { success: false, error: `Failed to resolve working directory: ${msg}` },
       500
@@ -499,13 +500,13 @@ Execute the task described above. Focus on completing the task thoroughly and co
         }),
       })
     } catch (e: unknown) {
-      if (e instanceof Error && e.name === 'AbortError') {
+      if (isAbortError(e)) {
         await stream.writeSSE({
           event: 'aborted',
           data: JSON.stringify({ reason: 'User cancelled' }),
         })
       } else {
-        const message = e instanceof Error ? e.message : 'Unknown error'
+        const message = errorMessage(e)
         await stream.writeSSE({
           event: 'error',
           data: JSON.stringify({ error: message }),
@@ -597,7 +598,7 @@ async function dispatchViaRelay(
   return streamSSE(c, async (stream) => {
     let alive = true
     let lastActivity = Date.now()
-    const ACTIVITY_TIMEOUT_MS = 30_000
+    const ACTIVITY_TIMEOUT_MS = 120_000
 
     // Subscribe to relay events filtered by this executionId BEFORE dispatching
     const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
