@@ -5,12 +5,41 @@ import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
 
 // Helper: Resolve working directory from project config
-export function getProjectWorkingDir(project: Project | undefined): {
+// For remote/hpc/cloud environments, a git repository URL is required unless
+// a defaultMachineId is set (meaning code lives on that specific machine).
+// For local, prefer workingDirectory, fall back to repository.
+export function getProjectWorkingDir(
+  project: Project | undefined,
+  environment: 'local' | 'remote' | 'hpc' | 'cloud' = 'local',
+): {
   ok: boolean
   dir?: string
-  source?: 'local' | 'repository'
+  source?: 'local' | 'repository' | 'remote-path'
   message?: string
 } {
+  const isRemote = environment !== 'local'
+
+  if (isRemote) {
+    // If project has a defaultMachineId + workingDirectory but no repository,
+    // the code only exists on that machine — use the working directory as path
+    if (project?.defaultMachineId && project?.workingDirectory && !project?.repository) {
+      return { ok: true, dir: project.workingDirectory, source: 'remote-path' }
+    }
+    // Remote environments can use a git repository URL
+    if (project?.repository) {
+      return { ok: true, dir: project.repository, source: 'repository' }
+    }
+    // Or a working directory if available (path on remote machine)
+    if (project?.workingDirectory) {
+      return { ok: true, dir: project.workingDirectory, source: 'remote-path' }
+    }
+    return {
+      ok: false,
+      message: 'A working directory or git repository URL is required for remote execution. Add one in project settings.',
+    }
+  }
+
+  // Local: prefer workingDirectory, fall back to repository
   if (project?.workingDirectory) {
     return { ok: true, dir: project.workingDirectory, source: 'local' }
   }
@@ -21,6 +50,37 @@ export function getProjectWorkingDir(project: Project | undefined): {
     ok: false,
     message: 'No working directory or repository configured. Configure one in project settings.',
   }
+}
+
+// Helper: Compute allowed environments for a project
+export function getAllowedEnvironments(project: Project | undefined): {
+  allowed: Array<'local' | 'remote' | 'hpc' | 'cloud'>
+  lockedMachineId?: string
+  lockReason?: string
+} {
+  if (!project) return { allowed: ['local'] }
+
+  // If project has a git URL, any environment can clone it
+  if (project.repository) {
+    return { allowed: ['local', 'remote', 'hpc', 'cloud'] }
+  }
+
+  // If project has defaultMachineId but no repository, locked to that machine
+  if (project.defaultMachineId && project.workingDirectory) {
+    const env = project.defaultEnvironment || 'remote'
+    return {
+      allowed: [env],
+      lockedMachineId: project.defaultMachineId,
+      lockReason: 'This project\'s code only exists on a specific machine',
+    }
+  }
+
+  // Only workingDirectory, no repository, no defaultMachineId — local only
+  if (project.workingDirectory) {
+    return { allowed: ['local'] }
+  }
+
+  return { allowed: ['local', 'remote', 'hpc', 'cloud'] }
 }
 
 // Available machine info from relay server
@@ -48,7 +108,6 @@ export interface ExecutionOptions {
   preferredProvider?: string
   model?: string
   maxTurns?: number
-  workingDirectory?: string
 }
 
 interface ExecutionState {
@@ -127,8 +186,39 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Get project for vision doc and working directory
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
 
-    // Resolve working directory
-    const resolvedDir = options?.workingDirectory || project?.workingDirectory || project?.repository
+    // Determine environment first (needed for directory resolution)
+    const environment = options?.environment ?? project?.defaultEnvironment ?? node.environment ?? 'local'
+
+    // Enforce defaultMachineId constraint: if project has no repository URL
+    // and has a defaultMachineId, execution must target that machine
+    let effectiveTargetMachineId = options?.targetMachineId
+    if (!project?.repository && project?.defaultMachineId) {
+      if (effectiveTargetMachineId && effectiveTargetMachineId !== project.defaultMachineId) {
+        const execution: TaskExecution = {
+          nodeId,
+          projectId,
+          executionId: `exec-${nodeId}-${Date.now()}`,
+          status: "failure",
+          streamText: "",
+          error: "This project's code only exists on a specific machine. Cannot execute on a different machine.",
+          toolTraces: [],
+          fileChanges: [],
+          startedAt: new Date(),
+          completedAt: new Date(),
+        }
+        set((state) => {
+          const newExecutions = new Map(state.executions)
+          newExecutions.set(nodeId, execution)
+          return { executions: newExecutions }
+        })
+        return
+      }
+      effectiveTargetMachineId = project.defaultMachineId
+    }
+
+    // Resolve working directory based on environment
+    const dirCheck = getProjectWorkingDir(project, environment)
+    const resolvedDir = dirCheck.ok ? dirCheck.dir : undefined
     if (!resolvedDir) {
       // Fail early: no working directory configured
       const execution: TaskExecution = {
@@ -137,7 +227,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         executionId: `exec-${nodeId}-${Date.now()}`,
         status: "failure",
         streamText: "",
-        error: "No working directory or repository configured. Configure one in project settings.",
+        error: dirCheck.message || "No working directory or repository configured.",
         toolTraces: [],
         fileChanges: [],
         startedAt: new Date(),
@@ -153,9 +243,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
     // Build dependency outputs from completed dependencies
     const dependencyOutputs = buildDependencyOutputsArray(node.dependencies, planStore.nodes, projectId)
-
-    // Determine environment from node or options
-    const environment = options?.environment ?? node.environment ?? 'local'
 
     // Initialize execution state
     const execution: TaskExecution = {
@@ -175,8 +262,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return { executions: newExecutions }
     })
 
-    // Update node status to dispatched
-    planStore.updateNode(nodeId, { status: "dispatched" })
+    // Update node status to dispatched and persist the chosen environment
+    planStore.updateNode(nodeId, { status: "dispatched", environment })
 
     try {
       // Use the dispatch/task endpoint for full environment support
@@ -194,7 +281,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           visionDoc: project?.visionDoc,
           dependencyOutputs,
           preferredProvider: options?.preferredProvider,
-          targetMachineId: options?.targetMachineId,
+          targetMachineId: effectiveTargetMachineId,
           model: options?.model,
           maxTurns: options?.maxTurns ?? 50,
           workingDirectory: resolvedDir,
