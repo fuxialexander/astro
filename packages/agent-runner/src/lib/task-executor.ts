@@ -179,7 +179,7 @@ export class TaskExecutor {
       this.processQueue();
       return;
     }
-    console.log(`[executor] Task ${task.id}: adapter ${normalizedTask.provider} ready`);
+    console.log(`[executor] Task ${task.id}: adapter ${adapter.name} (${adapter.type}) ready`);
 
     const abortController = new AbortController();
     const outputSequence = { stdout: 0, stderr: 0 };
@@ -240,7 +240,7 @@ export class TaskExecutor {
     try {
       // Notify task started
       this.wsClient.sendTaskStatus(task.id, 'running', 0, 'Starting');
-      console.log(`[executor] Task ${task.id}: executing with ${normalizedTask.provider}...`);
+      console.log(`[executor] Task ${task.id}: executing with ${adapter.name}...`);
 
       // Execute the task
       const result = await adapter.execute(taskWithWorkspace, stream, abortController.signal);
