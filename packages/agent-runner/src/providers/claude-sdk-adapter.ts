@@ -181,7 +181,6 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     const options: Parameters<typeof query>[0]['options'] = {
       abortController,
       maxTurns: 100, // Allow multi-turn for complex tasks
-      tools: [], // Use default tools
       permissionMode: 'bypassPermissions', // Auto-accept all tool calls
       sandbox: { enabled: false }, // Run on host machine, not in Docker container
       settingSources: ['project'], // Load CLAUDE.md, skills, and slash commands from cwd
