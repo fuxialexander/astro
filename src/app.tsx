@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { BrowserRouter, Routes, Route } from "react-router"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -25,6 +25,7 @@ import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
 import { MyTasks } from "@/pages/my-tasks"
 import { Welcome } from "@/pages/welcome"
+import { shouldMigrateFromIdb, migrateFromIndexedDB } from "@/lib/migrate-idb"
 
 function DataLoader({ children }: { children: React.ReactNode }) {
   const loadProjects = useProjectStore((s) => s.load)
@@ -56,7 +57,28 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     return () => disconnectRealtime()
   }, [loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, loadUsage, connectRealtime, disconnectRealtime])
 
-  if (!projectsLoaded || !planLoaded || !settingsLoaded || !userProfileLoaded || !displaySettingsLoaded || !taskChatLoaded || !usageLoaded) {
+  // One-time migration from IndexedDB → API
+  const migrationRan = useRef(false)
+  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded
+  useEffect(() => {
+    if (!allLoaded || migrationRan.current) return
+    migrationRan.current = true
+    shouldMigrateFromIdb().then(async (needed) => {
+      if (needed) {
+        await migrateFromIndexedDB()
+        // Reload stores after migration
+        loadProjects()
+        loadPlan()
+        loadSettings()
+        loadUserProfile()
+        loadDisplaySettings()
+        loadTaskChat()
+        loadUsage()
+      }
+    })
+  }, [allLoaded, loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, loadUsage])
+
+  if (!allLoaded) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         Loading...

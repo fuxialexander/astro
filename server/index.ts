@@ -11,6 +11,8 @@ import { eventsRoute } from './routes/events.js'
 import { transcribeRoute } from './routes/transcribe.js'
 import { fsRoute } from './routes/fs.js'
 import { repoRoute } from './routes/repo.js'
+import { dataRoute } from './routes/data.js'
+import { runMigrations } from './lib/db/migrate.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
@@ -46,6 +48,7 @@ app.route('/api/events', eventsRoute)
 app.route('/api/transcribe', transcribeRoute)
 app.route('/api/fs', fsRoute)
 app.route('/api/repo', repoRoute)
+app.route('/api/data', dataRoute)
 
 const port = 3001
 const relayPort = parseInt(process.env.RELAY_PORT || '3002', 10)
@@ -54,6 +57,13 @@ let httpServer: ReturnType<typeof serve> | null = null
 
 // Initialize providers and relay server before starting
 async function start() {
+  // Run database migrations
+  try {
+    runMigrations()
+  } catch (err) {
+    console.error('[db] Migration failed:', err)
+  }
+
   console.log('[backend] initializing provider registry...')
 
   try {

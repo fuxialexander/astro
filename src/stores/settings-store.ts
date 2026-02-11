@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { loadState, saveState } from "@/lib/db"
+import { dataClient } from "@/lib/data-client"
 
 interface SettingsState {
   model: string
@@ -16,11 +17,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loaded: false,
 
   load: async () => {
-    const saved = await loadState<{ model: string }>("nexus-settings")
-    if (saved) {
-      set({ model: saved.model, loaded: true })
-    } else {
-      set({ loaded: true })
+    try {
+      const settings = await dataClient.getSettings()
+      if (settings.model) {
+        set({ model: settings.model, loaded: true })
+        saveState("nexus-settings", { model: settings.model })
+      } else {
+        set({ loaded: true })
+      }
+    } catch {
+      // API unavailable — fall back to IndexedDB
+      const saved = await loadState<{ model: string }>("nexus-settings")
+      if (saved) {
+        set({ model: saved.model, loaded: true })
+      } else {
+        set({ loaded: true })
+      }
     }
     // Check connection on load
     get().checkConnection()
@@ -41,5 +53,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setModel: (model) => {
     set({ model })
     saveState("nexus-settings", { model })
+    dataClient.updateSettings({ model }).catch(() => {})
   },
 }))

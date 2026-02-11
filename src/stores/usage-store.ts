@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import type { UsageMetrics } from "@/types"
 import { loadState, saveState } from "@/lib/db"
-import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client"
+import { dataClient } from "@/lib/data-client"
 
 const STORAGE_KEY = "nexus-usage-metrics"
 
@@ -31,10 +31,6 @@ const defaultMetrics: SessionMetrics = {
   tasksFailed: 0,
 }
 
-function todayKey(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
 export const useUsageStore = create<UsageState>((set) => ({
   sessionMetrics: { ...defaultMetrics },
   loaded: false,
@@ -50,23 +46,14 @@ export const useUsageStore = create<UsageState>((set) => ({
       }
       saveState(STORAGE_KEY, updated)
 
-      // Sync to Supabase usage_metrics (daily aggregate)
-      const supabase = getSupabase()
-      if (supabase && isSupabaseConfigured()) {
-        supabase.auth.getUser().then(({ data: { user } }) => {
-          if (user) {
-            supabase.rpc("increment_usage_metrics", {
-              p_user_id: user.id,
-              p_session_date: todayKey(),
-              p_cost: metrics.estimatedCostUsd ?? 0,
-              p_input_tokens: metrics.inputTokens ?? 0,
-              p_output_tokens: metrics.outputTokens ?? 0,
-              p_completed: success ? 1 : 0,
-              p_failed: success ? 0 : 1,
-            }).then()
-          }
-        })
-      }
+      // Sync incremental usage to API
+      dataClient.incrementUsage({
+        totalCostUsd: metrics.estimatedCostUsd ?? 0,
+        totalInputTokens: metrics.inputTokens ?? 0,
+        totalOutputTokens: metrics.outputTokens ?? 0,
+        tasksCompleted: success ? 1 : 0,
+        tasksFailed: success ? 0 : 1,
+      }).catch(() => {})
 
       return { sessionMetrics: updated }
     })
@@ -79,31 +66,15 @@ export const useUsageStore = create<UsageState>((set) => ({
   },
 
   load: async () => {
-    const supabase = getSupabase()
-
-    if (supabase && isSupabaseConfigured()) {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data } = await supabase
-          .from("usage_metrics")
-          .select("*")
-          .eq("user_id", user.id)
-          .eq("session_date", todayKey())
-          .single()
-
-        if (data) {
-          const metrics: SessionMetrics = {
-            totalCostUsd: data.total_cost_usd as number,
-            totalInputTokens: data.total_input_tokens as number,
-            totalOutputTokens: data.total_output_tokens as number,
-            tasksCompleted: data.tasks_completed as number,
-            tasksFailed: data.tasks_failed as number,
-          }
-          set({ sessionMetrics: metrics, loaded: true })
-          await saveState(STORAGE_KEY, metrics)
-          return
-        }
+    try {
+      const metrics = await dataClient.getTodayUsage()
+      if (metrics) {
+        set({ sessionMetrics: metrics, loaded: true })
+        saveState(STORAGE_KEY, metrics)
+        return
       }
+    } catch {
+      // API unavailable
     }
 
     // Fallback to IndexedDB
