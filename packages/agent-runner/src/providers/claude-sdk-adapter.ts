@@ -182,7 +182,8 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       abortController,
       maxTurns: 100, // Allow multi-turn for complex tasks
       tools: [], // Use default tools
-      permissionMode: 'bypassPermissions', // Run on host, not in Docker sandbox
+      permissionMode: 'bypassPermissions', // Auto-accept all tool calls
+      sandbox: { enabled: false }, // Run on host machine, not in Docker container
       persistSession: false,
       cwd: task.workingDirectory,
     };
