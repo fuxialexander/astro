@@ -363,7 +363,7 @@ export function Dashboard() {
                   ) : (
                     <div className="flex items-center gap-2 py-1">
                       <div className="h-2 w-2 rounded-full bg-green-500" />
-                      <span className="text-sm flex-1">Claude Code</span>
+                      <span className="text-sm flex-1">Claude</span>
                       <span className="text-xs text-muted-foreground">
                         <Play className="h-3 w-3 inline mr-1" />
                         Running

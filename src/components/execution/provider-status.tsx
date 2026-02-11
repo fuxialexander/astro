@@ -46,7 +46,7 @@ export function ProviderStatus({ compact = false }: ProviderStatusProps) {
           <TooltipContent>
             {availableProvider
               ? `${availableProvider.name} is ready for task execution`
-              : "No agent available. Ensure Claude Code is installed and authenticated."}
+              : "No agent available. Ensure Claude is installed and authenticated."}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -75,7 +75,7 @@ export function ProviderStatus({ compact = false }: ProviderStatusProps) {
         </div>
       ) : providers.length === 0 ? (
         <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-          No providers detected. Ensure Claude Code is installed.
+          No providers detected. Ensure Claude is installed.
         </div>
       ) : (
         <div className="flex flex-col gap-2">
@@ -117,7 +117,7 @@ export function ProviderStatus({ compact = false }: ProviderStatusProps) {
           <p className="font-medium text-warning">No agent available</p>
           <p className="text-muted-foreground mt-1">
             Run <code className="font-mono bg-muted px-1 rounded">claude login</code> to
-            authenticate Claude Code.
+            authenticate Claude.
           </p>
         </div>
       )}

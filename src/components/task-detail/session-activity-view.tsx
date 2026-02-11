@@ -186,7 +186,7 @@ export function SessionActivityView({ sessions }: SessionActivityViewProps) {
         <div className="text-center">
           <p className="text-sm font-medium">No attached sessions</p>
           <p className="text-xs mt-1">
-            Run <code className="bg-muted px-1 rounded">nexus_attach</code> in Claude Code to link a session
+            Run <code className="bg-muted px-1 rounded">nexus_attach</code> in Claude to link a session
           </p>
         </div>
       </div>
