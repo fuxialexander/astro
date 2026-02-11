@@ -422,7 +422,7 @@ async function processExecutionStream(
       } else if (line === "") {
         // Empty line = end of SSE message, flush the event
         if (currentEvent && dataLines.length > 0) {
-          handleSSEEvent(currentEvent, dataLines.join("\n").trim(), nodeId, set, get, planStore)
+          handleSSEEvent(currentEvent, dataLines.join("\n"), nodeId, set, get, planStore)
         }
         currentEvent = ""
         dataLines = []
@@ -432,7 +432,7 @@ async function processExecutionStream(
 
   // Flush any remaining event
   if (currentEvent && dataLines.length > 0) {
-    handleSSEEvent(currentEvent, dataLines.join("\n").trim(), nodeId, set, get, planStore)
+    handleSSEEvent(currentEvent, dataLines.join("\n"), nodeId, set, get, planStore)
   }
 }
 

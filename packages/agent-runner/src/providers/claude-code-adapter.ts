@@ -245,7 +245,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
           if (message?.content) {
             for (const block of message.content) {
               if (block.type === 'text' && block.text) {
-                stream.stdout(block.text);
+                stream.stdout(block.text + '\n');
               } else if (block.type === 'tool_use') {
                 stream.stdout(`\n[Tool: ${block.name}]\n`);
               }
