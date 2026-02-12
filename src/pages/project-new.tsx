@@ -158,7 +158,7 @@ export function ProjectNew() {
         })
       }
       if (data.fileTree) {
-        updateFileTree(projectId, data.fileTree)
+        updateFileTree(projectId, data.fileTree, selectedMachine?.machineId)
       }
 
       return { workingDirectory: data.workingDirectory, fileTree: data.fileTree, keyFiles: data.keyFiles }

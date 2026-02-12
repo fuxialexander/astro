@@ -174,8 +174,8 @@ export function FileCompletionTextarea({
               setAtIndex(lastAt)
               updateDropdownPosition()
               if (canComplete) {
-                // Prefer client-side filtering when fileTree is cached and no remote machine
-                if (hasFileTree && !machineId) {
+                // Prefer client-side filtering when fileTree is cached (avoids repeated remote requests)
+                if (hasFileTree) {
                   filterFileTree(q)
                 } else {
                   debouncedFetch(q)
@@ -190,7 +190,7 @@ export function FileCompletionTextarea({
       // No active completion
       dismiss()
     },
-    [onChange, debouncedFetch, filterFileTree, updateDropdownPosition, dismiss, canComplete, hasFileTree, machineId],
+    [onChange, debouncedFetch, filterFileTree, updateDropdownPosition, dismiss, canComplete, hasFileTree],
   )
 
   // Insert the selected file path

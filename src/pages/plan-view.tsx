@@ -418,13 +418,6 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
 
   const datedTasks = useMemo(() => assignDefaultDates(tasks, edges), [tasks, edges])
 
-  // Milestone markers for the timeline (vertical lines with diamond)
-  const milestoneMarkers = useMemo(() => {
-    return milestones
-      .filter((m) => m.endDate || m.dueDate)
-      .map((m) => ({ id: m.id, date: (m.dueDate ?? m.endDate)!, label: m.title }))
-  }, [milestones])
-
   const timelineRows = useMemo((): TimelineRow<PlanNode>[] => {
     function nodeToRow(node: PlanNode): TimelineRow<PlanNode> {
       const dated = datedTasks.find((n) => n.id === node.id) ?? node
@@ -497,7 +490,6 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
     <ItemTimelineView
       rows={timelineRows}
       viewKey="plan-list"
-      milestoneMarkers={milestoneMarkers}
       renderLeftCell={(node) => (
         <span className={cn(
           "text-sm truncate",
@@ -592,22 +584,37 @@ export function PlanView() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [visionOpen, setVisionOpen] = useState(false)
 
-  // Refresh file tree cache if stale or missing (only on mount / project change)
+  // Refresh file tree cache if stale, missing, or from a different machine
   useEffect(() => {
     if (!project?.workingDirectory) return
+    const machineId = project.defaultMachineId
+    const cachedForMachine = project.fileTreeMachineId || 'local'
+    const currentMachine = machineId || 'local'
     const updatedAt = project.fileTreeUpdatedAt ? new Date(project.fileTreeUpdatedAt).getTime() : 0
-    if (Date.now() - updatedAt < FILE_TREE_STALE_MS && project.fileTree?.length) return
+    const isStale = Date.now() - updatedAt >= FILE_TREE_STALE_MS || !project.fileTree?.length
+    const isMachineMismatch = cachedForMachine !== currentMachine
+    if (!isStale && !isMachineMismatch) return
 
-    fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.files?.length) {
-          updateFileTree(project.id, data.files)
-        }
-      })
-      .catch(() => {})
+    if (machineId) {
+      // Remote machine: fetch via relay
+      const params = new URLSearchParams({ projectId: project.id, machineId, workingDirectory: project.workingDirectory })
+      fetch(`/api/fs/files?${params}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.files?.length) updateFileTree(project.id, data.files, machineId)
+        })
+        .catch(() => {})
+    } else {
+      // Local: fetch directly
+      fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.files?.length) updateFileTree(project.id, data.files)
+        })
+        .catch(() => {})
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, project?.workingDirectory])
+  }, [project?.id, project?.workingDirectory, project?.defaultMachineId])
 
   if (!project) {
     return (

@@ -9,7 +9,7 @@ interface ProjectState {
   load: () => Promise<void>
   addProject: (project: Project) => void
   updateProject: (id: string, updates: Partial<Project>) => void
-  updateFileTree: (id: string, files: string[]) => void
+  updateFileTree: (id: string, files: string[], machineId?: string) => void
   deleteProject: (id: string) => void
 }
 
@@ -53,9 +53,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     dataClient.updateProject(id, updates).catch(() => {})
   },
 
-  updateFileTree: (id, files) => {
+  updateFileTree: (id, files, machineId) => {
     const next = get().projects.map((p) =>
-      p.id === id ? { ...p, fileTree: files, fileTreeUpdatedAt: new Date().toISOString(), updatedAt: new Date() } : p
+      p.id === id ? { ...p, fileTree: files, fileTreeUpdatedAt: new Date().toISOString(), fileTreeMachineId: machineId || 'local', updatedAt: new Date() } : p
     )
     set({ projects: next })
     saveState("nexus-projects", next)

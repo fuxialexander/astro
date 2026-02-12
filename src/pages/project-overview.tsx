@@ -302,22 +302,35 @@ export function ProjectOverview() {
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const [activeTab, setActiveTab] = useState<TabId>("overview")
 
-  // Refresh file tree cache if stale or missing (only on mount / project change)
+  // Refresh file tree cache if stale, missing, or from a different machine
   useEffect(() => {
     if (!project?.workingDirectory) return
+    const machineId = project.defaultMachineId
+    const cachedForMachine = project.fileTreeMachineId || 'local'
+    const currentMachine = machineId || 'local'
     const updatedAt = project.fileTreeUpdatedAt ? new Date(project.fileTreeUpdatedAt).getTime() : 0
-    if (Date.now() - updatedAt < FILE_TREE_STALE_MS && project.fileTree?.length) return
+    const isStale = Date.now() - updatedAt >= FILE_TREE_STALE_MS || !project.fileTree?.length
+    const isMachineMismatch = cachedForMachine !== currentMachine
+    if (!isStale && !isMachineMismatch) return
 
-    fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.files?.length) {
-          updateFileTree(project.id, data.files)
-        }
-      })
-      .catch(() => {})
+    if (machineId) {
+      const params = new URLSearchParams({ projectId: project.id, machineId, workingDirectory: project.workingDirectory })
+      fetch(`/api/fs/files?${params}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.files?.length) updateFileTree(project.id, data.files, machineId)
+        })
+        .catch(() => {})
+    } else {
+      fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.files?.length) updateFileTree(project.id, data.files)
+        })
+        .catch(() => {})
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, project?.workingDirectory])
+  }, [project?.id, project?.workingDirectory, project?.defaultMachineId])
 
   if (!project) {
     return (

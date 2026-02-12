@@ -24,6 +24,7 @@ export interface Project {
   repository?: string;       // Git clone URL (e.g., https://github.com/user/repo.git)
   fileTree?: string[];           // Cached git ls-files output (relative paths)
   fileTreeUpdatedAt?: string;    // ISO timestamp for staleness check
+  fileTreeMachineId?: string;    // Which machine the cached fileTree belongs to ("local" or machineId)
   defaultEnvironment?: 'local' | 'remote' | 'hpc' | 'cloud'
   defaultMachineId?: string
   createdAt: Date;
