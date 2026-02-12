@@ -15,6 +15,13 @@
       "when": 1770796605790,
       "tag": "0001_dapper_blur",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1770882861572,
+      "tag": "0002_cynical_supernaut",
+      "breakpoints": true
     }
   ]
 }

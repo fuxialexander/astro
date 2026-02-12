@@ -136,3 +136,21 @@ export const appSettings = sqliteTable('app_settings', {
   key: text('key').notNull(),
   value: text('value').notNull(),
 })
+
+// ── Registered Machines ──────────────────────────────────────────────
+export const registeredMachines = sqliteTable('registered_machines', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(),
+  hostname: text('hostname').notNull(),
+  platform: text('platform').notNull(),
+  environmentType: text('environment_type').notNull().default('local'),
+  providers: text('providers', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  workspaceId: text('workspace_id'),
+  refreshTokenHash: text('refresh_token_hash').notNull().default(''),
+  metadata: text('metadata', { mode: 'json' }).$type<Record<string, string>>(),
+  isConnected: integer('is_connected', { mode: 'boolean' }).notNull().default(false),
+  isRevoked: integer('is_revoked', { mode: 'boolean' }).notNull().default(false),
+  registeredAt: integer('registered_at', { mode: 'timestamp_ms' }).notNull(),
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
+})

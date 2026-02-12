@@ -2,17 +2,16 @@
  * Registered Machines Store
  *
  * Stores information about machines registered through the device auth flow.
- * Uses Supabase as primary storage when configured, falls back to in-memory.
+ * Uses Supabase as primary storage when configured, falls back to local SQLite.
  */
 
 import type { RegisteredMachine } from '../types/device-auth.js'
 import type { ProviderType, EnvironmentType } from '../types/relay.js'
 import crypto from 'crypto'
 import { isSupabaseConfigured, getServiceClient } from './supabase.js'
-
-// In-memory fallback store (used when Supabase is not configured)
-const memStore = new Map<string, RegisteredMachine>()
-const memUserIndex = new Map<string, Set<string>>()
+import { db } from './db/index.js'
+import { registeredMachines } from './db/schema.js'
+import { eq, and, desc } from 'drizzle-orm'
 
 /**
  * Generate a unique machine ID
@@ -21,6 +20,46 @@ export function generateMachineId(hostname: string): string {
   const uuid = crypto.randomUUID().slice(0, 8)
   const sanitizedHostname = hostname.replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 20)
   return `${sanitizedHostname}-${uuid}`
+}
+
+// Helper: map a SQLite row to RegisteredMachine
+function mapRowToMachine(row: typeof registeredMachines.$inferSelect): RegisteredMachine {
+  return {
+    id: row.id,
+    name: row.name,
+    hostname: row.hostname,
+    platform: row.platform,
+    environmentType: row.environmentType as EnvironmentType,
+    providers: (row.providers ?? []) as ProviderType[],
+    userId: row.userId,
+    workspaceId: row.workspaceId ?? undefined,
+    registeredAt: row.registeredAt,
+    lastSeenAt: row.lastSeenAt,
+    isConnected: row.isConnected,
+    refreshTokenHash: row.refreshTokenHash,
+    isRevoked: row.isRevoked,
+    metadata: (row.metadata ?? undefined) as Record<string, string> | undefined,
+  }
+}
+
+// Helper: map a Supabase row to RegisteredMachine
+function mapSupabaseToMachine(row: Record<string, unknown>): RegisteredMachine {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    hostname: row.hostname as string,
+    platform: row.platform as string,
+    environmentType: row.environment_type as EnvironmentType,
+    providers: row.providers as ProviderType[],
+    userId: row.user_id as string,
+    workspaceId: row.workspace_id as string | undefined,
+    registeredAt: new Date(row.registered_at as string),
+    lastSeenAt: new Date(row.last_seen_at as string),
+    isConnected: row.is_connected as boolean,
+    refreshTokenHash: row.refresh_token_hash as string,
+    isRevoked: row.is_revoked as boolean,
+    metadata: row.metadata as Record<string, string> | undefined,
+  }
 }
 
 /**
@@ -72,13 +111,22 @@ export async function registerMachine(params: {
       metadata: machine.metadata,
     })
   } else {
-    memStore.set(id, machine)
-    let userMachines = memUserIndex.get(params.userId)
-    if (!userMachines) {
-      userMachines = new Set()
-      memUserIndex.set(params.userId, userMachines)
-    }
-    userMachines.add(id)
+    db.insert(registeredMachines).values({
+      id: machine.id,
+      userId: machine.userId,
+      name: machine.name,
+      hostname: machine.hostname,
+      platform: machine.platform,
+      environmentType: machine.environmentType,
+      providers: machine.providers as string[],
+      workspaceId: machine.workspaceId,
+      refreshTokenHash: machine.refreshTokenHash,
+      metadata: machine.metadata,
+      isConnected: false,
+      isRevoked: false,
+      registeredAt: now,
+      lastSeenAt: now,
+    }).run()
   }
 
   return machine
@@ -100,8 +148,30 @@ export async function ensureMachineRegistered(machineId: string, params: {
   const existing = await getMachine(machineId)
 
   if (existing) {
-    // Machine exists — just update connection status
-    await updateMachineConnectionStatus(machineId, true)
+    // Machine exists — update connection status + environmentType/providers
+    if (isSupabaseConfigured()) {
+      const supabase = getServiceClient()
+      await supabase
+        .from('registered_machines')
+        .update({
+          is_connected: true,
+          last_seen_at: new Date().toISOString(),
+          environment_type: params.environmentType,
+          providers: params.providers,
+        })
+        .eq('id', machineId)
+    } else {
+      const now = new Date()
+      db.update(registeredMachines)
+        .set({
+          isConnected: true,
+          lastSeenAt: now,
+          environmentType: params.environmentType,
+          providers: params.providers as string[],
+        })
+        .where(eq(registeredMachines.id, machineId))
+        .run()
+    }
     return
   }
 
@@ -136,13 +206,20 @@ export async function ensureMachineRegistered(machineId: string, params: {
       refresh_token_hash: '',
     })
   } else {
-    memStore.set(machineId, machine)
-    let userMachines = memUserIndex.get(params.userId)
-    if (!userMachines) {
-      userMachines = new Set()
-      memUserIndex.set(params.userId, userMachines)
-    }
-    userMachines.add(machineId)
+    db.insert(registeredMachines).values({
+      id: machineId,
+      userId: params.userId,
+      name: params.name,
+      hostname: params.hostname,
+      platform: params.platform,
+      environmentType: params.environmentType,
+      providers: params.providers as string[],
+      refreshTokenHash: '',
+      isConnected: true,
+      isRevoked: false,
+      registeredAt: now,
+      lastSeenAt: now,
+    }).run()
   }
 
   console.log(`[machines-store] Auto-registered machine ${machineId} on reconnect`)
@@ -161,10 +238,15 @@ export async function getMachine(machineId: string): Promise<RegisteredMachine |
       .single()
 
     if (!data) return null
-    return mapDbToMachine(data)
+    return mapSupabaseToMachine(data)
   }
 
-  return memStore.get(machineId) || null
+  const row = db.select().from(registeredMachines)
+    .where(eq(registeredMachines.id, machineId))
+    .get()
+
+  if (!row) return null
+  return mapRowToMachine(row)
 }
 
 /**
@@ -180,18 +262,18 @@ export async function getUserMachines(userId: string): Promise<RegisteredMachine
       .eq('is_revoked', false)
       .order('registered_at', { ascending: false })
 
-    return (data || []).map(mapDbToMachine)
+    return (data || []).map(mapSupabaseToMachine)
   }
 
-  const machineIds = memUserIndex.get(userId)
-  if (!machineIds) return []
+  const rows = db.select().from(registeredMachines)
+    .where(and(
+      eq(registeredMachines.userId, userId),
+      eq(registeredMachines.isRevoked, false),
+    ))
+    .orderBy(desc(registeredMachines.registeredAt))
+    .all()
 
-  const machines: RegisteredMachine[] = []
-  for (const id of machineIds) {
-    const machine = memStore.get(id)
-    if (machine && !machine.isRevoked) machines.push(machine)
-  }
-  return machines
+  return rows.map(mapRowToMachine)
 }
 
 /**
@@ -207,10 +289,11 @@ export async function updateMachineLastSeen(machineId: string): Promise<boolean>
     return !error
   }
 
-  const machine = memStore.get(machineId)
-  if (!machine) return false
-  machine.lastSeenAt = new Date()
-  return true
+  const result = db.update(registeredMachines)
+    .set({ lastSeenAt: new Date() })
+    .where(eq(registeredMachines.id, machineId))
+    .run()
+  return result.changes > 0
 }
 
 /**
@@ -229,11 +312,14 @@ export async function updateMachineConnectionStatus(machineId: string, isConnect
     return !error
   }
 
-  const machine = memStore.get(machineId)
-  if (!machine) return false
-  machine.isConnected = isConnected
-  if (isConnected) machine.lastSeenAt = new Date()
-  return true
+  const updates: Partial<typeof registeredMachines.$inferInsert> = { isConnected }
+  if (isConnected) updates.lastSeenAt = new Date()
+
+  const result = db.update(registeredMachines)
+    .set(updates)
+    .where(eq(registeredMachines.id, machineId))
+    .run()
+  return result.changes > 0
 }
 
 /**
@@ -249,10 +335,11 @@ export async function updateMachineProviders(machineId: string, providers: Provi
     return !error
   }
 
-  const machine = memStore.get(machineId)
-  if (!machine) return false
-  machine.providers = providers
-  return true
+  const result = db.update(registeredMachines)
+    .set({ providers: providers as string[] })
+    .where(eq(registeredMachines.id, machineId))
+    .run()
+  return result.changes > 0
 }
 
 /**
@@ -268,10 +355,11 @@ export async function updateMachineName(machineId: string, name: string): Promis
     return !error
   }
 
-  const machine = memStore.get(machineId)
-  if (!machine) return false
-  machine.name = name
-  return true
+  const result = db.update(registeredMachines)
+    .set({ name })
+    .where(eq(registeredMachines.id, machineId))
+    .run()
+  return result.changes > 0
 }
 
 /**
@@ -287,11 +375,11 @@ export async function revokeMachine(machineId: string): Promise<boolean> {
     return !error
   }
 
-  const machine = memStore.get(machineId)
-  if (!machine) return false
-  machine.isRevoked = true
-  machine.isConnected = false
-  return true
+  const result = db.update(registeredMachines)
+    .set({ isRevoked: true, isConnected: false })
+    .where(eq(registeredMachines.id, machineId))
+    .run()
+  return result.changes > 0
 }
 
 /**
@@ -307,16 +395,10 @@ export async function deleteMachine(machineId: string): Promise<boolean> {
     return !error
   }
 
-  const machine = memStore.get(machineId)
-  if (!machine) return false
-
-  const userMachines = memUserIndex.get(machine.userId)
-  if (userMachines) {
-    userMachines.delete(machineId)
-    if (userMachines.size === 0) memUserIndex.delete(machine.userId)
-  }
-  memStore.delete(machineId)
-  return true
+  const result = db.delete(registeredMachines)
+    .where(eq(registeredMachines.id, machineId))
+    .run()
+  return result.changes > 0
 }
 
 /**
@@ -337,10 +419,13 @@ export async function getAllMachines(): Promise<RegisteredMachine[]> {
       .from('registered_machines')
       .select('*')
       .order('registered_at', { ascending: false })
-    return (data || []).map(mapDbToMachine)
+    return (data || []).map(mapSupabaseToMachine)
   }
 
-  return Array.from(memStore.values())
+  const rows = db.select().from(registeredMachines)
+    .orderBy(desc(registeredMachines.registeredAt))
+    .all()
+  return rows.map(mapRowToMachine)
 }
 
 /**
@@ -357,29 +442,11 @@ export async function getConnectedMachinesCount(): Promise<number> {
     return count || 0
   }
 
-  let count = 0
-  for (const machine of memStore.values()) {
-    if (machine.isConnected && !machine.isRevoked) count++
-  }
-  return count
-}
-
-// Helper: map Supabase row to RegisteredMachine
-function mapDbToMachine(row: Record<string, unknown>): RegisteredMachine {
-  return {
-    id: row.id as string,
-    name: row.name as string,
-    hostname: row.hostname as string,
-    platform: row.platform as string,
-    environmentType: row.environment_type as EnvironmentType,
-    providers: row.providers as ProviderType[],
-    userId: row.user_id as string,
-    workspaceId: row.workspace_id as string | undefined,
-    registeredAt: new Date(row.registered_at as string),
-    lastSeenAt: new Date(row.last_seen_at as string),
-    isConnected: row.is_connected as boolean,
-    refreshTokenHash: row.refresh_token_hash as string,
-    isRevoked: row.is_revoked as boolean,
-    metadata: row.metadata as Record<string, string> | undefined,
-  }
+  const rows = db.select().from(registeredMachines)
+    .where(and(
+      eq(registeredMachines.isConnected, true),
+      eq(registeredMachines.isRevoked, false),
+    ))
+    .all()
+  return rows.length
 }

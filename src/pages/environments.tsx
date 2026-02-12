@@ -265,9 +265,18 @@ export function Environments() {
   const fetchRegistered = useMachinesStore((s) => s.fetchMachines)
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
 
+  // Re-fetch registered machines on mount and whenever live machines change.
+  // The server auto-registers relay-connected machines in the persistent store
+  // via ensureMachineRegistered on machine:connected events. A small delay
+  // ensures the server has time to persist before the frontend re-fetches.
+  const liveMachineCount = machines.size
   useEffect(() => {
     fetchRegistered("user-1")
-  }, [fetchRegistered])
+    if (liveMachineCount > 0) {
+      const timer = setTimeout(() => fetchRegistered("user-1"), 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [fetchRegistered, liveMachineCount])
 
   const liveMachines = Array.from(machines.values())
   const liveMachineIds = new Set(liveMachines.map((m) => m.machineId))
@@ -424,7 +433,7 @@ export function Environments() {
           <Server className="h-5 w-5 text-muted-foreground" />
           <h2 className="text-lg font-semibold">HPC Clusters</h2>
           {hpcMachines.length > 0 && (
-            <Badge variant="warning">
+            <Badge variant="success">
               {hpcMachines.length} connected
             </Badge>
           )}

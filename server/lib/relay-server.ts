@@ -80,6 +80,12 @@ interface AgentRunnerProviderInfo {
     multiTurn: boolean;
     maxConcurrentTasks: number;
   };
+  hpcCapability?: {
+    clusterName?: string;
+    partitions: string[];
+    defaultPartition?: string;
+    accounts: string[];
+  };
 }
 
 /** Agent runner's resource format */
