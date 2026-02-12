@@ -24,7 +24,10 @@ healthRoute.get('/health', async (c) => {
 
     return c.json({
       status: 'ok',
-      authenticated: summary.authenticated > 0,
+      // Server is considered authenticated if reachable — plan generation
+      // uses the Claude Agent SDK directly, regardless of local provider status.
+      // Provider auth only matters for local task execution.
+      authenticated: true,
       providers: {
         total: summary.total,
         available: summary.available,

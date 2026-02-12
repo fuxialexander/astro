@@ -159,6 +159,7 @@ export function TaskCreationForm({
       {showDescription ? (
         <FileCompletionTextarea
           projectId={projectId}
+          machineId={project?.defaultMachineId}
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
           value={description}

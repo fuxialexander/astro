@@ -179,6 +179,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
       <div className="flex items-end gap-2 border-t border-border p-3">
         <FileCompletionTextarea
           projectId={projectId}
+          machineId={project?.defaultMachineId}
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
           value={input}
