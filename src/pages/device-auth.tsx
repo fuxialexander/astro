@@ -125,8 +125,8 @@ export function DeviceAuth() {
 
       setStatus("success")
 
-      // Redirect to dashboard after a short delay
-      setTimeout(() => navigate("/"), 2000)
+      // Redirect to welcome page after a short delay
+      setTimeout(() => navigate("/welcome"), 2000)
     } catch {
       setStatus("error")
       setError("Failed to authorize device. Please try again.")

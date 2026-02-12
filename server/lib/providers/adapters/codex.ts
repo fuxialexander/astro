@@ -112,6 +112,13 @@ async function getCodexVersion(codexPath: string): Promise<string | null> {
 }
 
 /**
+ * Check if OpenAI authentication is available via environment variable.
+ */
+function checkOpenAIAuth(): 'authenticated' | 'unauthenticated' {
+  return process.env.OPENAI_API_KEY ? 'authenticated' : 'unauthenticated'
+}
+
+/**
  * OpenAI Codex provider adapter.
  * Wraps the OpenAI Codex CLI for use with the Nexus provider abstraction.
  */
@@ -132,13 +139,16 @@ export class CodexProvider implements AgentProvider {
       if (pathResult) {
         this.codexPath = pathResult
         const version = await getCodexVersion(pathResult)
+        const authStatus = checkOpenAIAuth()
 
         this.cachedDetection = {
           installed: true,
           version: version ?? undefined,
           executablePath: pathResult,
-          authStatus: 'unknown', // Codex auth is checked at runtime via OPENAI_API_KEY
-          message: 'Codex CLI found in PATH',
+          authStatus,
+          message: authStatus === 'authenticated'
+            ? 'Codex CLI found in PATH (OPENAI_API_KEY set)'
+            : 'Codex CLI found in PATH but OPENAI_API_KEY is not set',
           detectedAt: new Date(),
         }
 
@@ -152,13 +162,16 @@ export class CodexProvider implements AgentProvider {
         if (isExecutable) {
           this.codexPath = codexPath
           const version = await getCodexVersion(codexPath)
+          const authStatus = checkOpenAIAuth()
 
           this.cachedDetection = {
             installed: true,
             version: version ?? undefined,
             executablePath: codexPath,
-            authStatus: 'unknown',
-            message: `Codex CLI found at ${codexPath}`,
+            authStatus,
+            message: authStatus === 'authenticated'
+              ? `Codex CLI found at ${codexPath} (OPENAI_API_KEY set)`
+              : `Codex CLI found at ${codexPath} but OPENAI_API_KEY is not set`,
             detectedAt: new Date(),
           }
 
@@ -169,7 +182,7 @@ export class CodexProvider implements AgentProvider {
       // Codex not found
       this.cachedDetection = {
         installed: false,
-        authStatus: 'unknown',
+        authStatus: 'unauthenticated',
         message: 'Codex CLI not found. Install via: npm install -g @openai/codex',
         detectedAt: new Date(),
       }

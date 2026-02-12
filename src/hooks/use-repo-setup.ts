@@ -1,0 +1,114 @@
+import { useState } from 'react'
+import { useProjectStore } from '@/stores/project-store'
+
+export interface RepoSetupParams {
+  projectId: string
+  projectName: string
+  projectDescription?: string
+  workingDirectory?: string
+  repository?: string
+  targetMachineId?: string
+}
+
+export interface RepoSetupResult {
+  workingDirectory?: string
+  fileTree?: string[]
+  keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }
+}
+
+export interface GitInitPrompt {
+  projectId: string
+  dir: string
+  name: string
+  description?: string
+}
+
+export function useRepoSetup() {
+  const updateProject = useProjectStore((s) => s.updateProject)
+  const updateFileTree = useProjectStore((s) => s.updateFileTree)
+  const [gitInitPrompt, setGitInitPrompt] = useState<GitInitPrompt | null>(null)
+
+  async function setupRepo(params: RepoSetupParams): Promise<RepoSetupResult | null> {
+    try {
+      const res = await fetch('/api/repo/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: params.projectId,
+          projectName: params.projectName,
+          projectDescription: params.projectDescription,
+          workingDirectory: params.workingDirectory,
+          repository: params.repository,
+          targetMachineId: params.targetMachineId,
+        }),
+      })
+      if (!res.ok) return null
+      const data = await res.json()
+
+      if (data.needsGitInit) {
+        setGitInitPrompt({
+          projectId: params.projectId,
+          dir: data.workingDirectory,
+          name: params.projectName,
+          description: params.projectDescription,
+        })
+        return null
+      }
+
+      // Update project with resolved working directory and auto-detected repository
+      if (data.workingDirectory || data.repository) {
+        updateProject(params.projectId, {
+          ...(data.workingDirectory ? { workingDirectory: data.workingDirectory } : {}),
+          ...(data.repository ? { repository: data.repository } : {}),
+        })
+      }
+      if (data.fileTree) {
+        updateFileTree(params.projectId, data.fileTree, params.targetMachineId)
+      }
+
+      return {
+        workingDirectory: data.workingDirectory,
+        fileTree: data.fileTree,
+        keyFiles: data.keyFiles,
+      }
+    } catch (error) {
+      console.error('[repo-setup] Setup failed:', error)
+      return null
+    }
+  }
+
+  async function confirmGitInit() {
+    if (!gitInitPrompt) return
+    const { projectId, dir, name, description } = gitInitPrompt
+    setGitInitPrompt(null)
+    try {
+      const res = await fetch('/api/repo/git-init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workingDirectory: dir,
+          projectId,
+          projectName: name,
+          projectDescription: description,
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.workingDirectory) {
+        updateProject(projectId, { workingDirectory: data.workingDirectory })
+      }
+      if (data.fileTree) {
+        updateFileTree(projectId, data.fileTree)
+      }
+    } catch (error) {
+      console.error('[repo-setup] Git init failed:', error)
+    }
+  }
+
+  return {
+    setupRepo,
+    gitInitPrompt,
+    dismissGitInit: () => setGitInitPrompt(null),
+    confirmGitInit,
+  }
+}
