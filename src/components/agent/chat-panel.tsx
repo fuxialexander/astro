@@ -276,9 +276,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
 
     // Create new nodes (from decomposition)
     const prefix = projectId.slice(0, 8)
+    const safePrefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
     const idMap = new Map<string, string>() // map AI-generated IDs to real IDs
     for (const n of newNodes) {
-      const realId = n.id ? `${prefix}-${n.id}` : `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+      const realId = n.id ? safePrefixId(n.id) : `${prefix}-${crypto.randomUUID().slice(0, 8)}`
       if (n.id) idMap.set(n.id, realId)
 
       const now = new Date()
@@ -290,13 +291,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
         description: n.description,
         status: "planned",
         parentId: null,
-        dependencies: (n.dependencies ?? []).map((d) => idMap.get(d) ?? d),
+        dependencies: (n.dependencies ?? []).map((d) => idMap.get(d) ?? safePrefixId(d)),
         environment: (n.environment as PlanNode["environment"]) ?? "local",
         verification: (n.verification as PlanNode["verification"]) ?? "auto",
         position: { x: 40, y: 40 },
         priority: (n.priority as PlanNode["priority"]) ?? "medium",
         estimate: (n.estimate as PlanNode["estimate"]) ?? undefined,
-        milestoneId: n.milestoneId,
+        milestoneId: n.milestoneId ? safePrefixId(n.milestoneId) : undefined,
         createdAt: now,
         updatedAt: now,
       }

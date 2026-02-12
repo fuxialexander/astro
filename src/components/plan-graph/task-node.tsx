@@ -1,6 +1,6 @@
-import { memo, useState } from "react"
+import { memo, useState, useCallback } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2, Plus, GitPullRequest, Sparkles } from "lucide-react"
+import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2, Plus, GitPullRequest, Sparkles, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 
@@ -22,7 +22,10 @@ type TaskNodeData = Node<{
   priority?: string
   dueDate?: string
   prUrl?: string
+  checked?: boolean
+  selectionActive?: boolean
   onDecompose?: (nodeId: string) => void
+  onToggleSelect?: (nodeId: string) => void
 }>
 
 export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeData>) {
@@ -43,6 +46,15 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   const showPriorityDot = data.priority === "urgent" || data.priority === "high"
   const priorityDotColor = data.priority === "urgent" ? "bg-red-500" : "bg-orange-500"
 
+  // Selection state
+  const showCheckbox = hovered || data.selectionActive
+  const isChecked = data.checked ?? false
+
+  const handleCheckboxClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    data.onToggleSelect?.(id)
+  }, [data, id])
+
   // Overdue detection
   const isOverdue = (() => {
     if (!data.dueDate || data.status === "completed" || data.status === "pruned" || data.status === "auto_verified") return false
@@ -60,7 +72,8 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         config.border,
         isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-[10px]",
         data.status === "pruned" && "opacity-50",
-        isOverdue && "border-l-red-500 border-l-[3px]"
+        isOverdue && "border-l-red-500 border-l-[3px]",
+        isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background"
       )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -80,7 +93,24 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         </div>
       )}
 
-      <Icon className={cn("h-3.5 w-3.5 shrink-0 relative z-10", config.iconColor, data.status === "in_progress" && "animate-spin")} />
+      {/* Status icon / Selection checkbox */}
+      {showCheckbox ? (
+        <button
+          type="button"
+          onClick={handleCheckboxClick}
+          className={cn(
+            "relative z-10 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors cursor-pointer",
+            isChecked
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-muted-foreground/40 bg-transparent hover:border-primary/60"
+          )}
+        >
+          {isChecked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+        </button>
+      ) : (
+        <Icon className={cn("h-3.5 w-3.5 shrink-0 relative z-10", config.iconColor, data.status === "in_progress" && "animate-spin")} />
+      )}
+
       <span className={cn(
         "truncate text-xs font-medium relative z-10",
         data.status === "pruned" ? "text-muted-foreground line-through" : "text-foreground"

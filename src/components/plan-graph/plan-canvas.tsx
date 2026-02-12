@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useRef } from "react"
+import { useMemo, useCallback, useState, useRef, useEffect } from "react"
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -11,19 +11,38 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { GitBranch, LayoutGrid } from "lucide-react"
+import { GitBranch, LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Globe, Server, Cloud, CheckCircle2 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useExecutionStore, canExecuteNode, getAllowedEnvironments } from "@/stores/execution-store"
 import { TaskNode } from "./task-node"
+import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { EmptyState } from "@/components/ui/empty-state"
 import { calculateChildPosition } from "@/lib/graph-utils"
 import type { PlanNode } from "@/types"
 
+const environmentConfig = {
+  local: { icon: Laptop, label: "Local" },
+  remote: { icon: Globe, label: "Remote" },
+  hpc: { icon: Server, label: "HPC" },
+  cloud: { icon: Cloud, label: "Cloud" },
+} as const
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes = { task: TaskNode as any }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const edgeTypes = { deletable: DeletableEdge as any }
 
 const POPOVER_WIDTH = 320
 const POPOVER_HEIGHT_EST = 180
@@ -60,16 +79,37 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const planNodes = usePlanStore((s) => s.nodes)
   const planEdges = usePlanStore((s) => s.edges)
   const addEdge = usePlanStore((s) => s.addEdge)
+  const removeEdge = usePlanStore((s) => s.removeEdge)
+  const removeNodes = usePlanStore((s) => s.removeNodes)
   const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
   const startGeneration = useAgentStore((s) => s.startGeneration)
+  const startExecution = useExecutionStore((s) => s.startExecution)
+  const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
+  const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
+  const loadMachines = useExecutionStore((s) => s.loadMachines)
   const isProjectGenerating = useAgentStore((s) => s.sessions.get(projectId)?.status === 'active')
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
+  const [selectedEnvironment, setSelectedEnvironment] = useState<'local' | 'remote' | 'hpc' | 'cloud'>(
+    project?.defaultEnvironment || 'local'
+  )
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null)
+
+  // Load machines on mount for the environment dropdown
+  useEffect(() => {
+    if (!machinesLoaded) loadMachines()
+  }, [machinesLoaded, loadMachines])
+
+  const envConstraints = getAllowedEnvironments(project)
+  const availableMachines = getMachinesForEnvironment(selectedEnvironment)
   const [addChildState, setAddChildState] = useState<AddChildState | null>(null)
   const connectingNodeId = useRef<string | null>(null)
   const justCreatedChild = useRef(false)
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  const selectionActive = checkedIds.size > 0
 
   const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView } = useReactFlow()
 
@@ -87,6 +127,66 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     })
   }, [planEdges, projectNodes])
 
+  const updateNode = usePlanStore((s) => s.updateNode)
+
+  const handleEdgeDelete = useCallback((source: string, target: string) => {
+    removeEdge(source, target)
+    // Sync: remove source from target node's dependencies array
+    const targetNode = planNodes.find((n) => n.id === target)
+    if (targetNode) {
+      updateNode(target, { dependencies: targetNode.dependencies.filter((d) => d !== source) })
+    }
+  }, [removeEdge, planNodes, updateNode])
+
+  const handleToggleSelect = useCallback((nodeId: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(nodeId)) {
+        next.delete(nodeId)
+      } else {
+        next.add(nodeId)
+      }
+      return next
+    })
+  }, [])
+
+  const handleClearSelection = useCallback(() => {
+    setCheckedIds(new Set())
+  }, [])
+
+  const handleDeleteSelected = useCallback(() => {
+    if (checkedIds.size === 0) return
+    removeNodes(Array.from(checkedIds))
+    setCheckedIds(new Set())
+    setSelectedId(null)
+    onNodeSelect?.(null)
+    // Re-layout after deletion
+    setTimeout(() => {
+      reorganizeProject(projectId)
+      setTimeout(() => rfFitView({ padding: 0.3, duration: 300 }), 50)
+    }, 10)
+  }, [checkedIds, removeNodes, onNodeSelect, reorganizeProject, projectId, rfFitView])
+
+  const handleExecuteSelected = useCallback(() => {
+    if (checkedIds.size === 0) return
+    const { nodes: allNodes, edges: allEdges } = usePlanStore.getState()
+    const nodesToExecute = projectNodes.filter(
+      (n) => checkedIds.has(n.id) && canExecuteNode(n, allNodes, allEdges).ready
+    )
+    for (const node of nodesToExecute) {
+      startExecution(node.id, projectId, {
+        environment: selectedEnvironment,
+        targetMachineId: selectedMachineId || undefined,
+      })
+    }
+    setCheckedIds(new Set())
+  }, [checkedIds, projectNodes, startExecution, projectId, selectedEnvironment, selectedMachineId])
+
+  const handleSelectAll = useCallback(() => {
+    const allIds = new Set(projectNodes.map((n) => n.id))
+    setCheckedIds(allIds)
+  }, [projectNodes])
+
   const rfNodes: Node[] = useMemo(
     () =>
       projectNodes.map((n) => ({
@@ -101,11 +201,14 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           dueDate: n.dueDate,
           executionId: n.executionId,
           prUrl: n.prUrl,
+          checked: checkedIds.has(n.id),
+          selectionActive: selectionActive,
           onDecompose: onDecomposeNode,
+          onToggleSelect: handleToggleSelect,
         },
         selected: n.id === selectedId,
       })),
-    [projectNodes, selectedId, onDecomposeNode]
+    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect]
   )
 
   const rfEdges: Edge[] = useMemo(
@@ -114,11 +217,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         id: e.id,
         source: e.source,
         target: e.target,
-        type: "smoothstep",
+        type: "deletable",
+        data: { onDelete: handleEdgeDelete },
         style: { stroke: "var(--border)", strokeWidth: 1.5 },
         animated: e.type === "branch",
       })),
-    [projectEdges]
+    [projectEdges, handleEdgeDelete]
   )
 
   // Connection handlers for mindmap-like drag interactions
@@ -143,11 +247,16 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       target: connection.target,
       type: "dependency",
     })
+    // Sync: add source to target node's dependencies array
+    const targetNode = projectNodes.find((n) => n.id === connection.target)
+    if (targetNode && !targetNode.dependencies.includes(connection.source)) {
+      updateNode(connection.target, { dependencies: [...targetNode.dependencies, connection.source] })
+    }
     connectingNodeId.current = null
     // Auto-reorganize after adding a link
     reorganizeProject(projectId)
     setTimeout(() => rfFitView({ padding: 0.3, duration: 300 }), 50)
-  }, [projectEdges, addEdge, reorganizeProject, projectId, rfFitView])
+  }, [projectEdges, projectNodes, addEdge, updateNode, reorganizeProject, projectId, rfFitView])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, connectionState?: any) => {
@@ -210,8 +319,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     }
     setSelectedId(null)
     setAddChildState(null)
+    // Clear selection when clicking on empty canvas (unless shift-held via checkbox)
+    if (checkedIds.size > 0) {
+      setCheckedIds(new Set())
+    }
     onNodeSelect?.(null)
-  }, [onNodeSelect])
+  }, [onNodeSelect, checkedIds])
 
   const handleReorganize = useCallback(() => {
     reorganizeProject(projectId)
@@ -254,12 +367,22 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     )
   }
 
+  const { nodes: allPlanNodes, edges: allPlanEdges } = usePlanStore.getState()
+  const selectedNodes = projectNodes.filter((n) => checkedIds.has(n.id))
+  const readyNodes = selectedNodes.filter((n) => canExecuteNode(n, allPlanNodes, allPlanEdges).ready)
+  const blockedCount = selectedNodes.length - readyNodes.length
+  const SelectedEnvIcon = environmentConfig[selectedEnvironment].icon
+  const effectiveMachine = selectedMachineId
+    ? availableMachines.find((m) => m.machineId === selectedMachineId) ?? null
+    : null
+
   return (
     <div ref={canvasRef} className="relative h-full w-full">
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
         onConnect={onConnect}
@@ -290,6 +413,145 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           </button>
         </div>
       </ReactFlow>
+
+      {/* Bulk actions toolbar — appears when nodes are selected */}
+      {selectionActive && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 shadow-lg">
+          <span className="text-xs font-medium text-muted-foreground mr-1">
+            {checkedIds.size} selected
+          </span>
+          <button
+            type="button"
+            onClick={handleSelectAll}
+            title="Select all"
+            className="flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+          >
+            <CheckSquare className="h-3.5 w-3.5" />
+            All
+          </button>
+          <div className="h-4 w-px bg-border" />
+
+          {/* Split execute button: [Execute | Environment ▾] */}
+          <div className="flex items-center">
+            <button
+              type="button"
+              onClick={handleExecuteSelected}
+              disabled={readyNodes.length === 0}
+              title={
+                blockedCount > 0
+                  ? `${readyNodes.length} ready, ${blockedCount} blocked by dependencies`
+                  : `Execute ${readyNodes.length} task${readyNodes.length !== 1 ? "s" : ""}`
+              }
+              className="flex h-7 items-center gap-1 rounded-l-md border border-r-0 border-primary/30 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Execute{readyNodes.length > 0 ? ` (${readyNodes.length})` : ""}
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 items-center gap-1 rounded-r-md border border-primary/30 bg-primary/5 px-1.5 text-xs text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                >
+                  <SelectedEnvIcon className="h-3 w-3" />
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel>Environment</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {(Object.keys(environmentConfig) as Array<keyof typeof environmentConfig>).map((env) => {
+                  const config = environmentConfig[env]
+                  const EnvIcon = config.icon
+                  const isAllowed = envConstraints.allowed.includes(env)
+                  const machineCount = getMachinesForEnvironment(env).length
+                  return (
+                    <DropdownMenuItem
+                      key={env}
+                      disabled={!isAllowed}
+                      onClick={() => {
+                        setSelectedEnvironment(env)
+                        setSelectedMachineId(null)
+                      }}
+                      className="gap-2"
+                    >
+                      <EnvIcon className="h-4 w-4" />
+                      <div className="flex flex-col">
+                        <span>{config.label}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {env === "local" ? "Local machine" : `${machineCount} available`}
+                        </span>
+                      </div>
+                      {selectedEnvironment === env && (
+                        <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  )
+                })}
+
+                {/* Machine selection for non-local environments */}
+                {selectedEnvironment !== "local" && availableMachines.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Machine</DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onClick={() => setSelectedMachineId(null)}
+                      className="gap-2"
+                    >
+                      <Server className="h-4 w-4" />
+                      <div className="flex flex-col">
+                        <span>Auto-select</span>
+                        <span className="text-[10px] text-muted-foreground">Best available</span>
+                      </div>
+                      {!selectedMachineId && (
+                        <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                    {availableMachines.map((machine) => (
+                      <DropdownMenuItem
+                        key={machine.machineId}
+                        onClick={() => setSelectedMachineId(machine.machineId)}
+                        className="gap-2"
+                      >
+                        <Server className="h-4 w-4" />
+                        <div className="flex flex-col">
+                          <span className="truncate max-w-[140px]">{machine.name}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {machine.hostname || machine.machineId}
+                          </span>
+                        </div>
+                        {selectedMachineId === machine.machineId && (
+                          <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div className="h-4 w-px bg-border" />
+          <button
+            type="button"
+            onClick={handleDeleteSelected}
+            title={`Delete ${checkedIds.size} node${checkedIds.size > 1 ? "s" : ""}`}
+            className="flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </button>
+          <div className="h-4 w-px bg-border" />
+          <button
+            type="button"
+            onClick={handleClearSelection}
+            title="Clear selection"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted transition-colors cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Floating creation form when adding child from graph */}
       {addChildState && (

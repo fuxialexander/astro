@@ -41,6 +41,7 @@ const environmentConfig = {
 export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const outputRef = useRef<HTMLDivElement>(null)
   const nodes = usePlanStore((s) => s.nodes)
+  const edges = usePlanStore((s) => s.edges)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
   // Execution state
@@ -110,7 +111,7 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const availableMachines = getMachinesForEnvironment(selectedEnvironment)
 
   // Check if node can be executed
-  const canExecuteResult = canExecuteNode(node, nodes)
+  const canExecuteResult = canExecuteNode(node, nodes, edges)
   const availableProvider = getAvailableProvider()
 
   // Determine if execute button should be enabled

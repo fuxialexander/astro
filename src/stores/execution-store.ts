@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { TaskExecution, ProviderStatus, PlanNode, ToolTrace, FileChange, UsageMetrics, Project } from "@/types"
+import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project } from "@/types"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
@@ -172,8 +172,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return
     }
 
-    // Check dependencies are met
-    const canExecute = canExecuteNode(node, planStore.nodes)
+    // Check dependencies are met (use edges as source of truth)
+    const canExecute = canExecuteNode(node, planStore.nodes, planStore.edges)
     if (!canExecute.ready) {
       console.error("Dependencies not met:", canExecute.reason)
       return
@@ -861,23 +861,37 @@ interface CanExecuteResult {
   pendingDependencies?: string[]
 }
 
-export function canExecuteNode(node: PlanNode, allNodes: PlanNode[]): CanExecuteResult {
-  if (node.dependencies.length === 0) {
+export function canExecuteNode(node: PlanNode, allNodes: PlanNode[], edges?: PlanEdge[]): CanExecuteResult {
+  // Filter to same project to avoid cross-project ID collisions
+  const projectNodes = allNodes.filter((n) => n.projectId === node.projectId)
+
+  // Derive upstream dependencies from the edge graph (source of truth) if available,
+  // falling back to the node's dependencies array for backwards compatibility.
+  let upstreamIds: string[]
+  if (edges) {
+    const projectNodeIds = new Set(projectNodes.map((n) => n.id))
+    upstreamIds = edges
+      .filter((e) => e.target === node.id && projectNodeIds.has(e.source))
+      .map((e) => e.source)
+  } else {
+    upstreamIds = node.dependencies
+  }
+
+  if (upstreamIds.length === 0) {
     return { ready: true }
   }
 
-  // Filter to same project to avoid cross-project ID collisions
-  const projectNodes = allNodes.filter((n) => n.projectId === node.projectId)
   const pendingDependencies: string[] = []
+  const completedStatuses: PlanNode["status"][] = ["completed", "auto_verified"]
 
-  for (const depId of node.dependencies) {
+  for (const depId of upstreamIds) {
     const depNode = projectNodes.find((n) => n.id === depId)
     if (!depNode) {
-      return { ready: false, reason: `Dependency ${depId} not found` }
+      // Dangling reference (e.g. from corrupted data) — skip rather than blocking execution
+      console.warn(`[canExecuteNode] Dependency ${depId} not found for node ${node.id}, skipping`)
+      continue
     }
 
-    // Check if dependency is completed (either auto_verified, completed, or awaiting_judgment that was approved)
-    const completedStatuses: PlanNode["status"][] = ["completed", "auto_verified"]
     if (!completedStatuses.includes(depNode.status)) {
       pendingDependencies.push(depNode.title)
     }
