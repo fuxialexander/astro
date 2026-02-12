@@ -41,4 +41,4 @@ node "$RUNNER_DIR/dist/cli.js" setup --api "$API_URL" --relay "$RELAY_URL" --typ
 # Start the agent runner
 echo ""
 echo "Starting agent runner..."
-node "$RUNNER_DIR/dist/cli.js" start
+node "$RUNNER_DIR/dist/cli.js" start --foreground
