@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
-import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown } from "lucide-react"
+import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown, Bot } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -15,7 +15,8 @@ import {
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir, getAllowedEnvironments, type MachineInfo } from "@/stores/execution-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
-import type { PlanNode } from "@/types"
+import { useSettingsStore } from "@/stores/settings-store"
+import type { PlanNode, ProviderStatus } from "@/types"
 
 interface ExecutionPanelProps {
   node: PlanNode
@@ -49,9 +50,13 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const cancelExecution = useExecutionStore((s) => s.cancelExecution)
 
   // Provider state
+  const providers = useExecutionStore((s) => s.providers)
   const providersLoaded = useExecutionStore((s) => s.providersLoaded)
   const loadProviders = useExecutionStore((s) => s.loadProviders)
   const getAvailableProvider = useExecutionStore((s) => s.getAvailableProvider)
+
+  // Default provider from settings
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
 
   // Machine state
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
@@ -66,6 +71,13 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
     project?.defaultEnvironment || node.environment || 'local'
   )
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider || "")
+  const [selectedModel, setSelectedModel] = useState<string>("")
+
+  // Derived: selected provider object
+  const selectedProviderObj: ProviderStatus | null = selectedProvider
+    ? providers.find((p) => p.id === selectedProvider) ?? null
+    : null
 
   // Resolve working directory based on selected environment
   const dirCheck = getProjectWorkingDir(project, selectedEnvironment)
@@ -122,6 +134,8 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
     startExecution(node.id, projectId, {
       environment: selectedEnvironment,
       targetMachineId: effectiveMachine?.machineId,
+      preferredProvider: selectedProvider || undefined,
+      model: selectedModel || undefined,
     })
   }
 
@@ -272,21 +286,105 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
         </div>
       )}
 
-      {/* Provider Status (for local environment) */}
-      {selectedEnvironment === 'local' && providersLoaded && (
+      {/* Provider Selection */}
+      {providersLoaded && (
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Agent</span>
-          {availableProvider ? (
-            <Badge variant="success" className="gap-1">
-              <CheckCircle2 className="h-3 w-3" />
-              {availableProvider.name}
-            </Badge>
+          {providers.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 max-w-[200px]">
+                  <Bot className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">
+                    {selectedProviderObj?.name || "Auto"}
+                  </span>
+                  <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Select Agent</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
+                  className="gap-2"
+                >
+                  <Bot className="h-4 w-4" />
+                  <div className="flex flex-col">
+                    <span>Auto</span>
+                    <span className="text-xs text-muted-foreground">Best available agent</span>
+                  </div>
+                  {!selectedProvider && (
+                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {providers.map((provider) => (
+                  <DropdownMenuItem
+                    key={provider.id}
+                    onClick={() => { setSelectedProvider(provider.id); setSelectedModel("") }}
+                    className="gap-2"
+                    disabled={!provider.available}
+                  >
+                    <Bot className="h-4 w-4" />
+                    <div className="flex flex-col">
+                      <span>{provider.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {provider.available
+                          ? "Available"
+                          : provider.installed
+                            ? `Auth: ${provider.authStatus}`
+                            : "Not installed"}
+                      </span>
+                    </div>
+                    {selectedProvider === provider.id && (
+                      <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : (
             <Badge variant="warning" className="gap-1">
               <AlertCircle className="h-3 w-3" />
               No agent available
             </Badge>
           )}
+        </div>
+      )}
+
+      {/* Model Selection (when a specific provider is selected and has models) */}
+      {selectedProviderObj?.capabilities?.availableModels && selectedProviderObj.capabilities.availableModels.length > 0 && (
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Model</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 max-w-[220px]">
+                <span className="truncate text-xs">
+                  {selectedModel || selectedProviderObj.capabilities.defaultModel || "Default"}
+                </span>
+                <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Select Model</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {selectedProviderObj.capabilities.availableModels.map((model) => (
+                <DropdownMenuItem
+                  key={model}
+                  onClick={() => setSelectedModel(model)}
+                  className="gap-2"
+                >
+                  <span className="text-sm">{model}</span>
+                  {model === selectedProviderObj.capabilities?.defaultModel && (
+                    <Badge variant="secondary" className="ml-auto text-[10px]">default</Badge>
+                  )}
+                  {selectedModel === model && (
+                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
 

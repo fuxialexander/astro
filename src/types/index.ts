@@ -82,8 +82,20 @@ export interface FileChange {
   action: 'create' | 'modify' | 'delete';
   linesAdded?: number;
   linesRemoved?: number;
+  diff?: string;
   timestamp: Date;
 }
+
+// Unified activity event for sequential timeline rendering
+export type TaskActivityEvent =
+  | { type: 'text'; content: string; timestamp: Date }
+  | { type: 'tool_use'; id: string; toolName: string; toolInput: unknown; timestamp: Date }
+  | { type: 'tool_result'; id: string; toolName: string; toolResult?: unknown; success?: boolean; duration?: number; timestamp: Date }
+  | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; timestamp: Date }
+  | { type: 'chat_user'; message: string; timestamp: Date }
+  | { type: 'chat_assistant'; content: string; timestamp: Date }
+  | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: Date }
+  | { type: 'error'; error: string; timestamp: Date }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {
@@ -114,6 +126,8 @@ export interface TaskExecution {
   providerId?: string;
   providerName?: string;
   metrics?: UsageMetrics;
+  // Unified activity timeline
+  activityEvents: TaskActivityEvent[];
   // Git PR metadata
   branchName?: string;
   prUrl?: string;
@@ -127,6 +141,10 @@ export interface ProviderStatus {
   installed: boolean;
   authStatus: 'authenticated' | 'unauthenticated' | 'expired' | 'unknown';
   available: boolean;
+  capabilities?: {
+    availableModels: string[];
+    defaultModel: string;
+  };
 }
 
 export type EdgeType = 'dependency' | 'branch';

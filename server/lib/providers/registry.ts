@@ -260,6 +260,10 @@ class ProviderRegistry {
         installed: r.detection.installed,
         authStatus: r.detection.authStatus,
         available: r.available,
+        capabilities: {
+          availableModels: r.capabilities.availableModels,
+          defaultModel: r.capabilities.defaultModel,
+        },
       })),
     }
   }

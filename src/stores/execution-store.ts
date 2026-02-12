@@ -203,6 +203,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           error: "This project's code only exists on a specific machine. Cannot execute on a different machine.",
           toolTraces: [],
           fileChanges: [],
+          activityEvents: [],
           startedAt: new Date(),
           completedAt: new Date(),
         }
@@ -230,6 +231,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         error: dirCheck.message || "No working directory or repository configured.",
         toolTraces: [],
         fileChanges: [],
+        activityEvents: [],
         startedAt: new Date(),
         completedAt: new Date(),
       }
@@ -253,6 +255,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       streamText: "",
       toolTraces: [],
       fileChanges: [],
+      activityEvents: [],
       startedAt: new Date(),
     }
 
@@ -415,10 +418,18 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const response = await fetch("/api/agent/providers")
       if (response.ok) {
         const data = await response.json()
-        set({
-          providers: data.providers || [],
-          providersLoaded: true,
-        })
+        const providers: ProviderStatus[] = (data.providers || []).map((p: Record<string, unknown>) => ({
+          id: p.id,
+          name: p.name,
+          installed: p.installed,
+          authStatus: p.authStatus,
+          available: p.available,
+          capabilities: p.capabilities ? {
+            availableModels: (p.capabilities as Record<string, unknown>).availableModels,
+            defaultModel: (p.capabilities as Record<string, unknown>).defaultModel,
+          } : undefined,
+        }))
+        set({ providers, providersLoaded: true })
       }
     } catch {
       set({ providersLoaded: true })
@@ -591,6 +602,7 @@ function handleSSEEvent(
         const exec = newExecutions.get(nodeId)
         if (exec) {
           exec.streamText += data
+          exec.activityEvents = [...exec.activityEvents, { type: 'text', content: data, timestamp: new Date() }]
         }
         return { executions: newExecutions }
       })
@@ -600,17 +612,26 @@ function handleSSEEvent(
     case "tool_use": {
       try {
         const parsed = JSON.parse(data)
+        const now = new Date()
+        const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
         const trace: ToolTrace = {
-          id: `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          id: traceId,
           toolName: parsed.toolName,
           toolInput: parsed.toolInput,
-          timestamp: new Date(),
+          timestamp: now,
         }
         set((state) => {
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
             exec.toolTraces = [...exec.toolTraces, trace]
+            exec.activityEvents = [...exec.activityEvents, {
+              type: 'tool_use' as const,
+              id: traceId,
+              toolName: parsed.toolName,
+              toolInput: parsed.toolInput,
+              timestamp: now,
+            }]
           }
           return { executions: newExecutions }
         })
@@ -623,6 +644,7 @@ function handleSSEEvent(
     case "tool_result": {
       try {
         const parsed = JSON.parse(data)
+        const now = new Date()
         set((state) => {
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
@@ -633,6 +655,15 @@ function handleSSEEvent(
               lastTrace.toolResult = parsed.result
               lastTrace.success = parsed.success
             }
+            exec.activityEvents = [...exec.activityEvents, {
+              type: 'tool_result' as const,
+              id: lastTrace.id,
+              toolName: parsed.toolName,
+              toolResult: parsed.result,
+              success: parsed.success,
+              duration: parsed.duration,
+              timestamp: now,
+            }]
           }
           return { executions: newExecutions }
         })
@@ -645,18 +676,29 @@ function handleSSEEvent(
     case "file_change": {
       try {
         const parsed = JSON.parse(data)
+        const now = new Date()
         const change: FileChange = {
           path: parsed.path,
           action: parsed.action || 'modify',
           linesAdded: parsed.linesAdded,
           linesRemoved: parsed.linesRemoved,
-          timestamp: new Date(),
+          diff: parsed.diff,
+          timestamp: now,
         }
         set((state) => {
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
             exec.fileChanges = [...exec.fileChanges, change]
+            exec.activityEvents = [...exec.activityEvents, {
+              type: 'file_change' as const,
+              path: parsed.path,
+              action: parsed.action || 'modify',
+              diff: parsed.diff,
+              linesAdded: parsed.linesAdded,
+              linesRemoved: parsed.linesRemoved,
+              timestamp: now,
+            }]
           }
           return { executions: newExecutions }
         })
@@ -777,6 +819,7 @@ function handleSSEEvent(
             exec.status = "failure"
             exec.error = errorMessage
             exec.completedAt = new Date()
+            exec.activityEvents = [...exec.activityEvents, { type: 'error' as const, error: errorMessage, timestamp: new Date() }]
           }
           return { executions: newExecutions }
         })

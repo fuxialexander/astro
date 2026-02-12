@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Link } from "react-router"
 import {
   ChevronLeft,
@@ -18,11 +18,16 @@ import {
   Trash2,
   Key,
   AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Loader2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
+import { useExecutionStore } from "@/stores/execution-store"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { DomainExpertise, ExperienceLevel, PreferredEnvironment } from "@/types"
@@ -816,6 +821,161 @@ function ModelsContent() {
   )
 }
 
+function AgentsContent() {
+  const providers = useExecutionStore((s) => s.providers)
+  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
+  const loadProviders = useExecutionStore((s) => s.loadProviders)
+  const redetectProviders = useExecutionStore((s) => s.redetectProviders)
+  const { defaultProvider, setDefaultProvider } = useSettingsStore()
+  const [detecting, setDetecting] = useState(false)
+
+  useEffect(() => {
+    if (!providersLoaded) {
+      loadProviders()
+    }
+  }, [providersLoaded, loadProviders])
+
+  const handleRedetect = async () => {
+    setDetecting(true)
+    await redetectProviders()
+    setDetecting(false)
+  }
+
+  const authStatusConfig: Record<string, { label: string; variant: "success" | "warning" | "destructive" | "secondary" }> = {
+    authenticated: { label: "Authenticated", variant: "success" },
+    unauthenticated: { label: "Not authenticated", variant: "warning" },
+    expired: { label: "Expired", variant: "destructive" },
+    unknown: { label: "Unknown", variant: "secondary" },
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      <h1 className="text-[28px] font-semibold">Agents</h1>
+
+      {/* Default Provider */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Default Agent</h2>
+        <p className="text-[13px] text-muted-foreground">
+          Choose which agent to use by default for task execution and plan generation.
+        </p>
+        <div className="rounded-xl border border-border bg-card">
+          <div className="px-4 py-3.5">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm">Default provider</span>
+                <span className="text-[13px] text-muted-foreground">
+                  Used when no specific provider is selected
+                </span>
+              </div>
+              <select
+                value={defaultProvider}
+                onChange={(e) => setDefaultProvider(e.target.value)}
+                className="h-8 rounded-md border border-border bg-card px-2.5 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">Auto (first available)</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id} disabled={!p.available}>
+                    {p.name}{!p.available ? " (unavailable)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Provider List */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Registered Providers</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRedetect}
+            disabled={detecting}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", detecting && "animate-spin")} />
+            Re-detect
+          </Button>
+        </div>
+        <p className="text-[13px] text-muted-foreground">
+          Agent providers detected on your system. Re-detect to refresh status.
+        </p>
+
+        {!providersLoaded ? (
+          <div className="flex items-center justify-center rounded-xl border border-border bg-card py-12">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : providers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-12">
+            <Bot className="mb-2 h-8 w-8 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No providers detected</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Install Claude Code or Codex CLI, then click Re-detect
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border bg-card">
+            {providers.map((provider, idx) => {
+              const authConfig = authStatusConfig[provider.authStatus] || authStatusConfig.unknown
+              return (
+                <div
+                  key={provider.id}
+                  className={cn(
+                    "flex items-center justify-between px-4 py-3.5",
+                    idx !== providers.length - 1 && "border-b border-border"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "flex h-9 w-9 items-center justify-center rounded-lg",
+                      provider.available ? "bg-primary/10" : "bg-muted"
+                    )}>
+                      <Bot className={cn("h-4.5 w-4.5", provider.available ? "text-primary" : "text-muted-foreground")} />
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{provider.name}</span>
+                        {provider.available ? (
+                          <Badge variant="success" className="gap-1 text-[10px]">
+                            <CheckCircle2 className="h-2.5 w-2.5" />
+                            Available
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="gap-1 text-[10px]">
+                            <XCircle className="h-2.5 w-2.5" />
+                            Unavailable
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                        <span>{provider.installed ? "Installed" : "Not installed"}</span>
+                        <span>&middot;</span>
+                        <Badge variant={authConfig.variant} className="text-[10px] py-0 h-4">
+                          {authConfig.label}
+                        </Badge>
+                        {provider.capabilities?.availableModels && (
+                          <>
+                            <span>&middot;</span>
+                            <span>{provider.capabilities.availableModels.length} models</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {defaultProvider === provider.id && (
+                    <Badge variant="outline" className="text-[10px]">Default</Badge>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
 function PlaceholderContent({ title }: { title: string }) {
   return (
     <div className="flex flex-col gap-8">
@@ -850,6 +1010,8 @@ export function Settings() {
         return <ProfileContent />
       case "models":
         return <ModelsContent />
+      case "agents":
+        return <AgentsContent />
       default:
         return <PlaceholderContent title={tabTitles[activeTab]} />
     }

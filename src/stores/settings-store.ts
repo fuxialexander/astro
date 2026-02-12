@@ -4,15 +4,18 @@ import { dataClient } from "@/lib/data-client"
 
 interface SettingsState {
   model: string
+  defaultProvider: string // '' = auto/first available
   connectionStatus: "connected" | "disconnected" | "checking"
   loaded: boolean
   load: () => Promise<void>
   checkConnection: () => Promise<void>
   setModel: (model: string) => void
+  setDefaultProvider: (provider: string) => void
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   model: "claude-sonnet-4-5-20250929",
+  defaultProvider: "",
   connectionStatus: "disconnected",
   loaded: false,
 
@@ -27,9 +30,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }
     } catch {
       // API unavailable — fall back to IndexedDB
-      const saved = await loadState<{ model: string }>("nexus-settings")
+      const saved = await loadState<{ model: string; defaultProvider?: string }>("nexus-settings")
       if (saved) {
-        set({ model: saved.model, loaded: true })
+        set({ model: saved.model, defaultProvider: saved.defaultProvider || "", loaded: true })
       } else {
         set({ loaded: true })
       }
@@ -52,7 +55,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setModel: (model) => {
     set({ model })
-    saveState("nexus-settings", { model })
+    saveState("nexus-settings", { model, defaultProvider: get().defaultProvider })
     dataClient.updateSettings({ model }).catch(() => {})
+  },
+
+  setDefaultProvider: (defaultProvider) => {
+    set({ defaultProvider })
+    saveState("nexus-settings", { model: get().model, defaultProvider })
   },
 }))

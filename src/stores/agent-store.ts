@@ -109,7 +109,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       return { sessions: next }
     })
 
-    const model = useSettingsStore.getState().model
+    const { model, defaultProvider } = useSettingsStore.getState()
 
     try {
       await generatePlan(
@@ -118,6 +118,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           visionDoc,
           projectId,
           model,
+          providerId: defaultProvider || undefined,
           workingDirectory: repoContext?.workingDirectory,
           fileTree: repoContext?.fileTree,
           keyFiles: repoContext?.keyFiles,
