@@ -6,8 +6,10 @@
  * generation since the repo already exists on the remote machine.
  */
 
-import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { execFileSync, execSync } from 'node:child_process';
+import { existsSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 export function isGitRepo(dir: string): boolean {
   try {
@@ -63,23 +65,60 @@ export interface LocalRepoSetupResult {
 }
 
 /**
+ * Clone a git repository to ~/.nexus/repos/<projectId>/.
+ * If already cloned, fetch latest. Returns the local path.
+ */
+function cloneRepository(repoUrl: string, projectId: string): string {
+  const repoDir = join(homedir(), '.nexus', 'repos', projectId);
+
+  if (existsSync(join(repoDir, '.git'))) {
+    // Already cloned — fetch latest
+    try {
+      execSync('git fetch --all', { cwd: repoDir, stdio: 'ignore', timeout: 30_000 });
+    } catch {
+      // Non-fatal: proceed with stale clone
+    }
+  } else {
+    // Ensure parent directory exists
+    mkdirSync(join(homedir(), '.nexus', 'repos'), { recursive: true });
+    // Clone the repo
+    execSync(`git clone ${JSON.stringify(repoUrl)} ${JSON.stringify(repoDir)}`, {
+      stdio: 'ignore',
+      timeout: 120_000,
+    });
+  }
+  return repoDir;
+}
+
+/**
  * Run repo setup locally on the agent runner's machine.
- * Simpler than server's setupProjectRepo — only handles existing directories.
+ * Handles existing directories and cloning repos from URL.
  */
 export function localRepoSetup(options: {
   workingDirectory?: string;
   repository?: string;
+  projectId?: string;
 }): LocalRepoSetupResult {
-  const { workingDirectory, repository } = options;
+  const { workingDirectory, repository, projectId } = options;
 
   if (!workingDirectory && !repository) {
     return { success: false, error: 'No working directory or repository provided' };
   }
 
-  // If only a repo URL is provided, we can't clone on the agent runner side
-  // (that's handled by the server). Just report it.
+  // If only a repo URL is provided, clone it locally
   if (repository && !workingDirectory) {
-    return { success: false, error: 'Cannot clone repository on remote machine — provide a working directory' };
+    try {
+      const clonedDir = cloneRepository(repository, projectId || crypto.randomUUID().slice(0, 8));
+      const fileTree = getFileTree(clonedDir);
+      return {
+        success: true,
+        workingDirectory: clonedDir,
+        fileTree,
+        repository,
+      };
+    } catch (error) {
+      return { success: false, error: `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}` };
+    }
   }
 
   if (workingDirectory) {

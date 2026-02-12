@@ -188,10 +188,10 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   };
 
   wsClient['onRepoSetup'] = (payload: RepoSetupRequestMessage['payload']) => {
-    const { correlationId, workingDirectory, repository } = payload;
+    const { correlationId, projectId, workingDirectory, repository } = payload;
     log('info', `Repo setup request: dir=${workingDirectory || '(none)'} repo=${repository || '(none)'}`, logLevel);
     try {
-      const result = localRepoSetup({ workingDirectory, repository });
+      const result = localRepoSetup({ workingDirectory, repository, projectId });
       wsClient.sendRepoSetupResponse(correlationId, result);
       log('info', `Repo setup result: success=${result.success} files=${result.fileTree?.length ?? 0}`, logLevel);
     } catch (error) {
