@@ -129,10 +129,14 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   // Create WebSocket client
   const connectSpinner = ora('Connecting to relay server...').start();
 
+  // Auto-promote environment type to 'hpc' if any provider has HPC capability
+  const hasHpcCapability = providers.some((p) => p.hpcCapability);
+  const environmentType = hasHpcCapability ? 'hpc' : (config.getEnvironmentType() || 'local');
+
   const wsClient = new WebSocketClient({
     runnerId,
     machineId,
-    environmentType: config.getEnvironmentType(),
+    environmentType,
     providers,
     version,
     wsToken: config.getWsToken(),

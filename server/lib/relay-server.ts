@@ -1046,9 +1046,13 @@ export class RelayServer extends EventEmitter {
     try {
       // Convert agent runner format to relay server format
       const validEnvTypes = ['local', 'remote', 'hpc', 'cloud'];
+      // Auto-promote to 'hpc' if any provider has hpcCapability
+      const hasHpcCapability = providers.some((p) => p.hpcCapability);
+      const resolvedEnvType = hasHpcCapability ? 'hpc'
+        : (validEnvTypes.includes(environmentType || '') ? environmentType : 'local');
       const machineInfo: Omit<MachineInfo, 'machineId'> = {
         name: resources.hostname || machineId,
-        environmentType: (validEnvTypes.includes(environmentType || '') ? environmentType : 'local') as EnvironmentType,
+        environmentType: resolvedEnvType as EnvironmentType,
         hostname: resources.hostname,
         platform: resources.platform,
         providers: providers.map((p) => ({

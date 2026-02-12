@@ -275,24 +275,32 @@ export function Environments() {
   // Build a lookup from machine ID → registered machine for footer dates
   const registeredLookup = new Map(registeredMachines.map((m) => [m.id, m]))
 
-  // All registered machines (from device auth) that are currently connected
-  const remoteLiveMachines = liveMachines.filter((m) => registeredLookup.has(m.machineId))
+  // Derive HPC machines from live machines with hpcCapability
+  const hpcMachineIds = new Set(
+    liveMachines
+      .filter((m) => m.providers.some((p) => p.hpcCapability))
+      .map((m) => m.machineId)
+  )
+  const hpcMachines = liveMachines.filter((m) => hpcMachineIds.has(m.machineId))
 
-  // Registered machines that are not currently connected live
-  const offlineMachines = registeredMachines.filter(
-    (m) => !m.isRevoked && !m.isConnected && !liveMachineIds.has(m.id)
+  // All live machines that are NOT HPC (shown in Remote section)
+  const remoteLiveMachines = liveMachines.filter(
+    (m) => !hpcMachineIds.has(m.machineId)
   )
 
-  // Derive HPC machines from live machines with hpcCapability
-  const hpcMachines = liveMachines.filter((m) =>
-    m.providers.some((p) => p.hpcCapability)
+  // Registered machines that are not currently connected live, split by HPC vs non-HPC
+  const offlineNonHpcMachines = registeredMachines.filter(
+    (m) => !m.isRevoked && !m.isConnected && !liveMachineIds.has(m.id) && m.environmentType !== 'hpc'
+  )
+  const offlineHpcMachines = registeredMachines.filter(
+    (m) => !m.isRevoked && !m.isConnected && !liveMachineIds.has(m.id) && m.environmentType === 'hpc'
   )
 
   // +1 for the local machine (this server)
-  const totalMachines = 1 + remoteLiveMachines.length + offlineMachines.length
-  const connectedCount = 1 + remoteLiveMachines.length
+  const totalMachines = 1 + remoteLiveMachines.length + hpcMachines.length + offlineNonHpcMachines.length + offlineHpcMachines.length
+  const connectedCount = 1 + remoteLiveMachines.length + hpcMachines.length
   const activeTasks = liveMachines.reduce((sum, m) => sum + m.load.activeTasks, 0)
-  const hpcClusterCount = hpcMachines.length
+  const hpcClusterCount = hpcMachines.length + offlineHpcMachines.length
 
   const handleRefresh = () => {
     fetchRegistered("user-1")
@@ -378,7 +386,7 @@ export function Environments() {
             <Badge variant="success">{remoteLiveMachines.length} connected</Badge>
           )}
         </div>
-        {remoteLiveMachines.length > 0 || offlineMachines.length > 0 ? (
+        {remoteLiveMachines.length > 0 || offlineNonHpcMachines.length > 0 ? (
           <div className="grid grid-cols-2 gap-4">
             {remoteLiveMachines.map((m) => (
               <MachineCard
@@ -388,7 +396,7 @@ export function Environments() {
                 onRemove={() => revokeMachine(m.machineId)}
               />
             ))}
-            {offlineMachines.map((m) => (
+            {offlineNonHpcMachines.map((m) => (
               <OfflineMachineCard key={m.id} machine={m} onRemove={() => revokeMachine(m.id)} />
             ))}
           </div>
@@ -421,7 +429,7 @@ export function Environments() {
             </Badge>
           )}
         </div>
-        {hpcMachines.length > 0 ? (
+        {hpcMachines.length > 0 || offlineHpcMachines.length > 0 ? (
           <div className="grid grid-cols-2 gap-4">
             {hpcMachines.map((m) => (
               <MachineCard
@@ -430,6 +438,9 @@ export function Environments() {
                 registeredMachine={registeredLookup.get(m.machineId)}
                 onRemove={() => revokeMachine(m.machineId)}
               />
+            ))}
+            {offlineHpcMachines.map((m) => (
+              <OfflineMachineCard key={m.id} machine={m} onRemove={() => revokeMachine(m.id)} />
             ))}
           </div>
         ) : (
