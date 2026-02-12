@@ -13,6 +13,7 @@ interface PlanState {
   updateNode: (id: string, updates: Partial<PlanNode>) => void
   removeNodes: (ids: string[]) => void
   addEdge: (edge: PlanEdge) => void
+  removeEdge: (source: string, target: string) => void
   setProjectPlan: (projectId: string, nodes: PlanNode[], edges: PlanEdge[]) => void
   reorganizeProject: (projectId: string) => void
 }
@@ -109,6 +110,16 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     if (sourceNode) {
       dataClient.addEdge({ ...edge, projectId: sourceNode.projectId }).catch(() => {})
     }
+  },
+
+  removeEdge: (source, target) => {
+    const edgeToRemove = get().edges.find((e) => e.source === source && e.target === target)
+    if (!edgeToRemove) return
+
+    const nextEdges = get().edges.filter((e) => !(e.source === source && e.target === target))
+    set({ edges: nextEdges })
+    saveState("nexus-plan-edges", nextEdges)
+    dataClient.deleteEdge(edgeToRemove.id).catch(() => {})
   },
 
   setProjectPlan: (projectId, newNodes, newEdges) => {

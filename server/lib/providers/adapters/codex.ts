@@ -270,6 +270,11 @@ export class CodexProvider implements AgentProvider {
         fullPrompt = `${preparedContext.promptContent}\n\n---\n\nTask:\n${task.prompt}`
       }
 
+      // For chat/planning tasks, inject system prompt as context prefix (Codex has no native system prompt)
+      if (task.systemPrompt && (task.type === 'chat' || task.type === 'planning')) {
+        fullPrompt = `${task.systemPrompt}\n\n---\n\n${fullPrompt}`
+      }
+
       // Execute Codex CLI
       const result = await this.runCodex(task.taskId, fullPrompt, task, abortController)
 
@@ -350,6 +355,11 @@ export class CodexProvider implements AgentProvider {
       let fullPrompt = task.prompt
       if (preparedContext.method === 'prompt_prefix' && preparedContext.promptContent) {
         fullPrompt = `${preparedContext.promptContent}\n\n---\n\nTask:\n${task.prompt}`
+      }
+
+      // For chat/planning tasks, inject system prompt as context prefix (Codex has no native system prompt)
+      if (task.systemPrompt && (task.type === 'chat' || task.type === 'planning')) {
+        fullPrompt = `${task.systemPrompt}\n\n---\n\n${fullPrompt}`
       }
 
       // Emit init event
@@ -804,8 +814,10 @@ export class CodexProvider implements AgentProvider {
       args.push('--model', task.model)
     }
 
-    // Full auto mode for execution tasks; planning/chat only need text output
-    if (task.type !== 'planning' && task.type !== 'chat') {
+    // Full auto mode for execution tasks; planning/chat use read-only sandbox
+    if (task.type === 'planning' || task.type === 'chat') {
+      args.push('--sandbox', 'read-only')
+    } else {
       args.push('--full-auto')
     }
 

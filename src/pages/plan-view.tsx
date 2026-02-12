@@ -4,6 +4,7 @@ import { ArrowLeft, FileText, Plus, Share2, CheckCircle2, Clock, Circle, Message
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
+import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -711,8 +712,17 @@ export function PlanView() {
           <PlanTimelineView projectId={project.id} onNodeSelect={setSelectedNode} />
         )}
 
-        {/* Chat panel */}
-        {chatOpen && <ChatPanel projectId={project.id} visionDoc={project.visionDoc} />}
+        {/* Chat panel — right sidebar */}
+        {chatOpen && (
+          <div className={cn(
+            "z-20",
+            viewMode === "graph"
+              ? "absolute right-0 top-0 bottom-0 w-[380px] shadow-lg"
+              : "w-[380px] shrink-0"
+          )}>
+            <ChatPanel projectId={project.id} visionDoc={project.visionDoc} />
+          </div>
+        )}
 
         {/* Detail pane with Execution Panel */}
         {selectedNode && !chatOpen && (
@@ -844,7 +854,20 @@ export function PlanView() {
 
             <div>
               <h4 className="mb-2 text-sm font-semibold">Description</h4>
-              <p className="text-sm text-muted-foreground leading-relaxed">{selectedNode.description}</p>
+              <FileCompletionTextarea
+                projectId={project.id}
+                machineId={project.defaultMachineId}
+                workingDirectory={project.workingDirectory}
+                fileTree={project.fileTree}
+                value={selectedNode.description ?? ""}
+                onChange={(val) => {
+                  updateNode(selectedNode.id, { description: val })
+                  setSelectedNode({ ...selectedNode, description: val })
+                }}
+                placeholder="Describe this task... Use @ to reference files"
+                rows={4}
+                className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
             </div>
             <Separator />
 

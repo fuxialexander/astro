@@ -7,7 +7,7 @@ import {
   type AgentProvider,
 } from '../lib/providers/index.js'
 import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
-import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
+import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, PLAN_GRAPH_SCHEMA, type ChatPlanNode, type ChatPlanEdge } from '../lib/prompt-templates.js'
 import { existsSync } from 'node:fs'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
@@ -502,9 +502,11 @@ agentRoute.post('/chat', async (c) => {
     visionDoc?: string
     model?: string
     providerId?: string
+    planNodes?: ChatPlanNode[]
+    planEdges?: ChatPlanEdge[]
   }>()
 
-  const { message, sessionId: existingSessionId, projectId, visionDoc, model, providerId } = body
+  const { message, sessionId: existingSessionId, projectId, visionDoc, model, providerId, planNodes, planEdges } = body
   const taskId = existingSessionId || `chat-${projectId}-${Date.now()}`
   const abortController = createSession(taskId, providerId)
 
@@ -523,7 +525,7 @@ agentRoute.post('/chat', async (c) => {
         return
       }
 
-      const systemPrompt = buildChatSystemPrompt(visionDoc)
+      const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
 
       // Build task dispatch
       const task: TaskDispatch = {

@@ -29,7 +29,7 @@ export const PLAN_GRAPH_SCHEMA = {
           priority: { type: "string" as const, enum: ["urgent", "high", "medium", "low", "none"], description: "Task priority. Default medium." },
           estimate: { type: "string" as const, enum: ["XS", "S", "M", "L", "XL"], description: "T-shirt effort estimate." },
           dueDate: { type: "string" as const, description: "Due date YYYY-MM-DD. Optional for tasks." },
-          milestoneId: { type: "string" as const, description: "Node ID of the milestone this task belongs to." },
+          milestoneId: { type: "string" as const, description: "REQUIRED for tasks. Node ID of the milestone this task belongs to. Every task must reference a milestone." },
         },
         required: ["id", "type", "title", "description", "status", "parentId", "dependencies", "verification", "position"],
       },
@@ -112,13 +112,14 @@ ${visionSection}${repoSection}
 - Milestones MUST have startDate and endDate (both equal, zero duration). Use ISO "YYYY-MM-DD" format. A milestone's date should be after all its dependencies.
 - priority: "urgent" | "high" | "medium" | "low" | "none". Default "medium" for most tasks, "high" for critical path items.
 - estimate: "XS" | "S" | "M" | "L" | "XL". T-shirt estimate for effort. Tasks should be ≤ M (agent-solvable in < 1 day).
-- milestoneId: Optional. Node ID of the milestone this task contributes toward.
+- milestoneId: REQUIRED for tasks. Every task MUST have a milestoneId pointing to the milestone it contributes toward. This is how tasks are grouped under milestones in the UI.
 
 ## Edge rules
 - type: "dependency" for sequential, "branch" for parallel paths from a common node.
 
 ## Constraints
 - 6–15 nodes. Valid DAG (no cycles).
+- Every task node MUST have a milestoneId set. Group related tasks under milestones.
 - Output MUST be a single JSON object with keys: projectName (string), nodes (array), edges (array).
 - Do NOT include any text before or after the JSON. Do NOT wrap in markdown code fences.
 
@@ -126,15 +127,145 @@ Example structure:
 {"projectName":"...","nodes":[{"id":"n1","type":"task","title":"...","description":"...","status":"planned","parentId":null,"dependencies":[],"environment":"local","verification":"auto","position":{"x":40,"y":40},"priority":"medium","estimate":"M","milestoneId":"n2"},{"id":"n2","type":"milestone","title":"MVP Complete","description":"...","status":"planned","parentId":null,"dependencies":["n1"],"verification":"human","position":{"x":40,"y":140},"startDate":"2026-02-10","endDate":"2026-02-10"}],"edges":[{"id":"e1","source":"n1","target":"n2","type":"dependency"}]}`
 }
 
-export function buildChatSystemPrompt(visionDoc?: string): string {
+export interface ChatPlanNode {
+  id: string
+  title: string
+  description: string
+  status: string
+  type: string
+  priority?: string
+  estimate?: string
+  environment?: string
+  verification?: string
+  milestoneId?: string
+  dependencies?: string[]
+  dueDate?: string
+  startDate?: string
+  endDate?: string
+}
+
+export interface ChatPlanEdge {
+  source: string
+  target: string
+  type: string
+}
+
+export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNode[], planEdges?: ChatPlanEdge[]): string {
   const visionSection = visionDoc
     ? `\n\n## Project Vision Document\n${visionDoc}\n`
     : ""
 
-  return `You are a project planning assistant for Nexus. Help the user refine their project plan through conversation. You can suggest changes to tasks, dependencies, milestones, and overall project structure.
+  let planSection = ""
+  if (planNodes && planNodes.length > 0) {
+    // Build milestone lookup for display
+    const milestoneMap = new Map<string, string>()
+    for (const n of planNodes) {
+      if (n.type === "milestone") milestoneMap.set(n.id, n.title)
+    }
+    // Build node title lookup
+    const nodeNameMap = new Map<string, string>()
+    for (const n of planNodes) nodeNameMap.set(n.id, n.title)
 
-Be concise and actionable. When suggesting plan modifications, describe what should change clearly.
-${visionSection}`
+    const nodeList = planNodes.map((n) => {
+      const milestoneName = n.milestoneId ? milestoneMap.get(n.milestoneId) : undefined
+      const deps = (n.dependencies ?? []).map((d) => `${nodeNameMap.get(d) ?? d} [${d}]`).join(", ")
+      const parts: string[] = [
+        `${n.type}, ${n.status}`,
+        n.priority ? `priority: ${n.priority}` : "",
+        n.estimate ? `estimate: ${n.estimate}` : "",
+        n.environment ? `env: ${n.environment}` : "",
+        n.verification ? `verification: ${n.verification}` : "",
+        n.dueDate ? `due: ${n.dueDate}` : "",
+        milestoneName ? `milestone: ${milestoneName} [${n.milestoneId}]` : (n.type !== "milestone" ? "milestone: NONE" : ""),
+        deps ? `depends on: ${deps}` : "",
+      ].filter(Boolean)
+      return `- **[${n.id}]** ${n.title} (${parts.join(", ")})\n  ${n.description}`
+    }).join("\n")
+
+    // List available milestones for easy reference
+    const milestoneList = planNodes
+      .filter((n) => n.type === "milestone")
+      .map((n) => `  - **[${n.id}]** ${n.title}`)
+      .join("\n")
+    const milestoneSection = milestoneList
+      ? `\n\n## Available Milestones\n${milestoneList}\n`
+      : ""
+
+    // Show current edges
+    let edgeSection = ""
+    if (planEdges && planEdges.length > 0) {
+      const edgeList = planEdges.map((e) => {
+        const srcName = nodeNameMap.get(e.source) ?? e.source
+        const tgtName = nodeNameMap.get(e.target) ?? e.target
+        return `  - ${srcName} [${e.source}] → ${tgtName} [${e.target}] (${e.type})`
+      }).join("\n")
+      edgeSection = `\n\n## Current Edges (Dependencies)\n${edgeList}\n`
+    }
+
+    planSection = `\n\n## Current Plan Nodes\n${nodeList}\n${milestoneSection}${edgeSection}`
+  }
+
+  return `You are a project planning assistant for Nexus. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
+
+IMPORTANT: This is a conversational chat. Do NOT use any tools (bash, shell, file read/write, grep, ls, etc.). Do NOT attempt to run commands or access the filesystem. You have all the information you need in this prompt. Respond with plain text only.
+
+Be concise and actionable.
+${visionSection}${planSection}
+## Modifying the Plan
+
+When the user asks to update, modify, or change anything in the plan, you MUST:
+1. Identify the relevant tasks/edges from the plan above.
+2. Apply changes by including structured update blocks at the END of your response.
+3. Explain what you changed conversationally BEFORE the update blocks.
+
+### Updating Node Properties
+
+Use a fenced code block with language \`nexus-updates\` containing a JSON array:
+
+\`\`\`nexus-updates
+[
+  { "nodeId": "n1", "title": "New title", "priority": "high" }
+]
+\`\`\`
+
+Each object must have "nodeId" (required) plus any fields to change:
+- "title" (string) — node title
+- "description" (string) — detailed description
+- "type" (string) — "milestone" | "task" | "decision"
+- "status" (string) — "planned" | "dispatched" | "in_progress" | "auto_verified" | "awaiting_judgment" | "completed" | "pruned"
+- "priority" (string) — "urgent" | "high" | "medium" | "low" | "none"
+- "estimate" (string) — "XS" | "S" | "M" | "L" | "XL"
+- "milestoneId" (string) — ID of the milestone this task belongs to
+- "dueDate" (string) — ISO YYYY-MM-DD or null to clear
+- "startDate" (string) — ISO YYYY-MM-DD (milestones only) or null to clear
+- "endDate" (string) — ISO YYYY-MM-DD (milestones only) or null to clear
+- "environment" (string) — "local" | "hpc" | "cloud"
+- "verification" (string) — "auto" | "human"
+- "dependencies" (string[]) — array of node IDs this node depends on (replaces the full list; edges are auto-reconciled)
+
+### Adding or Removing Edges
+
+Use a fenced code block with language \`nexus-edges\` containing a JSON array:
+
+\`\`\`nexus-edges
+[
+  { "action": "add", "source": "n1", "target": "n3", "type": "dependency" },
+  { "action": "remove", "source": "n2", "target": "n3" }
+]
+\`\`\`
+
+Edge fields:
+- "action" (required) — "add" or "remove"
+- "source" (required) — source node ID
+- "target" (required) — target node ID
+- "type" (for add) — "dependency" or "branch". Defaults to "dependency".
+
+### Rules
+- Only include fields that should change. Omit unchanged fields.
+- You can combine \`nexus-updates\` and \`nexus-edges\` in the same response.
+- Do NOT include update blocks if no changes are needed.
+- ALWAYS include update blocks when the user asks to change something — never just describe what to do manually.
+- When modifying dependencies via "dependencies" in nexus-updates, edges are automatically synchronized. Alternatively use nexus-edges for individual add/remove.`
 }
 
 export interface TaskExecutionContext {

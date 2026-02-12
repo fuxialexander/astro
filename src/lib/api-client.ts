@@ -160,8 +160,31 @@ export async function generatePlan(
   })
 }
 
+export interface ChatPlanNodeContext {
+  id: string
+  title: string
+  description: string
+  status: string
+  type: string
+  priority?: string
+  estimate?: string
+  environment?: string
+  verification?: string
+  milestoneId?: string
+  dependencies?: string[]
+  dueDate?: string
+  startDate?: string
+  endDate?: string
+}
+
+export interface ChatPlanEdgeContext {
+  source: string
+  target: string
+  type: string
+}
+
 export async function chatWithAgent(
-  params: { message: string; sessionId?: string; projectId: string; visionDoc?: string; model?: string },
+  params: { message: string; sessionId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[] },
   callbacks: {
     onText: (text: string) => void
     onDone: (sessionId: string) => void

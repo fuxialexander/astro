@@ -178,6 +178,60 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               type: e.type,
             }))
 
+            // Post-process: auto-infer milestoneId for tasks missing it.
+            // Walk backwards from each milestone through the dependency graph
+            // to assign tasks that contribute toward it.
+            const milestoneIds = new Set(nodes.filter((n) => n.type === "milestone").map((n) => n.id))
+            const tasksWithoutMilestone = nodes.filter((n) => n.type !== "milestone" && !n.milestoneId)
+
+            if (milestoneIds.size > 0 && tasksWithoutMilestone.length > 0) {
+              // Build reverse adjacency: for each node, which nodes does it feed into (downstream)
+              const downstreamOf = new Map<string, Set<string>>()
+              for (const edge of edges) {
+                let targets = downstreamOf.get(edge.source)
+                if (!targets) { targets = new Set(); downstreamOf.set(edge.source, targets) }
+                targets.add(edge.target)
+              }
+              // Also use dependencies as reverse edges (dependency X means edge X → this node)
+              const upstreamOf = new Map<string, Set<string>>()
+              for (const node of nodes) {
+                for (const dep of node.dependencies) {
+                  let sources = upstreamOf.get(node.id)
+                  if (!sources) { sources = new Set(); upstreamOf.set(node.id, sources) }
+                  sources.add(dep)
+                }
+              }
+
+              // For each milestone, BFS backwards through dependencies to find contributing tasks
+              for (const milestone of nodes.filter((n) => n.type === "milestone")) {
+                const visited = new Set<string>()
+                const queue = [...milestone.dependencies]
+                while (queue.length > 0) {
+                  const current = queue.shift()!
+                  if (visited.has(current)) continue
+                  visited.add(current)
+
+                  const node = nodes.find((n) => n.id === current)
+                  if (!node || node.type === "milestone") continue
+
+                  // Assign milestoneId if not already set
+                  if (!node.milestoneId) {
+                    node.milestoneId = milestone.id
+                  }
+
+                  // Continue tracing upstream through this node's dependencies
+                  for (const dep of node.dependencies) {
+                    if (!visited.has(dep)) queue.push(dep)
+                  }
+                }
+              }
+
+              const assigned = tasksWithoutMilestone.filter((n) => n.milestoneId).length
+              if (assigned > 0) {
+                console.log(`[plan-gen] Auto-assigned milestoneId for ${assigned} task(s) from dependency graph`)
+              }
+            }
+
             usePlanStore.getState().setProjectPlan(projectId, nodes, edges)
             // Auto-layout the generated graph
             usePlanStore.getState().reorganizeProject(projectId)
