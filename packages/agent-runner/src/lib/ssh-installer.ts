@@ -103,18 +103,28 @@ export async function packAndInstall(
   const scpArgs = buildScpArgs(host, tarball, '~/nexus-agent.tgz');
   await execFile('scp', scpArgs);
 
-  // 3. Install globally on remote
+  // 3. Install to user-local prefix to avoid EACCES on system dirs
   log(`Installing on ${host.name}...`);
-  await sshExec(host, 'npm install -g ~/nexus-agent.tgz');
+  const npmPrefix = '~/.local';
+  await sshExec(host, `mkdir -p ${npmPrefix} && npm install -g --prefix ${npmPrefix} ~/nexus-agent.tgz`);
 
-  // 4. Run setup --non-interactive --skip-auth
+  // 4. Ensure ~/.local/bin is on PATH for this session and future logins
+  const binDir = `${npmPrefix}/bin`;
+  const pathExport = `export PATH="${binDir}:$PATH"`;
+  const pathSetup = [
+    `grep -qxF '${pathExport}' ~/.bashrc 2>/dev/null || echo '${pathExport}' >> ~/.bashrc`,
+    `grep -qxF '${pathExport}' ~/.profile 2>/dev/null || echo '${pathExport}' >> ~/.profile`,
+  ].join(' && ');
+  await sshExec(host, pathSetup);
+
+  // 5. Run setup --non-interactive --skip-auth (with binDir on PATH)
   log(`Running setup on ${host.name}...`);
   await sshExec(
     host,
-    `nexus-agent setup --non-interactive --skip-auth --api ${apiUrl} --relay ${relayUrl}`,
+    `${pathExport} && nexus-agent setup --non-interactive --skip-auth --api ${apiUrl} --relay ${relayUrl}`,
   );
 
-  // 5. Push tokens
+  // 6. Push tokens
   log(`Configuring tokens on ${host.name}...`);
   const setCommands = [
     `nexus-agent config --set apiUrl=${apiUrl}`,
@@ -124,7 +134,7 @@ export async function packAndInstall(
     `nexus-agent config --set wsToken=${wsToken}`,
     `nexus-agent config --set machineId=${machineId}`,
   ];
-  await sshExec(host, setCommands.join(' && '));
+  await sshExec(host, `${pathExport} && ${setCommands.join(' && ')}`);
 
   // Clean up remote tarball
   await sshExec(host, 'rm -f ~/nexus-agent.tgz').catch(() => {});

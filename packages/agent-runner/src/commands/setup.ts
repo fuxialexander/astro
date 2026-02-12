@@ -459,33 +459,40 @@ async function installOnRemoteHosts(
 
     spinner.text = `Installing on ${hostName}...`;
 
-    // Get tokens for the remote host
-    const accessToken = config.getAccessToken();
-    const refreshToken = config.getRefreshToken();
-    const wsToken = config.getWsToken();
-    const machineId = config.getMachineId();
+    // Get the local access token to register on behalf of remote hosts
+    const localAccessToken = config.getAccessToken();
 
-    if (!accessToken || !refreshToken || !wsToken) {
+    if (!localAccessToken) {
       spinner.fail(`${hostName}: No auth tokens available. Authenticate locally first.`);
       continue;
     }
 
     try {
+      // Register each remote host as a separate machine with its own ID
+      spinner.text = `${hostName}: Registering machine...`;
+      const regResponse = await registerMachine(remoteApiUrl, localAccessToken, {
+        hostname: host.hostname,
+        name: hostName,
+        platform: 'linux',
+        environmentType: 'remote',
+        providers: [],
+      });
+
       await packAndInstall(
         {
           host,
           apiUrl: remoteApiUrl,
           relayUrl: remoteRelayUrl,
-          accessToken,
-          refreshToken,
-          wsToken,
-          machineId,
+          accessToken: regResponse.accessToken,
+          refreshToken: regResponse.refreshToken,
+          wsToken: regResponse.wsToken,
+          machineId: regResponse.machineId,
         },
         (msg) => {
           spinner.text = `${hostName}: ${msg}`;
         },
       );
-      spinner.succeed(`${hostName}: Installed and configured`);
+      spinner.succeed(`${hostName}: Installed and configured (${regResponse.machineId})`);
     } catch (err) {
       spinner.fail(`${hostName}: Installation failed`);
       console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
