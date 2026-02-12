@@ -7,7 +7,9 @@ import {
 } from '../lib/providers/index.js'
 import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt } from '../lib/prompt-templates.js'
+import { existsSync } from 'node:fs'
 import { readRepoContext } from '../lib/repo-context.js'
+import { relayServer } from '../lib/relay-server.js'
 import { requireAuth } from '../middleware/auth.js'
 import { errorMessage, isAbortError } from '../lib/error-utils.js'
 
@@ -25,10 +27,34 @@ agentRoute.post('/generate-plan', async (c) => {
     providerId?: string
     workingDirectory?: string
     fileTree?: string[]
+    keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }
+    targetMachineId?: string
   }>()
 
-  const { description, visionDoc, projectId, model, providerId, workingDirectory, fileTree } = body
+  const { description, visionDoc, projectId, model, providerId, workingDirectory, fileTree, keyFiles, targetMachineId } = body
   const taskId = `gen-${projectId}-${Date.now()}`
+
+  // Check if working directory exists locally (remote paths won't exist on this server)
+  const isLocalDir = workingDirectory ? existsSync(workingDirectory) : false
+
+  // Determine if we should dispatch via relay (remote machine)
+  const useRelay = !!targetMachineId && !isLocalDir
+
+  if (useRelay) {
+    // Dispatch plan generation to remote machine via relay
+    return await generatePlanViaRelay(c, {
+      taskId,
+      projectId,
+      description,
+      visionDoc,
+      workingDirectory,
+      fileTree,
+      keyFiles,
+      targetMachineId: targetMachineId!,
+    })
+  }
+
+  // Local execution path
   const abortController = createSession(taskId, providerId)
 
   return streamSSE(c, async (stream) => {
@@ -46,25 +72,38 @@ agentRoute.post('/generate-plan', async (c) => {
         return
       }
 
-      // Read repo context if working directory is provided
-      const repoContext = workingDirectory
-        ? readRepoContext(workingDirectory, fileTree)
-        : undefined
+      // Read repo context: for local dirs, read key files + file tree from disk;
+      // for remote dirs, use key files from the remote setup response + file tree
+      let repoContext
+      if (isLocalDir) {
+        repoContext = readRepoContext(workingDirectory!, fileTree)
+      } else if (fileTree || keyFiles) {
+        // Remote case: build context from provided data (not local disk)
+        repoContext = readRepoContext('', fileTree)
+        // Merge in key files returned by remote repo setup
+        if (keyFiles) {
+          if (keyFiles.claudeMd) repoContext.claudeMd = keyFiles.claudeMd
+          if (keyFiles.readmeMd) repoContext.readmeMd = keyFiles.readmeMd
+          if (keyFiles.packageInfo) repoContext.packageInfo = keyFiles.packageInfo
+        }
+      }
 
       const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext)
 
-      // Build task dispatch — more turns when repo context available (agent may explore)
+      // Build task dispatch — more turns when local repo available (agent may explore);
+      // remote repos only have file tree context, so 1 turn is enough
       const task: TaskDispatch = {
         taskId,
         type: 'planning',
         prompt: description,
         systemPrompt,
         model,
-        maxTurns: workingDirectory ? 10 : 1,
+        maxTurns: isLocalDir ? 10 : 1,
         context: {
           projectId,
           visionDoc,
-          ...(workingDirectory ? { workingDirectory } : {}),
+          // Only set workingDirectory if it exists locally — the provider uses it as cwd
+          ...(isLocalDir ? { workingDirectory } : {}),
         },
         abortController,
       }
@@ -145,6 +184,192 @@ agentRoute.post('/generate-plan', async (c) => {
     }
   })
 })
+
+/**
+ * Generate a plan via relay server on a remote machine.
+ *
+ * Builds the full plan prompt (system + user description), dispatches to the
+ * remote agent runner, and streams relay events back as plan SSE events.
+ * The agent runner executes with Claude SDK using the local repo as cwd.
+ */
+async function generatePlanViaRelay(
+  c: Parameters<Parameters<typeof agentRoute.post>[1]>[0],
+  params: {
+    taskId: string
+    projectId: string
+    description: string
+    visionDoc?: string
+    workingDirectory?: string
+    fileTree?: string[]
+    keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }
+    targetMachineId: string
+  }
+) {
+  const {
+    taskId,
+    projectId,
+    description,
+    visionDoc,
+    workingDirectory,
+    fileTree,
+    keyFiles,
+    targetMachineId,
+  } = params
+
+  // Build repo context from provided data (key files + file tree from remote setup)
+  let repoContext
+  if (fileTree || keyFiles) {
+    repoContext = readRepoContext('', fileTree)
+    if (keyFiles) {
+      if (keyFiles.claudeMd) repoContext.claudeMd = keyFiles.claudeMd
+      if (keyFiles.readmeMd) repoContext.readmeMd = keyFiles.readmeMd
+      if (keyFiles.packageInfo) repoContext.packageInfo = keyFiles.packageInfo
+    }
+  }
+
+  // Build the full plan prompt: system prompt + user description
+  // The remote agent runner will use this as the prompt with the repo as cwd
+  const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext)
+  const fullPrompt = `${systemPrompt}\n\n---\n\n## User Request\n\n${description}`
+
+  // Build relay task dispatch with pre-built prompt
+  const taskDispatch: import('../types/relay.js').TaskDispatch = {
+    taskId,
+    projectId,
+    nodeId: `plan-${projectId}`,
+    title: 'Plan Generation',
+    description,
+    visionDoc,
+    environment: 'remote',
+    workingDirectory,
+    prompt: fullPrompt,
+  }
+
+  return streamSSE(c, async (stream) => {
+    let alive = true
+    let lastActivity = Date.now()
+    let assistantText = ''
+    let planResultSent = false
+    const ACTIVITY_TIMEOUT_MS = 300_000
+
+    // Subscribe to relay events filtered by this taskId BEFORE dispatching
+    const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
+      if (!alive || msg.result.taskId !== taskId) return
+      lastActivity = Date.now()
+
+      // Try to extract plan from accumulated text
+      if (!planResultSent && assistantText) {
+        const parsed = extractPlanJson(assistantText)
+        if (parsed) {
+          planResultSent = true
+          stream.writeSSE({
+            event: 'plan_result',
+            data: JSON.stringify(parsed),
+          }).catch(() => { alive = false })
+        }
+      }
+
+      // Also check the result output for plan JSON
+      if (!planResultSent && msg.result.output) {
+        const parsed = extractPlanJson(msg.result.output)
+        if (parsed) {
+          planResultSent = true
+          stream.writeSSE({
+            event: 'plan_result',
+            data: JSON.stringify(parsed),
+          }).catch(() => { alive = false })
+        }
+      }
+
+      stream.writeSSE({
+        event: 'done',
+        data: JSON.stringify({ sessionId: taskId }),
+      }).catch(() => {})
+      alive = false
+    }
+
+    const onStdout = (msg: import('../types/relay.js').TaskStdoutMessage) => {
+      if (!alive || msg.output.taskId !== taskId) return
+      lastActivity = Date.now()
+      assistantText += msg.output.data
+      stream.writeSSE({ event: 'text', data: msg.output.data }).catch(() => { alive = false })
+    }
+
+    const onText = (msg: import('../types/relay.js').TaskTextMessage) => {
+      if (!alive || msg.taskId !== taskId) return
+      lastActivity = Date.now()
+      assistantText += msg.text
+      stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
+    }
+
+    const onMachineDisconnected = (disconnectedId: string) => {
+      if (!alive || disconnectedId !== targetMachineId) return
+      console.log(`[agent] Machine ${targetMachineId} disconnected during plan generation ${taskId}`)
+      stream.writeSSE({
+        event: 'error',
+        data: 'Remote machine disconnected during plan generation',
+      }).catch(() => {})
+      alive = false
+    }
+
+    relayServer.on('task:result', onResult)
+    relayServer.on('task:stdout', onStdout)
+    relayServer.on('task:text', onText)
+    relayServer.on('machine:disconnected', onMachineDisconnected)
+
+    // Now dispatch (after listeners registered to avoid race conditions)
+    const dispatched = relayServer.dispatchTask(taskDispatch, targetMachineId)
+
+    if (!dispatched) {
+      relayServer.off('task:result', onResult)
+      relayServer.off('task:stdout', onStdout)
+      relayServer.off('task:text', onText)
+      relayServer.off('machine:disconnected', onMachineDisconnected)
+      await stream.writeSSE({
+        event: 'error',
+        data: `Failed to dispatch plan generation to machine: ${targetMachineId}`,
+      })
+      return
+    }
+
+    // Keepalive + activity timeout
+    const heartbeat = setInterval(() => {
+      if (!alive) { clearInterval(heartbeat); return }
+      if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
+        console.log(`[agent] Activity timeout for plan generation ${taskId}`)
+        stream.writeSSE({
+          event: 'error',
+          data: 'Remote machine stopped responding (activity timeout)',
+        }).catch(() => {})
+        alive = false
+        clearInterval(heartbeat)
+        return
+      }
+      stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => {
+        alive = false
+        clearInterval(heartbeat)
+      })
+    }, 15000)
+
+    stream.onAbort(() => {
+      alive = false
+      clearInterval(heartbeat)
+      relayServer.off('task:result', onResult)
+      relayServer.off('task:stdout', onStdout)
+      relayServer.off('task:text', onText)
+      relayServer.off('machine:disconnected', onMachineDisconnected)
+      // Try to cancel the task on the remote machine
+      relayServer.cancelTask(taskId, targetMachineId)
+    })
+
+    // Wait for completion or disconnect
+    await new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (!alive) { clearInterval(check); resolve() }
+      }, 500)
+    })
+  })
+}
 
 /**
  * Extract a plan JSON object from accumulated assistant text.

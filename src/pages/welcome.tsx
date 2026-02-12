@@ -184,6 +184,7 @@ export function Welcome() {
             startGeneration(id, fullDescription, undefined, {
               workingDirectory: data.workingDirectory,
               fileTree: data.fileTree,
+              keyFiles: data.keyFiles,
             })
             return
           }

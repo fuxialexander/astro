@@ -360,6 +360,11 @@ export interface RepoSetupResponseMessage extends WSMessage {
     fileTree?: string[];
     repository?: string;
     needsGitInit?: boolean;
+    keyFiles?: {
+      claudeMd?: string;
+      readmeMd?: string;
+      packageInfo?: string;
+    };
     error?: string;
   };
 }

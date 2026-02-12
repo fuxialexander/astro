@@ -114,6 +114,8 @@ export function ProjectNew() {
         startGeneration(id, description.trim(), undefined, {
           workingDirectory: repoResult.workingDirectory,
           fileTree: repoResult.fileTree,
+          keyFiles: repoResult.keyFiles,
+          targetMachineId: selectedMachine?.machineId,
         })
       } else {
         // Repo setup failed or needs git init — generate without repo context
@@ -125,7 +127,7 @@ export function ProjectNew() {
     }
   }
 
-  async function setupRepo(projectId: string, projectName: string, projectDescription: string): Promise<{ workingDirectory?: string; fileTree?: string[] } | null> {
+  async function setupRepo(projectId: string, projectName: string, projectDescription: string): Promise<{ workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string } } | null> {
     try {
       const res = await fetch("/api/repo/setup", {
         method: "POST",
@@ -159,7 +161,7 @@ export function ProjectNew() {
         updateFileTree(projectId, data.fileTree)
       }
 
-      return { workingDirectory: data.workingDirectory, fileTree: data.fileTree }
+      return { workingDirectory: data.workingDirectory, fileTree: data.fileTree, keyFiles: data.keyFiles }
     } catch (error) {
       console.error("[project-new] Repo setup failed:", error)
       return null

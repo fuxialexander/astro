@@ -117,7 +117,7 @@ async function readSSE(
 }
 
 export async function generatePlan(
-  params: { description: string; visionDoc?: string; projectId: string; model?: string; workingDirectory?: string; fileTree?: string[] },
+  params: { description: string; visionDoc?: string; projectId: string; model?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string },
   callbacks: {
     onText: (text: string) => void
     onPlanResult: (result: PlanGraphResult) => void

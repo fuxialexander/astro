@@ -105,6 +105,8 @@ export interface TaskDispatch {
   workingDirectory?: string;
   dependencies?: string[];  // Other task IDs that must complete first
   metadata?: Record<string, string>;
+  /** Pre-built prompt — bypasses automatic prompt construction from title/description */
+  prompt?: string;
 }
 
 /** Task result from agent runner */

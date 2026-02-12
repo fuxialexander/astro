@@ -34,25 +34,29 @@ function readFileCapped(path: string, cap: number): string | undefined {
 
 /**
  * Read key files from a working directory for context injection.
+ * When workingDirectory is empty/falsy, only the file tree is used (remote repo case).
  */
 export function readRepoContext(workingDirectory: string, fileTree?: string[]): RepoContextResult {
   const result: RepoContextResult = {}
 
-  // Read CLAUDE.md
-  result.claudeMd = readFileCapped(join(workingDirectory, 'CLAUDE.md'), FILE_CAP)
+  // Only read files if we have a valid local working directory
+  if (workingDirectory && existsSync(workingDirectory)) {
+    // Read CLAUDE.md
+    result.claudeMd = readFileCapped(join(workingDirectory, 'CLAUDE.md'), FILE_CAP)
 
-  // Read README.md (try both cases)
-  result.readmeMd =
-    readFileCapped(join(workingDirectory, 'README.md'), FILE_CAP) ??
-    readFileCapped(join(workingDirectory, 'readme.md'), FILE_CAP)
+    // Read README.md (try both cases)
+    result.readmeMd =
+      readFileCapped(join(workingDirectory, 'README.md'), FILE_CAP) ??
+      readFileCapped(join(workingDirectory, 'readme.md'), FILE_CAP)
 
-  // Read first package metadata found
-  const packageFiles = ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod']
-  for (const pkg of packageFiles) {
-    const content = readFileCapped(join(workingDirectory, pkg), PKG_CAP)
-    if (content) {
-      result.packageInfo = `# ${pkg}\n${content}`
-      break
+    // Read first package metadata found
+    const packageFiles = ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod']
+    for (const pkg of packageFiles) {
+      const content = readFileCapped(join(workingDirectory, pkg), PKG_CAP)
+      if (content) {
+        result.packageInfo = `# ${pkg}\n${content}`
+        break
+      }
     }
   }
 

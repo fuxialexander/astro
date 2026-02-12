@@ -7,7 +7,7 @@
  */
 
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -55,13 +55,54 @@ export function getGitRemoteUrl(dir: string): string | undefined {
   }
 }
 
+/** Key file contents read from the repo for context injection */
+export interface RepoKeyFiles {
+  claudeMd?: string;
+  readmeMd?: string;
+  packageInfo?: string;
+}
+
 export interface LocalRepoSetupResult {
   success: boolean;
   workingDirectory?: string;
   fileTree?: string[];
   repository?: string;
   needsGitInit?: boolean;
+  keyFiles?: RepoKeyFiles;
   error?: string;
+}
+
+const KEY_FILE_CAP = 15_000;
+const PKG_FILE_CAP = 5_000;
+
+/**
+ * Read key files from a directory for plan generation context.
+ * Returns capped contents of CLAUDE.md, README.md, and package metadata.
+ */
+function readKeyFiles(dir: string): RepoKeyFiles {
+  const result: RepoKeyFiles = {};
+
+  function readCapped(path: string, cap: number): string | undefined {
+    if (!existsSync(path)) return undefined;
+    try {
+      const content = readFileSync(path, 'utf-8');
+      return content.length > cap ? content.slice(0, cap) + '\n\n[... truncated ...]' : content;
+    } catch { return undefined; }
+  }
+
+  result.claudeMd = readCapped(join(dir, 'CLAUDE.md'), KEY_FILE_CAP);
+  result.readmeMd = readCapped(join(dir, 'README.md'), KEY_FILE_CAP) ?? readCapped(join(dir, 'readme.md'), KEY_FILE_CAP);
+
+  const packageFiles = ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod'];
+  for (const pkg of packageFiles) {
+    const content = readCapped(join(dir, pkg), PKG_FILE_CAP);
+    if (content) {
+      result.packageInfo = `# ${pkg}\n${content}`;
+      break;
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -110,11 +151,13 @@ export function localRepoSetup(options: {
     try {
       const clonedDir = cloneRepository(repository, projectId || crypto.randomUUID().slice(0, 8));
       const fileTree = getFileTree(clonedDir);
+      const keyFiles = readKeyFiles(clonedDir);
       return {
         success: true,
         workingDirectory: clonedDir,
         fileTree,
         repository,
+        keyFiles,
       };
     } catch (error) {
       return { success: false, error: `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}` };
@@ -129,11 +172,13 @@ export function localRepoSetup(options: {
     if (isGitRepo(workingDirectory)) {
       const fileTree = getFileTree(workingDirectory);
       const detectedRepo = getGitRemoteUrl(workingDirectory);
+      const keyFiles = readKeyFiles(workingDirectory);
       return {
         success: true,
         workingDirectory,
         fileTree,
         repository: detectedRepo,
+        keyFiles,
       };
     }
 

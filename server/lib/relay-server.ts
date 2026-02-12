@@ -45,6 +45,13 @@ import {
 } from '../types/relay.js';
 import { machineRegistry } from './machine-registry.js';
 
+/** Key file contents returned from remote repo setup */
+export interface RepoKeyFiles {
+  claudeMd?: string;
+  readmeMd?: string;
+  packageInfo?: string;
+}
+
 /** Result from remote repo setup relayed from agent runner */
 export interface RepoSetupRelayResult {
   success: boolean;
@@ -52,6 +59,7 @@ export interface RepoSetupRelayResult {
   fileTree?: string[];
   repository?: string;
   needsGitInit?: boolean;
+  keyFiles?: RepoKeyFiles;
   error?: string;
 }
 
@@ -798,16 +806,22 @@ export class RelayServer extends EventEmitter {
       return false;
     }
 
-    // Build prompt from task context (title + description + vision doc + deps)
-    const promptParts: string[] = [];
-    if (task.visionDoc) {
-      promptParts.push(`## Project Vision\n\n${task.visionDoc}`);
+    // Build prompt: use pre-built prompt if provided, otherwise construct from parts
+    let finalPrompt: string;
+    if (task.prompt) {
+      finalPrompt = task.prompt;
+    } else {
+      const promptParts: string[] = [];
+      if (task.visionDoc) {
+        promptParts.push(`## Project Vision\n\n${task.visionDoc}`);
+      }
+      if (task.dependencies && task.dependencies.length > 0) {
+        promptParts.push(`## Previous Task Outputs\n\n${task.dependencies.join('\n\n---\n\n')}`);
+      }
+      promptParts.push(`## Current Task\n\n**${task.title}**\n\n${task.description}`);
+      promptParts.push(`## Instructions\n\nExecute the task described above. Focus on completing the task thoroughly and correctly.\n- Use appropriate tools to accomplish the task\n- Report progress and any issues encountered\n- Verify your work when possible\n- Be thorough but efficient`);
+      finalPrompt = promptParts.join('\n\n---\n\n');
     }
-    if (task.dependencies && task.dependencies.length > 0) {
-      promptParts.push(`## Previous Task Outputs\n\n${task.dependencies.join('\n\n---\n\n')}`);
-    }
-    promptParts.push(`## Current Task\n\n**${task.title}**\n\n${task.description}`);
-    promptParts.push(`## Instructions\n\nExecute the task described above. Focus on completing the task thoroughly and correctly.\n- Use appropriate tools to accomplish the task\n- Report progress and any issues encountered\n- Verify your work when possible\n- Be thorough but efficient`);
 
     // Send in agent-runner's expected format (type: 'task_dispatch', payload: Task)
     const agentRunnerMsg = {
@@ -818,7 +832,7 @@ export class RelayServer extends EventEmitter {
         projectId: task.projectId,
         planNodeId: task.nodeId,
         provider: task.preferredProvider || 'claude-sdk',
-        prompt: promptParts.join('\n\n---\n\n'),
+        prompt: finalPrompt,
         workingDirectory: task.workingDirectory || '',
         timeout: task.timeout,
         createdAt: new Date().toISOString(),

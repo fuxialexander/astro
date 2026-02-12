@@ -7,9 +7,17 @@ import type { PlanNode, PlanEdge } from "@/types"
 
 export type GenerationPhase = 'idle' | 'repo_setup' | 'generating'
 
+interface RepoKeyFiles {
+  claudeMd?: string
+  readmeMd?: string
+  packageInfo?: string
+}
+
 interface RepoContext {
   workingDirectory: string
   fileTree?: string[]
+  keyFiles?: RepoKeyFiles
+  targetMachineId?: string
 }
 
 interface AgentState {
@@ -52,6 +60,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           model,
           workingDirectory: repoContext?.workingDirectory,
           fileTree: repoContext?.fileTree,
+          keyFiles: repoContext?.keyFiles,
+          targetMachineId: repoContext?.targetMachineId,
         },
         {
           onText: (text) => {
