@@ -452,10 +452,19 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const response = await fetch("/api/relay/machines")
       if (response.ok) {
         const data = await response.json()
-        set({
-          machines: data.machines || [],
-          machinesLoaded: true,
-        })
+        // Map API shape (connectionStatus) to frontend shape (status)
+        const machines: MachineInfo[] = (data.machines || []).map((m: Record<string, unknown>) => ({
+          machineId: m.machineId,
+          name: m.name,
+          environmentType: m.environmentType || 'remote',
+          hostname: m.hostname,
+          status: m.connectionStatus === 'connected' ? 'online'
+            : m.connectionStatus === 'disconnected' ? 'offline'
+            : 'online',
+          load: m.load,
+          providers: m.providers,
+        }))
+        set({ machines, machinesLoaded: true })
       }
     } catch {
       set({ machinesLoaded: true })
