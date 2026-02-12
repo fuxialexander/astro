@@ -1038,7 +1038,7 @@ export class RelayServer extends EventEmitter {
         hostname: resources.hostname,
         platform: resources.platform,
         providers: providers.map((p) => ({
-          type: (p.type === 'claude-code' ? 'claude-code' : p.type === 'codex' ? 'custom' : 'custom') as ProviderType,
+          type: (['claude-code', 'claude-sdk', 'slurm', 'aws', 'gcp'].includes(p.type) ? p.type : 'custom') as ProviderType,
           version: p.version || undefined,
           status: p.available ? 'available' : 'unavailable',
           maxConcurrentTasks: p.capabilities.maxConcurrentTasks,

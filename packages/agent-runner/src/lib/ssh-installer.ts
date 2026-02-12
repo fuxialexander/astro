@@ -121,7 +121,7 @@ export async function packAndInstall(
   log(`Running setup on ${host.name}...`);
   await sshExec(
     host,
-    `${pathExport} && nexus-agent setup --non-interactive --skip-auth --api ${apiUrl} --relay ${relayUrl}`,
+    `${pathExport} && nexus-agent setup --non-interactive --skip-auth --type remote --api ${apiUrl} --relay ${relayUrl}`,
   );
 
   // 6. Push tokens
