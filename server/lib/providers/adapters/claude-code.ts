@@ -180,6 +180,11 @@ export class ClaudeCodeProvider implements AgentProvider {
         options.systemPrompt = task.systemPrompt ?? preparedContext.promptContent
       }
 
+      // Add output format for structured JSON output
+      if (task.outputFormat) {
+        options.outputFormat = task.outputFormat
+      }
+
       // Handle session resume
       if (task.sessionId) {
         (options as Record<string, unknown>).resume = task.sessionId
@@ -338,6 +343,11 @@ export class ClaudeCodeProvider implements AgentProvider {
       // Add system prompt if provided
       if (task.systemPrompt || (preparedContext.method === 'system_prompt' && preparedContext.promptContent)) {
         options.systemPrompt = task.systemPrompt ?? preparedContext.promptContent
+      }
+
+      // Add output format for structured JSON output (e.g., plan generation)
+      if (task.outputFormat) {
+        options.outputFormat = task.outputFormat
       }
 
       // Handle session resume

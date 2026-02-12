@@ -137,6 +137,8 @@ export interface TaskDispatch {
   context: TaskContext
   /** Abort controller for cancellation */
   abortController?: AbortController
+  /** JSON schema for structured output (forces provider to return structured data) */
+  outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> }
 }
 
 // ============================================================================

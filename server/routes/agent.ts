@@ -6,7 +6,7 @@ import {
   type TaskType,
 } from '../lib/providers/index.js'
 import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
-import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt } from '../lib/prompt-templates.js'
+import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
 import { existsSync } from 'node:fs'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
@@ -111,6 +111,8 @@ agentRoute.post('/generate-plan', async (c) => {
           ...(isLocalDir ? { workingDirectory } : {}),
         },
         abortController,
+        // Force structured JSON output for plan generation
+        outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
       }
 
       // Stream the execution
@@ -150,22 +152,51 @@ agentRoute.post('/generate-plan', async (c) => {
             break
           }
 
-          case 'result':
+          case 'result': {
             // Try to extract plan from assistant text if no structured output already sent
-            if (!planResultSent && assistantText) {
-              const parsed = extractPlanJson(assistantText)
-              if (parsed) {
-                const nodes = (parsed.nodes as unknown[]) || []
-                const edges = (parsed.edges as unknown[]) || []
-                console.log(`[plan-gen] Plan result sent (extracted): ${nodes.length} nodes, ${edges.length} edges`)
-                await stream.writeSSE({
-                  event: 'plan_result',
-                  data: JSON.stringify(parsed),
-                })
+            if (!planResultSent) {
+              // Try accumulated assistant text first
+              if (assistantText) {
+                const parsed = extractPlanJson(assistantText)
+                if (parsed) {
+                  planResultSent = true
+                  const nodes = (parsed.nodes as unknown[]) || []
+                  const edges = (parsed.edges as unknown[]) || []
+                  console.log(`[plan-gen] Plan result sent (extracted from text): ${nodes.length} nodes, ${edges.length} edges`)
+                  await stream.writeSSE({
+                    event: 'plan_result',
+                    data: JSON.stringify(parsed),
+                  })
+                }
+              }
+
+              // Fallback: try result stdout (provider may have full text there even if text events weren't yielded)
+              if (!planResultSent && event.result.stdout) {
+                const parsed = extractPlanJson(event.result.stdout)
+                if (parsed) {
+                  planResultSent = true
+                  const nodes = (parsed.nodes as unknown[]) || []
+                  const edges = (parsed.edges as unknown[]) || []
+                  console.log(`[plan-gen] Plan result sent (extracted from stdout): ${nodes.length} nodes, ${edges.length} edges`)
+                  await stream.writeSSE({
+                    event: 'plan_result',
+                    data: JSON.stringify(parsed),
+                  })
+                }
+              }
+
+              if (!planResultSent) {
+                console.warn(`[plan-gen] No plan result extracted. assistantText length=${assistantText.length}, stdout length=${event.result.stdout?.length ?? 0}, status=${event.result.status}`)
+                if (assistantText.length > 0) {
+                  console.warn(`[plan-gen] assistantText preview: ${assistantText.slice(0, 500)}`)
+                }
+                if (event.result.stdout && event.result.stdout.length > 0 && event.result.stdout !== assistantText) {
+                  console.warn(`[plan-gen] stdout preview: ${event.result.stdout.slice(0, 500)}`)
+                }
               }
             }
 
-            console.log(`[plan-gen] Generation done: taskId=${taskId}`)
+            console.log(`[plan-gen] Generation done: taskId=${taskId}, planSent=${planResultSent}`)
             await stream.writeSSE({
               event: 'done',
               data: JSON.stringify({
@@ -174,6 +205,7 @@ agentRoute.post('/generate-plan', async (c) => {
               }),
             })
             break
+          }
 
           case 'error':
             console.error(`[plan-gen] Error: taskId=${taskId}`, event.error)
