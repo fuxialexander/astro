@@ -389,6 +389,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
       enrichedMessage = text + fileTreeContext
     }
 
+    // Track raw assistant text outside React state so it's available
+    // synchronously in onDone (React 18 batches setState updaters).
+    let rawAssistantText = ""
+
     try {
       await chatWithAgent(
         {
@@ -403,6 +407,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
         },
         {
           onText: (chunk) => {
+            rawAssistantText += chunk
             setMessages((prev) => {
               const updated = [...prev]
               const last = updated[updated.length - 1]
@@ -414,31 +419,30 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
           },
           onDone: (newSessionId) => {
             if (newSessionId) setSessionId(newSessionId)
-            // Extract mutations from the final message, then apply as a
-            // separate step OUTSIDE the setState updater.  React 18
-            // StrictMode can invoke updater functions twice, which would
-            // duplicate side-effects like addNode/addEdge.
-            let pendingMutations: AppliedMutations | null = null
-            setMessages((prev) => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last && last.role === "assistant" && last.content) {
-                const { cleanContent, mutations } = extractMutations(last.content)
-                const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
-                if (hasMutations) {
-                  pendingMutations = mutations
+
+            // Extract mutations from the raw text (available synchronously,
+            // unlike React state which may be batched).
+            const { cleanContent, mutations } = extractMutations(rawAssistantText)
+            const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
+
+            if (hasMutations) {
+              // Apply side-effects outside setState to avoid React StrictMode
+              // double-invocation duplicating nodes/edges.
+              applyMutations(mutations)
+
+              // Update message display (pure state update, safe if called twice)
+              setMessages((prev) => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last && last.role === "assistant") {
                   updated[updated.length - 1] = {
                     ...last,
                     content: cleanContent,
                     appliedMutations: mutations,
                   }
                 }
-              }
-              return updated
-            })
-            // Apply mutations outside setState to avoid double-invocation
-            if (pendingMutations) {
-              applyMutations(pendingMutations)
+                return updated
+              })
             }
             setIsStreaming(false)
           },
