@@ -111,13 +111,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     const { model, defaultProvider } = useSettingsStore.getState()
 
+    // Only send the model if no explicit provider is set, or the provider is claude-code.
+    // Other providers (e.g. Codex) have their own default models and would fail
+    // if given a Claude model name.
+    const isClaudeProvider = !defaultProvider || defaultProvider === 'claude-code'
+    const effectiveModel = isClaudeProvider ? model : undefined
+
     try {
       await generatePlan(
         {
           description,
           visionDoc,
           projectId,
-          model,
+          model: effectiveModel,
           providerId: defaultProvider || undefined,
           workingDirectory: repoContext?.workingDirectory,
           fileTree: repoContext?.fileTree,

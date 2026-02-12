@@ -364,7 +364,7 @@ export class CodexProvider implements AgentProvider {
       // Stream from Codex CLI
       const streamGenerator = this.streamCodex(task.taskId, fullPrompt, task, abortController)
 
-      let stdout = ''
+      let rawStdout = ''
       let stderr = ''
       let status: TaskStatus = 'success'
       let exitCode: number | undefined
@@ -372,12 +372,30 @@ export class CodexProvider implements AgentProvider {
 
       for await (const event of streamGenerator) {
         if (event.type === 'stdout') {
-          stdout += event.text
-          yield {
-            type: 'text',
-            taskId: task.taskId,
-            text: event.text,
-            timestamp: new Date(),
+          rawStdout += event.text
+
+          // Parse NDJSON line(s) to extract assistant text for streaming
+          const lines = event.text.split('\n')
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed) continue
+            try {
+              const parsed = JSON.parse(trimmed)
+
+              // Stream assistant output text
+              if (parsed.type === 'message' && parsed.role === 'assistant' && Array.isArray(parsed.content)) {
+                for (const block of parsed.content) {
+                  if (block.type === 'output_text' && typeof block.text === 'string') {
+                    yield { type: 'text', taskId: task.taskId, text: block.text, timestamp: new Date() }
+                  }
+                }
+              } else if (parsed.type === 'content_text_delta' && typeof parsed.delta === 'string') {
+                yield { type: 'text', taskId: task.taskId, text: parsed.delta, timestamp: new Date() }
+              }
+            } catch {
+              // Not valid JSON — emit as plain text (some modes output plain text)
+              yield { type: 'text', taskId: task.taskId, text: trimmed + '\n', timestamp: new Date() }
+            }
           }
 
           // Check for file changes in output
@@ -412,8 +430,20 @@ export class CodexProvider implements AgentProvider {
         }
       }
 
-      // Try to parse structured output from stdout
-      const structuredOutput = this.parseStructuredOutput(stdout)
+      // Extract assistant text from NDJSON and try to parse structured output
+      const assistantText = this.extractAssistantText(rawStdout)
+      const stdout = assistantText || rawStdout
+      const structuredOutput = this.parseStructuredOutput(assistantText) ?? this.parseStructuredOutput(rawStdout)
+
+      // Emit structured output if found (enables plan extraction in agent routes)
+      if (structuredOutput) {
+        yield {
+          type: 'structured_output',
+          taskId: task.taskId,
+          output: structuredOutput,
+          timestamp: new Date(),
+        }
+      }
 
       const durationMs = Date.now() - startTime
       const metrics: TaskMetrics = {
@@ -774,13 +804,60 @@ export class CodexProvider implements AgentProvider {
       args.push('--model', task.model)
     }
 
-    // Full auto mode for non-interactive execution
-    args.push('--full-auto')
+    // Full auto mode for execution tasks; planning/chat only need text output
+    if (task.type !== 'planning' && task.type !== 'chat') {
+      args.push('--full-auto')
+    }
 
     // Add the prompt
     args.push(prompt)
 
     return args
+  }
+
+  /**
+   * Parse NDJSON stdout from the Codex CLI and extract actual assistant text.
+   * Codex outputs one JSON object per line representing API response events.
+   * We extract the text content from assistant output_text blocks.
+   */
+  private extractAssistantText(rawStdout: string): string {
+    const lines = rawStdout.split('\n')
+    const textParts: string[] = []
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+
+      try {
+        const event = JSON.parse(trimmed)
+
+        // OpenAI Responses API: assistant message with output_text
+        if (event.type === 'message' && event.role === 'assistant' && Array.isArray(event.content)) {
+          for (const block of event.content) {
+            if (block.type === 'output_text' && typeof block.text === 'string') {
+              textParts.push(block.text)
+            }
+          }
+        }
+
+        // Streaming text delta events
+        if (event.type === 'content_text_delta' && typeof event.delta === 'string') {
+          textParts.push(event.delta)
+        }
+
+        // response.output_text (top-level convenience field)
+        if (event.type === 'response' && typeof event.output_text === 'string') {
+          textParts.push(event.output_text)
+        }
+
+        // Fallback: if the entire event is a plain text string (shouldn't happen, but safe)
+      } catch {
+        // Not JSON — treat as plain text (some Codex versions may output plain text)
+        textParts.push(trimmed)
+      }
+    }
+
+    return textParts.join('')
   }
 
   /**

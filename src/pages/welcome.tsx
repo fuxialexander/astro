@@ -21,6 +21,7 @@ import {
   Cloud,
   ChevronDown,
   CheckCircle2,
+  Bot,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
@@ -126,11 +127,17 @@ export function Welcome() {
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
 
+  // Provider state
+  const providers = useExecutionStore((s) => s.providers)
+  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
+  const loadProviders = useExecutionStore((s) => s.loadProviders)
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
+  const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
+
   useEffect(() => {
-    if (!machinesLoaded) {
-      loadMachines()
-    }
-  }, [machinesLoaded, loadMachines])
+    if (!machinesLoaded) loadMachines()
+    if (!providersLoaded) loadProviders()
+  }, [machinesLoaded, loadMachines, providersLoaded, loadProviders])
 
   const availableMachines = getMachinesForEnvironment(selectedEnvironment)
   const isRemoteEnv = selectedEnvironment !== "local"
@@ -660,6 +667,66 @@ export function Welcome() {
                 </div>
               </div>
 
+              {/* AI Provider */}
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+                  <Bot className="h-4 w-4 text-muted-foreground" />
+                  Preferred AI agent
+                </label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-foreground hover:border-foreground/20 transition-colors cursor-pointer w-fit">
+                      <Bot className="h-4 w-4 text-muted-foreground" />
+                      {defaultProvider
+                        ? providers.find((p) => p.id === defaultProvider)?.name ?? defaultProvider
+                        : "Auto (first available)"}
+                      <ChevronDown className="h-3 w-3 opacity-50" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Select AI Agent</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => setDefaultProvider("")}
+                      className="gap-2"
+                    >
+                      <Zap className="h-4 w-4" />
+                      <div className="flex flex-col">
+                        <span>Auto</span>
+                        <span className="text-xs text-muted-foreground">Use first available provider</span>
+                      </div>
+                      {!defaultProvider && (
+                        <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                    {providers.map((p) => (
+                      <DropdownMenuItem
+                        key={p.id}
+                        onClick={() => setDefaultProvider(p.id)}
+                        disabled={!p.available}
+                        className="gap-2"
+                      >
+                        <Bot className="h-4 w-4" />
+                        <div className="flex flex-col">
+                          <span>{p.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {p.available ? "Ready" : p.installed ? "Not authenticated" : "Not installed"}
+                          </span>
+                        </div>
+                        {defaultProvider === p.id && (
+                          <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                    {providers.length === 0 && providersLoaded && (
+                      <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                        No providers detected. Install Claude Code or Codex CLI.
+                      </div>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
               {/* Tech stack / compute */}
               <div className="flex flex-col gap-2">
                 <label className="flex items-center gap-2 text-[13px] font-medium text-foreground">
@@ -785,6 +852,16 @@ export function Welcome() {
                   selectedMachine
                     ? `${environmentConfig[selectedEnvironment].label} — ${selectedMachine.name}`
                     : environmentConfig[selectedEnvironment].label
+                }
+              />
+
+              {/* AI Provider */}
+              <SummaryRow
+                label="AI Agent"
+                value={
+                  defaultProvider
+                    ? providers.find((p) => p.id === defaultProvider)?.name ?? defaultProvider
+                    : "Auto (first available)"
                 }
               />
             </div>

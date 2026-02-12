@@ -4,6 +4,7 @@ import {
   providerRegistry,
   type TaskDispatch,
   type TaskType,
+  type AgentProvider,
 } from '../lib/providers/index.js'
 import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
@@ -12,6 +13,19 @@ import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
 import { requireAuth } from '../middleware/auth.js'
 import { errorMessage, isAbortError } from '../lib/error-utils.js'
+
+/**
+ * Resolve the model for a given provider. If the requested model is not
+ * supported by the provider, fall back to the provider's default model.
+ */
+function resolveModelForProvider(provider: AgentProvider, requestedModel?: string): string | undefined {
+  if (!requestedModel) return undefined
+  const caps = provider.capabilities()
+  const supported = caps.availableModels?.includes(requestedModel)
+  if (supported) return requestedModel
+  console.log(`[agent] Model "${requestedModel}" not supported by ${provider.name}, using default "${caps.defaultModel}"`)
+  return caps.defaultModel
+}
 
 const agentRoute = new Hono()
 
@@ -95,15 +109,22 @@ agentRoute.post('/generate-plan', async (c) => {
 
       const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext)
 
+      // Claude SDK supports native outputFormat for structured JSON;
+      // other providers need the schema embedded in the prompt.
+      const isClaudeProvider = provider.id === 'claude-code'
+      const schemaPromptSuffix = isClaudeProvider
+        ? ''
+        : `\n\n## Required Output JSON Schema\nYour response MUST be a single JSON object matching this schema (no markdown fences, no prose):\n${JSON.stringify(PLAN_GRAPH_SCHEMA, null, 2)}`
+
       // Build task dispatch — more turns when local repo available (agent may explore);
       // remote repos only have file tree context, so 1 turn is enough
       const task: TaskDispatch = {
         taskId,
         type: 'planning',
-        prompt: description,
+        prompt: description + schemaPromptSuffix,
         systemPrompt,
-        model,
-        maxTurns: isLocalDir ? 10 : 1,
+        model: resolveModelForProvider(provider, model),
+        maxTurns: isClaudeProvider && isLocalDir ? 10 : 1,
         context: {
           projectId,
           visionDoc,
@@ -111,8 +132,8 @@ agentRoute.post('/generate-plan', async (c) => {
           ...(isLocalDir ? { workingDirectory } : {}),
         },
         abortController,
-        // Force structured JSON output for plan generation
-        outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
+        // Force structured JSON output for plan generation (Claude SDK only; ignored by other providers)
+        ...(isClaudeProvider ? { outputFormat: { type: 'json_schema' as const, schema: PLAN_GRAPH_SCHEMA } } : {}),
       }
 
       // Stream the execution
@@ -511,7 +532,7 @@ agentRoute.post('/chat', async (c) => {
         type: 'chat',
         prompt: message,
         systemPrompt,
-        model,
+        model: resolveModelForProvider(provider, model),
         maxTurns: 1,
         context: {
           projectId,
@@ -622,7 +643,7 @@ agentRoute.post('/task-chat', async (c) => {
         type: 'chat',
         prompt: message,
         systemPrompt,
-        model,
+        model: resolveModelForProvider(provider, model),
         maxTurns: 1,
         context: {
           projectId,
@@ -781,7 +802,7 @@ agentRoute.post('/dispatch', async (c) => {
         taskId: executionId,
         type: taskType,
         prompt,
-        model,
+        model: resolveModelForProvider(provider, model),
         maxTurns,
         context: {
           projectId,
