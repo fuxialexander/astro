@@ -19,6 +19,7 @@ import type {
   StructuredOutput,
   TaskMetrics,
 } from '../types.js'
+import { errorMessage } from '../../error-utils.js'
 
 // Map of active tasks for cancellation
 const activeTasks = new Map<string, AbortController>()
@@ -82,7 +83,7 @@ export class ClaudeCodeProvider implements AgentProvider {
 
       return this.cachedDetection
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = errorMessage(error)
 
       // Check for specific auth-related errors
       const isAuthError = message.includes('auth') || message.includes('login') || message.includes('API key')
@@ -280,7 +281,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       return {
         taskId: task.taskId,
         status: isAbort ? 'cancelled' : 'error',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage: errorMessage(error),
         metrics: {
           durationMs,
           model: task.model ?? this.defaultModel,
@@ -520,7 +521,7 @@ export class ClaudeCodeProvider implements AgentProvider {
         yield {
           type: 'error',
           taskId: task.taskId,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errorMessage(error),
           recoverable: false,
           timestamp: new Date(),
         }
@@ -529,7 +530,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       const result: TaskResult = {
         taskId: task.taskId,
         status: isAbort ? 'cancelled' : 'error',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage: errorMessage(error),
         metrics: {
           durationMs,
           model: task.model ?? this.defaultModel,

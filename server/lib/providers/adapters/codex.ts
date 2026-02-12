@@ -31,6 +31,7 @@ import type {
   FileChange,
   StructuredOutput,
 } from '../types.js'
+import { errorMessage } from '../../error-utils.js'
 
 const execAsync = promisify(exec)
 
@@ -175,7 +176,7 @@ export class CodexProvider implements AgentProvider {
 
       return this.cachedDetection
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = errorMessage(error)
 
       this.cachedDetection = {
         installed: false,
@@ -285,7 +286,7 @@ export class CodexProvider implements AgentProvider {
       return {
         taskId: task.taskId,
         status: isAbort ? 'cancelled' : 'error',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage: errorMessage(error),
         metrics: {
           durationMs,
           model: task.model ?? 'gpt-4o',
@@ -444,7 +445,7 @@ export class CodexProvider implements AgentProvider {
         yield {
           type: 'error',
           taskId: task.taskId,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errorMessage(error),
           recoverable: false,
           timestamp: new Date(),
         }
@@ -453,7 +454,7 @@ export class CodexProvider implements AgentProvider {
       const result: TaskResult = {
         taskId: task.taskId,
         status: isAbort ? 'cancelled' : 'error',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage: errorMessage(error),
         metrics: {
           durationMs,
           model: task.model ?? 'gpt-4o',
@@ -663,7 +664,7 @@ export class CodexProvider implements AgentProvider {
         stdio: ['pipe', 'pipe', 'pipe'],
       })
     } catch (error) {
-      yield { type: 'error', message: error instanceof Error ? error.message : 'Failed to spawn Codex' }
+      yield { type: 'error', message: errorMessage(error) }
       return
     }
 

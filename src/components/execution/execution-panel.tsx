@@ -3,8 +3,6 @@ import { Link } from "react-router"
 import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
   DropdownMenu,
@@ -14,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useExecutionStore, canExecuteNode, getProjectWorkingDir, type ExecutionOptions, type MachineInfo } from "@/stores/execution-store"
+import { useExecutionStore, canExecuteNode, getProjectWorkingDir, getAllowedEnvironments, type MachineInfo } from "@/stores/execution-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import type { PlanNode } from "@/types"
@@ -43,7 +41,6 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const outputRef = useRef<HTMLDivElement>(null)
   const nodes = usePlanStore((s) => s.nodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
-  const dirCheck = getProjectWorkingDir(project)
 
   // Execution state
   const execution = useExecutionStore((s) => s.getExecution(node.id))
@@ -61,19 +58,24 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
 
-  // Local state for execution options
+  // Compute allowed environments from project config
+  const envConstraints = getAllowedEnvironments(project)
+
+  // Local state for execution options — default to project's defaultEnvironment
   const [selectedEnvironment, setSelectedEnvironment] = useState<'local' | 'remote' | 'hpc' | 'cloud'>(
-    node.environment || 'local'
+    project?.defaultEnvironment || node.environment || 'local'
   )
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
-  const [workingDir, setWorkingDir] = useState(dirCheck.dir || '')
-  const [prevEnv, setPrevEnv] = useState(selectedEnvironment)
-  const [prevDirCheck, setPrevDirCheck] = useState(dirCheck.dir)
-  if (prevEnv !== selectedEnvironment || prevDirCheck !== dirCheck.dir) {
-    setPrevEnv(selectedEnvironment)
-    setPrevDirCheck(dirCheck.dir)
-    setWorkingDir(dirCheck.dir || '')
-  }
+
+  // Resolve working directory based on selected environment
+  const dirCheck = getProjectWorkingDir(project, selectedEnvironment)
+  const workingDir = dirCheck.dir || ''
+
+  // If locked to a specific machine, compute the effective machine from available machines
+  const lockedMachine = envConstraints.lockedMachineId && machinesLoaded
+    ? getMachinesForEnvironment(selectedEnvironment).find((m) => m.machineId === envConstraints.lockedMachineId) ?? null
+    : null
+  const effectiveMachine = selectedMachine ?? lockedMachine
 
   // Load providers and machines on mount
   useEffect(() => {
@@ -105,7 +107,7 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const hasExecutionTarget =
     selectedEnvironment === 'local'
       ? availableProvider !== null
-      : selectedMachine !== null || availableMachines.length > 0
+      : effectiveMachine !== null || availableMachines.length > 0
 
   // Allow execution for planned nodes, and re-execution for stuck/failed nodes
   const executableStatuses: PlanNode["status"][] = ["planned", "in_progress", "awaiting_judgment"]
@@ -117,16 +119,10 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
     !!workingDir.trim()
 
   const handleExecute = () => {
-    const options: ExecutionOptions = {
+    startExecution(node.id, projectId, {
       environment: selectedEnvironment,
-      workingDirectory: workingDir.trim() || undefined,
-    }
-
-    if (selectedMachine) {
-      options.targetMachineId = selectedMachine.machineId
-    }
-
-    startExecution(node.id, projectId, options)
+      targetMachineId: effectiveMachine?.machineId,
+    })
   }
 
   const handleCancel = () => {
@@ -142,10 +138,10 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
         <span className="text-sm text-muted-foreground">Environment</span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5">
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={envConstraints.allowed.length <= 1}>
               <EnvironmentIcon className="h-3.5 w-3.5" />
               {environmentConfig[selectedEnvironment].label}
-              <ChevronDown className="h-3 w-3 opacity-50" />
+              {envConstraints.allowed.length > 1 && <ChevronDown className="h-3 w-3 opacity-50" />}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -155,14 +151,17 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
               const config = environmentConfig[env]
               const Icon = config.icon
               const machineCount = getMachinesForEnvironment(env).length
+              const isAllowed = envConstraints.allowed.includes(env)
               return (
                 <DropdownMenuItem
                   key={env}
                   onClick={() => {
+                    if (!isAllowed) return
                     setSelectedEnvironment(env)
                     setSelectedMachine(null)
                   }}
                   className="gap-2"
+                  disabled={!isAllowed}
                 >
                   <Icon className="h-4 w-4" />
                   <div className="flex flex-col">
@@ -181,6 +180,13 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
         </DropdownMenu>
       </div>
 
+      {/* Environment lock info */}
+      {envConstraints.lockReason && (
+        <div className="rounded-lg bg-muted/50 p-2.5 text-xs text-muted-foreground">
+          {envConstraints.lockReason}
+        </div>
+      )}
+
       {/* Machine Selection (for non-local environments) */}
       {selectedEnvironment !== 'local' && availableMachines.length > 0 && (
         <div className="flex items-center justify-between">
@@ -190,7 +196,7 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
               <Button variant="outline" size="sm" className="gap-1.5 max-w-[180px]">
                 <Server className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">
-                  {selectedMachine?.name || "Auto-select"}
+                  {effectiveMachine?.name || "Auto-select"}
                 </span>
                 <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
               </Button>
@@ -209,7 +215,7 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
                     Best available machine
                   </span>
                 </div>
-                {!selectedMachine && (
+                {!effectiveMachine && (
                   <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
                 )}
               </DropdownMenuItem>
@@ -228,7 +234,7 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
                       {machine.load && ` • ${machine.load.activeTasks} tasks`}
                     </span>
                   </div>
-                  {selectedMachine?.machineId === machine.machineId && (
+                  {effectiveMachine?.machineId === machine.machineId && (
                     <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
                   )}
                 </DropdownMenuItem>
@@ -253,6 +259,19 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
         </div>
       )}
 
+      {/* Working directory warning */}
+      {!dirCheck.ok && (
+        <div className="rounded-lg bg-warning/10 p-3 text-sm">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-warning mt-0.5" />
+            <div>
+              <p className="font-medium text-warning">Cannot execute</p>
+              <p className="text-muted-foreground mt-1">{dirCheck.message}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Provider Status (for local environment) */}
       {selectedEnvironment === 'local' && providersLoaded && (
         <div className="flex items-center justify-between">
@@ -271,16 +290,6 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
         </div>
       )}
 
-      {/* Working Directory */}
-      <div className="flex flex-col gap-1.5">
-        <span className="text-sm text-muted-foreground">Working Directory</span>
-        <Input
-          value={workingDir}
-          onChange={(e) => setWorkingDir(e.target.value)}
-          placeholder="/path/to/project or git@github.com:..."
-          className="h-8 font-mono text-xs"
-        />
-      </div>
 
       {/* Dependency Status */}
       {!canExecuteResult.ready && (
@@ -374,11 +383,11 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
           {execution.streamText && (
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium">Output</span>
-              <ScrollArea className="h-[200px] rounded-lg bg-muted p-3" ref={outputRef}>
+              <div className="max-h-[200px] overflow-y-auto rounded-lg bg-muted p-3" ref={outputRef}>
                 <pre className="font-mono text-xs whitespace-pre-wrap break-all">
                   {execution.streamText}
                 </pre>
-              </ScrollArea>
+              </div>
             </div>
           )}
         </>
@@ -390,11 +399,11 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
           <Separator />
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium">Previous Output</span>
-            <ScrollArea className="h-[200px] rounded-lg bg-muted p-3">
+            <div className="max-h-[200px] overflow-y-auto rounded-lg bg-muted p-3">
               <pre className="font-mono text-xs whitespace-pre-wrap break-all">
                 {node.executionOutput}
               </pre>
-            </ScrollArea>
+            </div>
           </div>
         </>
       )}
@@ -414,21 +423,4 @@ function ExecutionStatusBadge({ status }: { status: string }) {
   )
 }
 
-function formatTime(date: Date): string {
-  return new Date(date).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  })
-}
-
-function formatDuration(start: Date, end: Date): string {
-  const ms = new Date(end).getTime() - new Date(start).getTime()
-  const seconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(seconds / 60)
-
-  if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`
-  }
-  return `${seconds}s`
-}
+import { formatTime, formatDuration } from "@/lib/date-utils"

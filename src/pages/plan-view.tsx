@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
-import { ArrowLeft, FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond, X, Calendar } from "lucide-react"
+import { ArrowLeft, FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond, X, Calendar, Trash2 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -13,7 +13,7 @@ import { ChatPanel } from "@/components/agent/chat-panel"
 import { ExecutionPanel, ProviderStatus } from "@/components/execution"
 import { BoardView } from "@/components/board/board-view"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
-import { ItemListView, type ListColumn, type ListGroup } from "@/components/views/item-list-view"
+import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { ItemTimelineView, TimelineAddTaskFooter, type TimelineRow } from "@/components/views/item-timeline-view"
 import { PropertyPicker } from "@/components/property-picker"
 import { useProjectStore } from "@/stores/project-store"
@@ -21,35 +21,15 @@ import { useAgentStore } from "@/stores/agent-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
-import {
-  statusColors,
-  progressColors,
-  assignDefaultDates,
-} from "@/lib/timeline-utils"
+import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
+import { formatDueDateShort } from "@/lib/date-utils"
+import { assignDefaultDates } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
 
-const statusLabels: Record<string, string> = {
-  planned: "Planned",
-  dispatched: "Dispatched",
-  in_progress: "In Progress",
-  auto_verified: "Auto Verified",
-  awaiting_judgment: "Awaiting Judgment",
-  completed: "Completed",
-  pruned: "Pruned",
-}
-
-const statusVariant: Record<string, "secondary" | "info" | "success" | "warning" | "outline"> = {
-  planned: "secondary",
-  dispatched: "info",
-  in_progress: "info",
-  auto_verified: "success",
-  awaiting_judgment: "warning",
-  completed: "success",
-  pruned: "outline",
-}
+const statusVariant = statusBadgeVariants
 
 const planListDisplayConfig: DisplayPopoverConfig = {
   viewKey: "plan-list",
@@ -120,19 +100,6 @@ const planBoardDisplayConfig: DisplayPopoverConfig = {
     { value: "dueDate", label: "Due date" },
     { value: "labels", label: "Labels" },
   ],
-}
-
-function formatDueDateShort(dateStr?: string): { text: string; className: string } {
-  if (!dateStr) return { text: "\u2014", className: "text-muted-foreground" }
-  const due = new Date(dateStr + "T00:00:00Z")
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const diffMs = due.getTime() - today.getTime()
-  const diffDays = Math.ceil(diffMs / 86400000)
-  const text = due.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-  if (diffDays < 0) return { text, className: "text-red-500" }
-  if (diffDays < 7) return { text, className: "text-orange-500" }
-  return { text, className: "text-muted-foreground" }
 }
 
 // --- Shared sorting logic for plan nodes ---
@@ -285,6 +252,7 @@ function makePlanColumns(
 function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const updateNode = usePlanStore((s) => s.updateNode)
+  const removeNodes = usePlanStore((s) => s.removeNodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
@@ -292,6 +260,16 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
   const handleNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
     updateNode(id, updates)
   }, [updateNode])
+
+  const planBatchActions: BatchAction[] = useMemo(() => [
+    {
+      id: "delete",
+      label: "Delete",
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      variant: "destructive",
+      onAction: (ids) => removeNodes(ids),
+    },
+  ], [removeNodes])
 
   const allProjectNodes = useMemo(() => {
     return planNodes.filter((n) => n.projectId === projectId)
@@ -405,6 +383,7 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
       getItemId={(n) => n.id}
       getItemClass={(n) => cn(n.status === "pruned" && "opacity-50")}
       footer={renderAddTaskRow}
+      batchActions={planBatchActions}
     />
   )
 }
@@ -413,6 +392,7 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
 function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const planEdges = usePlanStore((s) => s.edges)
+  const updateNode = usePlanStore((s) => s.updateNode)
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
   const [isCreating, setIsCreating] = useState(false)
 
@@ -455,9 +435,9 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
           id: node.id,
           startDate: dated.startDate ?? "",
           endDate: dated.endDate ?? "",
-          barClass: statusColors[node.status] ?? "bg-primary/70",
-          progressClass: progressColors[node.status],
-          progressPct: progressColors[node.status] ? 40 : undefined,
+          barClass: statusBarColors[node.status] ?? "bg-primary/70",
+          progressClass: statusProgressColors[node.status],
+          progressPct: statusProgressColors[node.status] ? 40 : undefined,
           label: node.title,
         },
       }
@@ -527,6 +507,7 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
         </span>
       )}
       onItemClick={(node) => onNodeSelect(node)}
+      onDateChange={(nodeId, startDate, endDate) => updateNode(nodeId, { startDate, endDate })}
       footer={
         isCreating ? (
           <TaskCreationForm
@@ -602,6 +583,8 @@ export function PlanView() {
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const isGenerating = useAgentStore((s) => s.isGenerating)
+  const generationPhase = useAgentStore((s) => s.generationPhase)
+  const showGenerationOverlay = isGenerating || generationPhase !== 'idle'
   const updateNode = usePlanStore((s) => s.updateNode)
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
@@ -711,11 +694,11 @@ export function PlanView() {
       </header>
 
       {/* Canvas/List + Detail/Chat pane */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
         {viewMode === "graph" ? (
-          <div className="relative flex-1">
+          <div className="absolute inset-0">
             <PlanCanvas projectId={project.id} onNodeSelect={setSelectedNode} />
-            {isGenerating && <GenerationOverlay />}
+            {showGenerationOverlay && <GenerationOverlay />}
           </div>
         ) : viewMode === "list" ? (
           <div className="flex flex-1 flex-col overflow-hidden">
@@ -732,7 +715,12 @@ export function PlanView() {
 
         {/* Detail pane with Execution Panel */}
         {selectedNode && !chatOpen && (
-          <div className="flex w-[400px] shrink-0 flex-col gap-5 border-l border-border bg-card p-6 overflow-auto">
+          <div className={cn(
+            "flex flex-col gap-5 border-l border-border bg-card p-6 overflow-auto",
+            viewMode === "graph"
+              ? "absolute right-0 top-0 bottom-0 w-[400px] z-10 shadow-lg"
+              : "w-[400px] shrink-0"
+          )}>
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-semibold truncate flex-1">{selectedNode.title}</h3>
               <Button

@@ -9,6 +9,7 @@ import { createSession, abortSession, removeSession, getSession, updateSession }
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt } from '../lib/prompt-templates.js'
 import { readRepoContext } from '../lib/repo-context.js'
 import { requireAuth } from '../middleware/auth.js'
+import { errorMessage, isAbortError } from '../lib/error-utils.js'
 
 const agentRoute = new Hono()
 
@@ -133,10 +134,10 @@ agentRoute.post('/generate-plan', async (c) => {
         }
       }
     } catch (e: unknown) {
-      if (e instanceof Error && e.name === 'AbortError') {
+      if (isAbortError(e)) {
         await stream.writeSSE({ event: 'aborted', data: '' })
       } else {
-        const message = e instanceof Error ? e.message : 'unknown error'
+        const message = errorMessage(e)
         await stream.writeSSE({ event: 'error', data: message })
       }
     } finally {
@@ -273,10 +274,10 @@ agentRoute.post('/chat', async (c) => {
         }
       }
     } catch (e: unknown) {
-      if (e instanceof Error && e.name === 'AbortError') {
+      if (isAbortError(e)) {
         await stream.writeSSE({ event: 'aborted', data: '' })
       } else {
-        const message = e instanceof Error ? e.message : 'unknown error'
+        const message = errorMessage(e)
         await stream.writeSSE({ event: 'error', data: message })
       }
     } finally {
@@ -386,10 +387,10 @@ agentRoute.post('/task-chat', async (c) => {
         }
       }
     } catch (e: unknown) {
-      if (e instanceof Error && e.name === 'AbortError') {
+      if (isAbortError(e)) {
         await stream.writeSSE({ event: 'aborted', data: '' })
       } else {
-        const message = e instanceof Error ? e.message : 'unknown error'
+        const message = errorMessage(e)
         await stream.writeSSE({ event: 'error', data: message })
       }
     } finally {
@@ -638,13 +639,13 @@ agentRoute.post('/dispatch', async (c) => {
         }),
       })
     } catch (e: unknown) {
-      if (e instanceof Error && e.name === 'AbortError') {
+      if (isAbortError(e)) {
         await stream.writeSSE({
           event: 'aborted',
           data: JSON.stringify({ reason: 'User cancelled' }),
         })
       } else {
-        const message = e instanceof Error ? e.message : 'Unknown error'
+        const message = errorMessage(e)
         await stream.writeSSE({
           event: 'error',
           data: JSON.stringify({ error: message }),

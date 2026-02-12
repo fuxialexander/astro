@@ -17,6 +17,8 @@ export const projects = sqliteTable('projects', {
   labels: text('labels', { mode: 'json' }).$type<{ id: string; name: string; color: string }[]>().default([]),
   workingDirectory: text('working_directory'),
   repository: text('repository'),
+  defaultEnvironment: text('default_environment'), // 'local' | 'remote' | 'hpc' | 'cloud'
+  defaultMachineId: text('default_machine_id'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })

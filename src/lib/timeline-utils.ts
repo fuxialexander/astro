@@ -2,21 +2,6 @@ import type { PlanNode, PlanEdge } from "@/types"
 
 export const DAY_WIDTH = 20
 
-export const statusColors: Record<string, string> = {
-  completed: "bg-green-500",
-  auto_verified: "bg-green-500",
-  in_progress: "bg-blue-500",
-  dispatched: "bg-blue-500",
-  awaiting_judgment: "bg-amber-500",
-  planned: "bg-primary/70",
-  pruned: "bg-border opacity-40",
-}
-
-export const progressColors: Record<string, string> = {
-  in_progress: "bg-blue-700",
-  dispatched: "bg-blue-700",
-}
-
 /** Check whether a string is a valid YYYY-MM-DD date */
 export function isValidDateStr(s: unknown): s is string {
   if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false

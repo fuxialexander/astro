@@ -12,7 +12,8 @@ import { detectProviders } from '../lib/providers.js';
 import { getMachineResources, formatResourceSummary } from '../lib/resources.js';
 import { WebSocketClient } from '../lib/websocket-client.js';
 import { TaskExecutor } from '../lib/task-executor.js';
-import type { RunnerEvent, Task } from '../types.js';
+import { localRepoSetup } from '../lib/repo-utils.js';
+import type { RunnerEvent, Task, RepoSetupRequestMessage } from '../types.js';
 
 interface StartOptions {
   foreground?: boolean;
@@ -183,6 +184,22 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     } catch (error) {
       log('warn', `Failed to list files: ${error instanceof Error ? error.message : String(error)}`, logLevel);
       wsClient.sendFileListResponse(correlationId, []);
+    }
+  };
+
+  wsClient['onRepoSetup'] = (payload: RepoSetupRequestMessage['payload']) => {
+    const { correlationId, workingDirectory, repository } = payload;
+    log('info', `Repo setup request: dir=${workingDirectory || '(none)'} repo=${repository || '(none)'}`, logLevel);
+    try {
+      const result = localRepoSetup({ workingDirectory, repository });
+      wsClient.sendRepoSetupResponse(correlationId, result);
+      log('info', `Repo setup result: success=${result.success} files=${result.fileTree?.length ?? 0}`, logLevel);
+    } catch (error) {
+      log('error', `Repo setup failed: ${error instanceof Error ? error.message : String(error)}`, logLevel);
+      wsClient.sendRepoSetupResponse(correlationId, {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 

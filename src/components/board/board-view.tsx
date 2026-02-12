@@ -11,17 +11,13 @@ import {
   type DragOverEvent,
 } from "@dnd-kit/core"
 import {
-  Circle,
-  Send,
-  Loader,
-  CheckCircle2,
-  Eye,
-  Scissors,
   AlertTriangle,
   ArrowUp,
   Minus,
   ArrowDown,
+  Circle,
 } from "lucide-react"
+import { STATUS_CONFIG } from "@/lib/status-config"
 import { BoardColumn, type DragMode } from "./board-column"
 import { BoardCard } from "./board-card"
 import type { PlanNode, Priority } from "@/types"
@@ -35,16 +31,16 @@ interface ColumnDef {
   acceptsDrop?: boolean
 }
 
-// --- Status columns ---
-const STATUS_COLUMNS: ColumnDef[] = [
-  { id: "planned", label: "Planned", icon: <Circle className="h-3.5 w-3.5 text-muted-foreground" /> },
-  { id: "dispatched", label: "Dispatched", icon: <Send className="h-3.5 w-3.5 text-blue-500" /> },
-  { id: "in_progress", label: "In Progress", icon: <Loader className="h-3.5 w-3.5 text-blue-500" /> },
-  { id: "auto_verified", label: "Auto Verified", icon: <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> },
-  { id: "awaiting_judgment", label: "Needs Review", icon: <Eye className="h-3.5 w-3.5 text-amber-500" /> },
-  { id: "completed", label: "Completed", icon: <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> },
-  { id: "pruned", label: "Pruned", icon: <Scissors className="h-3.5 w-3.5 text-muted-foreground" />, acceptsDrop: false },
-]
+// --- Status columns (derived from shared config) ---
+const STATUS_COLUMNS: ColumnDef[] = Object.entries(STATUS_CONFIG).map(([id, entry]) => {
+  const Icon = entry.icon
+  return {
+    id,
+    label: entry.label,
+    icon: <Icon className={`h-3.5 w-3.5 ${entry.color}`} />,
+    ...(id === "pruned" ? { acceptsDrop: false } : {}),
+  }
+})
 
 const COMPLETED_STATUSES = new Set(["completed", "auto_verified", "pruned"])
 

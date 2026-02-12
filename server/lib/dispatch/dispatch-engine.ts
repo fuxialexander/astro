@@ -27,6 +27,7 @@ import {
 import { DispatchQueue, createDispatchQueue } from './dispatch-queue.js'
 import { ContextAssembler, createContextAssembler } from './context-assembler.js'
 import { ResultRouter, createResultRouter } from './result-router.js'
+import { errorMessage } from '../error-utils.js'
 import { BranchManager, createBranchManager } from './branch-manager.js'
 
 /**
@@ -493,8 +494,8 @@ export class DispatchEngine extends EventEmitter {
         this.emit('task:cancelled', queueEntry.nodeId, queueEntry.projectId)
       } else {
         // Handle error
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-        const failResult = this.queue.markFailed(queueEntry.id, errorMessage)
+        const errMsg = errorMessage(error)
+        const failResult = this.queue.markFailed(queueEntry.id, errMsg)
 
         if (failResult?.retry) {
           // Will retry
@@ -512,7 +513,7 @@ export class DispatchEngine extends EventEmitter {
           // Max retries exceeded
           await this.nodeUpdateCallback(queueEntry.nodeId, {
             status: 'awaiting_judgment',
-            executionError: errorMessage,
+            executionError: errMsg,
           })
 
           const failedEvent: TaskFailedEvent = {
@@ -520,7 +521,7 @@ export class DispatchEngine extends EventEmitter {
             timestamp: new Date(),
             nodeId: queueEntry.nodeId,
             projectId: queueEntry.projectId,
-            error: errorMessage,
+            error: errMsg,
             retryable: false,
             retryCount: queueEntry.retryCount,
           }

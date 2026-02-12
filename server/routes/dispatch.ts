@@ -24,6 +24,15 @@ import type { ProviderType } from '../types/relay.js'
 import { requireAuth } from '../middleware/auth.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { errorMessage, isAbortError } from '../lib/error-utils.js'
+import {
+  createServerWorktree,
+  getDefaultBranch,
+  hasBranchCommits,
+  pushAndCreatePR,
+  isGitRepo,
+  hasRemoteOrigin,
+  type ServerWorktreeSetup,
+} from '../lib/worktree-manager.js'
 import { existsSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
@@ -260,6 +269,9 @@ async function dispatchLocal(
   const abortController = createSession(executionId, preferredProvider as string)
 
   return streamSSE(c, async (stream) => {
+    let worktreeSetup: ServerWorktreeSetup | null = null
+    let keepBranch = false
+
     try {
       // Get provider
       const provider = preferredProvider
@@ -290,6 +302,24 @@ async function dispatchLocal(
         return
       }
 
+      // Create worktree for isolation if the directory is a git repo with a remote
+      let effectiveWorkDir = workingDirectory
+      if (workingDirectory && await isGitRepo(workingDirectory) && await hasRemoteOrigin(workingDirectory)) {
+        try {
+          worktreeSetup = await createServerWorktree({
+            repoPath: workingDirectory,
+            taskId: executionId,
+            nodeId,
+          })
+          if (worktreeSetup) {
+            effectiveWorkDir = worktreeSetup.worktreePath
+            console.log(`[dispatch] Created worktree for ${executionId}: ${worktreeSetup.worktreePath} (branch: ${worktreeSetup.branchName})`)
+          }
+        } catch (wtErr) {
+          console.warn(`[dispatch] Worktree creation failed, using repo directly: ${errorMessage(wtErr)}`)
+        }
+      }
+
       // Build execution prompt with context
       const promptParts: string[] = []
 
@@ -304,8 +334,8 @@ async function dispatchLocal(
         promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
       }
 
-      if (workingDirectory) {
-        promptParts.push(`## Working Directory\n\n${workingDirectory}`)
+      if (effectiveWorkDir) {
+        promptParts.push(`## Working Directory\n\n${effectiveWorkDir}`)
       }
 
       promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)
@@ -330,7 +360,7 @@ Execute the task described above. Focus on completing the task thoroughly and co
         context: {
           projectId,
           visionDoc,
-          workingDirectory,
+          workingDirectory: effectiveWorkDir,
         },
         abortController,
       }
@@ -445,6 +475,36 @@ Execute the task described above. Focus on completing the task thoroughly and co
               finalStatus = 'awaiting_judgment'
             }
 
+            // Attempt PR creation if worktree was used and execution succeeded
+            let branchName: string | undefined
+            let prUrl: string | undefined
+            let prNumber: number | undefined
+
+            if (worktreeSetup && isSuccess) {
+              try {
+                const baseBranch = await getDefaultBranch(workingDirectory!)
+                const hasCommits = await hasBranchCommits(worktreeSetup.worktreePath, baseBranch)
+                if (hasCommits) {
+                  const prResult = await pushAndCreatePR({
+                    worktreePath: worktreeSetup.worktreePath,
+                    branchName: worktreeSetup.branchName,
+                    baseBranch,
+                    title,
+                    body: `## Task\n\n${description}\n\n---\n*Created by Nexus task automation*`,
+                  })
+                  branchName = prResult.branchName
+                  prUrl = prResult.prUrl
+                  prNumber = prResult.prNumber
+                  keepBranch = true
+                  console.log(`[dispatch] PR result for ${executionId}: branch=${branchName}, prUrl=${prUrl || 'none'}`)
+                }
+              } catch (prErr) {
+                console.warn(`[dispatch] PR creation failed for ${executionId}: ${errorMessage(prErr)}`)
+              }
+            } else if (worktreeSetup) {
+              branchName = worktreeSetup.branchName
+            }
+
             await stream.writeSSE({
               event: 'result',
               data: JSON.stringify({
@@ -456,6 +516,9 @@ Execute the task described above. Focus on completing the task thoroughly and co
                 metrics: event.result.metrics,
                 verification: event.result.verification,
                 sessionId: event.result.sessionId,
+                branchName,
+                prUrl,
+                prNumber,
               }),
             })
             executionEventBus.emit('task:result', {
@@ -514,6 +577,14 @@ Execute the task described above. Focus on completing the task thoroughly and co
       }
     } finally {
       removeSession(executionId)
+      // Clean up worktree
+      if (worktreeSetup) {
+        try {
+          await worktreeSetup.cleanup({ keepBranch })
+        } catch (cleanupErr) {
+          console.warn(`[dispatch] Worktree cleanup failed: ${errorMessage(cleanupErr)}`)
+        }
+      }
     }
   })
 }
@@ -613,6 +684,9 @@ async function dispatchViaRelay(
           output: msg.result.output,
           error: msg.result.error,
           duration: msg.result.duration,
+          branchName: msg.result.branchName,
+          prUrl: msg.result.prUrl,
+          prNumber: msg.result.prNumber,
         }),
       }).catch(() => { alive = false })
       // Task is done, close stream after sending result

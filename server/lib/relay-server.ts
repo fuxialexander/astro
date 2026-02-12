@@ -45,6 +45,16 @@ import {
 } from '../types/relay.js';
 import { machineRegistry } from './machine-registry.js';
 
+/** Result from remote repo setup relayed from agent runner */
+export interface RepoSetupRelayResult {
+  success: boolean;
+  workingDirectory?: string;
+  fileTree?: string[];
+  repository?: string;
+  needsGitInit?: boolean;
+  error?: string;
+}
+
 // ============================================================================
 // Agent Runner Message Types (for compatibility with @nexus/agent package)
 // ============================================================================
@@ -221,6 +231,21 @@ interface AgentRunnerFileListResponseMessage {
   };
 }
 
+/** Agent runner's repo setup response message format */
+interface AgentRunnerRepoSetupResponseMessage {
+  type: 'repo_setup_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    success: boolean;
+    workingDirectory?: string;
+    fileTree?: string[];
+    repository?: string;
+    needsGitInit?: boolean;
+    error?: string;
+  };
+}
+
 /** Agent runner's steer ack message format */
 interface AgentRunnerTaskSteerAckMessage {
   type: 'task_steer_ack';
@@ -288,6 +313,7 @@ export interface RelayServerEvents {
   'session:detached': (sessionId: string, taskId: string, reason?: string) => void;
   'session:event': (sessionId: string, taskId: string, event: SessionEvent) => void;
   'file_list:response': (data: { correlationId: string; files: string[] }) => void;
+  'repo_setup:response': (data: { correlationId: string; result: RepoSetupRelayResult }) => void;
   'error': (error: Error) => void;
 }
 
@@ -575,6 +601,15 @@ export class RelayServer extends EventEmitter {
 
       case 'file_list_response':
         this.handleAgentRunnerFileListResponse(message as unknown as AgentRunnerFileListResponseMessage);
+        break;
+
+      // Repo setup response from agent runner
+      case 'repo_setup.response':
+        this.handleRepoSetupResponse(message as unknown as { type: 'repo_setup.response'; correlationId: string; result: RepoSetupRelayResult });
+        break;
+
+      case 'repo_setup_response':
+        this.handleAgentRunnerRepoSetupResponse(message as unknown as AgentRunnerRepoSetupResponseMessage);
         break;
 
       // Session attachment messages (MCP bridge)
@@ -1342,6 +1377,65 @@ export class RelayServer extends EventEmitter {
     this.emit('file_list:response', {
       correlationId: message.payload.correlationId,
       files: message.payload.files,
+    });
+  }
+
+  // ============================================================================
+  // Repo Setup Handlers
+  // ============================================================================
+
+  /**
+   * Request repo setup from a connected machine
+   */
+  requestRepoSetup(
+    machineId: string,
+    payload: {
+      correlationId: string;
+      projectId: string;
+      projectName: string;
+      projectDescription?: string;
+      workingDirectory?: string;
+      repository?: string;
+    },
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for repo setup request`);
+      return false;
+    }
+
+    const msg = {
+      type: 'repo_setup_request',
+      timestamp: new Date().toISOString(),
+      payload,
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle repo_setup.response (dot notation)
+   */
+  private handleRepoSetupResponse(message: { correlationId: string; result: RepoSetupRelayResult }): void {
+    this.emit('repo_setup:response', {
+      correlationId: message.correlationId,
+      result: message.result,
+    });
+  }
+
+  /**
+   * Handle agent runner's repo_setup_response format
+   */
+  private handleAgentRunnerRepoSetupResponse(message: AgentRunnerRepoSetupResponseMessage): void {
+    const { correlationId, ...result } = message.payload;
+    this.emit('repo_setup:response', {
+      correlationId,
+      result,
     });
   }
 

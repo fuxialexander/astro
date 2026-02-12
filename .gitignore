@@ -167,3 +167,6 @@ dump.rdb
 .nexus-worktrees/
 .plan.md
 UI.pen
+
+# Swift build artifacts
+.build/

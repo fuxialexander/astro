@@ -1,13 +1,13 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, useRef, useCallback, useEffect } from "react"
 import { X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { usePlanStore } from "@/stores/plan-store"
+import { useBarDragResize } from "@/hooks/use-bar-drag-resize"
 import { PRIORITIES, ESTIMATES, PRIORITY_CONFIG } from "@/lib/constants"
+import { statusBarColors, statusProgressColors } from "@/lib/status-config"
 import {
   DAY_WIDTH,
-  statusColors,
-  progressColors,
   parseDate,
   fmtDate,
   diffDays,
@@ -84,6 +84,19 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
 
   const totalWidth = weeks.length * 7 * DAY_WIDTH
 
+  const timelineStartRef = useRef(timelineStart)
+  useEffect(() => { timelineStartRef.current = timelineStart }, [timelineStart])
+
+  const handleDragCommit = useCallback((nodeId: string, startDate: string, endDate: string) => {
+    updateNode(nodeId, { startDate, endDate })
+  }, [updateNode])
+
+  const { handleMouseDown: handleDragMouseDown } = useBarDragResize({
+    getPpd: () => DAY_WIDTH,
+    getTimelineStart: () => timelineStartRef.current,
+    onCommit: handleDragCommit,
+  })
+
   const todayOffset = useMemo(() => {
     const today = new Date()
     const days = diffDays(timelineStart, today)
@@ -118,8 +131,7 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
       dueDate: editDueDate || undefined,
       milestoneId: editMilestoneId || undefined,
     }
-    // Only save dates for milestones
-    if (editingNode.type === "milestone") {
+    if (editStart && editEnd) {
       if (editEnd < editStart) return
       updates.startDate = editStart
       updates.endDate = editEnd
@@ -213,13 +225,13 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
             return (
               <div key={node.id} className="flex h-11 items-center border-b border-border relative">
                 <div
-                  className={`absolute h-5 rounded cursor-pointer hover:brightness-110 transition-all ${statusColors[node.status]} ${node.type === "milestone" ? "!rounded-sm" : ""}`}
+                  className={`absolute h-5 rounded cursor-pointer hover:brightness-110 transition-all timeline-bar ${statusBarColors[node.status]} ${node.type === "milestone" ? "!rounded-sm" : ""}`}
                   style={{ left: `${barLeft}px`, width: `${barWidth}px` }}
                   onClick={() => openEdit(node)}
                 >
-                  {progressColors[node.status] && (
+                  {statusProgressColors[node.status] && (
                     <div
-                      className={`h-full rounded-l ${progressColors[node.status]}`}
+                      className={`h-full rounded-l ${statusProgressColors[node.status]}`}
                       style={{ width: "40%" }}
                     />
                   )}
@@ -228,6 +240,18 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
                       {node.title}
                     </span>
                   )}
+                  <div
+                    className="drag-handle absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
+                    onMouseDown={(e) => handleDragMouseDown(e, "left", node.id, e.currentTarget.parentElement!, fmtDate(start), fmtDate(end))}
+                  >
+                    <div className="w-0.5 h-3 rounded-full bg-white/60" />
+                  </div>
+                  <div
+                    className="drag-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
+                    onMouseDown={(e) => handleDragMouseDown(e, "right", node.id, e.currentTarget.parentElement!, fmtDate(start), fmtDate(end))}
+                  >
+                    <div className="w-0.5 h-3 rounded-full bg-white/60" />
+                  </div>
                 </div>
                 {/* Due date marker */}
                 {hasDueDate && (
@@ -265,24 +289,17 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
                 onChange={(e) => setEditDesc(e.target.value)}
               />
             </div>
-            {isMilestone && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Start Date</label>
-                  <Input type="date" value={editStart} onChange={(e) => setEditStart(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">End Date</label>
-                  <Input type="date" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} />
-                </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Start Date</label>
+                <Input type="date" value={editStart} onChange={(e) => setEditStart(e.target.value)} />
               </div>
-            )}
-            {!isMilestone && (
-              <p className="text-xs text-muted-foreground">
-                Task timeline position is derived from dependencies.
-              </p>
-            )}
-            {isMilestone && editEnd && editStart && editEnd < editStart && (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">End Date</label>
+                <Input type="date" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} />
+              </div>
+            </div>
+            {editEnd && editStart && editEnd < editStart && (
               <p className="text-xs text-destructive">End date must be on or after start date.</p>
             )}
 
@@ -337,7 +354,7 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => setEditingNode(null)}>Cancel</Button>
-              <Button size="sm" onClick={saveEdit} disabled={!!(isMilestone && editEnd && editStart && editEnd < editStart)}>Save</Button>
+              <Button size="sm" onClick={saveEdit} disabled={!!(editEnd && editStart && editEnd < editStart)}>Save</Button>
             </div>
           </div>
         </div>

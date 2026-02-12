@@ -1,12 +1,30 @@
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useNavigate } from "react-router"
-import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen } from "lucide-react"
+import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useProjectStore } from "@/stores/project-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
+
+const environmentConfig = {
+  local: { icon: Laptop, label: "Local", description: "Run on this machine" },
+  remote: { icon: Globe, label: "Remote", description: "Run on remote machine" },
+  hpc: { icon: Server, label: "HPC", description: "Run on HPC cluster" },
+  cloud: { icon: Cloud, label: "Cloud", description: "Run on cloud instance" },
+}
+
+type EnvironmentType = keyof typeof environmentConfig
 
 export function ProjectNew() {
   const [description, setDescription] = useState("")
@@ -16,6 +34,8 @@ export function ProjectNew() {
   const [showDirInput, setShowDirInput] = useState(false)
   const [startDate, setStartDate] = useState("")
   const [targetDate, setTargetDate] = useState("")
+  const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
+  const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
   const [gitInitPrompt, setGitInitPrompt] = useState<{ projectId: string; dir: string; name: string } | null>(null)
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
@@ -25,10 +45,23 @@ export function ProjectNew() {
   const isGenerating = useAgentStore((s) => s.isGenerating)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
 
+  // Machine state from execution store
+  const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
+  const loadMachines = useExecutionStore((s) => s.loadMachines)
+  const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
+
+  useEffect(() => {
+    if (!machinesLoaded) {
+      loadMachines()
+    }
+  }, [machinesLoaded, loadMachines])
+
+  const availableMachines = getMachinesForEnvironment(selectedEnvironment)
+  const isRemote = selectedEnvironment !== "local"
+
   // Voice transcription for project description
   const handleTranscript = useCallback((text: string) => {
     setDescription((prev) => {
-      // Add a space separator if there's existing text
       if (prev.trim()) {
         return prev.trim() + " " + text
       }
@@ -64,10 +97,12 @@ export function ProjectNew() {
       targetDate: targetDate || undefined,
       workingDirectory: workingDir.trim() || undefined,
       repository: repoUrl.trim() || undefined,
+      defaultEnvironment: isRemote ? selectedEnvironment : undefined,
+      defaultMachineId: selectedMachine?.machineId || undefined,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    navigate(`/project/${id}`)
+    navigate(`/project/${id}/plan`)
 
     if (connectionStatus !== "connected") return
 
@@ -101,6 +136,7 @@ export function ProjectNew() {
           projectDescription,
           workingDirectory: workingDir.trim() || undefined,
           repository: repoUrl.trim() || undefined,
+          targetMachineId: selectedMachine?.machineId || undefined,
         }),
       })
       if (!res.ok) return null
@@ -112,9 +148,12 @@ export function ProjectNew() {
         return null
       }
 
-      // Update project with resolved working directory and file tree
-      if (data.workingDirectory) {
-        updateProject(projectId, { workingDirectory: data.workingDirectory })
+      // Update project with resolved working directory, file tree, and auto-detected repository
+      if (data.workingDirectory || data.repository) {
+        updateProject(projectId, {
+          ...(data.workingDirectory ? { workingDirectory: data.workingDirectory } : {}),
+          ...(data.repository ? { repository: data.repository } : {}),
+        })
       }
       if (data.fileTree) {
         updateFileTree(projectId, data.fileTree)
@@ -153,6 +192,8 @@ export function ProjectNew() {
       console.error("[project-new] Git init failed:", error)
     }
   }
+
+  const EnvironmentIcon = environmentConfig[selectedEnvironment].icon
 
   return (
     <div className="flex h-full items-center justify-center bg-background">
@@ -246,7 +287,7 @@ export function ProjectNew() {
                       type="text"
                       value={workingDir}
                       onChange={(e) => setWorkingDir(e.target.value)}
-                      placeholder="/path/to/project"
+                      placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project"}
                       className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                       autoFocus
                     />
@@ -263,14 +304,108 @@ export function ProjectNew() {
                     className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
                   >
                     <FolderOpen className="h-4 w-4" />
-                    Local dir
+                    {isRemote ? "Remote path" : "Local dir"}
                   </button>
                 )}
               </div>
-              {showDirInput && (
+              {showDirInput && !isRemote && (
                 <p className="text-[11px] text-muted-foreground pl-1">
                   Leave empty to create a new project directory automatically
                 </p>
+              )}
+              {showDirInput && isRemote && (
+                <p className="text-[11px] text-muted-foreground pl-1">
+                  Path on the remote machine's filesystem
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Environment */}
+          <div className="flex flex-col gap-3">
+            <span className="text-[13px] font-medium text-muted-foreground">Environment</span>
+            <div className="flex items-center gap-3">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                    <EnvironmentIcon className="h-4 w-4" />
+                    {environmentConfig[selectedEnvironment].label}
+                    <ChevronDown className="h-3 w-3 opacity-50" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuLabel>Select Environment</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {(Object.keys(environmentConfig) as EnvironmentType[]).map((env) => {
+                    const config = environmentConfig[env]
+                    const Icon = config.icon
+                    const machineCount = getMachinesForEnvironment(env).length
+                    return (
+                      <DropdownMenuItem
+                        key={env}
+                        onClick={() => {
+                          setSelectedEnvironment(env)
+                          setSelectedMachine(null)
+                        }}
+                        className="gap-2"
+                      >
+                        <Icon className="h-4 w-4" />
+                        <div className="flex flex-col">
+                          <span>{config.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {env === "local" ? config.description : `${machineCount} available`}
+                          </span>
+                        </div>
+                        {selectedEnvironment === env && (
+                          <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Machine selector for non-local environments */}
+              {isRemote && availableMachines.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                      <Server className="h-4 w-4" />
+                      <span className="max-w-[140px] truncate">
+                        {selectedMachine?.name || "Select machine"}
+                      </span>
+                      <ChevronDown className="h-3 w-3 opacity-50" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {availableMachines.map((machine) => (
+                      <DropdownMenuItem
+                        key={machine.machineId}
+                        onClick={() => setSelectedMachine(machine)}
+                        className="gap-2"
+                      >
+                        <Server className="h-4 w-4" />
+                        <div className="flex flex-col">
+                          <span>{machine.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {machine.hostname || machine.machineId}
+                          </span>
+                        </div>
+                        {selectedMachine?.machineId === machine.machineId && (
+                          <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+
+              {isRemote && availableMachines.length === 0 && machinesLoaded && (
+                <span className="text-xs text-muted-foreground">
+                  No {environmentConfig[selectedEnvironment].label.toLowerCase()} machines connected
+                </span>
               )}
             </div>
           </div>

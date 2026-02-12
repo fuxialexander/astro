@@ -21,6 +21,7 @@ import type {
   AuthenticationResponseJSON,
 } from '@simplewebauthn/server'
 import { getServiceClient, isSupabaseConfigured } from '../lib/supabase.js'
+import { errorMessage } from '../lib/error-utils.js'
 
 const authRoute = new Hono()
 
@@ -232,7 +233,7 @@ authRoute.post('/webauthn/register-verify', async (c) => {
       session,
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
+    const message = errorMessage(err)
     return c.json({ error: message }, 500)
   }
 })
@@ -382,7 +383,7 @@ authRoute.post('/webauthn/login-verify', async (c) => {
       session: linkData,
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
+    const message = errorMessage(err)
     return c.json({ error: message }, 500)
   }
 })

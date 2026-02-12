@@ -117,6 +117,9 @@ export interface TaskResult {
   artifacts?: TaskArtifact[];
   duration?: number;  // Execution time in milliseconds
   metadata?: Record<string, string>;
+  branchName?: string;
+  prUrl?: string;
+  prNumber?: number;
 }
 
 /** Artifact produced by a task */

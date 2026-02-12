@@ -11,28 +11,11 @@ import { useAgentStore } from "@/stores/agent-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { PRIORITY_CONFIG, PRIORITIES, ESTIMATES } from "@/lib/constants"
+import { statusLabels, statusBadgeVariants } from "@/lib/status-config"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority, Estimate } from "@/types"
 
-const statusLabels: Record<string, string> = {
-  planned: "Planned",
-  dispatched: "Dispatched",
-  in_progress: "In Progress",
-  auto_verified: "Auto Verified",
-  awaiting_judgment: "Awaiting Judgment",
-  completed: "Completed",
-  pruned: "Pruned",
-}
-
-const statusVariant: Record<string, "secondary" | "info" | "success" | "warning" | "outline"> = {
-  planned: "secondary",
-  dispatched: "info",
-  in_progress: "info",
-  auto_verified: "success",
-  awaiting_judgment: "warning",
-  completed: "success",
-  pruned: "outline",
-}
+const statusVariant = statusBadgeVariants
 
 interface PlanGraphTabProps {
   projectId: string
@@ -54,6 +37,8 @@ function formatDueDate(dateStr?: string): { text: string; className: string } {
 
 export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
   const isGenerating = useAgentStore((s) => s.isGenerating)
+  const generationPhase = useAgentStore((s) => s.generationPhase)
+  const showGenerationOverlay = isGenerating || generationPhase !== 'idle'
   const updateNode = usePlanStore((s) => s.updateNode)
   const allNodes = usePlanStore((s) => s.nodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
@@ -85,7 +70,7 @@ export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
     <div className="flex flex-1 overflow-hidden">
       <div className="relative flex-1">
         <PlanCanvas projectId={projectId} onNodeSelect={setSelectedNode} />
-        {isGenerating && <GenerationOverlay />}
+        {showGenerationOverlay && <GenerationOverlay />}
       </div>
 
       {/* Chat panel */}

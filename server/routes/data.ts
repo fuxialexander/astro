@@ -12,7 +12,7 @@ import {
   taskChatMessages,
   appSettings,
 } from '../lib/db/schema.js'
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and, or, sql } from 'drizzle-orm'
 
 const app = new Hono()
 
@@ -44,6 +44,8 @@ app.post('/projects', async (c) => {
     labels: body.labels ?? [],
     workingDirectory: body.workingDirectory ?? null,
     repository: body.repository ?? null,
+    defaultEnvironment: body.defaultEnvironment ?? null,
+    defaultMachineId: body.defaultMachineId ?? null,
     createdAt: body.createdAt ? new Date(body.createdAt) : now,
     updatedAt: body.updatedAt ? new Date(body.updatedAt) : now,
   }
@@ -78,6 +80,8 @@ app.patch('/projects/:id', async (c) => {
   if (body.labels !== undefined) patch.labels = body.labels
   if (body.workingDirectory !== undefined) patch.workingDirectory = body.workingDirectory || null
   if (body.repository !== undefined) patch.repository = body.repository || null
+  if (body.defaultEnvironment !== undefined) patch.defaultEnvironment = body.defaultEnvironment || null
+  if (body.defaultMachineId !== undefined) patch.defaultMachineId = body.defaultMachineId || null
 
   await db.update(projects).set(patch).where(eq(projects.id, id))
   const [updated] = await db.select().from(projects).where(eq(projects.id, id))
@@ -225,6 +229,16 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.type !== undefined) patch.type = body.type
 
   await db.update(planNodes).set(patch).where(eq(planNodes.id, id))
+  return c.json({ ok: true })
+})
+
+app.delete('/plan/nodes/:id', async (c) => {
+  const id = c.req.param('id')
+  // Delete edges referencing this node first
+  await db.delete(planEdges).where(
+    or(eq(planEdges.source, id), eq(planEdges.target, id))
+  )
+  await db.delete(planNodes).where(eq(planNodes.id, id))
   return c.json({ ok: true })
 })
 

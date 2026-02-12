@@ -24,6 +24,8 @@ export interface Project {
   repository?: string;       // Git clone URL (e.g., https://github.com/user/repo.git)
   fileTree?: string[];           // Cached git ls-files output (relative paths)
   fileTreeUpdatedAt?: string;    // ISO timestamp for staleness check
+  defaultEnvironment?: 'local' | 'remote' | 'hpc' | 'cloud'
+  defaultMachineId?: string
   createdAt: Date;
   updatedAt: Date;
 }
@@ -56,6 +58,10 @@ export interface PlanNode {
   executionError?: string;
   executionStartedAt?: Date;
   executionCompletedAt?: Date;
+  // Git PR metadata
+  branchName?: string;
+  prUrl?: string;
+  prNumber?: number;
 }
 
 // Tool trace for execution detail view
@@ -107,6 +113,10 @@ export interface TaskExecution {
   providerId?: string;
   providerName?: string;
   metrics?: UsageMetrics;
+  // Git PR metadata
+  branchName?: string;
+  prUrl?: string;
+  prNumber?: number;
 }
 
 // Provider status for displaying in UI

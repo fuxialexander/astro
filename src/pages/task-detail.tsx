@@ -1,5 +1,5 @@
 import { useParams, Link, useNavigate } from "react-router"
-import { ArrowLeft, Clock, Monitor, Square, Loader2 } from "lucide-react"
+import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -13,28 +13,8 @@ import { FileChangesView } from "@/components/task-detail/file-changes-view"
 import { SteerChat } from "@/components/task-detail/steer-chat"
 import { SessionActivityView } from "@/components/task-detail/session-activity-view"
 import { TaskChat } from "@/components/task-detail/task-chat"
-
-const statusBadgeVariants: Record<string, "default" | "secondary" | "destructive" | "warning" | "success" | "info"> = {
-  planned: "secondary",
-  dispatched: "info",
-  in_progress: "info",
-  auto_verified: "success",
-  awaiting_judgment: "warning",
-  completed: "success",
-  pruned: "secondary",
-}
-
-function formatDuration(start?: Date, end?: Date): string {
-  if (!start) return "-"
-  const endTime = end ? new Date(end).getTime() : Date.now()
-  const ms = endTime - new Date(start).getTime()
-  const seconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  if (hours > 0) return `${hours}h ${minutes % 60}m`
-  if (minutes > 0) return `${minutes}m ${seconds % 60}s`
-  return `${seconds}s`
-}
+import { statusBadgeVariants } from "@/lib/status-config"
+import { formatDuration } from "@/lib/date-utils"
 
 export function TaskDetail() {
   const navigate = useNavigate()
@@ -145,6 +125,25 @@ export function TaskDetail() {
               <Monitor className="h-3.5 w-3.5" />
               <span className="font-mono text-xs">{execution.executionId.slice(0, 20)}</span>
             </div>
+          )}
+          {(node.branchName || execution?.branchName) && (
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <GitBranch className="h-3.5 w-3.5" />
+              <span className="font-mono text-xs">{node.branchName || execution?.branchName}</span>
+            </div>
+          )}
+          {(node.prUrl || execution?.prUrl) && (
+            <a
+              href={node.prUrl || execution?.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5"
+            >
+              <Badge variant="outline" className="gap-1 cursor-pointer hover:bg-accent">
+                <ExternalLink className="h-3 w-3" />
+                PR #{node.prNumber || execution?.prNumber}
+              </Badge>
+            </a>
           )}
           <div className="flex-1" />
           {/* Action buttons */}

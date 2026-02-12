@@ -15,13 +15,7 @@ interface ToolTraceViewProps {
   traces: ToolTrace[]
 }
 
-function formatTime(date: Date): string {
-  return new Date(date).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  })
-}
+import { formatTime } from "@/lib/date-utils"
 
 function TraceItem({ trace }: { trace: ToolTrace; index: number }) {
   const [expanded, setExpanded] = useState(false)

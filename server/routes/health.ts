@@ -4,6 +4,7 @@ import {
   initializeProviders,
 } from '../lib/providers/index.js'
 import { getSessionStats } from '../lib/session-manager.js'
+import { errorMessage } from '../lib/error-utils.js'
 
 const healthRoute = new Hono()
 
@@ -37,7 +38,7 @@ healthRoute.get('/health', async (c) => {
         : null,
     })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'unknown error'
+    const message = errorMessage(e)
     return c.json({ status: 'error', authenticated: false, error: message }, 500)
   }
 })
@@ -66,7 +67,7 @@ healthRoute.get('/providers', async (c) => {
 
     return c.json({ providers })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'unknown error'
+    const message = errorMessage(e)
     return c.json({ error: message }, 500)
   }
 })
@@ -101,7 +102,7 @@ healthRoute.get('/providers/:providerId', async (c) => {
       capabilities: registered.capabilities,
     })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'unknown error'
+    const message = errorMessage(e)
     return c.json({ error: message }, 500)
   }
 })
@@ -136,7 +137,7 @@ healthRoute.post('/providers/:providerId/detect', async (c) => {
       },
     })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'unknown error'
+    const message = errorMessage(e)
     return c.json({ error: message }, 500)
   }
 })
@@ -165,7 +166,7 @@ healthRoute.post('/providers/detect-all', async (c) => {
       })),
     })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'unknown error'
+    const message = errorMessage(e)
     return c.json({ error: message }, 500)
   }
 })
@@ -185,7 +186,7 @@ healthRoute.get('/machine', async (c) => {
 
     return c.json(registration)
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'unknown error'
+    const message = errorMessage(e)
     return c.json({ error: message }, 500)
   }
 })
@@ -204,7 +205,7 @@ healthRoute.get('/sessions', async (c) => {
       oldestSession: stats.oldestSession?.toISOString() ?? null,
     })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'unknown error'
+    const message = errorMessage(e)
     return c.json({ error: message }, 500)
   }
 })

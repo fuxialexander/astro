@@ -172,3 +172,20 @@ body {
   color: var(--foreground);
   font-family: "Inter", sans-serif;
 }
+
+/* Timeline bar drag handles */
+.timeline-bar .drag-handle {
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.timeline-bar:hover .drag-handle {
+  opacity: 1;
+}
+.timeline-bar.dragging {
+  opacity: 0.85;
+  z-index: 10;
+}
+body.timeline-dragging {
+  cursor: col-resize !important;
+  user-select: none;
+}

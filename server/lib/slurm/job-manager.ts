@@ -27,6 +27,7 @@ import {
   parseSacctmgrOutput,
   parseClusterName,
 } from './parser.js'
+import { errorMessage } from '../error-utils.js'
 import { generateBatchScript } from './script-generator.js'
 
 const execAsync = promisify(exec)
@@ -163,7 +164,7 @@ export async function submitJob(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown submission error',
+      error: errorMessage(error),
     }
   }
 }
@@ -180,7 +181,7 @@ export async function submitScriptFile(scriptPath: string): Promise<SlurmSubmitR
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown submission error',
+      error: errorMessage(error),
     }
   }
 }
@@ -265,7 +266,7 @@ export async function cancelJob(jobId: string): Promise<{ success: boolean; erro
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to cancel job',
+      error: errorMessage(error),
     }
   }
 }
@@ -282,7 +283,7 @@ export async function cancelJobsByName(namePattern: string): Promise<{ success: 
     return {
       success: false,
       cancelled: 0,
-      error: error instanceof Error ? error.message : 'Failed to cancel jobs',
+      error: errorMessage(error),
     }
   }
 }

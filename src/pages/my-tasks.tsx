@@ -2,20 +2,15 @@ import { useMemo, useState, useCallback } from "react"
 import {
   CheckSquare,
   ListFilter,
-  Circle,
-  Loader,
-  CheckCircle2,
-  Eye,
-  Scissors,
-  Send,
   Folder,
   X,
+  Trash2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { BoardView } from "@/components/board/board-view"
-import { ItemListView, type ListColumn, type ListGroup } from "@/components/views/item-list-view"
+import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { FilterSelect } from "@/components/views/filter-select"
 import { PropertyPicker } from "@/components/property-picker"
@@ -23,25 +18,11 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
-import { statusColors, progressColors, assignDefaultDates } from "@/lib/timeline-utils"
-import { formatShortDate, isOverdue } from "@/lib/view-utils"
+import { STATUS_CONFIG, statusBarColors, statusProgressColors } from "@/lib/status-config"
+import { assignDefaultDates } from "@/lib/timeline-utils"
+import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
-
-// --- Status config ---
-
-const STATUS_CONFIG: Record<
-  PlanNode["status"],
-  { icon: typeof Circle; label: string; color: string; bg: string }
-> = {
-  planned: { icon: Circle, label: "Planned", color: "text-muted-foreground", bg: "bg-muted" },
-  dispatched: { icon: Send, label: "Dispatched", color: "text-blue-600", bg: "bg-blue-500/10" },
-  in_progress: { icon: Loader, label: "In Progress", color: "text-blue-600", bg: "bg-blue-500/10" },
-  auto_verified: { icon: CheckCircle2, label: "Auto Verified", color: "text-green-600", bg: "bg-green-500/10" },
-  awaiting_judgment: { icon: Eye, label: "Needs Review", color: "text-amber-600", bg: "bg-amber-500/10" },
-  completed: { icon: CheckCircle2, label: "Completed", color: "text-green-600", bg: "bg-green-500/10" },
-  pruned: { icon: Scissors, label: "Pruned", color: "text-muted-foreground", bg: "bg-muted" },
-}
 
 // --- Filter types ---
 
@@ -256,6 +237,7 @@ export function MyTasks() {
   const displaySettings = useDisplaySettingsStore((s) => s.get("my-tasks"))
   const boardSettings = useDisplaySettingsStore((s) => s.get("my-tasks-board"))
   const updateNode = usePlanStore((s) => s.updateNode)
+  const removeNodes = usePlanStore((s) => s.removeNodes)
 
   const [viewMode, setViewMode] = useState<MyTasksViewMode>("list")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
@@ -274,6 +256,16 @@ export function MyTasks() {
   }, [updateNode])
 
   const columns = useMemo(() => makeTaskColumns(projectMap, handleListNodeUpdate), [projectMap, handleListNodeUpdate])
+
+  const taskBatchActions: BatchAction[] = useMemo(() => [
+    {
+      id: "delete",
+      label: "Delete",
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      variant: "destructive",
+      onAction: (ids) => removeNodes(ids),
+    },
+  ], [removeNodes])
 
   // Filter tasks
   const filteredTasks = useMemo(() => {
@@ -374,9 +366,9 @@ export function MyTasks() {
           id: node.id,
           startDate: dated.startDate ?? "",
           endDate: dated.endDate ?? "",
-          barClass: statusColors[node.status] ?? "bg-primary/70",
-          progressClass: progressColors[node.status],
-          progressPct: progressColors[node.status] ? 40 : undefined,
+          barClass: statusBarColors[node.status] ?? "bg-primary/70",
+          progressClass: statusProgressColors[node.status],
+          progressPct: statusProgressColors[node.status] ? 40 : undefined,
           label: node.title,
         },
       }
@@ -586,6 +578,7 @@ export function MyTasks() {
               </div>
             )}
             onItemClick={(node) => { window.location.href = `/project/${node.projectId}/plan` }}
+            onDateChange={(nodeId, startDate, endDate) => updateNode(nodeId, { startDate, endDate })}
           />
         )
       ) : (
@@ -598,6 +591,7 @@ export function MyTasks() {
             visibleColumns={displaySettings.visibleProperties}
             onItemClick={(node) => { window.location.href = `/project/${node.projectId}/plan` }}
             getItemId={(n) => n.id}
+            batchActions={taskBatchActions}
           />
         )
       )}

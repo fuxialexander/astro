@@ -11,6 +11,7 @@ interface PlanState {
   load: () => Promise<void>
   addNode: (node: PlanNode) => void
   updateNode: (id: string, updates: Partial<PlanNode>) => void
+  removeNodes: (ids: string[]) => void
   addEdge: (edge: PlanEdge) => void
   setProjectPlan: (projectId: string, nodes: PlanNode[], edges: PlanEdge[]) => void
   reorganizeProject: (projectId: string) => void
@@ -44,7 +45,15 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   load: async () => {
     try {
-      const { nodes, edges } = await dataClient.getAllPlans()
+      const { nodes, edges: rawEdges } = await dataClient.getAllPlans()
+      // Deduplicate edges by source→target on load
+      const seen = new Set<string>()
+      const edges = rawEdges.filter((e) => {
+        const key = `${e.source}->${e.target}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
       set({ nodes, edges, loaded: true })
       saveToIdb(nodes, edges)
     } catch {
@@ -74,7 +83,24 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     dataClient.updateNode(id, updates).catch(() => {})
   },
 
+  removeNodes: (ids) => {
+    const idSet = new Set(ids)
+    const nextNodes = get().nodes.filter((n) => !idSet.has(n.id))
+    const nextEdges = get().edges.filter((e) => !idSet.has(e.source) && !idSet.has(e.target))
+    set({ nodes: nextNodes, edges: nextEdges })
+    saveToIdb(nextNodes, nextEdges)
+    for (const id of ids) {
+      dataClient.deleteNode(id).catch(() => {})
+    }
+  },
+
   addEdge: (edge) => {
+    // Skip if duplicate source→target already exists
+    const exists = get().edges.some(
+      (e) => e.source === edge.source && e.target === edge.target
+    )
+    if (exists) return
+
     const nextEdges = [...get().edges, edge]
     set({ edges: nextEdges })
     saveState("nexus-plan-edges", nextEdges)
@@ -91,11 +117,19 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const nodeIds = new Set(get().nodes.filter((n) => n.projectId === projectId).map((n) => n.id))
       return !nodeIds.has(e.source) && !nodeIds.has(e.target)
     })
+    // Deduplicate new edges by source→target
+    const seen = new Set<string>()
+    const dedupedNewEdges = newEdges.filter((e) => {
+      const key = `${e.source}->${e.target}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     const nextNodes = [...otherNodes, ...newNodes]
-    const nextEdges = [...otherEdges, ...newEdges]
+    const nextEdges = [...otherEdges, ...dedupedNewEdges]
     set({ nodes: nextNodes, edges: nextEdges })
     saveToIdb(nextNodes, nextEdges)
-    dataClient.setProjectPlan(projectId, newNodes, newEdges).catch(() => {})
+    dataClient.setProjectPlan(projectId, newNodes, dedupedNewEdges).catch(() => {})
   },
 
   reorganizeProject: (projectId) => {

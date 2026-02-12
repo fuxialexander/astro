@@ -93,6 +93,29 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
   }
 }
 
+function mapChatMessage(m: Record<string, unknown>): TaskChatMessage {
+  return {
+    id: m.id as string,
+    role: m.role as "user" | "assistant",
+    content: m.content as string,
+    timestamp: toDate(m.timestamp),
+  }
+}
+
+function mapChatEntry(entry: { session: Record<string, unknown>; messages: Record<string, unknown>[] }): { session: TaskChatSession; messages: TaskChatMessage[] } {
+  return {
+    session: {
+      nodeId: entry.session.nodeId as string ?? entry.session.node_id as string,
+      projectId: entry.session.projectId as string ?? entry.session.project_id as string,
+      sessionId: (entry.session.sessionId ?? entry.session.session_id) as string | undefined,
+      messages: [],
+      createdAt: toDate(entry.session.createdAt ?? entry.session.created_at),
+      updatedAt: toDate(entry.session.updatedAt ?? entry.session.updated_at),
+    },
+    messages: entry.messages.map(mapChatMessage),
+  }
+}
+
 export const dataClient = {
   // ── Projects ────────────────────────────────────────────────────────
   async listProjects(): Promise<Project[]> {
@@ -142,6 +165,10 @@ export const dataClient = {
     await patch(`${BASE}/plan/nodes/${id}`, patch_)
   },
 
+  async deleteNode(id: string): Promise<void> {
+    await del(`${BASE}/plan/nodes/${id}`)
+  },
+
   async addEdge(edge: PlanEdge & { projectId: string }): Promise<void> {
     await post(`${BASE}/plan/edges`, edge)
   },
@@ -182,52 +209,21 @@ export const dataClient = {
 
   // ── Chat ────────────────────────────────────────────────────────────
   async getAllChats(): Promise<Record<string, { session: TaskChatSession; messages: TaskChatMessage[] }>> {
-    type RawSession = Record<string, unknown>
-    type RawMessage = Record<string, unknown>
-    const data = await json<Record<string, { session: RawSession; messages: RawMessage[] }>>(`${BASE}/chat`)
+    type RawEntry = { session: Record<string, unknown>; messages: Record<string, unknown>[] }
+    const data = await json<Record<string, RawEntry>>(`${BASE}/chat`)
 
     const result: Record<string, { session: TaskChatSession; messages: TaskChatMessage[] }> = {}
     for (const [nodeId, entry] of Object.entries(data)) {
-      result[nodeId] = {
-        session: {
-          nodeId: entry.session.nodeId as string ?? entry.session.node_id as string,
-          projectId: entry.session.projectId as string ?? entry.session.project_id as string,
-          sessionId: (entry.session.sessionId ?? entry.session.session_id) as string | undefined,
-          messages: [], // messages stored separately
-          createdAt: toDate(entry.session.createdAt ?? entry.session.created_at),
-          updatedAt: toDate(entry.session.updatedAt ?? entry.session.updated_at),
-        },
-        messages: entry.messages.map((m) => ({
-          id: m.id as string,
-          role: m.role as "user" | "assistant",
-          content: m.content as string,
-          timestamp: toDate(m.timestamp),
-        })),
-      }
+      result[nodeId] = mapChatEntry(entry)
     }
     return result
   },
 
   async getChatSession(nodeId: string): Promise<{ session: TaskChatSession; messages: TaskChatMessage[] } | null> {
-    type RawResult = { session: Record<string, unknown>; messages: Record<string, unknown>[] } | null
-    const data = await json<RawResult>(`${BASE}/chat/${nodeId}`)
+    type RawEntry = { session: Record<string, unknown>; messages: Record<string, unknown>[] } | null
+    const data = await json<RawEntry>(`${BASE}/chat/${nodeId}`)
     if (!data) return null
-    return {
-      session: {
-        nodeId: data.session.nodeId as string ?? data.session.node_id as string,
-        projectId: data.session.projectId as string ?? data.session.project_id as string,
-        sessionId: (data.session.sessionId ?? data.session.session_id) as string | undefined,
-        messages: [],
-        createdAt: toDate(data.session.createdAt ?? data.session.created_at),
-        updatedAt: toDate(data.session.updatedAt ?? data.session.updated_at),
-      },
-      messages: data.messages.map((m) => ({
-        id: m.id as string,
-        role: m.role as "user" | "assistant",
-        content: m.content as string,
-        timestamp: toDate(m.timestamp),
-      })),
-    }
+    return mapChatEntry(data)
   },
 
   async createChatSession(nodeId: string, projectId: string, sessionId?: string): Promise<void> {

@@ -2,6 +2,7 @@ import { useMemo, useState, useRef, useCallback, useEffect, type ReactNode } fro
 import { ChevronRight, Diamond, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useDisplaySettingsStore, type ViewKey } from "@/stores/display-settings-store"
+import { useBarDragResize } from "@/hooks/use-bar-drag-resize"
 import {
   DAY_WIDTH,
   parseDate,
@@ -39,6 +40,7 @@ interface ItemTimelineViewProps<T> {
   viewKey: ViewKey
   renderLeftCell: (item: T) => ReactNode
   onItemClick?: (item: T) => void
+  onDateChange?: (itemId: string, startDate: string, endDate: string) => void
   milestoneMarkers?: MilestoneMarker[]
   leftColumnWidth?: number
   rowHeight?: number
@@ -93,6 +95,7 @@ export function ItemTimelineView<T>({
   viewKey,
   renderLeftCell,
   onItemClick,
+  onDateChange,
   milestoneMarkers,
   leftColumnWidth = 280,
   rowHeight = ROW_HEIGHT_DEFAULT,
@@ -279,6 +282,18 @@ export function ItemTimelineView<T>({
     }
   }, [])
 
+  // Refs for drag resize hook
+  const effectivePpdRef = useRef(effectivePpd)
+  useEffect(() => { effectivePpdRef.current = effectivePpd }, [effectivePpd])
+  const timelineStartRef = useRef(timelineStart)
+  useEffect(() => { timelineStartRef.current = timelineStart }, [timelineStart])
+
+  const { handleMouseDown: handleDragMouseDown } = useBarDragResize({
+    getPpd: () => effectivePpdRef.current,
+    getTimelineStart: () => timelineStartRef.current,
+    onCommit: (itemId, startDate, endDate) => onDateChange?.(itemId, startDate, endDate),
+  })
+
   // Pinch-to-zoom: continuous ppd adjustment centered on pointer position
   useEffect(() => {
     const el = scrollRef.current
@@ -447,7 +462,7 @@ export function ItemTimelineView<T>({
                   <div
                     onClick={() => onItemClick?.(row.item)}
                     className={cn(
-                      "absolute h-5 rounded transition-all hover:brightness-110",
+                      "absolute h-5 rounded transition-all hover:brightness-110 timeline-bar",
                       tl.barClass,
                       onItemClick && "cursor-pointer"
                     )}
@@ -461,6 +476,22 @@ export function ItemTimelineView<T>({
                       <span className="absolute inset-0 flex items-center px-2 text-xs font-medium text-white truncate">
                         {tl.label}
                       </span>
+                    )}
+                    {onDateChange && (
+                      <>
+                        <div
+                          className="drag-handle absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
+                          onMouseDown={(e) => handleDragMouseDown(e, "left", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate)}
+                        >
+                          <div className="w-0.5 h-3 rounded-full bg-white/60" />
+                        </div>
+                        <div
+                          className="drag-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
+                          onMouseDown={(e) => handleDragMouseDown(e, "right", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate)}
+                        >
+                          <div className="w-0.5 h-3 rounded-full bg-white/60" />
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>

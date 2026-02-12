@@ -701,6 +701,10 @@ function handleSSEEvent(
             if (metrics) {
               exec.metrics = metrics
             }
+            // Store PR/branch metadata
+            if (parsed.branchName) exec.branchName = parsed.branchName
+            if (parsed.prUrl) exec.prUrl = parsed.prUrl
+            if (parsed.prNumber) exec.prNumber = parsed.prNumber
           }
           return { executions: newExecutions }
         })
@@ -727,6 +731,10 @@ function handleSSEEvent(
           status: finalStatus,
           executionOutput: execution?.streamText || parsed.output,
           executionCompletedAt: new Date(),
+          // Persist PR/branch metadata on the plan node
+          ...(parsed.branchName && { branchName: parsed.branchName }),
+          ...(parsed.prUrl && { prUrl: parsed.prUrl }),
+          ...(parsed.prNumber && { prNumber: parsed.prNumber }),
         })
 
         // Refresh file tree cache after task completion

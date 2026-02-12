@@ -6,7 +6,7 @@ import {
 } from "lucide-react"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { cn } from "@/lib/utils"
-import { formatShortDate, isOverdue } from "@/lib/view-utils"
+import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { PropertyPicker } from "@/components/property-picker"
 import type { PlanNode, Priority, Estimate } from "@/types"
 

@@ -1,17 +1,17 @@
 import { useMemo, useState } from "react"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
-import { ItemListView, type ListColumn, type ListGroup } from "@/components/views/item-list-view"
+import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
-import { formatShortDate, isOverdue } from "@/lib/view-utils"
+import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
 import type { Project } from "@/types"
 
@@ -151,11 +151,23 @@ type ViewTab = "all" | "timeline" | "board"
 
 export function Projects() {
   const projects = useProjectStore((s) => s.projects)
+  const updateProject = useProjectStore((s) => s.updateProject)
+  const deleteProject = useProjectStore((s) => s.deleteProject)
   const allNodes = usePlanStore((s) => s.nodes)
   const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
   const [viewTab, setViewTab] = useState<ViewTab>("all")
   const [showFilter, setShowFilter] = useState(false)
+
+  const projectBatchActions: BatchAction[] = useMemo(() => [
+    {
+      id: "delete",
+      label: "Delete",
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      variant: "destructive",
+      onAction: (ids) => { for (const id of ids) deleteProject(id) },
+    },
+  ], [deleteProject])
 
   // Task counts per project
   const projectTaskCounts = useMemo(() => {
@@ -434,6 +446,7 @@ export function Projects() {
               visibleColumns={displaySettings.visibleProperties}
               onItemClick={(p) => navigate(`/project/${p.id}`)}
               getItemId={(p) => p.id}
+              batchActions={projectBatchActions}
             />
           )
         )}
@@ -478,6 +491,7 @@ export function Projects() {
                 )
               }}
               onItemClick={(proj) => navigate(`/project/${proj.id}`)}
+              onDateChange={(id, startDate, endDate) => updateProject(id, { startDate, targetDate: endDate })}
             />
           ) : (
             <div className="flex-1 overflow-auto">

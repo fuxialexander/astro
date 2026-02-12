@@ -1,29 +1,11 @@
 import { useState } from "react"
 import { ChevronDown, ChevronRight, Link2, Unlink2, Wrench, FileCode, MessageSquare, AlertCircle, Monitor } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatTime, formatRelativeTime } from "@/lib/date-utils"
 import type { AttachedSession, SessionEventEntry } from "@/stores/realtime-store"
 
 interface SessionActivityViewProps {
   sessions: AttachedSession[]
-}
-
-function formatTime(date: Date): string {
-  return new Date(date).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  })
-}
-
-function formatRelativeTime(date: Date): string {
-  const now = new Date()
-  const diff = now.getTime() - new Date(date).getTime()
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(minutes / 60)
-
-  if (hours > 0) return `${hours}h ${minutes % 60}m ago`
-  if (minutes > 0) return `${minutes}m ago`
-  return "just now"
 }
 
 function getEventIcon(type: string) {

@@ -14,6 +14,7 @@ import type {
   AuthStatus,
   TaskType,
 } from './types.js'
+import { errorMessage } from '../error-utils.js'
 import { randomUUID } from 'crypto'
 import { hostname } from 'os'
 
@@ -76,7 +77,7 @@ class ProviderRegistry {
 
       return detection
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = errorMessage(error)
 
       registered.detection = {
         installed: false,

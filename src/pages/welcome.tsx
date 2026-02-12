@@ -153,7 +153,7 @@ export function Welcome() {
       updatedAt: new Date(),
     })
 
-    navigate(`/project/${id}`)
+    navigate(`/project/${id}/plan`)
 
     if (connectionStatus !== "connected") return
 

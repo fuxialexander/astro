@@ -24,17 +24,7 @@ import { usePlanStore } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { cn } from "@/lib/utils"
-
-function formatRelativeTime(date: Date): string {
-  const now = Date.now()
-  const diff = now - new Date(date).getTime()
-  const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  return `${hours}h ago`
-}
+import { formatRelativeTime } from "@/lib/date-utils"
 
 const activityIcons: Record<string, { icon: typeof Activity; bg: string; color: string }> = {
   success: { icon: CheckCircle2, bg: "bg-green-500/10", color: "text-green-600" },
@@ -64,6 +54,7 @@ function ActivityItem({ event }: { event: ActivityEvent }) {
 export function Dashboard() {
   const projects = useProjectStore((s) => s.projects)
   const nodes = usePlanStore((s) => s.nodes)
+  const updateNode = usePlanStore((s) => s.updateNode)
   const machines = useRealtimeStore((s) => s.machines)
   const activityFeed = useRealtimeStore((s) => s.activityFeed)
   const connected = useRealtimeStore((s) => s.connected)
@@ -211,7 +202,7 @@ export function Dashboard() {
                           placeholder="Add guidance..."
                           className="flex-1 mr-3 rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                         />
-                        <Button size="sm">Approve</Button>
+                        <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })}>Approve</Button>
                       </div>
                     </CardContent>
                   </Card>

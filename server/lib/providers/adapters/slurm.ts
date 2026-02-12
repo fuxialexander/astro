@@ -16,6 +16,7 @@ import type {
   TaskContext,
   TaskStatus,
 } from '../types.js'
+import { errorMessage } from '../../error-utils.js'
 import {
   checkSlurmAvailable,
   getSlurmVersion,
@@ -79,7 +80,7 @@ export class SlurmProvider implements AgentProvider {
 
       return this.cachedDetection
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = errorMessage(error)
 
       this.cachedDetection = {
         installed: false,
@@ -182,7 +183,7 @@ export class SlurmProvider implements AgentProvider {
       return {
         taskId: task.taskId,
         status: 'error',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage: errorMessage(error),
         metrics: { durationMs: Date.now() - startTime },
         providerId: this.id,
         completedAt: new Date(),
@@ -411,7 +412,7 @@ export class SlurmProvider implements AgentProvider {
         yield {
           type: 'error',
           taskId: task.taskId,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errorMessage(error),
           recoverable: false,
           timestamp: new Date(),
         }
@@ -420,7 +421,7 @@ export class SlurmProvider implements AgentProvider {
       const result: TaskResult = {
         taskId: task.taskId,
         status: isAbort ? 'cancelled' : 'error',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage: errorMessage(error),
         metrics: { durationMs: Date.now() - startTime },
         providerId: this.id,
         completedAt: new Date(),

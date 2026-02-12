@@ -26,16 +26,7 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useSlurmStore } from "@/stores/slurm-store"
 import { ClusterStatus } from "@/components/slurm/cluster-status"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
-
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-}
-
-function formatTime(dateStr: string): string {
-  const d = new Date(dateStr)
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-}
+import { formatDate, formatTimeShort } from "@/lib/date-utils"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
   label: string
@@ -119,7 +110,7 @@ function MachineCard({ machine, registeredMachine, onRemove }: { machine: Machin
       {/* Footer */}
       <div className="flex items-center justify-between border-t px-6 py-3 text-xs text-muted-foreground">
         <span>Registered {registeredMachine ? formatDate(registeredMachine.registeredAt) : "—"}</span>
-        <span>Last seen {registeredMachine ? formatTime(registeredMachine.lastSeenAt) : "just now"}</span>
+        <span>Last seen {registeredMachine ? formatTimeShort(registeredMachine.lastSeenAt) : "just now"}</span>
       </div>
     </Card>
   )
@@ -230,7 +221,7 @@ function OfflineMachineCard({ machine, onRemove }: { machine: RegisteredMachine;
       {/* Footer */}
       <div className="flex items-center justify-between border-t px-6 py-3 text-xs text-muted-foreground">
         <span>Registered {formatDate(machine.registeredAt)}</span>
-        <span>Last seen {formatTime(machine.lastSeenAt)}</span>
+        <span>Last seen {formatTimeShort(machine.lastSeenAt)}</span>
       </div>
     </Card>
   )

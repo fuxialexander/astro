@@ -41,11 +41,7 @@ const healthColors: Record<string, string> = {
   off_track: "bg-red-500",
 }
 
-function formatDate(dateStr?: string): string {
-  if (!dateStr) return "—"
-  const d = new Date(dateStr + "T00:00:00Z")
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
-}
+import { formatDate } from "@/lib/date-utils"
 
 // --- Overview Tab Content ---
 function OverviewTab({ project }: { project: Project }) {

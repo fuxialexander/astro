@@ -14,6 +14,7 @@ import type { WebSocketClient } from './websocket-client.js';
 import { createProviderAdapter, type ProviderAdapter } from '../providers/index.js';
 import { ClaudeSdkAdapter } from '../providers/claude-sdk-adapter.js';
 import { createWorktree } from './worktree.js';
+import { pushAndCreatePR } from './git-pr.js';
 
 interface RunningTask {
   task: Task;
@@ -237,6 +238,7 @@ export class TaskExecutor {
       abortController.abort();
     }, timeout);
 
+    let keepBranch = false;
     try {
       // Notify task started
       this.wsClient.sendTaskStatus(task.id, 'running', 0, 'Starting');
@@ -244,6 +246,33 @@ export class TaskExecutor {
 
       // Execute the task
       const result = await adapter.execute(taskWithWorkspace, stream, abortController.signal);
+
+      // Attempt PR creation if worktree was used and execution succeeded
+      if (prepared.branchName && (result.status === 'completed' || !result.error)) {
+        try {
+          console.log(`[executor] Task ${task.id}: attempting PR creation for branch ${prepared.branchName}`);
+          const prResult = await pushAndCreatePR(prepared.workingDirectory, {
+            branchName: prepared.branchName,
+            taskTitle: task.prompt.slice(0, 100),
+            taskDescription: task.prompt.slice(0, 500),
+          });
+          result.branchName = prResult.branchName;
+          if (prResult.prUrl) {
+            result.prUrl = prResult.prUrl;
+            result.prNumber = prResult.prNumber;
+            keepBranch = true;
+            console.log(`[executor] Task ${task.id}: PR created at ${prResult.prUrl}`);
+          } else if (prResult.branchName) {
+            // Branch was pushed but no PR created (gh not available or no remote)
+            keepBranch = true;
+            console.log(`[executor] Task ${task.id}: branch pushed, no PR created`);
+          }
+        } catch (prError) {
+          const prMsg = prError instanceof Error ? prError.message : String(prError);
+          console.warn(`[executor] Task ${task.id}: PR creation failed: ${prMsg}`);
+          // Non-fatal: still report the task result without PR info
+        }
+      }
 
       console.log(`[executor] Task ${task.id}: completed with status=${result.status}${result.error ? ` error=${result.error}` : ''}`);
       // Send final result
@@ -260,7 +289,7 @@ export class TaskExecutor {
       });
     } finally {
       clearTimeout(timeoutId);
-      await prepared.cleanup();
+      await prepared.cleanup({ keepBranch });
       this.runningTasks.delete(task.id);
       this.wsClient.removeActiveTask(task.id);
       this.processQueue();
@@ -272,7 +301,8 @@ export class TaskExecutor {
     stream: { stdout: (data: string) => void; stderr: (data: string) => void },
   ): Promise<{
     workingDirectory: string;
-    cleanup: () => Promise<void>;
+    branchName?: string;
+    cleanup: (options?: { keepBranch?: boolean }) => Promise<void>;
   }> {
     if (!this.useWorktree) {
       return { workingDirectory: task.workingDirectory, cleanup: async () => {} };

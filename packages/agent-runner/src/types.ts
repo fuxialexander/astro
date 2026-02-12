@@ -93,6 +93,9 @@ export interface TaskResult {
   startedAt?: string;
   completedAt?: string;
   artifacts?: TaskArtifact[];
+  branchName?: string;
+  prUrl?: string;
+  prNumber?: number;
 }
 
 export interface TaskArtifact {
@@ -131,6 +134,8 @@ export type WSMessageType =
   | 'task_steer'
   | 'config_update'
   | 'file_list_request'
+  | 'repo_setup_request'
+  | 'repo_setup_response'
   | 'error';
 
 export interface WSMessage {
@@ -331,6 +336,31 @@ export interface FileListResponseMessage extends WSMessage {
   payload: {
     correlationId: string;
     files: string[];
+  };
+}
+
+export interface RepoSetupRequestMessage extends WSMessage {
+  type: 'repo_setup_request';
+  payload: {
+    correlationId: string;
+    projectId: string;
+    projectName: string;
+    projectDescription?: string;
+    workingDirectory?: string;
+    repository?: string;
+  };
+}
+
+export interface RepoSetupResponseMessage extends WSMessage {
+  type: 'repo_setup_response';
+  payload: {
+    correlationId: string;
+    success: boolean;
+    workingDirectory?: string;
+    fileTree?: string[];
+    repository?: string;
+    needsGitInit?: boolean;
+    error?: string;
   };
 }
 

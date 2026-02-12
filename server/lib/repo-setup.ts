@@ -46,6 +46,7 @@ export interface RepoSetupOptions {
 export interface RepoSetupResult {
   workingDirectory: string
   fileTree: string[]
+  repository?: string
   needsGitInit?: boolean
   claudeMdCreated?: boolean
   gitignoreCreated?: boolean
@@ -101,9 +102,10 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
     }
 
     if (isGitRepo(workingDirectory)) {
-      // Already a git repo — just return file tree
+      // Already a git repo — return file tree + auto-detect remote URL
       const fileTree = getFileTree(workingDirectory)
-      return { workingDirectory, fileTree }
+      const repository = getGitRemoteUrl(workingDirectory)
+      return { workingDirectory, fileTree, repository }
     }
 
     // Not a git repo — ask user to confirm
@@ -151,6 +153,20 @@ export function getFileTree(workingDirectory: string): string[] {
 }
 
 // --- Internal helpers ---
+
+function getGitRemoteUrl(dir: string): string | undefined {
+  try {
+    const url = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: dir,
+      encoding: 'utf-8',
+      timeout: 5_000,
+      stdio: 'pipe',
+    }).trim()
+    return url || undefined
+  } catch {
+    return undefined
+  }
+}
 
 function isGitRepo(dir: string): boolean {
   try {

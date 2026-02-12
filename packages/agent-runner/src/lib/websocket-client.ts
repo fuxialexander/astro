@@ -27,6 +27,8 @@ import type {
   ErrorMessage,
   FileListRequestMessage,
   FileListResponseMessage,
+  RepoSetupRequestMessage,
+  RepoSetupResponseMessage,
   ProviderInfo,
   RunnerConfig,
   RunnerEvent,
@@ -58,6 +60,7 @@ export interface WebSocketClientOptions {
   onTaskCancel?: (taskId: string) => void;
   onTaskSteer?: (taskId: string, message: string, action?: string) => void;
   onFileList?: (path: string, correlationId: string) => void;
+  onRepoSetup?: (payload: RepoSetupRequestMessage['payload']) => void;
   version?: string;
   wsToken?: string;
 }
@@ -70,6 +73,7 @@ type IncomingMessage =
   | TaskSteerIncomingMessage
   | ConfigUpdateMessage
   | FileListRequestMessage
+  | RepoSetupRequestMessage
   | ErrorMessage;
 
 export class WebSocketClient {
@@ -94,6 +98,7 @@ export class WebSocketClient {
   private onTaskCancel?: (taskId: string) => void;
   private onTaskSteer?: (taskId: string, message: string, action?: string) => void;
   private onFileList?: (path: string, correlationId: string) => void;
+  private onRepoSetup?: (payload: RepoSetupRequestMessage['payload']) => void;
 
   constructor(options: WebSocketClientOptions) {
     this.runnerId = options.runnerId;
@@ -108,6 +113,7 @@ export class WebSocketClient {
     this.onTaskCancel = options.onTaskCancel;
     this.onTaskSteer = options.onTaskSteer;
     this.onFileList = options.onFileList;
+    this.onRepoSetup = options.onRepoSetup;
   }
 
   /**
@@ -423,6 +429,17 @@ export class WebSocketClient {
         return;
       }
 
+      // Handle repo_setup.request (dot notation from relay)
+      if (raw.type === 'repo_setup.request') {
+        const repoMsg: RepoSetupRequestMessage = {
+          type: 'repo_setup_request',
+          timestamp: raw.timestamp as string ?? new Date().toISOString(),
+          payload: raw.payload as RepoSetupRequestMessage['payload'],
+        };
+        this.handleRepoSetupRequest(repoMsg);
+        return;
+      }
+
       const message = raw as unknown as IncomingMessage;
       this.routeMessage(message);
     } catch (error) {
@@ -452,6 +469,9 @@ export class WebSocketClient {
         break;
       case 'file_list_request':
         this.handleFileListRequest(message as FileListRequestMessage);
+        break;
+      case 'repo_setup_request':
+        this.handleRepoSetupRequest(message as RepoSetupRequestMessage);
         break;
       case 'error':
         this.handleError(message);
@@ -520,6 +540,25 @@ export class WebSocketClient {
       type: 'file_list_response',
       timestamp: new Date().toISOString(),
       payload: { correlationId, files },
+    };
+    this.send(msg);
+  }
+
+  private handleRepoSetupRequest(message: RepoSetupRequestMessage): void {
+    this.onRepoSetup?.(message.payload);
+  }
+
+  /**
+   * Send repo setup response
+   */
+  sendRepoSetupResponse(
+    correlationId: string,
+    result: Omit<RepoSetupResponseMessage['payload'], 'correlationId'>,
+  ): void {
+    const msg: RepoSetupResponseMessage = {
+      type: 'repo_setup_response',
+      timestamp: new Date().toISOString(),
+      payload: { correlationId, ...result },
     };
     this.send(msg);
   }

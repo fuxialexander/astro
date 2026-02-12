@@ -152,10 +152,10 @@ export function Button({ label, onClick, variant = 'primary' }: ButtonProps) {
 
 ### File Naming
 
-- Components: `PascalCase.tsx` (e.g., `TaskList.tsx`)
-- Utilities: `kebab-case.ts` (e.g., `format-date.ts`)
+- Components: `kebab-case.tsx` (e.g., `board-card.tsx`, `plan-canvas.tsx`)
+- Utilities: `kebab-case.ts` (e.g., `date-utils.ts`, `graph-utils.ts`)
 - Stores: `kebab-case-store.ts` (e.g., `realtime-store.ts`)
-- Routes: `kebab-case.tsx` (e.g., `task-detail.tsx`)
+- Pages: `kebab-case.tsx` (e.g., `task-detail.tsx`, `plan-view.tsx`)
 
 ## Commit Guidelines
 
@@ -210,11 +210,10 @@ Prevents state inconsistencies in the UI.
    git rebase main
    ```
 
-2. **Run Tests and Linting**
+2. **Run Linting**
 
    ```bash
    npm run lint
-   npm test  # when available
    ```
 
 3. **Push Your Changes**
@@ -263,10 +262,14 @@ Prevents state inconsistencies in the UI.
 ### Running Tests
 
 ```bash
-npm test          # Run all tests
-npm run test:watch  # Watch mode
-npm run test:coverage  # Coverage report
+# Integration tests for relay server
+npx tsx server/test/relay-server.test.ts
+
+# Linting (primary code quality check)
+npm run lint
 ```
+
+> Note: A formal test framework is not yet configured. Use `npm run lint` and `npm run build` to verify correctness.
 
 ## Documentation
 
@@ -300,10 +303,4 @@ Please be aware of these existing issues:
 - Review existing issues and PRs
 - Check documentation in `docs/`
 
-## License
-
-By contributing, you agree that your contributions will be licensed under the same license as the project.
-
----
-
-Thank you for contributing to Nexus! 🚀
+Thank you for contributing to Nexus!

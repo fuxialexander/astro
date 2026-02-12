@@ -21,7 +21,7 @@ export interface WorktreeOptions {
 export interface WorktreeSetup {
   workingDirectory: string;
   branchName: string;
-  cleanup: () => Promise<void>;
+  cleanup: (options?: { keepBranch?: boolean }) => Promise<void>;
 }
 
 export async function createWorktree(
@@ -98,8 +98,8 @@ export async function createWorktree(
   return {
     workingDirectory: worktreeWorkingDirectory,
     branchName,
-    cleanup: async () => {
-      await cleanupWorktree(gitRoot, worktreePath, branchName);
+    cleanup: async (options?: { keepBranch?: boolean }) => {
+      await cleanupWorktree(gitRoot, worktreePath, branchName, options?.keepBranch);
     },
   };
 }
@@ -134,6 +134,7 @@ async function cleanupWorktree(
   gitRoot: string,
   worktreePath: string,
   branchName: string,
+  keepBranch?: boolean,
 ): Promise<void> {
   try {
     await execFileAsync(
@@ -155,14 +156,17 @@ async function cleanupWorktree(
     // Ignore - directory may not exist
   }
 
-  try {
-    await execFileAsync(
-      'git',
-      ['-C', gitRoot, 'branch', '-D', branchName],
-      { env: withGitEnv(), timeout: 10_000 }
-    );
-  } catch {
-    // Ignore - branch may not exist or already deleted
+  // Skip branch deletion when keepBranch is true (e.g., PR was created)
+  if (!keepBranch) {
+    try {
+      await execFileAsync(
+        'git',
+        ['-C', gitRoot, 'branch', '-D', branchName],
+        { env: withGitEnv(), timeout: 10_000 }
+      );
+    } catch {
+      // Ignore - branch may not exist or already deleted
+    }
   }
 }
 

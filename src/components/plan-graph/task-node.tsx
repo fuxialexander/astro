@@ -1,6 +1,6 @@
 import { memo, useState } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2, Plus } from "lucide-react"
+import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2, Plus, GitPullRequest } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 
@@ -21,6 +21,7 @@ type TaskNodeData = Node<{
   executionId?: string
   priority?: string
   dueDate?: string
+  prUrl?: string
 }>
 
 export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>) {
@@ -90,6 +91,11 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>
         <span className="text-[10px] font-medium text-blue-500 relative z-10 ml-auto">
           {progress}%
         </span>
+      )}
+
+      {/* PR indicator */}
+      {data.prUrl && (
+        <GitPullRequest className="h-3 w-3 shrink-0 text-purple-500 relative z-10 ml-auto" />
       )}
 
       {/* Priority dot for urgent/high */}

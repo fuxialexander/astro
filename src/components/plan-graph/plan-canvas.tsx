@@ -62,6 +62,7 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
   const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const isGenerating = useAgentStore((s) => s.isGenerating)
+  const generationPhase = useAgentStore((s) => s.generationPhase)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -75,7 +76,15 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
   const projectNodes = useMemo(() => planNodes.filter((n) => n.projectId === projectId && n.type !== "milestone"), [planNodes, projectId])
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
-    return planEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+    const filtered = planEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+    // Deduplicate by source→target pair (keep first occurrence)
+    const seen = new Set<string>()
+    return filtered.filter((e) => {
+      const key = `${e.source}->${e.target}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
   }, [planEdges, projectNodes])
 
   const rfNodes: Node[] = useMemo(
@@ -90,6 +99,8 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
           nodeType: n.type,
           priority: n.priority,
           dueDate: n.dueDate,
+          executionId: n.executionId,
+          prUrl: n.prUrl,
         },
         selected: n.id === selectedId,
       })),
@@ -219,7 +230,7 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
   }, [startGeneration, projectId, project, connectionStatus])
 
   // Show empty state when no nodes and not currently generating
-  if (projectNodes.length === 0 && !isGenerating) {
+  if (projectNodes.length === 0 && !isGenerating && generationPhase === 'idle') {
     const isConnected = connectionStatus === "connected"
     return (
       <div className="h-full w-full bg-background flex items-center justify-center">
