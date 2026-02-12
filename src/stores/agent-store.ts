@@ -81,9 +81,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   startGeneration: async (projectId, projectName, description, visionDoc, repoContext) => {
-    // Guard per-project (allow concurrent generations for different projects)
+    // Guard: only skip if already in the 'generating' phase (not 'repo_setup' placeholder)
     const existing = get().sessions.get(projectId)
-    if (existing?.status === "active") {
+    if (existing?.status === "active" && existing.phase === "generating") {
       console.log(`[plan-gen] Already generating for project ${projectId}, skipping`)
       return
     }
