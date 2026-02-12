@@ -137,16 +137,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           onPlanResult: (result) => {
             console.log(`[plan-gen] Plan result received for ${projectId}: ${result.nodes.length} nodes, ${result.edges.length} edges`)
 
+            // Prefix AI-generated IDs with project ID to ensure global uniqueness
+            const prefix = projectId.slice(0, 8)
+            const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
+
             const now = new Date()
             const nodes: PlanNode[] = result.nodes.map((n) => ({
-              id: n.id,
+              id: prefixId(n.id),
               projectId,
               type: n.type,
               title: n.title,
               description: n.description,
               status: n.status,
-              parentId: n.parentId,
-              dependencies: n.dependencies,
+              parentId: n.parentId ? prefixId(n.parentId) : n.parentId,
+              dependencies: n.dependencies.map(prefixId),
               environment: n.environment || "local",
               verification: n.verification,
               position: n.position,
@@ -155,19 +159,21 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               priority: n.priority as PlanNode["priority"],
               estimate: n.estimate as PlanNode["estimate"],
               dueDate: n.dueDate,
-              milestoneId: n.milestoneId,
+              milestoneId: n.milestoneId ? prefixId(n.milestoneId) : n.milestoneId,
               createdAt: now,
               updatedAt: now,
             }))
 
             const edges: PlanEdge[] = result.edges.map((e) => ({
-              id: e.id,
-              source: e.source,
-              target: e.target,
+              id: prefixId(e.id),
+              source: prefixId(e.source),
+              target: prefixId(e.target),
               type: e.type,
             }))
 
             usePlanStore.getState().setProjectPlan(projectId, nodes, edges)
+            // Auto-layout the generated graph
+            usePlanStore.getState().reorganizeProject(projectId)
 
             if (result.projectName) {
               useProjectStore.getState().updateProject(projectId, { name: result.projectName })
