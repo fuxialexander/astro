@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useNavigate } from "react-router"
 import {
   Compass,
@@ -17,17 +17,41 @@ import {
   GitBranch,
   FolderGit2,
   Check,
+  Laptop,
+  Cloud,
+  ChevronDown,
+  CheckCircle2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { VoiceInputButton } from "@/components/ui/voice-input-button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useProjectStore } from "@/stores/project-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
+import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { cn } from "@/lib/utils"
 
 type UserType = "builder" | "scientist" | null
 type InputMode = "type" | "paste" | "import" | "repo"
 
 const TOTAL_STEPS = 3
+
+const environmentConfig = {
+  local: { icon: Laptop, label: "Local", description: "Run on this machine" },
+  remote: { icon: Globe, label: "Remote", description: "Run on remote machine" },
+  hpc: { icon: Server, label: "HPC", description: "Run on HPC cluster" },
+  cloud: { icon: Cloud, label: "Cloud", description: "Run on cloud instance" },
+}
+
+type EnvironmentType = keyof typeof environmentConfig
 
 const BUILDER_DOMAINS = [
   "Web Development",
@@ -82,6 +106,8 @@ export function Welcome() {
   const [startDate, setStartDate] = useState("")
   const [targetDate, setTargetDate] = useState("")
   const [techStack, setTechStack] = useState("")
+  const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
+  const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
 
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
@@ -91,6 +117,41 @@ export function Welcome() {
   const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
   const isGenerating = useAgentStore((s) => s.isGenerating)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+
+  // Machine state
+  const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
+  const loadMachines = useExecutionStore((s) => s.loadMachines)
+  const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
+
+  useEffect(() => {
+    if (!machinesLoaded) {
+      loadMachines()
+    }
+  }, [machinesLoaded, loadMachines])
+
+  const availableMachines = getMachinesForEnvironment(selectedEnvironment)
+  const isRemoteEnv = selectedEnvironment !== "local"
+  const EnvironmentIcon = environmentConfig[selectedEnvironment].icon
+
+  // Voice transcription
+  const handleTranscript = useCallback((text: string) => {
+    setDescription((prev) => {
+      if (prev.trim()) {
+        return prev.trim() + " " + text
+      }
+      return text
+    })
+  }, [])
+
+  const {
+    isRecording,
+    isTranscribing,
+    isAvailable: voiceAvailable,
+    duration: voiceDuration,
+    toggleRecording,
+  } = useVoiceTranscription({
+    onTranscript: handleTranscript,
+  })
 
   // Research-language detection
   const isResearchLike = useCallback((text: string) => {
@@ -149,6 +210,8 @@ export function Welcome() {
       targetDate: targetDate || undefined,
       repository: repoUrlVal || undefined,
       workingDirectory: repoPathVal || undefined,
+      defaultEnvironment: isRemoteEnv ? selectedEnvironment : undefined,
+      defaultMachineId: selectedMachine?.machineId || undefined,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -170,6 +233,7 @@ export function Welcome() {
             projectDescription: fullDescription,
             workingDirectory: repoPathVal || undefined,
             repository: repoUrlVal || undefined,
+            targetMachineId: selectedMachine?.machineId || undefined,
           }),
         })
         if (res.ok) {
@@ -178,13 +242,14 @@ export function Welcome() {
             updateProject(id, { workingDirectory: data.workingDirectory })
           }
           if (data.fileTree) {
-            updateFileTree(id, data.fileTree)
+            updateFileTree(id, data.fileTree, selectedMachine?.machineId)
           }
           if (data.workingDirectory && !data.needsGitInit) {
             startGeneration(id, fullDescription, undefined, {
               workingDirectory: data.workingDirectory,
               fileTree: data.fileTree,
               keyFiles: data.keyFiles,
+              targetMachineId: selectedMachine?.machineId,
             })
             return
           }
@@ -281,13 +346,37 @@ export function Welcome() {
 
               {/* Type directly */}
               {inputMode === "type" && (
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder={placeholder}
-                  className="h-[160px] w-full resize-none rounded-xl border border-border bg-card p-4 text-sm leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-                  autoFocus
-                />
+                <div className="relative">
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder={placeholder}
+                    className="h-[160px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                    autoFocus
+                  />
+                  <div className="absolute right-3 top-3">
+                    <VoiceInputButton
+                      isRecording={isRecording}
+                      isTranscribing={isTranscribing}
+                      isAvailable={voiceAvailable}
+                      duration={voiceDuration}
+                      onClick={toggleRecording}
+                      disabled={isGenerating}
+                    />
+                  </div>
+                  {isRecording && (
+                    <div className="absolute right-3 bottom-3 flex items-center gap-2 text-xs text-red-500">
+                      <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                      Recording... {Math.floor(voiceDuration / 60)}:{(voiceDuration % 60).toString().padStart(2, '0')}
+                    </div>
+                  )}
+                  {isTranscribing && (
+                    <div className="absolute right-3 bottom-3 flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Transcribing...
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Paste a document */}
@@ -349,12 +438,36 @@ export function Welcome() {
                     <label className="text-[13px] font-medium text-foreground">
                       What do you want to do with this repo?
                     </label>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="e.g., Add user authentication with OAuth, refactor the database layer to use Prisma, set up CI/CD pipeline..."
-                      className="h-[100px] w-full resize-none rounded-xl border border-border bg-card p-4 text-sm leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
+                    <div className="relative">
+                      <textarea
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="e.g., Add user authentication with OAuth, refactor the database layer to use Prisma, set up CI/CD pipeline..."
+                        className="h-[100px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <div className="absolute right-3 top-3">
+                        <VoiceInputButton
+                          isRecording={isRecording}
+                          isTranscribing={isTranscribing}
+                          isAvailable={voiceAvailable}
+                          duration={voiceDuration}
+                          onClick={toggleRecording}
+                          disabled={isGenerating}
+                        />
+                      </div>
+                      {isRecording && (
+                        <div className="absolute right-3 bottom-3 flex items-center gap-2 text-xs text-red-500">
+                          <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                          Recording... {Math.floor(voiceDuration / 60)}:{(voiceDuration % 60).toString().padStart(2, '0')}
+                        </div>
+                      )}
+                      {isTranscribing && (
+                        <div className="absolute right-3 bottom-3 flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Transcribing...
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -483,12 +596,104 @@ export function Welcome() {
                 </div>
               </div>
 
-              {/* Tech stack / compute */}
+              {/* Environment */}
               <div className="flex flex-col gap-2">
                 <label className="flex items-center gap-2 text-[13px] font-medium text-foreground">
                   <Server className="h-4 w-4 text-muted-foreground" />
+                  Execution environment
+                </label>
+                <div className="flex items-center gap-3">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                        <EnvironmentIcon className="h-4 w-4 text-muted-foreground" />
+                        {environmentConfig[selectedEnvironment].label}
+                        <ChevronDown className="h-3 w-3 opacity-50" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuLabel>Select Environment</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {(Object.keys(environmentConfig) as EnvironmentType[]).map((env) => {
+                        const config = environmentConfig[env]
+                        const Icon = config.icon
+                        const machineCount = getMachinesForEnvironment(env).length
+                        return (
+                          <DropdownMenuItem
+                            key={env}
+                            onClick={() => {
+                              setSelectedEnvironment(env)
+                              setSelectedMachine(null)
+                            }}
+                            className="gap-2"
+                          >
+                            <Icon className="h-4 w-4" />
+                            <div className="flex flex-col">
+                              <span>{config.label}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {env === "local" ? config.description : `${machineCount} available`}
+                              </span>
+                            </div>
+                            {selectedEnvironment === env && (
+                              <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                            )}
+                          </DropdownMenuItem>
+                        )
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  {/* Machine selector for non-local environments */}
+                  {isRemoteEnv && availableMachines.length > 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                          <Server className="h-4 w-4 text-muted-foreground" />
+                          <span className="max-w-[140px] truncate">
+                            {selectedMachine?.name || "Select machine"}
+                          </span>
+                          <ChevronDown className="h-3 w-3 opacity-50" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {availableMachines.map((machine) => (
+                          <DropdownMenuItem
+                            key={machine.machineId}
+                            onClick={() => setSelectedMachine(machine)}
+                            className="gap-2"
+                          >
+                            <Server className="h-4 w-4" />
+                            <div className="flex flex-col">
+                              <span>{machine.name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {machine.hostname || machine.machineId}
+                              </span>
+                            </div>
+                            {selectedMachine?.machineId === machine.machineId && (
+                              <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                            )}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+
+                  {isRemoteEnv && availableMachines.length === 0 && machinesLoaded && (
+                    <span className="text-xs text-muted-foreground">
+                      No {environmentConfig[selectedEnvironment].label.toLowerCase()} machines connected
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Tech stack / compute */}
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+                  <Code2 className="h-4 w-4 text-muted-foreground" />
                   {effectiveUserType === "scientist"
-                    ? "What compute environments do you have?"
+                    ? "What tools / frameworks do you use?"
                     : "What's your tech stack?"}
                 </label>
                 <input
@@ -497,7 +702,7 @@ export function Welcome() {
                   onChange={(e) => setTechStack(e.target.value)}
                   placeholder={
                     effectiveUserType === "scientist"
-                      ? "e.g., Local laptop, HPC cluster (Slurm), AWS..."
+                      ? "e.g., Python, Nextflow, R, Jupyter..."
                       : "e.g., React, Node.js, PostgreSQL, Vercel..."
                   }
                   className="h-10 rounded-xl border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
@@ -596,17 +801,33 @@ export function Welcome() {
               {/* Tech stack */}
               {techStack && (
                 <SummaryRow
-                  label={effectiveUserType === "scientist" ? "Compute" : "Tech Stack"}
+                  label={effectiveUserType === "scientist" ? "Tools" : "Tech Stack"}
                   value={techStack}
                 />
               )}
+
+              {/* Environment */}
+              <SummaryRow
+                label="Environment"
+                value={
+                  selectedMachine
+                    ? `${environmentConfig[selectedEnvironment].label} — ${selectedMachine.name}`
+                    : environmentConfig[selectedEnvironment].label
+                }
+              />
             </div>
 
             {/* Environment ready note */}
             <div className="flex items-center gap-2 rounded-lg bg-primary/5 px-4 py-3 text-[13px] text-foreground">
               <Check className="h-4 w-4 text-primary shrink-0" />
               <span>
-                Environment defaults to <strong>local</strong> — no setup required to start.
+                {selectedEnvironment === "local" ? (
+                  <>Environment set to <strong>local</strong> — no setup required to start.</>
+                ) : selectedMachine ? (
+                  <>Tasks will run on <strong>{selectedMachine.name}</strong> ({environmentConfig[selectedEnvironment].label}).</>
+                ) : (
+                  <>Environment set to <strong>{environmentConfig[selectedEnvironment].label.toLowerCase()}</strong> — select a machine in Environments after plan generation.</>
+                )}
                 {connectionStatus === "connected" && " Backend connected."}
               </span>
             </div>
