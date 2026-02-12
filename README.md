@@ -60,16 +60,17 @@ Redis is **not required** for local development. It's only needed for horizontal
 git clone git@github.com:fuxialexander/nexus.git
 cd nexus
 
-# Use correct Node.js version (if using nvm)
-nvm use
-
+# install nodejs and npm if not already installed
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+nvm install 25.6.0
+nvm use 25.6.0
 # Install dependencies
 npm install
 
-# Set up environment
-cp .env.example .env
-# Edit .env and set your ANTHROPIC_API_KEY
+# Copy environment template and set your API key
+cp env.example .env
 ```
+*Then edit `.env` and set your `ANTHROPIC_API_KEY`.*
 
 The SQLite database is created automatically on first server start (stored as `.nexus/nexus.db`).
 
@@ -89,7 +90,7 @@ npm run dev:backend    # Hono API (port 3001) + WebSocket relay (port 3002)
 
 Open http://localhost:5173 — Vite proxies `/api` requests to the backend automatically.
 
-### Verify Setup
+### Verify Setup For Local Development
 
 ```bash
 npm run verify    # Check Node version, dependencies, port availability, config
@@ -102,18 +103,21 @@ The only required variable for local development is `ANTHROPIC_API_KEY`. See `.e
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ANTHROPIC_API_KEY` | **Yes** | Anthropic API key for AI features |
+| `CODEX_API_KEY` | No | Codex API key for AI features (To be tested)|
 | `PORT` | No | Backend port (default: 3001) |
 | `RELAY_PORT` | No | WebSocket relay port (default: 3002) |
 | `REDIS_URL` | No | Redis URL for horizontal scaling (not needed locally) |
 | `CLOUDFLARED_DOMAIN` | No | Domain for Cloudflare tunnel (remote agent connectivity) |
 
-### Remote Agent Setup
+### Agent Setup
 
-To connect a remote machine (e.g. HPC cluster, cloud VM) to your local Nexus server:
+Local agent should directly work if you have already setup `claude` or `codex` locally. For `claude`, you want to run `claude setup-token` to get a token/api key and set it in `.env` as `ANTHROPIC_API_KEY`. For `codex` it seems it directly set the api key in the environment variables.
 
-**Prerequisites**: [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) installed on the server machine, a Cloudflare domain configured.
+To connect to a remote machine (e.g. HPC cluster, SSH server) to your local Nexus server:
 
-**1. Server — start the tunnel**
+**Prerequisites**: [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) installed on the server machine, a Cloudflare domain configured. Then in your local machine run `cloudflared tunnel login` to login to your Cloudflare account. And set your domain in `.env` as `CLOUDFLARED_DOMAIN=yourdomain.com`.
+
+**1. Local Server — start the tunnel**
 
 Set your domain in `.env`:
 ```
@@ -122,21 +126,26 @@ CLOUDFLARED_DOMAIN=yourdomain.com
 
 Then start the tunnel (creates it on first run):
 ```bash
-./scripts/start-tunnel.sh
+bash ./scripts/start-tunnel.sh
 ```
 
 This exposes `nexus-api.yourdomain.com` (port 3001) and `nexus-relay.yourdomain.com` (port 3002) via Cloudflare Tunnel.
 
-**2. Remote machine — setup and start the agent**
+**2. Setup and start the agent**
 
-On the remote machine, clone the repo and run:
 ```bash
-git clone git@github.com:fuxialexander/nexus.git
-cd nexus
-./scripts/agent-setup.sh yourdomain.com
+bash ./scripts/agent-setup.sh 
 ```
 
-This builds the agent runner, runs the device auth flow (you approve in your browser), and starts the agent. The machine will appear in the Environments page.
+This builds the agent runner, runs the device auth flow (you approve in your browser), and starts the agent locally. The machine will appear in the Environments page. The setup will also detect remote machines in your ssh config and prompt you to install the agent on them. Note that you need to ssh into the remote machine and run the following command to start the agent:
+
+```bash
+# you can also add `~/.local/bin` to your PATH for easy access
+~/.local/bin/nexus-agent start --foreground # add --foreground to run in foreground for easy interruption
+```
+
+After that you approve the machine in the browser, you will be directed to the welcome page, where you can create a project on local or remote machine (if you have already started the agent on the remote machine).
+
 
 ## Project Structure
 

@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR_TMP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$(cd "$SCRIPT_DIR_TMP/.." && pwd)/.env"
+
+# Use argument, or fall back to CLOUDFLARED_DOMAIN from .env
 DOMAIN="${1:-}"
+if [[ -z "$DOMAIN" && -f "$ENV_FILE" ]]; then
+  DOMAIN="$(grep -E '^CLOUDFLARED_DOMAIN=' "$ENV_FILE" | cut -d= -f2- | tr -d '[:space:]')"
+fi
+
 if [[ -z "$DOMAIN" ]]; then
-  echo "Usage: ./scripts/agent-setup.sh <domain>"
+  echo "Usage: ./scripts/agent-setup.sh [domain]"
+  echo "If no domain is given, reads CLOUDFLARED_DOMAIN from .env"
   echo "Example: ./scripts/agent-setup.sh fuxialexander.work"
   exit 1
 fi
