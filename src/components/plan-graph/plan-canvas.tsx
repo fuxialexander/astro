@@ -61,8 +61,7 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
   const addEdge = usePlanStore((s) => s.addEdge)
   const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
   const startGeneration = useAgentStore((s) => s.startGeneration)
-  const isGenerating = useAgentStore((s) => s.isGenerating)
-  const generationPhase = useAgentStore((s) => s.generationPhase)
+  const isProjectGenerating = useAgentStore((s) => s.sessions.get(projectId)?.status === 'active')
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -225,12 +224,12 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
 
   const handleGeneratePlan = useCallback(() => {
     if (project && connectionStatus === "connected") {
-      startGeneration(projectId, project.description || project.name, project.visionDoc)
+      startGeneration(projectId, project.name, project.description || project.name, project.visionDoc)
     }
   }, [startGeneration, projectId, project, connectionStatus])
 
   // Show empty state when no nodes and not currently generating
-  if (projectNodes.length === 0 && !isGenerating && generationPhase === 'idle') {
+  if (projectNodes.length === 0 && !isProjectGenerating) {
     const isConnected = connectionStatus === "connected"
     return (
       <div className="h-full w-full bg-background flex items-center justify-center">

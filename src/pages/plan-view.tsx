@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
-import { GenerationOverlay } from "@/components/agent/generation-overlay"
 import { ChatPanel } from "@/components/agent/chat-panel"
 import { ExecutionPanel, ProviderStatus } from "@/components/execution"
 import { BoardView } from "@/components/board/board-view"
@@ -17,7 +16,6 @@ import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from 
 import { ItemTimelineView, TimelineAddTaskFooter, type TimelineRow } from "@/components/views/item-timeline-view"
 import { PropertyPicker } from "@/components/property-picker"
 import { useProjectStore } from "@/stores/project-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
@@ -574,9 +572,6 @@ export function PlanView() {
   const initialView = searchParams.get("view") as ViewMode | null
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
-  const isGenerating = useAgentStore((s) => s.isGenerating)
-  const generationPhase = useAgentStore((s) => s.generationPhase)
-  const showGenerationOverlay = isGenerating || generationPhase !== 'idle'
   const updateNode = usePlanStore((s) => s.updateNode)
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
@@ -705,7 +700,6 @@ export function PlanView() {
         {viewMode === "graph" ? (
           <div className="absolute inset-0">
             <PlanCanvas projectId={project.id} onNodeSelect={setSelectedNode} />
-            {showGenerationOverlay && <GenerationOverlay />}
           </div>
         ) : viewMode === "list" ? (
           <div className="flex flex-1 flex-col overflow-hidden">

@@ -4,10 +4,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
-import { GenerationOverlay } from "@/components/agent/generation-overlay"
 import { ChatPanel } from "@/components/agent/chat-panel"
 import { ExecutionPanel } from "@/components/execution"
-import { useAgentStore } from "@/stores/agent-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { PRIORITY_CONFIG, PRIORITIES, ESTIMATES } from "@/lib/constants"
@@ -36,9 +34,6 @@ function formatDueDate(dateStr?: string): { text: string; className: string } {
 }
 
 export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
-  const isGenerating = useAgentStore((s) => s.isGenerating)
-  const generationPhase = useAgentStore((s) => s.generationPhase)
-  const showGenerationOverlay = isGenerating || generationPhase !== 'idle'
   const updateNode = usePlanStore((s) => s.updateNode)
   const allNodes = usePlanStore((s) => s.nodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
@@ -70,7 +65,6 @@ export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
     <div className="flex flex-1 overflow-hidden">
       <div className="relative flex-1">
         <PlanCanvas projectId={projectId} onNodeSelect={setSelectedNode} />
-        {showGenerationOverlay && <GenerationOverlay />}
       </div>
 
       {/* Chat panel */}

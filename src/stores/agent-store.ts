@@ -6,6 +6,18 @@ import { useSettingsStore } from "@/stores/settings-store"
 import type { PlanNode, PlanEdge } from "@/types"
 
 export type GenerationPhase = 'idle' | 'repo_setup' | 'generating'
+export type GenerationStatus = 'active' | 'completed' | 'error'
+
+export interface GenerationSession {
+  projectId: string
+  projectName: string
+  phase: GenerationPhase
+  status: GenerationStatus
+  streamText: string
+  error: string | null
+  startedAt: number
+  completedAt: number | null
+}
 
 interface RepoKeyFiles {
   claudeMd?: string
@@ -21,33 +33,81 @@ interface RepoContext {
 }
 
 interface AgentState {
-  isGenerating: boolean
-  generationPhase: GenerationPhase
-  streamText: string
-  error: string | null
-  setGenerationPhase: (phase: GenerationPhase) => void
-  startGeneration: (projectId: string, description: string, visionDoc?: string, repoContext?: RepoContext) => Promise<void>
-  abort: () => void
-  clearState: () => void
+  sessions: Map<string, GenerationSession>
+  startGeneration: (projectId: string, projectName: string, description: string, visionDoc?: string, repoContext?: RepoContext) => Promise<void>
+  setGenerationPhase: (projectId: string, phase: GenerationPhase) => void
+  abort: (projectId: string) => void
+  dismissSession: (projectId: string) => void
 }
 
-let currentAbortController: AbortController | null = null
+const abortControllers = new Map<string, AbortController>()
+
+function updateSession(
+  sessions: Map<string, GenerationSession>,
+  projectId: string,
+  updates: Partial<GenerationSession>,
+): Map<string, GenerationSession> {
+  const next = new Map(sessions)
+  const existing = next.get(projectId)
+  if (existing) {
+    next.set(projectId, { ...existing, ...updates })
+  }
+  return next
+}
 
 export const useAgentStore = create<AgentState>((set, get) => ({
-  isGenerating: false,
-  generationPhase: 'idle',
-  streamText: "",
-  error: null,
+  sessions: new Map(),
 
-  setGenerationPhase: (phase) => {
-    set({ generationPhase: phase })
+  setGenerationPhase: (projectId, phase) => {
+    set((s) => {
+      const existing = s.sessions.get(projectId)
+      if (!existing) {
+        // Create a placeholder session if setGenerationPhase is called before startGeneration
+        const next = new Map(s.sessions)
+        next.set(projectId, {
+          projectId,
+          projectName: "",
+          phase,
+          status: "active",
+          streamText: "",
+          error: null,
+          startedAt: Date.now(),
+          completedAt: null,
+        })
+        return { sessions: next }
+      }
+      return { sessions: updateSession(s.sessions, projectId, { phase }) }
+    })
   },
 
-  startGeneration: async (projectId, description, visionDoc, repoContext) => {
-    if (get().isGenerating) return
+  startGeneration: async (projectId, projectName, description, visionDoc, repoContext) => {
+    // Guard per-project (allow concurrent generations for different projects)
+    const existing = get().sessions.get(projectId)
+    if (existing?.status === "active") {
+      console.log(`[plan-gen] Already generating for project ${projectId}, skipping`)
+      return
+    }
 
-    currentAbortController = new AbortController()
-    set({ isGenerating: true, generationPhase: 'generating', streamText: "", error: null })
+    console.log(`[plan-gen] Starting generation for project "${projectName}" (${projectId})`)
+
+    const controller = new AbortController()
+    abortControllers.set(projectId, controller)
+
+    // Initialize or update the session
+    set((s) => {
+      const next = new Map(s.sessions)
+      next.set(projectId, {
+        projectId,
+        projectName,
+        phase: "generating",
+        status: "active",
+        streamText: "",
+        error: null,
+        startedAt: Date.now(),
+        completedAt: null,
+      })
+      return { sessions: next }
+    })
 
     const model = useSettingsStore.getState().model
 
@@ -65,9 +125,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         },
         {
           onText: (text) => {
-            set((s) => ({ streamText: s.streamText + text }))
+            set((s) => {
+              const session = s.sessions.get(projectId)
+              if (!session) return s
+              if (!session.streamText) {
+                console.log(`[plan-gen] First stream chunk received for ${projectId}`)
+              }
+              return { sessions: updateSession(s.sessions, projectId, { streamText: session.streamText + text }) }
+            })
           },
           onPlanResult: (result) => {
+            console.log(`[plan-gen] Plan result received for ${projectId}: ${result.nodes.length} nodes, ${result.edges.length} edges`)
+
             const now = new Date()
             const nodes: PlanNode[] = result.nodes.map((n) => ({
               id: n.id,
@@ -100,40 +169,80 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
             usePlanStore.getState().setProjectPlan(projectId, nodes, edges)
 
-            // Update the project name if Claude suggested one
             if (result.projectName) {
               useProjectStore.getState().updateProject(projectId, { name: result.projectName })
             }
           },
           onError: (error) => {
-            set({ error })
+            console.error(`[plan-gen] Error for ${projectId}:`, error)
+            set((s) => ({
+              sessions: updateSession(s.sessions, projectId, { error, status: "error", completedAt: Date.now() }),
+            }))
           },
           onDone: () => {
-            set({ isGenerating: false })
+            console.log(`[plan-gen] Generation completed for ${projectId}`)
+            set((s) => {
+              const session = s.sessions.get(projectId)
+              // Only mark completed if not already in error state
+              if (session?.status === "error") return s
+              return {
+                sessions: updateSession(s.sessions, projectId, {
+                  status: "completed",
+                  phase: "idle",
+                  completedAt: Date.now(),
+                }),
+              }
+            })
           },
         },
-        currentAbortController.signal,
+        controller.signal,
       )
     } catch (e: unknown) {
       if (e instanceof Error && e.name === "AbortError") {
-        // User cancelled — not an error
+        console.log(`[plan-gen] Generation aborted for ${projectId}`)
       } else {
         const msg = e instanceof Error ? e.message : "unknown error"
-        set({ error: msg })
+        console.error(`[plan-gen] Generation failed for ${projectId}:`, msg)
+        set((s) => ({
+          sessions: updateSession(s.sessions, projectId, { error: msg, status: "error", completedAt: Date.now() }),
+        }))
       }
     } finally {
-      // Always ensure generating state is cleared
-      set({ isGenerating: false, generationPhase: 'idle' })
+      abortControllers.delete(projectId)
+      // Ensure session is finalized if still active
+      set((s) => {
+        const session = s.sessions.get(projectId)
+        if (session?.status === "active") {
+          return {
+            sessions: updateSession(s.sessions, projectId, {
+              status: "completed",
+              phase: "idle",
+              completedAt: Date.now(),
+            }),
+          }
+        }
+        return s
+      })
     }
   },
 
-  abort: () => {
-    currentAbortController?.abort()
-    currentAbortController = null
-    set({ isGenerating: false, generationPhase: 'idle' })
+  abort: (projectId) => {
+    console.log(`[plan-gen] Aborting generation for ${projectId}`)
+    const controller = abortControllers.get(projectId)
+    controller?.abort()
+    abortControllers.delete(projectId)
+    set((s) => {
+      const next = new Map(s.sessions)
+      next.delete(projectId)
+      return { sessions: next }
+    })
   },
 
-  clearState: () => {
-    set({ isGenerating: false, generationPhase: 'idle', streamText: "", error: null })
+  dismissSession: (projectId) => {
+    set((s) => {
+      const next = new Map(s.sessions)
+      next.delete(projectId)
+      return { sessions: next }
+    })
   },
 }))

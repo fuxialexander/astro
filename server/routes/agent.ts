@@ -34,6 +34,8 @@ agentRoute.post('/generate-plan', async (c) => {
   const { description, visionDoc, projectId, model, providerId, workingDirectory, fileTree, keyFiles, targetMachineId } = body
   const taskId = `gen-${projectId}-${Date.now()}`
 
+  console.log(`[plan-gen] Request received: projectId=${projectId}, provider=${providerId || 'default'}, model=${model || 'default'}`)
+
   // Check if working directory exists locally (remote paths won't exist on this server)
   const isLocalDir = workingDirectory ? existsSync(workingDirectory) : false
 
@@ -41,6 +43,7 @@ agentRoute.post('/generate-plan', async (c) => {
   const useRelay = !!targetMachineId && !isLocalDir
 
   if (useRelay) {
+    console.log(`[plan-gen] Routing to relay: machineId=${targetMachineId}`)
     // Dispatch plan generation to remote machine via relay
     return await generatePlanViaRelay(c, {
       taskId,
@@ -88,6 +91,8 @@ agentRoute.post('/generate-plan', async (c) => {
         }
       }
 
+      console.log(`[plan-gen] Repo context: ${isLocalDir ? 'local' : fileTree ? 'remote/provided' : 'none'}, fileTree=${fileTree?.length ?? 0} files`)
+
       const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext)
 
       // Build task dispatch — more turns when local repo available (agent may explore);
@@ -134,6 +139,9 @@ agentRoute.post('/generate-plan', async (c) => {
             const data = event.output.data as Record<string, unknown>
             if (data && typeof data === 'object' && 'nodes' in data && 'edges' in data) {
               planResultSent = true
+              const nodes = data.nodes as unknown[]
+              const edges = data.edges as unknown[]
+              console.log(`[plan-gen] Plan result sent (structured): ${nodes.length} nodes, ${edges.length} edges`)
               await stream.writeSSE({
                 event: 'plan_result',
                 data: JSON.stringify(data),
@@ -147,6 +155,9 @@ agentRoute.post('/generate-plan', async (c) => {
             if (!planResultSent && assistantText) {
               const parsed = extractPlanJson(assistantText)
               if (parsed) {
+                const nodes = (parsed.nodes as unknown[]) || []
+                const edges = (parsed.edges as unknown[]) || []
+                console.log(`[plan-gen] Plan result sent (extracted): ${nodes.length} nodes, ${edges.length} edges`)
                 await stream.writeSSE({
                   event: 'plan_result',
                   data: JSON.stringify(parsed),
@@ -154,6 +165,7 @@ agentRoute.post('/generate-plan', async (c) => {
               }
             }
 
+            console.log(`[plan-gen] Generation done: taskId=${taskId}`)
             await stream.writeSSE({
               event: 'done',
               data: JSON.stringify({
@@ -164,19 +176,23 @@ agentRoute.post('/generate-plan', async (c) => {
             break
 
           case 'error':
+            console.error(`[plan-gen] Error: taskId=${taskId}`, event.error)
             await stream.writeSSE({ event: 'error', data: event.error })
             break
 
           case 'aborted':
+            console.log(`[plan-gen] Aborted: taskId=${taskId}`)
             await stream.writeSSE({ event: 'aborted', data: event.reason ?? '' })
             break
         }
       }
     } catch (e: unknown) {
       if (isAbortError(e)) {
+        console.log(`[plan-gen] Aborted (catch): taskId=${taskId}`)
         await stream.writeSSE({ event: 'aborted', data: '' })
       } else {
         const message = errorMessage(e)
+        console.error(`[plan-gen] Error (catch): taskId=${taskId}`, message)
         await stream.writeSSE({ event: 'error', data: message })
       }
     } finally {

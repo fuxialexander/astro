@@ -37,6 +37,8 @@ import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
+import { useRepoSetup } from "@/hooks/use-repo-setup"
+import { GitInitDialog } from "@/components/git-init-dialog"
 import { cn } from "@/lib/utils"
 
 type UserType = "builder" | "scientist" | null
@@ -111,12 +113,13 @@ export function Welcome() {
 
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
-  const updateProject = useProjectStore((s) => s.updateProject)
-  const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
-  const isGenerating = useAgentStore((s) => s.isGenerating)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+
+  // Shared repo setup hook
+  const { setupRepo, gitInitPrompt, dismissGitInit, confirmGitInit } = useRepoSetup()
 
   // Machine state
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
@@ -192,17 +195,18 @@ export function Welcome() {
 
   async function handleStructurePlan() {
     const input = primaryInput.trim()
-    if (!input && !hasRepo) return
+    if ((!input && !hasRepo) || isSubmitting) return
+    setIsSubmitting(true)
 
     const id = `proj-${Date.now()}`
     const fullDescription = buildDescription()
     const repoUrlVal = repoUrl.trim()
     const repoPathVal = repoPath.trim()
-    const hasRepoContext = !!(repoUrlVal || repoPathVal)
+    const projectName = input.slice(0, 50).trim() || repoUrlVal.split("/").pop() || "New Project"
 
     addProject({
       id,
-      name: input.slice(0, 50).trim() || repoUrlVal.split("/").pop() || "New Project",
+      name: projectName,
       description: fullDescription,
       visionDoc: inputMode === "paste" ? pastedDoc : "",
       status: "active",
@@ -220,48 +224,27 @@ export function Welcome() {
 
     if (connectionStatus !== "connected") return
 
-    if (hasRepoContext) {
-      // Repo-aware flow: setup repo first, then generate with context
-      setGenerationPhase('repo_setup')
-      try {
-        const res = await fetch("/api/repo/setup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            projectId: id,
-            projectName: input.slice(0, 50).trim() || "New Project",
-            projectDescription: fullDescription,
-            workingDirectory: repoPathVal || undefined,
-            repository: repoUrlVal || undefined,
-            targetMachineId: selectedMachine?.machineId || undefined,
-          }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          if (data.workingDirectory) {
-            updateProject(id, { workingDirectory: data.workingDirectory })
-          }
-          if (data.fileTree) {
-            updateFileTree(id, data.fileTree, selectedMachine?.machineId)
-          }
-          if (data.workingDirectory && !data.needsGitInit) {
-            startGeneration(id, fullDescription, undefined, {
-              workingDirectory: data.workingDirectory,
-              fileTree: data.fileTree,
-              keyFiles: data.keyFiles,
-              targetMachineId: selectedMachine?.machineId,
-            })
-            return
-          }
-        }
-      } catch (error) {
-        console.error("[welcome] Repo setup failed:", error)
-      }
-      // Fallback: generate without repo context
-      startGeneration(id, fullDescription)
+    // Always use repo setup — handles creating dir, git init, clone, file tree
+    setGenerationPhase(id, 'repo_setup')
+    const repoResult = await setupRepo({
+      projectId: id,
+      projectName,
+      projectDescription: fullDescription,
+      workingDirectory: repoPathVal || undefined,
+      repository: repoUrlVal || undefined,
+      targetMachineId: selectedMachine?.machineId || undefined,
+    })
+
+    if (repoResult?.workingDirectory) {
+      startGeneration(id, projectName, fullDescription, undefined, {
+        workingDirectory: repoResult.workingDirectory,
+        fileTree: repoResult.fileTree,
+        keyFiles: repoResult.keyFiles,
+        targetMachineId: selectedMachine?.machineId,
+      })
     } else {
-      // Fast path: no repo
-      startGeneration(id, fullDescription)
+      // Repo setup returned null (needsGitInit or error) — generate without context
+      startGeneration(id, projectName, fullDescription)
     }
   }
 
@@ -361,7 +344,7 @@ export function Welcome() {
                       isAvailable={voiceAvailable}
                       duration={voiceDuration}
                       onClick={toggleRecording}
-                      disabled={isGenerating}
+                      disabled={isSubmitting}
                     />
                   </div>
                   {isRecording && (
@@ -452,7 +435,7 @@ export function Welcome() {
                           isAvailable={voiceAvailable}
                           duration={voiceDuration}
                           onClick={toggleRecording}
-                          disabled={isGenerating}
+                          disabled={isSubmitting}
                         />
                       </div>
                       {isRecording && (
@@ -518,17 +501,6 @@ export function Welcome() {
                 Continue
                 <ChevronRight className="h-[18px] w-[18px]" />
               </Button>
-              <button
-                onClick={() => {
-                  if (canAdvanceFromStep1) {
-                    setStep(3)
-                  }
-                }}
-                disabled={!canAdvanceFromStep1}
-                className="text-[13px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Skip to plan generation
-              </button>
             </div>
           </>
         )}
@@ -845,15 +817,15 @@ export function Welcome() {
                 </Button>
                 <Button
                   onClick={handleStructurePlan}
-                  disabled={(!primaryInput.trim() && !hasRepo) || isGenerating}
+                  disabled={(!primaryInput.trim() && !hasRepo) || isSubmitting}
                   className="h-12 flex-1 rounded-xl text-base font-semibold"
                 >
-                  {isGenerating ? (
+                  {isSubmitting ? (
                     <Loader2 className="h-[18px] w-[18px] animate-spin" />
                   ) : (
                     <Zap className="h-[18px] w-[18px]" />
                   )}
-                  {isGenerating ? "Structuring..." : "Structure Plan"}
+                  {isSubmitting ? "Structuring..." : "Structure Plan"}
                 </Button>
               </div>
               <p className="text-[13px] text-muted-foreground">
@@ -863,6 +835,13 @@ export function Welcome() {
           </>
         )}
       </div>
+
+      {/* Git init confirmation dialog */}
+      <GitInitDialog
+        prompt={gitInitPrompt}
+        onConfirm={confirmGitInit}
+        onDismiss={dismissGitInit}
+      />
     </div>
   )
 }

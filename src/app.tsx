@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppLayout } from "@/components/layout/app-layout"
 import { CommandPalette } from "@/components/command-palette"
+import { GenerationToasts } from "@/components/generation-toasts"
 import { AuthGuard } from "@/components/auth-guard"
 import { Dashboard } from "@/pages/dashboard"
 import { Projects } from "@/pages/projects"
@@ -96,6 +97,7 @@ export default function App() {
         <BrowserRouter>
           <DataLoader>
             <CommandPalette />
+            <GenerationToasts />
             <Routes>
               {/* Public routes (no auth required) */}
               <Route path="login" element={<Login />} />

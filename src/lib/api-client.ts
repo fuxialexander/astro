@@ -126,6 +126,8 @@ export async function generatePlan(
   },
   signal?: AbortSignal,
 ): Promise<void> {
+  console.log(`[plan-gen] POST /api/agent/generate-plan projectId=${params.projectId}`)
+
   const res = await fetch("/api/agent/generate-plan", {
     method: "POST",
     headers: await authHeaders(),
@@ -134,15 +136,27 @@ export async function generatePlan(
   })
 
   if (!res.ok) {
+    console.error(`[plan-gen] Server error: ${res.status}`)
     callbacks.onError(`Server error: ${res.status}`)
     return
   }
 
+  console.log(`[plan-gen] SSE stream opened for projectId=${params.projectId}`)
+
   await readSSE(res, {
     onText: callbacks.onText,
-    onPlanResult: callbacks.onPlanResult,
-    onError: callbacks.onError,
-    onDone: () => callbacks.onDone(),
+    onPlanResult: (result) => {
+      console.log(`[plan-gen] plan_result received: ${result.nodes.length} nodes, ${result.edges.length} edges`)
+      callbacks.onPlanResult(result)
+    },
+    onError: (error) => {
+      console.error(`[plan-gen] SSE error:`, error)
+      callbacks.onError(error)
+    },
+    onDone: () => {
+      console.log(`[plan-gen] SSE stream done for projectId=${params.projectId}`)
+      callbacks.onDone()
+    },
   })
 }
 

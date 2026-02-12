@@ -16,6 +16,8 @@ import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
+import { useRepoSetup } from "@/hooks/use-repo-setup"
+import { GitInitDialog } from "@/components/git-init-dialog"
 
 const environmentConfig = {
   local: { icon: Laptop, label: "Local", description: "Run on this machine" },
@@ -36,14 +38,14 @@ export function ProjectNew() {
   const [targetDate, setTargetDate] = useState("")
   const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
-  const [gitInitPrompt, setGitInitPrompt] = useState<{ projectId: string; dir: string; name: string } | null>(null)
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
-  const updateProject = useProjectStore((s) => s.updateProject)
-  const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const startGeneration = useAgentStore((s) => s.startGeneration)
-  const isGenerating = useAgentStore((s) => s.isGenerating)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+
+  // Shared repo setup hook
+  const { setupRepo, gitInitPrompt, dismissGitInit, confirmGitInit } = useRepoSetup()
 
   // Machine state from execution store
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
@@ -82,10 +84,10 @@ export function ProjectNew() {
   const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
 
   async function handleGenerate() {
-    if (!description.trim()) return
+    if (!description.trim() || isSubmitting) return
+    setIsSubmitting(true)
     const id = `proj-${crypto.randomUUID().slice(0, 8)}`
     const projectName = description.slice(0, 50).trim() || "New Project"
-    const hasRepo = !!(repoUrl.trim() || workingDir.trim())
 
     addProject({
       id,
@@ -106,92 +108,27 @@ export function ProjectNew() {
 
     if (connectionStatus !== "connected") return
 
-    if (hasRepo) {
-      // Repo-aware flow: clone/setup first, then generate with context
-      setGenerationPhase('repo_setup')
-      const repoResult = await setupRepo(id, projectName, description.trim())
-      if (repoResult?.workingDirectory) {
-        startGeneration(id, description.trim(), undefined, {
-          workingDirectory: repoResult.workingDirectory,
-          fileTree: repoResult.fileTree,
-          keyFiles: repoResult.keyFiles,
-          targetMachineId: selectedMachine?.machineId,
-        })
-      } else {
-        // Repo setup failed or needs git init — generate without repo context
-        startGeneration(id, description.trim())
-      }
+    // Always use repo setup — handles creating dir, git init, clone, file tree
+    setGenerationPhase(id, 'repo_setup')
+    const repoResult = await setupRepo({
+      projectId: id,
+      projectName,
+      projectDescription: description.trim(),
+      workingDirectory: workingDir.trim() || undefined,
+      repository: repoUrl.trim() || undefined,
+      targetMachineId: selectedMachine?.machineId || undefined,
+    })
+
+    if (repoResult?.workingDirectory) {
+      startGeneration(id, projectName, description.trim(), undefined, {
+        workingDirectory: repoResult.workingDirectory,
+        fileTree: repoResult.fileTree,
+        keyFiles: repoResult.keyFiles,
+        targetMachineId: selectedMachine?.machineId,
+      })
     } else {
-      // Fast path: no repo, generate immediately
-      startGeneration(id, description.trim())
-    }
-  }
-
-  async function setupRepo(projectId: string, projectName: string, projectDescription: string): Promise<{ workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string } } | null> {
-    try {
-      const res = await fetch("/api/repo/setup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId,
-          projectName,
-          projectDescription,
-          workingDirectory: workingDir.trim() || undefined,
-          repository: repoUrl.trim() || undefined,
-          targetMachineId: selectedMachine?.machineId || undefined,
-        }),
-      })
-      if (!res.ok) return null
-      const data = await res.json()
-
-      if (data.needsGitInit) {
-        // Prompt user to confirm git init
-        setGitInitPrompt({ projectId, dir: data.workingDirectory, name: projectName })
-        return null
-      }
-
-      // Update project with resolved working directory, file tree, and auto-detected repository
-      if (data.workingDirectory || data.repository) {
-        updateProject(projectId, {
-          ...(data.workingDirectory ? { workingDirectory: data.workingDirectory } : {}),
-          ...(data.repository ? { repository: data.repository } : {}),
-        })
-      }
-      if (data.fileTree) {
-        updateFileTree(projectId, data.fileTree, selectedMachine?.machineId)
-      }
-
-      return { workingDirectory: data.workingDirectory, fileTree: data.fileTree, keyFiles: data.keyFiles }
-    } catch (error) {
-      console.error("[project-new] Repo setup failed:", error)
-      return null
-    }
-  }
-
-  async function handleConfirmGitInit() {
-    if (!gitInitPrompt) return
-    const { projectId, dir, name } = gitInitPrompt
-    setGitInitPrompt(null)
-    try {
-      const res = await fetch("/api/repo/git-init", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workingDirectory: dir,
-          projectId,
-          projectName: name,
-        }),
-      })
-      if (!res.ok) return
-      const data = await res.json()
-      if (data.workingDirectory) {
-        updateProject(projectId, { workingDirectory: data.workingDirectory })
-      }
-      if (data.fileTree) {
-        updateFileTree(projectId, data.fileTree)
-      }
-    } catch (error) {
-      console.error("[project-new] Git init failed:", error)
+      // Repo setup returned null (needsGitInit or error) — generate without context
+      startGeneration(id, projectName, description.trim())
     }
   }
 
@@ -230,7 +167,7 @@ export function ProjectNew() {
                 isAvailable={isAvailable}
                 duration={duration}
                 onClick={toggleRecording}
-                disabled={isGenerating}
+                disabled={isSubmitting}
               />
             </div>
             {/* Recording indicator */}
@@ -442,38 +379,22 @@ export function ProjectNew() {
         <Button
           onClick={handleGenerate}
           className="h-12 rounded-xl px-8 text-base font-semibold"
-          disabled={!description.trim() || isGenerating}
+          disabled={!description.trim() || isSubmitting}
         >
-          {isGenerating ? (
+          {isSubmitting ? (
             <Loader2 className="h-[18px] w-[18px] animate-spin" />
           ) : (
             <Zap className="h-[18px] w-[18px]" />
           )}
-          {isGenerating ? "Generating..." : "Generate Plan"}
+          {isSubmitting ? "Generating..." : "Generate Plan"}
         </Button>
 
         {/* Git init confirmation dialog */}
-        {gitInitPrompt && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-lg max-w-md">
-              <h3 className="text-sm font-semibold">Initialize Git Repository?</h3>
-              <p className="text-sm text-muted-foreground">
-                The directory <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{gitInitPrompt.dir}</code> is not a git repository. Initialize one?
-              </p>
-              <p className="text-xs text-muted-foreground">
-                This will create a .gitignore, CLAUDE.md, and make an initial commit.
-              </p>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => setGitInitPrompt(null)}>
-                  Skip
-                </Button>
-                <Button size="sm" onClick={handleConfirmGitInit}>
-                  Initialize
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
+        <GitInitDialog
+          prompt={gitInitPrompt}
+          onConfirm={confirmGitInit}
+          onDismiss={dismissGitInit}
+        />
       </div>
     </div>
   )
