@@ -206,22 +206,36 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   // Handle graceful shutdown
   let isShuttingDown = false;
 
-  const shutdown = async (signal: string) => {
-    if (isShuttingDown) return;
+  const shutdown = (signal: string) => {
+    if (isShuttingDown) {
+      // Second signal: force exit immediately
+      console.log('\nForce exit.');
+      process.exit(1);
+    }
     isShuttingDown = true;
 
     console.log();
     log('info', `Received ${signal}, shutting down...`, logLevel);
 
-    // Cancel all running tasks
-    const counts = taskExecutor.getTaskCounts();
-    if (counts.running > 0 || counts.queued > 0) {
-      log('info', `Cancelling ${counts.running} running and ${counts.queued} queued tasks`, logLevel);
-      taskExecutor.cancelAll();
-    }
+    // Force exit after 3 seconds if graceful shutdown hangs
+    setTimeout(() => {
+      log('warn', 'Graceful shutdown timed out, forcing exit', logLevel);
+      process.exit(1);
+    }, 3000).unref();
 
-    // Disconnect WebSocket
-    wsClient.disconnect();
+    try {
+      // Cancel all running tasks
+      const counts = taskExecutor.getTaskCounts();
+      if (counts.running > 0 || counts.queued > 0) {
+        log('info', `Cancelling ${counts.running} running and ${counts.queued} queued tasks`, logLevel);
+        taskExecutor.cancelAll();
+      }
+
+      // Disconnect WebSocket
+      wsClient.disconnect();
+    } catch {
+      // Ignore errors during shutdown
+    }
 
     log('info', 'Shutdown complete', logLevel);
     process.exit(0);
