@@ -8,6 +8,7 @@
 import { create } from 'zustand'
 import { realtimeClient, type RealtimeEvent } from '@/lib/realtime-client'
 import { usePlanStore } from './plan-store'
+import type { TaskActivityEvent } from '@/types'
 
 export interface HpcCapability {
   clusterName?: string
@@ -76,6 +77,7 @@ export interface TaskStream {
     ackMessage?: string
     timestamp: Date
   }>
+  activityEvents: TaskActivityEvent[]
   status?: string
   output?: string
   error?: string
@@ -111,6 +113,7 @@ interface RealtimeState {
   disconnect: () => void
   getTaskStream: (taskId: string) => TaskStream | undefined
   addSteerMessage: (taskId: string, message: string) => void
+  updateSteerMessage: (taskId: string, index: number, update: { accepted?: boolean; ackMessage?: string }) => void
   getSessionsForTask: (taskId: string) => AttachedSession[]
 }
 
@@ -151,11 +154,37 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 
   addSteerMessage: (taskId: string, message: string) => {
+    const now = new Date()
     set((state) => {
       const streams = new Map(state.taskStreams)
       const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-      stream.steerMessages.push({ message, timestamp: new Date() })
+      stream.steerMessages.push({ message, timestamp: now })
+      stream.activityEvents = [...stream.activityEvents, { type: 'steer' as const, message, timestamp: now }]
       streams.set(taskId, stream)
+      return { taskStreams: streams }
+    })
+  },
+
+  updateSteerMessage: (taskId: string, index: number, update: { accepted?: boolean; ackMessage?: string }) => {
+    set((state) => {
+      const streams = new Map(state.taskStreams)
+      const stream = streams.get(taskId)
+      if (stream && stream.steerMessages[index]) {
+        stream.steerMessages[index] = { ...stream.steerMessages[index], ...update }
+        // Also update the corresponding activity event
+        let steerCount = 0
+        stream.activityEvents = stream.activityEvents.map(e => {
+          if (e.type === 'steer') {
+            if (steerCount === index) {
+              steerCount++
+              return { ...e, ...update }
+            }
+            steerCount++
+          }
+          return e
+        })
+        streams.set(taskId, stream)
+      }
       return { taskStreams: streams }
     })
   },
@@ -174,6 +203,7 @@ function createEmptyTaskStream(taskId: string): TaskStream {
     toolTraces: [],
     fileChanges: [],
     steerMessages: [],
+    activityEvents: [],
   }
 }
 
@@ -249,6 +279,7 @@ function handleRealtimeEvent(
         const streams = new Map(state.taskStreams)
         const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
         stream.stdout += text
+        stream.activityEvents = [...stream.activityEvents, { type: 'text', content: text, timestamp: new Date() }]
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
@@ -262,6 +293,7 @@ function handleRealtimeEvent(
         const streams = new Map(state.taskStreams)
         const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
         stream.stdout += text
+        stream.activityEvents = [...stream.activityEvents, { type: 'text', content: text, timestamp: new Date() }]
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
@@ -343,6 +375,8 @@ function handleRealtimeEvent(
 
     case 'task:tool_trace': {
       const taskId = data.taskId as string
+      const now = new Date()
+      const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
       set((state) => {
         const streams = new Map(state.taskStreams)
         const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
@@ -352,8 +386,22 @@ function handleRealtimeEvent(
           toolResult: data.toolResult,
           success: data.success as boolean | undefined,
           duration: data.duration as number | undefined,
-          timestamp: new Date(),
+          timestamp: now,
         })
+        // Push both tool_use and tool_result activity events if result is present
+        stream.activityEvents = [
+          ...stream.activityEvents,
+          { type: 'tool_use' as const, id: traceId, toolName: data.toolName as string, toolInput: data.toolInput, timestamp: now },
+          ...(data.toolResult !== undefined ? [{
+            type: 'tool_result' as const,
+            id: traceId,
+            toolName: data.toolName as string,
+            toolResult: data.toolResult,
+            success: data.success as boolean | undefined,
+            duration: data.duration as number | undefined,
+            timestamp: now,
+          }] : []),
+        ]
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
@@ -362,6 +410,7 @@ function handleRealtimeEvent(
 
     case 'task:file_change': {
       const taskId = data.taskId as string
+      const now = new Date()
       set((state) => {
         const streams = new Map(state.taskStreams)
         const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
@@ -371,8 +420,17 @@ function handleRealtimeEvent(
           linesAdded: data.linesAdded as number | undefined,
           linesRemoved: data.linesRemoved as number | undefined,
           diff: data.diff as string | undefined,
-          timestamp: new Date(),
+          timestamp: now,
         })
+        stream.activityEvents = [...stream.activityEvents, {
+          type: 'file_change' as const,
+          path: data.path as string,
+          action: data.action as string,
+          diff: data.diff as string | undefined,
+          linesAdded: data.linesAdded as number | undefined,
+          linesRemoved: data.linesRemoved as number | undefined,
+          timestamp: now,
+        }]
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
@@ -390,6 +448,14 @@ function handleRealtimeEvent(
           const last = stream.steerMessages[stream.steerMessages.length - 1]
           last.accepted = data.accepted as boolean
           last.ackMessage = data.message as string | undefined
+          // Also update the corresponding activity event
+          for (let i = stream.activityEvents.length - 1; i >= 0; i--) {
+            const e = stream.activityEvents[i]
+            if (e.type === 'steer' && e.accepted === undefined) {
+              stream.activityEvents[i] = { ...e, accepted: data.accepted as boolean, ackMessage: data.message as string | undefined }
+              break
+            }
+          }
           streams.set(taskId, stream)
         }
         return { taskStreams: streams }

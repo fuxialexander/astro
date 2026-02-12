@@ -21,6 +21,82 @@ const actionConfig: Record<string, { icon: typeof FileEdit; color: string; label
   deleted: { icon: FileX, color: "text-red-500", label: "Deleted" },
 }
 
+// Parse hunk header to extract line numbers: @@ -oldStart,oldCount +newStart,newCount @@
+function parseHunkHeader(line: string): { oldStart: number; newStart: number } | null {
+  const match = line.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/)
+  if (!match) return null
+  return { oldStart: parseInt(match[1], 10), newStart: parseInt(match[2], 10) }
+}
+
+function DiffRenderer({ diff }: { diff: string }) {
+  const lines = diff.split("\n")
+  let oldLine = 0
+  let newLine = 0
+
+  return (
+    <div className="border-t border-border bg-muted/30 overflow-auto max-h-[400px]">
+      <table className="w-full font-mono text-xs leading-relaxed border-collapse">
+        <tbody>
+          {lines.map((line, i) => {
+            const isHunk = line.startsWith("@@")
+            const isAdd = line.startsWith("+") && !line.startsWith("+++")
+            const isDel = line.startsWith("-") && !line.startsWith("---")
+            const isHeader = line.startsWith("+++") || line.startsWith("---")
+
+            if (isHunk) {
+              const parsed = parseHunkHeader(line)
+              if (parsed) {
+                oldLine = parsed.oldStart
+                newLine = parsed.newStart
+              }
+            }
+
+            let oldNum = ""
+            let newNum = ""
+            if (!isHunk && !isHeader) {
+              if (isAdd) {
+                newNum = String(newLine++)
+              } else if (isDel) {
+                oldNum = String(oldLine++)
+              } else {
+                oldNum = String(oldLine++)
+                newNum = String(newLine++)
+              }
+            }
+
+            return (
+              <tr
+                key={i}
+                className={cn(
+                  isAdd && "bg-green-500/10",
+                  isDel && "bg-red-500/10",
+                  isHunk && "bg-blue-500/5",
+                )}
+              >
+                <td className="w-10 pr-1 text-right text-muted-foreground/50 select-none align-top border-r border-border/50 px-1">
+                  {oldNum}
+                </td>
+                <td className="w-10 pr-1 text-right text-muted-foreground/50 select-none align-top border-r border-border/50 px-1">
+                  {newNum}
+                </td>
+                <td className={cn(
+                  "pl-2 pr-4 whitespace-pre-wrap break-all",
+                  isAdd && "text-green-700 dark:text-green-400",
+                  isDel && "text-red-700 dark:text-red-400",
+                  isHunk && "text-blue-500 font-semibold py-1",
+                  isHeader && "text-muted-foreground",
+                )}>
+                  {line}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function FileChangeItem({ change }: { change: FileChange }) {
   const [expanded, setExpanded] = useState(false)
   const config = actionConfig[change.action] || actionConfig.modified
@@ -66,23 +142,7 @@ function FileChangeItem({ change }: { change: FileChange }) {
       </button>
 
       {expanded && change.diff && (
-        <div className="border-t border-border bg-muted/30 p-4 overflow-auto max-h-[300px]">
-          <pre className="font-mono text-xs leading-relaxed">
-            {change.diff.split("\n").map((line, i) => (
-              <div
-                key={i}
-                className={cn(
-                  "px-2 -mx-2",
-                  line.startsWith("+") && !line.startsWith("+++") && "bg-green-500/10 text-green-700",
-                  line.startsWith("-") && !line.startsWith("---") && "bg-red-500/10 text-red-700",
-                  line.startsWith("@@") && "text-blue-500"
-                )}
-              >
-                {line}
-              </div>
-            ))}
-          </pre>
-        </div>
+        <DiffRenderer diff={change.diff} />
       )}
     </div>
   )
