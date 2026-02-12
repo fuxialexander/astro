@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { access, constants, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import type { ProviderInfo, ProviderType, ProviderCapabilities } from '../types.js';
+import type { ProviderInfo, ProviderType, ProviderCapabilities, HpcCapability } from '../types.js';
 import { detectSlurm } from './slurm-detect.js';
 
 const execAsync = promisify(exec);
@@ -231,25 +231,20 @@ interface CustomProviderConfig {
 }
 
 /**
- * Detect Slurm HPC scheduler
+ * Detect HPC capability (Slurm on this machine).
+ * Returns metadata to annotate Claude provider rather than registering
+ * Slurm as a standalone provider.
  */
-async function detectSlurmProvider(): Promise<ProviderInfo | null> {
+async function detectHpcCapability(): Promise<HpcCapability | null> {
   try {
     const info = await detectSlurm();
     if (!info.available) return null;
 
     return {
-      type: 'slurm',
-      name: 'Slurm HPC',
-      version: info.version ?? null,
-      path: 'sinfo', // Slurm is a system service, not a single binary
-      available: true,
-      capabilities: {
-        streaming: false,
-        tools: false,
-        multiTurn: false,
-        maxConcurrentTasks: 50,
-      },
+      clusterName: info.clusterName,
+      partitions: info.partitions,
+      defaultPartition: info.defaultPartition,
+      accounts: info.accounts,
     };
   } catch {
     return null;
@@ -282,34 +277,38 @@ async function detectClaudeSdk(): Promise<ProviderInfo | null> {
 }
 
 /**
- * Detect all available providers on the system
+ * Detect all available providers on the system.
+ * Slurm is no longer a standalone provider — when detected, it annotates
+ * the Claude provider with hpcCapability metadata instead.
  */
 export async function detectProviders(): Promise<ProviderInfo[]> {
   const detectionResults = await Promise.all([
     detectClaudeSdk(),
     detectClaudeCode(),
     detectCodex(),
-    detectSlurmProvider(),
+    detectHpcCapability(),
     detectCustomProviders(),
   ]);
 
   const providers: ProviderInfo[] = [];
 
-  // Add built-in providers if detected (SDK preferred over CLI)
-  const [claudeSdk, claudeCode, codex, slurm, customProviders] = detectionResults;
+  const [claudeSdk, claudeCode, codex, hpcCapability, customProviders] = detectionResults;
 
+  // Add Claude provider (SDK preferred over CLI), annotated with HPC if available
   if (claudeSdk) {
+    if (hpcCapability) {
+      claudeSdk.hpcCapability = hpcCapability;
+    }
     providers.push(claudeSdk);
   } else if (claudeCode) {
+    if (hpcCapability) {
+      claudeCode.hpcCapability = hpcCapability;
+    }
     providers.push(claudeCode);
   }
 
   if (codex) {
     providers.push(codex);
-  }
-
-  if (slurm) {
-    providers.push(slurm);
   }
 
   // Add custom providers

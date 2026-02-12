@@ -23,8 +23,6 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { useRealtimeStore, type MachineEntry } from "@/stores/realtime-store"
 import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useSlurmStore } from "@/stores/slurm-store"
-import { ClusterStatus } from "@/components/slurm/cluster-status"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { formatDate, formatTimeShort } from "@/lib/date-utils"
 
@@ -52,6 +50,7 @@ function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
 
 function MachineCard({ machine, registeredMachine, onRemove }: { machine: MachineEntry; registeredMachine?: RegisteredMachine; onRemove?: () => void }) {
   const providers = machine.providers.map((p) => p.type)
+  const hpcCapability = machine.providers.find((p) => p.hpcCapability)?.hpcCapability
 
   return (
     <Card>
@@ -59,7 +58,7 @@ function MachineCard({ machine, registeredMachine, onRemove }: { machine: Machin
       <div className="flex items-center justify-between p-6">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-            <Monitor className="h-5 w-5 text-primary" />
+            {hpcCapability ? <Server className="h-5 w-5 text-primary" /> : <Monitor className="h-5 w-5 text-primary" />}
           </div>
           <div>
             <p className="font-medium">{machine.name || machine.machineId}</p>
@@ -67,6 +66,12 @@ function MachineCard({ machine, registeredMachine, onRemove }: { machine: Machin
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {hpcCapability && (
+            <Badge className="gap-1.5 bg-purple-500/10 text-purple-600 border-0">
+              <Server className="h-3 w-3" />
+              HPC{hpcCapability.clusterName ? ` · ${hpcCapability.clusterName}` : ""}
+            </Badge>
+          )}
           <Badge className="gap-1.5 bg-success/10 text-success border-0">
             <span className="h-1.5 w-1.5 rounded-full bg-success" />
             Connected
@@ -86,6 +91,28 @@ function MachineCard({ machine, registeredMachine, onRemove }: { machine: Machin
             {providers.map((p) => (
               <Badge key={p} variant="outline" className="text-[11px]">{p}</Badge>
             ))}
+          </div>
+        )}
+        {hpcCapability && (
+          <div className="flex flex-col gap-1.5 rounded-lg bg-muted/50 p-3 text-xs">
+            {hpcCapability.partitions.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Partitions:</span>
+                <span className="font-medium">{hpcCapability.partitions.join(", ")}</span>
+              </div>
+            )}
+            {hpcCapability.accounts.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Accounts:</span>
+                <span className="font-medium">{hpcCapability.accounts.join(", ")}</span>
+              </div>
+            )}
+            {hpcCapability.defaultPartition && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Default partition:</span>
+                <span className="font-medium">{hpcCapability.defaultPartition}</span>
+              </div>
+            )}
           </div>
         )}
         <div className="grid grid-cols-3 gap-4 text-xs">
@@ -238,13 +265,9 @@ export function Environments() {
   const fetchRegistered = useMachinesStore((s) => s.fetchMachines)
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
 
-  const slurmClusters = useSlurmStore((s) => s.clusters)
-  const fetchClusters = useSlurmStore((s) => s.fetchClusters)
-
   useEffect(() => {
     fetchRegistered("user-1")
-    fetchClusters()
-  }, [fetchRegistered, fetchClusters])
+  }, [fetchRegistered])
 
   const liveMachines = Array.from(machines.values())
   const liveMachineIds = new Set(liveMachines.map((m) => m.machineId))
@@ -260,15 +283,19 @@ export function Environments() {
     (m) => !m.isRevoked && !m.isConnected && !liveMachineIds.has(m.id)
   )
 
+  // Derive HPC machines from live machines with hpcCapability
+  const hpcMachines = liveMachines.filter((m) =>
+    m.providers.some((p) => p.hpcCapability)
+  )
+
   // +1 for the local machine (this server)
   const totalMachines = 1 + remoteLiveMachines.length + offlineMachines.length
   const connectedCount = 1 + remoteLiveMachines.length
   const activeTasks = liveMachines.reduce((sum, m) => sum + m.load.activeTasks, 0)
-  const hpcClusterCount = slurmClusters.length
+  const hpcClusterCount = hpcMachines.length
 
   const handleRefresh = () => {
     fetchRegistered("user-1")
-    fetchClusters()
     if (!realtimeConnected) connectRealtime()
   }
 
@@ -388,13 +415,39 @@ export function Environments() {
         <div className="flex items-center gap-3">
           <Server className="h-5 w-5 text-muted-foreground" />
           <h2 className="text-lg font-semibold">HPC Clusters</h2>
-          {slurmClusters.filter((c) => c.connectionStatus === "connected").length > 0 && (
+          {hpcMachines.length > 0 && (
             <Badge variant="warning">
-              {slurmClusters.filter((c) => c.connectionStatus === "connected").length} connected
+              {hpcMachines.length} connected
             </Badge>
           )}
         </div>
-        <ClusterStatus showPartitions />
+        {hpcMachines.length > 0 ? (
+          <div className="grid grid-cols-2 gap-4">
+            {hpcMachines.map((m) => (
+              <MachineCard
+                key={m.machineId}
+                machine={m}
+                registeredMachine={registeredLookup.get(m.machineId)}
+                onRemove={() => revokeMachine(m.machineId)}
+              />
+            ))}
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Server}
+                title="No HPC clusters connected"
+                description="Connect to an HPC login node with Slurm installed. The agent runner will auto-detect the cluster and inject HPC context into Claude sessions."
+                action={{
+                  label: "Add HPC Machine",
+                  onClick: () => setDialogOpen(true),
+                }}
+                className="py-8"
+              />
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Cloud */}

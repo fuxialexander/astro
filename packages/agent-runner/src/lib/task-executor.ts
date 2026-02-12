@@ -13,6 +13,7 @@ import type { Task, TaskStatus, ProviderType } from '../types.js';
 import type { WebSocketClient } from './websocket-client.js';
 import { createProviderAdapter, type ProviderAdapter } from '../providers/index.js';
 import { ClaudeSdkAdapter } from '../providers/claude-sdk-adapter.js';
+import { SlurmJobMonitor } from './slurm-job-monitor.js';
 import { createWorktree } from './worktree.js';
 import { pushAndCreatePR } from './git-pr.js';
 
@@ -40,6 +41,7 @@ export class TaskExecutor {
   private adapters: Map<ProviderType, ProviderAdapter> = new Map();
   private useWorktree: boolean;
   private worktreeRoot?: string;
+  private jobMonitor: SlurmJobMonitor;
 
   constructor(options: TaskExecutorOptions) {
     this.wsClient = options.wsClient;
@@ -47,6 +49,7 @@ export class TaskExecutor {
     this.defaultTimeout = options.defaultTimeout ?? 3600000; // 1 hour
     this.useWorktree = options.useWorktree ?? true;
     this.worktreeRoot = options.worktreeRoot;
+    this.jobMonitor = new SlurmJobMonitor(options.wsClient);
   }
 
   /**
@@ -123,6 +126,9 @@ export class TaskExecutor {
       });
     }
     this.taskQueue = [];
+
+    // Stop job monitor
+    this.jobMonitor.stop();
   }
 
   /**
@@ -275,8 +281,18 @@ export class TaskExecutor {
       }
 
       console.log(`[executor] Task ${task.id}: completed with status=${result.status}${result.error ? ` error=${result.error}` : ''}`);
-      // Send final result
-      this.wsClient.sendTaskResult(result);
+
+      // Check if there are tracked Slurm jobs still running for this task.
+      // If so, don't send the final result yet — let the job monitor handle it.
+      const pendingJobs = this.jobMonitor.getJobsForExecution(task.id);
+      if (pendingJobs.length > 0) {
+        console.log(`[executor] Task ${task.id}: ${pendingJobs.length} Slurm job(s) still tracked, deferring completion`);
+        this.wsClient.sendTaskStatus(task.id, 'running', 80, `Waiting for ${pendingJobs.length} Slurm job(s): ${pendingJobs.join(', ')}`);
+        // Don't send final result — the SlurmJobMonitor will send it when jobs finish
+      } else {
+        // Send final result
+        this.wsClient.sendTaskResult(result);
+      }
     } catch (error) {
       // Unexpected error during execution
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -340,6 +356,11 @@ export class TaskExecutor {
     const adapter = createProviderAdapter(type);
     if (!adapter) {
       return null;
+    }
+
+    // Wire up job monitor for HPC-aware adapters
+    if (adapter instanceof ClaudeSdkAdapter) {
+      adapter.setJobMonitor(this.jobMonitor);
     }
 
     // Check availability

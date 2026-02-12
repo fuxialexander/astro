@@ -167,7 +167,7 @@ relayRoute.get('/machines/environment/:environment', (c) => {
 relayRoute.get('/machines/provider/:provider', (c) => {
   const provider = c.req.param('provider') as ProviderType;
 
-  if (!['claude-code', 'slurm', 'aws', 'gcp', 'custom'].includes(provider)) {
+  if (!['claude-code', 'claude-sdk', 'aws', 'gcp', 'custom'].includes(provider)) {
     return c.json({ error: 'Invalid provider type' }, 400);
   }
 
@@ -435,36 +435,41 @@ relayRoute.get('/best-machine', (c) => {
 
 /**
  * GET /relay/slurm/clusters
- * Get all HPC clusters with Slurm providers
+ * Get all HPC machines (machines with hpcCapability metadata).
+ * Slurm is no longer a standalone provider — HPC is detected via
+ * hpcCapability on claude-sdk/claude-code providers.
  */
 relayRoute.get('/slurm/clusters', (c) => {
   const hpcMachines = machineRegistry.getByEnvironment('hpc');
-  const slurmMachines = hpcMachines.filter(m =>
-    m.providers.some(p => p.type === 'slurm')
+  // Also include machines that have hpcCapability regardless of environment type
+  const allMachines = machineRegistry.getAll();
+  const hpcCapableMachines = allMachines.filter(m =>
+    m.providers.some(p => p.hpcCapability) || hpcMachines.some(h => h.machineId === m.machineId)
   );
 
   return c.json({
-    clusters: slurmMachines.map(m => {
-      const slurmProvider = m.providers.find(p => p.type === 'slurm');
+    clusters: hpcCapableMachines.map(m => {
+      const hpcProvider = m.providers.find(p => p.hpcCapability);
       return {
         machineId: m.machineId,
         name: m.name,
         hostname: m.hostname,
         connectionStatus: m.connectionStatus,
-        provider: slurmProvider ? {
-          status: slurmProvider.status,
-          version: slurmProvider.version,
-          maxConcurrentTasks: slurmProvider.maxConcurrentTasks,
-          currentTasks: slurmProvider.currentTasks,
-          capabilities: slurmProvider.capabilities,
+        provider: hpcProvider ? {
+          status: hpcProvider.status,
+          version: hpcProvider.version,
+          maxConcurrentTasks: hpcProvider.maxConcurrentTasks,
+          currentTasks: hpcProvider.currentTasks,
+          capabilities: hpcProvider.capabilities,
         } : null,
         resources: m.resources,
         load: m.load,
         lastHeartbeat: m.lastHeartbeat,
         metadata: m.metadata,
+        hpcCapability: hpcProvider?.hpcCapability,
       };
     }),
-    count: slurmMachines.length,
+    count: hpcCapableMachines.length,
   });
 });
 
@@ -484,9 +489,9 @@ relayRoute.get('/slurm/clusters/:machineId', (c) => {
     return c.json({ error: 'Machine is not an HPC cluster' }, 400);
   }
 
-  const slurmProvider = machine.providers.find(p => p.type === 'slurm');
-  if (!slurmProvider) {
-    return c.json({ error: 'Machine does not have Slurm provider' }, 400);
+  const hpcProvider = machine.providers.find(p => p.hpcCapability);
+  if (!hpcProvider) {
+    return c.json({ error: 'Machine does not have HPC capability' }, 400);
   }
 
   return c.json({
@@ -496,13 +501,15 @@ relayRoute.get('/slurm/clusters/:machineId', (c) => {
       hostname: machine.hostname,
       platform: machine.platform,
       connectionStatus: machine.connectionStatus,
-      slurm: {
-        status: slurmProvider.status,
-        version: slurmProvider.version,
-        maxConcurrentTasks: slurmProvider.maxConcurrentTasks,
-        currentTasks: slurmProvider.currentTasks,
-        capabilities: slurmProvider.capabilities,
+      provider: {
+        type: hpcProvider.type,
+        status: hpcProvider.status,
+        version: hpcProvider.version,
+        maxConcurrentTasks: hpcProvider.maxConcurrentTasks,
+        currentTasks: hpcProvider.currentTasks,
+        capabilities: hpcProvider.capabilities,
       },
+      hpcCapability: hpcProvider.hpcCapability,
       resources: machine.resources,
       load: machine.load,
       tags: machine.tags,
@@ -519,14 +526,14 @@ relayRoute.get('/slurm/clusters/:machineId', (c) => {
  * (This would require tracking Slurm jobs in the registry)
  */
 relayRoute.get('/slurm/jobs', (c) => {
-  // For now, return structure for frontend integration
-  // In production, this would query the NexusSlurmJobRegistry
+  // Job tracking is now handled by the SlurmJobMonitor in the agent runner.
+  // Jobs are reported through the standard task.progress / task.result relay events.
   return c.json({
     jobs: [],
-    clusters: machineRegistry.getByEnvironment('hpc')
-      .filter(m => m.providers.some(p => p.type === 'slurm'))
+    clusters: machineRegistry.getAll()
+      .filter(m => m.providers.some(p => p.hpcCapability))
       .map(m => m.machineId),
-    message: 'Query individual clusters for job status',
+    message: 'Jobs are tracked via the agent runner and reported through relay events',
   });
 });
 
@@ -569,11 +576,11 @@ relayRoute.post('/slurm/dispatch', async (c) => {
       }, 400);
     }
 
-    // Force HPC environment and Slurm provider
-    const slurmTask: TaskDispatch = {
+    // Force HPC environment and claude-sdk provider (HPC via prompt injection)
+    const hpcTask: TaskDispatch = {
       ...task,
       environment: 'hpc',
-      preferredProvider: 'slurm',
+      preferredProvider: 'claude-sdk',
       metadata: {
         ...task.metadata,
         slurmConfig: slurmConfig ? JSON.stringify(slurmConfig) : undefined,
@@ -583,38 +590,38 @@ relayRoute.post('/slurm/dispatch', async (c) => {
     // Find target cluster
     let targetMachineId = targetClusterId;
     if (!targetMachineId) {
-      const bestMachine = machineRegistry.findBestMachine('hpc', 'slurm');
+      const bestMachine = machineRegistry.findBestMachine('hpc', 'claude-sdk');
       if (!bestMachine) {
         return c.json({
-          error: 'No Slurm cluster available',
-          hint: 'Connect an HPC cluster with Slurm provider',
+          error: 'No HPC machine available',
+          hint: 'Connect an HPC machine with Claude SDK and Slurm installed',
         }, 503);
       }
       targetMachineId = bestMachine.machineId;
     }
 
-    // Verify target has Slurm
+    // Verify target has HPC capability
     const targetMachine = machineRegistry.get(targetMachineId);
     if (!targetMachine) {
-      return c.json({ error: 'Target cluster not found' }, 404);
+      return c.json({ error: 'Target machine not found' }, 404);
     }
 
-    const hasSlurmProvider = targetMachine.providers.some(
-      p => p.type === 'slurm' && p.status === 'available'
+    const hasHpcCapability = targetMachine.providers.some(
+      p => p.hpcCapability && p.status === 'available'
     );
-    if (!hasSlurmProvider) {
+    if (!hasHpcCapability) {
       return c.json({
-        error: 'Target machine does not have available Slurm provider',
+        error: 'Target machine does not have HPC capability',
         machineId: targetMachineId,
       }, 400);
     }
 
     // Dispatch to relay server
-    const success = relayServer.dispatchTask(slurmTask, targetMachineId);
+    const success = relayServer.dispatchTask(hpcTask, targetMachineId);
 
     if (!success) {
       return c.json({
-        error: 'Failed to dispatch task to Slurm cluster',
+        error: 'Failed to dispatch task to HPC machine',
         machineId: targetMachineId,
       }, 503);
     }
@@ -630,9 +637,9 @@ relayRoute.post('/slurm/dispatch', async (c) => {
       machineId: targetMachineId,
       clusterName: targetMachine.name,
       environment: 'hpc',
-      provider: 'slurm',
+      provider: 'claude-sdk',
       slurmConfig,
-      message: 'Task dispatched to Slurm cluster',
+      message: 'Task dispatched to HPC machine',
     });
   } catch (err) {
     console.error('[relay] Error dispatching Slurm task:', err);

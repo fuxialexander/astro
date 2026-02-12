@@ -11,6 +11,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Task, TaskResult, TaskArtifact } from '../types.js';
 import type { ProviderAdapter, TaskOutputStream, ProviderStatus } from './base-adapter.js';
+import { buildHpcContext, type HpcContext } from '../lib/hpc-context.js';
+import type { SlurmJobMonitor } from '../lib/slurm-job-monitor.js';
 
 /** Active query state for a running task */
 interface ActiveQuery {
@@ -30,6 +32,20 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
 
   /** Active Query instances per task ID for steering */
   private activeQueries = new Map<string, ActiveQuery>();
+
+  /** Lazily-initialized HPC context (undefined = not checked, null = not available) */
+  private hpcContext: HpcContext | null | undefined = undefined;
+
+  /** Optional Slurm job monitor for tracking sbatch submissions */
+  private jobMonitor?: SlurmJobMonitor;
+
+  /**
+   * Set a SlurmJobMonitor for tracking batch job submissions.
+   * Call this before executing tasks if HPC support is desired.
+   */
+  setJobMonitor(monitor: SlurmJobMonitor): void {
+    this.jobMonitor = monitor;
+  }
 
   async isAvailable(): Promise<boolean> {
     try {
@@ -202,9 +218,27 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       (options as Record<string, unknown>).env = task.environment;
     }
 
+    // Lazily initialize HPC context on first query
+    if (this.hpcContext === undefined) {
+      try {
+        this.hpcContext = await buildHpcContext();
+        if (this.hpcContext.available) {
+          console.log(`[claude-sdk] HPC context loaded (cluster: ${this.hpcContext.slurmInfo?.clusterName ?? 'unknown'})`);
+        }
+      } catch {
+        this.hpcContext = null;
+      }
+    }
+
+    // Prepend HPC context to prompt if available
+    let effectivePrompt = task.prompt;
+    if (this.hpcContext?.available) {
+      effectivePrompt = this.hpcContext.contextString + '\n\n---\n\n' + task.prompt;
+    }
+
     // Use plain string prompt — simple and reliable
     const gen = query({
-      prompt: task.prompt,
+      prompt: effectivePrompt,
       options,
     });
 
@@ -265,6 +299,19 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
               resultContent,
               !isError,
             );
+
+            // Detect sbatch submissions for job tracking
+            if (this.jobMonitor && typeof resultContent === 'string') {
+              const sbatchMatch = resultContent.match(/Submitted batch job (\d+)/);
+              if (sbatchMatch) {
+                const jobId = sbatchMatch[1];
+                // Try to extract output path from sbatch script (common pattern: --output=...)
+                const outputMatch = resultContent.match(/--output[= ](\S+)/);
+                const outputPath = outputMatch?.[1]?.replace('%j', jobId);
+                this.jobMonitor.trackJob(jobId, task.id, task.planNodeId, outputPath);
+                console.log(`[claude-sdk] Detected sbatch submission: job ${jobId}`);
+              }
+            }
           }
         }
       } else if (msg.type === 'result') {

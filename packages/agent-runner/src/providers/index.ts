@@ -6,14 +6,12 @@ export type { ProviderAdapter, TaskOutputStream, ProviderStatus } from './base-a
 export { ClaudeCodeAdapter } from './claude-code-adapter.js';
 export { ClaudeSdkAdapter } from './claude-sdk-adapter.js';
 export { CodexAdapter } from './codex-adapter.js';
-export { SlurmAdapter } from './slurm-adapter.js';
 
 import type { ProviderType } from '../types.js';
 import type { ProviderAdapter } from './base-adapter.js';
 import { ClaudeCodeAdapter } from './claude-code-adapter.js';
 import { ClaudeSdkAdapter } from './claude-sdk-adapter.js';
 import { CodexAdapter } from './codex-adapter.js';
-import { SlurmAdapter } from './slurm-adapter.js';
 
 /** Extended provider types including SDK variant */
 export type ExtendedProviderType = ProviderType | 'claude-sdk';
@@ -33,7 +31,9 @@ export function createProviderAdapter(type: ProviderType | ExtendedProviderType)
     case 'codex':
       return new CodexAdapter();
     case 'slurm':
-      return new SlurmAdapter();
+      // Slurm is no longer a standalone provider — HPC is handled via
+      // prompt injection in ClaudeSdkAdapter. Return null for backward compat.
+      return null;
     case 'custom':
       // Custom providers would need additional configuration
       return null;
@@ -57,7 +57,6 @@ export async function getAvailableAdapters(): Promise<ProviderAdapter[]> {
     new ClaudeSdkAdapter(), // Prefer SDK over CLI
     new ClaudeCodeAdapter(),
     new CodexAdapter(),
-    new SlurmAdapter(),
   ];
 
   const available: ProviderAdapter[] = [];

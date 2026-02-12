@@ -9,6 +9,13 @@ import { create } from 'zustand'
 import { realtimeClient, type RealtimeEvent } from '@/lib/realtime-client'
 import { usePlanStore } from './plan-store'
 
+export interface HpcCapability {
+  clusterName?: string
+  partitions: string[]
+  defaultPartition?: string
+  accounts: string[]
+}
+
 export interface MachineEntry {
   machineId: string
   name: string
@@ -19,6 +26,7 @@ export interface MachineEntry {
     status: string
     currentTasks: number
     maxConcurrentTasks: number
+    hpcCapability?: HpcCapability
   }>
   load: {
     cpuPercent: number

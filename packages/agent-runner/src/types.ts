@@ -8,6 +8,13 @@
 
 export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'slurm' | 'custom';
 
+export interface HpcCapability {
+  clusterName?: string;
+  partitions: string[];
+  defaultPartition?: string;
+  accounts: string[];
+}
+
 export interface ProviderInfo {
   type: ProviderType;
   name: string;
@@ -15,6 +22,7 @@ export interface ProviderInfo {
   path: string;
   available: boolean;
   capabilities: ProviderCapabilities;
+  hpcCapability?: HpcCapability;
 }
 
 export interface ProviderCapabilities {

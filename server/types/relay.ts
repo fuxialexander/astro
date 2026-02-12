@@ -14,7 +14,7 @@
 export type EnvironmentType = 'local' | 'remote' | 'hpc' | 'cloud';
 
 /** Provider types available on a machine */
-export type ProviderType = 'claude-code' | 'claude-sdk' | 'slurm' | 'aws' | 'gcp' | 'custom';
+export type ProviderType = 'claude-code' | 'claude-sdk' | 'aws' | 'gcp' | 'custom';
 
 /** Status of a machine connection */
 export type MachineConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -54,6 +54,14 @@ export interface MachineLoad {
   queuedTasks: number;
 }
 
+/** HPC capability metadata on a provider */
+export interface HpcCapability {
+  clusterName?: string;
+  partitions: string[];
+  defaultPartition?: string;
+  accounts: string[];
+}
+
 /** Provider configuration on a machine */
 export interface ProviderInfo {
   type: ProviderType;
@@ -62,6 +70,7 @@ export interface ProviderInfo {
   maxConcurrentTasks: number;
   currentTasks: number;
   capabilities?: string[];
+  hpcCapability?: HpcCapability;
 }
 
 /** Machine registration information */
@@ -513,9 +522,9 @@ export interface SlurmPartitionInfo {
   };
 }
 
-/** Slurm-specific provider info extension */
+/** Slurm-specific provider info extension (for backward compatibility) */
 export interface SlurmProviderInfo extends ProviderInfo {
-  type: 'slurm';
+  type: 'claude-sdk';
   /** Cluster information */
   clusterInfo?: SlurmClusterInfo;
   /** User's default account */
@@ -565,7 +574,7 @@ export interface SlurmJobInfo {
 /** Slurm task dispatch extension */
 export interface SlurmTaskDispatch extends TaskDispatch {
   environment: 'hpc';
-  preferredProvider: 'slurm';
+  preferredProvider: 'claude-sdk';
   /** Slurm-specific configuration */
   slurmConfig?: {
     partition?: string;

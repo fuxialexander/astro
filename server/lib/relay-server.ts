@@ -1052,7 +1052,7 @@ export class RelayServer extends EventEmitter {
         hostname: resources.hostname,
         platform: resources.platform,
         providers: providers.map((p) => ({
-          type: (['claude-code', 'claude-sdk', 'slurm', 'aws', 'gcp'].includes(p.type) ? p.type : 'custom') as ProviderType,
+          type: (['claude-code', 'claude-sdk', 'aws', 'gcp'].includes(p.type) ? p.type : 'custom') as ProviderType,
           version: p.version || undefined,
           status: p.available ? 'available' : 'unavailable',
           maxConcurrentTasks: p.capabilities.maxConcurrentTasks,
@@ -1060,6 +1060,7 @@ export class RelayServer extends EventEmitter {
           capabilities: ['streaming', 'tools', 'multi-turn'].filter((_, i) =>
             [p.capabilities.streaming, p.capabilities.tools, p.capabilities.multiTurn][i]
           ),
+          hpcCapability: p.hpcCapability || undefined,
         })),
         resources: {
           cpuCores: resources.cpu.cores,

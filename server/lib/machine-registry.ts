@@ -291,7 +291,9 @@ export class MachineRegistry extends EventEmitter {
   }
 
   /**
-   * Find best machine for a task based on environment, provider, and load
+   * Find best machine for a task based on environment, provider, and load.
+   * For HPC environment, finds machines with claude-sdk/claude-code providers
+   * that report hpcCapability metadata (Slurm is no longer a standalone provider).
    */
   findBestMachine(
     environment: EnvironmentType,
@@ -299,11 +301,16 @@ export class MachineRegistry extends EventEmitter {
   ): MachineRegistryEntry | undefined {
     let candidates = this.getByEnvironment(environment);
 
+    // For HPC, default to claude-sdk provider (HPC is handled via prompt injection)
+    const effectiveProvider = (environment === 'hpc' && !preferredProvider)
+      ? 'claude-sdk' as ProviderType
+      : preferredProvider;
+
     // Filter by provider if specified
-    if (preferredProvider) {
+    if (effectiveProvider) {
       candidates = candidates.filter(m =>
         m.providers.some(p =>
-          p.type === preferredProvider &&
+          p.type === effectiveProvider &&
           p.status === 'available' &&
           p.currentTasks < p.maxConcurrentTasks
         )
@@ -371,9 +378,9 @@ export class MachineRegistry extends EventEmitter {
       hpc: 0,
       cloud: 0,
     };
-    const byProvider: Record<ProviderType, number> = {
+    const byProvider: Record<string, number> = {
       'claude-code': 0,
-      slurm: 0,
+      'claude-sdk': 0,
       aws: 0,
       gcp: 0,
       custom: 0,
