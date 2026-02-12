@@ -214,6 +214,31 @@ agentRoute.post('/generate-plan', async (c) => {
                 if (event.result.stdout && event.result.stdout.length > 0 && event.result.stdout !== assistantText) {
                   console.warn(`[plan-gen] stdout preview: ${event.result.stdout.slice(0, 500)}`)
                 }
+
+                // Send an error to the frontend so the user knows what happened.
+                // Determine the most likely cause based on available evidence.
+                let failureDetail: string
+                if (event.result.status === 'error' && event.result.errorMessage) {
+                  // Provider already reported an error (e.g., max turns, budget limit)
+                  failureDetail = event.result.errorMessage
+                } else if (assistantText.length > 0) {
+                  // Got partial output but couldn't parse a plan — likely truncated
+                  const trimmed = assistantText.trimEnd()
+                  const mentionsPlanKeys = trimmed.includes('"nodes"') || trimmed.includes('"edges"')
+                  if (mentionsPlanKeys && !trimmed.endsWith('}')) {
+                    failureDetail = 'The AI response was truncated before the plan could be completed. This usually means the output token limit was reached. Try simplifying the project description or breaking it into smaller projects.'
+                  } else {
+                    failureDetail = 'The AI response did not contain a valid plan structure. The output may have been in an unexpected format. Try regenerating the plan.'
+                  }
+                } else {
+                  failureDetail = 'No output was produced during plan generation. This may indicate a provider configuration or authentication issue.'
+                }
+
+                console.warn(`[plan-gen] Sending error to client: ${failureDetail}`)
+                await stream.writeSSE({
+                  event: 'error',
+                  data: failureDetail,
+                })
               }
             }
 
@@ -348,6 +373,24 @@ async function generatePlanViaRelay(
             data: JSON.stringify(parsed),
           }).catch(() => { alive = false })
         }
+      }
+
+      // If no plan was extracted, notify the client with an error
+      if (!planResultSent) {
+        let failureDetail: string
+        if (assistantText.length > 0) {
+          const trimmed = assistantText.trimEnd()
+          const mentionsPlanKeys = trimmed.includes('"nodes"') || trimmed.includes('"edges"')
+          if (mentionsPlanKeys && !trimmed.endsWith('}')) {
+            failureDetail = 'The AI response was truncated before the plan could be completed. This usually means the output token limit was reached. Try simplifying the project description.'
+          } else {
+            failureDetail = 'The AI response did not contain a valid plan structure. Try regenerating the plan.'
+          }
+        } else {
+          failureDetail = 'No output was produced during plan generation on the remote machine.'
+        }
+        console.warn(`[plan-gen] Relay: no plan extracted. ${failureDetail}`)
+        stream.writeSSE({ event: 'error', data: failureDetail }).catch(() => { alive = false })
       }
 
       stream.writeSSE({

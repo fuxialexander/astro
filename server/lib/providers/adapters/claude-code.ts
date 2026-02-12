@@ -471,13 +471,29 @@ export class ClaudeCodeProvider implements AgentProvider {
                 // Not JSON
               }
             }
-          } else if (msg.subtype === 'error') {
+          } else {
+            // Handle all non-success result subtypes:
+            // 'error', 'error_max_turns', 'error_max_budget_usd', 'error_max_structured_output_retries', etc.
             status = 'error'
+
+            const subtypeMessages: Record<string, string> = {
+              error: 'Task failed with an error from the AI provider.',
+              error_max_turns: 'Max turns reached — the AI used all available conversation turns without completing the task. Try increasing max turns or simplifying the request.',
+              error_max_budget_usd: 'Budget limit reached — the task exceeded the allowed cost budget.',
+              error_max_structured_output_retries: 'The AI failed to produce valid structured output after multiple attempts. Try simplifying the request.',
+            }
+
+            const msgAnyErr = msg as Record<string, unknown>
+            const errorDetail = subtypeMessages[msg.subtype]
+              || (typeof msgAnyErr.error === 'string' ? msgAnyErr.error : null)
+              || `Task ended with non-success status: ${msg.subtype}`
+
+            console.warn(`[claude-code] Non-success result: subtype=${msg.subtype}, detail=${errorDetail}`)
 
             yield {
               type: 'error',
               taskId: task.taskId,
-              error: 'Task failed',
+              error: errorDetail,
               recoverable: false,
               timestamp: new Date(),
             }
