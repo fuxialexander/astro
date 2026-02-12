@@ -47,6 +47,7 @@ function clampPopoverPosition(
 interface PlanCanvasProps {
   projectId: string
   onNodeSelect?: (node: PlanNode | null) => void
+  onDecomposeNode?: (nodeId: string) => void
 }
 
 interface AddChildState {
@@ -55,7 +56,7 @@ interface AddChildState {
   screenPosition: { x: number; y: number }
 }
 
-function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
+function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanvasProps) {
   const planNodes = usePlanStore((s) => s.nodes)
   const planEdges = usePlanStore((s) => s.edges)
   const addEdge = usePlanStore((s) => s.addEdge)
@@ -100,10 +101,11 @@ function PlanCanvasInner({ projectId, onNodeSelect }: PlanCanvasProps) {
           dueDate: n.dueDate,
           executionId: n.executionId,
           prUrl: n.prUrl,
+          onDecompose: onDecomposeNode,
         },
         selected: n.id === selectedId,
       })),
-    [projectNodes, selectedId]
+    [projectNodes, selectedId, onDecomposeNode]
   )
 
   const rfEdges: Edge[] = useMemo(

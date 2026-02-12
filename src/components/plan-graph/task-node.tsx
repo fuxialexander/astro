@@ -1,6 +1,6 @@
 import { memo, useState } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2, Plus, GitPullRequest } from "lucide-react"
+import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2, Plus, GitPullRequest, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 
@@ -22,12 +22,14 @@ type TaskNodeData = Node<{
   priority?: string
   dueDate?: string
   prUrl?: string
+  onDecompose?: (nodeId: string) => void
 }>
 
-export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>) {
+export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeData>) {
   const config = statusConfig[data.status] ?? statusConfig.planned
   const Icon = config.icon
   const isMilestone = data.nodeType === "milestone"
+  const isTask = data.nodeType === "task"
   const [hovered, setHovered] = useState(false)
 
   // Get live progress from realtime store
@@ -101,6 +103,21 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeData>
       {/* Priority dot for urgent/high */}
       {showPriorityDot && (
         <span className={cn("absolute top-1 right-1.5 h-[6px] w-[6px] rounded-full z-10", priorityDotColor)} />
+      )}
+
+      {/* Decompose button — visible on hover for tasks */}
+      {hovered && isTask && data.status !== "pruned" && data.onDecompose && (
+        <button
+          type="button"
+          title="Decompose into sub-tasks"
+          className="absolute -top-3 -right-3 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500 text-white shadow-md hover:bg-violet-600 transition-colors cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation()
+            data.onDecompose?.(id)
+          }}
+        >
+          <Sparkles className="h-3 w-3" />
+        </button>
       )}
 
       {/* Source handle - grows into draggable '+' button on hover */}

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -12,10 +12,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
+import { MentionTextarea, type MentionItem } from "@/components/ui/mention-textarea"
 import { chatWithAgent, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore } from "@/stores/plan-store"
+import { useProjectStore } from "@/stores/project-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import type { PlanNode, ProviderStatus } from "@/types"
 
@@ -33,10 +35,25 @@ interface ParsedEdgeOp {
   type?: string
 }
 
+/** A new node to create (from decomposition) */
+interface ParsedNewNode {
+  id?: string
+  title: string
+  description: string
+  type?: string
+  milestoneId?: string
+  dependencies?: string[]
+  priority?: string
+  estimate?: string
+  environment?: string
+  verification?: string
+}
+
 /** All mutations extracted from a single assistant message */
 interface AppliedMutations {
   nodeUpdates: ParsedNodeUpdate[]
   edgeOps: ParsedEdgeOp[]
+  newNodes: ParsedNewNode[]
 }
 
 interface Message {
@@ -53,11 +70,13 @@ const INTERNAL_FIELDS = new Set(["id", "projectId", "createdAt", "updatedAt", "p
 
 const UPDATE_BLOCK_RE = /```nexus-updates\s*\n([\s\S]*?)```/g
 const EDGE_BLOCK_RE = /```nexus-edges\s*\n([\s\S]*?)```/g
+const ADD_NODES_BLOCK_RE = /```nexus-add-nodes\s*\n([\s\S]*?)```/g
 
-/** Extract nexus-updates and nexus-edges blocks from a message. */
+/** Extract nexus-updates, nexus-edges, and nexus-add-nodes blocks from a message. */
 function extractMutations(content: string): { cleanContent: string; mutations: AppliedMutations } {
   const nodeUpdates: ParsedNodeUpdate[] = []
   const edgeOps: ParsedEdgeOp[] = []
+  const newNodes: ParsedNewNode[] = []
 
   let cleanContent = content.replace(UPDATE_BLOCK_RE, (match, json: string) => {
     try {
@@ -89,9 +108,25 @@ function extractMutations(content: string): { cleanContent: string; mutations: A
       return match
     }
     return ""
+  })
+
+  cleanContent = cleanContent.replace(ADD_NODES_BLOCK_RE, (match, json: string) => {
+    try {
+      const parsed = JSON.parse(json.trim())
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item && typeof item === "object" && item.title) {
+            newNodes.push(item as ParsedNewNode)
+          }
+        }
+      }
+    } catch {
+      return match
+    }
+    return ""
   }).trim()
 
-  return { cleanContent, mutations: { nodeUpdates, edgeOps } }
+  return { cleanContent, mutations: { nodeUpdates, edgeOps, newNodes } }
 }
 
 /** Compact label for a model id (strip dates and common prefixes). */
@@ -103,20 +138,33 @@ function shortModelLabel(model: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionDoc?: string }) {
+interface ChatPanelProps {
+  projectId: string
+  visionDoc?: string
+  /** Pre-fill and auto-send a message (e.g. from decompose button) */
+  initialMessage?: string
+}
+
+export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId, setSessionId] = useState<string | undefined>()
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const initialMessageSent = useRef(false)
 
   // Plan store — read nodes/edges for context, write updates
   const planNodes = usePlanStore((s) => s.nodes)
   const planEdges = usePlanStore((s) => s.edges)
   const updateNode = usePlanStore((s) => s.updateNode)
+  const addNode = usePlanStore((s) => s.addNode)
   const addEdge = usePlanStore((s) => s.addEdge)
   const removeEdge = usePlanStore((s) => s.removeEdge)
+  const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
+
+  // Project store — for @codebase context
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
   // Build lean plan context for the API (only nodes in this project)
   const planNodeContext: ChatPlanNodeContext[] = useMemo(() => {
@@ -147,6 +195,23 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
       .filter((e) => projectNodeIds.has(e.source) || projectNodeIds.has(e.target))
       .map((e) => ({ source: e.source, target: e.target, type: e.type }))
   }, [planNodes, planEdges, projectId])
+
+  // Build @mention items for the chat input
+  const mentionItems: MentionItem[] = useMemo(() => {
+    const projectNodes = planNodes.filter((n) => n.projectId === projectId)
+    const items: MentionItem[] = [
+      { id: "codebase", label: "codebase", detail: "Include repo context", kind: "special" },
+    ]
+    for (const n of projectNodes) {
+      items.push({
+        id: n.id,
+        label: n.title,
+        detail: n.type,
+        kind: n.type === "milestone" ? "milestone" : "task",
+      })
+    }
+    return items
+  }, [planNodes, projectId])
 
   // Settings defaults
   const settingsModel = useSettingsStore((s) => s.model)
@@ -205,9 +270,48 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
     }
   }, [messages])
 
-  /** Apply all mutations (node updates + edge operations) to the plan store. */
+  /** Apply all mutations (node updates + edge operations + new nodes) to the plan store. */
   const applyMutations = useCallback((mutations: AppliedMutations) => {
-    const { nodeUpdates, edgeOps } = mutations
+    const { nodeUpdates, edgeOps, newNodes } = mutations
+
+    // Create new nodes (from decomposition)
+    const prefix = projectId.slice(0, 8)
+    const idMap = new Map<string, string>() // map AI-generated IDs to real IDs
+    for (const n of newNodes) {
+      const realId = n.id ? `${prefix}-${n.id}` : `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+      if (n.id) idMap.set(n.id, realId)
+
+      const now = new Date()
+      const node: PlanNode = {
+        id: realId,
+        projectId,
+        type: (n.type as PlanNode["type"]) ?? "task",
+        title: n.title,
+        description: n.description,
+        status: "planned",
+        parentId: null,
+        dependencies: (n.dependencies ?? []).map((d) => idMap.get(d) ?? d),
+        environment: (n.environment as PlanNode["environment"]) ?? "local",
+        verification: (n.verification as PlanNode["verification"]) ?? "auto",
+        position: { x: 40, y: 40 },
+        priority: (n.priority as PlanNode["priority"]) ?? "medium",
+        estimate: (n.estimate as PlanNode["estimate"]) ?? undefined,
+        milestoneId: n.milestoneId,
+        createdAt: now,
+        updatedAt: now,
+      }
+      addNode(node)
+
+      // Add edges for dependencies
+      for (const dep of node.dependencies) {
+        addEdge({ id: `e-${dep}-${realId}`, source: dep, target: realId, type: "dependency" })
+      }
+    }
+
+    if (newNodes.length > 0) {
+      // Auto-layout after adding new nodes
+      reorganizeProject(projectId)
+    }
 
     // Apply node property updates
     for (const u of nodeUpdates) {
@@ -265,10 +369,9 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
         }
       }
     }
-  }, [planNodes, updateNode, addEdge, removeEdge])
+  }, [planNodes, projectId, updateNode, addNode, addEdge, removeEdge, reorganizeProject])
 
-  async function handleSend() {
-    const text = input.trim()
+  const sendMessage = useCallback(async (text: string) => {
     if (!text || isStreaming) return
 
     setInput("")
@@ -278,10 +381,18 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
 
     abortRef.current = new AbortController()
 
+    // Detect @codebase mention — inject file tree context into the message
+    const hasCodebaseMention = /@codebase\b/i.test(text)
+    let enrichedMessage = text
+    if (hasCodebaseMention && project?.fileTree?.length) {
+      const fileTreeContext = `\n\n[Codebase context: ${project.fileTree.length} files]\nFile tree:\n${project.fileTree.slice(0, 200).join("\n")}${project.fileTree.length > 200 ? "\n... (truncated)" : ""}`
+      enrichedMessage = text + fileTreeContext
+    }
+
     try {
       await chatWithAgent(
         {
-          message: text,
+          message: enrichedMessage,
           sessionId,
           projectId,
           visionDoc,
@@ -303,15 +414,19 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
           },
           onDone: (newSessionId) => {
             if (newSessionId) setSessionId(newSessionId)
-            // Parse the final message for node updates and edge operations
+            // Extract mutations from the final message, then apply as a
+            // separate step OUTSIDE the setState updater.  React 18
+            // StrictMode can invoke updater functions twice, which would
+            // duplicate side-effects like addNode/addEdge.
+            let pendingMutations: AppliedMutations | null = null
             setMessages((prev) => {
               const updated = [...prev]
               const last = updated[updated.length - 1]
               if (last && last.role === "assistant" && last.content) {
                 const { cleanContent, mutations } = extractMutations(last.content)
-                const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0
+                const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
                 if (hasMutations) {
-                  applyMutations(mutations)
+                  pendingMutations = mutations
                   updated[updated.length - 1] = {
                     ...last,
                     content: cleanContent,
@@ -321,6 +436,10 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
               }
               return updated
             })
+            // Apply mutations outside setState to avoid double-invocation
+            if (pendingMutations) {
+              applyMutations(pendingMutations)
+            }
             setIsStreaming(false)
           },
           onError: (error) => {
@@ -340,14 +459,22 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
     } catch {
       setIsStreaming(false)
     }
+  }, [isStreaming, sessionId, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, applyMutations, project?.fileTree])
+
+  function handleSend() {
+    sendMessage(input.trim())
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+  // Handle initialMessage (from decompose button)
+  useEffect(() => {
+    if (initialMessage && !initialMessageSent.current && !isStreaming) {
+      initialMessageSent.current = true
+      setInput(initialMessage)
+      // Auto-send after a brief delay for the UI to show the message
+      const timer = setTimeout(() => sendMessage(initialMessage), 100)
+      return () => clearTimeout(timer)
     }
-  }
+  }, [initialMessage, isStreaming, sendMessage])
 
   // Display labels
   const providerLabel = selectedProviderObj?.name
@@ -469,7 +596,7 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
                 </pre>
               </div>
               {/* Show applied mutation banners */}
-              {msg.appliedMutations && (msg.appliedMutations.nodeUpdates.length > 0 || msg.appliedMutations.edgeOps.length > 0) && (
+              {msg.appliedMutations && (msg.appliedMutations.nodeUpdates.length > 0 || msg.appliedMutations.edgeOps.length > 0 || msg.appliedMutations.newNodes.length > 0) && (
                 <div className="flex flex-col gap-1 mt-1 max-w-[320px]">
                   {msg.appliedMutations.nodeUpdates.map((u, j) => {
                     const changedFields = Object.keys(u).filter((k) => k !== "nodeId" && !INTERNAL_FIELDS.has(k))
@@ -506,6 +633,18 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
                       <CheckCircle2 className="h-3 w-3 shrink-0 ml-auto" />
                     </div>
                   ))}
+                  {msg.appliedMutations.newNodes.map((n, j) => (
+                    <div
+                      key={`n-${j}`}
+                      className="flex items-center gap-1.5 rounded-md bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 text-[11px] text-green-600 dark:text-green-400"
+                    >
+                      <PlusCircle className="h-3 w-3 shrink-0" />
+                      <span className="truncate">
+                        Created <strong>{n.title}</strong>{n.type && n.type !== "task" ? ` (${n.type})` : ""}
+                      </span>
+                      <CheckCircle2 className="h-3 w-3 shrink-0 ml-auto" />
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -524,12 +663,14 @@ export function ChatPanel({ projectId, visionDoc }: { projectId: string; visionD
           disabled={isStreaming}
           className="h-9 w-9 shrink-0"
         />
-        <textarea
+        <MentionTextarea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Ask about your plan..."}
+          onChange={setInput}
+          items={mentionItems}
+          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Use @ to reference tasks... "}
           rows={1}
+          disabled={isStreaming}
+          onSubmit={handleSend}
           className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <Button

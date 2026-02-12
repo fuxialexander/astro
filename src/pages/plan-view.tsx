@@ -574,11 +574,23 @@ export function PlanView() {
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const updateNode = usePlanStore((s) => s.updateNode)
+  const planNodes = usePlanStore((s) => s.nodes)
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [viewMode, setViewMode] = useState<ViewMode>(initialView && VALID_VIEWS.has(initialView) ? initialView : "graph")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [visionOpen, setVisionOpen] = useState(false)
+
+  // Handle decompose: open chat with pre-filled message
+  const handleDecomposeNode = useCallback((nodeId: string) => {
+    const node = planNodes.find((n) => n.id === nodeId)
+    if (!node) return
+    const message = `Decompose @${node.title} into smaller sub-tasks with minimal overlap. Each sub-task should be agent-solvable in one session.`
+    setChatInitialMessage(message)
+    setChatOpen(true)
+    setSelectedNode(null)
+  }, [planNodes])
 
   // Refresh file tree cache if stale, missing, or from a different machine
   useEffect(() => {
@@ -685,7 +697,7 @@ export function PlanView() {
           <Button
             variant={chatOpen ? "default" : "outline"}
             size="sm"
-            onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setSelectedNode(null) }}
+            onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setSelectedNode(null); if (chatOpen) setChatInitialMessage(undefined) }}
           >
             <MessageSquare className="h-3.5 w-3.5" />
             Chat
@@ -700,7 +712,7 @@ export function PlanView() {
       <div className="flex flex-1 overflow-hidden relative">
         {viewMode === "graph" ? (
           <div className="absolute inset-0">
-            <PlanCanvas projectId={project.id} onNodeSelect={setSelectedNode} />
+            <PlanCanvas projectId={project.id} onNodeSelect={setSelectedNode} onDecomposeNode={handleDecomposeNode} />
           </div>
         ) : viewMode === "list" ? (
           <div className="flex flex-1 flex-col overflow-hidden">
@@ -720,7 +732,7 @@ export function PlanView() {
               ? "absolute right-0 top-0 bottom-0 w-[380px] shadow-lg"
               : "w-[380px] shrink-0"
           )}>
-            <ChatPanel projectId={project.id} visionDoc={project.visionDoc} />
+            <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
           </div>
         )}
 

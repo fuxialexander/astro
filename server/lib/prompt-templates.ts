@@ -111,7 +111,7 @@ ${visionSection}${repoSection}
 - Tasks do NOT have startDate or endDate — they are agent-solvable work items without time estimates.
 - Milestones MUST have startDate and endDate (both equal, zero duration). Use ISO "YYYY-MM-DD" format. A milestone's date should be after all its dependencies.
 - priority: "urgent" | "high" | "medium" | "low" | "none". Default "medium" for most tasks, "high" for critical path items.
-- estimate: "XS" | "S" | "M" | "L" | "XL". T-shirt estimate for effort. Tasks should be ≤ M (agent-solvable in < 1 day).
+- estimate: "XS" | "S" | "M" | "L" | "XL". T-shirt estimate for effort. Target each task at ~20 minutes of expert work time or <1000 lines of code changed. Tasks should be ≤ M.
 - milestoneId: REQUIRED for tasks. Every task MUST have a milestoneId pointing to the milestone it contributes toward. This is how tasks are grouped under milestones in the UI.
 
 ## Edge rules
@@ -260,9 +260,37 @@ Edge fields:
 - "target" (required) — target node ID
 - "type" (for add) — "dependency" or "branch". Defaults to "dependency".
 
+### Decomposing / Exploding a Task into Sub-tasks
+
+When the user asks to decompose, explode, or break down a task, use a fenced code block with language \`nexus-add-nodes\`:
+
+\`\`\`nexus-add-nodes
+[
+  { "id": "sub1", "title": "Sub-task 1", "description": "...", "milestoneId": "m1", "dependencies": ["parent_id"], "priority": "medium", "estimate": "S" },
+  { "id": "sub2", "title": "Sub-task 2", "description": "...", "milestoneId": "m1", "dependencies": ["sub1"], "priority": "medium", "estimate": "S" }
+]
+\`\`\`
+
+Fields:
+- "id" (string, optional) — temporary ID for referencing between new nodes in the same block
+- "title" (required) — task title
+- "description" (required) — detailed description of what needs to be done
+- "type" (string) — defaults to "task"
+- "milestoneId" (string) — inherit from the parent task being decomposed
+- "dependencies" (string[]) — can reference other new node IDs from the same block, or existing node IDs
+- "priority", "estimate", "environment", "verification" — same as node properties
+
+When decomposing, also use \`nexus-updates\` to mark the original task as "completed" or "pruned" (since it's been replaced by sub-tasks), and use \`nexus-edges\` if the sub-tasks need to connect to other existing nodes.
+
+Decomposition rules:
+- Prioritize orthogonal sub-tasks that can be independently verified — each sub-task should touch a distinct area of the codebase or concern so that one failing does not block or invalidate the others.
+- Target each sub-task at roughly 20 minutes of expert work time, or < 1000 lines of code expected. Use estimate "XS" (~5 min / <100 LOC), "S" (~15 min / <500 LOC), or "M" (~30 min / <1000 LOC). Never larger than "M".
+- Preserve the original task's milestone assignment
+- Wire dependencies so sub-tasks form a clear sequence or parallel branches; prefer parallel branches when sub-tasks are truly independent
+
 ### Rules
 - Only include fields that should change. Omit unchanged fields.
-- You can combine \`nexus-updates\` and \`nexus-edges\` in the same response.
+- You can combine \`nexus-updates\`, \`nexus-edges\`, and \`nexus-add-nodes\` in the same response.
 - Do NOT include update blocks if no changes are needed.
 - ALWAYS include update blocks when the user asks to change something — never just describe what to do manually.
 - When modifying dependencies via "dependencies" in nexus-updates, edges are automatically synchronized. Alternatively use nexus-edges for individual add/remove.`

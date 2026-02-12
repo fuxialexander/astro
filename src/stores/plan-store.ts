@@ -69,6 +69,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   },
 
   addNode: (node) => {
+    // Skip if a node with this ID already exists
+    if (get().nodes.some((n) => n.id === node.id)) return
+
     const nextNodes = [...get().nodes, node]
     set({ nodes: nextNodes })
     saveState("nexus-plan-nodes", nextNodes)
