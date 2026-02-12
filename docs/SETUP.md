@@ -9,7 +9,7 @@
   - The project includes `.nvmrc` for automatic version switching
 - **npm**: v11.8.0 or higher (comes with Node.js)
 - **Git**: Latest stable version
-- **Anthropic API key**: Required for AI plan generation ([get one here](https://console.anthropic.com/))
+- **Claude CLI**: Authenticated via `claude login` (credentials are stored in `~/.claude/` and used automatically by the SDK)
 
 ### Optional
 
@@ -30,9 +30,8 @@ nvm use
 # Install dependencies
 npm install
 
-# Copy environment template and set your API key
+# Copy environment template (optional — no API keys needed)
 cp .env.example .env
-# Edit .env → set ANTHROPIC_API_KEY
 
 # Run verification
 npm run verify
@@ -89,20 +88,13 @@ This will install all required dependencies and set up Husky git hooks.
 
 ### 4. Environment Configuration
 
-Copy the example environment file:
+Copy the example environment file (optional — no API keys needed):
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set at minimum:
-
-```bash
-# Required for AI features
-ANTHROPIC_API_KEY=your-anthropic-api-key
-```
-
-All other variables have sensible defaults for local development. See the full reference below.
+The Claude Agent SDK authenticates via `~/.claude/` credentials (from `claude login`). No API key environment variable is required. All other variables have sensible defaults for local development. See the full reference below.
 
 ### 5. Database
 
@@ -144,7 +136,6 @@ Vite proxies `/api` requests to `localhost:3001` automatically — no CORS issue
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `ANTHROPIC_API_KEY` | Anthropic API key for AI features | - | **Yes** |
 | `NODE_ENV` | Environment mode | `development` | No |
 | `PORT` | Backend server port | `3001` | No |
 | `RELAY_PORT` | WebSocket relay port | `3002` | No |

@@ -49,7 +49,7 @@ Nexus sits above execution tools (coding agents, analysis tools) to help users d
 - **Node.js** 25.6.0+ (managed via `.nvmrc` — use `nvm use`)
 - **npm** 11.8.0+
 - **Git**
-- **Anthropic API key** (for AI plan generation)
+- **Claude CLI** authenticated (`claude login` — the Claude Agent SDK reads credentials from `~/.claude/`)
 
 Redis is **not required** for local development. It's only needed for horizontal scaling in production.
 
@@ -67,10 +67,9 @@ nvm use 25.6.0
 # Install dependencies
 npm install
 
-# Copy environment template and set your API key
+# Copy environment template (optional — no API keys needed)
 cp env.example .env
 ```
-*Then edit `.env` and set your `ANTHROPIC_API_KEY`.*
 
 The SQLite database is created automatically on first server start (stored as `.nexus/nexus.db`).
 
@@ -98,12 +97,10 @@ npm run verify    # Check Node version, dependencies, port availability, config
 
 ### Environment Variables
 
-The only required variable for local development is `ANTHROPIC_API_KEY`. See `.env.example` for the full list:
+No environment variables are required for local development. The Claude Agent SDK authenticates via `~/.claude/` credentials (from `claude login`). See `.env.example` for optional variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ANTHROPIC_API_KEY` | **Yes** | Anthropic API key for AI features |
-| `CODEX_API_KEY` | No | Codex API key for AI features (To be tested)|
 | `PORT` | No | Backend port (default: 3001) |
 | `RELAY_PORT` | No | WebSocket relay port (default: 3002) |
 | `REDIS_URL` | No | Redis URL for horizontal scaling (not needed locally) |
@@ -111,7 +108,7 @@ The only required variable for local development is `ANTHROPIC_API_KEY`. See `.e
 
 ### Agent Setup
 
-Local agent should directly work if you have already setup `claude` or `codex` locally. For `claude`, you want to run `claude setup-token` to get a token/api key and set it in `.env` as `ANTHROPIC_API_KEY`. For `codex` it seems it directly set the api key in the environment variables.
+Local agent should directly work if you have already set up `claude` or `codex` locally. For `claude`, authenticate via `claude login` (credentials are stored in `~/.claude/` and picked up automatically by the SDK). For `codex`, it reads credentials from its own environment variables (`OPENAI_API_KEY`).
 
 To connect to a remote machine (e.g. HPC cluster, SSH server) to your local Nexus server:
 

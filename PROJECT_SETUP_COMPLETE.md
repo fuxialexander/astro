@@ -209,7 +209,7 @@ Run `make help` to see all available targets:
 Key environment variables to configure in `.env`:
 
 ### Required
-- `ANTHROPIC_API_KEY` - Anthropic API key for Claude
+- Claude CLI authenticated (`claude login` — SDK reads `~/.claude/` credentials automatically)
 - `SUPABASE_URL` - Supabase project URL
 - `SUPABASE_ANON_KEY` - Supabase anonymous key
 - `AUTH_JWT_SECRET` - JWT signing secret (generate secure random)
