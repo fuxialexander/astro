@@ -438,7 +438,7 @@ export function ItemTimelineView<T>({
                   <div
                     onClick={() => onItemClick?.(row.item)}
                     className={cn(
-                      "absolute h-5 rounded transition-all hover:brightness-110 timeline-bar",
+                      "absolute h-5 rounded transition hover:brightness-110 timeline-bar",
                       tl.barClass,
                       onItemClick && "cursor-pointer"
                     )}

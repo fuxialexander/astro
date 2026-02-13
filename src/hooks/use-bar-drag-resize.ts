@@ -123,9 +123,15 @@ export function useBarDragResize(config: UseBarDragResizeConfig) {
       const origStart = fmtDate(drag.startDate)
       const origEnd = fmtDate(drag.endDate)
 
-      // Reset inline styles so React re-render takes over
-      drag.barEl.style.left = ""
-      drag.barEl.style.width = ""
+      // Set final position inline (instead of clearing to "") so the bar
+      // stays visible until React re-renders. Clearing to "" combined with
+      // CSS transitions causes the bar to animate toward left:0/width:0
+      // and visually disappear before the next React paint.
+      const timelineStart = getTimelineStart()
+      const finalLeft = diffDays(timelineStart, finalStart) * ppd
+      const finalWidth = Math.max(diffDays(finalStart, finalEnd) * ppd, minDurationDays * ppd)
+      drag.barEl.style.left = `${finalLeft}px`
+      drag.barEl.style.width = `${finalWidth}px`
 
       dragRef.current = null
 

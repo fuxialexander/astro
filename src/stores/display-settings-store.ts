@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 
-export type ViewKey = "projects" | "projects-timeline" | "plan-list" | "my-tasks" | "my-tasks-timeline" | "plan-board" | "my-tasks-board"
+export type ViewKey = "projects" | "projects-timeline" | "plan-list" | "plan-graph" | "my-tasks" | "my-tasks-timeline" | "plan-board" | "my-tasks-board"
 
 export interface DisplaySettings {
   groupBy: string
@@ -32,6 +32,13 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     showCompleted: true,
     visibleProperties: [],
     zoom: "month",
+  },
+  "plan-graph": {
+    groupBy: "status",
+    orderBy: "name",
+    orderDirection: "asc",
+    showCompleted: true,
+    visibleProperties: [],
   },
   "plan-list": {
     groupBy: "none",

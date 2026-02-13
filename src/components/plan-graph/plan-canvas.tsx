@@ -3,7 +3,6 @@ import {
   ReactFlow,
   ReactFlowProvider,
   Background,
-  Controls,
   useReactFlow,
   ConnectionLineType,
   type Node,
@@ -11,7 +10,7 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { GitBranch, LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Globe, Server, Cloud, CheckCircle2 } from "lucide-react"
+import { GitBranch, LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Globe, Server, Cloud, CheckCircle2, Square, PlayCircle, Plus, Minus, Maximize } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +24,7 @@ import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, canExecuteNode, getAllowedEnvironments } from "@/stores/execution-store"
+import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -84,11 +84,15 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const startExecution = useExecutionStore((s) => s.startExecution)
+  const executeAllProject = useExecutionStore((s) => s.executeAllProject)
+  const stopBatchExecution = useExecutionStore((s) => s.stopBatchExecution)
+  const batchExecution = useExecutionStore((s) => s.batchExecutions.get(projectId))
   const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const isProjectGenerating = useAgentStore((s) => s.sessions.get(projectId)?.status === 'active')
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
@@ -111,9 +115,15 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   const selectionActive = checkedIds.size > 0
 
-  const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView } = useReactFlow()
+  const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView, zoomIn: rfZoomIn, zoomOut: rfZoomOut } = useReactFlow()
 
-  const projectNodes = useMemo(() => planNodes.filter((n) => n.projectId === projectId && n.type !== "milestone"), [planNodes, projectId])
+  const projectNodes = useMemo(() => {
+    let nodes = planNodes.filter((n) => n.projectId === projectId && n.type !== "milestone")
+    if (!graphDisplaySettings.showCompleted) {
+      nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
+    }
+    return nodes
+  }, [planNodes, projectId, graphDisplaySettings.showCompleted])
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
     const filtered = planEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
@@ -187,6 +197,19 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     setCheckedIds(allIds)
   }, [projectNodes])
 
+  const handleExecuteAll = useCallback(() => {
+    executeAllProject(projectId, {
+      environment: selectedEnvironment,
+      targetMachineId: selectedMachineId || undefined,
+    })
+  }, [executeAllProject, projectId, selectedEnvironment, selectedMachineId])
+
+  const handleStopBatch = useCallback(() => {
+    stopBatchExecution(projectId)
+  }, [stopBatchExecution, projectId])
+
+  const highlightBy = graphDisplaySettings.groupBy
+
   const rfNodes: Node[] = useMemo(
     () =>
       projectNodes.map((n) => ({
@@ -201,6 +224,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           dueDate: n.dueDate,
           executionId: n.executionId,
           prUrl: n.prUrl,
+          highlightBy,
           checked: checkedIds.has(n.id),
           selectionActive: selectionActive,
           onDecompose: onDecomposeNode,
@@ -208,7 +232,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         },
         selected: n.id === selectedId,
       })),
-    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect]
+    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy]
   )
 
   const rfEdges: Edge[] = useMemo(
@@ -376,6 +400,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     ? availableMachines.find((m) => m.machineId === selectedMachineId) ?? null
     : null
 
+  // Batch execution stats
+  const isBatchActive = batchExecution?.active ?? false
+  const plannedCount = projectNodes.filter((n) => n.status === "planned").length
+  const executingCount = projectNodes.filter((n) => n.status === "dispatched" || n.status === "in_progress").length
+
   return (
     <div ref={canvasRef} className="relative h-full w-full">
       <ReactFlow
@@ -397,21 +426,166 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         className="bg-background"
       >
         <Background gap={20} size={1} color="var(--border)" />
-        <Controls
-          showInteractive={false}
-          className="!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground"
-        />
-        {/* Reorganize button positioned above the Controls */}
-        <div className="react-flow__panel absolute bottom-[130px] left-2.5 z-10">
+
+        {/* Unified graph controls */}
+        <div className="react-flow__panel absolute bottom-3 left-2.5 z-10 flex flex-col rounded-lg border border-border bg-card shadow-md overflow-hidden">
           <button
             type="button"
             onClick={handleReorganize}
             title="Reorganize layout"
-            className="flex h-[26px] w-[26px] items-center justify-center rounded-sm border border-border bg-card text-foreground shadow-md hover:bg-muted cursor-pointer"
+            className="flex h-[30px] w-[30px] items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
-            <LayoutGrid className="h-3 w-3" />
+            <LayoutGrid className="h-3.5 w-3.5" />
+          </button>
+          <div className="h-px bg-border" />
+          <button
+            type="button"
+            onClick={() => rfZoomIn({ duration: 200 })}
+            title="Zoom in"
+            className="flex h-[30px] w-[30px] items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+          <div className="h-px bg-border" />
+          <button
+            type="button"
+            onClick={() => rfZoomOut({ duration: 200 })}
+            title="Zoom out"
+            className="flex h-[30px] w-[30px] items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </button>
+          <div className="h-px bg-border" />
+          <button
+            type="button"
+            onClick={() => rfFitView({ padding: 0.3, duration: 300 })}
+            title="Fit to view"
+            className="flex h-[30px] w-[30px] items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
+          >
+            <Maximize className="h-3.5 w-3.5" />
           </button>
         </div>
+
+        {/* Execute All button — bottom-right */}
+        {!selectionActive && projectNodes.length > 0 && (
+          <div className="react-flow__panel absolute bottom-3 right-3 z-10">
+            {isBatchActive ? (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
+                <div className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                </div>
+                <span className="text-xs font-medium text-foreground">
+                  Executing{executingCount > 0 ? ` (${executingCount} running` : ""}
+                  {plannedCount > 0 ? `, ${plannedCount} queued)` : executingCount > 0 ? ")" : "..."}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleStopBatch}
+                  title="Stop auto-dispatching new tasks"
+                  className="flex h-6 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/5 px-2 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                >
+                  <Square className="h-3 w-3" />
+                  Stop
+                </button>
+              </div>
+            ) : (
+              plannedCount > 0 && (
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={handleExecuteAll}
+                    title={`Execute all ${plannedCount} planned tasks in dependency order`}
+                    className="flex h-8 items-center gap-1.5 rounded-l-lg border border-r-0 border-primary/30 bg-primary/5 px-3 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer shadow-lg"
+                  >
+                    <PlayCircle className="h-3.5 w-3.5" />
+                    Execute All ({plannedCount})
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-8 items-center gap-1 rounded-r-lg border border-primary/30 bg-primary/5 px-2 text-xs text-primary hover:bg-primary/10 transition-colors cursor-pointer shadow-lg"
+                      >
+                        <SelectedEnvIcon className="h-3 w-3" />
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel>Environment</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {(Object.keys(environmentConfig) as Array<keyof typeof environmentConfig>).map((env) => {
+                        const config = environmentConfig[env]
+                        const EnvIcon = config.icon
+                        const isAllowed = envConstraints.allowed.includes(env)
+                        const machineCount = getMachinesForEnvironment(env).length
+                        return (
+                          <DropdownMenuItem
+                            key={env}
+                            disabled={!isAllowed}
+                            onClick={() => {
+                              setSelectedEnvironment(env)
+                              setSelectedMachineId(null)
+                            }}
+                            className="gap-2"
+                          >
+                            <EnvIcon className="h-4 w-4" />
+                            <div className="flex flex-col">
+                              <span>{config.label}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {env === "local" ? "Local machine" : `${machineCount} available`}
+                              </span>
+                            </div>
+                            {selectedEnvironment === env && (
+                              <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                            )}
+                          </DropdownMenuItem>
+                        )
+                      })}
+                      {selectedEnvironment !== "local" && availableMachines.length > 0 && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel>Machine</DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onClick={() => setSelectedMachineId(null)}
+                            className="gap-2"
+                          >
+                            <Server className="h-4 w-4" />
+                            <div className="flex flex-col">
+                              <span>Auto-select</span>
+                              <span className="text-[10px] text-muted-foreground">Best available</span>
+                            </div>
+                            {!selectedMachineId && (
+                              <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                            )}
+                          </DropdownMenuItem>
+                          {availableMachines.map((machine) => (
+                            <DropdownMenuItem
+                              key={machine.machineId}
+                              onClick={() => setSelectedMachineId(machine.machineId)}
+                              className="gap-2"
+                            >
+                              <Server className="h-4 w-4" />
+                              <div className="flex flex-col">
+                                <span className="truncate max-w-[140px]">{machine.name}</span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {machine.hostname || machine.machineId}
+                                </span>
+                              </div>
+                              {selectedMachineId === machine.machineId && (
+                                <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                              )}
+                            </DropdownMenuItem>
+                          ))}
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )
+            )}
+          </div>
+        )}
       </ReactFlow>
 
       {/* Bulk actions toolbar — appears when nodes are selected */}

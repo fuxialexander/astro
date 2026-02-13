@@ -5,6 +5,8 @@ import {
   Folder,
   X,
   Trash2,
+  GitPullRequest,
+  GitPullRequestDraft,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -52,6 +54,7 @@ const myTasksDisplayConfig: DisplayPopoverConfig = {
     { value: "project", label: "Project" },
     { value: "dueDate", label: "Due date" },
     { value: "estimate", label: "Estimate" },
+    { value: "pr", label: "PR" },
   ],
 }
 
@@ -75,6 +78,7 @@ const myTasksBoardDisplayConfig: DisplayPopoverConfig = {
     { value: "project", label: "Project" },
     { value: "dueDate", label: "Due date" },
     { value: "estimate", label: "Estimate" },
+    { value: "pr", label: "PR" },
   ],
 }
 
@@ -117,6 +121,7 @@ function makeTaskColumns(
       id: "name",
       label: "Task",
       width: "flex-1",
+      sortKey: "name",
       render: (node) => {
         const status = STATUS_CONFIG[node.status]
         const StatusIcon = status.icon
@@ -138,6 +143,7 @@ function makeTaskColumns(
       id: "status",
       label: "Status",
       width: "w-[120px]",
+      sortKey: "status",
       render: (node) => {
         const status = STATUS_CONFIG[node.status]
         return (
@@ -165,6 +171,7 @@ function makeTaskColumns(
       id: "priority",
       label: "Priority",
       width: "w-[90px]",
+      sortKey: "priority",
       render: (node) => {
         const priority = PRIORITY_CONFIG[node.priority ?? "none"]
         const PriorityIcon = priority.icon
@@ -199,6 +206,7 @@ function makeTaskColumns(
       id: "dueDate",
       label: "Due date",
       width: "w-[90px]",
+      sortKey: "dueDate",
       render: (node) => {
         const dueDate = node.dueDate ?? node.endDate
         const overdue = isOverdue(dueDate, node.status)
@@ -227,6 +235,30 @@ function makeTaskColumns(
         </PropertyPicker>
       ),
     },
+    {
+      id: "pr",
+      label: "PR",
+      width: "w-[70px]",
+      render: (node) => {
+        if (!node.prUrl) return null
+        const PrIcon = node.status === "completed" || node.status === "auto_verified"
+          ? GitPullRequest
+          : GitPullRequestDraft
+        return (
+          <a
+            href={node.prUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-xs text-purple-500 hover:text-purple-600 transition-colors"
+            title={node.branchName ?? `PR #${node.prNumber}`}
+          >
+            <PrIcon className="h-3.5 w-3.5 shrink-0" />
+            {node.prNumber != null && <span>#{node.prNumber}</span>}
+          </a>
+        )
+      },
+    },
   ]
 }
 
@@ -236,6 +268,7 @@ export function MyTasks() {
   const edges = usePlanStore((s) => s.edges)
   const displaySettings = useDisplaySettingsStore((s) => s.get("my-tasks"))
   const boardSettings = useDisplaySettingsStore((s) => s.get("my-tasks-board"))
+  const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const updateNode = usePlanStore((s) => s.updateNode)
   const removeNodes = usePlanStore((s) => s.removeNodes)
 
@@ -416,6 +449,16 @@ export function MyTasks() {
     setProjectFilter("all")
   }
 
+  const handleSort = useCallback((sortKey: string) => {
+    if (displaySettings.orderBy === sortKey) {
+      updateDisplaySettings("my-tasks", {
+        orderDirection: displaySettings.orderDirection === "asc" ? "desc" : "asc",
+      })
+    } else {
+      updateDisplaySettings("my-tasks", { orderBy: sortKey, orderDirection: "asc" })
+    }
+  }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
+
   const getProjectName = useCallback((node: PlanNode) => projectMap.get(node.projectId), [projectMap])
   const handleBoardNodeSelect = useCallback((node: PlanNode) => {
     window.location.href = `/project/${node.projectId}/plan`
@@ -460,13 +503,13 @@ export function MyTasks() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-lg bg-secondary p-1 gap-0.5">
+          <div className="flex items-center rounded-xl bg-secondary p-1 gap-0.5">
             {(["list", "timeline", "board"] as MyTasksViewMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
                 className={cn(
-                  "rounded-md px-3.5 py-1 text-xs font-medium transition-colors cursor-pointer capitalize",
+                  "rounded-lg px-3.5 py-1 text-xs font-medium transition-colors cursor-pointer capitalize",
                   viewMode === mode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -592,6 +635,9 @@ export function MyTasks() {
             onItemClick={(node) => { window.location.href = `/project/${node.projectId}/plan` }}
             getItemId={(n) => n.id}
             batchActions={taskBatchActions}
+            sortColumn={displaySettings.orderBy}
+            sortDirection={displaySettings.orderDirection}
+            onSort={handleSort}
           />
         )
       )}

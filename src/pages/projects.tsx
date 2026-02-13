@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, useCallback } from "react"
 import { Link, useNavigate } from "react-router"
 import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -77,6 +77,7 @@ const PROJECT_COLUMNS: ListColumn<Project>[] = [
     id: "name",
     label: "Name",
     width: "flex-1",
+    sortKey: "name",
     render: (p) => (
       <Link
         to={`/project/${p.id}`}
@@ -102,6 +103,7 @@ const PROJECT_COLUMNS: ListColumn<Project>[] = [
     id: "health",
     label: "Health",
     width: "w-[100px]",
+    sortKey: "health",
     render: (p) => {
       const health = healthConfig[p.health ?? "on_track"]
       return (
@@ -116,12 +118,14 @@ const PROJECT_COLUMNS: ListColumn<Project>[] = [
     id: "progress",
     label: "Progress",
     width: "w-[80px]",
+    sortKey: "progress",
     render: (p) => <span className="text-xs">{p.progress ?? 0}%</span>,
   },
   {
     id: "targetDate",
     label: "Target date",
     width: "w-[100px]",
+    sortKey: "targetDate",
     render: (p) => (
       <span className={cn(
         "text-xs",
@@ -156,6 +160,7 @@ export function Projects() {
   const allNodes = usePlanStore((s) => s.nodes)
   const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
+  const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const [viewTab, setViewTab] = useState<ViewTab>("all")
   const [showFilter, setShowFilter] = useState(false)
 
@@ -371,6 +376,16 @@ export function Projects() {
     return counts
   }, [projects])
 
+  const handleSort = useCallback((sortKey: string) => {
+    if (displaySettings.orderBy === sortKey) {
+      updateDisplaySettings("projects", {
+        orderDirection: displaySettings.orderDirection === "asc" ? "desc" : "asc",
+      })
+    } else {
+      updateDisplaySettings("projects", { orderBy: sortKey, orderDirection: "asc" })
+    }
+  }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
+
   const viewTabs: { id: ViewTab; label: string }[] = [
     { id: "all", label: "All projects" },
     { id: "timeline", label: "Timeline" },
@@ -385,13 +400,13 @@ export function Projects() {
         <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
           <div className="flex items-center gap-4">
             <span className="text-base font-semibold">Projects</span>
-            <div className="flex items-center rounded-lg bg-secondary p-1 gap-0.5">
+            <div className="flex items-center rounded-xl bg-secondary p-1 gap-0.5">
               {viewTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setViewTab(tab.id)}
                   className={cn(
-                    "rounded-md px-4 py-1.5 text-[13px] transition-colors cursor-pointer",
+                    "rounded-lg px-4 py-1.5 text-[13px] transition-colors cursor-pointer",
                     viewTab === tab.id
                       ? "bg-card font-medium text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
@@ -447,6 +462,9 @@ export function Projects() {
               onItemClick={(p) => navigate(`/project/${p.id}`)}
               getItemId={(p) => p.id}
               batchActions={projectBatchActions}
+              sortColumn={displaySettings.orderBy}
+              sortDirection={displaySettings.orderDirection}
+              onSort={handleSort}
             />
           )
         )}

@@ -110,6 +110,17 @@ export interface ExecutionOptions {
   maxTurns?: number
 }
 
+// Batch execution state for "Execute All" mode
+export interface BatchExecution {
+  projectId: string
+  options: ExecutionOptions
+  // Tracks which nodes have been dispatched in this batch
+  dispatchedNodeIds: Set<string>
+  // Whether the batch is still active (auto-dispatching next waves)
+  active: boolean
+  startedAt: Date
+}
+
 interface ExecutionState {
   // Active executions keyed by nodeId
   executions: Map<string, TaskExecution>
@@ -125,6 +136,9 @@ interface ExecutionState {
   // Currently selected execution for detail view
   selectedExecutionId: string | null
 
+  // Batch execution state per project
+  batchExecutions: Map<string, BatchExecution>
+
   // Actions
   startExecution: (nodeId: string, projectId: string, options?: ExecutionOptions) => Promise<void>
   cancelExecution: (nodeId: string) => Promise<void>
@@ -132,6 +146,12 @@ interface ExecutionState {
   getExecution: (nodeId: string) => TaskExecution | undefined
   isExecuting: (nodeId: string) => boolean
   hasActiveExecution: () => boolean
+
+  // Batch execution actions
+  executeAllProject: (projectId: string, options?: ExecutionOptions) => void
+  stopBatchExecution: (projectId: string) => void
+  isBatchActive: (projectId: string) => boolean
+  getBatchExecution: (projectId: string) => BatchExecution | undefined
 
   // Provider actions
   loadProviders: () => Promise<void>
@@ -156,6 +176,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   machines: [],
   machinesLoaded: false,
   selectedExecutionId: null,
+  batchExecutions: new Map(),
 
   startExecution: async (nodeId: string, projectId: string, options?: ExecutionOptions) => {
     // Get node and project info
@@ -411,6 +432,61 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }
     }
     return false
+  },
+
+  executeAllProject: (projectId: string, options?: ExecutionOptions) => {
+    const planStore = usePlanStore.getState()
+    const projectNodes = planStore.nodes.filter(
+      (n) => n.projectId === projectId && n.type !== "milestone"
+    )
+    const projectEdges = planStore.edges
+
+    // Find all nodes that are ready to execute (no unmet dependencies, status is "planned")
+    const readyNodes = projectNodes.filter((n) => {
+      if (n.status !== "planned") return false
+      return canExecuteNode(n, planStore.nodes, projectEdges).ready
+    })
+
+    if (readyNodes.length === 0) return
+
+    // Register batch execution
+    const batch: BatchExecution = {
+      projectId,
+      options: options ?? {},
+      dispatchedNodeIds: new Set(readyNodes.map((n) => n.id)),
+      active: true,
+      startedAt: new Date(),
+    }
+
+    set((state) => {
+      const newBatch = new Map(state.batchExecutions)
+      newBatch.set(projectId, batch)
+      return { batchExecutions: newBatch }
+    })
+
+    // Dispatch all ready nodes in parallel
+    for (const node of readyNodes) {
+      get().startExecution(node.id, projectId, options)
+    }
+  },
+
+  stopBatchExecution: (projectId: string) => {
+    set((state) => {
+      const newBatch = new Map(state.batchExecutions)
+      const batch = newBatch.get(projectId)
+      if (batch) {
+        batch.active = false
+      }
+      return { batchExecutions: newBatch }
+    })
+  },
+
+  isBatchActive: (projectId: string) => {
+    return get().batchExecutions.get(projectId)?.active ?? false
+  },
+
+  getBatchExecution: (projectId: string) => {
+    return get().batchExecutions.get(projectId)
   },
 
   loadProviders: async () => {
@@ -802,6 +878,14 @@ function handleSSEEvent(
             })
             .catch(() => {})
         }
+
+        // Batch execution: auto-dispatch next wave of ready nodes
+        const execStore = useExecutionStore.getState()
+        const projectId = execution?.projectId
+        if (projectId && execStore.batchExecutions.get(projectId)?.active) {
+          // Use a short delay to let the plan store status update propagate
+          setTimeout(() => dispatchNextBatchWave(projectId), 100)
+        }
       } catch {
         // Ignore parse errors
       }
@@ -906,6 +990,59 @@ export function canExecuteNode(node: PlanNode, allNodes: PlanNode[], edges?: Pla
   }
 
   return { ready: true }
+}
+
+// Helper: Dispatch the next wave of ready nodes for a batch execution
+function dispatchNextBatchWave(projectId: string) {
+  const execStore = useExecutionStore.getState()
+  const batch = execStore.batchExecutions.get(projectId)
+  if (!batch?.active) return
+
+  const planStore = usePlanStore.getState()
+  const projectNodes = planStore.nodes.filter(
+    (n) => n.projectId === projectId && n.type !== "milestone"
+  )
+
+  // Find nodes that are "planned" and now have all dependencies met
+  const newlyReady = projectNodes.filter((n) => {
+    if (n.status !== "planned") return false
+    if (batch.dispatchedNodeIds.has(n.id)) return false
+    return canExecuteNode(n, planStore.nodes, planStore.edges).ready
+  })
+
+  if (newlyReady.length === 0) {
+    // Check if all dispatched nodes are done — if so, batch is complete
+    const allDone = projectNodes
+      .filter((n) => batch.dispatchedNodeIds.has(n.id))
+      .every((n) => !["dispatched", "in_progress"].includes(n.status))
+
+    const noPlannedLeft = projectNodes.every((n) => n.status !== "planned")
+
+    if (allDone || noPlannedLeft) {
+      useExecutionStore.setState((state) => {
+        const newBatch = new Map(state.batchExecutions)
+        const b = newBatch.get(projectId)
+        if (b) b.active = false
+        return { batchExecutions: newBatch }
+      })
+    }
+    return
+  }
+
+  // Mark newly ready nodes as dispatched in the batch
+  useExecutionStore.setState((state) => {
+    const newBatch = new Map(state.batchExecutions)
+    const b = newBatch.get(projectId)
+    if (b) {
+      for (const n of newlyReady) b.dispatchedNodeIds.add(n.id)
+    }
+    return { batchExecutions: newBatch }
+  })
+
+  // Dispatch all newly ready nodes
+  for (const node of newlyReady) {
+    execStore.startExecution(node.id, projectId, batch.options)
+  }
 }
 
 // Helper: Build dependency outputs array for dispatch endpoint

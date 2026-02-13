@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, useEffect } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
-import { ArrowLeft, FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond, X, Calendar, Trash2 } from "lucide-react"
+import { FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond, X, Calendar, Trash2, GitPullRequestDraft, GitPullRequest, Ellipsis, ChevronDown } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -8,9 +8,10 @@ import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
-import { ExecutionPanel, ProviderStatus } from "@/components/execution"
+import { ExecutionPanel } from "@/components/execution"
 import { BoardView } from "@/components/board/board-view"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
@@ -51,6 +52,7 @@ const planListDisplayConfig: DisplayPopoverConfig = {
     { value: "estimate", label: "Estimate" },
     { value: "milestone", label: "Milestone" },
     { value: "labels", label: "Labels" },
+    { value: "pr", label: "PR" },
   ],
 }
 
@@ -74,8 +76,21 @@ const planTimelineDisplayConfig: DisplayPopoverConfig = {
     { value: "dueDate", label: "Due date" },
     { value: "estimate", label: "Estimate" },
     { value: "labels", label: "Labels" },
+    { value: "pr", label: "PR" },
   ],
   showZoom: true,
+}
+
+const planGraphDisplayConfig: DisplayPopoverConfig = {
+  viewKey: "plan-graph",
+  groupByLabel: "Highlight by",
+  groupByOptions: [
+    { value: "status", label: "Status" },
+    { value: "priority", label: "Priority" },
+    { value: "none", label: "None" },
+  ],
+  orderByOptions: [],
+  propertyOptions: [],
 }
 
 const planBoardDisplayConfig: DisplayPopoverConfig = {
@@ -98,6 +113,7 @@ const planBoardDisplayConfig: DisplayPopoverConfig = {
     { value: "estimate", label: "Estimate" },
     { value: "dueDate", label: "Due date" },
     { value: "labels", label: "Labels" },
+    { value: "pr", label: "PR" },
   ],
 }
 
@@ -137,6 +153,7 @@ function makePlanColumns(
       id: "name",
       label: "Name",
       width: "flex-1",
+      sortKey: "name",
       render: (node) => (
         <span className={cn("text-sm truncate", node.status === "pruned" && "line-through")}>
           {node.title}
@@ -147,6 +164,7 @@ function makePlanColumns(
       id: "priority",
       label: "Priority",
       width: "w-[60px]",
+      sortKey: "priority",
       render: (node) => {
         const config = PRIORITY_CONFIG[(node.priority ?? "none") as Priority]
         const PIcon = config.icon
@@ -167,6 +185,7 @@ function makePlanColumns(
       id: "status",
       label: "Status",
       width: "w-[120px]",
+      sortKey: "status",
       render: (node) => (
         <PropertyPicker
           value={node.status}
@@ -185,6 +204,7 @@ function makePlanColumns(
       id: "dueDate",
       label: "Due Date",
       width: "w-[100px]",
+      sortKey: "dueDate",
       render: (node) => {
         const { text, className } = formatDueDateShort(node.dueDate)
         return <span className={cn("text-xs", className)}>{text}</span>
@@ -244,6 +264,30 @@ function makePlanColumns(
         )
       },
     },
+    {
+      id: "pr",
+      label: "PR",
+      width: "w-[70px]",
+      render: (node) => {
+        if (!node.prUrl) return null
+        const PrIcon = node.status === "completed" || node.status === "auto_verified"
+          ? GitPullRequest
+          : GitPullRequestDraft
+        return (
+          <a
+            href={node.prUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-xs text-purple-500 hover:text-purple-600 transition-colors"
+            title={node.branchName ?? `PR #${node.prNumber}`}
+          >
+            <PrIcon className="h-3.5 w-3.5 shrink-0" />
+            {node.prNumber != null && <span>#{node.prNumber}</span>}
+          </a>
+        )
+      },
+    },
   ]
 }
 
@@ -254,6 +298,7 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
   const removeNodes = usePlanStore((s) => s.removeNodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
+  const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
 
   const handleNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
@@ -373,6 +418,16 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
     )
   }
 
+  const handleSort = useCallback((sortKey: string) => {
+    if (displaySettings.orderBy === sortKey) {
+      updateDisplaySettings("plan-list", {
+        orderDirection: displaySettings.orderDirection === "asc" ? "desc" : "asc",
+      })
+    } else {
+      updateDisplaySettings("plan-list", { orderBy: sortKey, orderDirection: "asc" })
+    }
+  }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
+
   return (
     <ItemListView
       columns={columns}
@@ -383,6 +438,9 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
       getItemClass={(n) => cn(n.status === "pruned" && "opacity-50")}
       footer={renderAddTaskRow}
       batchActions={planBatchActions}
+      sortColumn={displaySettings.orderBy}
+      sortDirection={displaySettings.orderDirection}
+      onSort={handleSort}
     />
   )
 }
@@ -579,8 +637,20 @@ export function PlanView() {
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [viewMode, setViewMode] = useState<ViewMode>(initialView && VALID_VIEWS.has(initialView) ? initialView : "graph")
+  const [viewMenuOpen, setViewMenuOpen] = useState(false)
+  const viewMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mouseInTriggerRef = useRef(false)
+  const mouseInContentRef = useRef(false)
+  const viewMenuOpenedAtRef = useRef(0)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [visionOpen, setVisionOpen] = useState(false)
+
+  // Clear view menu close timer on unmount
+  useEffect(() => {
+    return () => {
+      if (viewMenuCloseTimerRef.current) clearTimeout(viewMenuCloseTimerRef.current)
+    }
+  }, [])
 
   // Handle decompose: open chat with pre-filled message
   const handleDecomposeNode = useCallback((nodeId: string) => {
@@ -655,37 +725,99 @@ export function PlanView() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Top bar */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
-        <div className="flex items-center gap-3">
-          <Link to={`/project/${id}`} className="text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="h-[18px] w-[18px]" />
+      {/* Single-line header: tabs + view mode + actions (title only on overview page) */}
+      <header className="flex items-center gap-3 border-b border-border px-6 h-14 shrink-0 flex-wrap">
+        <div className="flex items-center rounded-xl bg-secondary p-1 gap-0.5 shrink-0">
+          <Link
+            to={`/project/${id}`}
+            className={cn(
+              "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors cursor-pointer",
+              "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Overview
           </Link>
-          <span className="font-semibold">{project.name}</span>
-          <span className="text-muted-foreground">/</span>
-          <span className="text-sm text-muted-foreground">Plan</span>
+          <Link
+            to={`/project/${id}?tab=updates`}
+            className={cn(
+              "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors cursor-pointer",
+              "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Updates
+          </Link>
+          <span className="rounded-lg px-3.5 py-1.5 text-xs font-medium bg-card text-foreground shadow-sm cursor-default">
+            Plan
+          </span>
         </div>
-        <div className="flex items-center gap-2.5">
-          <ProviderStatus compact />
-          <Separator orientation="vertical" className="h-5" />
-
-          <div className="flex items-center rounded-lg bg-secondary p-1 gap-0.5">
-            {(["graph", "list", "timeline", "board"] as ViewMode[]).map((mode) => (
+        <Separator orientation="vertical" className="h-5 shrink-0" />
+        <div className="flex items-center gap-2 shrink-0">
+          <DropdownMenu open={viewMenuOpen} onOpenChange={setViewMenuOpen}>
+            <DropdownMenuTrigger asChild>
               <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                className={cn(
-                  "rounded-md px-3.5 py-1 text-xs font-medium transition-colors cursor-pointer capitalize",
-                  viewMode === mode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                )}
+                className="flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/80 cursor-pointer capitalize"
+                onMouseEnter={() => {
+                  mouseInTriggerRef.current = true
+                  viewMenuOpenedAtRef.current = Date.now()
+                  if (viewMenuCloseTimerRef.current) {
+                    clearTimeout(viewMenuCloseTimerRef.current)
+                    viewMenuCloseTimerRef.current = null
+                  }
+                  setViewMenuOpen(true)
+                }}
+                onMouseLeave={() => {
+                  mouseInTriggerRef.current = false
+                  // Ignore spurious leave right after open (e.g. when dropdown content mounts)
+                  if (Date.now() - viewMenuOpenedAtRef.current < 120) return
+                  if (viewMenuCloseTimerRef.current) clearTimeout(viewMenuCloseTimerRef.current)
+                  viewMenuCloseTimerRef.current = setTimeout(() => {
+                    viewMenuCloseTimerRef.current = null
+                    if (!mouseInTriggerRef.current && !mouseInContentRef.current) setViewMenuOpen(false)
+                  }, 220)
+                }}
               >
-                {mode}
+                {viewMode}
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </button>
-            ))}
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="min-w-[7rem]"
+              onMouseEnter={() => {
+                mouseInContentRef.current = true
+                if (viewMenuCloseTimerRef.current) {
+                  clearTimeout(viewMenuCloseTimerRef.current)
+                  viewMenuCloseTimerRef.current = null
+                }
+                setViewMenuOpen(true)
+              }}
+              onMouseLeave={() => {
+                mouseInContentRef.current = false
+                if (viewMenuCloseTimerRef.current) clearTimeout(viewMenuCloseTimerRef.current)
+                viewMenuCloseTimerRef.current = setTimeout(() => {
+                  viewMenuCloseTimerRef.current = null
+                  if (!mouseInTriggerRef.current && !mouseInContentRef.current) setViewMenuOpen(false)
+                }, 200)
+              }}
+            >
+              {(["graph", "list", "timeline", "board"] as ViewMode[]).map((mode) => (
+                <DropdownMenuItem
+                  key={mode}
+                  className="capitalize cursor-pointer"
+                  onClick={() => setViewMode(mode)}
+                >
+                  {mode}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
           {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
           {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
           {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
+        </div>
+        <div className="flex-1 min-w-0" />
+        <div className="flex items-center gap-2 shrink-0">
           <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)}>
             <FileText className="h-3.5 w-3.5" />
             Vision
@@ -704,6 +836,9 @@ export function PlanView() {
           </Button>
           <Button variant="outline" size="icon" className="h-8 w-8">
             <Share2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Ellipsis className="h-5 w-5" />
           </Button>
         </div>
       </header>

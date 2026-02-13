@@ -1,5 +1,5 @@
 import { useState, useCallback, type ReactNode } from "react"
-import { ChevronRight, X } from "lucide-react"
+import { ChevronRight, ArrowUp, ArrowDown, X } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -10,6 +10,8 @@ export interface ListColumn<T> {
   width: string            // e.g. "w-[120px]" or "flex-1"
   render: (item: T) => ReactNode
   headerClassName?: string // extra classes for header cell
+  /** If set, this column is sortable. The value is passed to onSort when clicked. */
+  sortKey?: string
 }
 
 export interface ListGroup<T> {
@@ -43,6 +45,60 @@ interface ItemListViewProps<T> {
   showGroupHeaders?: boolean
   /** Batch actions shown when items are selected */
   batchActions?: BatchAction[]
+  /** Current sort column key (matches ListColumn.sortKey) */
+  sortColumn?: string
+  /** Current sort direction */
+  sortDirection?: "asc" | "desc"
+  /** Called when a sortable column header is clicked */
+  onSort?: (sortKey: string) => void
+}
+
+function ColumnHeader<T>({
+  col,
+  fallbackLabel,
+  sortColumn,
+  sortDirection,
+  onSort,
+}: {
+  col?: ListColumn<T>
+  fallbackLabel?: string
+  sortColumn?: string
+  sortDirection?: "asc" | "desc"
+  onSort?: (sortKey: string) => void
+}) {
+  const label = col?.label ?? fallbackLabel ?? "Name"
+  const width = col?.width ?? "flex-1"
+  const sortKey = col?.sortKey
+  const isSorted = sortKey != null && sortColumn === sortKey
+  const sortable = sortKey != null && onSort != null
+
+  if (!sortable) {
+    return (
+      <span className={cn("text-[13px] font-medium text-muted-foreground", width, col?.headerClassName)}>
+        {label}
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      className={cn(
+        "flex items-center gap-1 text-[13px] font-medium transition-colors cursor-pointer select-none",
+        isSorted ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+        width,
+        col?.headerClassName,
+      )}
+    >
+      {label}
+      {isSorted && (
+        sortDirection === "asc"
+          ? <ArrowUp className="h-3 w-3 shrink-0" />
+          : <ArrowDown className="h-3 w-3 shrink-0" />
+      )}
+    </button>
+  )
 }
 
 export function ItemListView<T>({
@@ -58,6 +114,9 @@ export function ItemListView<T>({
   indentGroupedRows = true,
   showGroupHeaders = true,
   batchActions,
+  sortColumn,
+  sortDirection,
+  onSort,
 }: ItemListViewProps<T>) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -167,13 +226,9 @@ export function ItemListView<T>({
             />
           </div>
         )}
-        <span className={cn("text-[13px] font-medium text-muted-foreground", nameCol?.width ?? "flex-1")}>
-          {nameCol?.label ?? "Name"}
-        </span>
+        <ColumnHeader col={nameCol} fallbackLabel="Name" sortColumn={sortColumn} sortDirection={sortDirection} onSort={onSort} />
         {otherCols.map((col) => (
-          <span key={col.id} className={cn("text-[13px] font-medium text-muted-foreground", col.width, col.headerClassName)}>
-            {col.label}
-          </span>
+          <ColumnHeader key={col.id} col={col} sortColumn={sortColumn} sortDirection={sortDirection} onSort={onSort} />
         ))}
       </div>
 

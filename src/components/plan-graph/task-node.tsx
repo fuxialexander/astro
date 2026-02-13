@@ -14,6 +14,16 @@ const statusConfig: Record<string, { icon: typeof Circle; bg: string; border: st
   pruned: { icon: Scissors, bg: "bg-muted", border: "border-border", iconColor: "text-muted-foreground" },
 }
 
+const priorityHighlight: Record<string, { bg: string; border: string }> = {
+  urgent: { bg: "bg-red-500/10", border: "border-red-500" },
+  high: { bg: "bg-orange-500/10", border: "border-orange-500" },
+  medium: { bg: "bg-yellow-500/10", border: "border-yellow-500" },
+  low: { bg: "bg-blue-500/10", border: "border-blue-400" },
+  none: { bg: "bg-card", border: "border-border" },
+}
+
+const neutralHighlight = { bg: "bg-card", border: "border-border" }
+
 type TaskNodeData = Node<{
   title: string
   status: string
@@ -22,6 +32,7 @@ type TaskNodeData = Node<{
   priority?: string
   dueDate?: string
   prUrl?: string
+  highlightBy?: string
   checked?: boolean
   selectionActive?: boolean
   onDecompose?: (nodeId: string) => void
@@ -29,11 +40,25 @@ type TaskNodeData = Node<{
 }>
 
 export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeData>) {
-  const config = statusConfig[data.status] ?? statusConfig.planned
-  const Icon = config.icon
+  const statusCfg = statusConfig[data.status] ?? statusConfig.planned
+  const Icon = statusCfg.icon
   const isMilestone = data.nodeType === "milestone"
   const isTask = data.nodeType === "task"
   const [hovered, setHovered] = useState(false)
+
+  // Resolve highlight colors based on highlightBy mode
+  const highlight = (() => {
+    const mode = data.highlightBy ?? "status"
+    if (mode === "priority") {
+      const h = priorityHighlight[data.priority ?? "none"] ?? neutralHighlight
+      return { bg: h.bg, border: h.border, iconColor: statusCfg.iconColor }
+    }
+    if (mode === "none") {
+      return { bg: neutralHighlight.bg, border: neutralHighlight.border, iconColor: statusCfg.iconColor }
+    }
+    // Default: status-based (original behavior)
+    return { bg: statusCfg.bg, border: statusCfg.border, iconColor: statusCfg.iconColor }
+  })()
 
   // Get live progress from realtime store
   const taskStream = useRealtimeStore((s) =>
@@ -68,8 +93,8 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
     <div
       className={cn(
         "relative flex items-center gap-2.5 border-[1.5px] px-3.5",
-        config.bg,
-        config.border,
+        highlight.bg,
+        highlight.border,
         isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-[10px]",
         data.status === "pruned" && "opacity-50",
         isOverdue && "border-l-red-500 border-l-[3px]",
@@ -108,7 +133,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           {isChecked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
         </button>
       ) : (
-        <Icon className={cn("h-3.5 w-3.5 shrink-0 relative z-10", config.iconColor, data.status === "in_progress" && "animate-spin")} />
+        <Icon className={cn("h-3.5 w-3.5 shrink-0 relative z-10", highlight.iconColor, data.status === "in_progress" && "animate-spin")} />
       )}
 
       <span className={cn(

@@ -18,7 +18,7 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <div className="flex h-12 items-center gap-2.5 px-4">
+      <div className="flex h-14 shrink-0 items-center gap-3 px-4 bg-sidebar-accent/20">
         <div className="relative">
           <Hexagon className="h-6 w-6 text-primary" />
           <div
@@ -28,7 +28,7 @@ export function Sidebar() {
             )}
           />
         </div>
-        <span className="font-primary text-lg font-bold text-sidebar-primary-foreground">
+        <span className="font-primary text-lg font-semibold tracking-tight text-sidebar-primary-foreground">
           Nexus
         </span>
       </div>

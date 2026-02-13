@@ -225,7 +225,7 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
             return (
               <div key={node.id} className="flex h-11 items-center border-b border-border relative">
                 <div
-                  className={`absolute h-5 rounded cursor-pointer hover:brightness-110 transition-all timeline-bar ${statusBarColors[node.status]} ${node.type === "milestone" ? "!rounded-sm" : ""}`}
+                  className={`absolute h-5 rounded cursor-pointer hover:brightness-110 transition timeline-bar ${statusBarColors[node.status]} ${node.type === "milestone" ? "!rounded-sm" : ""}`}
                   style={{ left: `${barLeft}px`, width: `${barWidth}px` }}
                   onClick={() => openEdit(node)}
                 >

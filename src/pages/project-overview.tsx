@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react"
-import { useParams, useNavigate } from "react-router"
+import { useParams, useNavigate, useSearchParams, Link } from "react-router"
 import {
   Rocket,
   Star,
@@ -298,9 +298,19 @@ const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
 export function ProjectOverview() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
-  const [activeTab, setActiveTab] = useState<TabId>("overview")
+  const tabParam = searchParams.get("tab")
+  const [activeTab, setActiveTab] = useState<TabId>(() =>
+    tabParam === "updates" ? "updates" : "overview"
+  )
+
+  // Sync local tab with URL so Overview/Updates are deep-linkable
+  useEffect(() => {
+    if (tabParam === "updates") setActiveTab("updates")
+    else if (tabParam !== "overview" && !tabParam) setActiveTab("overview")
+  }, [tabParam])
 
   // Refresh file tree cache if stale, missing, or from a different machine
   useEffect(() => {
@@ -343,11 +353,8 @@ export function ProjectOverview() {
   type TabDef = { id: string; label: string; route?: string }
   const tabs: TabDef[] = [
     { id: "overview", label: "Overview" },
-    { id: "graph", label: "Graph", route: `/project/${id}/plan?view=graph` },
-    { id: "timeline", label: "Timeline", route: `/project/${id}/plan?view=timeline` },
-    { id: "list", label: "List", route: `/project/${id}/plan?view=list` },
-    { id: "board", label: "Board", route: `/project/${id}/plan?view=board` },
     { id: "updates", label: "Updates" },
+    { id: "plan", label: "Plan", route: `/project/${id}/plan` },
   ]
 
   function handleTabClick(tab: TabDef) {
@@ -355,21 +362,51 @@ export function ProjectOverview() {
       navigate(tab.route)
     } else {
       setActiveTab(tab.id as TabId)
+      setSearchParams(tab.id === "overview" ? {} : { tab: tab.id })
     }
   }
 
   return (
     <div className="flex h-full flex-col">
-      {/* Page Header */}
-      <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <Rocket className="h-[18px] w-[18px] text-primary-foreground" />
-          </div>
-          <span className="text-lg font-semibold">{project.name}</span>
-          <Star className="h-[18px] w-[18px] text-muted-foreground" />
+      {/* Single-line header: identity + rounded tabs + actions */}
+      <div className="flex items-center gap-3 border-b border-border px-6 h-14 shrink-0">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
+          <Rocket className="h-[18px] w-[18px] text-primary-foreground" />
         </div>
-        <div className="flex items-center gap-3">
+        <span className="text-lg font-semibold shrink-0">{project.name}</span>
+        <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
+        <div className="flex items-center rounded-xl bg-secondary p-1 gap-0.5 shrink-0">
+          {tabs.map((tab) =>
+            tab.route ? (
+              <Link
+                key={tab.id}
+                to={tab.route}
+                className={cn(
+                  "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors cursor-pointer",
+                  "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {tab.label}
+              </Link>
+            ) : (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleTabClick(tab)}
+                className={cn(
+                  "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors cursor-pointer",
+                  activeTab === tab.id
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {tab.label}
+              </button>
+            )
+          )}
+        </div>
+        <div className="flex-1 min-w-0" />
+        <div className="flex items-center gap-2 shrink-0">
           <Button variant="outline" size="sm">
             <Share2 className="h-3.5 w-3.5" />
             Share
@@ -378,24 +415,6 @@ export function ProjectOverview() {
             <Ellipsis className="h-5 w-5" />
           </Button>
         </div>
-      </div>
-
-      {/* Tabs Bar */}
-      <div className="flex border-b border-border px-6 shrink-0">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => handleTabClick(tab)}
-            className={cn(
-              "px-4 py-3 text-[13px] transition-colors cursor-pointer",
-              activeTab === tab.id
-                ? "font-medium text-foreground border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
       </div>
 
       {/* Tab Content */}

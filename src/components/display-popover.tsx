@@ -17,6 +17,7 @@ export interface DisplayPopoverConfig {
   orderByOptions: DisplayOption[]
   propertyOptions: DisplayOption[]
   columnByOptions?: DisplayOption[]
+  groupByLabel?: string
   showZoom?: boolean
   showTimelineOptions?: boolean
 }
@@ -136,10 +137,10 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
             />
           )}
 
-          {/* Grouping (list/timeline views — hidden when columnBy is shown) */}
-          {!config.columnByOptions && (
+          {/* Grouping / Highlight by (list/timeline/graph views — hidden when columnBy is shown) */}
+          {!config.columnByOptions && config.groupByOptions.length > 0 && (
             <InlineSelect
-              label="Grouping"
+              label={config.groupByLabel ?? "Grouping"}
               value={settings.groupBy}
               options={config.groupByOptions}
               onChange={(v) => handleUpdate({ groupBy: v })}
@@ -147,33 +148,35 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
           )}
 
           {/* Ordering */}
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase">Ordering</span>
-            <div className="flex items-center gap-1">
-              <div className="relative">
-                <InlineSelectInner
-                  value={settings.orderBy}
-                  options={config.orderByOptions}
-                  onChange={(v) => handleUpdate({ orderBy: v })}
-                />
+          {config.orderByOptions.length > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase">Ordering</span>
+              <div className="flex items-center gap-1">
+                <div className="relative">
+                  <InlineSelectInner
+                    value={settings.orderBy}
+                    options={config.orderByOptions}
+                    onChange={(v) => handleUpdate({ orderBy: v })}
+                  />
+                </div>
+                <button
+                  onClick={() =>
+                    handleUpdate({
+                      orderDirection: settings.orderDirection === "asc" ? "desc" : "asc",
+                    })
+                  }
+                  className="rounded-md bg-secondary p-1 hover:bg-secondary/80 transition-colors cursor-pointer"
+                  title={settings.orderDirection === "asc" ? "Ascending" : "Descending"}
+                >
+                  {settings.orderDirection === "asc" ? (
+                    <ArrowUp className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <ArrowDown className="h-3 w-3 text-muted-foreground" />
+                  )}
+                </button>
               </div>
-              <button
-                onClick={() =>
-                  handleUpdate({
-                    orderDirection: settings.orderDirection === "asc" ? "desc" : "asc",
-                  })
-                }
-                className="rounded-md bg-secondary p-1 hover:bg-secondary/80 transition-colors cursor-pointer"
-                title={settings.orderDirection === "asc" ? "Ascending" : "Descending"}
-              >
-                {settings.orderDirection === "asc" ? (
-                  <ArrowUp className="h-3 w-3 text-muted-foreground" />
-                ) : (
-                  <ArrowDown className="h-3 w-3 text-muted-foreground" />
-                )}
-              </button>
             </div>
-          </div>
+          )}
 
           {/* Show completed */}
           <ToggleRow
@@ -224,31 +227,35 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
             </>
           )}
 
-          <Separator />
+          {config.propertyOptions.length > 0 && (
+            <>
+              <Separator />
 
-          {/* Display properties */}
-          <div>
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase">Properties</span>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {config.propertyOptions.map((prop) => {
-                const active = settings.visibleProperties.includes(prop.value)
-                return (
-                  <button
-                    key={prop.value}
-                    onClick={() => toggleProperty(prop.value)}
-                    className={cn(
-                      "rounded-md px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer",
-                      active
-                        ? "bg-secondary text-foreground"
-                        : "border border-border text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {prop.label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+              {/* Display properties */}
+              <div>
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase">Properties</span>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {config.propertyOptions.map((prop) => {
+                    const active = settings.visibleProperties.includes(prop.value)
+                    return (
+                      <button
+                        key={prop.value}
+                        onClick={() => toggleProperty(prop.value)}
+                        className={cn(
+                          "rounded-md px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer",
+                          active
+                            ? "bg-secondary text-foreground"
+                            : "border border-border text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {prop.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </>
+          )}
 
           <Separator />
 
