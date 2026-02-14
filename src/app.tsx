@@ -20,6 +20,7 @@ import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useTaskChatStore } from "@/stores/task-chat-store"
 import { useUsageStore } from "@/stores/usage-store"
+import { useSessionStore } from "@/stores/session-store"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
@@ -36,6 +37,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadDisplaySettings = useDisplaySettingsStore((s) => s.load)
   const loadTaskChat = useTaskChatStore((s) => s.load)
   const loadUsage = useUsageStore((s) => s.load)
+  const loadSessions = useSessionStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -45,6 +47,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const displaySettingsLoaded = useDisplaySettingsStore((s) => s.loaded)
   const taskChatLoaded = useTaskChatStore((s) => s.loaded)
   const usageLoaded = useUsageStore((s) => s.loaded)
+  const sessionsLoaded = useSessionStore((s) => s.loaded)
 
   useEffect(() => {
     loadProjects()
@@ -54,13 +57,14 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     loadDisplaySettings()
     loadTaskChat()
     loadUsage()
+    loadSessions()
     connectRealtime()
     return () => disconnectRealtime()
-  }, [loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, loadUsage, connectRealtime, disconnectRealtime])
+  }, [loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, loadUsage, loadSessions, connectRealtime, disconnectRealtime])
 
   // One-time migration from IndexedDB → API
   const migrationRan = useRef(false)
-  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded
+  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded
   useEffect(() => {
     if (!allLoaded || migrationRan.current) return
     migrationRan.current = true

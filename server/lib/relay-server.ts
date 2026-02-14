@@ -268,6 +268,7 @@ interface AgentRunnerTaskSteerAckMessage {
     taskId: string;
     accepted: boolean;
     message?: string;
+    interrupted?: boolean;
   };
 }
 
@@ -830,7 +831,7 @@ export class RelayServer extends EventEmitter {
     }
 
     // Send in agent-runner's expected format (type: 'task_dispatch', payload: Task)
-    const agentRunnerMsg = {
+    const agentRunnerMsg: Record<string, unknown> = {
       type: 'task_dispatch',
       timestamp: new Date().toISOString(),
       payload: {
@@ -841,6 +842,8 @@ export class RelayServer extends EventEmitter {
         prompt: finalPrompt,
         workingDirectory: task.workingDirectory || '',
         timeout: task.timeout,
+        maxTurns: task.maxTurns,
+        outputFormat: task.outputFormat,
         createdAt: new Date().toISOString(),
       },
     };
@@ -885,7 +888,7 @@ export class RelayServer extends EventEmitter {
   /**
    * Steer a running task on an agent runner
    */
-  steerTask(taskId: string, machineId: string, message: string, action?: 'guidance' | 'redirect' | 'pause' | 'resume'): boolean {
+  steerTask(taskId: string, machineId: string, message: string, action?: 'guidance' | 'redirect' | 'pause' | 'resume', interrupt?: boolean): boolean {
     const connection = machineRegistry.getConnection(machineId);
     if (!connection) {
       console.error(`[relay] Machine ${machineId} not found for task steering`);
@@ -899,11 +902,12 @@ export class RelayServer extends EventEmitter {
       taskId,
       message,
       action: action || 'guidance',
+      interrupt,
     };
 
     try {
       this.sendMessage(connection.socket, steerMsg);
-      console.log(`[relay] Steer message sent for task ${taskId} to machine ${machineId}`);
+      console.log(`[relay] Steer message sent for task ${taskId} to machine ${machineId}${interrupt ? ' (interrupt)' : ''}`);
       return true;
     } catch (err) {
       console.error(`[relay] Error steering task ${taskId}:`, err);
@@ -1324,6 +1328,7 @@ export class RelayServer extends EventEmitter {
       taskId: payload.taskId,
       accepted: payload.accepted,
       message: payload.message,
+      interrupted: payload.interrupted,
     };
     this.emit('task:steer_ack', ackMsg);
   }

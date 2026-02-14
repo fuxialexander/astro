@@ -58,7 +58,7 @@ export interface WebSocketClientOptions {
   onEvent?: RunnerEventHandler;
   onTaskDispatch?: (task: Task) => void;
   onTaskCancel?: (taskId: string) => void;
-  onTaskSteer?: (taskId: string, message: string, action?: string) => void;
+  onTaskSteer?: (taskId: string, message: string, action?: string, interrupt?: boolean) => void;
   onFileList?: (path: string, correlationId: string) => void;
   onRepoSetup?: (payload: RepoSetupRequestMessage['payload']) => void;
   version?: string;
@@ -96,7 +96,7 @@ export class WebSocketClient {
   private onEvent?: RunnerEventHandler;
   private onTaskDispatch?: (task: Task) => void;
   private onTaskCancel?: (taskId: string) => void;
-  private onTaskSteer?: (taskId: string, message: string, action?: string) => void;
+  private onTaskSteer?: (taskId: string, message: string, action?: string, interrupt?: boolean) => void;
   private onFileList?: (path: string, correlationId: string) => void;
   private onRepoSetup?: (payload: RepoSetupRequestMessage['payload']) => void;
 
@@ -310,12 +310,15 @@ export class WebSocketClient {
   /**
    * Send steer acknowledgment
    */
-  sendSteerAck(taskId: string, accepted: boolean, message?: string): void {
+  sendSteerAck(taskId: string, accepted: boolean, message?: string, interrupted?: boolean): void {
     const msg: TaskSteerAckWSMessage = {
       type: 'task_steer_ack',
       timestamp: new Date().toISOString(),
       payload: { taskId, accepted, message },
     };
+    if (interrupted) {
+      (msg.payload as Record<string, unknown>).interrupted = true;
+    }
     this.send(msg);
   }
 
@@ -400,8 +403,8 @@ export class WebSocketClient {
 
       // Handle task.steer (dot notation from relay) by normalizing to task_steer
       if (raw.type === 'task.steer') {
-        // Relay sends: { type: 'task.steer', taskId, message, action }
-        // Normalize to agent-runner format: { type: 'task_steer', payload: { taskId, message, action } }
+        // Relay sends: { type: 'task.steer', taskId, message, action, interrupt }
+        // Normalize to agent-runner format: { type: 'task_steer', payload: { taskId, message, action, interrupt } }
         const steerMsg: TaskSteerIncomingMessage = {
           type: 'task_steer',
           timestamp: raw.timestamp as string ?? new Date().toISOString(),
@@ -409,6 +412,7 @@ export class WebSocketClient {
             taskId: raw.taskId as string,
             message: raw.message as string,
             action: raw.action as string | undefined,
+            interrupt: raw.interrupt as boolean | undefined,
           },
         };
         this.handleTaskSteer(steerMsg);
@@ -508,8 +512,8 @@ export class WebSocketClient {
   }
 
   private handleTaskSteer(message: TaskSteerIncomingMessage): void {
-    const { taskId, message: steerMessage, action } = message.payload;
-    this.onTaskSteer?.(taskId, steerMessage, action);
+    const { taskId, message: steerMessage, action, interrupt } = message.payload;
+    this.onTaskSteer?.(taskId, steerMessage, action, interrupt);
   }
 
   private handleConfigUpdate(message: ConfigUpdateMessage): void {

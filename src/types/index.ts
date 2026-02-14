@@ -1,6 +1,60 @@
 export type Priority = 'urgent' | 'high' | 'medium' | 'low' | 'none';
 export type Estimate = 'XS' | 'S' | 'M' | 'L' | 'XL';
 
+// Session types for unified chat/execution system
+export type SessionType = 'plan-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation';
+export type SessionStatus = 'active' | 'streaming' | 'completed' | 'error' | 'cancelled';
+
+export interface SessionMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: Date;
+  appliedMutations?: {
+    nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>;
+    edgeOps: Array<{ action: 'add' | 'remove'; source: string; target: string; type?: string }>;
+    newNodes: Array<{ id?: string; title: string; description: string; type?: string; milestoneId?: string; dependencies?: string[]; priority?: string; estimate?: string; environment?: string; verification?: string }>;
+  };
+}
+
+export interface ExecutionSummary {
+  workCompleted: string;
+  filesChanged: string[];
+  status: 'success' | 'partial' | 'failure';
+  followUps: string[];
+}
+
+export interface SteerMessage {
+  message: string;
+  accepted?: boolean;
+  ackMessage?: string;
+  interrupted?: boolean;
+  timestamp: Date;
+}
+
+export interface Session {
+  id: string;
+  type: SessionType;
+  status: SessionStatus;
+  projectId: string;
+  nodeId?: string;
+  providerSessionId?: string;
+  providerId?: string;
+  model?: string;
+  messages: SessionMessage[];
+  activityEvents?: TaskActivityEvent[];
+  toolTraces?: ToolTrace[];
+  fileChanges?: FileChange[];
+  streamText?: string;
+  summary?: ExecutionSummary;
+  metrics?: UsageMetrics;
+  steerMessages?: SteerMessage[];
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+  completedAt?: Date;
+}
+
 export interface Label {
   id: string;
   name: string;
@@ -91,7 +145,7 @@ export type TaskActivityEvent =
   | { type: 'text'; content: string; timestamp: Date }
   | { type: 'tool_use'; id: string; toolName: string; toolInput: unknown; timestamp: Date }
   | { type: 'tool_result'; id: string; toolName: string; toolResult?: unknown; success?: boolean; duration?: number; timestamp: Date }
-  | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; timestamp: Date }
+  | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; interrupted?: boolean; timestamp: Date }
   | { type: 'chat_user'; message: string; timestamp: Date }
   | { type: 'chat_assistant'; content: string; timestamp: Date }
   | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: Date }
@@ -132,6 +186,8 @@ export interface TaskExecution {
   branchName?: string;
   prUrl?: string;
   prNumber?: number;
+  // Execution summary (generated post-completion)
+  summary?: ExecutionSummary;
 }
 
 // Provider status for displaying in UI

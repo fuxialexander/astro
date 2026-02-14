@@ -19,6 +19,7 @@ interface ConfigSchema {
   accessToken?: string;
   refreshToken?: string;
   wsToken?: string;
+  claudeOauthToken?: string;
   relayUrl: string;
   providers: ProviderType[];
   autoStart: boolean;
@@ -43,6 +44,7 @@ class ConfigManager {
         accessToken: undefined,
         refreshToken: undefined,
         wsToken: undefined,
+        claudeOauthToken: undefined,
         relayUrl: DEFAULT_RELAY_URL,
         providers: [],
         autoStart: false,
@@ -186,6 +188,27 @@ class ConfigManager {
    */
   setWsToken(token: string): void {
     this.conf.set('wsToken', token);
+  }
+
+  /**
+   * Get Claude OAuth token (from `claude setup-token`)
+   */
+  getClaudeOauthToken(): string | undefined {
+    return this.conf.get('claudeOauthToken');
+  }
+
+  /**
+   * Set Claude OAuth token
+   */
+  setClaudeOauthToken(token: string): void {
+    this.conf.set('claudeOauthToken', token);
+  }
+
+  /**
+   * Clear Claude OAuth token
+   */
+  clearClaudeOauthToken(): void {
+    this.conf.delete('claudeOauthToken');
   }
 
   /**

@@ -139,6 +139,8 @@ export interface TaskDispatch {
   abortController?: AbortController
   /** JSON schema for structured output (forces provider to return structured data) */
   outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> }
+  /** Conversation history for multi-turn chat (sent before current prompt) */
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>
 }
 
 // ============================================================================

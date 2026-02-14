@@ -373,6 +373,7 @@ Execute the task described above. Focus on completing the task thoroughly and co
           nodeId,
           providerId: provider.id,
           providerName: provider.name,
+          machineId: 'local',
         }),
       })
 
@@ -848,18 +849,30 @@ async function dispatchViaRelay(
  * The agent runner receives the message and injects it into the session.
  */
 dispatchRoute.post('/steer', async (c) => {
-  const { taskId, machineId, message, action } = await c.req.json<{
+  const { taskId, machineId, message, action, interrupt } = await c.req.json<{
     taskId: string
     machineId: string
     message: string
     action?: 'guidance' | 'redirect' | 'pause' | 'resume'
+    interrupt?: boolean
   }>()
 
   if (!taskId || !machineId || !message) {
     return c.json({ success: false, error: 'taskId, machineId, and message are required' }, 400)
   }
 
-  const sent = relayServer.steerTask(taskId, machineId, message, action)
+  // Local dispatch steering
+  if (machineId === 'local') {
+    const { steerLocalTask } = await import('../lib/providers/adapters/claude-code.js')
+    const injected = await steerLocalTask(taskId, message, interrupt ?? false)
+    if (!injected) {
+      return c.json({ success: false, error: 'No active local query for this task' }, 404)
+    }
+    executionEventBus.emit('task:steer_ack', { taskId, accepted: true, interrupted: interrupt ?? false, message: 'Steering message injected' })
+    return c.json({ success: true, taskId, machineId })
+  }
+
+  const sent = relayServer.steerTask(taskId, machineId, message, action, interrupt)
 
   if (!sent) {
     return c.json(

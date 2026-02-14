@@ -18,8 +18,9 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useSessionStore } from "@/stores/session-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
-import type { PlanNode, ProviderStatus } from "@/types"
+import type { PlanNode, ProviderStatus, Session } from "@/types"
 
 /** A node update: nodeId + any properties to patch */
 interface ParsedNodeUpdate {
@@ -146,13 +147,41 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelProps) {
-  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
-  const [sessionId, setSessionId] = useState<string | undefined>()
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const initialMessageSent = useRef(false)
+  // Session store for persistent chat
+  const createSession = useSessionStore((s) => s.createSession)
+  const addMessage = useSessionStore((s) => s.addMessage)
+  const appendToLastAssistantMessage = useSessionStore((s) => s.appendToLastAssistantMessage)
+  const updateLastAssistantMessage = useSessionStore((s) => s.updateLastAssistantMessage)
+  const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
+  const getSessionsForProject = useSessionStore((s) => s.getSessionsForProject)
+
+  // Get or create the plan-chat session for this project
+  const planChatSessions = getSessionsForProject(projectId, "plan-chat")
+  const currentSession: Session | undefined = planChatSessions[planChatSessions.length - 1]
+  // Keep a ref to the session so the sendMessage callback can read fresh data
+  // without depending on the full object (avoids React Compiler memoization issues).
+  const currentSessionRef = useRef(currentSession)
+  useEffect(() => {
+    currentSessionRef.current = currentSession
+  }, [currentSession])
+
+  // Ensure session exists
+  useEffect(() => {
+    if (!currentSession) {
+      createSession({ type: "plan-chat", projectId })
+    }
+  }, [currentSession, createSession, projectId])
+
+  const messages: Message[] = (currentSession?.messages || []).map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
+    appliedMutations: m.appliedMutations as AppliedMutations | undefined,
+  }))
 
   // Plan store — read nodes/edges for context, write updates
   const planNodes = usePlanStore((s) => s.nodes)
@@ -234,6 +263,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
   // Sync defaults from settings on first load
   useEffect(() => {
     if (providersLoaded && !selectedProvider && defaultProvider) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from settings
       setSelectedProvider(defaultProvider)
     }
   }, [providersLoaded, defaultProvider, selectedProvider])
@@ -373,12 +403,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
   }, [planNodes, projectId, updateNode, addNode, addEdge, removeEdge, reorganizeProject])
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!text || isStreaming) return
+    const session = currentSessionRef.current
+    if (!text || isStreaming || !session) return
 
     setInput("")
-    setMessages((prev) => [...prev, { role: "user", content: text }])
+    const sid = session.id
+    addMessage(sid, { role: "user", content: text })
     setIsStreaming(true)
-    setMessages((prev) => [...prev, { role: "assistant", content: "" }])
+    addMessage(sid, { role: "assistant", content: "" })
 
     abortRef.current = new AbortController()
 
@@ -390,6 +422,12 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
       enrichedMessage = text + fileTreeContext
     }
 
+    // Build message history from the session (exclude the just-added user + empty assistant)
+    const sessionMessages = session.messages || []
+    const historyMessages = sessionMessages
+      .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+
     // Track raw assistant text outside React state so it's available
     // synchronously in onDone (React 18 batches setState updaters).
     let rawAssistantText = ""
@@ -398,28 +436,22 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
       await chatWithAgent(
         {
           message: enrichedMessage,
-          sessionId,
+          sessionId: session.providerSessionId,
           projectId,
           visionDoc,
           model: effectiveModel,
           providerId: effectiveProviderId,
           planNodes: planNodeContext,
           planEdges: planEdgeContext,
+          messages: historyMessages,
         },
         {
           onText: (chunk) => {
             rawAssistantText += chunk
-            setMessages((prev) => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last && last.role === "assistant") {
-                updated[updated.length - 1] = { ...last, content: last.content + chunk }
-              }
-              return updated
-            })
+            appendToLastAssistantMessage(sid, chunk)
           },
-          onDone: (newSessionId) => {
-            if (newSessionId) setSessionId(newSessionId)
+          onDone: (newProviderSessionId) => {
+            if (newProviderSessionId) setProviderSessionId(sid, newProviderSessionId)
 
             // Extract mutations from the raw text (available synchronously,
             // unlike React state which may be batched).
@@ -431,31 +463,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
               // double-invocation duplicating nodes/edges.
               applyMutations(mutations)
 
-              // Update message display (pure state update, safe if called twice)
-              setMessages((prev) => {
-                const updated = [...prev]
-                const last = updated[updated.length - 1]
-                if (last && last.role === "assistant") {
-                  updated[updated.length - 1] = {
-                    ...last,
-                    content: cleanContent,
-                    appliedMutations: mutations,
-                  }
-                }
-                return updated
-              })
+              // Update message display with clean content and mutation record
+              updateLastAssistantMessage(sid, cleanContent, mutations)
             }
             setIsStreaming(false)
           },
           onError: (error) => {
-            setMessages((prev) => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last && last.role === "assistant") {
-                updated[updated.length - 1] = { ...last, content: `Error: ${error}` }
-              }
-              return updated
-            })
+            appendToLastAssistantMessage(sid, `\nError: ${error}`)
             setIsStreaming(false)
           },
         },
@@ -464,7 +478,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
     } catch {
       setIsStreaming(false)
     }
-  }, [isStreaming, sessionId, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, applyMutations, project?.fileTree])
+  }, [isStreaming, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, applyMutations, project, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])
 
   function handleSend() {
     sendMessage(input.trim())
@@ -474,8 +488,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
   useEffect(() => {
     if (initialMessage && !initialMessageSent.current && !isStreaming) {
       initialMessageSent.current = true
-      setInput(initialMessage)
-      // Auto-send after a brief delay for the UI to show the message
+      // Auto-send after a brief delay so the session is ready
       const timer = setTimeout(() => sendMessage(initialMessage), 100)
       return () => clearTimeout(timer)
     }

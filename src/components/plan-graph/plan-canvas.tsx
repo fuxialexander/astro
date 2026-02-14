@@ -396,10 +396,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const readyNodes = selectedNodes.filter((n) => canExecuteNode(n, allPlanNodes, allPlanEdges).ready)
   const blockedCount = selectedNodes.length - readyNodes.length
   const SelectedEnvIcon = environmentConfig[selectedEnvironment].icon
-  const effectiveMachine = selectedMachineId
-    ? availableMachines.find((m) => m.machineId === selectedMachineId) ?? null
-    : null
-
   // Batch execution stats
   const isBatchActive = batchExecution?.active ?? false
   const plannedCount = projectNodes.filter((n) => n.status === "planned").length

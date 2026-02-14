@@ -12,6 +12,7 @@ import { transcribeRoute } from './routes/transcribe.js'
 import { fsRoute } from './routes/fs.js'
 import { repoRoute } from './routes/repo.js'
 import { dataRoute } from './routes/data.js'
+import { notificationsRoute } from './routes/notifications.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
@@ -49,6 +50,7 @@ app.route('/api/transcribe', transcribeRoute)
 app.route('/api/fs', fsRoute)
 app.route('/api/repo', repoRoute)
 app.route('/api/data', dataRoute)
+app.route('/api/notifications', notificationsRoute)
 
 const port = 3001
 const relayPort = parseInt(process.env.RELAY_PORT || '3002', 10)

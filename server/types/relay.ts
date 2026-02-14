@@ -116,6 +116,10 @@ export interface TaskDispatch {
   metadata?: Record<string, string>;
   /** Pre-built prompt — bypasses automatic prompt construction from title/description */
   prompt?: string;
+  /** Override agent runner's default maxTurns (e.g., 10 for plan generation) */
+  maxTurns?: number;
+  /** Force structured JSON output matching a schema */
+  outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> };
 }
 
 /** Task result from agent runner */
@@ -235,6 +239,7 @@ export interface TaskSteerAckMessage extends BaseMessage {
   taskId: string;
   accepted: boolean;
   message?: string;
+  interrupted?: boolean;
 }
 
 /** Task tool trace (detailed tool call information from agent) */
@@ -300,6 +305,7 @@ export interface TaskSteerMessage extends BaseMessage {
   taskId: string;
   message: string;
   action?: 'guidance' | 'redirect' | 'pause' | 'resume';
+  interrupt?: boolean;
 }
 
 /** File list request (relay → agent) */

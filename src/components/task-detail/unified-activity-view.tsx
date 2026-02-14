@@ -13,18 +13,19 @@ import {
   AlertCircle,
   Plus,
   Minus,
+  Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { useRealtimeStore, type TaskStream } from "@/stores/realtime-store"
 import { useProjectStore } from "@/stores/project-store"
-import { useTaskChatStore } from "@/stores/task-chat-store"
+import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { chatWithTask } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
-import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
+import type { PlanNode, TaskExecution, TaskActivityEvent, ExecutionSummary } from "@/types"
 
 interface UnifiedActivityViewProps {
   node: PlanNode
@@ -194,16 +195,28 @@ function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
 }
 
 function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'steer' }> }) {
+  const isInterrupted = event.interrupted === true
+
   return (
     <div className="flex flex-col items-end gap-1 px-4 py-1.5">
-      <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[80%]">
-        <p className="whitespace-pre-wrap">{event.message}</p>
+      <div className={cn(
+        "rounded-lg px-3 py-2 text-sm max-w-[80%]",
+        isInterrupted
+          ? "bg-orange-500 text-white"
+          : "bg-primary text-primary-foreground"
+      )}>
+        <div className="flex items-center gap-1.5">
+          {isInterrupted && <Zap className="h-3.5 w-3.5 shrink-0" />}
+          <p className="whitespace-pre-wrap">{event.message}</p>
+        </div>
       </div>
       <div className="flex items-center gap-1.5">
         {event.accepted === true && (
           <>
             <CheckCircle2 className="h-3 w-3 text-green-500" />
-            <span className="text-[10px] text-green-600">Accepted</span>
+            <span className="text-[10px] text-green-600">
+              {isInterrupted ? "Interrupted" : "Queued"}
+            </span>
           </>
         )}
         {event.accepted === false && (
@@ -241,6 +254,52 @@ function FileChangeBlock({ event }: { event: Extract<TaskActivityEvent, { type: 
           <Minus className="h-2.5 w-2.5" />{event.linesRemoved}
         </span>
       )}
+    </div>
+  )
+}
+
+function SummaryCard({ summary }: { summary: ExecutionSummary }) {
+  const statusColor = summary.status === 'success'
+    ? 'border-green-500/30 bg-green-500/5'
+    : summary.status === 'partial'
+      ? 'border-yellow-500/30 bg-yellow-500/5'
+      : 'border-red-500/30 bg-red-500/5'
+
+  const statusBadge = summary.status === 'success'
+    ? 'bg-green-500/10 text-green-600'
+    : summary.status === 'partial'
+      ? 'bg-yellow-500/10 text-yellow-600'
+      : 'bg-red-500/10 text-red-600'
+
+  return (
+    <div className={cn("mx-4 my-2 rounded-lg border p-3", statusColor)}>
+      <div className="flex items-start gap-2">
+        <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-semibold">Summary</span>
+            <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium", statusBadge)}>
+              {summary.status}
+            </span>
+            {summary.filesChanged.length > 0 && (
+              <span className="text-[10px] text-muted-foreground">
+                {summary.filesChanged.length} file{summary.filesChanged.length !== 1 ? 's' : ''} changed
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-foreground leading-relaxed">{summary.workCompleted}</p>
+          {summary.followUps.length > 0 && (
+            <div className="mt-2">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Follow-ups</span>
+              <ul className="mt-0.5">
+                {summary.followUps.map((f, i) => (
+                  <li key={i} className="text-xs text-muted-foreground">- {f}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -297,17 +356,23 @@ export function UnifiedActivityView({
   const updateSteerMessage = useRealtimeStore((s) => s.updateSteerMessage)
   const model = useSettingsStore((s) => s.model)
 
-  // Task chat store actions
-  const getOrCreateSession = useTaskChatStore((s) => s.getOrCreateSession)
-  const addMessage = useTaskChatStore((s) => s.addMessage)
-  const appendToLastAssistantMessage = useTaskChatStore((s) => s.appendToLastAssistantMessage)
-  const setSessionId = useTaskChatStore((s) => s.setSessionId)
-  const chatSession = useTaskChatStore((s) => s.getSession(node.id))
+  // Session store actions
+  const createSessionAction = useSessionStore((s) => s.createSession)
+  const addMessage = useSessionStore((s) => s.addMessage)
+  const appendToLastAssistantMessage = useSessionStore((s) => s.appendToLastAssistantMessage)
+  const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
+  const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
+
+  // Get or create task-chat session for this node
+  const taskChatSessions = getSessionsForNode(node.id, "task-chat")
+  const chatSession = taskChatSessions[taskChatSessions.length - 1]
 
   // Ensure chat session exists
   useEffect(() => {
-    getOrCreateSession(node.id, projectId)
-  }, [node.id, projectId, getOrCreateSession])
+    if (!chatSession) {
+      createSessionAction({ type: "task-chat", projectId, nodeId: node.id })
+    }
+  }, [chatSession, createSessionAction, node.id, projectId])
 
   // Voice transcription
   const handleTranscript = useCallback((text: string) => {
@@ -377,12 +442,12 @@ export function UnifiedActivityView({
   }
 
   // Steer message handler (when running)
-  async function handleSteer(text: string) {
+  async function handleSteer(text: string, interrupt = false) {
     if (!text || sending) return
     setSending(true)
 
     // Add message to store immediately for UI
-    addSteerMessage(executionId, text)
+    addSteerMessage(executionId, text, interrupt)
     const steerIndex = (taskStream?.steerMessages.length || 0)
 
     // Set 15s timeout
@@ -399,6 +464,7 @@ export function UnifiedActivityView({
           machineId,
           message: text,
           action: "guidance",
+          interrupt,
         }),
       })
 
@@ -425,19 +491,25 @@ export function UnifiedActivityView({
 
   // Chat message handler (when completed/idle)
   async function handleChat(text: string) {
-    if (!text || isChatStreaming) return
+    if (!text || isChatStreaming || !chatSession) return
 
-    addMessage(node.id, { role: "user", content: text })
-    addMessage(node.id, { role: "assistant", content: "" })
+    const sid = chatSession.id
+    addMessage(sid, { role: "user", content: text })
+    addMessage(sid, { role: "assistant", content: "" })
 
     setIsChatStreaming(true)
     abortRef.current = new AbortController()
+
+    // Build message history from session
+    const historyMessages = (chatSession.messages || [])
+      .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
     try {
       await chatWithTask(
         {
           message: text,
-          sessionId: chatSession?.sessionId,
+          sessionId: chatSession.providerSessionId,
           nodeId: node.id,
           projectId,
           taskTitle: node.title,
@@ -445,15 +517,16 @@ export function UnifiedActivityView({
           taskOutput: outputText,
           visionDoc: project?.visionDoc,
           model,
+          messages: historyMessages,
         },
         {
-          onText: (chunk) => appendToLastAssistantMessage(node.id, chunk),
+          onText: (chunk) => appendToLastAssistantMessage(sid, chunk),
           onDone: (newSessionId) => {
-            if (newSessionId) setSessionId(node.id, newSessionId)
+            if (newSessionId) setProviderSessionId(sid, newSessionId)
             setIsChatStreaming(false)
           },
           onError: (error) => {
-            appendToLastAssistantMessage(node.id, `\n\nError: ${error}`)
+            appendToLastAssistantMessage(sid, `\n\nError: ${error}`)
             setIsChatStreaming(false)
           },
         },
@@ -464,13 +537,13 @@ export function UnifiedActivityView({
     }
   }
 
-  function handleSend() {
+  function handleSend(interrupt = false) {
     const text = input.trim()
     if (!text) return
     setInput("")
 
     if (isRunning) {
-      handleSteer(text)
+      handleSteer(text, interrupt)
     } else {
       handleChat(text)
     }
@@ -486,6 +559,11 @@ export function UnifiedActivityView({
         onScroll={handleScroll}
         className="flex-1 overflow-auto py-3 bg-muted/20"
       >
+        {/* Summary card at top when available */}
+        {execution?.summary && (
+          <SummaryCard summary={execution.summary} />
+        )}
+
         {/* Fallback for old tasks without activity events */}
         {hasFallback && chatMessages.length === 0 && (
           <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground px-4 py-2">
@@ -576,7 +654,15 @@ export function UnifiedActivityView({
       )}
 
       {/* Input Bar */}
-      <div className="flex items-end gap-2 border-t border-border p-3 bg-background shrink-0">
+      <div className="border-t border-border bg-background shrink-0">
+      {isRunning && (
+        <div className="px-3 pt-2 pb-0">
+          <span className="text-[10px] text-muted-foreground">
+            Enter to queue · Shift+Enter to interrupt
+          </span>
+        </div>
+      )}
+      <div className="flex items-end gap-2 p-3 pt-1.5">
         <VoiceInputButton
           isRecording={isRecording}
           isTranscribing={isTranscribing}
@@ -593,7 +679,7 @@ export function UnifiedActivityView({
           fileTree={project?.fileTree}
           value={input}
           onChange={setInput}
-          onSubmit={handleSend}
+          onSubmit={(opts) => handleSend(opts?.interrupt ?? false)}
           placeholder={
             isRecording
               ? "Listening..."
@@ -609,7 +695,7 @@ export function UnifiedActivityView({
         <Button
           size="icon"
           className="h-9 w-9 shrink-0"
-          onClick={handleSend}
+          onClick={(e) => handleSend(e.shiftKey)}
           disabled={!input.trim() || isInputDisabled}
         >
           {sending || isChatStreaming ? (
@@ -618,6 +704,7 @@ export function UnifiedActivityView({
             <Send className="h-4 w-4" />
           )}
         </Button>
+      </div>
       </div>
     </div>
   )

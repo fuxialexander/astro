@@ -122,7 +122,7 @@ app.put('/plan/:projectId', async (c) => {
     tx.delete(planNodes).where(eq(planNodes.projectId, projectId)).run()
 
     for (const n of newNodes) {
-      tx.insert(planNodes).values({
+      const row = {
         id: n.id as string,
         projectId,
         type: n.type as string,
@@ -149,6 +149,10 @@ app.put('/plan/:projectId', async (c) => {
         executionCompletedAt: n.executionCompletedAt ? new Date(n.executionCompletedAt as string) : null,
         createdAt: n.createdAt ? new Date(n.createdAt as string) : new Date(),
         updatedAt: n.updatedAt ? new Date(n.updatedAt as string) : new Date(),
+      }
+      tx.insert(planNodes).values(row).onConflictDoUpdate({
+        target: planNodes.id,
+        set: { ...row, id: undefined } as typeof row,
       }).run()
     }
 
@@ -159,6 +163,14 @@ app.put('/plan/:projectId', async (c) => {
         source: e.source as string,
         target: e.target as string,
         type: (e.type as string) ?? 'dependency',
+      }).onConflictDoUpdate({
+        target: planEdges.id,
+        set: {
+          projectId,
+          source: e.source as string,
+          target: e.target as string,
+          type: (e.type as string) ?? 'dependency',
+        },
       }).run()
     }
   })

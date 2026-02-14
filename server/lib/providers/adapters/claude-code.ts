@@ -5,7 +5,7 @@
  * This adapter translates Nexus task dispatches into Claude SDK invocations.
  */
 
-import { query } from '@anthropic-ai/claude-agent-sdk'
+import { query, type Query } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentProvider,
   ProviderDetectionResult,
@@ -23,6 +23,9 @@ import { errorMessage } from '../../error-utils.js'
 
 // Map of active tasks for cancellation
 const activeTasks = new Map<string, AbortController>()
+
+// Map of active queries for steering (message injection)
+const activeQueries = new Map<string, { query: Query; sessionId: string }>()
 
 /**
  * Claude Code provider adapter.
@@ -124,7 +127,9 @@ export class ClaudeCodeProvider implements AgentProvider {
       supportsCancellation: true,
       availableModels: [
         'claude-sonnet-4-5-20250929',
+        'claude-opus-4-6',
         'claude-opus-4-5-20251101',
+        'claude-haiku-4-5-20251001',
         'claude-3-5-haiku-20241022',
       ],
       defaultModel: this.defaultModel,
@@ -296,6 +301,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       }
     } finally {
       activeTasks.delete(task.taskId)
+      activeQueries.delete(task.taskId)
     }
   }
 
@@ -369,6 +375,7 @@ export class ClaudeCodeProvider implements AgentProvider {
         if (msg.type === 'system' && msg.subtype === 'init') {
           model = msg.model
           sessionId = msg.sessionId
+          activeQueries.set(task.taskId, { query: gen, sessionId: msg.sessionId })
 
           yield {
             type: 'init',
@@ -568,6 +575,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       return result
     } finally {
       activeTasks.delete(task.taskId)
+      activeQueries.delete(task.taskId)
     }
   }
 
@@ -624,3 +632,46 @@ export class ClaudeCodeProvider implements AgentProvider {
 
 // Export singleton instance
 export const claudeCodeProvider = new ClaudeCodeProvider()
+
+/**
+ * Inject a steering message into a locally-running task's Claude session.
+ * Uses Query.streamInput() to feed a new user message into the running query.
+ * When interrupt=true, calls Query.interrupt() first to stop the current turn
+ * before injecting the message.
+ */
+export async function steerLocalTask(taskId: string, message: string, interrupt = false): Promise<boolean> {
+  const active = activeQueries.get(taskId)
+  if (!active) return false
+
+  if (interrupt) {
+    // Fire interrupt without awaiting — interrupt() may block until the
+    // current turn finishes, which can take a long time.  We fire and
+    // forget, then add a small delay for the signal to propagate.
+    active.query.interrupt().catch(() => {
+      /* agent may be idle between turns */
+    })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+
+  const msg = {
+    type: 'user' as const,
+    message: {
+      role: 'user' as const,
+      content: message,
+    },
+    parent_tool_use_id: null,
+    session_id: active.sessionId,
+  }
+
+  const iterable = {
+    async *[Symbol.asyncIterator]() {
+      yield msg
+    },
+  }
+
+  active.query.streamInput(iterable).catch((err: Error) => {
+    console.error(`[claude-code] Failed to inject steer for ${taskId}:`, err.message)
+  })
+
+  return true
+}

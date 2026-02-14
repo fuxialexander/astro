@@ -116,6 +116,53 @@ program
     }
   });
 
+// Auth command (set Claude OAuth token)
+program
+  .command('auth')
+  .description('Set Claude OAuth token for agent SDK authentication')
+  .option('--token <token>', 'Set token directly (from `claude setup-token` output)')
+  .option('--clear', 'Clear stored token')
+  .action(async (options) => {
+    const { config } = await import('./lib/config.js');
+    const chalk = (await import('chalk')).default;
+
+    if (options.clear) {
+      config.clearClaudeOauthToken();
+      console.log(chalk.green('✓ Claude OAuth token cleared'));
+      return;
+    }
+
+    if (options.token) {
+      config.setClaudeOauthToken(options.token);
+      console.log(chalk.green('✓ Claude OAuth token saved'));
+      console.log(chalk.dim('  Token will be used automatically when the agent starts'));
+      return;
+    }
+
+    // Interactive: prompt for token
+    const inquirer = (await import('inquirer')).default;
+    console.log(chalk.bold('\nClaude SDK Authentication\n'));
+    console.log(chalk.dim('Generate a long-lived token by running:'));
+    console.log(chalk.cyan('  claude setup-token\n'));
+    console.log(chalk.dim('Then paste the token below:\n'));
+
+    const { token } = await inquirer.prompt<{ token: string }>([
+      {
+        type: 'password',
+        name: 'token',
+        message: 'Paste your Claude OAuth token:',
+      },
+    ]);
+
+    if (token && token.trim().length > 10) {
+      config.setClaudeOauthToken(token.trim());
+      console.log(chalk.green('\n✓ Claude OAuth token saved'));
+      console.log(chalk.dim('  Restart the agent runner to apply'));
+    } else {
+      console.log(chalk.yellow('No token provided'));
+    }
+  });
+
 // Config command (show/edit config)
 program
   .command('config')
@@ -174,13 +221,17 @@ program
           config.setLogLevel(value as 'debug' | 'info' | 'warn' | 'error');
           console.log(`Set log level to: ${value}`);
           break;
+        case 'claudeOauthToken':
+          config.setClaudeOauthToken(value);
+          console.log('Set Claude OAuth token');
+          break;
         case 'autoStart':
           config.setAutoStart(value === 'true');
           console.log(`Set auto-start to: ${value}`);
           break;
         default:
           console.error(`Unknown configuration key: ${key}`);
-          console.log('Available keys: apiUrl, relayUrl, accessToken, refreshToken, wsToken, machineId, logLevel, autoStart');
+          console.log('Available keys: apiUrl, relayUrl, accessToken, refreshToken, wsToken, claudeOauthToken, machineId, logLevel, autoStart');
           process.exit(1);
       }
       return;
@@ -198,6 +249,7 @@ program
     console.log(`  Providers:    ${currentConfig.providers.length > 0 ? currentConfig.providers.join(', ') : '(none)'}`);
     console.log(`  Access token: ${currentConfig.accessToken ? 'configured' : 'not configured'}`);
     console.log(`  WS token:     ${currentConfig.wsToken ? 'configured' : 'not configured'}`);
+    console.log(`  Claude auth:  ${config.getClaudeOauthToken() ? 'OAuth token configured' : process.env.ANTHROPIC_API_KEY ? 'API key (env)' : 'not configured'}`);
     console.log(`\n  Config file: ${config.getConfigPath()}`);
     console.log();
   });

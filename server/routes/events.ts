@@ -112,12 +112,13 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:progress', data }).catch(() => { alive = false })
     }
 
-    const onTaskSteerAck = (msg: TaskSteerAckMessage) => {
+    const onTaskSteerAck = (msg: TaskSteerAckMessage & { interrupted?: boolean }) => {
       if (!alive) return
       const data = JSON.stringify({
         taskId: msg.taskId,
         accepted: msg.accepted,
         message: msg.message,
+        interrupted: msg.interrupted,
       })
       const id = eventBuffer.push('task:steer_ack', data)
       stream.writeSSE({ id, event: 'task:steer_ack', data }).catch(() => { alive = false })
@@ -239,6 +240,7 @@ eventsRoute.get('/stream', async (c) => {
     executionEventBus.on('task:tool_trace', onTaskToolTrace)
     executionEventBus.on('task:file_change', onTaskFileChange)
     executionEventBus.on('task:session_init', onTaskSessionInit)
+    executionEventBus.on('task:steer_ack', onTaskSteerAck)
 
     // Keepalive heartbeat (15s)
     const heartbeat = setInterval(() => {
@@ -281,6 +283,7 @@ eventsRoute.get('/stream', async (c) => {
       executionEventBus.off('task:tool_trace', onTaskToolTrace)
       executionEventBus.off('task:file_change', onTaskFileChange)
       executionEventBus.off('task:session_init', onTaskSessionInit)
+      executionEventBus.off('task:steer_ack', onTaskSteerAck)
     })
 
     // Keep the stream open until aborted

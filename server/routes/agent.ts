@@ -7,7 +7,7 @@ import {
   type AgentProvider,
 } from '../lib/providers/index.js'
 import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
-import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, PLAN_GRAPH_SCHEMA, type ChatPlanNode, type ChatPlanEdge } from '../lib/prompt-templates.js'
+import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, PLAN_GRAPH_SCHEMA, type ChatPlanNode, type ChatPlanEdge } from '../lib/prompt-templates.js'
 import { existsSync } from 'node:fs'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
@@ -25,6 +25,27 @@ function resolveModelForProvider(provider: AgentProvider, requestedModel?: strin
   if (supported) return requestedModel
   console.log(`[agent] Model "${requestedModel}" not supported by ${provider.name}, using default "${caps.defaultModel}"`)
   return caps.defaultModel
+}
+
+/**
+ * Get the best provider for chat endpoints.
+ * Prefers anthropic-direct (avoids CLI usage policy false positives on voice input)
+ * unless the caller explicitly requested a different provider.
+ */
+function getChatProvider(requestedProviderId?: string): AgentProvider | null {
+  // If user explicitly requested a non-claude-code provider, respect it
+  if (requestedProviderId && requestedProviderId !== 'claude-code') {
+    return providerRegistry.getProvider(requestedProviderId)
+  }
+  // Prefer anthropic-direct for chat (avoids CLI usage policy false positives)
+  const directReg = providerRegistry.getRegisteredProvider('anthropic-direct')
+  if (directReg?.available) {
+    return directReg.provider
+  }
+  // Fall back to requested or default
+  return requestedProviderId
+    ? providerRegistry.getProvider(requestedProviderId)
+    : providerRegistry.getDefaultProvider()
 }
 
 const agentRoute = new Hono()
@@ -48,7 +69,7 @@ agentRoute.post('/generate-plan', async (c) => {
   const { description, visionDoc, projectId, model, providerId, workingDirectory, fileTree, keyFiles, targetMachineId } = body
   const taskId = `gen-${projectId}-${Date.now()}`
 
-  console.log(`[plan-gen] Request received: projectId=${projectId}, provider=${providerId || 'default'}, model=${model || 'default'}`)
+  console.log(`[plan-gen] Request received: projectId=${projectId}, provider=${providerId || 'default'}, model=${model || 'default'}, targetMachineId=${targetMachineId || 'none'}, workingDirectory=${workingDirectory || 'none'}`)
 
   // Check if working directory exists locally (remote paths won't exist on this server)
   const isLocalDir = workingDirectory ? existsSync(workingDirectory) : false
@@ -89,6 +110,8 @@ agentRoute.post('/generate-plan', async (c) => {
         return
       }
 
+      console.log(`[plan-gen] Using provider: ${provider.id} (isLocalDir=${isLocalDir})`)
+
       // Read repo context: for local dirs, read key files + file tree from disk;
       // for remote dirs, use key files from the remote setup response + file tree
       let repoContext
@@ -117,14 +140,19 @@ agentRoute.post('/generate-plan', async (c) => {
         : `\n\n## Required Output JSON Schema\nYour response MUST be a single JSON object matching this schema (no markdown fences, no prose):\n${JSON.stringify(PLAN_GRAPH_SCHEMA, null, 2)}`
 
       // Build task dispatch — more turns when local repo available (agent may explore);
-      // remote repos only have file tree context, so 1 turn is enough
+      // With outputFormat, the SDK may need retries for schema validation, so give at least 3.
+      // anthropic-direct handles everything in 1 turn; claude-code needs more.
+      // For repos: 50 turns allows thorough exploration, file reading, and plan generation.
+      const maxTurns = isClaudeProvider
+        ? (isLocalDir ? 50 : 3)  // 50 turns for repo exploration; 3 for structured output retries
+        : 1
       const task: TaskDispatch = {
         taskId,
         type: 'planning',
         prompt: description + schemaPromptSuffix,
         systemPrompt,
         model: resolveModelForProvider(provider, model),
-        maxTurns: isClaudeProvider && isLocalDir ? 10 : 1,
+        maxTurns,
         context: {
           projectId,
           visionDoc,
@@ -254,8 +282,16 @@ agentRoute.post('/generate-plan', async (c) => {
           }
 
           case 'error':
-            console.error(`[plan-gen] Error: taskId=${taskId}`, event.error)
-            await stream.writeSSE({ event: 'error', data: event.error })
+            // For plan generation, max_turns errors are expected when the plan is
+            // produced as text before the SDK considers the task "complete".
+            // Don't send the error to the client yet — the result handler will
+            // check if a plan was extracted and only send error if it wasn't.
+            if (event.error?.includes('Max turns reached')) {
+              console.log(`[plan-gen] Max turns reached for taskId=${taskId}, will check for plan in result handler`)
+            } else {
+              console.error(`[plan-gen] Error: taskId=${taskId}`, event.error)
+              await stream.writeSSE({ event: 'error', data: event.error })
+            }
             break
 
           case 'aborted':
@@ -322,9 +358,11 @@ async function generatePlanViaRelay(
   }
 
   // Build the full plan prompt: system prompt + user description
-  // The remote agent runner will use this as the prompt with the repo as cwd
+  // The remote agent runner will use this as the prompt with the repo as cwd.
+  // Since the relay runs via query() without outputFormat, we add an explicit
+  // JSON-output reminder so the agent doesn't produce natural language.
   const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext)
-  const fullPrompt = `${systemPrompt}\n\n---\n\n## User Request\n\n${description}`
+  const fullPrompt = `${systemPrompt}\n\n---\n\n## User Request\n\n${description}\n\n---\n\nIMPORTANT: Respond with ONLY the JSON plan object. Start your response with { and end with }. No prose, no markdown fences, no explanation. The JSON must have "projectName", "nodes", and "edges" keys.`
 
   // Build relay task dispatch with pre-built prompt
   const taskDispatch: import('../types/relay.js').TaskDispatch = {
@@ -337,6 +375,8 @@ async function generatePlanViaRelay(
     environment: 'remote',
     workingDirectory,
     prompt: fullPrompt,
+    maxTurns: 50, // 50 turns for plan generation (explore repo + produce JSON)
+    outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
   }
 
   return streamSSE(c, async (stream) => {
@@ -378,8 +418,18 @@ async function generatePlanViaRelay(
       // If no plan was extracted, notify the client with an error
       if (!planResultSent) {
         let failureDetail: string
+        const resultOutput = msg.result.output ?? ''
+        console.warn(`[plan-gen] Relay: extraction failed. assistantText length=${assistantText.length}, result.output length=${resultOutput.length}, status=${msg.result.status}`)
         if (assistantText.length > 0) {
-          const trimmed = assistantText.trimEnd()
+          console.warn(`[plan-gen] assistantText preview: ${assistantText.slice(0, 500)}`)
+        }
+        if (resultOutput.length > 0 && resultOutput !== assistantText) {
+          console.warn(`[plan-gen] result.output preview: ${resultOutput.slice(0, 500)}`)
+        }
+
+        if (assistantText.length > 0 || resultOutput.length > 0) {
+          const combined = assistantText || resultOutput
+          const trimmed = combined.trimEnd()
           const mentionsPlanKeys = trimmed.includes('"nodes"') || trimmed.includes('"edges"')
           if (mentionsPlanKeys && !trimmed.endsWith('}')) {
             failureDetail = 'The AI response was truncated before the plan could be completed. This usually means the output token limit was reached. Try simplifying the project description.'
@@ -547,18 +597,17 @@ agentRoute.post('/chat', async (c) => {
     providerId?: string
     planNodes?: ChatPlanNode[]
     planEdges?: ChatPlanEdge[]
+    messages?: Array<{ role: 'user' | 'assistant'; content: string }>
   }>()
 
-  const { message, sessionId: existingSessionId, projectId, visionDoc, model, providerId, planNodes, planEdges } = body
+  const { message, sessionId: existingSessionId, projectId, visionDoc, model, providerId, planNodes, planEdges, messages: historyMessages } = body
   const taskId = existingSessionId || `chat-${projectId}-${Date.now()}`
   const abortController = createSession(taskId, providerId)
 
   return streamSSE(c, async (stream) => {
     try {
-      // Get provider (use specified or default)
-      const provider = providerId
-        ? providerRegistry.getProvider(providerId)
-        : providerRegistry.getDefaultProvider()
+      // Get provider — prefer anthropic-direct for chat to avoid CLI policy false positives
+      const provider = getChatProvider(providerId)
 
       if (!provider) {
         await stream.writeSSE({
@@ -584,6 +633,7 @@ agentRoute.post('/chat', async (c) => {
           visionDoc,
         },
         abortController,
+        messages: historyMessages,
       }
 
       // Stream the execution
@@ -641,6 +691,7 @@ agentRoute.post('/task-chat', async (c) => {
     visionDoc?: string
     model?: string
     providerId?: string
+    messages?: Array<{ role: 'user' | 'assistant'; content: string }>
   }>()
 
   const {
@@ -654,6 +705,7 @@ agentRoute.post('/task-chat', async (c) => {
     visionDoc,
     model,
     providerId,
+    messages: historyMessages,
   } = body
 
   const taskId = existingSessionId || `task-chat-${nodeId}-${Date.now()}`
@@ -661,10 +713,8 @@ agentRoute.post('/task-chat', async (c) => {
 
   return streamSSE(c, async (stream) => {
     try {
-      // Get provider (use specified or default)
-      const provider = providerId
-        ? providerRegistry.getProvider(providerId)
-        : providerRegistry.getDefaultProvider()
+      // Get provider — prefer anthropic-direct for chat to avoid CLI policy false positives
+      const provider = getChatProvider(providerId)
 
       if (!provider) {
         await stream.writeSSE({
@@ -697,6 +747,7 @@ agentRoute.post('/task-chat', async (c) => {
           taskOutput,
         },
         abortController,
+        messages: historyMessages,
       }
 
       // Stream the execution
@@ -994,6 +1045,69 @@ agentRoute.post('/dispatch', async (c) => {
       removeSession(executionId)
     }
   })
+})
+
+/**
+ * Summarize execution results.
+ * Single-turn, no tools, no streaming. Returns structured JSON summary.
+ */
+agentRoute.post('/summarize', async (c) => {
+  const body = await c.req.json<{
+    taskTitle: string
+    taskDescription: string
+    executionOutput: string
+    fileChanges: Array<{ path: string; action: string }>
+    status: 'success' | 'failure'
+  }>()
+
+  try {
+    // Get provider — prefer anthropic-direct for this lightweight task
+    const provider = getChatProvider()
+
+    if (!provider) {
+      return c.json({ error: 'No provider available' }, 503)
+    }
+
+    const prompt = buildSummaryPrompt(body)
+    const taskId = `summary-${Date.now()}`
+
+    const task: TaskDispatch = {
+      taskId,
+      type: 'chat',
+      prompt,
+      model: 'claude-3-5-haiku-20241022', // Use cheapest model for summaries
+      maxTurns: 1,
+      context: { projectId: '' },
+    }
+
+    const result = await provider.execute(task)
+
+    if (result.status === 'success' && result.stdout) {
+      try {
+        // Try to parse the JSON from the response
+        const jsonMatch = result.stdout.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const summary = JSON.parse(jsonMatch[0])
+          return c.json({ summary })
+        }
+      } catch {
+        // If JSON parsing fails, return a basic summary
+        return c.json({
+          summary: {
+            workCompleted: result.stdout.slice(0, 200),
+            filesChanged: body.fileChanges.map((f) => f.path),
+            status: body.status,
+            followUps: [],
+          },
+        })
+      }
+    }
+
+    return c.json({ error: 'Failed to generate summary' }, 500)
+  } catch (error) {
+    console.error('[summarize] Error:', errorMessage(error))
+    return c.json({ error: 'Summary generation failed' }, 500)
+  }
 })
 
 /**

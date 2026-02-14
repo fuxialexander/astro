@@ -1,4 +1,5 @@
-import { useMemo, useState, useCallback } from "react"
+import { useMemo, useState, useCallback, useEffect } from "react"
+import { useSearchParams } from "react-router"
 import {
   CheckSquare,
   ListFilter,
@@ -272,11 +273,24 @@ export function MyTasks() {
   const updateNode = usePlanStore((s) => s.updateNode)
   const removeNodes = usePlanStore((s) => s.removeNodes)
 
+  const [searchParams, setSearchParams] = useSearchParams()
   const [viewMode, setViewMode] = useState<MyTasksViewMode>("list")
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
+    const param = searchParams.get("status")
+    const validStatuses = ["planned", "dispatched", "in_progress", "auto_verified", "awaiting_judgment", "completed", "pruned"]
+    return param && validStatuses.includes(param) ? param as StatusFilter : "all"
+  })
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all")
   const [projectFilter, setProjectFilter] = useState<string>("all")
-  const [showFilters, setShowFilters] = useState(false)
+  const [showFilters, setShowFilters] = useState(() => !!searchParams.get("status"))
+
+  // Clear URL search params after initializing filters
+  useEffect(() => {
+    if (searchParams.has("status")) {
+      setSearchParams({}, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const projectMap = useMemo(() => {
     const m = new Map<string, string>()

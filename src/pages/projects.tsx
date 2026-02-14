@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from "react"
-import { Link, useNavigate } from "react-router"
+import { Link, useNavigate, useSearchParams } from "react-router"
 import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -159,10 +159,12 @@ export function Projects() {
   const deleteProject = useProjectStore((s) => s.deleteProject)
   const allNodes = usePlanStore((s) => s.nodes)
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const statusFilter = searchParams.get("status")
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const [viewTab, setViewTab] = useState<ViewTab>("all")
-  const [showFilter, setShowFilter] = useState(false)
+  const [showFilter, setShowFilter] = useState(!!statusFilter)
 
   const projectBatchActions: BatchAction[] = useMemo(() => [
     {
@@ -190,9 +192,12 @@ export function Projects() {
 
   // Sort projects
   const sortedProjects = useMemo(() => {
-    const filtered = displaySettings.showCompleted
+    let filtered = displaySettings.showCompleted
       ? projects
       : projects.filter((p) => (p.progress ?? 0) < 100)
+    if (statusFilter) {
+      filtered = filtered.filter((p) => p.status === statusFilter)
+    }
     const sorted = [...filtered]
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     sorted.sort((a, b) => {
@@ -215,7 +220,7 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted])
+  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter])
 
   // Group projects for list view
   const listGroups = useMemo((): ListGroup<Project>[] => {
@@ -431,13 +436,21 @@ export function Projects() {
 
         {/* Filter Bar */}
         <div className="flex items-center justify-between border-b border-border px-6 py-2 shrink-0">
-          <button
-            className="flex items-center gap-3 hover:bg-muted/30 rounded-md px-2 py-1 transition-colors cursor-pointer"
-            onClick={() => setShowFilter(!showFilter)}
-          >
-            <ListFilter className={cn("h-4 w-4", showFilter ? "text-primary" : "text-muted-foreground")} />
-            <span className={cn("text-sm", showFilter ? "text-foreground" : "text-muted-foreground")}>Filter</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="flex items-center gap-3 hover:bg-muted/30 rounded-md px-2 py-1 transition-colors cursor-pointer"
+              onClick={() => setShowFilter(!showFilter)}
+            >
+              <ListFilter className={cn("h-4 w-4", showFilter ? "text-primary" : "text-muted-foreground")} />
+              <span className={cn("text-sm", showFilter ? "text-foreground" : "text-muted-foreground")}>Filter</span>
+            </button>
+            {statusFilter && (
+              <Badge variant="secondary" className="gap-1 text-xs cursor-pointer" onClick={() => setSearchParams({})}>
+                Status: {statusFilter}
+                <span className="ml-0.5">&times;</span>
+              </Badge>
+            )}
+          </div>
         </div>
 
         {viewTab === "all" && (

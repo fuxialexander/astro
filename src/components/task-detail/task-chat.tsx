@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { chatWithTask } from "@/lib/api-client"
-import { useTaskChatStore } from "@/stores/task-chat-store"
+import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useProjectStore } from "@/stores/project-store"
 import type { PlanNode } from "@/types"
@@ -24,22 +24,26 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   const model = useSettingsStore((s) => s.model)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
-  // Store actions
-  const getOrCreateSession = useTaskChatStore((s) => s.getOrCreateSession)
-  const addMessage = useTaskChatStore((s) => s.addMessage)
-  const appendToLastAssistantMessage = useTaskChatStore((s) => s.appendToLastAssistantMessage)
-  const setSessionId = useTaskChatStore((s) => s.setSessionId)
-  const clearSession = useTaskChatStore((s) => s.clearSession)
+  // Session store actions
+  const createSession = useSessionStore((s) => s.createSession)
+  const addMessage = useSessionStore((s) => s.addMessage)
+  const appendToLastAssistantMessage = useSessionStore((s) => s.appendToLastAssistantMessage)
+  const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
+  const clearSessionsForNode = useSessionStore((s) => s.clearSessionsForNode)
+  const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
 
-  // Get session for this task
-  const session = useTaskChatStore((s) => s.getSession(node.id))
+  // Get or create task-chat session for this node
+  const taskChatSessions = getSessionsForNode(node.id, "task-chat")
+  const session = taskChatSessions[taskChatSessions.length - 1]
   const messages = session?.messages || []
   const messagesLength = messages.length
 
   // Ensure session exists
   useEffect(() => {
-    getOrCreateSession(node.id, projectId)
-  }, [node.id, projectId, getOrCreateSession])
+    if (!session) {
+      createSession({ type: "task-chat", projectId, nodeId: node.id })
+    }
+  }, [session, createSession, node.id, projectId])
 
   useEffect(() => {
     // Auto-scroll to bottom when messages change
@@ -50,24 +54,30 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
 
   async function handleSend() {
     const text = input.trim()
-    if (!text || isStreaming) return
+    if (!text || isStreaming || !session) return
 
     setInput("")
+    const sid = session.id
 
     // Add user message
-    addMessage(node.id, { role: "user", content: text })
+    addMessage(sid, { role: "user", content: text })
 
     // Add placeholder for assistant response
-    addMessage(node.id, { role: "assistant", content: "" })
+    addMessage(sid, { role: "assistant", content: "" })
 
     setIsStreaming(true)
     abortRef.current = new AbortController()
+
+    // Build message history from session
+    const historyMessages = (session.messages || [])
+      .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
     try {
       await chatWithTask(
         {
           message: text,
-          sessionId: session?.sessionId,
+          sessionId: session.providerSessionId,
           nodeId: node.id,
           projectId,
           taskTitle: node.title,
@@ -75,17 +85,18 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
           taskOutput,
           visionDoc,
           model,
+          messages: historyMessages,
         },
         {
           onText: (chunk) => {
-            appendToLastAssistantMessage(node.id, chunk)
+            appendToLastAssistantMessage(sid, chunk)
           },
           onDone: (newSessionId) => {
-            if (newSessionId) setSessionId(node.id, newSessionId)
+            if (newSessionId) setProviderSessionId(sid, newSessionId)
             setIsStreaming(false)
           },
           onError: (error) => {
-            appendToLastAssistantMessage(node.id, `\n\nError: ${error}`)
+            appendToLastAssistantMessage(sid, `\n\nError: ${error}`)
             setIsStreaming(false)
           },
         },
@@ -100,9 +111,9 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
     if (isStreaming) {
       abortRef.current?.abort()
     }
-    clearSession(node.id)
+    clearSessionsForNode(node.id)
     // Recreate the session
-    getOrCreateSession(node.id, projectId)
+    createSession({ type: "task-chat", projectId, nodeId: node.id })
   }
 
   return (
@@ -151,9 +162,9 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
               </div>
             </div>
           )}
-          {messages.map((msg) => (
+          {messages.map((msg, i) => (
             <div
-              key={msg.id}
+              key={msg.id || i}
               className={`flex flex-col gap-1 ${msg.role === "user" ? "items-end" : "items-start"}`}
             >
               <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">

@@ -4,25 +4,28 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
-import { useRealtimeStore, type TaskStream } from "@/stores/realtime-store"
+import { useRealtimeStore } from "@/stores/realtime-store"
+import { useSessionStore } from "@/stores/session-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
+import type { Session } from "@/types"
 
 interface SteerChatProps {
   taskId: string
   machineId: string
   projectId: string
-  taskStream?: TaskStream
+  steerSession?: Session
 }
 
-export function SteerChat({ taskId, machineId, projectId, taskStream }: SteerChatProps) {
+export function SteerChat({ taskId, machineId, projectId, steerSession }: SteerChatProps) {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
+  const addSteerMessageToRealtime = useRealtimeStore((s) => s.addSteerMessage)
+  const sessionStoreAddSteer = useSessionStore((s) => s.addSteerMessage)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
-  const steerMessages = taskStream?.steerMessages || []
+  const steerMessages = steerSession?.steerMessages || []
 
   // Voice transcription for steering input
   const handleTranscript = useCallback((text: string) => {
@@ -57,8 +60,11 @@ export function SteerChat({ taskId, machineId, projectId, taskStream }: SteerCha
     setInput("")
     setSending(true)
 
-    // Add message to store immediately for UI
-    addSteerMessage(taskId, text)
+    // Add message to both stores immediately for UI
+    addSteerMessageToRealtime(taskId, text)
+    if (steerSession) {
+      sessionStoreAddSteer(steerSession.id, text)
+    }
 
     try {
       const response = await fetch("/api/dispatch/steer", {

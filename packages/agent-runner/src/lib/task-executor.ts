@@ -141,9 +141,10 @@ export class TaskExecutor {
   }
 
   /**
-   * Steer a running task by injecting a message into the agent session
+   * Steer a running task by injecting a message into the agent session.
+   * When interrupt=true, interrupts the current turn before injecting.
    */
-  steerTask(taskId: string, message: string): { accepted: boolean; reason?: string } {
+  async steerTask(taskId: string, message: string, interrupt = false): Promise<{ accepted: boolean; reason?: string }> {
     const running = this.runningTasks.get(taskId);
     if (!running) {
       return { accepted: false, reason: 'Task not found or not running' };
@@ -151,7 +152,7 @@ export class TaskExecutor {
 
     // Check if the adapter supports message injection
     if (running.adapter instanceof ClaudeSdkAdapter && typeof running.adapter.injectMessage === 'function') {
-      const injected = running.adapter.injectMessage(taskId, message);
+      const injected = await running.adapter.injectMessage(taskId, message, interrupt);
       if (injected) {
         return { accepted: true };
       }

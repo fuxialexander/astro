@@ -8,6 +8,7 @@
 import { create } from 'zustand'
 import { realtimeClient, type RealtimeEvent } from '@/lib/realtime-client'
 import { usePlanStore } from './plan-store'
+import { useExecutionStore } from './execution-store'
 import type { TaskActivityEvent } from '@/types'
 
 export interface HpcCapability {
@@ -75,6 +76,7 @@ export interface TaskStream {
     message: string
     accepted?: boolean
     ackMessage?: string
+    interrupted?: boolean
     timestamp: Date
   }>
   activityEvents: TaskActivityEvent[]
@@ -112,7 +114,7 @@ interface RealtimeState {
   connect: () => void
   disconnect: () => void
   getTaskStream: (taskId: string) => TaskStream | undefined
-  addSteerMessage: (taskId: string, message: string) => void
+  addSteerMessage: (taskId: string, message: string, interrupted?: boolean) => void
   updateSteerMessage: (taskId: string, index: number, update: { accepted?: boolean; ackMessage?: string }) => void
   getSessionsForTask: (taskId: string) => AttachedSession[]
 }
@@ -153,13 +155,13 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     return get().taskStreams.get(taskId)
   },
 
-  addSteerMessage: (taskId: string, message: string) => {
+  addSteerMessage: (taskId: string, message: string, interrupted?: boolean) => {
     const now = new Date()
     set((state) => {
       const streams = new Map(state.taskStreams)
       const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-      stream.steerMessages.push({ message, timestamp: now })
-      stream.activityEvents = [...stream.activityEvents, { type: 'steer' as const, message, timestamp: now }]
+      stream.steerMessages.push({ message, interrupted, timestamp: now })
+      stream.activityEvents = [...stream.activityEvents, { type: 'steer' as const, message, interrupted, timestamp: now }]
       streams.set(taskId, stream)
       return { taskStreams: streams }
     })
@@ -283,6 +285,11 @@ function handleRealtimeEvent(
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
+      // Dual-write: also update execution store (find nodeId from plan store)
+      const stdoutNode = usePlanStore.getState().nodes.find((n) => n.executionId === taskId)
+      if (stdoutNode) {
+        useExecutionStore.getState().appendText(stdoutNode.id, text)
+      }
       break
     }
 
@@ -297,6 +304,11 @@ function handleRealtimeEvent(
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
+      // Dual-write
+      const textNode = usePlanStore.getState().nodes.find((n) => n.executionId === taskId)
+      if (textNode) {
+        useExecutionStore.getState().appendText(textNode.id, text)
+      }
       break
     }
 
@@ -405,6 +417,23 @@ function handleRealtimeEvent(
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
+      // Dual-write to execution store
+      const traceNode = usePlanStore.getState().nodes.find((n) => n.executionId === taskId)
+      if (traceNode) {
+        const execStore = useExecutionStore.getState()
+        execStore.addToolTrace(traceNode.id, {
+          id: traceId,
+          toolName: data.toolName as string,
+          toolInput: data.toolInput as Record<string, unknown>,
+          toolResult: data.toolResult as unknown,
+          success: data.success as boolean | undefined,
+          duration: data.duration as number | undefined,
+          timestamp: now,
+        })
+        if (data.toolResult !== undefined) {
+          execStore.updateToolTraceResult(traceNode.id, data.toolName as string, data.toolResult, data.success as boolean | undefined, data.duration as number | undefined)
+        }
+      }
       break
     }
 
@@ -435,6 +464,18 @@ function handleRealtimeEvent(
         return { taskStreams: streams }
       })
       addActivity(set, 'file_change', `File ${data.action}: ${data.path}`, { taskId })
+      // Dual-write to execution store
+      const fcNode = usePlanStore.getState().nodes.find((n) => n.executionId === taskId)
+      if (fcNode) {
+        useExecutionStore.getState().addFileChange(fcNode.id, {
+          path: data.path as string,
+          action: (data.action as string) as 'create' | 'modify' | 'delete',
+          linesAdded: data.linesAdded as number | undefined,
+          linesRemoved: data.linesRemoved as number | undefined,
+          diff: data.diff as string | undefined,
+          timestamp: now,
+        })
+      }
       break
     }
 
@@ -448,11 +489,19 @@ function handleRealtimeEvent(
           const last = stream.steerMessages[stream.steerMessages.length - 1]
           last.accepted = data.accepted as boolean
           last.ackMessage = data.message as string | undefined
+          if (data.interrupted !== undefined) {
+            last.interrupted = data.interrupted as boolean
+          }
           // Also update the corresponding activity event
           for (let i = stream.activityEvents.length - 1; i >= 0; i--) {
             const e = stream.activityEvents[i]
             if (e.type === 'steer' && e.accepted === undefined) {
-              stream.activityEvents[i] = { ...e, accepted: data.accepted as boolean, ackMessage: data.message as string | undefined }
+              stream.activityEvents[i] = {
+                ...e,
+                accepted: data.accepted as boolean,
+                ackMessage: data.message as string | undefined,
+                ...(data.interrupted !== undefined ? { interrupted: data.interrupted as boolean } : {}),
+              }
               break
             }
           }

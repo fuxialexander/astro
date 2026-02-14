@@ -101,7 +101,7 @@ export function Dashboard() {
       {/* Stats Row - 3 cards */}
       <div className="grid grid-cols-3 gap-4">
         {/* Needs Attention */}
-        <Card className="rounded-xl shadow-sm">
+        <Card className="rounded-xl shadow-sm cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=awaiting_judgment")}>
           <CardContent className="flex items-center justify-between p-6">
             <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Needs Attention</p>
@@ -114,7 +114,7 @@ export function Dashboard() {
         </Card>
 
         {/* Active Tasks */}
-        <Card className="rounded-xl shadow-sm">
+        <Card className="rounded-xl shadow-sm cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=in_progress")}>
           <CardContent className="flex items-center justify-between p-6">
             <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Active Tasks</p>
@@ -127,7 +127,7 @@ export function Dashboard() {
         </Card>
 
         {/* Completed Today */}
-        <Card className="rounded-xl shadow-sm">
+        <Card className="rounded-xl shadow-sm cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=completed")}>
           <CardContent className="flex items-center justify-between p-6">
             <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Completed Today</p>
@@ -238,7 +238,7 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Active Projects</h2>
               <Button variant="outline" size="sm" asChild>
-                <Link to="/projects">View All</Link>
+                <Link to="/projects?status=active">View All</Link>
               </Button>
             </div>
             <div className="flex flex-col gap-2">

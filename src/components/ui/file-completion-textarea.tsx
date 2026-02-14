@@ -20,7 +20,7 @@ interface FileCompletionTextareaProps {
   rows?: number
   className?: string
   onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void
-  onSubmit?: () => void
+  onSubmit?: (opts?: { interrupt?: boolean }) => void
 }
 
 interface DropdownPosition {
@@ -244,10 +244,11 @@ export function FileCompletionTextarea({
         }
       }
 
-      // Submit on Enter without Shift (only when dropdown is not active)
-      if (e.key === "Enter" && !e.shiftKey && !isActive && onSubmit) {
+      // Submit on Enter (only when dropdown is not active)
+      // Enter = queue (default), Shift+Enter = interrupt+send
+      if (e.key === "Enter" && !isActive && onSubmit) {
         e.preventDefault()
-        onSubmit()
+        onSubmit({ interrupt: e.shiftKey })
         return
       }
 

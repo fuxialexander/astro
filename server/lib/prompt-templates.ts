@@ -375,3 +375,47 @@ Execute the task described above. Focus on completing the task thoroughly and co
 
   return parts.join('\n\n---\n\n')
 }
+
+/**
+ * Build a prompt for summarizing execution results.
+ * Single-turn, no tools, returns structured JSON.
+ */
+export function buildSummaryPrompt(context: {
+  taskTitle: string
+  taskDescription: string
+  executionOutput: string
+  fileChanges: Array<{ path: string; action: string }>
+  status: 'success' | 'failure'
+}): string {
+  // Truncate output to last 15K chars to stay within context
+  const maxLen = 15000
+  const output = context.executionOutput.length > maxLen
+    ? '...\n' + context.executionOutput.slice(-maxLen)
+    : context.executionOutput
+
+  const fileList = context.fileChanges.length > 0
+    ? context.fileChanges.map((f) => `- ${f.action}: ${f.path}`).join('\n')
+    : 'No file changes recorded.'
+
+  return `You are a task execution summarizer. Analyze the following task execution and produce a structured JSON summary.
+
+## Task
+**${context.taskTitle}**
+${context.taskDescription}
+
+## Execution Output (last ${Math.min(context.executionOutput.length, maxLen)} chars)
+${output}
+
+## Files Changed
+${fileList}
+
+## Execution Status: ${context.status}
+
+Respond with ONLY a JSON object in this exact format (no markdown fences, no extra text):
+{
+  "workCompleted": "1-2 sentence summary of what was accomplished",
+  "filesChanged": ["list", "of", "changed", "file", "paths"],
+  "status": "${context.status === 'success' ? 'success' : 'failure'}",
+  "followUps": ["suggested follow-up task if any"]
+}`
+}

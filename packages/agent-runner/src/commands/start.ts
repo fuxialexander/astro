@@ -95,6 +95,14 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   console.log(chalk.dim(`Log level: ${logLevel}`));
   console.log();
 
+  // Set Claude OAuth token if configured (from `claude setup-token`)
+  const claudeOauthToken = config.getClaudeOauthToken();
+  if (claudeOauthToken && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = claudeOauthToken;
+    console.log(chalk.dim('Using stored Claude OAuth token'));
+  }
+  console.log();
+
   // Detect resources
   const resourceSpinner = ora('Detecting machine resources...').start();
   let resources;
@@ -165,11 +173,15 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     taskExecutor.cancelTask(taskId);
   };
 
-  wsClient['onTaskSteer'] = (taskId: string, message: string, action?: string) => {
-    log('info', `Received steer for task ${taskId}: "${message.slice(0, 100)}"${action ? ` (action: ${action})` : ''}`, logLevel);
-    const result = taskExecutor.steerTask(taskId, message);
-    wsClient.sendSteerAck(taskId, result.accepted, result.reason);
-    log('info', `Steer ack for task ${taskId}: accepted=${result.accepted}${result.reason ? ` reason=${result.reason}` : ''}`, logLevel);
+  wsClient['onTaskSteer'] = (taskId: string, message: string, action?: string, interrupt?: boolean) => {
+    log('info', `Received steer for task ${taskId}: "${message.slice(0, 100)}"${action ? ` (action: ${action})` : ''}${interrupt ? ' (interrupt)' : ''}`, logLevel);
+    taskExecutor.steerTask(taskId, message, interrupt ?? false).then((result) => {
+      wsClient.sendSteerAck(taskId, result.accepted, result.reason, interrupt);
+      log('info', `Steer ack for task ${taskId}: accepted=${result.accepted}${result.reason ? ` reason=${result.reason}` : ''}${interrupt ? ' (interrupt)' : ''}`, logLevel);
+    }).catch((err) => {
+      log('error', `Steer failed for task ${taskId}: ${err instanceof Error ? err.message : String(err)}`, logLevel);
+      wsClient.sendSteerAck(taskId, false, 'Internal error');
+    });
   };
 
   wsClient['onFileList'] = (path: string, correlationId: string) => {

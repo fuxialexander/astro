@@ -182,13 +182,58 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     }
   }
 
-  // Step 6: Save provider configuration
+  // Step 6: Claude SDK authentication
+  if (!options.nonInteractive) {
+    console.log(chalk.bold('Claude SDK Authentication\n'));
+
+    const hasExistingToken = !!config.getClaudeOauthToken();
+    const hasEnvToken = !!process.env.CLAUDE_CODE_OAUTH_TOKEN || !!process.env.ANTHROPIC_API_KEY;
+
+    if (hasEnvToken) {
+      console.log(chalk.green('✓ Claude authentication detected via environment variable\n'));
+    } else if (hasExistingToken) {
+      console.log(chalk.green('✓ Claude OAuth token already configured\n'));
+      const { reconfigure } = await inquirer.prompt<{ reconfigure: boolean }>([
+        {
+          type: 'confirm',
+          name: 'reconfigure',
+          message: 'Reconfigure Claude OAuth token?',
+          default: false,
+        },
+      ]);
+      if (reconfigure) {
+        await setupClaudeOauthToken();
+      }
+    } else {
+      console.log(chalk.dim('The agent runner needs authentication to call the Claude API.'));
+      console.log(chalk.dim('You can either:'));
+      console.log(chalk.dim('  1. Generate a long-lived token via `claude setup-token` (recommended)'));
+      console.log(chalk.dim('  2. Set ANTHROPIC_API_KEY environment variable'));
+      console.log(chalk.dim('  3. Run `claude login` to use short-lived OAuth (may expire)\n'));
+
+      const { setupAuth } = await inquirer.prompt<{ setupAuth: boolean }>([
+        {
+          type: 'confirm',
+          name: 'setupAuth',
+          message: 'Generate a long-lived Claude OAuth token now?',
+          default: true,
+        },
+      ]);
+
+      if (setupAuth) {
+        await setupClaudeOauthToken();
+      }
+    }
+    console.log();
+  }
+
+  // Step 7: Save provider configuration
   const providerTypes = detectedProviders
     .filter((p) => p.available)
     .map((p) => p.type as ProviderType);
   config.setProviders(providerTypes);
 
-  // Step 7: Offer to install on remote hosts
+  // Step 8: Offer to install on remote hosts
   if (discoveredHosts.length > 0 && !options.nonInteractive) {
     console.log(chalk.bold('Remote Installation\n'));
     console.log(chalk.dim('You have SSH access to these hosts. Would you like to install'));
@@ -211,7 +256,7 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     }
   }
 
-  // Step 8: Configure auto-start
+  // Step 9: Configure auto-start
   if (!options.nonInteractive) {
     const { autoStart } = await inquirer.prompt<{ autoStart: boolean }>([
       {
@@ -231,7 +276,7 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     }
   }
 
-  // Step 9: Configure MCP for Claude Code integration
+  // Step 10: Configure MCP for Claude Code integration
   let mcpConfigured = false;
   if (!options.nonInteractive) {
     console.log();
@@ -270,6 +315,14 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     config.getAccessToken() ? chalk.green('authenticated') : chalk.yellow('not configured'),
   );
   console.log(
+    'Claude:  ',
+    config.getClaudeOauthToken()
+      ? chalk.green('OAuth token configured')
+      : process.env.ANTHROPIC_API_KEY
+        ? chalk.green('API key (env)')
+        : chalk.yellow('not configured — run `claude setup-token` or set ANTHROPIC_API_KEY'),
+  );
+  console.log(
     'Providers:',
     providerTypes.length > 0 ? chalk.cyan(providerTypes.join(', ')) : chalk.yellow('none'),
   );
@@ -292,6 +345,106 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     console.log(chalk.cyan('     nexus_status()           # Check connection status'));
     console.log(chalk.cyan('     nexus_detach()           # Detach from task'));
     console.log();
+  }
+}
+
+// ============================================================================
+// Claude SDK OAuth token setup
+// ============================================================================
+
+async function setupClaudeOauthToken(): Promise<void> {
+  console.log();
+  console.log(chalk.dim('This will run `claude setup-token` to generate a long-lived OAuth token.'));
+  console.log(chalk.dim('You will need a Claude Pro/Max subscription.\n'));
+
+  const spinner = ora('Running claude setup-token...').start();
+
+  try {
+    // Check if claude CLI is available
+    const claudePath = await findClaudeBinary();
+    if (!claudePath) {
+      spinner.fail('Claude Code CLI not found');
+      console.log(chalk.yellow('  Install Claude Code first: https://claude.ai/code'));
+      console.log(chalk.dim('  Or manually set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY\n'));
+      return;
+    }
+
+    spinner.stop();
+
+    // Run `claude setup-token` interactively — it needs user input for the OAuth flow
+    console.log(chalk.bold('  Running: claude setup-token\n'));
+
+    const { execFileSync } = await import('node:child_process');
+    const result = execFileSync(claudePath, ['setup-token'], {
+      stdio: 'pipe',
+      timeout: 120_000,
+      encoding: 'utf-8',
+    });
+
+    // The output should contain the token — extract it
+    // `claude setup-token` outputs the token to stdout
+    const token = result.trim();
+
+    if (token && token.length > 20) {
+      config.setClaudeOauthToken(token);
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = token;
+      console.log(chalk.green('✓ Claude OAuth token saved'));
+      console.log(chalk.dim('  Token will be used automatically when the agent starts'));
+    } else {
+      // setup-token is interactive, so piping stdout may not capture the token
+      // Fall back to manual entry
+      console.log(chalk.yellow('Could not capture token automatically.'));
+      await promptForClaudeToken();
+    }
+  } catch (error) {
+    spinner.stop();
+    const msg = error instanceof Error ? error.message : String(error);
+
+    // setup-token is interactive and needs a TTY — if piping fails, prompt manually
+    if (msg.includes('ENOENT') || msg.includes('not found')) {
+      console.log(chalk.yellow('Claude Code CLI not found.'));
+      console.log(chalk.dim('Install it from: https://claude.ai/code\n'));
+    } else {
+      console.log(chalk.yellow('Could not run `claude setup-token` automatically.'));
+      console.log(chalk.dim(`  Error: ${msg}\n`));
+    }
+
+    console.log(chalk.dim('You can run it manually:'));
+    console.log(chalk.cyan('  claude setup-token'));
+    console.log(chalk.dim('Then paste the token here:\n'));
+
+    await promptForClaudeToken();
+  }
+}
+
+async function promptForClaudeToken(): Promise<void> {
+  const { token } = await inquirer.prompt<{ token: string }>([
+    {
+      type: 'password',
+      name: 'token',
+      message: 'Paste your Claude OAuth token (or press Enter to skip):',
+    },
+  ]);
+
+  if (token && token.trim().length > 10) {
+    config.setClaudeOauthToken(token.trim());
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = token.trim();
+    console.log(chalk.green('✓ Claude OAuth token saved'));
+  } else {
+    console.log(chalk.yellow('Skipped — you can set it later via environment variable'));
+  }
+}
+
+async function findClaudeBinary(): Promise<string | null> {
+  try {
+    const { stdout } = await execFile(
+      process.platform === 'win32' ? 'where' : 'which',
+      ['claude'],
+      { timeout: 5000 },
+    );
+    return stdout.trim().split('\n')[0] ?? null;
+  } catch {
+    return null;
   }
 }
 

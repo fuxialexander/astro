@@ -89,6 +89,8 @@ export interface Task {
   workingDirectory: string;
   environment?: Record<string, string>;
   timeout?: number; // ms
+  maxTurns?: number; // Override default maxTurns for the agent SDK
+  outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> }; // Force structured JSON output
   createdAt: string;
 }
 
@@ -314,6 +316,7 @@ export interface TaskSteerIncomingMessage extends WSMessage {
     taskId: string;
     message: string;
     action?: string;
+    interrupt?: boolean;
   };
 }
 

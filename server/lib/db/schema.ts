@@ -137,6 +137,17 @@ export const appSettings = sqliteTable('app_settings', {
   value: text('value').notNull(),
 })
 
+// ── Push Tokens ──────────────────────────────────────────────────────
+export const pushTokens = sqliteTable('push_tokens', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: text('user_id').notNull(),
+  deviceToken: text('device_token').notNull(),
+  platform: text('platform').notNull().default('ios'),
+  preferences: text('preferences', { mode: 'json' }).$type<Record<string, unknown>>().default({}),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+})
+
 // ── Registered Machines ──────────────────────────────────────────────
 export const registeredMachines = sqliteTable('registered_machines', {
   id: text('id').primaryKey(),

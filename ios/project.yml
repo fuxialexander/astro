@@ -1,0 +1,117 @@
+name: NexusApp
+options:
+  bundleIdPrefix: com.nexus
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+    visionOS: "1.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  # MARK: - iOS App (iPhone + iPad + Mac Catalyst)
+  NexusApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: NexusApp
+        excludes:
+          - "Widgets/**"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nexus.app
+        INFOPLIST_FILE: NexusApp/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: true
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator xros xrsimulator"
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: true
+    dependencies:
+      - target: NexusWidgetExtension
+    entitlements:
+      path: NexusApp/NexusApp.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - "group.com.nexus.app"
+
+  # MARK: - iOS Widget Extension
+  NexusWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NexusApp/Widgets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nexus.app.widget
+        INFOPLIST_FILE: NexusApp/Widgets/Info.plist
+    entitlements:
+      path: NexusApp/Widgets/NexusWidgetExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - "group.com.nexus.app"
+
+  # MARK: - watchOS App
+  NexusWatchApp:
+    type: application
+    platform: watchOS
+    sources:
+      - path: NexusWatch
+        excludes:
+          - "Complications/**"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nexus.app.watchkitapp
+        INFOPLIST_FILE: NexusWatch/Info.plist
+        ASSETCATALOG_COMPILER_COMPLICATION_NAME: Complication
+    dependencies:
+      - target: NexusWatchWidgetExtension
+    entitlements:
+      path: NexusWatch/NexusWatch.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - "group.com.nexus.app"
+
+  # MARK: - watchOS Complication/Widget Extension
+  NexusWatchWidgetExtension:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: NexusWatch/Complications
+      - path: NexusWatch/Network
+      - path: NexusWatch/Models
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nexus.app.watchkitapp.widget
+        GENERATE_INFOPLIST_FILE: YES
+    entitlements:
+      path: NexusWatch/NexusWatch.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - "group.com.nexus.app"
+
+schemes:
+  NexusApp:
+    build:
+      targets:
+        NexusApp: all
+        NexusWidgetExtension: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+
+  NexusWatch:
+    build:
+      targets:
+        NexusWatchApp: all
+        NexusWatchWidgetExtension: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "-com.apple.CoreData.ConcurrencyDebug": "1"
+    test:
+      config: Debug

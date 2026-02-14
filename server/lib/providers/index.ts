@@ -72,6 +72,7 @@ export type { ContextInjectionStrategy } from './context.js'
 // Provider adapters
 export { ClaudeCodeProvider, claudeCodeProvider } from './adapters/claude-code.js'
 export { CodexProvider, codexProvider } from './adapters/codex.js'
+export { AnthropicDirectProvider, anthropicDirectProvider } from './adapters/anthropic-direct.js'
 
 /**
  * Initialize the provider registry with all known providers.
@@ -82,10 +83,12 @@ export async function initializeProviders(): Promise<void> {
   const { providerRegistry } = await import('./registry.js')
   const { claudeCodeProvider } = await import('./adapters/claude-code.js')
   const { codexProvider } = await import('./adapters/codex.js')
+  const { anthropicDirectProvider } = await import('./adapters/anthropic-direct.js')
 
   // Register built-in providers
   providerRegistry.register(claudeCodeProvider)
   providerRegistry.register(codexProvider)
+  providerRegistry.register(anthropicDirectProvider)
 
   // Detect all providers
   await providerRegistry.detectAll()

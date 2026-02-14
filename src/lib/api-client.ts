@@ -1,5 +1,6 @@
 import type { PlanNode, PlanEdge } from "@/types"
 import { getAccessToken } from "@/lib/supabase-client"
+import { parseChatSSE, parseExecutionSSE } from "@/lib/sse-parser"
 
 /**
  * Build headers for authenticated API calls.
@@ -42,80 +43,6 @@ interface PlanGraphResult {
   }>
 }
 
-async function readSSE(
-  response: Response,
-  handlers: {
-    onText?: (text: string) => void
-    onPlanResult?: (result: PlanGraphResult) => void
-    onDone?: (sessionId: string) => void
-    onError?: (error: string) => void
-  },
-) {
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error("No response body")
-
-  const decoder = new TextDecoder()
-  let buffer = ""
-  let currentEvent = ""
-  let dataLines: string[] = []
-
-  function flushEvent() {
-    if (!currentEvent || dataLines.length === 0) return
-    const data = dataLines.join("\n").trim()
-    switch (currentEvent) {
-      case "text":
-        handlers.onText?.(data)
-        break
-      case "plan_result":
-        try {
-          handlers.onPlanResult?.(JSON.parse(data))
-        } catch {
-          handlers.onError?.("Failed to parse plan result")
-        }
-        break
-      case "done":
-        try {
-          const { sessionId } = JSON.parse(data)
-          handlers.onDone?.(sessionId)
-        } catch {
-          handlers.onDone?.("")
-        }
-        break
-      case "error":
-        handlers.onError?.(data)
-        break
-      case "aborted":
-        handlers.onDone?.("")
-        break
-    }
-    currentEvent = ""
-    dataLines = []
-  }
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split("\n")
-    buffer = lines.pop() || ""
-
-    for (const line of lines) {
-      if (line.startsWith("event:")) {
-        flushEvent()
-        currentEvent = line.slice(6).trim()
-      } else if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5))
-      } else if (line === "") {
-        flushEvent()
-      }
-    }
-  }
-
-  // Flush any remaining event
-  flushEvent()
-}
-
 export async function generatePlan(
   params: { description: string; visionDoc?: string; projectId: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string },
   callbacks: {
@@ -143,11 +70,12 @@ export async function generatePlan(
 
   console.log(`[plan-gen] SSE stream opened for projectId=${params.projectId}`)
 
-  await readSSE(res, {
+  await parseChatSSE(res, {
     onText: callbacks.onText,
     onPlanResult: (result) => {
-      console.log(`[plan-gen] plan_result received: ${result.nodes.length} nodes, ${result.edges.length} edges`)
-      callbacks.onPlanResult(result)
+      const planResult = result as PlanGraphResult
+      console.log(`[plan-gen] plan_result received: ${planResult.nodes.length} nodes, ${planResult.edges.length} edges`)
+      callbacks.onPlanResult(planResult)
     },
     onError: (error) => {
       console.error(`[plan-gen] SSE error:`, error)
@@ -184,7 +112,7 @@ export interface ChatPlanEdgeContext {
 }
 
 export async function chatWithAgent(
-  params: { message: string; sessionId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[] },
+  params: { message: string; sessionId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
   callbacks: {
     onText: (text: string) => void
     onDone: (sessionId: string) => void
@@ -204,7 +132,7 @@ export async function chatWithAgent(
     return
   }
 
-  await readSSE(res, {
+  await parseChatSSE(res, {
     onText: callbacks.onText,
     onDone: callbacks.onDone,
     onError: callbacks.onError,
@@ -229,6 +157,7 @@ export interface TaskChatParams {
   taskOutput?: string
   visionDoc?: string
   model?: string
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>
 }
 
 export async function chatWithTask(
@@ -252,7 +181,7 @@ export async function chatWithTask(
     return
   }
 
-  await readSSE(res, {
+  await parseChatSSE(res, {
     onText: callbacks.onText,
     onDone: callbacks.onDone,
     onError: callbacks.onError,
@@ -345,96 +274,15 @@ export async function dispatchTask(
     return
   }
 
-  const reader = response.body?.getReader()
-  if (!reader) {
-    callbacks.onError?.("No response body")
-    return
-  }
-
-  const decoder = new TextDecoder()
-  let buffer = ""
-  let currentEvent = ""
-  let dataLines: string[] = []
-
-  function flushEvent() {
-    if (!currentEvent || dataLines.length === 0) return
-    const data = dataLines.join("\n").trim()
-
-    switch (currentEvent) {
-      case "init":
-        try {
-          callbacks.onInit?.(JSON.parse(data))
-        } catch { /* Ignore parse errors for optional callback */ }
-        break
-      case "text":
-        callbacks.onText?.(data)
-        break
-      case "tool_use":
-        try {
-          callbacks.onToolUse?.(JSON.parse(data))
-        } catch { /* Ignore parse errors for optional callback */ }
-        break
-      case "tool_result":
-        try {
-          callbacks.onToolResult?.(JSON.parse(data))
-        } catch { /* Ignore parse errors for optional callback */ }
-        break
-      case "file_change":
-        try {
-          callbacks.onFileChange?.(JSON.parse(data))
-        } catch { /* Ignore parse errors for optional callback */ }
-        break
-      case "progress":
-        try {
-          callbacks.onProgress?.(JSON.parse(data))
-        } catch { /* Ignore parse errors for optional callback */ }
-        break
-      case "result":
-        try {
-          callbacks.onResult?.(JSON.parse(data))
-        } catch { /* Ignore parse errors for optional callback */ }
-        break
-      case "error":
-        try {
-          const parsed = JSON.parse(data)
-          callbacks.onError?.(parsed.error || parsed.message || data)
-        } catch {
-          callbacks.onError?.(data)
-        }
-        break
-      case "done":
-        try {
-          callbacks.onDone?.(JSON.parse(data))
-        } catch { /* Ignore parse errors for optional callback */ }
-        break
-      case "aborted":
-        callbacks.onDone?.({ executionId: "", nodeId: params.nodeId })
-        break
-    }
-    currentEvent = ""
-    dataLines = []
-  }
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split("\n")
-    buffer = lines.pop() || ""
-
-    for (const line of lines) {
-      if (line.startsWith("event:")) {
-        flushEvent()
-        currentEvent = line.slice(6).trim()
-      } else if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5))
-      } else if (line === "") {
-        flushEvent()
-      }
-    }
-  }
-
-  // Flush any remaining event
-  flushEvent()
+  await parseExecutionSSE(response, {
+    onInit: callbacks.onInit,
+    onText: callbacks.onText,
+    onToolUse: callbacks.onToolUse,
+    onToolResult: callbacks.onToolResult,
+    onFileChange: callbacks.onFileChange,
+    onProgress: callbacks.onProgress,
+    onResult: callbacks.onResult,
+    onError: callbacks.onError,
+    onDone: callbacks.onDone,
+  })
 }

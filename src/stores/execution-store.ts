@@ -1,5 +1,6 @@
 import { create } from "zustand"
-import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project } from "@/types"
+import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project, ExecutionSummary } from "@/types"
+import { parseSSEStream } from "@/lib/sse-parser"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
@@ -164,6 +165,12 @@ interface ExecutionState {
 
   // Selection
   selectExecution: (nodeId: string | null) => void
+
+  // Mutation methods for relay/realtime events
+  appendText: (nodeId: string, text: string) => void
+  addToolTrace: (nodeId: string, trace: ToolTrace) => void
+  addFileChange: (nodeId: string, change: FileChange) => void
+  updateToolTraceResult: (nodeId: string, toolName: string, result: unknown, success?: boolean, duration?: number) => void
 }
 
 // Abort controllers for active executions
@@ -565,9 +572,84 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   selectExecution: (nodeId: string | null) => {
     set({ selectedExecutionId: nodeId })
   },
+
+  appendText: (nodeId: string, text: string) => {
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      const exec = newExecutions.get(nodeId)
+      if (exec) {
+        exec.streamText += text
+        exec.activityEvents = [...exec.activityEvents, { type: 'text', content: text, timestamp: new Date() }]
+      }
+      return { executions: newExecutions }
+    })
+  },
+
+  addToolTrace: (nodeId: string, trace: ToolTrace) => {
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      const exec = newExecutions.get(nodeId)
+      if (exec) {
+        exec.toolTraces = [...exec.toolTraces, trace]
+        exec.activityEvents = [...exec.activityEvents, {
+          type: 'tool_use' as const,
+          id: trace.id,
+          toolName: trace.toolName,
+          toolInput: trace.toolInput,
+          timestamp: trace.timestamp,
+        }]
+      }
+      return { executions: newExecutions }
+    })
+  },
+
+  addFileChange: (nodeId: string, change: FileChange) => {
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      const exec = newExecutions.get(nodeId)
+      if (exec) {
+        exec.fileChanges = [...exec.fileChanges, change]
+        exec.activityEvents = [...exec.activityEvents, {
+          type: 'file_change' as const,
+          path: change.path,
+          action: change.action,
+          diff: change.diff,
+          linesAdded: change.linesAdded,
+          linesRemoved: change.linesRemoved,
+          timestamp: change.timestamp,
+        }]
+      }
+      return { executions: newExecutions }
+    })
+  },
+
+  updateToolTraceResult: (nodeId: string, toolName: string, result: unknown, success?: boolean, duration?: number) => {
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      const exec = newExecutions.get(nodeId)
+      if (exec && exec.toolTraces.length > 0) {
+        const lastTrace = exec.toolTraces[exec.toolTraces.length - 1]
+        if (lastTrace.toolName === toolName) {
+          lastTrace.toolResult = result
+          lastTrace.success = success
+          lastTrace.duration = duration
+          exec.activityEvents = [...exec.activityEvents, {
+            type: 'tool_result' as const,
+            id: lastTrace.id,
+            toolName,
+            toolResult: result,
+            success,
+            duration,
+            timestamp: new Date(),
+          }]
+        }
+      }
+      return { executions: newExecutions }
+    })
+  },
 }))
 
-// Helper: Process SSE stream from dispatch endpoint
+// Helper: Process SSE stream from dispatch endpoint using unified parser
 async function processExecutionStream(
   response: Response,
   nodeId: string,
@@ -575,48 +657,11 @@ async function processExecutionStream(
   get: () => ExecutionState,
   planStore: ReturnType<typeof usePlanStore.getState>
 ) {
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error("No response body")
-
-  const decoder = new TextDecoder()
-  let buffer = ""
-
-  let currentEvent = ""
-  let dataLines: string[] = []
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split("\n")
-    buffer = lines.pop() || ""
-
-    for (const line of lines) {
-      if (line.startsWith("event:")) {
-        // Flush any pending event before starting a new one
-        if (currentEvent && dataLines.length > 0) {
-          handleSSEEvent(currentEvent, dataLines.join("\n"), nodeId, set, get, planStore)
-          dataLines = []
-        }
-        currentEvent = line.slice(6).trim()
-      } else if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5))
-      } else if (line === "") {
-        // Empty line = end of SSE message, flush the event
-        if (currentEvent && dataLines.length > 0) {
-          handleSSEEvent(currentEvent, dataLines.join("\n"), nodeId, set, get, planStore)
-        }
-        currentEvent = ""
-        dataLines = []
-      }
-    }
-  }
-
-  // Flush any remaining event
-  if (currentEvent && dataLines.length > 0) {
-    handleSSEEvent(currentEvent, dataLines.join("\n"), nodeId, set, get, planStore)
-  }
+  await parseSSEStream(response, {
+    onEvent: ({ event, data }) => {
+      handleSSEEvent(event, data, nodeId, set, get, planStore)
+    },
+  })
 }
 
 // Helper: Handle individual SSE events
@@ -886,6 +931,11 @@ function handleSSEEvent(
           // Use a short delay to let the plan store status update propagate
           setTimeout(() => dispatchNextBatchWave(projectId), 100)
         }
+
+        // Fire async summary generation (non-blocking)
+        if (isSuccess && execution) {
+          requestExecutionSummary(nodeId, execution, node)
+        }
       } catch {
         // Ignore parse errors
       }
@@ -935,6 +985,43 @@ function handleSSEEvent(
     case "done":
       // Heartbeat and done events are informational, no action needed
       break
+  }
+}
+
+// Helper: Fire-and-forget summary generation after execution completes
+async function requestExecutionSummary(
+  nodeId: string,
+  execution: TaskExecution,
+  node: PlanNode | undefined,
+) {
+  if (!node || !execution.streamText) return
+  try {
+    const response = await fetch("/api/agent/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        taskTitle: node.title,
+        taskDescription: node.description,
+        executionOutput: execution.streamText,
+        fileChanges: execution.fileChanges.map((f) => ({ path: f.path, action: f.action })),
+        status: execution.status === "success" ? "success" : "failure",
+      }),
+    })
+    if (response.ok) {
+      const data = await response.json()
+      if (data.summary) {
+        useExecutionStore.setState((state) => {
+          const newExecutions = new Map(state.executions)
+          const exec = newExecutions.get(nodeId)
+          if (exec) {
+            exec.summary = data.summary as ExecutionSummary
+          }
+          return { executions: newExecutions }
+        })
+      }
+    }
+  } catch {
+    // Non-critical — silently ignore summary failures
   }
 }
 

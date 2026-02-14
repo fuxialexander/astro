@@ -141,11 +141,25 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
   /**
    * Inject a steering message into a running task's session.
    * Uses Query.streamInput() to feed a new user message into the running query.
+   * When interrupt=true, calls Query.interrupt() first to stop the current turn.
    * Returns true if the message was successfully injected.
    */
-  injectMessage(taskId: string, content: string): boolean {
+  async injectMessage(taskId: string, content: string, interrupt = false): Promise<boolean> {
     const active = this.activeQueries.get(taskId);
     if (!active) return false;
+
+    if (interrupt) {
+      // Fire interrupt without awaiting — interrupt() may block until the
+      // current turn finishes, which can take a long time.  We don't need
+      // to wait for it; the SDK will process the interrupt and streamInput
+      // in order internally.
+      active.query.interrupt().catch(() => {
+        /* agent may be idle between turns */
+      });
+
+      // Small delay to let the interrupt signal propagate before injecting
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
 
     // Create a single-message async iterable with proper SDKUserMessage shape
     const message = {
@@ -205,7 +219,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     // Build options for the query
     const options: Parameters<typeof query>[0]['options'] = {
       abortController,
-      maxTurns: 100, // Allow multi-turn for complex tasks
+      maxTurns: task.maxTurns ?? 100, // Use dispatch-specified limit, or 100 for complex tasks
       permissionMode: 'bypassPermissions', // Auto-accept all tool calls
       sandbox: { enabled: false }, // Run on host machine, not in Docker container
       settingSources: ['project'], // Load CLAUDE.md, skills, and slash commands from cwd
@@ -234,6 +248,11 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     let effectivePrompt = task.prompt;
     if (this.hpcContext?.available) {
       effectivePrompt = this.hpcContext.contextString + '\n\n---\n\n' + task.prompt;
+    }
+
+    // Add structured output format if requested (e.g., plan generation)
+    if (task.outputFormat) {
+      (options as Record<string, unknown>).outputFormat = task.outputFormat;
     }
 
     // Use plain string prompt — simple and reliable
@@ -318,6 +337,21 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
         if (msg.subtype === 'success') {
           success = true;
           stream.status('completed', 100, 'Task completed successfully');
+
+          // Capture structured output (produced when outputFormat is set)
+          const msgAny = msg as Record<string, unknown>;
+          if (msgAny.structured_output) {
+            const jsonStr = JSON.stringify(msgAny.structured_output);
+            output += jsonStr;
+            stream.text(jsonStr);
+          } else if (msgAny.result && !output) {
+            // Fallback: capture result text if no output was accumulated
+            const resultStr = typeof msgAny.result === 'string'
+              ? msgAny.result
+              : JSON.stringify(msgAny.result);
+            output += resultStr;
+            stream.text(resultStr);
+          }
         } else if (
           msg.subtype === 'error_during_execution' ||
           msg.subtype === 'error_max_turns' ||
