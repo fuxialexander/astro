@@ -275,9 +275,9 @@ export function Environments() {
   useEffect(() => {
     if (!user) return
 
-    fetchRegistered(user.id)
+    fetchRegistered()
     if (liveMachineCount > 0) {
-      const timer = setTimeout(() => fetchRegistered(user.id), 1000)
+      const timer = setTimeout(() => fetchRegistered(), 1000)
       return () => clearTimeout(timer)
     }
   }, [fetchRegistered, liveMachineCount, user])
@@ -316,12 +316,12 @@ export function Environments() {
   const hpcClusterCount = hpcMachines.length + offlineHpcMachines.length
 
   const handleRefresh = () => {
-    fetchRegistered("user-1")
+    if (user) fetchRegistered()
     if (!realtimeConnected) connectRealtime()
   }
 
   const handleMachineAdded = () => {
-    fetchRegistered("user-1")
+    if (user) fetchRegistered()
     if (!realtimeConnected) connectRealtime()
   }
 

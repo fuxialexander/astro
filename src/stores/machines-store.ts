@@ -5,6 +5,7 @@
  */
 
 import { create } from 'zustand'
+import { getSupabase } from '@/lib/supabase-client'
 
 export interface RegisteredMachine {
   id: string
@@ -25,7 +26,7 @@ interface MachinesState {
   error: string | null
 
   // Actions
-  fetchMachines: (userId: string) => Promise<void>
+  fetchMachines: () => Promise<void>
   revokeMachine: (machineId: string) => Promise<boolean>
   renameMachine: (machineId: string, name: string) => Promise<boolean>
 }
@@ -35,10 +36,22 @@ export const useMachinesStore = create<MachinesState>((set) => ({
   loading: false,
   error: null,
 
-  fetchMachines: async (userId: string) => {
+  fetchMachines: async () => {
     set({ loading: true, error: null })
     try {
-      const response = await fetch(`/api/device/machines?userId=${encodeURIComponent(userId)}`)
+      // Get auth token from Supabase session
+      const supabase = getSupabase()
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error('Not authenticated')
+      }
+
+      const response = await fetch('/api/device/machines', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      })
       if (!response.ok) {
         throw new Error('Failed to fetch machines')
       }
@@ -51,8 +64,18 @@ export const useMachinesStore = create<MachinesState>((set) => ({
 
   revokeMachine: async (machineId: string) => {
     try {
+      const supabase = getSupabase()
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error('Not authenticated')
+      }
+
       const response = await fetch(`/api/device/machines/${machineId}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
       })
       if (!response.ok) {
         throw new Error('Failed to revoke machine')
@@ -70,9 +93,19 @@ export const useMachinesStore = create<MachinesState>((set) => ({
 
   renameMachine: async (machineId: string, name: string) => {
     try {
+      const supabase = getSupabase()
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error('Not authenticated')
+      }
+
       const response = await fetch(`/api/device/machines/${machineId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ name }),
       })
       if (!response.ok) {
