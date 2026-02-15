@@ -104,54 +104,54 @@ export function Dashboard() {
       </div>
 
       {/* Stats Row - 3 cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
         {/* Needs Attention */}
-        <Card className="rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=awaiting_judgment")}>
-          <CardContent className="flex items-center justify-between p-6">
+        <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=awaiting_judgment")}>
+          <CardContent className="flex items-center justify-between p-4 md:p-6">
             <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Needs Attention</p>
-              <p className="text-[32px] font-bold">{pendingDecisions}</p>
+              <p className="text-2xl font-bold md:text-[32px]">{pendingDecisions}</p>
             </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-warning">
-              <Eye className="h-6 w-6 text-warning-foreground" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning md:h-12 md:w-12">
+              <Eye className="h-5 w-5 text-warning-foreground md:h-6 md:w-6" />
             </div>
           </CardContent>
         </Card>
 
         {/* Active Tasks */}
-        <Card className="rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=in_progress")}>
-          <CardContent className="flex items-center justify-between p-6">
+        <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=in_progress")}>
+          <CardContent className="flex items-center justify-between p-4 md:p-6">
             <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Active Tasks</p>
-              <p className="text-[32px] font-bold">{activeTasks}</p>
+              <p className="text-2xl font-bold md:text-[32px]">{activeTasks}</p>
             </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-info">
-              <Activity className="h-6 w-6 text-info-foreground" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-info md:h-12 md:w-12">
+              <Activity className="h-5 w-5 text-info-foreground md:h-6 md:w-6" />
             </div>
           </CardContent>
         </Card>
 
         {/* Completed Today */}
-        <Card className="rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=completed")}>
-          <CardContent className="flex items-center justify-between p-6">
+        <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=completed")}>
+          <CardContent className="flex items-center justify-between p-4 md:p-6">
             <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Completed Today</p>
-              <p className="text-[32px] font-bold">{completedToday}</p>
+              <p className="text-2xl font-bold md:text-[32px]">{completedToday}</p>
             </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-success">
-              <CircleCheck className="h-6 w-6 text-success-foreground" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-success md:h-12 md:w-12">
+              <CircleCheck className="h-5 w-5 text-success-foreground md:h-6 md:w-6" />
             </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Content Columns */}
-      <div className="flex gap-6 flex-1">
+      <div className="flex flex-col gap-4 md:flex-row md:gap-6 flex-1">
         {/* Left Column: My Attention */}
-        <div className="flex flex-1 flex-col gap-4">
+        <div className="flex flex-1 flex-col gap-3 md:gap-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">My Attention</h2>
-            <Button variant="outline" size="sm" asChild>
+            <h2 className="text-base font-semibold md:text-lg">My Attention</h2>
+            <Button variant="outline" size="sm" asChild className="min-h-9">
               <Link to="/tasks">View All</Link>
             </Button>
           </div>
@@ -201,13 +201,13 @@ export function Dashboard() {
                       </div>
 
                       {/* Card Actions */}
-                      <div className="flex items-center justify-between border-t px-5 py-4">
+                      <div className="flex flex-col gap-2 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between md:px-5 md:py-4">
                         <input
                           type="text"
                           placeholder="Add guidance..."
-                          className="flex-1 mr-3 rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                          className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:mr-3"
                         />
-                        <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })}>Approve</Button>
+                        <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })} className="min-h-11 w-full sm:w-auto">Approve</Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -237,12 +237,12 @@ export function Dashboard() {
         </div>
 
         {/* Right Column */}
-        <div className="flex w-[400px] shrink-0 flex-col gap-6">
+        <div className="flex w-full shrink-0 flex-col gap-4 md:w-[400px] md:gap-6">
           {/* Active Projects */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Active Projects</h2>
-              <Button variant="outline" size="sm" asChild>
+              <h2 className="text-base font-semibold md:text-lg">Active Projects</h2>
+              <Button variant="outline" size="sm" asChild className="min-h-9">
                 <Link to="/projects?status=active">View All</Link>
               </Button>
             </div>

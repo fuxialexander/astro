@@ -72,7 +72,7 @@ describe('PR Creation Hook', () => {
   }
 
   it('should skip if event is not task.completed', async () => {
-    const event = { type: 'task.started' } as any
+    const event = { type: 'task.started' } as unknown as TaskCompletedEvent
 
     await prCreationHook(event)
 
@@ -127,7 +127,7 @@ describe('PR Creation Hook', () => {
 
   it('should skip if prBranch is not in metadata', async () => {
     const event = createMockEvent()
-    delete (event.result.metadata as any).prBranch
+    delete (event.result.metadata as Record<string, unknown>).prBranch
 
     await prCreationHook(event)
 
@@ -139,7 +139,7 @@ describe('PR Creation Hook', () => {
       ok: true,
       json: async () => ({ html_url: 'https://github.com/owner/repo/pull/123', number: 123 }),
     }
-    ;(global.fetch as any).mockResolvedValue(mockResponse)
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse)
 
     const event = createMockEvent()
 
@@ -170,14 +170,14 @@ describe('PR Creation Hook', () => {
       ok: true,
       json: async () => ({ html_url: 'https://github.com/owner/repo/pull/123', number: 123 }),
     }
-    ;(global.fetch as any).mockResolvedValue(mockResponse)
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse)
 
     const event = createMockEvent()
-    delete (event.result.metadata as any).prTitle
+    delete (event.result.metadata as Record<string, unknown>).prTitle
 
     await prCreationHook(event)
 
-    const callBody = JSON.parse((global.fetch as any).mock.calls[0][1].body)
+    const callBody = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string)
     expect(callBody.title).toBe('Test Task')
   })
 
@@ -186,7 +186,7 @@ describe('PR Creation Hook', () => {
       ok: true,
       json: async () => ({ html_url: 'https://github.com/owner/repo/pull/123', number: 123 }),
     }
-    ;(global.fetch as any).mockResolvedValue(mockResponse)
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse)
 
     const event = createMockEvent({
       result: {
@@ -204,7 +204,7 @@ describe('PR Creation Hook', () => {
 
     await prCreationHook(event)
 
-    const callBody = JSON.parse((global.fetch as any).mock.calls[0][1].body)
+    const callBody = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string)
     expect(callBody.body).toContain('Automated PR for task: Test Task')
     expect(callBody.body).toContain('Task output')
   })
@@ -214,7 +214,7 @@ describe('PR Creation Hook', () => {
       ok: false,
       text: async () => 'API Error',
     }
-    ;(global.fetch as any).mockResolvedValue(mockResponse)
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse)
 
     const event = createMockEvent()
 
@@ -223,7 +223,7 @@ describe('PR Creation Hook', () => {
   })
 
   it('should handle fetch errors gracefully', async () => {
-    ;(global.fetch as any).mockRejectedValue(new Error('Network error'))
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'))
 
     const event = createMockEvent()
 
@@ -236,7 +236,7 @@ describe('PR Creation Hook', () => {
       ok: true,
       json: async () => ({ html_url: 'https://github.com/owner/repo/pull/123', number: 123 }),
     }
-    ;(global.fetch as any).mockResolvedValue(mockResponse)
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse)
 
     const event = createMockEvent({
       project: { id: 'proj-1', name: 'Test Project' },

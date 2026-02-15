@@ -31,6 +31,27 @@ import { Environments } from "@/pages/environments"
 import { MyTasks } from "@/pages/my-tasks"
 import { Welcome } from "@/pages/welcome"
 
+/**
+ * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
+ * Uses CSS media queries at the md breakpoint (768px) to show/hide appropriate chrome.
+ *
+ * Both AppLayout and MobileLayout contain their own <Outlet />, but CSS ensures only one
+ * is visible at a time, so routing works correctly.
+ */
+function ResponsiveLayout() {
+  return (
+    <>
+      {/* Desktop layout - shown on md breakpoint and up */}
+      <div className="hidden md:block h-screen">
+        <AppLayout />
+      </div>
+
+      {/* Mobile layout - shown below md breakpoint, has md:hidden built-in */}
+      <MobileLayout />
+    </>
+  )
+}
+
 function DataLoader({ children }: { children: React.ReactNode }) {
   const session = useAuthStore((s) => s.session)
   const authInitialized = useAuthStore((s) => s.initialized)
@@ -109,8 +130,8 @@ export default function App() {
               <Route path="device" element={<DeviceAuth />} />
               <Route path="welcome" element={<Welcome />} />
 
-              {/* Authenticated routes */}
-              <Route element={<AuthGuard><AppLayout /></AuthGuard>}>
+              {/* Authenticated routes - Responsive */}
+              <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
                 <Route index element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="projects/new" element={<ProjectNew />} />
