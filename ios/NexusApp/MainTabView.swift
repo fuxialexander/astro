@@ -127,7 +127,7 @@ struct MainTabView: View {
             .background(.thinMaterial)
             .overlay(
                 RoundedRectangle(cornerRadius: 31)
-                    .strokeBorder(.glassStroke, lineWidth: 1)
+                    .strokeBorder(Color.glassStroke, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 31))
             .shadow(color: .black.opacity(0.3), radius: 30, x: 0, y: -8)
@@ -162,7 +162,7 @@ struct MainTabView: View {
                             .fill(.regularMaterial)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 27)
-                                    .strokeBorder(.glassStroke, lineWidth: 0.5)
+                                    .strokeBorder(Color.glassStroke, lineWidth: 0.5)
                             )
                             .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 2)
                     }

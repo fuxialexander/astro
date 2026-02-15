@@ -55,11 +55,11 @@ struct GlassCard: ViewModifier {
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .fill(material)
-                    .shadow(color: .glassShadow, radius: shadowRadius, x: 0, y: shadowY)
+                    .shadow(color: Color.glassShadow, radius: shadowRadius, x: 0, y: shadowY)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(.glassStroke, lineWidth: 1)
+                    .strokeBorder(Color.glassStroke, lineWidth: 1)
             )
     }
 }

@@ -142,8 +142,26 @@ export function localRepoSetup(options: {
 }): LocalRepoSetupResult {
   const { workingDirectory, repository, projectId } = options;
 
+  // Case 1: No directory and no repository — create a fresh project dir
   if (!workingDirectory && !repository) {
-    return { success: false, error: 'No working directory or repository provided' };
+    if (!projectId) {
+      return { success: false, error: 'Project ID is required when creating a new directory' };
+    }
+    try {
+      const dir = join(homedir(), '.nexus', 'projects', projectId);
+      mkdirSync(dir, { recursive: true });
+      execSync('git init', { cwd: dir, stdio: 'ignore' });
+      execSync('git config user.name "Nexus Agent" || true', { cwd: dir, stdio: 'ignore' });
+      execSync('git config user.email "agent@nexus.local" || true', { cwd: dir, stdio: 'ignore' });
+      const fileTree = getFileTree(dir);
+      return {
+        success: true,
+        workingDirectory: dir,
+        fileTree,
+      };
+    } catch (error) {
+      return { success: false, error: `Failed to create project directory: ${error instanceof Error ? error.message : String(error)}` };
+    }
   }
 
   // If only a repo URL is provided, clone it locally

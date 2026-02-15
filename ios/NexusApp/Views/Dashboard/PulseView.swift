@@ -176,7 +176,7 @@ private struct DecisionCard: View {
                         .background(.thinMaterial)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(.glassStroke, lineWidth: 1)
+                                .strokeBorder(Color.glassStroke, lineWidth: 1)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .shadow(color: .glassShadow, radius: 8, x: 0, y: 2)
@@ -194,7 +194,7 @@ private struct DecisionCard: View {
                         .background(.thinMaterial)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(.glassStroke, lineWidth: 1)
+                                .strokeBorder(Color.glassStroke, lineWidth: 1)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .shadow(color: .glassShadow, radius: 8, x: 0, y: 2)

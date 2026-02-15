@@ -41,6 +41,7 @@
 		5C3C951A82F8DF5A0554021D /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5432B3DAFE773743308E37 /* AgentsView.swift */; };
 		66A0A2C0AA5A0BF2392D4428 /* VoiceInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1218CDA223A856F9AF77248 /* VoiceInputBar.swift */; };
 		67A2E25E44FBEFD0B42769E9 /* VoiceChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1BBD2EF722EA0C1CAB7016 /* VoiceChatStore.swift */; };
+		681FA8CE1C361B139EA0F438 /* ColorExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48C5B8FBCD8CBE143570D3FF /* ColorExtensions.swift */; };
 		6AD27A8BA8841C3A8FDB1F2A /* ChatSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B690C9685AECE8628DADC206 /* ChatSession.swift */; };
 		6C1F3C184F2E64D782AFA7EE /* AgentsViewiPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AF64632859D8068EDD55D7B /* AgentsViewiPad.swift */; };
 		6EB985044EA06E608E6EAE67 /* DecisionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EAC1E5E603D9D118365F8B0 /* DecisionListView.swift */; };
@@ -157,6 +158,7 @@
 		43A571897F01A8C20921E1E5 /* UserProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfile.swift; sourceTree = "<group>"; };
 		44FECBF5AC2C6D240EBDE499 /* ActiveTasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveTasksView.swift; sourceTree = "<group>"; };
 		45E016021E4B0898A54129E4 /* UsageMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageMetrics.swift; sourceTree = "<group>"; };
+		48C5B8FBCD8CBE143570D3FF /* ColorExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorExtensions.swift; sourceTree = "<group>"; };
 		492C5DDDF9FFE0A41E8DDCDC /* PlanGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanGraphView.swift; sourceTree = "<group>"; };
 		4A3D46B0004551C46B60EA25 /* TaskChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskChatView.swift; sourceTree = "<group>"; };
 		4B1BBD2EF722EA0C1CAB7016 /* VoiceChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChatStore.swift; sourceTree = "<group>"; };
@@ -334,6 +336,14 @@
 			path = Projects;
 			sourceTree = "<group>";
 		};
+		73B023CD2408E65633F34984 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				48C5B8FBCD8CBE143570D3FF /* ColorExtensions.swift */,
+			);
+			path = Extensions;
+			sourceTree = "<group>";
+		};
 		77C5C93852088854033C655D /* Tasks */ = {
 			isa = PBXGroup;
 			children = (
@@ -405,6 +415,7 @@
 				552E1437D9147B8990E7D8EF /* NexusApp.entitlements */,
 				A34736B884FA2535111F1866 /* NexusApp.swift */,
 				D2B719BF86AABC785F656B9D /* Auth */,
+				73B023CD2408E65633F34984 /* Extensions */,
 				1588D4733A6033B1CE52F2AE /* Models */,
 				2FC1618A4A12DBFA6391B9C7 /* Network */,
 				7FE8CF29E6305D1808DD7A89 /* Notifications */,
@@ -690,6 +701,7 @@
 				98AEC9560AA3080993C2F513 /* CachedSession.swift in Sources */,
 				0020D54211DB3B50301A68F9 /* ChatPanelView.swift in Sources */,
 				6AD27A8BA8841C3A8FDB1F2A /* ChatSession.swift in Sources */,
+				681FA8CE1C361B139EA0F438 /* ColorExtensions.swift in Sources */,
 				41E2E3DA3A9BDACD7C4DD5F3 /* ContextBadge.swift in Sources */,
 				AA72D2161B186C314234EC9A /* DashboardView.swift in Sources */,
 				50C41A6B7B498184B575B4EE /* DecisionCarousel.swift in Sources */,

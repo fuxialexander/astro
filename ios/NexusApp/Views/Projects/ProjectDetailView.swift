@@ -659,15 +659,13 @@ private struct GenerationBanner: View {
 
             Divider()
         }
+        .background(.ultraThinMaterial)
         .background(
-            ZStack {
-                .ultraThinMaterial
-                LinearGradient(
-                    colors: [Color.nexusBlue.opacity(0.05), Color.clear],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            }
+            LinearGradient(
+                colors: [Color.nexusBlue.opacity(0.05), Color.clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
         )
         .task {
             while true {
