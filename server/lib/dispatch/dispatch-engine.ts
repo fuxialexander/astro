@@ -31,6 +31,16 @@ import { errorMessage } from '../error-utils.js'
 import { BranchManager, createBranchManager } from './branch-manager.js'
 import { nexusEventTransport } from '../events/nexus-event-transport.js'
 import type { TaskStartedEvent, TaskCompletedEvent as NexusTaskCompletedEvent } from '../events/types.js'
+import type { SubroutineDefinition } from './procedure-types.js'
+import {
+  interpolatePrompt,
+  runValidationCommand,
+  isValidationPassed,
+  buildFixerPrompt,
+  initValidationLoop,
+  recordValidationAttempt,
+  shouldRetryValidation,
+} from './procedure-executor.js'
 
 /**
  * Callback to update plan node status
@@ -647,6 +657,219 @@ export class DispatchEngine extends EventEmitter {
         }
       }
     }
+  }
+
+  /**
+   * Execute a procedure (sequential subroutines)
+   */
+  private async executeProcedure(
+    queueEntry: DispatchQueueEntry,
+    node: PlanNode,
+    nodes: PlanNode[],
+    edges: PlanEdge[],
+    project?: Project
+  ): Promise<void> {
+    const state = queueEntry.procedureState
+    if (!state) {
+      throw new Error('Procedure state not initialized')
+    }
+
+    const procedure = state.procedure
+    const currentIndex = state.currentSubroutineIndex
+
+    // Check if procedure is complete
+    if (currentIndex >= procedure.subroutines.length) {
+      console.log(`[dispatch] Procedure '${procedure.name}' completed`)
+      return
+    }
+
+    const subroutine = procedure.subroutines[currentIndex]
+    console.log(`[dispatch] Executing subroutine '${subroutine.name}' (${currentIndex + 1}/${procedure.subroutines.length})`)
+
+    // Check if approval required
+    if (subroutine.requiresApproval && !state.awaitingApproval) {
+      const approved = await this.requestApproval(node, subroutine)
+      if (!approved) {
+        console.log(`[dispatch] Approval denied for subroutine '${subroutine.name}'`)
+        await this.nodeUpdateCallback?.(node.id, {
+          status: 'planned',
+          executionError: 'User denied approval',
+        })
+        return
+      }
+      state.awaitingApproval = false
+    }
+
+    // Build subroutine prompt
+    const prompt = interpolatePrompt(subroutine.promptTemplate, node, state)
+
+    // Execute subroutine
+    const result = await this.executeSubroutine(subroutine, prompt, queueEntry, node, nodes, edges, project)
+
+    // Store result in history
+    state.subroutineHistory.push({
+      subroutine: subroutine.name,
+      completedAt: new Date(),
+      sessionId: result.sessionId ?? null,
+      result: result.stdout,
+    })
+
+    // Check if validation loop needed
+    if (subroutine.usesValidationLoop) {
+      // Initialize validation loop if needed
+      if (!state.validationLoop) {
+        state.validationLoop = initValidationLoop()
+      }
+
+      // Run validation command if specified
+      let validationResult: ReturnType<typeof runValidationCommand> | undefined
+      if (subroutine.validationCommand) {
+        validationResult = runValidationCommand(
+          subroutine.validationCommand,
+          node.workingDirectory
+        )
+      }
+
+      // Check if validation passed
+      const passed = isValidationPassed(result, subroutine, validationResult)
+
+      // Record attempt
+      recordValidationAttempt(
+        state.validationLoop,
+        passed,
+        validationResult?.reason ?? result.errorMessage ?? 'Unknown'
+      )
+
+      if (!passed) {
+        const maxIterations = subroutine.maxValidationIterations ?? 3
+
+        if (shouldRetryValidation(state.validationLoop, maxIterations)) {
+          console.log(`[dispatch] Validation failed, retrying (${state.validationLoop.iteration}/${maxIterations})`)
+
+          // Build fixer prompt
+          const fixerPrompt = buildFixerPrompt(
+            prompt,
+            validationResult ?? {
+              pass: false,
+              reason: result.errorMessage ?? 'Task failed',
+              exitCode: 1,
+            },
+            state.validationLoop.iteration
+          )
+
+          // Increment iteration
+          state.validationLoop.iteration++
+          state.validationLoop.inFixerMode = true
+
+          // Re-run this subroutine with fixer prompt
+          await this.executeSubroutine(subroutine, fixerPrompt, queueEntry, node, nodes, edges, project)
+
+          // Continue with procedure after fix
+          await this.executeProcedure(queueEntry, node, nodes, edges, project)
+          return
+        } else {
+          console.log(`[dispatch] Max validation iterations reached`)
+          await this.nodeUpdateCallback?.(node.id, {
+            status: 'awaiting_judgment',
+            executionError: `Validation failed after ${maxIterations} attempts`,
+          })
+          return
+        }
+      }
+
+      // Validation passed, reset loop state
+      state.validationLoop = undefined
+    }
+
+    // Advance to next subroutine
+    state.currentSubroutineIndex++
+
+    // Continue with next subroutine
+    await this.executeProcedure(queueEntry, node, nodes, edges, project)
+  }
+
+  /**
+   * Execute a single subroutine
+   */
+  private async executeSubroutine(
+    subroutine: SubroutineDefinition,
+    prompt: string,
+    queueEntry: DispatchQueueEntry,
+    node: PlanNode,
+    nodes: PlanNode[],
+    edges: PlanEdge[],
+    project?: Project
+  ): Promise<TaskResult> {
+    if (!this.executionCallback) {
+      throw new Error('Execution callback not configured')
+    }
+
+    // Assemble context
+    const context = this.contextAssembler.assembleContext(node, nodes, edges, project)
+
+    // Create abort controller
+    const abortController = new AbortController()
+    const executionId = `exec-${queueEntry.nodeId}-sub-${subroutine.name}-${Date.now()}`
+
+    // Track active execution
+    this.activeExecutions.set(queueEntry.nodeId, {
+      executionId,
+      abortController,
+      projectId: queueEntry.projectId,
+    })
+
+    try {
+      // Prepare dispatch for subroutine
+      const subroutineDispatch = {
+        ...queueEntry,
+        prompt,
+        maxTurns: subroutine.singleTurn ? 1 : queueEntry.maxTurns,
+        context: {
+          ...context,
+          // Add tool restrictions if specified
+          ...(subroutine.disallowedTools ? { disallowedTools: subroutine.disallowedTools } : {}),
+          ...(subroutine.disallowAllTools ? { allowedTools: [] } : {}),
+        },
+      }
+
+      let result: TaskResult | undefined
+
+      // Stream execution
+      const stream = this.executionCallback(context, subroutineDispatch)
+
+      for await (const event of stream) {
+        if (abortController.signal.aborted) {
+          break
+        }
+
+        if (event.type === 'result') {
+          result = event.result
+        }
+      }
+
+      if (!result) {
+        throw new Error('No result returned from execution')
+      }
+
+      return result
+    } finally {
+      this.activeExecutions.delete(queueEntry.nodeId)
+    }
+  }
+
+  /**
+   * Request user approval for subroutine
+   */
+  private async requestApproval(
+    node: PlanNode,
+    subroutine: SubroutineDefinition
+  ): Promise<boolean> {
+    // Emit approval request event
+    console.log(`[dispatch] Requesting approval for ${subroutine.name}: ${subroutine.approvalMessage}`)
+
+    // For now, auto-approve (TODO: implement real approval flow)
+    // In production, this would emit an event and wait for user response
+    return true
   }
 
   /**

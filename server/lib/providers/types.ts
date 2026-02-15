@@ -113,6 +113,12 @@ export interface TaskContext {
   environmentVariables?: Record<string, string>
   /** Target execution environment */
   environment?: ExecutionEnvironment
+  /** Allowed directories for file access (Cyrus-style sandboxing) */
+  allowedDirectories?: string[]
+  /** Allowed tools (Cyrus-style tool control) */
+  allowedTools?: string[]
+  /** Disallowed tools (Cyrus-style tool control) */
+  disallowedTools?: string[]
 }
 
 /**

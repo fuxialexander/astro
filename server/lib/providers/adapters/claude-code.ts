@@ -20,6 +20,7 @@ import type {
   TaskMetrics,
 } from '../types.js'
 import { errorMessage } from '../../error-utils.js'
+import { loadMcpConfig, mergeAllowedTools } from '../mcp-loader.js'
 
 // Map of active tasks for cancellation
 const activeTasks = new Map<string, AbortController>()
@@ -163,6 +164,25 @@ export class ClaudeCodeProvider implements AgentProvider {
       const isExecution = task.type !== 'planning' && task.type !== 'chat'
       const isPlanningWithRepo = task.type === 'planning' && !!task.context.workingDirectory
 
+      // Load MCP config from working directory (Cyrus pattern)
+      let mcpServers: Record<string, unknown> | undefined
+      if (task.context.workingDirectory) {
+        mcpServers = loadMcpConfig(task.context.workingDirectory)
+      }
+
+      // Process tool access control (Cyrus pattern)
+      const allowedTools = mergeAllowedTools(
+        task.context.allowedTools,
+        task.context.allowedDirectories
+      )
+      const disallowedTools = task.context.disallowedTools
+
+      console.log('[claude-code] Tool access control:', {
+        allowedTools: allowedTools?.length ?? 'all',
+        disallowedTools: disallowedTools?.length ?? 'none',
+        mcpServers: mcpServers ? Object.keys(mcpServers).length : 0,
+      })
+
       // Build options
       const options: Parameters<typeof query>[0]['options'] = {
         abortController,
@@ -170,9 +190,14 @@ export class ClaudeCodeProvider implements AgentProvider {
         maxTurns: task.maxTurns ?? 1,
         ...((isExecution || isPlanningWithRepo)
           ? {
-              // Execution & planning-with-repo: full tool access, auto-accept permissions
+              // Execution & planning-with-repo: controlled tool access
               permissionMode: 'bypassPermissions' as const,
               ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
+              // Add MCP servers if found
+              ...(mcpServers ? { mcpServers } : {}),
+              // Add tool restrictions if specified
+              ...(allowedTools ? { allowedTools } : {}),
+              ...(disallowedTools ? { disallowedTools } : {}),
             }
           : {
               // Planning-without-repo & chat: no tools needed, just text generation
@@ -329,6 +354,25 @@ export class ClaudeCodeProvider implements AgentProvider {
       const isExecution = task.type !== 'planning' && task.type !== 'chat'
       const isPlanningWithRepo = task.type === 'planning' && !!task.context.workingDirectory
 
+      // Load MCP config from working directory (Cyrus pattern)
+      let mcpServers: Record<string, unknown> | undefined
+      if (task.context.workingDirectory) {
+        mcpServers = loadMcpConfig(task.context.workingDirectory)
+      }
+
+      // Process tool access control (Cyrus pattern)
+      const allowedTools = mergeAllowedTools(
+        task.context.allowedTools,
+        task.context.allowedDirectories
+      )
+      const disallowedTools = task.context.disallowedTools
+
+      console.log('[claude-code] Tool access control:', {
+        allowedTools: allowedTools?.length ?? 'all',
+        disallowedTools: disallowedTools?.length ?? 'none',
+        mcpServers: mcpServers ? Object.keys(mcpServers).length : 0,
+      })
+
       // Build options
       const options: Parameters<typeof query>[0]['options'] = {
         abortController,
@@ -336,9 +380,14 @@ export class ClaudeCodeProvider implements AgentProvider {
         maxTurns: task.maxTurns ?? 1,
         ...((isExecution || isPlanningWithRepo)
           ? {
-              // Execution & planning-with-repo: full tool access, auto-accept permissions
+              // Execution & planning-with-repo: controlled tool access
               permissionMode: 'bypassPermissions' as const,
               ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
+              // Add MCP servers if found
+              ...(mcpServers ? { mcpServers } : {}),
+              // Add tool restrictions if specified
+              ...(allowedTools ? { allowedTools } : {}),
+              ...(disallowedTools ? { disallowedTools } : {}),
             }
           : {
               // Planning-without-repo & chat: no tools needed, just text generation

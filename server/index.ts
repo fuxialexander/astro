@@ -28,6 +28,7 @@ import { nexusEventTransport } from './lib/events/nexus-event-transport.js'
 import { sseNotificationHook } from './lib/events/hooks/sse-notification-hook.js'
 import { auditLogHook } from './lib/events/hooks/audit-log-hook.js'
 import { usageMetricsHook } from './lib/events/hooks/usage-metrics-hook.js'
+import { prCreationHook } from './lib/events/hooks/pr-creation-hook.js'
 
 // Validate environment variables on startup
 try {
@@ -170,7 +171,8 @@ async function start() {
   nexusEventTransport.registerHook('sse-notification', sseNotificationHook)
   nexusEventTransport.registerHook('audit-log', auditLogHook)
   nexusEventTransport.registerHook('usage-metrics', usageMetricsHook)
-  console.log('[event-transport] Registered 3 hooks:', nexusEventTransport.listHooks().join(', '))
+  nexusEventTransport.registerHook('pr-creation', prCreationHook)
+  console.log('[event-transport] Registered 4 hooks:', nexusEventTransport.listHooks().join(', '))
 
   // Initialize relay server
   try {
