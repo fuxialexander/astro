@@ -7,6 +7,7 @@
 
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
+import { z } from 'zod'
 import {
   dispatchEngine,
   type BranchPruneRequest,
@@ -34,9 +35,37 @@ import {
   type ServerWorktreeSetup,
 } from '../lib/worktree-manager.js'
 import { existsSync } from 'node:fs'
-import { execSync } from 'node:child_process'
-import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { join, resolve, relative } from 'node:path'
 import { homedir } from 'node:os'
+
+// Validation schemas
+const dispatchTaskSchema = z.object({
+  nodeId: z.string().min(1).max(100),
+  projectId: z.string().min(1).max(100),
+  title: z.string().min(1).max(1000),
+  description: z.string().min(1).max(50000),
+  dependencies: z.array(z.string().max(100)).max(100).optional(),
+  environment: z.enum(['local', 'remote', 'hpc', 'cloud']).optional(),
+  verification: z.enum(['auto', 'human']).optional(),
+  visionDoc: z.string().max(100000).optional(),
+  dependencyOutputs: z.array(z.object({
+    nodeId: z.string().max(100),
+    title: z.string().max(1000),
+    output: z.string().max(100000),
+  })).max(100).optional(),
+  priority: z.enum(['critical', 'high', 'normal', 'low']).optional(),
+  preferredProvider: z.string().max(100).optional(),
+  targetMachineId: z.string().max(100).optional(),
+  model: z.string().max(100).optional(),
+  maxTurns: z.number().int().min(1).max(200).optional(),
+  workingDirectory: z.string().max(1000).refine(
+    (path) => !path.includes('..'),
+    { message: 'Path traversal not allowed' }
+  ).optional(),
+  force: z.boolean().optional(),
+  dryRun: z.boolean().optional(),
+})
 
 const dispatchRoute = new Hono()
 
@@ -55,34 +84,17 @@ dispatchRoute.use('/*', requireAuth)
  * 4. Streams execution progress back to the client
  */
 dispatchRoute.post('/task', async (c) => {
-  const body = await c.req.json<{
-    nodeId: string
-    projectId: string
-    // Node info (for context assembly)
-    title: string
-    description: string
-    dependencies?: string[]
-    environment?: ExecutionEnvironment
-    verification?: 'auto' | 'human'
-    // Project info
-    visionDoc?: string
-    // Dependency outputs
-    dependencyOutputs?: Array<{
-      nodeId: string
-      title: string
-      output: string
-    }>
-    // Execution options
-    priority?: DispatchPriority
-    preferredProvider?: ProviderType
-    targetMachineId?: string
-    model?: string
-    maxTurns?: number
-    workingDirectory?: string
-    // Control flags
-    force?: boolean
-    dryRun?: boolean
-  }>()
+  // Validate input
+  let body: z.infer<typeof dispatchTaskSchema>
+  try {
+    const rawBody = await c.req.json()
+    body = dispatchTaskSchema.parse(rawBody)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return c.json({ success: false, error: 'Invalid input', details: err.issues }, 400)
+    }
+    return c.json({ success: false, error: 'Invalid JSON' }, 400)
+  }
 
   const {
     nodeId,
@@ -110,6 +122,22 @@ dispatchRoute.post('/task', async (c) => {
       { success: false, error: 'No working directory or repository configured' },
       400
     )
+  }
+
+  // Validate working directory path (prevent path traversal)
+  if (!workingDirectory.startsWith('http://') && !workingDirectory.startsWith('https://') && !workingDirectory.startsWith('git@')) {
+    // Local path validation: check for ".." and ensure it's within an allowed base
+    const allowedBase = resolve(homedir(), '.nexus')
+    const requestedPath = resolve(workingDirectory)
+    const rel = relative(allowedBase, requestedPath)
+
+    // If path is outside allowed base or contains "..", reject
+    if (rel.startsWith('..') || resolve(workingDirectory).includes('..')) {
+      return c.json(
+        { success: false, error: 'Invalid working directory path (path traversal not allowed)' },
+        400
+      )
+    }
   }
 
   // Dry run validation
@@ -208,22 +236,33 @@ dispatchRoute.post('/task', async (c) => {
 /**
  * Resolve a working directory value. If it looks like a git URL, clone to
  * ~/.nexus/repos/{projectId}/ and return the local path. Otherwise return as-is.
+ *
+ * SECURITY: Uses execFileSync to prevent command injection in git operations.
  */
 function resolveWorkingDirectory(value: string, projectId: string): string {
   const isGitUrl = value.startsWith('http://') || value.startsWith('https://') || value.startsWith('git@')
   if (!isGitUrl) return value
 
+  // Validate projectId format to prevent path traversal (HIGH-004)
+  if (!/^[a-zA-Z0-9-_]+$/.test(projectId)) {
+    throw new Error('Invalid projectId format')
+  }
+
   const repoDir = join(homedir(), '.nexus', 'repos', projectId)
   if (existsSync(join(repoDir, '.git'))) {
-    // Already cloned — fetch latest
+    // Already cloned — fetch latest (HIGH-004: use execFileSync + disable hooks)
     try {
-      execSync('git fetch --all', { cwd: repoDir, stdio: 'ignore', timeout: 30_000 })
+      execFileSync('git', ['-c', 'core.hooksPath=/dev/null', 'fetch', '--all'], {
+        cwd: repoDir,
+        stdio: 'ignore',
+        timeout: 30_000,
+      })
     } catch {
       // Non-fatal: proceed with stale clone
     }
   } else {
-    // Clone the repo
-    execSync(`git clone ${JSON.stringify(value)} ${JSON.stringify(repoDir)}`, {
+    // Clone the repo (CRITICAL-004: use execFileSync to prevent injection)
+    execFileSync('git', ['clone', value, repoDir], {
       stdio: 'ignore',
       timeout: 120_000,
     })

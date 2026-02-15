@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { secureHeaders } from 'hono/secure-headers'
 import { serve } from '@hono/node-server'
+import { rateLimiter } from 'hono-rate-limiter'
 import { healthRoute } from './routes/health.js'
 import { agentRoute } from './routes/agent.js'
 import { authRoute } from './routes/auth.js'
@@ -20,17 +22,50 @@ import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
 import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus, ensureMachineRegistered } from './lib/registered-machines-store.js'
+import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest } from './lib/environment.js'
+import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
+
+// Validate environment variables on startup
+try {
+  validateEnvironment()
+} catch {
+  console.error('❌ Environment validation failed')
+  process.exit(1)
+}
 
 const app = new Hono()
 
+// Security headers
+app.use('/*', secureHeaders({
+  contentSecurityPolicy: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", "data:", "https:"],
+    connectSrc: ["'self'", "ws:", "wss:"],
+    fontSrc: ["'self'", "data:"],
+  },
+  strictTransportSecurity: "max-age=31536000; includeSubDomains",
+  xFrameOptions: "DENY",
+  xContentTypeOptions: "nosniff",
+}))
+
+// Explicit allowed origins list
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'https://nexus.fuxialexander.work',
+  process.env.CORS_ORIGIN || 'https://nexus.pages.dev',
+].filter(Boolean)
+
 app.use('/*', cors({
   origin: (origin) => {
-    if (process.env.NODE_ENV === 'production') {
-      const allowed = process.env.CORS_ORIGIN || 'https://nexus.pages.dev'
-      return origin === allowed ? allowed : null
+    if (isProduction()) {
+      // In production, require explicit origin match
+      if (!origin) return null
+      return ALLOWED_ORIGINS.includes(origin) ? origin : null
     }
-    // Dev mode: allow localhost and null origin (native apps)
-    if (!origin || origin === 'http://localhost:5173' || origin.startsWith('nexus://')) {
+    // Dev/test mode: allow localhost and explicit origins only
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
       return origin || 'http://localhost:5173'
     }
     return null
@@ -38,6 +73,43 @@ app.use('/*', cors({
   allowHeaders: ['Content-Type', 'Authorization', 'Last-Event-ID'],
   credentials: true,
 }))
+
+// Global rate limiter (100 req/15min per IP) - bypassed in test mode
+if (!isTest()) {
+  app.use('/*', rateLimiter({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 100, // 100 requests per window
+    standardHeaders: 'draft-7',
+    keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+  }))
+}
+
+// Auth endpoints rate limiter (5 req/15min per IP) - bypassed in test mode
+if (!isTest()) {
+  app.use('/api/auth/*', rateLimiter({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    standardHeaders: 'draft-7',
+    keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+  }))
+
+  app.use('/api/device/*', rateLimiter({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    standardHeaders: 'draft-7',
+    keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+  }))
+}
+
+// AI endpoints rate limiter (10 req/hour) - bypassed in test mode
+if (process.env.NODE_ENV !== 'test') {
+  app.use('/api/agent/*', rateLimiter({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    limit: 10,
+    standardHeaders: 'draft-7',
+    keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+  }))
+}
 
 app.route('/api', healthRoute)
 app.route('/api/auth', authRoute)
@@ -53,7 +125,7 @@ app.route('/api/data', dataRoute)
 app.route('/api/notifications', notificationsRoute)
 
 const port = 3001
-const relayPort = parseInt(process.env.RELAY_PORT || '3002', 10)
+const relayPort = getRelayConfig().port
 
 let httpServer: ReturnType<typeof serve> | null = null
 
@@ -83,8 +155,9 @@ async function start() {
   // Initialize relay server
   try {
     // Connect to Redis if configured
-    if (process.env.REDIS_URL) {
-      await redisPubSub.connect(process.env.REDIS_URL)
+    const redisConfig = getRedisConfig()
+    if (redisConfig.url) {
+      await redisPubSub.connect(redisConfig.url)
       console.log('[relay] Connected to Redis for horizontal scaling')
 
       // Set up Redis event handlers for cross-instance routing
@@ -117,8 +190,8 @@ async function start() {
       dispatchEngine.emit('relay:task:result', message)
     })
 
-    relayServer.on('machine:connected', async (machineId) => {
-      console.log(`[relay] Machine ${machineId} connected`)
+    relayServer.on('machine:connected', async (machineId: string, userId: string) => {
+      console.log(`[relay] Machine ${machineId} connected for user ${userId}`)
       const entry = machineRegistry.get(machineId)
       // Ensure machine exists in persistent store (survives server restarts)
       await ensureMachineRegistered(machineId, {
@@ -127,7 +200,7 @@ async function start() {
         platform: entry?.platform || 'unknown',
         environmentType: entry?.environmentType || 'remote',
         providers: entry?.providers?.map(p => p.type) || [],
-        userId: 'user-1',
+        userId,
       })
       if (entry && redisPubSub.isConnected()) {
         await redisPubSub.registerMachine(machineId, entry)
@@ -164,6 +237,19 @@ async function start() {
   dispatchEngine.start()
   console.log('[dispatch] Dispatch engine started')
 
+  // Start cleanup scheduler (disabled in test mode)
+  if (!isTest()) {
+    startCleanupScheduler({
+      enabled: true,
+      intervalMs: 24 * 60 * 60 * 1000, // 24 hours
+      retentionDays: {
+        executions: 90,
+        chatHistory: 180,
+      },
+    })
+    console.log('[cleanup] Cleanup scheduler started')
+  }
+
   console.log(`[backend] listening on http://localhost:${port}`)
   httpServer = serve({ fetch: app.fetch, port })
 }
@@ -179,6 +265,7 @@ async function shutdown(signal: string) {
   timer.unref()
 
   try {
+    stopCleanupScheduler()
     dispatchEngine.stop()
     httpServer?.close()
     await relayServer.stop()

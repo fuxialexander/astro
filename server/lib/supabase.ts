@@ -67,10 +67,25 @@ export function createUserClient(accessToken: string): SupabaseClient {
 }
 
 /**
+ * Check if Supabase should be used.
+ * Returns false if:
+ * - Supabase is not configured
+ * - USE_INDEXEDDB_ONLY flag is explicitly set
+ */
+export function shouldUseSupabase(): boolean {
+  // Explicit override to force IndexedDB-only mode
+  if (process.env.USE_INDEXEDDB_ONLY === 'true') {
+    return false
+  }
+  return !!(SUPABASE_URL && (SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY))
+}
+
+/**
  * Check if Supabase is configured.
+ * @deprecated Use shouldUseSupabase() instead
  */
 export function isSupabaseConfigured(): boolean {
-  return !!(SUPABASE_URL && (SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY))
+  return shouldUseSupabase()
 }
 
 export { SUPABASE_URL, SUPABASE_ANON_KEY }

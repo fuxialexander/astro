@@ -42,6 +42,7 @@ import {
 } from '../lib/device-code-store.js';
 import {
   createAccessToken,
+  createWebSocketToken,
   createRefreshToken,
   verifyAccessToken,
   refreshTokens,
@@ -56,11 +57,93 @@ import {
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
+import { getServiceClient, shouldUseSupabase } from '../lib/supabase.js';
+import { requireAuth } from '../middleware/auth.js';
+import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js';
 
 export const deviceAuthRoute = new Hono();
 
+// ============================================================================
+// Rate Limiting
+// ============================================================================
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+  failedAttempts: number;
+  lockedUntil?: number;
+}
+
+const rateLimitStore = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 10;
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Check and update rate limit for an IP or user code
+ */
+function checkRateLimit(key: string, isFailure: boolean = false): { allowed: boolean; reason?: string } {
+  const now = Date.now();
+  let entry = rateLimitStore.get(key);
+
+  // Clean up expired entries
+  if (entry && entry.resetAt < now && (!entry.lockedUntil || entry.lockedUntil < now)) {
+    rateLimitStore.delete(key);
+    entry = undefined;
+  }
+
+  // Check if locked out
+  if (entry?.lockedUntil && entry.lockedUntil > now) {
+    const remainingSeconds = Math.ceil((entry.lockedUntil - now) / 1000);
+    return { allowed: false, reason: `Too many failed attempts. Try again in ${remainingSeconds} seconds.` };
+  }
+
+  // Initialize or update entry
+  if (!entry || entry.resetAt < now) {
+    entry = {
+      count: 1,
+      resetAt: now + RATE_LIMIT_WINDOW_MS,
+      failedAttempts: isFailure ? 1 : 0,
+    };
+  } else {
+    entry.count++;
+    if (isFailure) {
+      entry.failedAttempts++;
+    }
+  }
+
+  // Check if too many failed attempts
+  if (entry.failedAttempts >= MAX_FAILED_ATTEMPTS) {
+    entry.lockedUntil = now + LOCKOUT_DURATION_MS;
+    rateLimitStore.set(key, entry);
+    return { allowed: false, reason: 'Too many failed attempts. Account temporarily locked.' };
+  }
+
+  // Check if too many requests
+  if (entry.count > MAX_REQUESTS_PER_WINDOW) {
+    rateLimitStore.set(key, entry);
+    return { allowed: false, reason: 'Too many requests. Please wait before trying again.' };
+  }
+
+  rateLimitStore.set(key, entry);
+  return { allowed: true };
+}
+
+// Cleanup expired entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitStore.entries()) {
+    if (entry.resetAt < now && (!entry.lockedUntil || entry.lockedUntil < now)) {
+      rateLimitStore.delete(key);
+    }
+  }
+}, 5 * 60 * 1000); // Every 5 minutes
+
 // Base URL for device verification (configurable via env)
-const BASE_URL = process.env.NEXUS_BASE_URL || 'http://localhost:5173';
+// Derives from CLOUDFLARED_DOMAIN if not explicitly set
+const BASE_URL = process.env.NEXUS_BASE_URL
+  || (process.env.CLOUDFLARED_DOMAIN ? `https://nexus.${process.env.CLOUDFLARED_DOMAIN}` : 'http://localhost:5173');
 const RELAY_URL = process.env.RELAY_WS_URL
   || (process.env.CLOUDFLARED_DOMAIN ? `wss://nexus-relay.${process.env.CLOUDFLARED_DOMAIN}` : 'ws://localhost:3002');
 
@@ -79,7 +162,25 @@ deviceAuthRoute.post('/authorize', async (c) => {
   try {
     const body = await c.req.json() as DeviceAuthRequest;
 
+    // Validate required fields
+    if (!body.environmentType) {
+      console.error('[device-auth] Missing required field: environmentType');
+      return c.json({
+        error: 'invalid_request',
+        error_description: 'environmentType is required',
+      }, 400);
+    }
+
     const { deviceCode, userCode, expiresIn, interval } = createDeviceCode(body);
+
+    // Verify device code was actually created
+    if (!deviceCode || !userCode) {
+      console.error('[device-auth] Failed to generate device code - got null values');
+      return c.json({
+        error: 'server_error',
+        error_description: 'Failed to generate device code',
+      }, 500);
+    }
 
     const response: DeviceAuthResponse = {
       deviceCode,
@@ -93,7 +194,11 @@ deviceAuthRoute.post('/authorize', async (c) => {
     return c.json(response);
   } catch (err) {
     console.error('[device-auth] Error creating device code:', err);
-    return c.json({ error: 'Failed to create device code' }, 500);
+    return c.json({
+      error: 'server_error',
+      error_description: 'Failed to create device code',
+      details: err instanceof Error ? err.message : String(err),
+    }, 500);
   }
 });
 
@@ -115,13 +220,36 @@ deviceAuthRoute.post('/token', async (c) => {
       } as DeviceTokenError, 400);
     }
 
+    // Rate limiting: 10 requests per minute per IP
+    const clientIp = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+                     c.req.header('x-real-ip') ||
+                     'unknown';
+    const ipRateLimit = checkRateLimit(`ip:${clientIp}`, false);
+    if (!ipRateLimit.allowed) {
+      return c.json({
+        error: 'slow_down',
+        errorDescription: ipRateLimit.reason,
+      } as DeviceTokenError, 429);
+    }
+
     const entry = getDeviceCodeByUserCode(body.userCode);
 
     if (!entry) {
+      // Track failed attempt by IP
+      checkRateLimit(`ip:${clientIp}`, true);
       return c.json({
         error: 'expired_token',
         errorDescription: 'Invalid or expired device code',
       } as DeviceTokenError, 400);
+    }
+
+    // Rate limiting: 5 failed attempts per user code = lock
+    const userCodeRateLimit = checkRateLimit(`usercode:${body.userCode}`, false);
+    if (!userCodeRateLimit.allowed) {
+      return c.json({
+        error: 'slow_down',
+        errorDescription: userCodeRateLimit.reason,
+      } as DeviceTokenError, 429);
     }
 
     // Check polling rate
@@ -141,18 +269,24 @@ deviceAuthRoute.post('/token', async (c) => {
         } as DeviceTokenError, 400);
 
       case 'denied':
+        // Track failed attempt
+        checkRateLimit(`usercode:${body.userCode}`, true);
         return c.json({
           error: 'access_denied',
           errorDescription: 'User denied the authorization request.',
         } as DeviceTokenError, 400);
 
       case 'expired':
+        // Track failed attempt
+        checkRateLimit(`usercode:${body.userCode}`, true);
         return c.json({
           error: 'expired_token',
           errorDescription: 'Device code has expired. Please request a new code.',
         } as DeviceTokenError, 400);
 
       case 'used':
+        // Track failed attempt
+        checkRateLimit(`usercode:${body.userCode}`, true);
         return c.json({
           error: 'expired_token',
           errorDescription: 'Device code has already been used.',
@@ -169,6 +303,7 @@ deviceAuthRoute.post('/token', async (c) => {
 
         // Create tokens (machine ID will be assigned during registration)
         // For now, create a temporary access token for registration
+        // Note: Refresh token will be created during machine registration
         const tempMachineId = `temp-${body.userCode}`;
         const scopes = entry.scopes.length > 0 ? entry.scopes : DEFAULT_MACHINE_SCOPES;
 
@@ -179,19 +314,21 @@ deviceAuthRoute.post('/token', async (c) => {
           expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
         });
 
-        const { token: refreshToken } = createRefreshToken({
-          machineId: tempMachineId,
-          userId: entry.authorizedBy,
-          scopes,
-          expiresIn: TOKEN_EXPIRY.REFRESH_TOKEN,
-        });
+        // Validate token was created successfully
+        if (!accessToken) {
+          console.error('[device-auth] Failed to create access token');
+          return c.json({
+            error: 'server_error',
+            error_description: 'Failed to create authentication token',
+          }, 500);
+        }
 
         const response: DeviceTokenResponse = {
           accessToken,
           tokenType: 'Bearer',
           expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
-          refreshToken,
           scopes,
+          // Note: refresh token will be provided after machine registration
         };
 
         return c.json(response);
@@ -232,6 +369,29 @@ deviceAuthRoute.post('/register', async (c) => {
 
     const { machineInfo } = body;
 
+    // Validate user exists in auth.users (prevents foreign key constraint violation)
+    if (shouldUseSupabase()) {
+      // Skip validation for dev user in test mode
+      const isDev = process.env.NODE_ENV !== 'production';
+      const isDevUser = payload.userId === '00000000-0000-0000-0000-000000000000';
+
+      if (!(isDev && isDevUser)) {
+        const supabase = getServiceClient();
+        const { data: user, error: userError } = await supabase.auth.admin.getUserById(payload.userId);
+
+        if (userError || !user) {
+          console.error('[device-auth] User not found in auth.users:', payload.userId, userError);
+          return c.json({
+            error: 'User not found. Your authentication may be stale. Please log out, log back in, and try device authorization again.',
+          }, 400);
+        }
+
+        console.log('[device-auth] User validated:', user.id);
+      } else {
+        console.log('[device-auth] Skipping validation for dev user in test mode');
+      }
+    }
+
     // Register the machine
     const machine = await registerMachine({
       name: machineInfo.name || machineInfo.hostname || 'Unknown',
@@ -254,7 +414,7 @@ deviceAuthRoute.post('/register', async (c) => {
       expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
     });
 
-    const { token: newRefreshToken, entry: refreshEntry } = createRefreshToken({
+    const { token: newRefreshToken, entry: refreshEntry } = await createRefreshToken({
       machineId: machine.id,
       userId: payload.userId,
       workspaceId: payload.workspaceId,
@@ -265,14 +425,35 @@ deviceAuthRoute.post('/register', async (c) => {
     // Update machine with refresh token hash
     machine.refreshTokenHash = refreshEntry.tokenHash;
 
-    // Create WebSocket JWT for relay connection
-    const wsToken = createAccessToken({
+    // Create WebSocket JWT for relay connection (uses RELAY_JWT_SECRET)
+    const wsToken = createWebSocketToken({
       machineId: machine.id,
       userId: payload.userId,
       workspaceId: payload.workspaceId,
       scopes: ['machine:connect', 'machine:execute'],
       expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
     });
+
+    // Validate all tokens were created successfully
+    if (!newAccessToken || !newRefreshToken || !wsToken) {
+      console.error('[device-auth] Failed to create tokens during registration');
+      console.error('[device-auth] newAccessToken:', newAccessToken ? 'OK' : 'NULL');
+      console.error('[device-auth] newRefreshToken:', newRefreshToken ? 'OK' : 'NULL');
+      console.error('[device-auth] wsToken:', wsToken ? 'OK' : 'NULL');
+      return c.json({
+        error: 'server_error',
+        error_description: 'Failed to create authentication tokens for machine registration',
+      }, 500);
+    }
+
+    // Validate machine ID
+    if (!machine.id) {
+      console.error('[device-auth] Machine registration succeeded but machine ID is null');
+      return c.json({
+        error: 'server_error',
+        error_description: 'Failed to assign machine ID',
+      }, 500);
+    }
 
     const response: MachineRegisterResponse = {
       machineId: machine.id,
@@ -281,6 +462,22 @@ deviceAuthRoute.post('/register', async (c) => {
       wsToken,
       message: `Machine "${machine.name}" registered successfully`,
     };
+
+    // Audit log the machine registration
+    await logAuditEvent({
+      userId: payload.userId,
+      action: AuditActions.MACHINE_REGISTER,
+      resourceType: ResourceTypes.MACHINE,
+      resourceId: machine.id,
+      details: {
+        machineName: machine.name,
+        hostname: machine.hostname,
+        platform: machine.platform,
+        environmentType: machine.environmentType,
+      },
+      ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+      userAgent: c.req.header('user-agent'),
+    });
 
     // Also return the new tokens
     return c.json({
@@ -307,7 +504,7 @@ deviceAuthRoute.post('/refresh', async (c) => {
       return c.json({ error: 'Invalid grant type' }, 400);
     }
 
-    const result = refreshTokens(body.refreshToken, false);
+    const result = await refreshTokens(body.refreshToken, false);
 
     if (!result) {
       return c.json({ error: 'Invalid or expired refresh token' }, 401);
@@ -340,7 +537,7 @@ deviceAuthRoute.post('/revoke', async (c) => {
     }
 
     // Try to revoke as refresh token
-    const revoked = revokeRefreshToken(body.token);
+    const revoked = await revokeRefreshToken(body.token);
 
     // RFC 7009: Always return 200 even if token was not found
     return c.json({ success: true, revoked });
@@ -434,16 +631,11 @@ deviceAuthRoute.post('/code/:code/deny', (c) => {
  * GET /device/machines
  * List registered machines for the authenticated user
  */
-deviceAuthRoute.get('/machines', async (c) => {
-  // Get userId from auth middleware or query param
-  const user = c.get('user') as { id: string } | undefined;
-  const userId = user?.id || c.req.query('userId');
+deviceAuthRoute.get('/machines', requireAuth, async (c) => {
+  // Get userId from auth middleware (required by requireAuth)
+  const user = c.get('user') as { id: string };
 
-  if (!userId) {
-    return c.json({ error: 'Missing userId' }, 400);
-  }
-
-  const machines = await getUserMachines(userId);
+  const machines = await getUserMachines(user.id);
 
   return c.json({
     machines: machines.map((m) => ({
@@ -453,6 +645,7 @@ deviceAuthRoute.get('/machines', async (c) => {
       platform: m.platform,
       environmentType: m.environmentType,
       providers: m.providers,
+      userId: m.userId,  // Include userId for test verification
       registeredAt: m.registeredAt,
       lastSeenAt: m.lastSeenAt,
       isConnected: m.isConnected,
@@ -466,12 +659,18 @@ deviceAuthRoute.get('/machines', async (c) => {
  * GET /device/machines/:id
  * Get a specific registered machine
  */
-deviceAuthRoute.get('/machines/:id', async (c) => {
+deviceAuthRoute.get('/machines/:id', requireAuth, async (c) => {
+  const user = c.get('user') as { id: string };
   const id = c.req.param('id');
   const machine = await getMachine(id);
 
   if (!machine) {
     return c.json({ error: 'Machine not found' }, 404);
+  }
+
+  // Verify ownership
+  if (machine.userId !== user.id) {
+    return c.json({ error: 'Not authorized to view this machine' }, 403);
   }
 
   return c.json({
@@ -522,19 +721,40 @@ deviceAuthRoute.patch('/machines/:id', async (c) => {
  * DELETE /device/machines/:id
  * Revoke a machine's access (soft delete)
  */
-deviceAuthRoute.delete('/machines/:id', async (c) => {
+deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
   const id = c.req.param('id');
+  const user = c.get('user') as { id: string };
   const machine = await getMachine(id);
 
   if (!machine) {
     return c.json({ error: 'Machine not found' }, 404);
   }
 
+  // Verify the user owns this machine
+  if (machine.userId !== user.id) {
+    return c.json({ error: 'Not authorized to revoke this machine' }, 403);
+  }
+
   // Revoke all tokens for this machine
-  revokeAllMachineTokens(id);
+  await revokeAllMachineTokens(id);
 
   // Mark machine as revoked
   await revokeMachine(id);
+
+  // Audit log the machine revocation
+  await logAuditEvent({
+    userId: user.id,
+    action: AuditActions.MACHINE_REVOKE,
+    resourceType: ResourceTypes.MACHINE,
+    resourceId: id,
+    details: {
+      machineName: machine.name,
+      hostname: machine.hostname,
+      platform: machine.platform,
+    },
+    ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+    userAgent: c.req.header('user-agent'),
+  });
 
   return c.json({
     success: true,
@@ -595,7 +815,7 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
     });
 
     // Emit machine:connected so the SSE bridge picks it up
-    relayServer.emit('machine:connected', machine.id);
+    relayServer.emit('machine:connected', machine.id, 'current-user');
 
     return c.json({
       success: true,
@@ -624,4 +844,45 @@ deviceAuthRoute.get('/stats', async (c) => {
   return c.json({
     pendingDeviceCodes: pendingCodes.length,
   });
+});
+
+/**
+ * POST /device/test/auto-approve
+ * Auto-approve a device code for e2e testing
+ * Only available in development mode
+ * Uses authenticated user's ID from JWT
+ */
+deviceAuthRoute.post('/test/auto-approve', requireAuth, async (c) => {
+  // Only allow in non-production environments
+  const isDev = process.env.NODE_ENV !== 'production';
+  if (!isDev) {
+    return c.json({ error: 'Test endpoints only available in development' }, 403);
+  }
+
+  try {
+    const { deviceCode } = await c.req.json() as { deviceCode: string };
+
+    if (!deviceCode) {
+      return c.json({ error: 'Missing deviceCode' }, 400);
+    }
+
+    // Get authenticated user ID from auth middleware
+    const user = c.get('user') as { id: string };
+
+    // Auto-approve with the authenticated user's ID
+    const success = authorizeDeviceCode(deviceCode, user.id);
+
+    if (!success) {
+      return c.json({ error: 'Failed to approve device code' }, 400);
+    }
+
+    return c.json({
+      success: true,
+      message: 'Device auto-approved for testing',
+      userId: user.id,
+    });
+  } catch (err) {
+    console.error('[device-auth] Error auto-approving device:', err);
+    return c.json({ error: 'Failed to auto-approve device' }, 500);
+  }
 });

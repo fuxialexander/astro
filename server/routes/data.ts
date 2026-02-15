@@ -5,32 +5,38 @@ import {
   planNodes,
   planEdges,
   userProfiles,
-  apiKeys,
   displaySettings,
   usageMetrics,
   taskChatSessions,
   taskChatMessages,
-  appSettings,
+  taskExecutions,
 } from '../lib/db/schema.js'
 import { eq, and, or, sql } from 'drizzle-orm'
+import { requireAuth } from '../middleware/auth.js'
+import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 
 const app = new Hono()
 
-const USER_ID = 'dev-user'
+// Apply authentication middleware to all routes
+app.use('/*', requireAuth)
 
 // ── Projects ──────────────────────────────────────────────────────────
 
 app.get('/projects', async (c) => {
-  const rows = await db.select().from(projects).where(eq(projects.userId, USER_ID))
+  const rows = await db.select().from(projects).where(eq(projects.ownerId, c.get('user')!.id))
   return c.json(rows)
 })
 
 app.post('/projects', async (c) => {
   const body = await c.req.json()
   const now = new Date()
+
+  // Generate UUID if not provided
+  const projectId = body.id || crypto.randomUUID()
+
   const row = {
-    id: body.id,
-    userId: USER_ID,
+    id: projectId,
+    ownerId: c.get('user')!.id,
     name: body.name,
     description: body.description ?? '',
     visionDoc: body.visionDoc ?? '',
@@ -43,28 +49,54 @@ app.post('/projects', async (c) => {
     progress: body.progress ?? 0,
     labels: body.labels ?? [],
     workingDirectory: body.workingDirectory ?? null,
-    repository: body.repository ?? null,
-    defaultEnvironment: body.defaultEnvironment ?? null,
-    defaultMachineId: body.defaultMachineId ?? null,
     createdAt: body.createdAt ? new Date(body.createdAt) : now,
     updatedAt: body.updatedAt ? new Date(body.updatedAt) : now,
   }
   await db.insert(projects).values(row).onConflictDoUpdate({
     target: projects.id,
-    set: { ...row, userId: undefined } as typeof row,
+    set: { ...row, id: undefined } as typeof row,
   })
-  const [created] = await db.select().from(projects).where(eq(projects.id, row.id))
+  const [created] = await db.select().from(projects).where(eq(projects.id, projectId))
+
+  // Audit log project creation (only on new projects, not updates)
+  if (body.id === undefined || !body.createdAt) {
+    await logAuditEvent({
+      userId: c.get('user')!.id,
+      action: AuditActions.PROJECT_CREATE,
+      resourceType: ResourceTypes.PROJECT,
+      resourceId: projectId,
+      details: {
+        projectName: body.name,
+        status: body.status,
+      },
+      ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+      userAgent: c.req.header('user-agent'),
+    })
+  }
+
   return c.json(created, 201)
 })
 
 app.get('/projects/:id', async (c) => {
-  const [row] = await db.select().from(projects).where(eq(projects.id, c.req.param('id')))
+  const userId = c.get('user')!.id
+  const projectId = c.req.param('id')
+  const [row] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+  )
   if (!row) return c.json({ error: 'Not found' }, 404)
   return c.json(row)
 })
 
 app.patch('/projects/:id', async (c) => {
+  const userId = c.get('user')!.id
   const id = c.req.param('id')
+
+  // Verify ownership first
+  const [existing] = await db.select().from(projects).where(
+    and(eq(projects.id, id), eq(projects.ownerId, userId))
+  )
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
   const body = await c.req.json()
   const patch: Record<string, unknown> = { updatedAt: new Date() }
   if (body.name !== undefined) patch.name = body.name
@@ -83,13 +115,40 @@ app.patch('/projects/:id', async (c) => {
   if (body.defaultEnvironment !== undefined) patch.defaultEnvironment = body.defaultEnvironment || null
   if (body.defaultMachineId !== undefined) patch.defaultMachineId = body.defaultMachineId || null
 
-  await db.update(projects).set(patch).where(eq(projects.id, id))
+  await db.update(projects).set(patch).where(
+    and(eq(projects.id, id), eq(projects.ownerId, userId))
+  )
   const [updated] = await db.select().from(projects).where(eq(projects.id, id))
   return c.json(updated)
 })
 
 app.delete('/projects/:id', async (c) => {
-  await db.delete(projects).where(eq(projects.id, c.req.param('id')))
+  const userId = c.get('user')!.id
+  const projectId = c.req.param('id')
+
+  // Verify ownership before deletion
+  const [existing] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+  )
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  // Audit log project deletion
+  await logAuditEvent({
+    userId,
+    action: AuditActions.PROJECT_DELETE,
+    resourceType: ResourceTypes.PROJECT,
+    resourceId: projectId,
+    details: {
+      projectName: existing.name,
+      status: existing.status,
+    },
+    ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+    userAgent: c.req.header('user-agent'),
+  })
+
+  await db.delete(projects).where(
+    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+  )
   return c.json({ ok: true })
 })
 
@@ -102,14 +161,30 @@ app.get('/plan', async (c) => {
 })
 
 app.get('/plan/:projectId', async (c) => {
+  const userId = c.get('user')!.id
   const projectId = c.req.param('projectId')
+
+  // Verify project ownership
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+  )
+  if (!project) return c.json({ error: 'Project not found' }, 404)
+
   const nodes = await db.select().from(planNodes).where(eq(planNodes.projectId, projectId))
   const edges = await db.select().from(planEdges).where(eq(planEdges.projectId, projectId))
   return c.json({ nodes, edges })
 })
 
 app.put('/plan/:projectId', async (c) => {
+  const userId = c.get('user')!.id
   const projectId = c.req.param('projectId')
+
+  // Verify project ownership
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+  )
+  if (!project) return c.json({ error: 'Project not found' }, 404)
+
   const body = await c.req.json()
   const { nodes: newNodes, edges: newEdges } = body as {
     nodes: Array<Record<string, unknown>>
@@ -122,26 +197,26 @@ app.put('/plan/:projectId', async (c) => {
     tx.delete(planNodes).where(eq(planNodes.projectId, projectId)).run()
 
     for (const n of newNodes) {
+      const position = n.position as { x: number; y: number } | undefined
       const row = {
-        id: n.id as string,
+        clientId: n.id as string, // Use client ID for compatibility
         projectId,
         type: n.type as string,
         title: n.title as string,
         description: (n.description as string) ?? '',
         status: (n.status as string) ?? 'planned',
         parentId: (n.parentId as string) ?? null,
-        dependencies: (n.dependencies as string[]) ?? [],
         environment: (n.environment as string) ?? null,
         verification: (n.verification as string) ?? 'auto',
-        position: n.position as { x: number; y: number },
+        positionX: position?.x ?? 0,
+        positionY: position?.y ?? 0,
         startDate: (n.startDate as string) ?? null,
         endDate: (n.endDate as string) ?? null,
         priority: (n.priority as string) ?? null,
-        labelIds: (n.labelIds as string[]) ?? null,
+        labelIds: (n.labelIds as string[]) ?? [],
         dueDate: (n.dueDate as string) ?? null,
         estimate: (n.estimate as string) ?? null,
         milestoneId: (n.milestoneId as string) ?? null,
-        boardOrder: (n.boardOrder as number) ?? null,
         executionId: (n.executionId as string) ?? null,
         executionOutput: (n.executionOutput as string) ?? null,
         executionError: (n.executionError as string) ?? null,
@@ -150,27 +225,16 @@ app.put('/plan/:projectId', async (c) => {
         createdAt: n.createdAt ? new Date(n.createdAt as string) : new Date(),
         updatedAt: n.updatedAt ? new Date(n.updatedAt as string) : new Date(),
       }
-      tx.insert(planNodes).values(row).onConflictDoUpdate({
-        target: planNodes.id,
-        set: { ...row, id: undefined } as typeof row,
-      }).run()
+      tx.insert(planNodes).values(row).run()
     }
 
     for (const e of newEdges) {
       tx.insert(planEdges).values({
-        id: e.id as string,
+        clientId: e.id as string,
         projectId,
-        source: e.source as string,
-        target: e.target as string,
+        sourceClientId: e.source as string,
+        targetClientId: e.target as string,
         type: (e.type as string) ?? 'dependency',
-      }).onConflictDoUpdate({
-        target: planEdges.id,
-        set: {
-          projectId,
-          source: e.source as string,
-          target: e.target as string,
-          type: (e.type as string) ?? 'dependency',
-        },
       }).run()
     }
   })
@@ -179,28 +243,36 @@ app.put('/plan/:projectId', async (c) => {
 })
 
 app.post('/plan/nodes', async (c) => {
+  const userId = c.get('user')!.id
   const body = await c.req.json()
+
+  // Verify project ownership
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, body.projectId), eq(projects.ownerId, userId))
+  )
+  if (!project) return c.json({ error: 'Project not found' }, 404)
+
   const now = new Date()
+  const position = body.position as { x: number; y: number } | undefined
   await db.insert(planNodes).values({
-    id: body.id,
+    clientId: body.id,
     projectId: body.projectId,
     type: body.type,
     title: body.title,
     description: body.description ?? '',
     status: body.status ?? 'planned',
     parentId: body.parentId ?? null,
-    dependencies: body.dependencies ?? [],
     environment: body.environment ?? null,
     verification: body.verification ?? 'auto',
-    position: body.position,
+    positionX: position?.x ?? 0,
+    positionY: position?.y ?? 0,
     startDate: body.startDate ?? null,
     endDate: body.endDate ?? null,
     priority: body.priority ?? null,
-    labelIds: body.labelIds ?? null,
+    labelIds: body.labelIds ?? [],
     dueDate: body.dueDate ?? null,
     estimate: body.estimate ?? null,
     milestoneId: body.milestoneId ?? null,
-    boardOrder: body.boardOrder ?? null,
     executionId: body.executionId ?? null,
     executionOutput: body.executionOutput ?? null,
     executionError: body.executionError ?? null,
@@ -213,7 +285,19 @@ app.post('/plan/nodes', async (c) => {
 })
 
 app.patch('/plan/nodes/:id', async (c) => {
+  const userId = c.get('user')!.id
   const id = c.req.param('id')
+
+  // Get the node to verify project ownership
+  const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, id))
+  if (!node) return c.json({ error: 'Node not found' }, 404)
+
+  // Verify project ownership
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, node.projectId), eq(projects.ownerId, userId))
+  )
+  if (!project) return c.json({ error: 'Not authorized' }, 403)
+
   const body = await c.req.json()
   const patch: Record<string, unknown> = { updatedAt: new Date() }
 
@@ -221,10 +305,13 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.description !== undefined) patch.description = body.description
   if (body.status !== undefined) patch.status = body.status
   if (body.parentId !== undefined) patch.parentId = body.parentId
-  if (body.dependencies !== undefined) patch.dependencies = body.dependencies
   if (body.environment !== undefined) patch.environment = body.environment
   if (body.verification !== undefined) patch.verification = body.verification
-  if (body.position !== undefined) patch.position = body.position
+  if (body.position !== undefined) {
+    const pos = body.position as { x: number; y: number }
+    patch.positionX = pos.x
+    patch.positionY = pos.y
+  }
   if (body.startDate !== undefined) patch.startDate = body.startDate || null
   if (body.endDate !== undefined) patch.endDate = body.endDate || null
   if (body.priority !== undefined) patch.priority = body.priority || null
@@ -232,7 +319,6 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.dueDate !== undefined) patch.dueDate = body.dueDate || null
   if (body.estimate !== undefined) patch.estimate = body.estimate || null
   if (body.milestoneId !== undefined) patch.milestoneId = body.milestoneId || null
-  if (body.boardOrder !== undefined) patch.boardOrder = body.boardOrder
   if (body.executionId !== undefined) patch.executionId = body.executionId || null
   if (body.executionOutput !== undefined) patch.executionOutput = body.executionOutput || null
   if (body.executionError !== undefined) patch.executionError = body.executionError || null
@@ -240,46 +326,76 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.executionCompletedAt !== undefined) patch.executionCompletedAt = body.executionCompletedAt ? new Date(body.executionCompletedAt) : null
   if (body.type !== undefined) patch.type = body.type
 
-  await db.update(planNodes).set(patch).where(eq(planNodes.id, id))
+  await db.update(planNodes).set(patch).where(eq(planNodes.clientId, id))
   return c.json({ ok: true })
 })
 
 app.delete('/plan/nodes/:id', async (c) => {
+  const userId = c.get('user')!.id
   const id = c.req.param('id')
+
+  // Get the node to verify project ownership
+  const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, id))
+  if (!node) return c.json({ error: 'Node not found' }, 404)
+
+  // Verify project ownership
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, node.projectId), eq(projects.ownerId, userId))
+  )
+  if (!project) return c.json({ error: 'Not authorized' }, 403)
+
   // Delete edges referencing this node first
   await db.delete(planEdges).where(
-    or(eq(planEdges.source, id), eq(planEdges.target, id))
+    or(eq(planEdges.sourceClientId, id), eq(planEdges.targetClientId, id))
   )
-  await db.delete(planNodes).where(eq(planNodes.id, id))
+  await db.delete(planNodes).where(eq(planNodes.clientId, id))
   return c.json({ ok: true })
 })
 
 app.post('/plan/edges', async (c) => {
+  const userId = c.get('user')!.id
   const body = await c.req.json()
+
+  // Verify project ownership
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, body.projectId), eq(projects.ownerId, userId))
+  )
+  if (!project) return c.json({ error: 'Project not found' }, 404)
+
   await db.insert(planEdges).values({
-    id: body.id,
+    clientId: body.id,
     projectId: body.projectId,
-    source: body.source,
-    target: body.target,
+    sourceClientId: body.source,
+    targetClientId: body.target,
     type: body.type ?? 'dependency',
   })
   return c.json({ ok: true }, 201)
 })
 
 app.delete('/plan/edges/:id', async (c) => {
-  await db.delete(planEdges).where(eq(planEdges.id, c.req.param('id')))
+  const userId = c.get('user')!.id
+  const id = c.req.param('id')
+
+  // Get the edge to verify project ownership
+  const [edge] = await db.select().from(planEdges).where(eq(planEdges.clientId, id))
+  if (!edge) return c.json({ error: 'Edge not found' }, 404)
+
+  // Verify project ownership
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, edge.projectId), eq(projects.ownerId, userId))
+  )
+  if (!project) return c.json({ error: 'Not authorized' }, 403)
+
+  await db.delete(planEdges).where(eq(planEdges.clientId, id))
   return c.json({ ok: true })
 })
 
 // ── User Profile ──────────────────────────────────────────────────────
 
 app.get('/profile', async (c) => {
-  const [row] = await db.select().from(userProfiles).where(eq(userProfiles.id, USER_ID))
+  const [row] = await db.select().from(userProfiles).where(eq(userProfiles.id, c.get('user')!.id))
   if (!row) return c.json(null)
-
-  // Load api keys
-  const keys = await db.select().from(apiKeys).where(eq(apiKeys.userId, USER_ID))
-  return c.json({ ...row, apiKeys: keys })
+  return c.json(row)
 })
 
 app.put('/profile', async (c) => {
@@ -287,7 +403,7 @@ app.put('/profile', async (c) => {
   const now = new Date()
 
   const profile = {
-    id: USER_ID,
+    id: c.get('user')!.id,
     name: body.name ?? '',
     email: body.email ?? '',
     avatarUrl: body.avatarUrl ?? null,
@@ -297,41 +413,24 @@ app.put('/profile', async (c) => {
     preferredEnvironments: body.preferredEnvironments ?? ['local'],
     notificationsEnabled: body.notificationsEnabled ?? true,
     emailNotifications: body.emailNotifications ?? false,
+    apiKeys: body.apiKeys ?? [],
     createdAt: body.createdAt ? new Date(body.createdAt) : now,
     updatedAt: now,
   }
 
   await db.insert(userProfiles).values(profile).onConflictDoUpdate({
     target: userProfiles.id,
-    set: { ...profile },
+    set: { ...profile, id: undefined } as typeof profile,
   })
 
-  // Handle api keys: delete + re-insert
-  if (body.apiKeys) {
-    db.transaction((tx) => {
-      tx.delete(apiKeys).where(eq(apiKeys.userId, USER_ID)).run()
-      for (const key of body.apiKeys as Array<Record<string, unknown>>) {
-        tx.insert(apiKeys).values({
-          id: key.id as string,
-          userId: USER_ID,
-          provider: key.provider as string,
-          name: key.name as string,
-          maskedKey: key.maskedKey as string,
-          createdAt: key.createdAt ? new Date(key.createdAt as string) : now,
-        }).run()
-      }
-    })
-  }
-
-  const keys = await db.select().from(apiKeys).where(eq(apiKeys.userId, USER_ID))
-  const [updated] = await db.select().from(userProfiles).where(eq(userProfiles.id, USER_ID))
-  return c.json({ ...updated, apiKeys: keys })
+  const [updated] = await db.select().from(userProfiles).where(eq(userProfiles.id, c.get('user')!.id))
+  return c.json(updated)
 })
 
 // ── Display Settings ──────────────────────────────────────────────────
 
 app.get('/display-settings', async (c) => {
-  const rows = await db.select().from(displaySettings).where(eq(displaySettings.userId, USER_ID))
+  const rows = await db.select().from(displaySettings).where(eq(displaySettings.userId, c.get('user')!.id))
   const result: Record<string, unknown> = {}
   for (const row of rows) {
     result[row.viewKey] = row.settings
@@ -345,15 +444,17 @@ app.patch('/display-settings/:view', async (c) => {
 
   // Check if exists
   const [existing] = await db.select().from(displaySettings).where(
-    and(eq(displaySettings.userId, USER_ID), eq(displaySettings.viewKey, viewKey))
+    and(eq(displaySettings.userId, c.get('user')!.id), eq(displaySettings.viewKey, viewKey))
   )
 
   if (existing) {
     const merged = { ...(existing.settings as Record<string, unknown>), ...body }
-    await db.update(displaySettings).set({ settings: merged }).where(eq(displaySettings.id, existing.id))
+    await db.update(displaySettings).set({ settings: merged }).where(
+      and(eq(displaySettings.userId, c.get('user')!.id), eq(displaySettings.viewKey, viewKey))
+    )
   } else {
     await db.insert(displaySettings).values({
-      userId: USER_ID,
+      userId: c.get('user')!.id,
       viewKey,
       settings: body,
     })
@@ -366,7 +467,7 @@ app.patch('/display-settings/:view', async (c) => {
 app.get('/usage/today', async (c) => {
   const today = new Date().toISOString().slice(0, 10)
   const [row] = await db.select().from(usageMetrics).where(
-    and(eq(usageMetrics.userId, USER_ID), eq(usageMetrics.sessionDate, today))
+    and(eq(usageMetrics.userId, c.get('user')!.id), eq(usageMetrics.sessionDate, today))
   )
   if (!row) {
     return c.json({
@@ -391,7 +492,7 @@ app.post('/usage/increment', async (c) => {
   const today = new Date().toISOString().slice(0, 10)
 
   const [existing] = await db.select().from(usageMetrics).where(
-    and(eq(usageMetrics.userId, USER_ID), eq(usageMetrics.sessionDate, today))
+    and(eq(usageMetrics.userId, c.get('user')!.id), eq(usageMetrics.sessionDate, today))
   )
 
   if (existing) {
@@ -404,7 +505,7 @@ app.post('/usage/increment', async (c) => {
     }).where(eq(usageMetrics.id, existing.id))
   } else {
     await db.insert(usageMetrics).values({
-      userId: USER_ID,
+      userId: c.get('user')!.id,
       sessionDate: today,
       totalCostUsd: body.totalCostUsd ?? 0,
       totalInputTokens: body.totalInputTokens ?? 0,
@@ -416,18 +517,37 @@ app.post('/usage/increment', async (c) => {
   return c.json({ ok: true })
 })
 
+// ── Settings ──────────────────────────────────────────────────────────
+
+app.get('/settings', async (c) => {
+  // Settings are stored in user profile metadata
+  const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.id, c.get('user')!.id))
+  if (!profile) {
+    return c.json({ model: 'claude-sonnet-4-5-20250929', defaultProvider: '' })
+  }
+  // Extract settings from profile bio or use defaults
+  // For now, return defaults - in production, add model/defaultProvider columns to user_profiles
+  return c.json({
+    model: 'claude-sonnet-4-5-20250929',
+    defaultProvider: '',
+  })
+})
+
+app.patch('/settings', async (c) => {
+  // Settings patch endpoint - in production, store in user_profiles
+  // For now, just acknowledge the request
+  return c.json({ ok: true })
+})
+
 // ── Task Chat ─────────────────────────────────────────────────────────
 
 app.get('/chat', async (c) => {
-  const sessions = await db.select().from(taskChatSessions).where(eq(taskChatSessions.userId, USER_ID))
+  const sessions = await db.select().from(taskChatSessions).where(eq(taskChatSessions.userId, c.get('user')!.id))
   const result: Record<string, { session: typeof sessions[0]; messages: Array<typeof taskChatMessages.$inferSelect> }> = {}
 
   for (const session of sessions) {
     const messages = await db.select().from(taskChatMessages).where(
-      and(
-        eq(taskChatMessages.sessionNodeId, session.nodeId),
-        eq(taskChatMessages.sessionUserId, USER_ID),
-      )
+      eq(taskChatMessages.sessionId, session.id)
     )
     result[session.nodeId] = { session, messages }
   }
@@ -437,15 +557,12 @@ app.get('/chat', async (c) => {
 app.get('/chat/:nodeId', async (c) => {
   const nodeId = c.req.param('nodeId')
   const [session] = await db.select().from(taskChatSessions).where(
-    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, USER_ID))
+    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id))
   )
   if (!session) return c.json(null)
 
   const messages = await db.select().from(taskChatMessages).where(
-    and(
-      eq(taskChatMessages.sessionNodeId, nodeId),
-      eq(taskChatMessages.sessionUserId, USER_ID),
-    )
+    eq(taskChatMessages.sessionId, session.id)
   )
   return c.json({ session, messages })
 })
@@ -457,7 +574,7 @@ app.post('/chat/:nodeId/session', async (c) => {
 
   // Upsert session
   const [existing] = await db.select().from(taskChatSessions).where(
-    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, USER_ID))
+    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id))
   )
 
   if (existing) {
@@ -469,7 +586,7 @@ app.post('/chat/:nodeId/session', async (c) => {
   } else {
     await db.insert(taskChatSessions).values({
       nodeId,
-      userId: USER_ID,
+      userId: c.get('user')!.id,
       projectId: body.projectId,
       sessionId: body.sessionId ?? null,
       createdAt: body.createdAt ? new Date(body.createdAt) : now,
@@ -483,18 +600,26 @@ app.post('/chat/:nodeId/messages', async (c) => {
   const nodeId = c.req.param('nodeId')
   const body = await c.req.json()
 
+  // Get or create session first
+  const [session] = await db.select().from(taskChatSessions).where(
+    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id))
+  )
+
+  if (!session) {
+    return c.json({ error: 'Session not found. Create session first.' }, 404)
+  }
+
   await db.insert(taskChatMessages).values({
     id: body.id,
-    sessionNodeId: nodeId,
-    sessionUserId: USER_ID,
+    sessionId: session.id,
     role: body.role,
     content: body.content,
-    timestamp: body.timestamp ? new Date(body.timestamp) : new Date(),
+    createdAt: body.timestamp ? new Date(body.timestamp) : new Date(),
   }).onConflictDoUpdate({
     target: taskChatMessages.id,
     set: {
       content: body.content,
-      timestamp: body.timestamp ? new Date(body.timestamp) : new Date(),
+      createdAt: body.timestamp ? new Date(body.timestamp) : new Date(),
     },
   })
   return c.json({ ok: true }, 201)
@@ -508,50 +633,110 @@ app.patch('/chat/:nodeId/session', async (c) => {
     sessionId: body.sessionId,
     updatedAt: new Date(),
   }).where(
-    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, USER_ID))
+    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id))
   )
   return c.json({ ok: true })
 })
 
 app.delete('/chat/:nodeId', async (c) => {
   const nodeId = c.req.param('nodeId')
-  await db.delete(taskChatMessages).where(
-    and(
-      eq(taskChatMessages.sessionNodeId, nodeId),
-      eq(taskChatMessages.sessionUserId, USER_ID),
-    )
+
+  // Get session first to find its ID
+  const [session] = await db.select().from(taskChatSessions).where(
+    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id))
   )
-  await db.delete(taskChatSessions).where(
-    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, USER_ID))
-  )
+
+  if (session) {
+    // Messages will cascade delete via foreign key
+    await db.delete(taskChatSessions).where(eq(taskChatSessions.id, session.id))
+  }
+
   return c.json({ ok: true })
 })
 
-// ── App Settings ──────────────────────────────────────────────────────
+// ── Data Export (GDPR compliance) ────────────────────────────────────
 
-app.get('/settings', async (c) => {
-  const rows = await db.select().from(appSettings).where(eq(appSettings.userId, USER_ID))
-  const result: Record<string, string> = {}
-  for (const row of rows) {
-    result[row.key] = row.value
-  }
-  return c.json(result)
-})
+app.get('/export', async (c) => {
+  const userId = c.get('user')!.id
 
-app.patch('/settings', async (c) => {
-  const body = await c.req.json() as Record<string, string>
+  console.log('[data] Exporting user data for:', userId)
 
-  for (const [key, value] of Object.entries(body)) {
-    const [existing] = await db.select().from(appSettings).where(
-      and(eq(appSettings.userId, USER_ID), eq(appSettings.key, key))
-    )
-    if (existing) {
-      await db.update(appSettings).set({ value }).where(eq(appSettings.id, existing.id))
-    } else {
-      await db.insert(appSettings).values({ userId: USER_ID, key, value })
+  try {
+    // Export all user data
+    const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.id, userId))
+    const userProjects = await db.select().from(projects).where(eq(projects.ownerId, userId))
+    const settings = await db.select().from(displaySettings).where(eq(displaySettings.userId, userId))
+    const usage = await db.select().from(usageMetrics).where(eq(usageMetrics.userId, userId))
+    const chatSessions = await db.select().from(taskChatSessions).where(eq(taskChatSessions.userId, userId))
+
+    // Get all plan nodes for user's projects
+    const projectIds = userProjects.map((p) => p.id)
+    let nodes: Array<typeof planNodes.$inferSelect> = []
+    let edges: Array<typeof planEdges.$inferSelect> = []
+    let executions: Array<typeof taskExecutions.$inferSelect> = []
+
+    if (projectIds.length > 0) {
+      for (const projectId of projectIds) {
+        const projectNodes = await db.select().from(planNodes).where(eq(planNodes.projectId, projectId))
+        const projectEdges = await db.select().from(planEdges).where(eq(planEdges.projectId, projectId))
+        const projectExecutions = await db.select().from(taskExecutions).where(eq(taskExecutions.projectId, projectId))
+        nodes = [...nodes, ...projectNodes]
+        edges = [...edges, ...projectEdges]
+        executions = [...executions, ...projectExecutions]
+      }
     }
+
+    // Get chat messages for all sessions
+    const chatMessages: Array<typeof taskChatMessages.$inferSelect> = []
+    for (const session of chatSessions) {
+      const messages = await db.select().from(taskChatMessages).where(
+        eq(taskChatMessages.sessionId, session.id)
+      )
+      chatMessages.push(...messages)
+    }
+
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      userId,
+      profile,
+      projects: userProjects,
+      planNodes: nodes,
+      planEdges: edges,
+      executions,
+      displaySettings: settings,
+      usageMetrics: usage,
+      chatSessions,
+      chatMessages,
+    }
+
+    console.log('[data] Export complete:', {
+      projects: userProjects.length,
+      nodes: nodes.length,
+      edges: edges.length,
+      executions: executions.length,
+      chatSessions: chatSessions.length,
+      chatMessages: chatMessages.length,
+    })
+
+    // Audit log the data export
+    await logAuditEvent({
+      userId,
+      action: AuditActions.DATA_EXPORT,
+      resourceType: ResourceTypes.DATA,
+      details: {
+        projectsExported: userProjects.length,
+        nodesExported: nodes.length,
+        executionsExported: executions.length,
+      },
+      ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+      userAgent: c.req.header('user-agent'),
+    })
+
+    return c.json(exportData)
+  } catch (error) {
+    console.error('[data] Export failed:', error)
+    return c.json({ error: 'Failed to export user data' }, 500)
   }
-  return c.json({ ok: true })
 })
 
 export const dataRoute = app

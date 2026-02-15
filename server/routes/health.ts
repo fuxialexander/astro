@@ -5,6 +5,7 @@ import {
 } from '../lib/providers/index.js'
 import { getSessionStats } from '../lib/session-manager.js'
 import { errorMessage } from '../lib/error-utils.js'
+import { shouldUseSupabase, getServiceClient } from '../lib/supabase.js'
 
 const healthRoute = new Hono()
 
@@ -24,6 +25,7 @@ healthRoute.get('/health', async (c) => {
 
     return c.json({
       status: 'ok',
+      mode: shouldUseSupabase() ? 'supabase' : 'indexeddb',
       // Server is considered authenticated if reachable — plan generation
       // uses the Claude Agent SDK directly, regardless of local provider status.
       // Provider auth only matters for local task execution.
@@ -211,6 +213,30 @@ healthRoute.get('/sessions', async (c) => {
     const message = errorMessage(e)
     return c.json({ error: message }, 500)
   }
+})
+
+/**
+ * Generate test auth token for e2e testing.
+ * Only available in development/test mode.
+ * Returns a hardcoded test token that bypasses Supabase auth verification.
+ */
+healthRoute.post('/test/auth-token', async (c) => {
+  // Only allow in non-production environments
+  const isDev = process.env.NODE_ENV !== 'production'
+  if (!isDev) {
+    return c.json({ error: 'Test endpoints only available in development' }, 403)
+  }
+
+  if (!shouldUseSupabase()) {
+    return c.json({ error: 'Test auth token only needed in Supabase mode' }, 400)
+  }
+
+  // Return hardcoded test token that's recognized by auth middleware
+  return c.json({
+    userId: '00000000-0000-0000-0000-000000000000',
+    accessToken: 'test-e2e-token',
+    email: 'dev@localhost',
+  })
 })
 
 export { healthRoute }

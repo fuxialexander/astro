@@ -407,30 +407,60 @@ export class RelayServer extends EventEmitter {
     try {
       const secret = this.config.jwtSecret || process.env.RELAY_JWT_SECRET;
 
-      // In development mode (no secret), allow all connections
+      console.log('[relay] Verifying client connection');
+      console.log('[relay] Config jwtSecret:', this.config.jwtSecret ? 'SET' : 'NOT SET');
+      console.log('[relay] Env RELAY_JWT_SECRET:', process.env.RELAY_JWT_SECRET ? 'SET' : 'NOT SET');
+      console.log('[relay] Using secret:', secret ? 'YES' : 'NO');
+
+      // Require JWT secret in all modes (no development bypass)
       if (!secret) {
-        console.warn('[relay] No JWT secret configured, allowing connection (development mode)');
-        callback(true);
+        console.error('[relay] ❌ No JWT secret configured - relay authentication is disabled. Set RELAY_JWT_SECRET to enable secure connections.');
+        callback(false, 500,
+          'Relay server authentication is not configured. ' +
+          'Server administrator must set RELAY_JWT_SECRET environment variable.'
+        );
         return;
       }
 
-      // In production mode, require valid JWT token
-      const url = new URL(info.req.url || '', `http://${info.req.headers.host}`);
-      const token = url.searchParams.get('token');
+      // ONLY accept Authorization header (no query params for security)
+      const authHeader = info.req.headers['authorization'];
+      let token: string | null = null;
 
-      if (!token) {
-        callback(false, 401, 'Missing authentication token');
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+      }
+
+      if (!token || token === 'null' || token === 'undefined') {
+        console.error('[relay] Missing authentication token');
+        callback(false, 401,
+          'Missing authentication token. ' +
+          'Run "npx @nexus/agent setup" to register this machine.'
+        );
         return;
       }
 
       try {
+        console.log('[relay] Authenticating...');
         const payload = jwt.verify(token, secret) as MachineJWTPayload;
         // Store machineId in request for use in handleConnection
         (info.req as unknown as { machineJWT: MachineJWTPayload }).machineJWT = payload;
         callback(true);
       } catch (jwtErr) {
-        console.error('[relay] JWT verification failed:', jwtErr);
-        callback(false, 401, 'Invalid authentication token');
+        const errName = (jwtErr as Error).name;
+        const errMsg = (jwtErr as Error).message;
+
+        console.error('[relay] JWT verification failed:', errName, errMsg);
+
+        let userMessage = 'Invalid authentication token. ';
+        if (errName === 'TokenExpiredError') {
+          userMessage += 'Token has expired. Run "npx @nexus/agent setup" to re-register.';
+        } else if (errName === 'JsonWebTokenError' && errMsg.includes('malformed')) {
+          userMessage += 'Token is malformed (possible "null" string). Run setup again.';
+        } else {
+          userMessage += 'Run "npx @nexus/agent setup" to re-register this machine.';
+        }
+
+        callback(false, 401, userMessage);
       }
     } catch (clientErr) {
       console.error('[relay] Error in verifyClient:', clientErr);
@@ -446,6 +476,9 @@ export class RelayServer extends EventEmitter {
     const machineIdFromJWT = jwtPayload?.machineId;
 
     console.log(`[relay] New connection from ${req.socket.remoteAddress}${machineIdFromJWT ? ` (machine: ${machineIdFromJWT})` : ''}`);
+
+    // Store JWT payload on socket for later use
+    (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload = jwtPayload;
 
     // Initialize rate limit state
     let currentMachineId: string | null = null;
@@ -657,6 +690,10 @@ export class RelayServer extends EventEmitter {
     const { machineId, machineInfo } = message;
 
     try {
+      // Extract userId from JWT payload stored on socket
+      const jwtPayload = (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload;
+      const userId = jwtPayload?.userId || 'dev-user';
+
       const entry = machineRegistry.register(machineId, machineInfo, socket);
       setMachineId(machineId);
 
@@ -673,8 +710,8 @@ export class RelayServer extends EventEmitter {
       };
       this.sendMessage(socket, ack);
 
-      this.emit('machine:connected', machineId);
-      console.log(`[relay] Machine ${machineId} registered successfully`);
+      this.emit('machine:connected', machineId, userId);
+      console.log(`[relay] Machine ${machineId} registered successfully for user ${userId}`);
     } catch (err) {
       console.error(`[relay] Error registering machine ${machineId}:`, err);
       const ack: MachineRegisterAckMessage = {
@@ -1118,8 +1155,12 @@ export class RelayServer extends EventEmitter {
       };
       socket.send(JSON.stringify(ack));
 
-      this.emit('machine:connected', machineId);
-      console.log(`[relay] Agent runner ${runnerId} (machine ${machineId}) registered successfully`);
+      // Extract userId from JWT payload stored on socket
+      const jwtPayload = (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload;
+      const userId = jwtPayload?.userId || 'dev-user';
+
+      this.emit('machine:connected', machineId, userId);
+      console.log(`[relay] Agent runner ${runnerId} (machine ${machineId}) registered successfully for user ${userId}`);
     } catch (err) {
       console.error(`[relay] Error registering agent runner ${runnerId}:`, err);
       const errorAck = {
@@ -1612,4 +1653,7 @@ export class RelayServer extends EventEmitter {
 }
 
 // Singleton instance
-export const relayServer = new RelayServer();
+// Pass JWT secret from environment if available
+export const relayServer = new RelayServer({
+  jwtSecret: process.env.RELAY_JWT_SECRET,
+});

@@ -228,7 +228,6 @@ authRoute.post('/webauthn/register-verify', async (c) => {
       })
 
       console.log('[auth] Registration successful, user:', userId)
-      console.log('[auth] Session full structure:', JSON.stringify(signIn, null, 2))
 
       return c.json({
         verified: true,
@@ -238,7 +237,6 @@ authRoute.post('/webauthn/register-verify', async (c) => {
     }
 
     console.log('[auth] Registration successful, user:', userId)
-    console.log('[auth] Session full structure:', JSON.stringify(session, null, 2))
 
     return c.json({
       verified: true,
@@ -400,7 +398,6 @@ authRoute.post('/webauthn/login-verify', async (c) => {
     }
 
     console.log('[auth] Login successful for user:', storedCred.user_id)
-    console.log('[auth] Session full structure:', JSON.stringify(linkData, null, 2))
 
     return c.json({
       verified: true,
@@ -438,18 +435,35 @@ authRoute.get('/session', async (c) => {
   }
 
   const token = authHeader.slice(7)
-  const supabase = getServiceClient()
 
-  const { data: { user }, error } = await supabase.auth.admin.getUserById(token)
-
-  if (error || !user) {
-    return c.json({ authenticated: false }, 401)
+  // Test token bypass for e2e testing (only in development)
+  if (process.env.NODE_ENV !== 'production' && token === 'test-e2e-token') {
+    return c.json({
+      authenticated: true,
+      user: { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' },
+      mode: 'test',
+    })
   }
 
-  return c.json({
-    authenticated: true,
-    user: { id: user.id, email: user.email },
-  })
+  try {
+    const supabase = getServiceClient()
+
+    // Validate the JWT token (not getUserById - that expects a UUID, not a JWT)
+    const { data: { user }, error } = await supabase.auth.getUser(token)
+
+    if (error || !user) {
+      console.error('[auth] Token validation failed:', error?.message || 'No user')
+      return c.json({ authenticated: false }, 401)
+    }
+
+    return c.json({
+      authenticated: true,
+      user: { id: user.id, email: user.email },
+    })
+  } catch (err) {
+    console.error('[auth] Session check error:', err)
+    return c.json({ authenticated: false, error: 'Authentication failed' }, 401)
+  }
 })
 
 export { authRoute }

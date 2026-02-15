@@ -58,26 +58,35 @@ export interface RepoContextForPrompt {
   fileTreeSummary?: string
 }
 
+/**
+ * Build the system prompt for plan generation.
+ *
+ * SECURITY NOTE (MEDIUM-002): Vision documents and repository context are user-provided
+ * and could contain prompt injection attempts. While we use delimiters to separate
+ * user content from instructions, the AI may still be influenced by adversarial inputs.
+ * Always validate AI outputs (e.g., ensure valid JSON schema, check for malicious commands).
+ */
 export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt): string {
+  // SECURITY: Wrap user-provided content in clear delimiters to reduce prompt injection risk
   const visionSection = visionDoc
-    ? `\n\n## Project Vision Document\n${visionDoc}\n`
+    ? `\n\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
     : ""
 
-  // Build repo context sections
+  // Build repo context sections (SECURITY: wrap user content in delimiters)
   let repoSection = ""
   if (repoContext) {
     const parts: string[] = []
     if (repoContext.claudeMd) {
-      parts.push(`## CLAUDE.md (Project Instructions)\n${repoContext.claudeMd}`)
+      parts.push(`## CLAUDE.md (Project Instructions)\n<user_content>\n${repoContext.claudeMd}\n</user_content>`)
     }
     if (repoContext.readmeMd) {
-      parts.push(`## README.md\n${repoContext.readmeMd}`)
+      parts.push(`## README.md\n<user_content>\n${repoContext.readmeMd}\n</user_content>`)
     }
     if (repoContext.packageInfo) {
-      parts.push(`## Package Metadata\n${repoContext.packageInfo}`)
+      parts.push(`## Package Metadata\n<user_content>\n${repoContext.packageInfo}\n</user_content>`)
     }
     if (repoContext.fileTreeSummary) {
-      parts.push(`## File Tree\n\`\`\`\n${repoContext.fileTreeSummary}\n\`\`\``)
+      parts.push(`## File Tree\n<user_content>\n${repoContext.fileTreeSummary}\n</user_content>`)
     }
     if (parts.length > 0) {
       repoSection = '\n\n' + parts.join('\n\n') + '\n'
@@ -150,9 +159,17 @@ export interface ChatPlanEdge {
   type: string
 }
 
+/**
+ * Build the system prompt for plan refinement chat.
+ *
+ * SECURITY NOTE (MEDIUM-002): Vision documents are user-provided and could contain
+ * prompt injection attempts. We use delimiters to separate user content from
+ * system instructions.
+ */
 export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNode[], planEdges?: ChatPlanEdge[]): string {
+  // SECURITY: Wrap user-provided content in delimiters
   const visionSection = visionDoc
-    ? `\n\n## Project Vision Document\n${visionDoc}\n`
+    ? `\n\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
     : ""
 
   let planSection = ""
@@ -311,6 +328,13 @@ export interface TaskChatContext {
   visionDoc?: string
 }
 
+/**
+ * Build the system prompt for task-level chat.
+ *
+ * SECURITY NOTE (MEDIUM-002): Task titles, descriptions, vision docs, and outputs
+ * are user-provided and could contain prompt injection. We use delimiters to
+ * separate user content from system instructions.
+ */
 export function buildTaskChatSystemPrompt(context: TaskChatContext): string {
   const parts: string[] = []
 
@@ -324,36 +348,43 @@ You have context about the current task and can help with:
 
 Be concise and helpful. Focus on the specific task at hand.`)
 
-  // Add vision doc if present
+  // Add vision doc if present (SECURITY: wrap in delimiters)
   if (context.visionDoc) {
-    parts.push(`## Project Vision\n\n${context.visionDoc}`)
+    parts.push(`## Project Vision\n\n<user_vision>\n${context.visionDoc}\n</user_vision>`)
   }
 
-  // Add task details
-  parts.push(`## Current Task\n\n**${context.taskTitle}**\n\n${context.taskDescription}`)
+  // Add task details (SECURITY: wrap user content in delimiters)
+  parts.push(`## Current Task\n\n<user_task>\n**${context.taskTitle}**\n\n${context.taskDescription}\n</user_task>`)
 
-  // Add task output if present
+  // Add task output if present (SECURITY: wrap in delimiters)
   if (context.taskOutput) {
     const truncatedOutput = context.taskOutput.length > 10000
       ? context.taskOutput.slice(0, 10000) + '\n\n[... output truncated ...]'
       : context.taskOutput
-    parts.push(`## Task Output (Agent Execution Results)\n\n\`\`\`\n${truncatedOutput}\n\`\`\``)
+    parts.push(`## Task Output (Agent Execution Results)\n\n<agent_output>\n${truncatedOutput}\n</agent_output>`)
   }
 
   return parts.join('\n\n---\n\n')
 }
 
+/**
+ * Build the execution prompt for task dispatch.
+ *
+ * SECURITY NOTE (MEDIUM-002): Vision docs, task titles, descriptions, and dependency
+ * outputs are user-provided and could contain prompt injection. We use delimiters
+ * to separate user content from system instructions.
+ */
 export function buildTaskExecutionPrompt(context: TaskExecutionContext): string {
   const parts: string[] = []
 
-  // Add vision doc if present
+  // Add vision doc if present (SECURITY: wrap in delimiters)
   if (context.visionDoc) {
-    parts.push(`## Project Vision\n\n${context.visionDoc}`)
+    parts.push(`## Project Vision\n\n<user_vision>\n${context.visionDoc}\n</user_vision>`)
   }
 
-  // Add dependency context if present
+  // Add dependency context if present (SECURITY: wrap in delimiters)
   if (context.dependencyOutputs) {
-    parts.push(`## Previous Task Outputs\n\nThe following tasks have already been completed. Use their outputs as context:\n\n${context.dependencyOutputs}`)
+    parts.push(`## Previous Task Outputs\n\nThe following tasks have already been completed. Use their outputs as context:\n\n<dependency_outputs>\n${context.dependencyOutputs}\n</dependency_outputs>`)
   }
 
   // Add working directory
@@ -361,8 +392,8 @@ export function buildTaskExecutionPrompt(context: TaskExecutionContext): string 
     parts.push(`## Working Directory\n\n${context.workingDirectory}`)
   }
 
-  // Add the main task
-  parts.push(`## Current Task\n\n**${context.taskTitle}**\n\n${context.taskDescription}`)
+  // Add the main task (SECURITY: wrap user content in delimiters)
+  parts.push(`## Current Task\n\n<user_task>\n**${context.taskTitle}**\n\n${context.taskDescription}\n</user_task>`)
 
   // Add execution instructions
   parts.push(`## Instructions

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
+import { z } from 'zod'
 import {
   providerRegistry,
   type TaskDispatch,
@@ -13,6 +14,41 @@ import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
 import { requireAuth } from '../middleware/auth.js'
 import { errorMessage, isAbortError } from '../lib/error-utils.js'
+
+// Validation schemas
+const generatePlanSchema = z.object({
+  description: z.string().min(1).max(50000),
+  visionDoc: z.string().max(100000).optional(),
+  projectId: z.string().min(1).max(100),
+  model: z.string().max(100).optional(),
+  providerId: z.string().max(100).optional(),
+  workingDirectory: z.string().max(1000).refine(
+    (path) => !path.includes('..'),
+    { message: 'Path traversal not allowed' }
+  ).optional(),
+  fileTree: z.array(z.string().max(1000)).max(10000).optional(),
+  keyFiles: z.object({
+    claudeMd: z.string().max(100000).optional(),
+    readmeMd: z.string().max(100000).optional(),
+    packageInfo: z.string().max(100000).optional(),
+  }).optional(),
+  targetMachineId: z.string().max(100).optional(),
+})
+
+const chatSchema = z.object({
+  message: z.string().min(1).max(50000),
+  sessionId: z.string().max(100).optional(),
+  projectId: z.string().min(1).max(100),
+  visionDoc: z.string().max(100000).optional(),
+  model: z.string().max(100).optional(),
+  providerId: z.string().max(100).optional(),
+  planNodes: z.array(z.any()).max(1000).optional(),
+  planEdges: z.array(z.any()).max(1000).optional(),
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string().max(50000),
+  })).max(100).optional(),
+})
 
 /**
  * Resolve the model for a given provider. If the requested model is not
@@ -54,17 +90,17 @@ const agentRoute = new Hono()
 agentRoute.use('/*', requireAuth)
 
 agentRoute.post('/generate-plan', async (c) => {
-  const body = await c.req.json<{
-    description: string
-    visionDoc?: string
-    projectId: string
-    model?: string
-    providerId?: string
-    workingDirectory?: string
-    fileTree?: string[]
-    keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }
-    targetMachineId?: string
-  }>()
+  // Validate input
+  let body: z.infer<typeof generatePlanSchema>
+  try {
+    const rawBody = await c.req.json()
+    body = generatePlanSchema.parse(rawBody)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: 'Invalid input', details: err.errors }, 400)
+    }
+    return c.json({ error: 'Invalid JSON' }, 400)
+  }
 
   const { description, visionDoc, projectId, model, providerId, workingDirectory, fileTree, keyFiles, targetMachineId } = body
   const taskId = `gen-${projectId}-${Date.now()}`
@@ -588,17 +624,17 @@ function extractPlanJson(text: string): Record<string, unknown> | null {
 }
 
 agentRoute.post('/chat', async (c) => {
-  const body = await c.req.json<{
-    message: string
-    sessionId?: string
-    projectId: string
-    visionDoc?: string
-    model?: string
-    providerId?: string
-    planNodes?: ChatPlanNode[]
-    planEdges?: ChatPlanEdge[]
-    messages?: Array<{ role: 'user' | 'assistant'; content: string }>
-  }>()
+  // Validate input
+  let body: z.infer<typeof chatSchema>
+  try {
+    const rawBody = await c.req.json()
+    body = chatSchema.parse(rawBody)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: 'Invalid input', details: err.errors }, 400)
+    }
+    return c.json({ error: 'Invalid JSON' }, 400)
+  }
 
   const { message, sessionId: existingSessionId, projectId, visionDoc, model, providerId, planNodes, planEdges, messages: historyMessages } = body
   const taskId = existingSessionId || `chat-${projectId}-${Date.now()}`

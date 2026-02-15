@@ -190,18 +190,29 @@ function gitInit(dir: string): void {
   })
 }
 
+/**
+ * Clone a git repository to the local cache directory.
+ *
+ * SECURITY (CRITICAL-005): Uses execFileSync instead of execSync to prevent
+ * command injection via malicious git URLs.
+ */
 function cloneRepo(url: string, projectId: string): string {
   const repoDir = join(homedir(), '.nexus', 'repos', projectId)
   if (existsSync(join(repoDir, '.git'))) {
     // Already cloned — fetch latest
     try {
-      execSync('git fetch --all', { cwd: repoDir, stdio: 'ignore', timeout: 30_000 })
+      execFileSync('git', ['fetch', '--all'], {
+        cwd: repoDir,
+        stdio: 'ignore',
+        timeout: 30_000,
+      })
     } catch {
       // Non-fatal
     }
   } else {
     mkdirSync(join(homedir(), '.nexus', 'repos'), { recursive: true })
-    execSync(`git clone ${JSON.stringify(url)} ${JSON.stringify(repoDir)}`, {
+    // Use execFileSync to prevent command injection (CRITICAL-005)
+    execFileSync('git', ['clone', url, repoDir], {
       stdio: 'ignore',
       timeout: 120_000,
     })

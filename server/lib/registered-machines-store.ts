@@ -8,7 +8,7 @@
 import type { RegisteredMachine } from '../types/device-auth.js'
 import type { ProviderType, EnvironmentType } from '../types/relay.js'
 import crypto from 'crypto'
-import { isSupabaseConfigured, getServiceClient } from './supabase.js'
+import { shouldUseSupabase, getServiceClient } from './supabase.js'
 import { db } from './db/index.js'
 import { registeredMachines } from './db/schema.js'
 import { eq, and, desc } from 'drizzle-orm'
@@ -96,9 +96,9 @@ export async function registerMachine(params: {
     metadata: params.metadata,
   }
 
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
-    await supabase.from('registered_machines').insert({
+    const { error } = await supabase.from('registered_machines').insert({
       id: machine.id,
       user_id: machine.userId,
       name: machine.name,
@@ -110,6 +110,23 @@ export async function registerMachine(params: {
       refresh_token_hash: machine.refreshTokenHash,
       metadata: machine.metadata,
     })
+
+    if (error) {
+      console.error(`[machines-store] ❌ Failed to register machine ${machine.id} to Supabase:`, error)
+
+      // Special handling for foreign key violations (user not found)
+      if (error.code === '23503' && error.message.includes('user_id')) {
+        throw new Error(
+          `User not found in database (userId: ${machine.userId}). ` +
+          `The authentication token may be stale. Please delete your agent config ` +
+          `(~/Library/Preferences/nexus-agent-nodejs/config.json) and run device authorization again.`
+        )
+      }
+
+      throw new Error(`Failed to register machine to database: ${error.message}`)
+    }
+
+    console.log(`[machines-store] ✅ Registered machine ${machine.id} to Supabase for user ${machine.userId}`)
   } else {
     db.insert(registeredMachines).values({
       id: machine.id,
@@ -149,9 +166,9 @@ export async function ensureMachineRegistered(machineId: string, params: {
 
   if (existing) {
     // Machine exists — update connection status + environmentType/providers
-    if (isSupabaseConfigured()) {
+    if (shouldUseSupabase()) {
       const supabase = getServiceClient()
-      await supabase
+      const { error } = await supabase
         .from('registered_machines')
         .update({
           is_connected: true,
@@ -160,6 +177,12 @@ export async function ensureMachineRegistered(machineId: string, params: {
           providers: params.providers,
         })
         .eq('id', machineId)
+
+      if (error) {
+        console.error(`[machines-store] ❌ Failed to update machine ${machineId} in Supabase:`, error)
+      } else {
+        console.log(`[machines-store] ✅ Updated machine ${machineId} connection status in Supabase`)
+      }
     } else {
       const now = new Date()
       db.update(registeredMachines)
@@ -192,9 +215,9 @@ export async function ensureMachineRegistered(machineId: string, params: {
     isRevoked: false,
   }
 
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
-    await supabase.from('registered_machines').insert({
+    const { error } = await supabase.from('registered_machines').insert({
       id: machine.id,
       user_id: machine.userId,
       name: machine.name,
@@ -205,6 +228,23 @@ export async function ensureMachineRegistered(machineId: string, params: {
       is_connected: true,
       refresh_token_hash: '',
     })
+
+    if (error) {
+      console.error(`[machines-store] ❌ Failed to auto-register machine ${machineId} to Supabase:`, error)
+
+      // Special handling for foreign key violations (user not found)
+      if (error.code === '23503' && error.message.includes('user_id')) {
+        throw new Error(
+          `User not found in database (userId: ${params.userId}). ` +
+          `The authentication token may be stale. Please delete your agent config ` +
+          `(~/Library/Preferences/nexus-agent-nodejs/config.json) and run device authorization again.`
+        )
+      }
+
+      throw new Error(`Failed to register machine to database: ${error.message}`)
+    }
+
+    console.log(`[machines-store] ✅ Auto-registered machine ${machineId} to Supabase for user ${params.userId}`)
   } else {
     db.insert(registeredMachines).values({
       id: machineId,
@@ -229,7 +269,7 @@ export async function ensureMachineRegistered(machineId: string, params: {
  * Get a registered machine by ID
  */
 export async function getMachine(machineId: string): Promise<RegisteredMachine | null> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const { data } = await supabase
       .from('registered_machines')
@@ -253,7 +293,7 @@ export async function getMachine(machineId: string): Promise<RegisteredMachine |
  * Get all machines for a user
  */
 export async function getUserMachines(userId: string): Promise<RegisteredMachine[]> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const { data } = await supabase
       .from('registered_machines')
@@ -280,7 +320,7 @@ export async function getUserMachines(userId: string): Promise<RegisteredMachine
  * Update machine's last seen timestamp
  */
 export async function updateMachineLastSeen(machineId: string): Promise<boolean> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -300,7 +340,7 @@ export async function updateMachineLastSeen(machineId: string): Promise<boolean>
  * Update machine connection status
  */
 export async function updateMachineConnectionStatus(machineId: string, isConnected: boolean): Promise<boolean> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const update: Record<string, unknown> = { is_connected: isConnected }
     if (isConnected) update.last_seen_at = new Date().toISOString()
@@ -326,7 +366,7 @@ export async function updateMachineConnectionStatus(machineId: string, isConnect
  * Update machine providers
  */
 export async function updateMachineProviders(machineId: string, providers: ProviderType[]): Promise<boolean> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -346,7 +386,7 @@ export async function updateMachineProviders(machineId: string, providers: Provi
  * Update machine name
  */
 export async function updateMachineName(machineId: string, name: string): Promise<boolean> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -366,7 +406,7 @@ export async function updateMachineName(machineId: string, name: string): Promis
  * Revoke a machine
  */
 export async function revokeMachine(machineId: string): Promise<boolean> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -386,7 +426,7 @@ export async function revokeMachine(machineId: string): Promise<boolean> {
  * Delete a machine
  */
 export async function deleteMachine(machineId: string): Promise<boolean> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -413,7 +453,7 @@ export async function isMachineValid(machineId: string): Promise<boolean> {
  * Get all registered machines (for admin)
  */
 export async function getAllMachines(): Promise<RegisteredMachine[]> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const { data } = await supabase
       .from('registered_machines')
@@ -432,7 +472,7 @@ export async function getAllMachines(): Promise<RegisteredMachine[]> {
  * Get connected machines count
  */
 export async function getConnectedMachinesCount(): Promise<number> {
-  if (isSupabaseConfigured()) {
+  if (shouldUseSupabase()) {
     const supabase = getServiceClient()
     const { count } = await supabase
       .from('registered_machines')
