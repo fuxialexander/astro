@@ -205,7 +205,7 @@ export function Welcome() {
     if ((!input && !hasRepo) || isSubmitting) return
     setIsSubmitting(true)
 
-    const id = `proj-${Date.now()}`
+    const id = crypto.randomUUID()  // Use proper UUID format for PostgreSQL
     const fullDescription = buildDescription()
     const repoUrlVal = repoUrl.trim()
     const repoPathVal = repoPath.trim()

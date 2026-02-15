@@ -16,6 +16,9 @@ export const projects = pgTable('projects', {
   progress: integer('progress').default(0),
   labels: jsonb('labels').$type<{ id: string; name: string; color: string }[]>().notNull().default([]),
   workingDirectory: text('working_directory'),
+  repository: text('repository'),
+  defaultEnvironment: text('default_environment'),
+  defaultMachineId: text('default_machine_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })

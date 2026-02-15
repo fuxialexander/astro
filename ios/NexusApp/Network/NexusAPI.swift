@@ -175,6 +175,31 @@ actor NexusAPI {
         return try await request("GET", path: path)
     }
 
+    // MARK: - Device Auth
+
+    func requestDeviceCode() async throws -> DeviceCodeResponse {
+        try await request("POST", path: "/api/device/authorize", body: [:] as [String: String])
+    }
+
+    func pollDeviceToken(deviceCode: String) async throws -> DeviceTokenResponse {
+        try await request("POST", path: "/api/device/token", body: ["device_code": deviceCode])
+    }
+
+    func registerMachine(name: String, hostname: String, platform: String, environmentType: String, providers: [String]) async throws -> RegisterMachineResponse {
+        let body: [String: AnyCodable] = [
+            "name": AnyCodable(name),
+            "hostname": AnyCodable(hostname),
+            "platform": AnyCodable(platform),
+            "environmentType": AnyCodable(environmentType),
+            "providers": AnyCodable(providers)
+        ]
+        return try await request("POST", path: "/api/device/register", body: body)
+    }
+
+    func revokeMachine(id: String) async throws {
+        try await requestVoid("DELETE", path: "/api/device/machines/\(id)")
+    }
+
     // MARK: - Providers
 
     func getProviders() async throws -> ProvidersResponse {
@@ -302,6 +327,30 @@ struct RegisteredMachinesResponse: Codable {
 struct BestMachineResponse: Codable {
     var machine: MachineInfo?
     var error: String?
+}
+
+struct DeviceCodeResponse: Codable {
+    var deviceCode: String
+    var userCode: String
+    var verificationUri: String
+    var expiresIn: Int
+    var interval: Int
+}
+
+struct DeviceTokenResponse: Codable {
+    var accessToken: String?
+    var refreshToken: String?
+    var expiresIn: Int?
+    var error: String?
+    var errorDescription: String?
+}
+
+struct RegisterMachineResponse: Codable {
+    var machineId: String
+    var accessToken: String
+    var refreshToken: String
+    var wsToken: String
+    var expiresIn: Int
 }
 
 struct ProvidersResponse: Codable {

@@ -103,6 +103,8 @@ create table projects (
   labels jsonb not null default '[]',
   working_directory text,
   repository text,  -- Added from 20260210000000_add_project_repository.sql
+  default_environment text,  -- Default environment for task execution
+  default_machine_id text,   -- Default machine ID for task execution
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

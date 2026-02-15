@@ -94,7 +94,7 @@ export function ProjectNew() {
     if (!description.trim() || isSubmitting) return
     setIsSubmitting(true)
     setRepoSetupError(null)
-    const id = `proj-${crypto.randomUUID().slice(0, 8)}`
+    const id = crypto.randomUUID()  // Use proper UUID format for PostgreSQL
     const projectName = description.slice(0, 50).trim() || "New Project"
 
     addProject({

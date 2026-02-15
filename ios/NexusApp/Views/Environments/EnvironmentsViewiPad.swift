@@ -220,7 +220,7 @@ private struct MachineCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(machine.name)
                             .font(.subheadline.weight(.semibold))
-                        Text(machine.hostname)
+                        Text(machine.machineId)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -272,7 +272,7 @@ private struct MachineCard: View {
                         ForEach(providers, id: \.type) { provider in
                             HStack(spacing: 4) {
                                 Circle()
-                                    .fill(provider.available ? .green : .gray)
+                                    .fill(provider.status == "available" ? .green : .gray)
                                     .frame(width: 4, height: 4)
                                 Text(provider.type)
                                     .font(.caption2)
@@ -392,11 +392,10 @@ private struct MachineDetailPanel: View {
                 // Machine info
                 VStack(alignment: .leading, spacing: 12) {
                     InfoRow(label: "Name", value: machine.name)
-                    InfoRow(label: "Hostname", value: machine.hostname)
-                    InfoRow(label: "Platform", value: machine.platform)
+                    InfoRow(label: "Machine ID", value: machine.machineId)
                     InfoRow(label: "Type", value: machine.environmentType.rawValue.capitalized)
-                    if let version = machine.version {
-                        InfoRow(label: "Agent Version", value: version)
+                    if let connectedAt = machine.connectedAt {
+                        InfoRow(label: "Connected At", value: connectedAt)
                     }
                 }
 
@@ -437,12 +436,12 @@ private struct MachineDetailPanel: View {
                         ForEach(providers, id: \.type) { provider in
                             HStack {
                                 Circle()
-                                    .fill(provider.available ? .green : .gray)
+                                    .fill(provider.status == "available" ? .green : .gray)
                                     .frame(width: 8, height: 8)
                                 Text(provider.type)
                                     .font(.subheadline)
                                 Spacer()
-                                Text(provider.available ? "Available" : "Unavailable")
+                                Text(provider.status == "available" ? "Available" : "Unavailable")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
