@@ -20,7 +20,7 @@ import type {
   RegistrationResponseJSON,
   AuthenticationResponseJSON,
 } from '@simplewebauthn/server'
-import { getServiceClient, isSupabaseConfigured } from '../lib/supabase.js'
+import { getServiceClient, shouldUseSupabase } from '../lib/supabase.js'
 import { errorMessage } from '../lib/error-utils.js'
 
 const authRoute = new Hono()
@@ -66,7 +66,7 @@ setInterval(() => {
  * Generate registration options for a new passkey.
  */
 authRoute.post('/webauthn/register-options', async (c) => {
-  if (!isSupabaseConfigured()) {
+  if (!shouldUseSupabase()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
 
@@ -115,7 +115,8 @@ authRoute.post('/webauthn/register-options', async (c) => {
       transports: c.transports as AuthenticatorTransport[] | undefined,
     })),
     authenticatorSelection: {
-      residentKey: 'preferred',
+      authenticatorAttachment: 'platform', // Prefer Touch ID/Face ID
+      residentKey: 'discouraged', // Don't require passkey to be discoverable
       userVerification: 'preferred',
     },
   })
@@ -136,7 +137,7 @@ authRoute.post('/webauthn/register-options', async (c) => {
  * Verify registration attestation and create/update user.
  */
 authRoute.post('/webauthn/register-verify', async (c) => {
-  if (!isSupabaseConfigured()) {
+  if (!shouldUseSupabase()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
 
@@ -186,13 +187,18 @@ authRoute.post('/webauthn/register-verify', async (c) => {
       })
 
       if (authError || !authUser.user) {
-        return c.json({ error: 'Failed to create user' }, 500)
+        console.error('[auth] Failed to create user:', authError)
+        return c.json({ error: `Failed to create user: ${authError?.message || 'unknown error'}` }, 500)
       }
 
       userId = authUser.user.id
+
+      // Note: User profile is auto-created by Postgres trigger (handle_new_user)
+      // from supabase/migrations/20260209000000_initial_schema.sql
+      console.log('[auth] User profile will be auto-created by Postgres trigger for user:', userId)
     }
 
-    // Store passkey credential
+    // Store passkey credential (as base64 for bytea column)
     const { error: credError } = await supabase.from('passkey_credentials').insert({
       id: regCredential.id,
       user_id: userId,
@@ -213,6 +219,7 @@ authRoute.post('/webauthn/register-verify', async (c) => {
     })
 
     if (sessionError) {
+      console.error('[auth] Session generation failed:', sessionError)
       // Fallback: create session directly
       const { data: signIn } = await supabase.auth.admin.generateLink({
         type: 'magiclink',
@@ -220,12 +227,18 @@ authRoute.post('/webauthn/register-verify', async (c) => {
         options: { redirectTo: ORIGIN },
       })
 
+      console.log('[auth] Registration successful, user:', userId)
+      console.log('[auth] Session full structure:', JSON.stringify(signIn, null, 2))
+
       return c.json({
         verified: true,
         userId,
         session: signIn,
       })
     }
+
+    console.log('[auth] Registration successful, user:', userId)
+    console.log('[auth] Session full structure:', JSON.stringify(session, null, 2))
 
     return c.json({
       verified: true,
@@ -244,7 +257,7 @@ authRoute.post('/webauthn/register-verify', async (c) => {
  * Generate authentication options for passkey login.
  */
 authRoute.post('/webauthn/login-options', async (c) => {
-  if (!isSupabaseConfigured()) {
+  if (!shouldUseSupabase()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
 
@@ -298,7 +311,7 @@ authRoute.post('/webauthn/login-options', async (c) => {
  * Verify authentication assertion and return session tokens.
  */
 authRoute.post('/webauthn/login-verify', async (c) => {
-  if (!isSupabaseConfigured()) {
+  if (!shouldUseSupabase()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
 
@@ -315,17 +328,26 @@ authRoute.post('/webauthn/login-verify', async (c) => {
   const supabase = getServiceClient()
 
   // Look up the credential
-  const { data: storedCred } = await supabase
+  const { data: storedCred, error: credError } = await supabase
     .from('passkey_credentials')
     .select('*')
     .eq('id', credential.id)
     .single()
+
+  if (credError) {
+    console.error('[auth] Failed to fetch credential:', credError)
+    return c.json({ error: `Database error: ${credError.message}` }, 500)
+  }
 
   if (!storedCred) {
     return c.json({ error: 'Credential not found' }, 400)
   }
 
   try {
+    // Public key is stored as base64 text
+    const publicKeyBuffer = Buffer.from(storedCred.public_key, 'base64')
+    console.log('[auth] Decoded public key, length:', publicKeyBuffer.length)
+
     const verification = await verifyAuthenticationResponse({
       response: credential,
       expectedChallenge,
@@ -333,7 +355,7 @@ authRoute.post('/webauthn/login-verify', async (c) => {
       expectedRPID: RP_ID,
       credential: {
         id: storedCred.id,
-        publicKey: new Uint8Array(Buffer.from(storedCred.public_key, 'base64')),
+        publicKey: new Uint8Array(publicKeyBuffer),
         counter: storedCred.counter,
         transports: storedCred.transports as AuthenticatorTransport[] | undefined,
       },
@@ -373,8 +395,12 @@ authRoute.post('/webauthn/login-verify', async (c) => {
     })
 
     if (linkError) {
+      console.error('[auth] Failed to generate magic link:', linkError)
       return c.json({ error: 'Failed to generate session' }, 500)
     }
+
+    console.log('[auth] Login successful for user:', storedCred.user_id)
+    console.log('[auth] Session full structure:', JSON.stringify(linkData, null, 2))
 
     return c.json({
       verified: true,
@@ -384,9 +410,13 @@ authRoute.post('/webauthn/login-verify', async (c) => {
     })
   } catch (err) {
     const message = errorMessage(err)
+    console.error('[auth] Login verification failed:', err)
     return c.json({ error: message }, 500)
   }
 })
+
+/**
+ * GET /api/auth/session
 
 /**
  * GET /api/auth/session
@@ -394,10 +424,10 @@ authRoute.post('/webauthn/login-verify', async (c) => {
  * Check current session status.
  */
 authRoute.get('/session', async (c) => {
-  if (!isSupabaseConfigured()) {
+  if (!shouldUseSupabase()) {
     return c.json({
       authenticated: true,
-      user: { id: 'dev-user', email: 'dev@localhost' },
+      user: { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' },
       mode: 'development',
     })
   }

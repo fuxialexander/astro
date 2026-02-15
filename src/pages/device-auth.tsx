@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { useAuthStore } from "@/stores/auth-store"
 
-type AuthStatus = "loading" | "pending" | "success" | "error" | "denied" | "expired"
+type AuthStatus = "loading" | "pending" | "success" | "error" | "denied" | "expired" | "unauthenticated"
 
 interface DeviceCodeInfo {
   deviceCode: string
@@ -18,9 +19,6 @@ interface DeviceCodeInfo {
   scopes: string[]
   expiresAt: string
 }
-
-// Mock user ID - in a real app this would come from auth session
-const MOCK_USER_ID = "user-1"
 
 function getEnvironmentIcon(type?: string) {
   switch (type) {
@@ -52,11 +50,25 @@ export function DeviceAuth() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const codeFromUrl = searchParams.get("code")
+  const { user, loading: authLoading, initialized } = useAuthStore()
 
   const [code, setCode] = useState(codeFromUrl || "")
-  const [status, setStatus] = useState<AuthStatus>(codeFromUrl ? "loading" : "pending")
   const [deviceInfo, setDeviceInfo] = useState<DeviceCodeInfo | null>(null)
+  const [status, setStatus] = useState<AuthStatus>(codeFromUrl ? "loading" : "pending")
   const [error, setError] = useState<string | null>(null)
+
+  // Check if user is authenticated - this is used to show auth UI
+  const isUnauthenticated = initialized && !authLoading && !user
+
+  // Log auth state changes (read-only effect, no setState)
+  useEffect(() => {
+    console.log('[device-auth] Auth state:', { user: user?.id, authLoading, initialized, isUnauthenticated })
+    if (isUnauthenticated) {
+      console.log('[device-auth] User not authenticated, showing login prompt')
+    } else if (user) {
+      console.log('[device-auth] User authenticated:', user.id)
+    }
+  }, [user, authLoading, initialized, isUnauthenticated])
 
   // Fetch device code info when code is provided
   useEffect(() => {
@@ -103,19 +115,36 @@ export function DeviceAuth() {
   }, [codeFromUrl])
 
   async function handleAuthorize() {
-    if (!deviceInfo) return
+    console.log('[device-auth] handleAuthorize called', { user, deviceInfo })
+
+    if (!user) {
+      console.error('[device-auth] No user found')
+      setStatus("error")
+      setError("You must be logged in to authorize devices")
+      return
+    }
+
+    if (!deviceInfo) {
+      console.error('[device-auth] No device info')
+      setStatus("error")
+      setError("Device information not found")
+      return
+    }
 
     setStatus("loading")
     setError(null)
 
     try {
+      console.log('[device-auth] Authorizing device:', deviceInfo.deviceCode, 'for user:', user.id)
+
       const response = await fetch(`/api/device/code/${deviceInfo.deviceCode}/authorize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: MOCK_USER_ID }),
+        body: JSON.stringify({ userId: user.id }),
       })
 
       const data = await response.json()
+      console.log('[device-auth] Authorization response:', { ok: response.ok, status: response.status, data })
 
       if (!response.ok) {
         setStatus("error")
@@ -127,7 +156,8 @@ export function DeviceAuth() {
 
       // Redirect to welcome page after a short delay
       setTimeout(() => navigate("/welcome"), 2000)
-    } catch {
+    } catch (err) {
+      console.error('[device-auth] Authorization error:', err)
       setStatus("error")
       setError("Failed to authorize device. Please try again.")
     }
@@ -192,6 +222,7 @@ export function DeviceAuth() {
         <Card>
           <CardHeader className="text-center">
             <CardTitle>
+              {isUnauthenticated && "Login Required"}
               {status === "success" && "Device Authorized"}
               {status === "denied" && "Authorization Denied"}
               {status === "expired" && "Code Expired"}
@@ -202,6 +233,21 @@ export function DeviceAuth() {
           </CardHeader>
 
           <CardContent>
+            {/* Unauthenticated State */}
+            {isUnauthenticated && (
+              <div className="flex flex-col items-center gap-4 py-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-warning/10">
+                  <AlertCircle className="h-8 w-8 text-warning" />
+                </div>
+                <p className="text-center text-sm text-muted-foreground">
+                  You must be logged in to authorize devices.
+                </p>
+                <Button onClick={() => navigate("/login")}>
+                  Log In
+                </Button>
+              </div>
+            )}
+
             {/* Success State */}
             {status === "success" && (
               <div className="flex flex-col items-center gap-4 py-4">

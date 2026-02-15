@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect } from "react"
 import { BrowserRouter, Routes, Route } from "react-router"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -21,15 +21,18 @@ import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useTaskChatStore } from "@/stores/task-chat-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { useSessionStore } from "@/stores/session-store"
+import { useAuthStore } from "@/stores/auth-store"
+import { shouldUseSupabase } from "@/lib/supabase-client"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
 import { MyTasks } from "@/pages/my-tasks"
 import { Welcome } from "@/pages/welcome"
-import { shouldMigrateFromIdb, migrateFromIndexedDB } from "@/lib/migrate-idb"
 
 function DataLoader({ children }: { children: React.ReactNode }) {
+  const session = useAuthStore((s) => s.session)
+  const authInitialized = useAuthStore((s) => s.initialized)
   const loadProjects = useProjectStore((s) => s.load)
   const loadPlan = usePlanStore((s) => s.load)
   const loadSettings = useSettingsStore((s) => s.load)
@@ -49,7 +52,14 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const usageLoaded = useUsageStore((s) => s.loaded)
   const sessionsLoaded = useSessionStore((s) => s.loaded)
 
+  // Only load data if authenticated or in IndexedDB-only mode
+  const shouldLoadData = !shouldUseSupabase() || (authInitialized && session)
+
   useEffect(() => {
+    console.log('[DataLoader] shouldLoadData:', shouldLoadData, '{ authInitialized:', authInitialized, 'session:', session ? 'present' : 'none', '}')
+    if (!shouldLoadData) return
+
+    console.log('[DataLoader] Loading all stores...')
     loadProjects()
     loadPlan()
     loadSettings()
@@ -60,30 +70,13 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     loadSessions()
     connectRealtime()
     return () => disconnectRealtime()
-  }, [loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, loadUsage, loadSessions, connectRealtime, disconnectRealtime])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- shouldLoadData already captures authInitialized and session
+  }, [shouldLoadData, loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, loadUsage, loadSessions, connectRealtime, disconnectRealtime])
 
-  // One-time migration from IndexedDB → API
-  const migrationRan = useRef(false)
   const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded
-  useEffect(() => {
-    if (!allLoaded || migrationRan.current) return
-    migrationRan.current = true
-    shouldMigrateFromIdb().then(async (needed) => {
-      if (needed) {
-        await migrateFromIndexedDB()
-        // Reload stores after migration
-        loadProjects()
-        loadPlan()
-        loadSettings()
-        loadUserProfile()
-        loadDisplaySettings()
-        loadTaskChat()
-        loadUsage()
-      }
-    })
-  }, [allLoaded, loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, loadUsage])
 
-  if (!allLoaded) {
+  // Show loading state only if we should load data and it's not loaded yet
+  if (shouldLoadData && !allLoaded) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         Loading...
@@ -95,6 +88,13 @@ function DataLoader({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const initializeAuth = useAuthStore((s) => s.initialize)
+
+  // Initialize auth on mount
+  useEffect(() => {
+    initializeAuth()
+  }, [initializeAuth])
+
   return (
     <ThemeProvider defaultTheme="light">
       <TooltipProvider>
