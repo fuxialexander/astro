@@ -1,5 +1,5 @@
--- Nexus: Initial Schema Migration
--- Migrates from IndexedDB-only storage to Supabase PostgreSQL
+-- Nexus: Complete Initial Schema
+-- Clean database initialization with all required tables and data
 
 -- ============================================================================
 -- Extensions
@@ -20,7 +20,8 @@ create type node_status as enum (
 create type edge_type as enum ('dependency', 'branch');
 create type priority_level as enum ('urgent', 'high', 'medium', 'low', 'none');
 create type estimate_size as enum ('XS', 'S', 'M', 'L', 'XL');
-create type environment_type as enum ('local', 'hpc', 'cloud');
+-- Include 'remote' from the start
+create type environment_type as enum ('local', 'hpc', 'cloud', 'remote');
 create type verification_type as enum ('auto', 'human');
 create type execution_status as enum ('pending', 'running', 'success', 'failure', 'cancelled');
 create type file_action as enum ('create', 'modify', 'delete');
@@ -28,22 +29,8 @@ create type chat_role as enum ('user', 'assistant');
 create type project_member_role as enum ('owner', 'editor', 'viewer');
 
 -- ============================================================================
--- Helper Functions
+-- Helper Functions (utility functions that don't depend on tables)
 -- ============================================================================
-
--- Check if current user has access to a project (owner or member)
-create or replace function user_has_project_access(p_project_id uuid)
-returns boolean
-language sql
-security definer
-stable
-as $$
-  select exists (
-    select 1 from projects where id = p_project_id and owner_id = auth.uid()
-    union all
-    select 1 from project_members where project_id = p_project_id and user_id = auth.uid()
-  );
-$$;
 
 -- Auto-update updated_at column
 create or replace function update_updated_at()
@@ -81,7 +68,7 @@ create trigger user_profiles_updated_at
   before update on user_profiles
   for each row execute function update_updated_at();
 
--- Projects
+-- Projects (includes repository column from start)
 create table projects (
   id uuid primary key default uuid_generate_v4(),
   owner_id uuid not null references auth.users(id) on delete cascade,
@@ -97,6 +84,7 @@ create table projects (
   progress integer default 0 check (progress >= 0 and progress <= 100),
   labels jsonb not null default '[]',
   working_directory text,
+  repository text,  -- Added from 20260210000000_add_project_repository.sql
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -291,6 +279,24 @@ create table registered_machines (
 
 create index idx_machines_user on registered_machines(user_id);
 
+-- ============================================================================
+-- Helper Functions (that depend on tables)
+-- ============================================================================
+
+-- Check if current user has access to a project (owner or member)
+create or replace function user_has_project_access(p_project_id uuid)
+returns boolean
+language sql
+security definer
+stable
+as $$
+  select exists (
+    select 1 from projects where id = p_project_id and owner_id = auth.uid()
+    union all
+    select 1 from project_members where project_id = p_project_id and user_id = auth.uid()
+  );
+$$;
+
 -- Refresh tokens
 create table refresh_tokens (
   token_hash text primary key,
@@ -336,11 +342,11 @@ create trigger usage_metrics_updated_at
   before update on usage_metrics
   for each row execute function update_updated_at();
 
--- Passkey credentials (WebAuthn)
+-- Passkey credentials (WebAuthn) - public_key as text from start
 create table passkey_credentials (
   id text primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
-  public_key bytea not null,
+  public_key text not null,  -- Changed from bytea to text (from 20260214000000_passkey_public_key_to_text.sql)
   counter bigint not null default 0,
   transports text[],
   device_name text,
@@ -558,9 +564,10 @@ create or replace function handle_new_user()
 returns trigger
 language plpgsql
 security definer
+set search_path = public
 as $$
 begin
-  insert into user_profiles (id, name, email)
+  insert into public.user_profiles (id, name, email)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'name', ''),
@@ -604,3 +611,35 @@ begin
     updated_at = now();
 end;
 $$;
+
+-- ============================================================================
+-- Seed Data for IndexedDB Mode
+-- ============================================================================
+-- Create dev-user for IndexedDB-only mode testing (from 20260215000001_create_dev_user.sql)
+-- This user allows the system to work in development mode without authentication
+
+-- Create dev-user in auth.users if it doesn't exist
+INSERT INTO auth.users (id, email, email_confirmed_at, created_at, updated_at, instance_id, aud, role)
+VALUES (
+    '00000000-0000-0000-0000-000000000000',
+    'dev@localhost',
+    NOW(),
+    NOW(),
+    NOW(),
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated',
+    'authenticated'
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Create user profile for dev-user
+INSERT INTO user_profiles (id, name, email, created_at, updated_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000000',
+    'Dev User',
+    'dev@localhost',
+    NOW(),
+    NOW()
+)
+ON CONFLICT (id) DO UPDATE
+SET name = EXCLUDED.name, email = EXCLUDED.email;
