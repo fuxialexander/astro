@@ -69,64 +69,128 @@ struct NexusComplicationView: View {
     private var circularView: some View {
         ZStack {
             AccessoryWidgetBackground()
-            VStack(spacing: 0) {
+            VStack(spacing: 1) {
                 if entry.pendingDecisions > 0 {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
                     Text("\(entry.pendingDecisions)")
-                        .font(.title3.bold().monospacedDigit())
-                } else {
-                    Image(systemName: "hexagon.fill")
-                        .font(.caption)
+                        .font(.system(size: 16, weight: .bold))
+                        .monospacedDigit()
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange.opacity(0.5))
+                } else if entry.activeTasks > 0 {
                     Text("\(entry.activeTasks)")
-                        .font(.title3.bold().monospacedDigit())
+                        .font(.system(size: 16, weight: .bold))
+                        .monospacedDigit()
+                    Image(systemName: "cpu")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.blue.opacity(0.5))
+                } else {
+                    Text("\(entry.tasksCompleted)")
+                        .font(.system(size: 14, weight: .bold))
+                        .monospacedDigit()
+                    Text("%")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.green.opacity(0.5))
                 }
             }
         }
     }
 
     private var rectangularView: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                Image(systemName: "hexagon.fill")
-                    .font(.caption2)
-                Text("Nexus")
-                    .font(.caption2.bold())
+        HStack(spacing: 10) {
+            // Progress ring or icon
+            if entry.activeTasks > 0 {
+                ZStack {
+                    Circle()
+                        .stroke(Color.blue.opacity(0.3), lineWidth: 2.5)
+                        .frame(width: 34, height: 34)
+
+                    Circle()
+                        .trim(from: 0, to: 0.67)
+                        .stroke(Color.blue, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .frame(width: 34, height: 34)
+                        .rotationEffect(.degrees(-90))
+
+                    Text("\(entry.activeTasks)")
+                        .font(.system(size: 12, weight: .bold))
+                        .monospacedDigit()
+                }
+            } else {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.orange)
+                    .frame(width: 34, height: 34)
             }
 
-            HStack(spacing: 8) {
-                Label("\(entry.pendingDecisions)", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(entry.pendingDecisions > 0 ? .orange : .secondary)
-
-                Label("\(entry.activeTasks)", systemImage: "bolt.fill")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.blue)
-
-                Label("\(entry.tasksCompleted)", systemImage: "checkmark.circle")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.green)
+            VStack(alignment: .leading, spacing: 1) {
+                if entry.activeTasks > 0 {
+                    Text("Running")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("\(entry.activeTasks) agents")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                } else if entry.pendingDecisions > 0 {
+                    Text("Decisions")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("\(entry.pendingDecisions) waiting")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("All Clear")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("\(entry.tasksCompleted) done")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
 
     private var cornerView: some View {
         ZStack {
+            Circle()
+                .stroke(gaugeColor.opacity(0.3), lineWidth: 3)
+
+            Circle()
+                .trim(from: 0, to: gaugeProgress)
+                .stroke(gaugeColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+
             if entry.pendingDecisions > 0 {
                 Text("\(entry.pendingDecisions)")
-                    .font(.title3.bold().monospacedDigit())
+                    .font(.system(size: 14, weight: .bold))
+                    .monospacedDigit()
                     .widgetLabel {
                         Text("Decisions")
                     }
-            } else {
+            } else if entry.activeTasks > 0 {
                 Text("\(entry.activeTasks)")
-                    .font(.title3.bold().monospacedDigit())
+                    .font(.system(size: 14, weight: .bold))
+                    .monospacedDigit()
                     .widgetLabel {
-                        Text("Active")
+                        Text("Agents")
+                    }
+            } else {
+                Text("\(entry.tasksCompleted)")
+                    .font(.system(size: 12, weight: .bold))
+                    .monospacedDigit()
+                    .widgetLabel {
+                        Text("Done")
                     }
             }
         }
+    }
+
+    private var gaugeColor: Color {
+        if entry.pendingDecisions > 0 { return .orange }
+        if entry.activeTasks > 0 { return .blue }
+        return .green
+    }
+
+    private var gaugeProgress: Double {
+        if entry.pendingDecisions > 0 { return min(1.0, Double(entry.pendingDecisions) / 10.0) }
+        if entry.activeTasks > 0 { return min(1.0, Double(entry.activeTasks) / 10.0) }
+        return min(1.0, Double(entry.tasksCompleted) / 20.0)
     }
 
     private var inlineView: some View {

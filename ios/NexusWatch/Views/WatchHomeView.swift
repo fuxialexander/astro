@@ -5,71 +5,60 @@ struct WatchHomeView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                // Quick stats
-                Section {
-                    StatsRow(icon: "exclamationmark.triangle.fill", label: "Decisions", value: "\(store.stats.pendingDecisions)", color: .orange)
-                    StatsRow(icon: "bolt.fill", label: "Active", value: "\(store.stats.activeTasks)", color: .blue)
-                    StatsRow(icon: "checkmark.circle", label: "Done Today", value: "\(store.stats.tasksCompleted)", color: .green)
+            VStack(spacing: 10) {
+                // Decisions card
+                NavigationLink {
+                    DecisionListView()
+                } label: {
+                    HomeCard(
+                        icon: "exclamationmark.triangle.fill",
+                        iconColor: Color(red: 245/255, green: 158/255, blue: 11/255), // accent-amber
+                        number: "\(store.stats.pendingDecisions) Decisions",
+                        subtitle: "Waiting",
+                        backgroundColor: Color(red: 245/255, green: 158/255, blue: 11/255).opacity(0.09)
+                    )
                 }
+                .buttonStyle(.plain)
 
-                // Pending decisions — primary action
-                if !store.decisions.isEmpty {
-                    Section {
-                        NavigationLink {
-                            DecisionListView()
-                        } label: {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                                Text("Decisions")
-                                Spacer()
-                                Text("\(store.decisions.count)")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    } header: {
-                        Text("Needs Attention")
-                    }
+                // Agents card
+                NavigationLink {
+                    ActiveTasksView()
+                } label: {
+                    HomeCard(
+                        icon: "cpu",
+                        iconColor: Color(red: 59/255, green: 130/255, blue: 246/255), // accent-blue
+                        number: "\(store.stats.activeTasks) Agents",
+                        subtitle: "Running",
+                        backgroundColor: Color(red: 59/255, green: 130/255, blue: 246/255).opacity(0.09)
+                    )
                 }
+                .buttonStyle(.plain)
 
-                // Active tasks
-                if !store.activeTasks.isEmpty {
-                    Section {
-                        NavigationLink {
-                            ActiveTasksView()
-                        } label: {
-                            HStack {
-                                Image(systemName: "play.circle.fill")
-                                    .foregroundStyle(.blue)
-                                Text("Active Tasks")
-                                Spacer()
-                                Text("\(store.activeTasks.count)")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    } header: {
-                        Text("Running")
-                    }
-                }
+                // Completed card
+                HomeCard(
+                    icon: "checkmark.circle.fill",
+                    iconColor: Color(red: 50/255, green: 213/255, blue: 131/255), // accent-green
+                    number: "\(store.stats.tasksCompleted) Done",
+                    subtitle: "Today",
+                    backgroundColor: Color(red: 22/255, green: 163/255, blue: 74/255).opacity(0.09)
+                )
 
-                // Usage
-                Section {
-                    HStack {
-                        Image(systemName: "dollarsign.circle")
-                            .foregroundStyle(.secondary)
-                        Text("Cost Today")
-                        Spacer()
-                        Text(String(format: "$%.2f", store.stats.costToday))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.caption)
-                }
+                Spacer()
             }
-            .navigationTitle("Nexus")
+            .padding(.horizontal, 12)
+            .padding(.vertical, 16)
+            .background(Color.black)
+            .navigationBarHidden(true)
             .refreshable {
                 await store.loadAll()
+            }
+            .overlay(alignment: .top) {
+                // Time display
+                Text(formattedTime)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(red: 71/255, green: 85/255, blue: 105/255))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
             }
             .overlay {
                 if store.isLoading && store.decisions.isEmpty && store.activeTasks.isEmpty {
@@ -78,25 +67,43 @@ struct WatchHomeView: View {
             }
         }
     }
+
+    private var formattedTime: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm"
+        return formatter.string(from: Date())
+    }
 }
 
-private struct StatsRow: View {
+private struct HomeCard: View {
     let icon: String
-    let label: String
-    let value: String
-    let color: Color
+    let iconColor: Color
+    let number: String
+    let subtitle: String
+    let backgroundColor: Color
 
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.caption2)
-                .foregroundStyle(color)
-                .frame(width: 16)
-            Text(label)
-                .font(.caption)
+                .font(.system(size: 22))
+                .foregroundStyle(iconColor)
+                .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(number)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(iconColor.opacity(0.5))
+            }
+
             Spacer()
-            Text(value)
-                .font(.caption.bold().monospacedDigit())
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: 54)
+        .padding(.horizontal, 14)
+        .background(backgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }

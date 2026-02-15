@@ -42,7 +42,12 @@ export function useRepoSetup() {
           targetMachineId: params.targetMachineId,
         }),
       })
-      if (!res.ok) return null
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        const errorMsg = errorData.error || 'Repo setup failed'
+        console.error('[repo-setup] Setup failed:', errorMsg)
+        throw new Error(errorMsg)
+      }
       const data = await res.json()
 
       if (data.needsGitInit) {

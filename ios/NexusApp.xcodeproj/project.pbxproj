@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -28,6 +28,7 @@
 		33E5D2CDF3F3727C81286792 /* PasskeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 605EB653B4D0CDB7CAED215F /* PasskeyManager.swift */; };
 		359E543452EFA8E8B26C939F /* TaskChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3D46B0004551C46B60EA25 /* TaskChatView.swift */; };
 		38224924CB806D77FB057C21 /* RealtimeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40457614FA7A6401FFB75A0 /* RealtimeStore.swift */; };
+		384F711C9420CB9CAD59E1D7 /* PulseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB497577BA8E9E55714AB16C /* PulseView.swift */; };
 		3E5261538C3AED2FF95190AF /* SSEParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB3A8CF1AF38165BB13DD791 /* SSEParser.swift */; };
 		41E2E3DA3A9BDACD7C4DD5F3 /* ContextBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD3282BE1C7F63D9B022295E /* ContextBadge.swift */; };
 		448CACEFCF15FEC25CAA7B25 /* NavigationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 083C4C80169CB490F11D834C /* NavigationContext.swift */; };
@@ -37,9 +38,11 @@
 		50C41A6B7B498184B575B4EE /* DecisionCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5E1C5AB52A03AC6C99D2B1 /* DecisionCarousel.swift */; };
 		53492FB243F0A6ED4C878F86 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84EA5D862D5552313C29AD58 /* TaskDetailView.swift */; };
 		5BE5C2708C72075591F0F79A /* VisionDocEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB58DA28FF657ACD8504873B /* VisionDocEditor.swift */; };
+		5C3C951A82F8DF5A0554021D /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5432B3DAFE773743308E37 /* AgentsView.swift */; };
 		66A0A2C0AA5A0BF2392D4428 /* VoiceInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1218CDA223A856F9AF77248 /* VoiceInputBar.swift */; };
 		67A2E25E44FBEFD0B42769E9 /* VoiceChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1BBD2EF722EA0C1CAB7016 /* VoiceChatStore.swift */; };
 		6AD27A8BA8841C3A8FDB1F2A /* ChatSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B690C9685AECE8628DADC206 /* ChatSession.swift */; };
+		6C1F3C184F2E64D782AFA7EE /* AgentsViewiPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AF64632859D8068EDD55D7B /* AgentsViewiPad.swift */; };
 		6EB985044EA06E608E6EAE67 /* DecisionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EAC1E5E603D9D118365F8B0 /* DecisionListView.swift */; };
 		74AD437AECB2CD29698F9862 /* WatchStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB96244A1C3C0E17291A291 /* WatchStore.swift */; };
 		7B4D7792C62B69C7217EDB2E /* VoiceChatMessageList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 564FA7EBC906B154A6CD448F /* VoiceChatMessageList.swift */; };
@@ -72,16 +75,21 @@
 		D88935959B19163568372279 /* ComplicationBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBFC67AE2DA801D9CB47E317 /* ComplicationBundle.swift */; };
 		DA94832CE44704753DAD7B44 /* UsageMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E016021E4B0898A54129E4 /* UsageMetrics.swift */; };
 		DB01ED6D49D33DA809B69BD5 /* NexusWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7971C4B0BDFB0E5D462056C9 /* NexusWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DB560FC524D3970E91BFE6B2 /* NotificationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F2BB3B2F763D65B8847A2C /* NotificationListView.swift */; };
 		DF667A4EE5137A36ED51EEDA /* SessionActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB4B7FF0FFA42019C7D2898 /* SessionActivityView.swift */; };
 		E25AED490D8AAE4A4DE0AA4A /* NotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB643D01B1F3475632523FC8 /* NotificationStore.swift */; };
 		E91831B1EC88AC895CD40306 /* ActivityEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACA74C7D618FC0E4DACAB39 /* ActivityEvent.swift */; };
 		EA7233FAA3B503443702EB46 /* NodeDetailPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6EBCFB1496C8C33EB7DDC7 /* NodeDetailPanel.swift */; };
 		EBE205C994A038BC64C9FC5B /* NexusWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B50FE97945E0BAE24172AFB /* NexusWatchApp.swift */; };
+		ECBD1009AE978911D28090E9 /* PlanGraphViewiPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E43D328E8E98A39A65D9015 /* PlanGraphViewiPad.swift */; };
 		EE13D7127A52EB3FC8D37D9D /* PlanGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492C5DDDF9FFE0A41E8DDCDC /* PlanGraphView.swift */; };
 		EF952756C1DD3A9B24357899 /* MyTasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89BB0EEB36D17FA6BB96B3B /* MyTasksView.swift */; };
 		F0A80A58EF4CCFA5ACE4D56C /* AddMachineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ABA4EEFDD6337F80BEEFA3B /* AddMachineView.swift */; };
 		F2F6395C1ECEDCF205628740 /* ExecutionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002D70D7CB4A91C7ECA6BDF0 /* ExecutionStore.swift */; };
+		F621810EF50CFAB04948A450 /* AgentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C21559DE71F625CC1FE7B4 /* AgentDetailView.swift */; };
+		F8198FFA154D1A705E9CDD64 /* EnvironmentsViewiPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BE1FF63DB05979F53A9F782 /* EnvironmentsViewiPad.swift */; };
 		F96B0E935396DA84978F4B11 /* PlanListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A78A7024D14E00B886CE357 /* PlanListView.swift */; };
+		FDF1419B1B5515F80520F36B /* PlanProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1637AE6EF82D2A090623B519 /* PlanProgressView.swift */; };
 		FF11D342FFF9243617B96C0C /* AuthGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48195290625194FA3566771 /* AuthGateView.swift */; };
 		FFC2E0C5AEF934C41784EF9D /* MachineInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90C1E263B902356068AC604 /* MachineInfo.swift */; };
 /* End PBXBuildFile section */
@@ -135,6 +143,7 @@
 		0A78A7024D14E00B886CE357 /* PlanListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanListView.swift; sourceTree = "<group>"; };
 		0D2C9B49E53BA3AE2520C9DB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0EAC1E5E603D9D118365F8B0 /* DecisionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionListView.swift; sourceTree = "<group>"; };
+		1637AE6EF82D2A090623B519 /* PlanProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanProgressView.swift; sourceTree = "<group>"; };
 		1CB96244A1C3C0E17291A291 /* WatchStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchStore.swift; sourceTree = "<group>"; };
 		204E9219CDD285167603AA70 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		22D83DA753465009D66213B8 /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
@@ -158,6 +167,7 @@
 		5532B29DC9F6DD902B3F9AE6 /* LocalCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCache.swift; sourceTree = "<group>"; };
 		55E2A7E4215FB630A7468775 /* NexusWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NexusWidgetExtension.entitlements; sourceTree = "<group>"; };
 		564FA7EBC906B154A6CD448F /* VoiceChatMessageList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChatMessageList.swift; sourceTree = "<group>"; };
+		5E43D328E8E98A39A65D9015 /* PlanGraphViewiPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanGraphViewiPad.swift; sourceTree = "<group>"; };
 		605EB653B4D0CDB7CAED215F /* PasskeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasskeyManager.swift; sourceTree = "<group>"; };
 		621123AAC8A5553CC11C47B8 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
 		64AD0089326B3E8660568943 /* ProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectStore.swift; sourceTree = "<group>"; };
@@ -165,11 +175,12 @@
 		677FCF93C576213B7DF6465B /* SSEClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEClient.swift; sourceTree = "<group>"; };
 		6ABA4EEFDD6337F80BEEFA3B /* AddMachineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMachineView.swift; sourceTree = "<group>"; };
 		790486AD116220AAF302006D /* TaskExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskExecution.swift; sourceTree = "<group>"; };
-		7971C4B0BDFB0E5D462056C9 /* NexusWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NexusWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7971C4B0BDFB0E5D462056C9 /* NexusWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NexusWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		82499A84F8CE22495BC14718 /* AgentStreamClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStreamClient.swift; sourceTree = "<group>"; };
 		84EA5D862D5552313C29AD58 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		84FA8843AFB0AC61D90EC6CE /* StatsGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsGridView.swift; sourceTree = "<group>"; };
 		89FD917D2FF567ECE9714F8A /* ProjectDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDetailView.swift; sourceTree = "<group>"; };
+		8AF64632859D8068EDD55D7B /* AgentsViewiPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsViewiPad.swift; sourceTree = "<group>"; };
 		8E65A0BBA1043B6A0C5C5CC1 /* TaskOutputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskOutputView.swift; sourceTree = "<group>"; };
 		9022786B0DEBB8241BC60031 /* ProjectListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectListView.swift; sourceTree = "<group>"; };
 		91EA2171B75BAD4036EF7729 /* PlanTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanTimelineView.swift; sourceTree = "<group>"; };
@@ -178,6 +189,7 @@
 		959E4BA491504565CB3C62A9 /* NexusAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusAPI.swift; sourceTree = "<group>"; };
 		95F0A7F36C0D2C9121FA3633 /* SteerChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SteerChatView.swift; sourceTree = "<group>"; };
 		99F0BB6076398A94CD7345C0 /* NewProjectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectView.swift; sourceTree = "<group>"; };
+		9BE1FF63DB05979F53A9F782 /* EnvironmentsViewiPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvironmentsViewiPad.swift; sourceTree = "<group>"; };
 		9DD6BF3E9C53E37EC9C88FB7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A34736B884FA2535111F1866 /* NexusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusApp.swift; sourceTree = "<group>"; };
 		A40457614FA7A6401FFB75A0 /* RealtimeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeStore.swift; sourceTree = "<group>"; };
@@ -191,6 +203,7 @@
 		BC09FA1D259D1C8D80B6F35C /* PlanStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanStore.swift; sourceTree = "<group>"; };
 		BD1D49AB8A8A6E12D7011A91 /* PlanNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanNode.swift; sourceTree = "<group>"; };
 		BD3282BE1C7F63D9B022295E /* ContextBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextBadge.swift; sourceTree = "<group>"; };
+		BE5432B3DAFE773743308E37 /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
 		C441BD676EDDEC564D83027A /* WatchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModels.swift; sourceTree = "<group>"; };
 		C48195290625194FA3566771 /* AuthGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthGateView.swift; sourceTree = "<group>"; };
 		CA6EBCFB1496C8C33EB7DDC7 /* NodeDetailPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeDetailPanel.swift; sourceTree = "<group>"; };
@@ -198,17 +211,20 @@
 		CB3A8CF1AF38165BB13DD791 /* SSEParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEParser.swift; sourceTree = "<group>"; };
 		CC8F5521B8D7E8B8F422A01C /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		CD5F3010E2745CB56108FB7F /* WatchHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchHomeView.swift; sourceTree = "<group>"; };
-		D8BD091C6D75E7BF48014347 /* NexusApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NexusApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D8BD091C6D75E7BF48014347 /* NexusApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NexusApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D90C1E263B902356068AC604 /* MachineInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineInfo.swift; sourceTree = "<group>"; };
 		DA5E1C5AB52A03AC6C99D2B1 /* DecisionCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionCarousel.swift; sourceTree = "<group>"; };
 		DA6076C98863E62C0AC5C652 /* SessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionManager.swift; sourceTree = "<group>"; };
+		DB497577BA8E9E55714AB16C /* PulseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseView.swift; sourceTree = "<group>"; };
 		DBF01C4B2427DE0044F74745 /* SharedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedComponents.swift; sourceTree = "<group>"; };
 		E500B5F9912F821C18FD2C1A /* ChatPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPanelView.swift; sourceTree = "<group>"; };
+		E7C21559DE71F625CC1FE7B4 /* AgentDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDetailView.swift; sourceTree = "<group>"; };
 		E89BB0EEB36D17FA6BB96B3B /* MyTasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyTasksView.swift; sourceTree = "<group>"; };
 		ECB4B7FF0FFA42019C7D2898 /* SessionActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionActivityView.swift; sourceTree = "<group>"; };
 		EF3AC7A4D829CBD4E2CABB31 /* FloatingVoiceButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingVoiceButton.swift; sourceTree = "<group>"; };
 		F1218CDA223A856F9AF77248 /* VoiceInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputBar.swift; sourceTree = "<group>"; };
 		F14077813C2219F44E27CC60 /* PushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushManager.swift; sourceTree = "<group>"; };
+		F7F2BB3B2F763D65B8847A2C /* NotificationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationListView.swift; sourceTree = "<group>"; };
 		FB643D01B1F3475632523FC8 /* NotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationStore.swift; sourceTree = "<group>"; };
 		FD948A26DB1C692DAB259405 /* NexusWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NexusWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF9E689C48FC79C7F6316EFC /* SystemHealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemHealthView.swift; sourceTree = "<group>"; };
@@ -260,6 +276,7 @@
 			children = (
 				3507C07A7CD0594217533F6D /* DashboardView.swift */,
 				DA5E1C5AB52A03AC6C99D2B1 /* DecisionCarousel.swift */,
+				DB497577BA8E9E55714AB16C /* PulseView.swift */,
 				84FA8843AFB0AC61D90EC6CE /* StatsGridView.swift */,
 				FF9E689C48FC79C7F6316EFC /* SystemHealthView.swift */,
 			);
@@ -297,6 +314,7 @@
 			isa = PBXGroup;
 			children = (
 				492C5DDDF9FFE0A41E8DDCDC /* PlanGraphView.swift */,
+				5E43D328E8E98A39A65D9015 /* PlanGraphViewiPad.swift */,
 				0A78A7024D14E00B886CE357 /* PlanListView.swift */,
 				91EA2171B75BAD4036EF7729 /* PlanTimelineView.swift */,
 			);
@@ -319,6 +337,8 @@
 		77C5C93852088854033C655D /* Tasks */ = {
 			isa = PBXGroup;
 			children = (
+				BE5432B3DAFE773743308E37 /* AgentsView.swift */,
+				8AF64632859D8068EDD55D7B /* AgentsViewiPad.swift */,
 				93A84250A0E10D4026F98748 /* FileChangesView.swift */,
 				E89BB0EEB36D17FA6BB96B3B /* MyTasksView.swift */,
 				ECB4B7FF0FFA42019C7D2898 /* SessionActivityView.swift */,
@@ -350,8 +370,11 @@
 			isa = PBXGroup;
 			children = (
 				44FECBF5AC2C6D240EBDE499 /* ActiveTasksView.swift */,
+				E7C21559DE71F625CC1FE7B4 /* AgentDetailView.swift */,
 				0EAC1E5E603D9D118365F8B0 /* DecisionListView.swift */,
+				F7F2BB3B2F763D65B8847A2C /* NotificationListView.swift */,
 				4C1D49CA5E5D45523DCA1B72 /* NotificationView.swift */,
+				1637AE6EF82D2A090623B519 /* PlanProgressView.swift */,
 				CD5F3010E2745CB56108FB7F /* WatchHomeView.swift */,
 			);
 			path = Views;
@@ -416,6 +439,7 @@
 			children = (
 				6ABA4EEFDD6337F80BEEFA3B /* AddMachineView.swift */,
 				4063F1932BBD1EC556DE94DF /* EnvironmentsView.swift */,
+				9BE1FF63DB05979F53A9F782 /* EnvironmentsViewiPad.swift */,
 			);
 			path = Environments;
 			sourceTree = "<group>";
@@ -594,7 +618,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					1041A53A21E31266B201C63A = {
 						DevelopmentTeam = "";
@@ -620,6 +644,7 @@
 			);
 			mainGroup = BBFD664708C6575F3DE9BF16;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -658,6 +683,8 @@
 				E91831B1EC88AC895CD40306 /* ActivityEvent.swift in Sources */,
 				F0A80A58EF4CCFA5ACE4D56C /* AddMachineView.swift in Sources */,
 				30BCED6385F20278E5B923DF /* AgentStreamClient.swift in Sources */,
+				5C3C951A82F8DF5A0554021D /* AgentsView.swift in Sources */,
+				6C1F3C184F2E64D782AFA7EE /* AgentsViewiPad.swift in Sources */,
 				97E2106AFEC7BD8718CB8AB3 /* AnyCodable.swift in Sources */,
 				FF11D342FFF9243617B96C0C /* AuthGateView.swift in Sources */,
 				98AEC9560AA3080993C2F513 /* CachedSession.swift in Sources */,
@@ -667,6 +694,7 @@
 				AA72D2161B186C314234EC9A /* DashboardView.swift in Sources */,
 				50C41A6B7B498184B575B4EE /* DecisionCarousel.swift in Sources */,
 				1655E0588779ECA8ACBD4203 /* EnvironmentsView.swift in Sources */,
+				F8198FFA154D1A705E9CDD64 /* EnvironmentsViewiPad.swift in Sources */,
 				F2F6395C1ECEDCF205628740 /* ExecutionStore.swift in Sources */,
 				1416D0AC20FB5A8045D09D3C /* FileChangesView.swift in Sources */,
 				475C511F263E8C94F98998B9 /* FloatingVoiceButton.swift in Sources */,
@@ -683,6 +711,7 @@
 				E25AED490D8AAE4A4DE0AA4A /* NotificationStore.swift in Sources */,
 				33E5D2CDF3F3727C81286792 /* PasskeyManager.swift in Sources */,
 				EE13D7127A52EB3FC8D37D9D /* PlanGraphView.swift in Sources */,
+				ECBD1009AE978911D28090E9 /* PlanGraphViewiPad.swift in Sources */,
 				F96B0E935396DA84978F4B11 /* PlanListView.swift in Sources */,
 				877CE775F2140CEA87579B55 /* PlanNode.swift in Sources */,
 				2029AE7EF4C44309E58817D4 /* PlanStore.swift in Sources */,
@@ -691,6 +720,7 @@
 				BD01C227A54EE77D08B3475C /* ProjectDetailView.swift in Sources */,
 				2C491D2BF92279B7CD878F18 /* ProjectListView.swift in Sources */,
 				BD76019BEFD2BF0C1B571E95 /* ProjectStore.swift in Sources */,
+				384F711C9420CB9CAD59E1D7 /* PulseView.swift in Sources */,
 				7B777259548827DBA6496865 /* PushManager.swift in Sources */,
 				38224924CB806D77FB057C21 /* RealtimeStore.swift in Sources */,
 				84FCF9FDDED8E1BD1BE605A9 /* SSEClient.swift in Sources */,
@@ -725,9 +755,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				1F33AEA946B748B87528D171 /* ActiveTasksView.swift in Sources */,
+				F621810EF50CFAB04948A450 /* AgentDetailView.swift in Sources */,
 				6EB985044EA06E608E6EAE67 /* DecisionListView.swift in Sources */,
 				EBE205C994A038BC64C9FC5B /* NexusWatchApp.swift in Sources */,
+				DB560FC524D3970E91BFE6B2 /* NotificationListView.swift in Sources */,
 				2A2FF3B2E5EA9A212213F168 /* NotificationView.swift in Sources */,
+				FDF1419B1B5515F80520F36B /* PlanProgressView.swift in Sources */,
 				BFC1024D3EB19446A19C6F73 /* WatchAPI.swift in Sources */,
 				C0C46FA4E2BE0CFA8F7246DC /* WatchHomeView.swift in Sources */,
 				1B3F6108910FF750C2BFA85B /* WatchModels.swift in Sources */,
@@ -836,7 +869,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -867,12 +899,10 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -892,7 +922,6 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.9;
@@ -921,7 +950,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -952,12 +980,10 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -970,7 +996,6 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;

@@ -192,9 +192,9 @@ app.put('/plan/:projectId', async (c) => {
   }
 
   // Transaction: delete existing, insert new
-  db.transaction((tx) => {
-    tx.delete(planEdges).where(eq(planEdges.projectId, projectId)).run()
-    tx.delete(planNodes).where(eq(planNodes.projectId, projectId)).run()
+  await db.transaction(async (tx) => {
+    await tx.delete(planEdges).where(eq(planEdges.projectId, projectId))
+    await tx.delete(planNodes).where(eq(planNodes.projectId, projectId))
 
     for (const n of newNodes) {
       const position = n.position as { x: number; y: number } | undefined
@@ -225,17 +225,17 @@ app.put('/plan/:projectId', async (c) => {
         createdAt: n.createdAt ? new Date(n.createdAt as string) : new Date(),
         updatedAt: n.updatedAt ? new Date(n.updatedAt as string) : new Date(),
       }
-      tx.insert(planNodes).values(row).run()
+      await tx.insert(planNodes).values(row)
     }
 
     for (const e of newEdges) {
-      tx.insert(planEdges).values({
+      await tx.insert(planEdges).values({
         clientId: e.id as string,
         projectId,
         sourceClientId: e.source as string,
         targetClientId: e.target as string,
         type: (e.type as string) ?? 'dependency',
-      }).run()
+      })
     }
   })
 

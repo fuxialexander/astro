@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate } from "react-router"
-import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, Bot } from "lucide-react"
+import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, Bot, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {
@@ -38,6 +38,7 @@ export function ProjectNew() {
   const [targetDate, setTargetDate] = useState("")
   const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
+  const [repoSetupError, setRepoSetupError] = useState<string | null>(null)
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
   const startGeneration = useAgentStore((s) => s.startGeneration)
@@ -92,6 +93,7 @@ export function ProjectNew() {
   async function handleGenerate() {
     if (!description.trim() || isSubmitting) return
     setIsSubmitting(true)
+    setRepoSetupError(null)
     const id = `proj-${crypto.randomUUID().slice(0, 8)}`
     const projectName = description.slice(0, 50).trim() || "New Project"
 
@@ -112,29 +114,55 @@ export function ProjectNew() {
     })
     navigate(`/project/${id}/plan`)
 
-    if (connectionStatus !== "connected") return
+    if (connectionStatus !== "connected") {
+      setIsSubmitting(false)
+      return
+    }
 
     // Always use repo setup — handles creating dir, git init, clone, file tree
     setGenerationPhase(id, 'repo_setup')
-    const repoResult = await setupRepo({
-      projectId: id,
-      projectName,
-      projectDescription: description.trim(),
-      workingDirectory: workingDir.trim() || undefined,
-      repository: repoUrl.trim() || undefined,
-      targetMachineId: selectedMachine?.machineId || undefined,
-    })
-
-    if (repoResult?.workingDirectory) {
-      startGeneration(id, projectName, description.trim(), undefined, {
-        workingDirectory: repoResult.workingDirectory,
-        fileTree: repoResult.fileTree,
-        keyFiles: repoResult.keyFiles,
-        targetMachineId: selectedMachine?.machineId,
+    try {
+      const repoResult = await setupRepo({
+        projectId: id,
+        projectName,
+        projectDescription: description.trim(),
+        workingDirectory: workingDir.trim() || undefined,
+        repository: repoUrl.trim() || undefined,
+        targetMachineId: selectedMachine?.machineId || undefined,
       })
-    } else {
-      // Repo setup returned null (needsGitInit or error) — generate without context
+
+      if (repoResult?.workingDirectory) {
+        startGeneration(id, projectName, description.trim(), undefined, {
+          workingDirectory: repoResult.workingDirectory,
+          fileTree: repoResult.fileTree,
+          keyFiles: repoResult.keyFiles,
+          targetMachineId: selectedMachine?.machineId,
+        })
+      } else {
+        // Repo setup returned null (needsGitInit or error) — generate without context
+        setRepoSetupError('Repository setup returned incomplete data')
+        startGeneration(id, projectName, description.trim())
+      }
+    } catch (error) {
+      // Repo setup failed — save error and proceed with plan generation without context
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[project-new] Repo setup failed:', errorMsg)
+      setRepoSetupError(errorMsg)
+      setGenerationPhase(id, null)
+
+      // If remote machine failed, suggest fallback to local setup
+      if (isRemote && !repoUrl.trim()) {
+        // No repository URL — can't proceed with remote execution without working directory
+        setRepoSetupError(
+          `Failed to set up repository on remote machine: ${errorMsg}. ` +
+          'Please either: (1) provide a Git repository URL, or (2) manually configure the working directory in project settings after creation.'
+        )
+      }
+
+      // Generate plan anyway, but user will need to configure working directory for execution
       startGeneration(id, projectName, description.trim())
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -190,6 +218,23 @@ export function ProjectNew() {
               </div>
             )}
           </div>
+
+          {/* Repo setup error alert */}
+          {repoSetupError && (
+            <div className="flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+              <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1 flex-1">
+                <p className="text-sm font-medium text-destructive">Repository Setup Failed</p>
+                <p className="text-sm text-destructive/90">{repoSetupError}</p>
+              </div>
+              <button
+                onClick={() => setRepoSetupError(null)}
+                className="p-1 rounded-md hover:bg-destructive/20 transition-colors"
+              >
+                <X className="h-4 w-4 text-destructive" />
+              </button>
+            </div>
+          )}
 
           {/* Optional context */}
           <div className="flex flex-col gap-3">
