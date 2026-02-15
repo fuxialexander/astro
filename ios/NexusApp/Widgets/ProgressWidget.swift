@@ -7,19 +7,11 @@ struct NexusWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> NexusWidgetEntry {
         NexusWidgetEntry(
             date: .now,
-            projectName: "Nexus Platform",
-            planProgress: 64,
-            pendingDecisions: 3,
-            activeAgents: [
-                AgentInfo(name: "frontend-builder", progress: 67, color: .blue),
-                AgentInfo(name: "api-integrator", progress: 82, color: .green),
-                AgentInfo(name: "test-runner", progress: 41, color: .orange)
-            ],
-            milestones: [
-                MilestoneInfo(name: "Core Planning", completed: 4, total: 6, color: .green),
-                MilestoneInfo(name: "User Interface", completed: 1, total: 5, color: .blue),
-                MilestoneInfo(name: "API Integration", completed: 0, total: 4, color: .gray)
-            ]
+            activeProjects: 3,
+            tasksCompleted: 12,
+            pendingDecisions: 2,
+            connectedMachines: 1,
+            costToday: 1.23
         )
     }
 
@@ -41,53 +33,26 @@ struct NexusWidgetProvider: TimelineProvider {
         let serverURL = UserDefaults(suiteName: "group.com.nexus.app")?.string(forKey: "nexus.serverURL") ?? "http://localhost:3001"
 
         do {
-            // Fetch dashboard data
-            let dashboardURL = URL(string: "\(serverURL)/api/data/dashboard")!
-            let (data, _) = try await URLSession.shared.data(from: dashboardURL)
-            let dashboard = try JSONDecoder().decode(WidgetDashboardData.self, from: data)
+            // Fetch usage data
+            let usageURL = URL(string: "\(serverURL)/api/data/usage/today")!
+            let (usageData, _) = try await URLSession.shared.data(from: usageURL)
+            let usage = try JSONDecoder().decode(WidgetUsageData.self, from: usageData)
 
-            // Convert to widget entry
+            // Fetch projects count
+            let projectsURL = URL(string: "\(serverURL)/api/data/projects")!
+            let (projectsData, _) = try await URLSession.shared.data(from: projectsURL)
+            let projects = try JSONDecoder().decode([WidgetProject].self, from: projectsData)
+
             return NexusWidgetEntry(
                 date: .now,
-                projectName: dashboard.activeProject?.name ?? "Nexus",
-                planProgress: dashboard.planProgress,
-                pendingDecisions: dashboard.pendingDecisions,
-                activeAgents: dashboard.activeAgents.map { agent in
-                    AgentInfo(
-                        name: agent.name,
-                        progress: agent.progress,
-                        color: colorForStatus(agent.status)
-                    )
-                },
-                milestones: dashboard.milestones.map { milestone in
-                    MilestoneInfo(
-                        name: milestone.name,
-                        completed: milestone.completed,
-                        total: milestone.total,
-                        color: milestone.completed == milestone.total ? .green :
-                               milestone.completed > 0 ? .blue : .gray
-                    )
-                }
+                activeProjects: projects.filter { $0.status == "active" }.count,
+                tasksCompleted: usage.tasksCompleted,
+                pendingDecisions: 0, // Would need plan data
+                connectedMachines: 0, // Would need relay data
+                costToday: usage.totalCostUsd
             )
         } catch {
-            // Return fallback data on error
-            return NexusWidgetEntry(
-                date: .now,
-                projectName: "Nexus Platform",
-                planProgress: 0,
-                pendingDecisions: 0,
-                activeAgents: [],
-                milestones: []
-            )
-        }
-    }
-
-    private func colorForStatus(_ status: String) -> Color {
-        switch status {
-        case "in_progress": return .blue
-        case "completed": return .green
-        case "awaiting_judgment": return .orange
-        default: return .gray
+            return NexusWidgetEntry(date: .now, activeProjects: 0, tasksCompleted: 0, pendingDecisions: 0, connectedMachines: 0, costToday: 0)
         }
     }
 }
@@ -96,622 +61,134 @@ struct NexusWidgetProvider: TimelineProvider {
 
 struct NexusWidgetEntry: TimelineEntry {
     let date: Date
-    let projectName: String
-    let planProgress: Int
+    let activeProjects: Int
+    let tasksCompleted: Int
     let pendingDecisions: Int
-    let activeAgents: [AgentInfo]
-    let milestones: [MilestoneInfo]
+    let connectedMachines: Int
+    let costToday: Double
 }
 
-struct AgentInfo {
-    let name: String
-    let progress: Int
-    let color: Color
-}
-
-struct MilestoneInfo {
-    let name: String
-    let completed: Int
-    let total: Int
-    let color: Color
-}
-
-// MARK: - Widget Views
+// MARK: - Widget View
 
 struct NexusWidgetView: View {
     let entry: NexusWidgetEntry
     @SwiftUI.Environment(\.widgetFamily) var family
-    @SwiftUI.Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         switch family {
         case .systemSmall:
-            SmallWidgetView(entry: entry, colorScheme: colorScheme)
+            smallWidget
         case .systemMedium:
-            MediumWidgetView(entry: entry, colorScheme: colorScheme)
-        case .systemLarge:
-            LargeWidgetView(entry: entry, colorScheme: colorScheme)
-        case .systemExtraLarge:
-            ExtraLargeWidgetView(entry: entry, colorScheme: colorScheme)
-        @unknown default:
-            MediumWidgetView(entry: entry, colorScheme: colorScheme)
+            mediumWidget
+        default:
+            mediumWidget
         }
     }
-}
 
-// MARK: - Small Widget (Decisions)
-
-struct SmallWidgetView: View {
-    let entry: NexusWidgetEntry
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Top section with logo and badge
-            HStack(alignment: .center, spacing: 0) {
-                // Logo
-                ZStack {
-                    LinearGradient(
-                        colors: [Color(hex: "60A5FA"), Color(hex: "3B82F6"), Color(hex: "2563EB")],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .cornerRadius(8)
-
-                    Image(systemName: "hexagon.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.white)
-                }
-                .frame(width: 28, height: 28)
-
-                Spacer()
-
-                // Status badge
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(Color(hex: "F59E0B"))
-                        .frame(width: 6, height: 6)
-
-                    Text("Waiting")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(Color(hex: "F59E0B"))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color(hex: "F59E0B").opacity(0.1))
-                .cornerRadius(8)
-            }
-
-            Spacer()
-
-            // Bottom section with count
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(entry.pendingDecisions)")
-                    .font(.system(size: 36, weight: .bold, design: .default))
-                    .foregroundColor(colorScheme == .dark ? Color(hex: "F1F5F9") : Color(hex: "1E293B"))
-
-                Text("Decisions")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color(hex: "64748B"))
-            }
-        }
-        .padding(16)
-        .background(colorScheme == .dark ? Color(hex: "111827") : .white)
-        .cornerRadius(22)
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .strokeBorder(colorScheme == .dark ? Color.clear : Color(hex: "E2E8F0"), lineWidth: 1)
-        )
-    }
-}
-
-// MARK: - Medium Widget (Active Agents)
-
-struct MediumWidgetView: View {
-    let entry: NexusWidgetEntry
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Header
-            HStack(alignment: .center, spacing: 0) {
-                // Logo
-                HStack(spacing: 8) {
-                    ZStack {
-                        LinearGradient(
-                            colors: [Color(hex: "60A5FA"), Color(hex: "3B82F6"), Color(hex: "2563EB")],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        .cornerRadius(6)
-
-                        Image(systemName: "hexagon.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white)
-                    }
-                    .frame(width: 24, height: 24)
-
-                    Text("Nexus")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(colorScheme == .dark ? Color(hex: "F1F5F9") : Color(hex: "1E293B"))
-                }
-
-                Spacer()
-
-                // Badge
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(Color(hex: "F59E0B"))
-                        .frame(width: 6, height: 6)
-
-                    Text("\(entry.pendingDecisions) Decisions")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(Color(hex: "F59E0B"))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color(hex: "F59E0B").opacity(0.1))
-                .cornerRadius(8)
-            }
-
-            // Agent list
-            VStack(spacing: 6) {
-                ForEach(Array(entry.activeAgents.prefix(3).enumerated()), id: \.offset) { index, agent in
-                    AgentRowMedium(agent: agent, colorScheme: colorScheme)
-                }
-            }
-        }
-        .padding(16)
-        .background(colorScheme == .dark ? Color(hex: "111827") : .white)
-        .cornerRadius(22)
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .strokeBorder(colorScheme == .dark ? Color.clear : Color(hex: "E2E8F0"), lineWidth: 1)
-        )
-    }
-}
-
-// MARK: - Large Widget
-
-struct LargeWidgetView: View {
-    let entry: NexusWidgetEntry
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Header
-            HStack(alignment: .center, spacing: 0) {
-                HStack(spacing: 8) {
-                    ZStack {
-                        LinearGradient(
-                            colors: [Color(hex: "3B82F6"), Color(hex: "1D4ED8")],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .cornerRadius(6)
-
-                        Image(systemName: "hexagon.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(.white)
-                    }
-                    .frame(width: 24, height: 24)
-
-                    Text("Nexus")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(colorScheme == .dark ? Color(hex: "F1F5F9") : Color(hex: "1E293B"))
-                }
-
-                Spacer()
-
-                // Badge
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(Color(hex: "F59E0B"))
-
-                    Text("\(entry.pendingDecisions) Decisions")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(Color(hex: "F59E0B"))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color(hex: "7C2D12").opacity(0.13))
-                .cornerRadius(8)
-            }
-
-            Divider()
-                .background(colorScheme == .dark ? Color(hex: "1E293B") : Color(hex: "E2E8F0"))
-
-            // Plan Progress section
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Plan Progress")
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(0.3)
-                    .foregroundColor(Color(hex: "64748B"))
-
-                HStack {
-                    Text(entry.projectName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color(hex: "E2E8F0") : Color(hex: "1E293B"))
-
-                    Spacer()
-
-                    Text("\(entry.planProgress)%")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(Color(hex: "22C55E"))
-                }
-
-                // Progress bar
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(colorScheme == .dark ? Color(hex: "1E293B") : Color(hex: "E2E8F0"))
-                            .frame(height: 6)
-
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(LinearGradient(
-                                colors: [Color(hex: "22C55E"), Color(hex: "16A34A")],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ))
-                            .frame(width: geometry.size.width * CGFloat(entry.planProgress) / 100, height: 6)
-                    }
-                }
-                .frame(height: 6)
-
-                // Milestones
-                VStack(spacing: 5) {
-                    ForEach(Array(entry.milestones.prefix(3).enumerated()), id: \.offset) { index, milestone in
-                        MilestoneRow(milestone: milestone)
-                    }
-                }
-            }
-
-            Divider()
-                .background(colorScheme == .dark ? Color(hex: "1E293B") : Color(hex: "E2E8F0"))
-
-            // Active Agents section
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Active Agents")
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(0.3)
-                    .foregroundColor(Color(hex: "64748B"))
-
-                ForEach(Array(entry.activeAgents.prefix(3).enumerated()), id: \.offset) { index, agent in
-                    AgentRowLarge(agent: agent)
-                }
-            }
-        }
-        .padding(16)
-        .background(colorScheme == .dark ? Color(hex: "111827") : .white)
-        .cornerRadius(22)
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .strokeBorder(colorScheme == .dark ? Color.clear : Color(hex: "E2E8F0"), lineWidth: 1)
-        )
-    }
-}
-
-// MARK: - Extra Large Widget (iPad)
-
-struct ExtraLargeWidgetView: View {
-    let entry: NexusWidgetEntry
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Header
-            HStack(alignment: .center, spacing: 0) {
-                HStack(spacing: 10) {
-                    ZStack {
-                        LinearGradient(
-                            colors: [Color(hex: "3B82F6"), Color(hex: "1D4ED8")],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .cornerRadius(7)
-
-                        Image(systemName: "hexagon.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(.white)
-                    }
-                    .frame(width: 28, height: 28)
-
-                    Text("Nexus")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundColor(colorScheme == .dark ? Color(hex: "F1F5F9") : Color(hex: "1E293B"))
-
-                    Text(entry.projectName)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Color(hex: "64748B"))
-                }
-
-                Spacer()
-
-                // Badges
-                HStack(spacing: 8) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(Color(hex: "F59E0B"))
-
-                        Text("\(entry.pendingDecisions) Decisions")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(Color(hex: "F59E0B"))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color(hex: "F59E0B").opacity(0.08))
-                    .cornerRadius(8)
-
-                    HStack(spacing: 5) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 12))
-                            .foregroundColor(Color(hex: "3B82F6"))
-
-                        Text("\(entry.activeAgents.count) Agents")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(Color(hex: "3B82F6"))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color(hex: "3B82F6").opacity(0.08))
-                    .cornerRadius(8)
-                }
-            }
-
-            Divider()
-                .background(colorScheme == .dark ? Color(hex: "1E293B") : Color(hex: "E2E8F0"))
-
-            // Body with two columns
-            HStack(alignment: .top, spacing: 20) {
-                // Left: Plan Progress
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Plan Progress")
-                        .font(.system(size: 12, weight: .semibold))
-                        .tracking(0.3)
-                        .foregroundColor(Color(hex: "64748B"))
-
-                    HStack {
-                        Text("Overall Progress")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color(hex: "E2E8F0") : Color(hex: "1E293B"))
-
-                        Spacer()
-
-                        Text("\(entry.planProgress)%")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(Color(hex: "22C55E"))
-                    }
-
-                    // Progress bar
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(colorScheme == .dark ? Color(hex: "1E293B") : Color(hex: "E2E8F0"))
-                                .frame(height: 8)
-
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(LinearGradient(
-                                    colors: [Color(hex: "22C55E"), Color(hex: "16A34A")],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                ))
-                                .frame(width: geometry.size.width * CGFloat(entry.planProgress) / 100, height: 8)
-                        }
-                    }
-                    .frame(height: 8)
-
-                    // Milestones
-                    VStack(spacing: 8) {
-                        ForEach(Array(entry.milestones.prefix(3).enumerated()), id: \.offset) { index, milestone in
-                            MilestoneCardXL(milestone: milestone, colorScheme: colorScheme)
-                        }
-                    }
-
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
-
-                // Right: Active Agents
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Active Agents")
-                        .font(.system(size: 12, weight: .semibold))
-                        .tracking(0.3)
-                        .foregroundColor(Color(hex: "64748B"))
-
-                    ForEach(Array(entry.activeAgents.prefix(3).enumerated()), id: \.offset) { index, agent in
-                        AgentRowXL(agent: agent, colorScheme: colorScheme)
-                    }
-
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(20)
-        .background(colorScheme == .dark ? Color(hex: "111827") : .white)
-        .cornerRadius(22)
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .strokeBorder(colorScheme == .dark ? Color.clear : Color(hex: "E2E8F0"), lineWidth: 1)
-        )
-    }
-}
-
-// MARK: - Component Views
-
-struct AgentRowMedium: View {
-    let agent: AgentInfo
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        HStack(spacing: 8) {
-            // Progress ring
-            ZStack {
-                Circle()
-                    .stroke(agent.color.opacity(0.3), lineWidth: 2)
-                    .frame(width: 24, height: 24)
-
-                Text("\(agent.progress)")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundColor(agent.color)
-            }
-
-            Text(agent.name)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color(hex: "F1F5F9") : Color(hex: "1E293B"))
-
-            Spacer()
-
-            // Progress bar
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(colorScheme == .dark ? Color(hex: "1E293B") : Color(hex: "E2E8F0"))
-                        .frame(width: 60, height: 4)
-
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(agent.color)
-                        .frame(width: 60 * CGFloat(agent.progress) / 100, height: 4)
-                }
-            }
-            .frame(width: 60, height: 4)
-        }
-    }
-}
-
-struct AgentRowLarge: View {
-    let agent: AgentInfo
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .stroke(agent.color, lineWidth: 3)
-                .frame(width: 28, height: 28)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(agent.name)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Color(hex: "E2E8F0"))
-
-                Text("Running · \(agent.progress)%")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(agent.color)
-            }
-
-            Spacer()
-        }
-    }
-}
-
-struct AgentRowXL: View {
-    let agent: AgentInfo
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .stroke(agent.color, lineWidth: 3)
-                .frame(width: 36, height: 36)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(agent.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color(hex: "E2E8F0") : Color(hex: "1E293B"))
-
-                Text("Running · \(agent.progress)%")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(agent.color)
-            }
-
-            Spacer()
-
-            // Progress bar
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(colorScheme == .dark ? Color(hex: "1E293B") : Color(hex: "E2E8F0"))
-                        .frame(width: 60, height: 4)
-
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(agent.color)
-                        .frame(width: 60 * CGFloat(agent.progress) / 100, height: 4)
-                }
-            }
-            .frame(width: 60, height: 4)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(colorScheme == .dark ? Color(hex: "0D1117").opacity(0.5) : Color(hex: "F1F5F9"))
-        .cornerRadius(10)
-    }
-}
-
-struct MilestoneRow: View {
-    let milestone: MilestoneInfo
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(milestone.color)
-                .frame(width: 6, height: 6)
-
-            Text(milestone.name)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(Color(hex: "94A3B8"))
-
-            Spacer()
-
-            Text("\(milestone.completed)/\(milestone.total)")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(Color(hex: "64748B"))
-        }
-    }
-}
-
-struct MilestoneCardXL: View {
-    let milestone: MilestoneInfo
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private var smallWidget: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Circle()
-                    .fill(milestone.color)
-                    .frame(width: 6, height: 6)
-
-                Text(milestone.name)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color(hex: "94A3B8") : Color(hex: "64748B"))
-
-                Spacer()
-
-                Text("\(milestone.completed)/\(milestone.total)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Color(hex: "64748B"))
+                Image(systemName: "hexagon.fill")
+                    .font(.caption)
+                    .foregroundStyle(.blue)
+                Text("Nexus")
+                    .font(.caption.bold())
             }
 
-            // Progress bar
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(colorScheme == .dark ? Color(hex: "1E293B") : Color(hex: "E2E8F0"))
-                        .frame(height: 4)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("\(entry.tasksCompleted)")
+                        .font(.title2.bold().monospacedDigit())
+                    Text("tasks")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-                    if milestone.total > 0 {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(milestone.color)
-                            .frame(width: geometry.size.width * CGFloat(milestone.completed) / CGFloat(milestone.total), height: 4)
+                if entry.pendingDecisions > 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                        Text("\(entry.pendingDecisions) decisions")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
                     }
                 }
             }
-            .frame(height: 4)
+
+            Spacer()
+
+            Text(String(format: "$%.2f", entry.costToday))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(colorScheme == .dark ? Color(hex: "0D1117").opacity(0.5) : Color(hex: "F1F5F9"))
-        .cornerRadius(8)
+        .padding()
+    }
+
+    private var mediumWidget: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "hexagon.fill")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                    Text("Nexus")
+                        .font(.caption.bold())
+                }
+
+                Spacer()
+
+                WidgetStatRow(icon: "checkmark.circle", value: "\(entry.tasksCompleted)", label: "Tasks Done", color: .green)
+                WidgetStatRow(icon: "folder", value: "\(entry.activeProjects)", label: "Projects", color: .blue)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                if entry.pendingDecisions > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("\(entry.pendingDecisions)")
+                            .font(.title3.bold())
+                    }
+                    Text("decisions")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing) {
+                    Text(String(format: "$%.2f", entry.costToday))
+                        .font(.subheadline.monospacedDigit())
+                    Text("today")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding()
+    }
+}
+
+private struct WidgetStatRow: View {
+    let icon: String
+    let value: String
+    let label: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption2)
+                .foregroundStyle(color)
+            Text(value)
+                .font(.subheadline.bold().monospacedDigit())
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -726,61 +203,20 @@ struct NexusProgressWidget: Widget {
                 .containerBackground(.background, for: .widget)
         }
         .configurationDisplayName("Nexus Progress")
-        .description("Track your project progress, decisions, and active agents.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge])
+        .description("Track your project progress and task completion.")
+        .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
 
 // MARK: - Data models for widget
 
-private struct WidgetDashboardData: Codable {
-    var activeProject: ActiveProject?
-    var planProgress: Int
-    var pendingDecisions: Int
-    var activeAgents: [ActiveAgent]
-    var milestones: [Milestone]
-
-    struct ActiveProject: Codable {
-        var name: String
-    }
-
-    struct ActiveAgent: Codable {
-        var name: String
-        var progress: Int
-        var status: String
-    }
-
-    struct Milestone: Codable {
-        var name: String
-        var completed: Int
-        var total: Int
-    }
+private struct WidgetUsageData: Codable {
+    var totalCostUsd: Double
+    var tasksCompleted: Int
+    var tasksFailed: Int
 }
 
-// MARK: - Helper Extension
-
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
-        }
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: Double(a) / 255
-        )
-    }
+private struct WidgetProject: Codable {
+    var id: String
+    var status: String
 }

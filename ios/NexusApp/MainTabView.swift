@@ -5,33 +5,33 @@ struct MainTabView: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(PlanStore.self) private var planStore
     @Environment(NavigationContext.self) private var navigationContext
-    @State private var selectedTab: Tab = .pulse
+    @State private var selectedTab: Tab = .dashboard
     @State private var showVoiceChat = false
     @SwiftUI.Environment(\.horizontalSizeClass) private var sizeClass
 
     enum Tab: String, CaseIterable, Identifiable {
-        case pulse = "Pulse"
-        case plan = "Plan"
-        case agents = "Agents"
-        case environments = "Envs"
+        case dashboard = "Dashboard"
+        case projects = "Projects"
+        case myTasks = "My Tasks"
+        case settings = "Settings"
 
         var id: String { rawValue }
 
         var icon: String {
             switch self {
-            case .pulse: return "waveform.path.ecg"
-            case .plan: return "arrow.triangle.branch"
-            case .agents: return "bolt.fill"
-            case .environments: return "server.rack"
+            case .dashboard: return "square.grid.2x2"
+            case .projects: return "folder"
+            case .myTasks: return "checkmark.circle"
+            case .settings: return "gearshape"
             }
         }
 
         var keyboardShortcut: KeyEquivalent? {
             switch self {
-            case .pulse: return "1"
-            case .plan: return "2"
-            case .agents: return "3"
-            case .environments: return "4"
+            case .dashboard: return "1"
+            case .projects: return "2"
+            case .myTasks: return "3"
+            case .settings: return "4"
             }
         }
     }
@@ -49,10 +49,10 @@ struct MainTabView: View {
             realtimeStore.connect()
         }
         // Keyboard shortcuts for iPad/visionOS
-        .keyboardShortcut("1", modifiers: .command) { selectedTab = .pulse }
-        .keyboardShortcut("2", modifiers: .command) { selectedTab = .plan }
-        .keyboardShortcut("3", modifiers: .command) { selectedTab = .agents }
-        .keyboardShortcut("4", modifiers: .command) { selectedTab = .environments }
+        .keyboardShortcut("1", modifiers: .command) { selectedTab = .dashboard }
+        .keyboardShortcut("2", modifiers: .command) { selectedTab = .projects }
+        .keyboardShortcut("3", modifiers: .command) { selectedTab = .myTasks }
+        .keyboardShortcut("4", modifiers: .command) { selectedTab = .settings }
     }
 
     private var isCompact: Bool {
@@ -63,111 +63,102 @@ struct MainTabView: View {
         #endif
     }
 
-    // MARK: - iPhone: New pill-shaped tab bar
+    // MARK: - iPhone: Tab bar with centered voice button
 
     private var compactLayout: some View {
-        ZStack(alignment: .bottom) {
+        VStack(spacing: 0) {
             // Main content
             Group {
                 switch selectedTab {
-                case .pulse:
+                case .dashboard:
                     NavigationStack {
-                        PulseView()
+                        DashboardView()
                     }
-                case .plan:
+                case .projects:
                     NavigationStack {
                         ProjectListView()
                     }
-                case .agents:
+                case .myTasks:
                     NavigationStack {
-                        AgentsView()
+                        MyTasksView()
                     }
-                case .environments:
+                case .settings:
                     NavigationStack {
-                        EnvironmentsView()
+                        SettingsView()
                     }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            // New pill-shaped tab bar
-            modernTabBar
+            
+            // Custom tab bar with voice button in center
+            customTabBar
+        }
+        .sheet(isPresented: $showVoiceChat) {
+            VoiceChatSheet()
         }
         .onChange(of: selectedTab) { _, newTab in
             navigationContext.currentTabName = newTab.rawValue
             // Clear project/task context when leaving project tabs
-            if newTab != .plan {
+            if newTab != .projects {
                 navigationContext.currentProjectId = nil
                 navigationContext.currentNodeId = nil
             }
         }
     }
     
-    private var modernTabBar: some View {
-        VStack(spacing: 0) {
-            // Gradient fade with smoother transition
-            LinearGradient(
-                stops: [
-                    .init(color: Color.black.opacity(0), location: 0),
-                    .init(color: Color.black.opacity(0.3), location: 0.5),
-                    .init(color: Color.black.opacity(0.7), location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 40)
-
-            // Pill-shaped tab container with glass effect
-            HStack(spacing: 0) {
-                ForEach(Tab.allCases) { tab in
-                    tabBarButton(for: tab)
+    private var customTabBar: some View {
+        HStack(spacing: 0) {
+            // Dashboard
+            tabBarButton(for: .dashboard)
+            
+            // Projects
+            tabBarButton(for: .projects)
+            
+            // Voice button (center)
+            Button {
+                showVoiceChat = true
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 56, height: 56)
+                        .shadow(color: .accentColor.opacity(0.3), radius: 8, y: 4)
+                    
+                    Image(systemName: "waveform")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white)
                 }
             }
-            .padding(4)
-            .background(.thinMaterial)
-            .overlay(
-                RoundedRectangle(cornerRadius: 31)
-                    .strokeBorder(Color.glassStroke, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 31))
-            .shadow(color: .black.opacity(0.3), radius: 30, x: 0, y: -8)
-            .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: -2)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 24)
+            .offset(y: -12)
+            
+            // My Tasks
+            tabBarButton(for: .myTasks)
+            
+            // Settings
+            tabBarButton(for: .settings)
         }
-        .ignoresSafeArea(edges: .bottom)
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .background {
+            Rectangle()
+                .fill(.bar)
+                .ignoresSafeArea(edges: .bottom)
+        }
     }
-
+    
     private func tabBarButton(for tab: Tab) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                selectedTab = tab
-            }
+            selectedTab = tab
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 24))
-                    .symbolRenderingMode(.hierarchical)
-
+                    .font(.system(size: 20))
                 Text(tab.rawValue)
-                    .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .medium))
+                    .font(.caption2)
             }
-            .foregroundStyle(selectedTab == tab ? .primary : .secondary)
+            .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
             .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .background(
-                Group {
-                    if selectedTab == tab {
-                        RoundedRectangle(cornerRadius: 27)
-                            .fill(.regularMaterial)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 27)
-                                    .strokeBorder(Color.glassStroke, lineWidth: 0.5)
-                            )
-                            .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 2)
-                    }
-                }
-            )
         }
     }
 
@@ -225,7 +216,7 @@ struct MainTabView: View {
             Section("Projects") {
                 ForEach(projectStore.activeProjects) { project in
                     Button {
-                        selectedTab = .plan
+                        selectedTab = .projects
                         selectedProjectId = project.id
                     } label: {
                         HStack {
@@ -258,21 +249,18 @@ struct MainTabView: View {
     @ViewBuilder
     private var iPadContent: some View {
         switch selectedTab {
-        case .pulse:
-            PulseView()
-        case .plan:
+        case .dashboard:
+            DashboardView()
+        case .projects:
             if let projectId = selectedProjectId {
-                // Use iPad-optimized plan graph view with built-in inspector
-                PlanGraphViewiPad(projectId: projectId)
+                ProjectDetailView(projectId: projectId)
             } else {
                 ProjectListView()
             }
-        case .agents:
-            // Use iPad-optimized agents view with built-in detail panel
-            AgentsViewiPad()
-        case .environments:
-            // Use iPad-optimized environments view with built-in detail panel
-            EnvironmentsViewiPad()
+        case .myTasks:
+            MyTasksView()
+        case .settings:
+            SettingsView()
         }
     }
 
@@ -280,7 +268,7 @@ struct MainTabView: View {
     private var iPadDetail: some View {
         if let nodeId = selectedNodeId, let projectId = selectedProjectId {
             TaskDetailView(nodeId: nodeId, projectId: projectId)
-        } else if selectedTab == .plan, let projectId = selectedProjectId {
+        } else if selectedTab == .projects, let projectId = selectedProjectId {
             PlanGraphView(projectId: projectId)
         } else {
             ContentUnavailableView("Select an Item", systemImage: "sidebar.right", description: Text("Choose a task or project to see details."))
@@ -311,5 +299,3 @@ private extension View {
         }
     }
 }
-
-// Color extension moved to Extensions/ColorExtensions.swift

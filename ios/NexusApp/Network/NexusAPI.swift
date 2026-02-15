@@ -169,35 +169,23 @@ actor NexusAPI {
         try await request("GET", path: "/api/device/machines")
     }
 
-    func getBestMachine(environment: String, provider: String? = nil) async throws -> BestMachineResponse {
-        var path = "/api/relay/best-machine?environment=\(environment)"
-        if let provider { path += "&provider=\(provider)" }
-        return try await request("GET", path: path)
-    }
-
-    // MARK: - Device Auth
-
     func requestDeviceCode() async throws -> DeviceCodeResponse {
-        try await request("POST", path: "/api/device/authorize", body: [:] as [String: String])
+        try await request("POST", path: "/api/device/authorize")
     }
 
     func pollDeviceToken(deviceCode: String) async throws -> DeviceTokenResponse {
-        try await request("POST", path: "/api/device/token", body: ["device_code": deviceCode])
-    }
-
-    func registerMachine(name: String, hostname: String, platform: String, environmentType: String, providers: [String]) async throws -> RegisterMachineResponse {
-        let body: [String: AnyCodable] = [
-            "name": AnyCodable(name),
-            "hostname": AnyCodable(hostname),
-            "platform": AnyCodable(platform),
-            "environmentType": AnyCodable(environmentType),
-            "providers": AnyCodable(providers)
-        ]
-        return try await request("POST", path: "/api/device/register", body: body)
+        let body = ["device_code": deviceCode]
+        return try await request("POST", path: "/api/device/token", body: body)
     }
 
     func revokeMachine(id: String) async throws {
         try await requestVoid("DELETE", path: "/api/device/machines/\(id)")
+    }
+
+    func getBestMachine(environment: String, provider: String? = nil) async throws -> BestMachineResponse {
+        var path = "/api/relay/best-machine?environment=\(environment)"
+        if let provider { path += "&provider=\(provider)" }
+        return try await request("GET", path: path)
     }
 
     // MARK: - Providers
@@ -324,17 +312,20 @@ struct RegisteredMachinesResponse: Codable {
     var count: Int
 }
 
-struct BestMachineResponse: Codable {
-    var machine: MachineInfo?
-    var error: String?
-}
-
 struct DeviceCodeResponse: Codable {
     var deviceCode: String
     var userCode: String
     var verificationUri: String
     var expiresIn: Int
     var interval: Int
+
+    enum CodingKeys: String, CodingKey {
+        case deviceCode = "device_code"
+        case userCode = "user_code"
+        case verificationUri = "verification_uri"
+        case expiresIn = "expires_in"
+        case interval
+    }
 }
 
 struct DeviceTokenResponse: Codable {
@@ -342,15 +333,18 @@ struct DeviceTokenResponse: Codable {
     var refreshToken: String?
     var expiresIn: Int?
     var error: String?
-    var errorDescription: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+        case error
+    }
 }
 
-struct RegisterMachineResponse: Codable {
-    var machineId: String
-    var accessToken: String
-    var refreshToken: String
-    var wsToken: String
-    var expiresIn: Int
+struct BestMachineResponse: Codable {
+    var machine: MachineInfo?
+    var error: String?
 }
 
 struct ProvidersResponse: Codable {

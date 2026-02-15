@@ -88,10 +88,6 @@ struct StatCard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding()
-        .glassCard(cornerRadius: 12, material: .regularMaterial, shadowRadius: 16, shadowY: 6)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(color.opacity(0.03))
-        )
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }

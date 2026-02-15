@@ -13,7 +13,6 @@ struct FloatingVoiceButton: View {
                     .fill(.tint)
                     .frame(width: 56, height: 56)
                     .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                    .glow(color: .nexusBlue, radius: 12)
 
                 if speechRecognizer.isRecording {
                     // Pulsing ring when recording
