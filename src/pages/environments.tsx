@@ -303,9 +303,9 @@ export function Environments() {
   )
   const hpcMachines = liveMachines.filter((m) => hpcMachineIds.has(m.machineId))
 
-  // All live machines that are NOT HPC (shown in Remote section)
+  // Remote machines: non-HPC, non-local machines
   const remoteLiveMachines = liveMachines.filter(
-    (m) => !hpcMachineIds.has(m.machineId)
+    (m) => !hpcMachineIds.has(m.machineId) && m.environmentType !== 'local'
   )
 
   // Registered machines that are not currently connected live, split by HPC vs non-HPC
