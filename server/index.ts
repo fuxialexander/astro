@@ -93,12 +93,20 @@ if (!isTest()) {
     keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
   }))
 
-  app.use('/api/device/*', rateLimiter({
-    windowMs: 15 * 60 * 1000,
-    limit: 5,
-    standardHeaders: 'draft-7',
-    keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
-  }))
+  // Device endpoints rate limiter - excludes /token which has its own rate limiting
+  app.use('/api/device/*', async (c, next) => {
+    // Skip rate limiting for token polling endpoint (has its own internal rate limiting)
+    if (c.req.path === '/api/device/token') {
+      return next()
+    }
+
+    return rateLimiter({
+      windowMs: 15 * 60 * 1000,
+      limit: 20, // Increased from 5 to accommodate device registration flow
+      standardHeaders: 'draft-7',
+      keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+    })(c, next)
+  })
 }
 
 // AI endpoints rate limiter (10 req/hour) - bypassed in test mode
