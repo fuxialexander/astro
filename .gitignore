@@ -170,3 +170,8 @@ UI.pen
 
 # Swift build artifacts
 .build/
+
+# Xcode user-specific files
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
