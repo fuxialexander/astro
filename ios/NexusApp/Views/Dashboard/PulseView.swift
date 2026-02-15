@@ -43,7 +43,16 @@ struct PulseView: View {
                 .padding(.bottom, 100) // Extra padding for tab bar
             }
         }
-        .background(Color(hex: "0A0E1A"))
+        .background(
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.85),
+                    Color(hex: "0A0E1A").opacity(0.9)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
         .task {
             await planStore.loadPlans(projectIds: projectStore.projects.map(\.id))
         }
@@ -74,17 +83,22 @@ private struct DecisionCard: View {
             HStack {
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(Color(hex: "F59E0B"))
+                        .fill(Color.nexusAmber)
                         .frame(width: 8, height: 8)
 
                     Text("Awaiting Judgment")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(hex: "F59E0B"))
+                        .foregroundStyle(Color.nexusAmber)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Color(hex: "F59E0B").opacity(0.12))
+                .background(Color.nexusAmber.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.nexusAmber.opacity(0.3), lineWidth: 1)
+                )
+                .glow(color: .nexusAmber, radius: 4)
 
                 Spacer()
 
@@ -105,22 +119,21 @@ private struct DecisionCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 14))
-                        .foregroundStyle(Color(hex: "3B82F6"))
+                        .foregroundStyle(Color.nexusBlue)
 
                     Text("AI Recommendation")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(hex: "3B82F6"))
+                        .foregroundStyle(Color.nexusBlue)
                 }
 
                 Text(node.executionOutput ?? "Review the execution results and approve or reject this change.")
                     .font(.system(size: 14))
-                    .foregroundStyle(Color(hex: "64748B"))
+                    .foregroundStyle(.secondary)
                     .lineSpacing(6)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(14)
-            .background(Color(hex: "1E293B"))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .glassCard(cornerRadius: 12, material: .regularMaterial, shadowRadius: 8, shadowY: 4)
 
             // Actions
             HStack(spacing: 10) {
@@ -141,8 +154,10 @@ private struct DecisionCard: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color(hex: "16A34A"))
+                    .background(Color.nexusGreen)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .shadow(color: Color.nexusGreen.opacity(0.3), radius: 12, x: 0, y: 4)
+                    .glow(color: .nexusGreen, radius: 6)
                 }
 
                 // Reject
@@ -155,15 +170,16 @@ private struct DecisionCard: View {
                 } label: {
                     Text("Reject")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: "64748B"))
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(Color(hex: "1E293B"))
+                        .background(.thinMaterial)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(Color(hex: "1E293B").opacity(0.25), lineWidth: 1)
+                                .strokeBorder(.glassStroke, lineWidth: 1)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .glassShadow, radius: 8, x: 0, y: 2)
                 }
 
                 // Defer
@@ -172,49 +188,20 @@ private struct DecisionCard: View {
                 } label: {
                     Text("Defer")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: "64748B"))
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(Color(hex: "1E293B"))
+                        .background(.thinMaterial)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(Color(hex: "1E293B").opacity(0.25), lineWidth: 1)
+                                .strokeBorder(.glassStroke, lineWidth: 1)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .glassShadow, radius: 8, x: 0, y: 2)
                 }
             }
         }
         .padding(20)
-        .background(Color(hex: "111827"))
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 4)
-    }
-}
-
-// MARK: - Color Extension
-
-private extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
-        }
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: Double(a) / 255
-        )
+        .glassCard(cornerRadius: 20, material: .ultraThinMaterial, shadowRadius: 24, shadowY: 8)
     }
 }

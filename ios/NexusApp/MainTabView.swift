@@ -105,31 +105,33 @@ struct MainTabView: View {
     
     private var modernTabBar: some View {
         VStack(spacing: 0) {
-            // Gradient fade
+            // Gradient fade with smoother transition
             LinearGradient(
                 stops: [
-                    .init(color: Color(hex: "0A0E1A").opacity(0), location: 0),
-                    .init(color: Color(hex: "0A0E1A"), location: 0.5)
+                    .init(color: Color.black.opacity(0), location: 0),
+                    .init(color: Color.black.opacity(0.3), location: 0.5),
+                    .init(color: Color.black.opacity(0.7), location: 1.0)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
             .frame(height: 40)
 
-            // Pill-shaped tab container
+            // Pill-shaped tab container with glass effect
             HStack(spacing: 0) {
                 ForEach(Tab.allCases) { tab in
                     tabBarButton(for: tab)
                 }
             }
             .padding(4)
-            .background(Color(hex: "1E293B"))
+            .background(.thinMaterial)
             .overlay(
                 RoundedRectangle(cornerRadius: 31)
-                    .strokeBorder(Color(hex: "1E293B").opacity(0.25), lineWidth: 1)
+                    .strokeBorder(.glassStroke, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 31))
-            .shadow(color: .black.opacity(0.25), radius: 24, x: 0, y: -4)
+            .shadow(color: .black.opacity(0.3), radius: 30, x: 0, y: -8)
+            .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: -2)
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
         }
@@ -150,9 +152,22 @@ struct MainTabView: View {
                 Text(tab.rawValue)
                     .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .medium))
             }
-            .foregroundStyle(selectedTab == tab ? .primary : Color(hex: "64748B"))
+            .foregroundStyle(selectedTab == tab ? .primary : .secondary)
             .frame(maxWidth: .infinity)
             .frame(height: 54)
+            .background(
+                Group {
+                    if selectedTab == tab {
+                        RoundedRectangle(cornerRadius: 27)
+                            .fill(.regularMaterial)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 27)
+                                    .strokeBorder(.glassStroke, lineWidth: 0.5)
+                            )
+                            .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 2)
+                    }
+                }
+            )
         }
     }
 
@@ -297,30 +312,4 @@ private extension View {
     }
 }
 
-// MARK: - Color Extension
-
-private extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
-        }
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: Double(a) / 255
-        )
-    }
-}
+// Color extension moved to Extensions/ColorExtensions.swift

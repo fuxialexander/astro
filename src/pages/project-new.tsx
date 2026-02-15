@@ -122,6 +122,8 @@ export function ProjectNew() {
     // Always use repo setup — handles creating dir, git init, clone, file tree
     setGenerationPhase(id, 'repo_setup')
     try {
+      console.log('[project-new] Calling setupRepo with:', { projectId: id, workingDirectory: workingDir.trim() || undefined, repository: repoUrl.trim() || undefined, targetMachineId: selectedMachine?.machineId })
+
       const repoResult = await setupRepo({
         projectId: id,
         projectName,
@@ -131,7 +133,10 @@ export function ProjectNew() {
         targetMachineId: selectedMachine?.machineId || undefined,
       })
 
+      console.log('[project-new] Repo setup result:', repoResult)
+
       if (repoResult?.workingDirectory) {
+        console.log('[project-new] Starting generation with working directory:', repoResult.workingDirectory)
         startGeneration(id, projectName, description.trim(), undefined, {
           workingDirectory: repoResult.workingDirectory,
           fileTree: repoResult.fileTree,
@@ -140,13 +145,14 @@ export function ProjectNew() {
         })
       } else {
         // Repo setup returned null (needsGitInit or error) — generate without context
+        console.warn('[project-new] Repo setup returned null, generating without working directory')
         setRepoSetupError('Repository setup returned incomplete data')
         startGeneration(id, projectName, description.trim())
       }
     } catch (error) {
       // Repo setup failed — save error and proceed with plan generation without context
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[project-new] Repo setup failed:', errorMsg)
+      console.error('[project-new] Repo setup failed:', errorMsg, error)
       setRepoSetupError(errorMsg)
       setGenerationPhase(id, null)
 

@@ -49,14 +49,14 @@ struct AgentsView: View {
                             label: "Running",
                             value: "\(totalRunning)",
                             icon: "play.circle.fill",
-                            color: Color(hex: "3B82F6")
+                            color: .nexusBlue
                         )
 
                         AgentStatCard(
                             label: "Completed Today",
                             value: "\(totalCompleted)",
                             icon: "checkmark.circle.fill",
-                            color: Color(hex: "16A34A")
+                            color: .nexusGreen
                         )
                     }
 
@@ -88,7 +88,16 @@ struct AgentsView: View {
                 .padding(.bottom, 100) // Extra padding for tab bar
             }
         }
-        .background(Color(hex: "0A0E1A"))
+        .background(
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.85),
+                    Color(hex: "0A0E1A").opacity(0.9)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
         .navigationDestination(for: PlanNode.self) { node in
             TaskDetailView(nodeId: node.id, projectId: node.projectId ?? "")
         }
@@ -120,13 +129,15 @@ private struct AgentStatCard: View {
 
             Text(label)
                 .font(.system(size: 12))
-                .foregroundStyle(Color(hex: "64748B"))
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color(hex: "111827"))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 4)
+        .glassCard(cornerRadius: 16, material: .ultraThinMaterial, shadowRadius: 20, shadowY: 6)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(color.opacity(0.05))
+        )
     }
 }
 
@@ -202,11 +213,11 @@ private struct AgentRow: View {
                     HStack(spacing: 6) {
                         Image(systemName: "laptopcomputer")
                             .font(.system(size: 10))
-                            .foregroundStyle(Color(hex: "475569"))
+                            .foregroundStyle(.tertiary)
 
                         Text("\(machineName) · \(providerName)")
                             .font(.system(size: 12))
-                            .foregroundStyle(Color(hex: "475569"))
+                            .foregroundStyle(.tertiary)
                     }
                 }
 
@@ -214,19 +225,20 @@ private struct AgentRow: View {
 
                 Text(elapsedTime)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: "64748B"))
+                    .foregroundStyle(.secondary)
             }
 
             // Progress bar
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color(hex: "1E293B"))
+                        .fill(.tertiary.opacity(0.3))
                         .frame(height: 4)
 
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color(hex: "3B82F6"))
+                        .fill(Color.nexusBlue)
                         .frame(width: geometry.size.width * progress, height: 4)
+                        .glow(color: .nexusBlue, radius: 3)
                 }
             }
             .frame(height: 4)
@@ -234,40 +246,10 @@ private struct AgentRow: View {
             // Latest output
             Text(latestOutput)
                 .font(.system(size: 12))
-                .foregroundStyle(Color(hex: "475569"))
+                .foregroundStyle(.tertiary)
                 .lineLimit(1)
         }
         .padding(16)
-        .background(Color(hex: "111827"))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: 2)
-    }
-}
-
-// MARK: - Color Extension
-
-private extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
-        }
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: Double(a) / 255
-        )
+        .glassCard(cornerRadius: 16, material: .ultraThinMaterial, shadowRadius: 16, shadowY: 4)
     }
 }

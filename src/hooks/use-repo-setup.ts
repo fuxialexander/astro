@@ -29,6 +29,7 @@ export function useRepoSetup() {
   const [gitInitPrompt, setGitInitPrompt] = useState<GitInitPrompt | null>(null)
 
   async function setupRepo(params: RepoSetupParams): Promise<RepoSetupResult | null> {
+    console.log('[repo-setup] Starting repo setup for project:', params.projectId, params)
     try {
       const res = await fetch('/api/repo/setup', {
         method: 'POST',
@@ -42,13 +43,15 @@ export function useRepoSetup() {
           targetMachineId: params.targetMachineId,
         }),
       })
+      console.log('[repo-setup] Response status:', res.status, res.statusText)
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         const errorMsg = errorData.error || 'Repo setup failed'
-        console.error('[repo-setup] Setup failed:', errorMsg)
+        console.error('[repo-setup] Setup failed:', errorMsg, errorData)
         throw new Error(errorMsg)
       }
       const data = await res.json()
+      console.log('[repo-setup] Success! Data:', data)
 
       if (data.needsGitInit) {
         setGitInitPrompt({
