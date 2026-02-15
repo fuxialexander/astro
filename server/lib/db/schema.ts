@@ -1,167 +1,257 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
+import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey } from 'drizzle-orm/pg-core'
 
 // ── Projects ──────────────────────────────────────────────────────────
-export const projects = sqliteTable('projects', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull().default('dev-user'),
+export const projects = pgTable('projects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').notNull(),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   visionDoc: text('vision_doc').notNull().default(''),
   status: text('status').notNull().default('active'), // 'active' | 'archived'
-  startDate: text('start_date'),
-  targetDate: text('target_date'),
+  startDate: date('start_date'),
+  targetDate: date('target_date'),
   lead: text('lead'),
   health: text('health'), // 'on_track' | 'at_risk' | 'off_track'
   initiative: text('initiative'),
   progress: integer('progress').default(0),
-  labels: text('labels', { mode: 'json' }).$type<{ id: string; name: string; color: string }[]>().default([]),
+  labels: jsonb('labels').$type<{ id: string; name: string; color: string }[]>().notNull().default([]),
   workingDirectory: text('working_directory'),
-  repository: text('repository'),
-  defaultEnvironment: text('default_environment'), // 'local' | 'remote' | 'hpc' | 'cloud'
-  defaultMachineId: text('default_machine_id'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
 // ── Plan Nodes ────────────────────────────────────────────────────────
-export const planNodes = sqliteTable('plan_nodes', {
-  id: text('id').primaryKey(),
-  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+export const planNodes = pgTable('plan_nodes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  clientId: text('client_id').notNull(), // Preserve client-generated IDs for compatibility
   type: text('type').notNull(), // 'milestone' | 'task' | 'branch' | 'decision'
   title: text('title').notNull(),
   description: text('description').notNull().default(''),
   status: text('status').notNull().default('planned'),
   parentId: text('parent_id'),
-  dependencies: text('dependencies', { mode: 'json' }).$type<string[]>().default([]),
-  environment: text('environment'), // 'local' | 'remote' | 'hpc' | 'cloud'
+  environment: text('environment'), // 'local' | 'hpc' | 'cloud'
   verification: text('verification').notNull().default('auto'),
-  position: text('position', { mode: 'json' }).$type<{ x: number; y: number }>().notNull(),
-  startDate: text('start_date'),
-  endDate: text('end_date'),
+  positionX: real('position_x').notNull().default(0),
+  positionY: real('position_y').notNull().default(0),
+  startDate: date('start_date'),
+  endDate: date('end_date'),
+  dueDate: date('due_date'),
   priority: text('priority'),
-  labelIds: text('label_ids', { mode: 'json' }).$type<string[]>(),
-  dueDate: text('due_date'),
   estimate: text('estimate'),
   milestoneId: text('milestone_id'),
-  boardOrder: integer('board_order'),
+  labelIds: text('label_ids').array(),
   executionId: text('execution_id'),
   executionOutput: text('execution_output'),
   executionError: text('execution_error'),
-  executionStartedAt: integer('execution_started_at', { mode: 'timestamp_ms' }),
-  executionCompletedAt: integer('execution_completed_at', { mode: 'timestamp_ms' }),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  executionStartedAt: timestamp('execution_started_at'),
+  executionCompletedAt: timestamp('execution_completed_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+// ── Plan Node Dependencies ────────────────────────────────────────────
+export const planNodeDependencies = pgTable('plan_node_dependencies', {
+  nodeProjectId: uuid('node_project_id').notNull(),
+  nodeClientId: text('node_client_id').notNull(),
+  dependsOnClientId: text('depends_on_client_id').notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.nodeProjectId, table.nodeClientId, table.dependsOnClientId] }),
+}))
+
 // ── Plan Edges ────────────────────────────────────────────────────────
-export const planEdges = sqliteTable('plan_edges', {
-  id: text('id').primaryKey(),
-  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  source: text('source').notNull(),
-  target: text('target').notNull(),
+export const planEdges = pgTable('plan_edges', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  clientId: text('client_id').notNull(),
+  sourceClientId: text('source_client_id').notNull(),
+  targetClientId: text('target_client_id').notNull(),
   type: text('type').notNull().default('dependency'), // 'dependency' | 'branch'
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
 // ── User Profiles ─────────────────────────────────────────────────────
-export const userProfiles = sqliteTable('user_profiles', {
-  id: text('id').primaryKey(),
+export const userProfiles = pgTable('user_profiles', {
+  id: uuid('id').primaryKey(),
   name: text('name').notNull().default(''),
   email: text('email').notNull().default(''),
   avatarUrl: text('avatar_url'),
   bio: text('bio').default(''),
-  domains: text('domains', { mode: 'json' }).$type<string[]>().default([]),
+  domains: text('domains').array().notNull().default([]),
   experienceLevel: text('experience_level').notNull().default('intermediate'),
-  preferredEnvironments: text('preferred_environments', { mode: 'json' }).$type<string[]>().default(['local']),
-  notificationsEnabled: integer('notifications_enabled', { mode: 'boolean' }).notNull().default(true),
-  emailNotifications: integer('email_notifications', { mode: 'boolean' }).notNull().default(false),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
-})
-
-// ── API Keys ──────────────────────────────────────────────────────────
-export const apiKeys = sqliteTable('api_keys', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull().references(() => userProfiles.id, { onDelete: 'cascade' }),
-  provider: text('provider').notNull(),
-  name: text('name').notNull(),
-  maskedKey: text('masked_key').notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  preferredEnvironments: text('preferred_environments').array().notNull().default(['local']),
+  notificationsEnabled: boolean('notifications_enabled').notNull().default(true),
+  emailNotifications: boolean('email_notifications').notNull().default(false),
+  apiKeys: jsonb('api_keys').$type<Array<{ id: string; provider: string; name: string; maskedKey: string }>>().notNull().default([]),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
 // ── Display Settings ──────────────────────────────────────────────────
-export const displaySettings = sqliteTable('display_settings', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  userId: text('user_id').notNull(),
+export const displaySettings = pgTable('display_settings', {
+  userId: uuid('user_id').notNull(),
   viewKey: text('view_key').notNull(),
-  settings: text('settings', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
-})
+  settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.viewKey] }),
+}))
 
 // ── Usage Metrics ─────────────────────────────────────────────────────
-export const usageMetrics = sqliteTable('usage_metrics', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  userId: text('user_id').notNull(),
-  sessionDate: text('session_date').notNull(), // YYYY-MM-DD
+export const usageMetrics = pgTable('usage_metrics', {
+  userId: uuid('user_id').notNull(),
+  sessionDate: date('session_date').notNull(),
   totalCostUsd: real('total_cost_usd').notNull().default(0),
   totalInputTokens: integer('total_input_tokens').notNull().default(0),
   totalOutputTokens: integer('total_output_tokens').notNull().default(0),
   tasksCompleted: integer('tasks_completed').notNull().default(0),
   tasksFailed: integer('tasks_failed').notNull().default(0),
-})
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.sessionDate] }),
+}))
 
 // ── Task Chat Sessions ────────────────────────────────────────────────
-export const taskChatSessions = sqliteTable('task_chat_sessions', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const taskChatSessions = pgTable('task_chat_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
   nodeId: text('node_id').notNull(),
-  userId: text('user_id').notNull(),
-  projectId: text('project_id').notNull(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull(),
   sessionId: text('session_id'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
 // ── Task Chat Messages ────────────────────────────────────────────────
-export const taskChatMessages = sqliteTable('task_chat_messages', {
+export const taskChatMessages = pgTable('task_chat_messages', {
   id: text('id').primaryKey(),
-  sessionNodeId: text('session_node_id').notNull(),
-  sessionUserId: text('session_user_id').notNull(),
+  sessionId: uuid('session_id').notNull().references(() => taskChatSessions.id, { onDelete: 'cascade' }),
   role: text('role').notNull(), // 'user' | 'assistant'
   content: text('content').notNull(),
-  timestamp: integer('timestamp', { mode: 'timestamp_ms' }).notNull(),
-})
-
-// ── App Settings ──────────────────────────────────────────────────────
-export const appSettings = sqliteTable('app_settings', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  userId: text('user_id').notNull(),
-  key: text('key').notNull(),
-  value: text('value').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
 // ── Push Tokens ──────────────────────────────────────────────────────
-export const pushTokens = sqliteTable('push_tokens', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  userId: text('user_id').notNull(),
+// Note: This table may be in a later migration (0003_push_tokens.sql)
+export const pushTokens = pgTable('push_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
   deviceToken: text('device_token').notNull(),
   platform: text('platform').notNull().default('ios'),
-  preferences: text('preferences', { mode: 'json' }).$type<Record<string, unknown>>().default({}),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+  preferences: jsonb('preferences').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
 // ── Registered Machines ──────────────────────────────────────────────
-export const registeredMachines = sqliteTable('registered_machines', {
+export const registeredMachines = pgTable('registered_machines', {
   id: text('id').primaryKey(),
-  userId: text('user_id').notNull(),
+  userId: uuid('user_id').notNull(),
   name: text('name').notNull(),
   hostname: text('hostname').notNull(),
   platform: text('platform').notNull(),
   environmentType: text('environment_type').notNull().default('local'),
-  providers: text('providers', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  providers: text('providers').array().notNull().default([]),
   workspaceId: text('workspace_id'),
-  refreshTokenHash: text('refresh_token_hash').notNull().default(''),
-  metadata: text('metadata', { mode: 'json' }).$type<Record<string, string>>(),
-  isConnected: integer('is_connected', { mode: 'boolean' }).notNull().default(false),
-  isRevoked: integer('is_revoked', { mode: 'boolean' }).notNull().default(false),
-  registeredAt: integer('registered_at', { mode: 'timestamp_ms' }).notNull(),
-  lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
+  isConnected: boolean('is_connected').notNull().default(false),
+  isRevoked: boolean('is_revoked').notNull().default(false),
+  refreshTokenHash: text('refresh_token_hash').notNull(),
+  metadata: jsonb('metadata').$type<Record<string, string>>(),
+  registeredAt: timestamp('registered_at').notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at').notNull().defaultNow(),
+})
+
+// ── Project Members ──────────────────────────────────────────────────
+export const projectMembers = pgTable('project_members', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull(),
+  role: text('role').notNull().default('viewer'), // 'owner' | 'editor' | 'viewer'
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.projectId, table.userId] }),
+}))
+
+// ── Task Executions ──────────────────────────────────────────────────
+export const taskExecutions = pgTable('task_executions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  executionId: text('execution_id').notNull().unique(),
+  nodeClientId: text('node_client_id').notNull(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'success' | 'failure' | 'cancelled'
+  streamText: text('stream_text').notNull().default(''),
+  error: text('error'),
+  startedAt: timestamp('started_at').notNull().defaultNow(),
+  completedAt: timestamp('completed_at'),
+  sessionId: text('session_id'),
+  machineId: text('machine_id'),
+  providerId: text('provider_id'),
+  providerName: text('provider_name'),
+  durationMs: integer('duration_ms'),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  tokensUsed: integer('tokens_used'),
+  estimatedCostUsd: real('estimated_cost_usd'),
+  model: text('model'),
+  turnsUsed: integer('turns_used'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// ── Tool Traces ──────────────────────────────────────────────────────
+export const toolTraces = pgTable('tool_traces', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  executionId: text('execution_id').notNull(),
+  toolName: text('tool_name').notNull(),
+  toolInput: jsonb('tool_input'),
+  toolResult: jsonb('tool_result'),
+  success: boolean('success'),
+  duration: integer('duration'),
+  timestamp: timestamp('timestamp').notNull().defaultNow(),
+})
+
+// ── File Changes ──────────────────────────────────────────────────────
+export const fileChanges = pgTable('file_changes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  executionId: text('execution_id').notNull(),
+  path: text('path').notNull(),
+  action: text('action').notNull(), // 'create' | 'modify' | 'delete'
+  linesAdded: integer('lines_added'),
+  linesRemoved: integer('lines_removed'),
+  timestamp: timestamp('timestamp').notNull().defaultNow(),
+})
+
+// ── Refresh Tokens ────────────────────────────────────────────────────
+export const refreshTokens = pgTable('refresh_tokens', {
+  tokenHash: text('token_hash').primaryKey(),
+  machineId: text('machine_id').notNull().references(() => registeredMachines.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull(),
+  workspaceId: text('workspace_id'),
+  scopes: text('scopes').array().notNull().default([]),
+  isRevoked: boolean('is_revoked').notNull().default(false),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// ── Passkey Credentials ──────────────────────────────────────────────
+export const passkeyCredentials = pgTable('passkey_credentials', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+  publicKey: text('public_key').notNull(), // Changed from bytea to text (base64)
+  counter: integer('counter').notNull().default(0),
+  transports: text('transports').array(),
+  deviceName: text('device_name'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at'),
+})
+
+// ── Audit Logs ────────────────────────────────────────────────────────
+export const auditLogs = pgTable('audit_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  action: text('action').notNull(), // e.g. 'account.create', 'api_key.create', 'machine.register'
+  resourceType: text('resource_type').notNull(), // e.g. 'account', 'api_key', 'machine', 'project'
+  resourceId: text('resource_id'), // ID of the affected resource
+  details: jsonb('details').$type<Record<string, unknown>>().default({}), // Additional context (non-sensitive)
+  ipAddress: text('ip_address'), // Source IP address
+  userAgent: text('user_agent'), // User agent string
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 })

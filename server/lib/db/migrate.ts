@@ -1,15 +1,8 @@
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
-import { db } from './index.js'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+// Migrations are now handled by Supabase (supabase/migrations/)
+// Run `npx supabase db reset` or `npx supabase migration up` to apply migrations
 
 export function runMigrations() {
-  const migrationsFolder = join(__dirname, '../../../drizzle')
-  console.log('[db] Running migrations from', migrationsFolder)
-  migrate(db, { migrationsFolder })
-  console.log('[db] Migrations complete')
+  // No-op: Drizzle auto-migrations disabled since we're using Supabase Postgres
+  // All schema changes should be made via Supabase migrations in supabase/migrations/
+  console.log('[db] Using Supabase migrations (managed via npx supabase db)')
 }

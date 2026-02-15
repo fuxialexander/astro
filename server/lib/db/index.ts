@@ -1,21 +1,20 @@
-import Database from 'better-sqlite3'
-import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { drizzle } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
 import * as schema from './schema.js'
-import { existsSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { getServiceClient } from '../supabase.js'
 
-const dbDir = join(homedir(), '.nexus')
-if (!existsSync(dbDir)) {
-  mkdirSync(dbDir, { recursive: true })
-}
+// Use Supabase Postgres connection
+// For local development, use direct Postgres connection (port 54322)
+// For production, use DATABASE_URL from env
+const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 
-const dbPath = join(dbDir, 'nexus.db')
-const sqlite = new Database(dbPath)
+const client = postgres(connectionString, {
+  max: 10,
+  idle_timeout: 20,
+  connect_timeout: 10,
+})
 
-// Enable WAL mode for concurrent reads
-sqlite.pragma('journal_mode = WAL')
-sqlite.pragma('foreign_keys = ON')
+export const db = drizzle(client, { schema })
 
-export const db = drizzle(sqlite, { schema })
-export { sqlite }
+// For backwards compatibility, export getServiceClient for Supabase-specific operations
+export { getServiceClient }

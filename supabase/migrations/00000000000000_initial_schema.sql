@@ -68,6 +68,24 @@ create trigger user_profiles_updated_at
   before update on user_profiles
   for each row execute function update_updated_at();
 
+-- Audit logs table (for security and compliance)
+create table audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  action text not null,
+  resource_type text not null,
+  resource_id text,
+  details jsonb default '{}',
+  ip_address text,
+  user_agent text,
+  created_at timestamptz not null default now()
+);
+
+create index idx_audit_logs_user_id on audit_logs(user_id);
+create index idx_audit_logs_action on audit_logs(action);
+create index idx_audit_logs_resource_type on audit_logs(resource_type);
+create index idx_audit_logs_created_at on audit_logs(created_at);
+
 -- Projects (includes repository column from start)
 create table projects (
   id uuid primary key default uuid_generate_v4(),

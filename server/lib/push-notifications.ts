@@ -1,6 +1,7 @@
 import { db } from './db/index.js'
 import { pushTokens } from './db/schema.js'
 import { eq } from 'drizzle-orm'
+import jwt from 'jsonwebtoken'
 
 // Apple Push Notification Service (APNs) HTTP/2 client
 // In production, use @parse/node-apn or similar library
@@ -46,18 +47,55 @@ export async function sendPushNotification(userId: string, eventType: EventType,
 }
 
 /**
+ * Generate APNs JWT token for authentication
+ * Uses ES256 algorithm with .p8 private key
+ */
+function generateAPNsToken(keyId: string, teamId: string, authKey: string): string {
+  const now = Math.floor(Date.now() / 1000)
+
+  return jwt.sign(
+    {
+      iss: teamId,
+      iat: now,
+    },
+    authKey,
+    {
+      algorithm: 'ES256',
+      header: {
+        alg: 'ES256',
+        kid: keyId,
+      },
+    }
+  )
+}
+
+// Cache APNs token (valid for 1 hour)
+let cachedToken: { token: string; expiresAt: number } | null = null
+
+/**
  * Send notification via Apple APNs HTTP/2 API
- * In production, configure with APNs auth key (.p8 file)
+ * Requires APNs auth key (.p8 file content) in APNS_AUTH_KEY env var
  */
 async function sendAPNs(deviceToken: string, payload: PushPayload) {
   const apnsHost = process.env.APNS_HOST || 'https://api.sandbox.push.apple.com'
   const teamId = process.env.APNS_TEAM_ID
   const keyId = process.env.APNS_KEY_ID
+  const authKey = process.env.APNS_AUTH_KEY // .p8 file content
   const bundleId = process.env.APNS_BUNDLE_ID || 'com.nexus.app'
 
-  if (!teamId || !keyId) {
-    console.warn('[push] APNs not configured (missing APNS_TEAM_ID/APNS_KEY_ID), skipping notification')
+  if (!teamId || !keyId || !authKey) {
+    console.warn('[push] APNs not configured (missing APNS_TEAM_ID/APNS_KEY_ID/APNS_AUTH_KEY), skipping notification')
     return
+  }
+
+  // Generate or reuse cached JWT token
+  const now = Date.now()
+  if (!cachedToken || cachedToken.expiresAt < now) {
+    const token = generateAPNsToken(keyId, teamId, authKey)
+    cachedToken = {
+      token,
+      expiresAt: now + 55 * 60 * 1000, // Cache for 55 minutes (tokens valid for 60 min)
+    }
   }
 
   const apnsPayload = {
@@ -74,8 +112,6 @@ async function sendAPNs(deviceToken: string, payload: PushPayload) {
     ...payload.data,
   }
 
-  // NOTE: In production, sign with JWT using APNs auth key
-  // This is a placeholder that shows the correct API shape
   const url = `${apnsHost}/3/device/${deviceToken}`
   const response = await fetch(url, {
     method: 'POST',
@@ -84,7 +120,7 @@ async function sendAPNs(deviceToken: string, payload: PushPayload) {
       'apns-topic': bundleId,
       'apns-push-type': 'alert',
       'apns-priority': '10',
-      // 'authorization': `bearer ${jwt}` // Add JWT auth in production
+      'authorization': `bearer ${cachedToken.token}`,
     },
     body: JSON.stringify(apnsPayload),
   })
@@ -118,8 +154,10 @@ export function shouldNotify(eventType: string): { pushType: EventType; builder:
           const status = data.status as string
           const isFailure = status === 'failure'
           return {
+            // Generic notification messages to avoid leaking task details
             title: isFailure ? 'Task Failed' : 'Task Completed',
-            body: `Task ${data.taskId} ${isFailure ? 'failed' : 'completed successfully'}`,
+            body: isFailure ? 'A task has failed' : 'A task has completed successfully',
+            // Sensitive data (task IDs, project IDs) remain in encrypted data payload only
             data: {
               type: 'task_result',
               nodeId: data.nodeId as string || '',
@@ -137,7 +175,8 @@ export function shouldNotify(eventType: string): { pushType: EventType; builder:
         pushType: 'machineDisconnected',
         builder: (data) => ({
           title: 'Machine Disconnected',
-          body: `Machine ${data.machineId} went offline`,
+          body: 'An environment went offline',
+          // Machine ID remains in encrypted data payload only
           data: {
             type: 'machine_disconnected',
             machineId: data.machineId as string || '',
