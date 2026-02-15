@@ -5,7 +5,7 @@ import {
 } from '../lib/providers/index.js'
 import { getSessionStats } from '../lib/session-manager.js'
 import { errorMessage } from '../lib/error-utils.js'
-import { shouldUseSupabase, getServiceClient } from '../lib/supabase.js'
+import { shouldUseSupabase } from '../lib/supabase.js'
 
 const healthRoute = new Hono()
 

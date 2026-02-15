@@ -8,7 +8,7 @@ import {
   type AgentProvider,
 } from '../lib/providers/index.js'
 import { createSession, abortSession, removeSession, getSession, updateSession } from '../lib/session-manager.js'
-import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, PLAN_GRAPH_SCHEMA, type ChatPlanNode, type ChatPlanEdge } from '../lib/prompt-templates.js'
+import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
 import { existsSync } from 'node:fs'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
