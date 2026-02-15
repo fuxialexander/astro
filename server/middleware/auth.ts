@@ -39,12 +39,19 @@ export async function requireAuth(c: Context, next: Next) {
     return next()
   }
 
+  // Extract token from Authorization header or query param (for SSE/EventSource)
+  let token: string | undefined
   const authHeader = c.req.header('Authorization')
-  if (!authHeader?.startsWith('Bearer ')) {
-    return c.json({ error: 'Missing or invalid Authorization header' }, 401)
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.slice(7)
+  } else {
+    // Fallback to query param for EventSource connections (can't send custom headers)
+    token = c.req.query('token')
   }
 
-  const token = authHeader.slice(7)
+  if (!token) {
+    return c.json({ error: 'Missing or invalid Authorization header or token query param' }, 401)
+  }
 
   // Test token bypass for e2e testing (only in test mode with explicit flag)
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_E2E_BYPASS === 'true' && token === 'test-e2e-token') {

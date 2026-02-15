@@ -5,6 +5,8 @@
  * automatic reconnection, Last-Event-ID replay, and typed events.
  */
 
+import { getAccessToken } from './supabase-client'
+
 export type RealtimeEventType =
   | 'machines:snapshot'
   | 'task:result'
@@ -45,12 +47,18 @@ export class RealtimeClient {
     return this._connected
   }
 
-  connect(projectId?: string): void {
+  async connect(projectId?: string): Promise<void> {
     if (this.eventSource) {
       this.disconnect()
     }
 
-    const url = projectId ? `${this.url}?projectId=${projectId}` : this.url
+    // Get auth token for SSE connection (EventSource doesn't support headers)
+    const token = await getAccessToken()
+    const params = new URLSearchParams()
+    if (projectId) params.set('projectId', projectId)
+    if (token) params.set('token', token)
+
+    const url = params.toString() ? `${this.url}?${params}` : this.url
     this.eventSource = new EventSource(url)
 
     this.eventSource.onopen = () => {
