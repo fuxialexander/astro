@@ -173,11 +173,12 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
     }
 
-    const onMachineConnected = (machineId: string) => {
+    const onMachineConnected = (machineId: string, userId: string) => {
       if (!alive) return
       const entry = machineRegistry.get(machineId)
       const data = JSON.stringify({
         machineId,
+        userId,
         name: entry?.name,
         environmentType: entry?.environmentType,
         providers: entry?.providers,
