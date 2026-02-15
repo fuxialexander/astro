@@ -46,16 +46,26 @@ async function cleanupExpiredRefreshTokens(): Promise<number> {
  */
 async function cleanupOldExecutions(retentionDays: number = 90): Promise<number> {
   console.log(`[cleanup] Running old execution cleanup (retention: ${retentionDays} days)...`);
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-  const result = await db
-    .delete(taskExecutions)
-    .where(lt(taskExecutions.createdAt, cutoffDate));
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-  const count = result.rowCount ?? 0;
-  console.log(`[cleanup] Cleaned up ${count} old task executions`);
-  return count;
+    const result = await db
+      .delete(taskExecutions)
+      .where(lt(taskExecutions.createdAt, cutoffDate));
+
+    const count = result.rowCount ?? 0;
+    console.log(`[cleanup] Cleaned up ${count} old task executions`);
+    return count;
+  } catch (error: unknown) {
+    const err = error as { cause?: { code?: string } }
+    if (err?.cause?.code === '42P01') {
+      console.warn('[cleanup] Skipping - task_executions table not found. Run migrations to enable.');
+      return 0;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -63,17 +73,27 @@ async function cleanupOldExecutions(retentionDays: number = 90): Promise<number>
  */
 async function cleanupOldChatHistory(retentionDays: number = 180): Promise<number> {
   console.log(`[cleanup] Running old chat history cleanup (retention: ${retentionDays} days)...`);
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-  // Delete sessions older than cutoff date (messages will cascade delete)
-  const result = await db
-    .delete(taskChatSessions)
-    .where(lt(taskChatSessions.createdAt, cutoffDate));
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-  const count = result.rowCount ?? 0;
-  console.log(`[cleanup] Cleaned up ${count} old chat sessions`);
-  return count;
+    // Delete sessions older than cutoff date (messages will cascade delete)
+    const result = await db
+      .delete(taskChatSessions)
+      .where(lt(taskChatSessions.createdAt, cutoffDate));
+
+    const count = result.rowCount ?? 0;
+    console.log(`[cleanup] Cleaned up ${count} old chat sessions`);
+    return count;
+  } catch (error: unknown) {
+    const err = error as { cause?: { code?: string } }
+    if (err?.cause?.code === '42P01') {
+      console.warn('[cleanup] Skipping - task_chat_sessions table not found. Run migrations to enable.');
+      return 0;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -81,16 +101,26 @@ async function cleanupOldChatHistory(retentionDays: number = 180): Promise<numbe
  */
 async function cleanupExpiredPushTokens(): Promise<number> {
   console.log('[cleanup] Running expired push token cleanup...');
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - 90); // 90 days without update = inactive
 
-  const result = await db
-    .delete(pushTokens)
-    .where(lt(pushTokens.updatedAt, cutoffDate));
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 90); // 90 days without update = inactive
 
-  const count = result.rowCount ?? 0;
-  console.log(`[cleanup] Cleaned up ${count} expired push tokens`);
-  return count;
+    const result = await db
+      .delete(pushTokens)
+      .where(lt(pushTokens.updatedAt, cutoffDate));
+
+    const count = result.rowCount ?? 0;
+    console.log(`[cleanup] Cleaned up ${count} expired push tokens`);
+    return count;
+  } catch (error: unknown) {
+    const err = error as { cause?: { code?: string } }
+    if (err?.cause?.code === '42P01') {
+      console.warn('[cleanup] Skipping - push_tokens table not found. Run migrations to enable push notifications.');
+      return 0;
+    }
+    throw error;
+  }
 }
 
 /**
