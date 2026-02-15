@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { applyWorktreeInclude } from './worktree-include.js';
 import { runSetupScript } from './worktree-setup.js';
@@ -38,18 +38,21 @@ export async function createWorktree(
   } = options;
 
   const resolvedWorkingDirectory = resolve(workingDirectory);
-  const gitRoot = await getGitRoot(resolvedWorkingDirectory);
+  let gitRoot = await getGitRoot(resolvedWorkingDirectory);
   if (!gitRoot) {
-    return null;
+    // Initialize git repository if it doesn't exist
+    await initGitRepo(resolvedWorkingDirectory);
+    gitRoot = resolvedWorkingDirectory;
   }
 
   const hasHead = await hasCommits(gitRoot);
   if (!hasHead) {
-    return null;
+    // Initialize if no commits (empty repo)
+    await initGitRepo(gitRoot);
   }
 
   const repoName = sanitize(basename(gitRoot));
-  const baseRoot = rootOverride ?? join(tmpdir(), 'nexus-worktrees', repoName);
+  const baseRoot = rootOverride ?? join(homedir(), '.nexus', 'worktrees', repoName);
   await mkdir(baseRoot, { recursive: true });
 
   const branchName = `nexus/${sanitize(taskId)}`;
@@ -191,6 +194,34 @@ async function hasCommits(gitRoot: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function initGitRepo(workingDirectory: string): Promise<void> {
+  // Ensure directory exists
+  await mkdir(workingDirectory, { recursive: true });
+
+  // Initialize git repository
+  await execFileAsync('git', ['init'], {
+    cwd: workingDirectory,
+    env: withGitEnv(),
+    timeout: 10_000,
+  });
+
+  // Create initial commit (required for worktrees)
+  // Add a .gitkeep file so we have something to commit
+  await writeFile(join(workingDirectory, '.gitkeep'), '', 'utf-8');
+
+  await execFileAsync('git', ['add', '.gitkeep'], {
+    cwd: workingDirectory,
+    env: withGitEnv(),
+    timeout: 5_000,
+  });
+
+  await execFileAsync('git', ['commit', '-m', 'Initial commit'], {
+    cwd: workingDirectory,
+    env: withGitEnv(),
+    timeout: 10_000,
+  });
 }
 
 function sanitize(value: string): string {

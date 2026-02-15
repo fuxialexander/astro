@@ -20,6 +20,7 @@ interface StartOptions {
   relay?: string;
   maxTasks?: number;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  preserveWorktrees?: boolean;
 }
 
 // Get package version from package.json
@@ -62,6 +63,7 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     if (options.relay) args.push('--relay', options.relay);
     if (options.maxTasks) args.push('--max-tasks', String(options.maxTasks));
     if (options.logLevel) args.push('--log-level', options.logLevel);
+    if (options.preserveWorktrees) args.push('--preserve-worktrees');
 
     const child = spawn(process.execPath, [scriptPath!, ...args], {
       detached: true,
@@ -160,6 +162,7 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   const taskExecutor = new TaskExecutor({
     wsClient,
     maxConcurrentTasks: maxTasks,
+    preserveWorktrees: options.preserveWorktrees,
   });
 
   // Set up task handlers

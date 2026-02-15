@@ -55,6 +55,7 @@ program
   .option('--relay <url>', 'Override relay server URL')
   .option('--max-tasks <number>', 'Maximum concurrent tasks', parseInt)
   .option('--log-level <level>', 'Log level: debug, info, warn, error')
+  .option('--preserve-worktrees', 'Preserve worktrees after task completion (for debugging)')
   .action(async (options) => {
     try {
       await startCommand({
@@ -62,6 +63,7 @@ program
         relay: options.relay,
         maxTasks: options.maxTasks,
         logLevel: options.logLevel,
+        preserveWorktrees: options.preserveWorktrees,
       });
     } catch (error) {
       console.error('Start failed:', error instanceof Error ? error.message : String(error));
@@ -76,6 +78,7 @@ program
   .option('--relay <url>', 'Override relay server URL')
   .option('--max-tasks <number>', 'Maximum concurrent tasks', parseInt)
   .option('--log-level <level>', 'Log level: debug, info, warn, error')
+  .option('--preserve-worktrees', 'Preserve worktrees after task completion (for debugging)')
   .action(async (options) => {
     try {
       await startCommand({
@@ -83,6 +86,7 @@ program
         relay: options.relay,
         maxTasks: options.maxTasks,
         logLevel: options.logLevel,
+        preserveWorktrees: options.preserveWorktrees,
       });
     } catch (error) {
       console.error('Connect failed:', error instanceof Error ? error.message : String(error));

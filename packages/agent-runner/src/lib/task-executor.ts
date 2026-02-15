@@ -30,6 +30,7 @@ export interface TaskExecutorOptions {
   defaultTimeout?: number;
   useWorktree?: boolean;
   worktreeRoot?: string;
+  preserveWorktrees?: boolean; // Don't cleanup worktrees for debugging
 }
 
 export class TaskExecutor {
@@ -41,6 +42,7 @@ export class TaskExecutor {
   private adapters: Map<ProviderType, ProviderAdapter> = new Map();
   private useWorktree: boolean;
   private worktreeRoot?: string;
+  private preserveWorktrees: boolean;
   private jobMonitor: SlurmJobMonitor;
 
   constructor(options: TaskExecutorOptions) {
@@ -49,6 +51,7 @@ export class TaskExecutor {
     this.defaultTimeout = options.defaultTimeout ?? 3600000; // 1 hour
     this.useWorktree = options.useWorktree ?? true;
     this.worktreeRoot = options.worktreeRoot;
+    this.preserveWorktrees = options.preserveWorktrees ?? false;
     this.jobMonitor = new SlurmJobMonitor(options.wsClient);
   }
 
@@ -306,7 +309,12 @@ export class TaskExecutor {
       });
     } finally {
       clearTimeout(timeoutId);
-      await prepared.cleanup({ keepBranch });
+      // Skip cleanup if preserveWorktrees is enabled (for debugging)
+      if (!this.preserveWorktrees) {
+        await prepared.cleanup({ keepBranch });
+      } else {
+        console.log(`[executor] Task ${task.id}: worktree preserved for debugging (cleanup skipped)`);
+      }
       this.runningTasks.delete(task.id);
       this.wsClient.removeActiveTask(task.id);
       this.processQueue();

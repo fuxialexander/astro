@@ -216,21 +216,36 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
     }
 
+    // Save original cwd to restore later
+    const originalCwd = process.cwd();
+
+    // CRITICAL: Explicitly change process working directory to worktree
+    // The Claude Agent SDK's cwd option alone is not sufficient - we must
+    // actually change process.cwd() to ensure file operations happen in the worktree
+    try {
+      process.chdir(task.workingDirectory);
+      console.log(`[claude-sdk] Changed process cwd to: ${task.workingDirectory}`);
+    } catch (error) {
+      console.error(`[claude-sdk] Failed to change cwd to ${task.workingDirectory}:`, error);
+      // Continue anyway - the cwd option might still work
+    }
+
     // Build options for the query
     const options: Parameters<typeof query>[0]['options'] = {
       abortController,
       maxTurns: task.maxTurns ?? 100, // Use dispatch-specified limit, or 100 for complex tasks
       permissionMode: 'bypassPermissions', // Auto-accept all tool calls
       sandbox: { enabled: false }, // Run on host machine, not in Docker container
-      settingSources: ['project'], // Load CLAUDE.md, skills, and slash commands from cwd
+      settingSources: [], // Don't load settings from project - worktree is empty
       persistSession: false,
       cwd: task.workingDirectory,
+      additionalDirectories: [task.workingDirectory], // Allow file operations in worktree
+      env: {
+        ...process.env,
+        ...task.environment,
+        CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1', // Enable additional directories for CLAUDE.md loading
+      },
     };
-
-    // Add environment variables if provided
-    if (task.environment) {
-      (options as Record<string, unknown>).env = task.environment;
-    }
 
     // Lazily initialize HPC context on first query
     if (this.hpcContext === undefined) {
@@ -267,7 +282,8 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     const artifacts: TaskArtifact[] = [];
     let progress = 0;
 
-    for await (const msg of gen) {
+    try {
+      for await (const msg of gen) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         this.model = msg.model;
         const sessionId = (msg as unknown as Record<string, unknown>).session_id as string ?? '';
@@ -279,6 +295,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       } else if (msg.type === 'assistant') {
         // Stream assistant content blocks
         for (const block of msg.message.content) {
+          if (typeof block === 'string') continue;
           if (block.type === 'text') {
             output += block.text;
             stream.text(block.text);
@@ -308,6 +325,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       } else if (msg.type === 'user') {
         // Tool results from the SDK
         for (const block of msg.message.content) {
+          if (typeof block === 'string') continue;
           if (block.type === 'tool_result') {
             const resultContent = typeof block.content === 'string'
               ? block.content
@@ -372,5 +390,14 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       error: errorMessage,
       artifacts: artifacts.length > 0 ? artifacts : undefined,
     };
+    } finally {
+      // Restore original working directory
+      try {
+        process.chdir(originalCwd);
+        console.log(`[claude-sdk] Restored process cwd to: ${originalCwd}`);
+      } catch (error) {
+        console.error(`[claude-sdk] Failed to restore cwd to ${originalCwd}:`, error);
+      }
+    }
   }
 }

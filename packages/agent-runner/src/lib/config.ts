@@ -157,8 +157,24 @@ class ConfigManager {
 
   /**
    * Set access token
+   * Validates token format to prevent storing invalid values
    */
   setAccessToken(token: string): void {
+    // Reject null, "null" string, undefined, or empty values
+    if (!token || token === 'null' || token === 'undefined') {
+      console.warn('[config] Refusing to set invalid accessToken:', token);
+      this.conf.delete('accessToken');
+      return;
+    }
+
+    // Validate JWT format
+    if (!token.match(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)) {
+      console.error('[config] accessToken does not appear to be a valid JWT format');
+      console.error('[config] Token preview:', token.substring(0, 50) + '...');
+      this.conf.delete('accessToken');
+      return;
+    }
+
     this.conf.set('accessToken', token);
   }
 
@@ -171,8 +187,24 @@ class ConfigManager {
 
   /**
    * Set refresh token
+   * Validates token format to prevent storing invalid values
    */
   setRefreshToken(token: string): void {
+    // Reject null, "null" string, undefined, or empty values
+    if (!token || token === 'null' || token === 'undefined') {
+      console.warn('[config] Refusing to set invalid refreshToken:', token);
+      this.conf.delete('refreshToken');
+      return;
+    }
+
+    // Validate JWT format
+    if (!token.match(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)) {
+      console.error('[config] refreshToken does not appear to be a valid JWT format');
+      console.error('[config] Token preview:', token.substring(0, 50) + '...');
+      this.conf.delete('refreshToken');
+      return;
+    }
+
     this.conf.set('refreshToken', token);
   }
 
@@ -185,8 +217,26 @@ class ConfigManager {
 
   /**
    * Set WebSocket token
+   * Validates token format to prevent storing invalid values
    */
   setWsToken(token: string): void {
+    // Reject null, "null" string, undefined, or empty values
+    if (!token || token === 'null' || token === 'undefined') {
+      console.warn('[config] Refusing to set invalid wsToken:', token);
+      // Clear any existing invalid token
+      this.conf.delete('wsToken');
+      return;
+    }
+
+    // Validate JWT format (should have 3 base64url-encoded parts separated by dots)
+    // Example: eyJhbGc...header.eyJzdWI...payload.signature...
+    if (!token.match(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)) {
+      console.error('[config] wsToken does not appear to be a valid JWT format');
+      console.error('[config] Token preview:', token.substring(0, 50) + '...');
+      this.conf.delete('wsToken');
+      return;
+    }
+
     this.conf.set('wsToken', token);
   }
 
@@ -213,8 +263,17 @@ class ConfigManager {
 
   /**
    * Set machine ID (e.g., from backend registration response)
+   * Validates ID to prevent storing invalid values
    */
   setMachineId(id: string): void {
+    // Reject null, "null" string, undefined, or empty values
+    if (!id || id === 'null' || id === 'undefined') {
+      console.warn('[config] Refusing to set invalid machineId:', id);
+      // Don't auto-generate - let the setup process handle it
+      this.conf.delete('machineId');
+      return;
+    }
+
     this.conf.set('machineId', id);
   }
 

@@ -3,6 +3,7 @@
  */
 
 import WebSocket from 'ws';
+import jwt from 'jsonwebtoken';
 import type {
   WSMessage,
   RegisterMessage,
@@ -37,6 +38,7 @@ import type {
   Task,
 } from '../types.js';
 import { getMachineResources } from './resources.js';
+import { config as configManager } from './config.js';
 
 const DEFAULT_CONFIG: RunnerConfig = {
   relayUrl: 'wss://relay.nexus.dev',
@@ -117,6 +119,84 @@ export class WebSocketClient {
   }
 
   /**
+   * Check if access token is expired or expiring soon
+   */
+  private isTokenExpiring(token: string, bufferSeconds: number = 5 * 60): boolean {
+    try {
+      const decoded = jwt.decode(token) as { exp?: number };
+      if (!decoded || !decoded.exp) {
+        return true; // Assume expired if we can't decode
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      return decoded.exp < now + bufferSeconds;
+    } catch {
+      return true; // Assume expired on error
+    }
+  }
+
+  /**
+   * Refresh the access token using the refresh token
+   */
+  private async refreshAccessToken(): Promise<string> {
+    const refreshToken = configManager.getRefreshToken();
+    if (!refreshToken) {
+      throw new Error('No refresh token available. Please run setup again to re-authenticate.');
+    }
+
+    const apiUrl = configManager.getApiUrl();
+    const response = await fetch(`${apiUrl}/api/device/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        refreshToken,
+        grantType: 'refresh_token',
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' })) as { error?: string };
+      throw new Error(`Token refresh failed: ${error.error || response.statusText}`);
+    }
+
+    const data = await response.json() as { accessToken: string; refreshToken?: string };
+
+    // Update stored tokens
+    configManager.setAccessToken(data.accessToken);
+    if (data.refreshToken) {
+      configManager.setRefreshToken(data.refreshToken);
+    }
+
+    return data.accessToken;
+  }
+
+  /**
+   * Ensure we have a valid access token before connecting
+   */
+  private async ensureValidToken(): Promise<string> {
+    let token = this.wsToken || configManager.getAccessToken();
+
+    if (!token) {
+      throw new Error('No access token configured. Please run setup to authenticate.');
+    }
+
+    // Check if token is expired or expiring soon
+    if (this.isTokenExpiring(token)) {
+      console.log('[ws-client] Access token expired or expiring soon, refreshing...');
+      try {
+        token = await this.refreshAccessToken();
+        this.wsToken = token; // Update instance token
+        console.log('[ws-client] ✅ Access token refreshed successfully');
+      } catch (error) {
+        console.error('[ws-client] ❌ Failed to refresh token:', error instanceof Error ? error.message : String(error));
+        throw new Error(`Authentication failed: ${error instanceof Error ? error.message : 'Token refresh failed'}. Please run setup again.`);
+      }
+    }
+
+    return token;
+  }
+
+  /**
    * Connect to the relay server
    */
   async connect(): Promise<void> {
@@ -127,15 +207,22 @@ export class WebSocketClient {
     this.isConnecting = true;
     this.shouldReconnect = true;
 
+    // Ensure we have a valid token before connecting
+    let token: string;
+    try {
+      token = await this.ensureValidToken();
+    } catch (error) {
+      this.isConnecting = false;
+      throw error;
+    }
+
     return new Promise((resolve, reject) => {
       try {
         const headers: Record<string, string> = {
           'X-Runner-Id': this.runnerId,
           'X-Machine-Id': this.machineId,
+          'Authorization': `Bearer ${token}`,
         };
-        if (this.wsToken) {
-          headers['Authorization'] = `Bearer ${this.wsToken}`;
-        }
         this.ws = new WebSocket(this.config.relayUrl, { headers });
 
         this.ws.on('open', async () => {
