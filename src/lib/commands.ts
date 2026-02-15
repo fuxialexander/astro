@@ -1,0 +1,194 @@
+import type { CommandItem } from "@/types"
+import {
+  LayoutDashboard,
+  Folder,
+  CheckSquare,
+  Server,
+  Users,
+  Target,
+  Settings,
+  Plus,
+  Sun,
+  Search,
+  type LucideIcon,
+} from "lucide-react"
+
+/**
+ * Command registry for the command palette
+ * Commands are organized by category and support nested navigation
+ */
+
+// Type helper to make icon typing easier
+type IconType = LucideIcon
+
+export interface CommandDefinition extends Omit<CommandItem, 'icon'> {
+  icon?: IconType
+}
+
+/**
+ * Navigation commands - main pages
+ */
+export const navigationCommands: CommandDefinition[] = [
+  {
+    id: "nav-dashboard",
+    label: "Dashboard",
+    description: "View overview and active projects",
+    icon: LayoutDashboard,
+    category: "navigation",
+    keywords: ["home", "overview", "stats"],
+    shortcut: "⌘⇧D",
+  },
+  {
+    id: "nav-projects",
+    label: "Projects",
+    description: "View all projects",
+    icon: Folder,
+    category: "navigation",
+    keywords: ["projects", "list"],
+    shortcut: "⌘⇧P",
+  },
+  {
+    id: "nav-tasks",
+    label: "My Tasks",
+    description: "View tasks across all projects",
+    icon: CheckSquare,
+    category: "navigation",
+    keywords: ["tasks", "todo", "work"],
+    shortcut: "⌘⇧T",
+  },
+  {
+    id: "nav-environments",
+    label: "Environments",
+    description: "Manage machines and clusters",
+    icon: Server,
+    category: "navigation",
+    keywords: ["machines", "clusters", "hpc", "environments"],
+    shortcut: "⌘⇧E",
+  },
+  {
+    id: "nav-agents",
+    label: "Agents",
+    description: "View and manage agents",
+    icon: Users,
+    category: "navigation",
+    keywords: ["agents", "ai", "automation"],
+  },
+  {
+    id: "nav-initiatives",
+    label: "Initiatives",
+    description: "View strategic initiatives",
+    icon: Target,
+    category: "navigation",
+    keywords: ["initiatives", "goals", "strategy"],
+  },
+  {
+    id: "nav-settings",
+    label: "Settings",
+    description: "Configure application settings",
+    icon: Settings,
+    category: "navigation",
+    keywords: ["settings", "preferences", "config"],
+    shortcut: "⌘,",
+  },
+]
+
+/**
+ * Action commands - quick actions
+ */
+export const actionCommands: CommandDefinition[] = [
+  {
+    id: "action-new-project",
+    label: "New Project",
+    description: "Create a new project with AI planning",
+    icon: Plus,
+    category: "actions",
+    keywords: ["create", "new", "project", "start"],
+    shortcut: "⌘N",
+  },
+  {
+    id: "action-new-task",
+    label: "New Task",
+    description: "Add a task to a project",
+    icon: Plus,
+    category: "actions",
+    keywords: ["create", "task", "add"],
+  },
+  {
+    id: "action-new-initiative",
+    label: "New Initiative",
+    description: "Create a strategic initiative",
+    icon: Plus,
+    category: "actions",
+    keywords: ["create", "initiative", "goal"],
+  },
+  {
+    id: "action-toggle-theme",
+    label: "Toggle Theme",
+    description: "Switch between light and dark mode",
+    icon: Sun,
+    category: "actions",
+    keywords: ["theme", "dark", "light", "appearance"],
+    shortcut: "⌘⇧L",
+  },
+  {
+    id: "action-search",
+    label: "Global Search",
+    description: "Search across all projects and tasks",
+    icon: Search,
+    category: "actions",
+    keywords: ["search", "find", "query"],
+    shortcut: "⌘⇧F",
+  },
+]
+
+/**
+ * Get all static commands (navigation + actions)
+ */
+export function getStaticCommands(): CommandDefinition[] {
+  return [...navigationCommands, ...actionCommands]
+}
+
+/**
+ * Get recent commands based on history
+ */
+export function getRecentCommands<T extends { id: string }>(
+  allCommands: T[],
+  history: Array<{ commandId: string; executedAt: Date; frequency: number }>
+): T[] {
+  // Sort by recency (executedAt) first, then frequency
+  const sortedHistory = [...history].sort((a, b) => {
+    const timeDiff = b.executedAt.getTime() - a.executedAt.getTime()
+    if (timeDiff !== 0) return timeDiff
+    return b.frequency - a.frequency
+  })
+
+  // Map history to commands
+  return sortedHistory
+    .map((h) => allCommands.find((c) => c.id === h.commandId))
+    .filter(Boolean)
+    .slice(0, 5) as T[]
+}
+
+/**
+ * Format keyboard shortcut for display
+ */
+export function formatShortcut(shortcut: string): string {
+  return shortcut
+    .replace("⌘", "Cmd")
+    .replace("⇧", "Shift")
+    .replace("⌥", "Opt")
+    .replace("⌃", "Ctrl")
+}
+
+/**
+ * Parse shortcut string to platform-specific display
+ */
+export function getPlatformShortcut(shortcut: string): string {
+  const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
+
+  if (!isMac) {
+    return shortcut.replace("⌘", "Ctrl+").replace("⇧", "Shift+")
+  }
+
+  return shortcut
+}

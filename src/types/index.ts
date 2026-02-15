@@ -61,6 +61,21 @@ export interface Label {
   color: string;  // hex color
 }
 
+export interface Initiative {
+  id: string;
+  name: string;
+  description: string;
+  goal?: string;
+  status: 'active' | 'on_hold' | 'completed' | 'cancelled';
+  startDate?: string;     // ISO YYYY-MM-DD
+  targetDate?: string;    // ISO YYYY-MM-DD
+  lead?: string;
+  color?: string;         // hex color for visual grouping
+  icon?: string;          // emoji icon
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -71,9 +86,11 @@ export interface Project {
   targetDate?: string;    // ISO YYYY-MM-DD
   lead?: string;
   health?: 'on_track' | 'at_risk' | 'off_track';
-  initiative?: string;
+  initiativeId?: string;
   progress?: number;      // 0-100
   labels?: Label[];
+  color?: string;         // hex color for visual grouping
+  icon?: string;          // emoji icon
   workingDirectory?: string; // Absolute path for task execution (cwd for agents)
   repository?: string;       // Git clone URL (e.g., https://github.com/user/repo.git)
   fileTree?: string[];           // Cached git ls-files output (relative paths)
@@ -91,7 +108,7 @@ export interface PlanNode {
   type: 'milestone' | 'task' | 'branch' | 'decision';
   title: string;
   description: string;
-  status: 'planned' | 'dispatched' | 'in_progress' | 'auto_verified' | 'awaiting_judgment' | 'completed' | 'pruned';
+  status: 'planned' | 'dispatched' | 'in_progress' | 'auto_verified' | 'awaiting_judgment' | 'awaiting_approval' | 'completed' | 'pruned';
   parentId: string | null;
   dependencies: string[];
   environment?: 'local' | 'remote' | 'hpc' | 'cloud';
@@ -258,4 +275,52 @@ export interface UserProfile {
   apiKeys: ApiKey[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+// GitHub integration types (re-exported from server types)
+export type {
+  GitHubRepo,
+  GitHubUser,
+  GitHubConnection,
+  GitHubRepoSelection,
+} from '../../server/types/github';
+
+// Command Palette types
+export type CommandCategory =
+  | 'recent'
+  | 'navigation'
+  | 'actions'
+  | 'projects'
+  | 'tasks'
+  | 'settings'
+  | 'search';
+
+export interface CommandItem {
+  id: string;
+  label: string;
+  description?: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  category: CommandCategory;
+  keywords?: string[];
+  shortcut?: string;
+  action?: () => void | Promise<void>;
+  children?: CommandItem[];
+  preview?: {
+    title: string;
+    content: string;
+    metadata?: Record<string, string>;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+export interface CommandHistory {
+  commandId: string;
+  executedAt: Date;
+  frequency: number;
+}
+
+export interface CommandContext {
+  breadcrumbs: CommandItem[];
+  selectedItems: string[];
+  searchQuery: string;
 }
