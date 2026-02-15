@@ -267,6 +267,13 @@ export function Environments() {
   const fetchRegistered = useMachinesStore((s) => s.fetchMachines)
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
 
+  // Connect to real-time events on mount to receive live machine updates
+  useEffect(() => {
+    if (!realtimeConnected) {
+      connectRealtime()
+    }
+  }, [realtimeConnected, connectRealtime])
+
   // Re-fetch registered machines on mount and whenever live machines change.
   // The server auto-registers relay-connected machines in the persistent store
   // via ensureMachineRegistered on machine:connected events. A small delay
