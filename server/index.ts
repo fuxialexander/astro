@@ -74,22 +74,22 @@ app.use('/*', cors({
   credentials: true,
 }))
 
-// Global rate limiter (100 req/15min per IP) - bypassed in test mode
+// Global rate limiter (10,000 req/15min per IP) - bypassed in test mode
 if (!isTest()) {
   app.use('/*', rateLimiter({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    limit: 100, // 100 requests per window
+    limit: 10000, // 100x from 100 (generous for development)
     standardHeaders: 'draft-7',
     keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
   }))
 }
 
-// Auth endpoints rate limiter (30 req/15min per IP) - bypassed in test mode
+// Auth endpoints rate limiter (3,000 req/15min per IP) - bypassed in test mode
 // Higher limit to accommodate WebAuthn flows (register-options, login-options, verify)
 if (!isTest()) {
   app.use('/api/auth/*', rateLimiter({
     windowMs: 15 * 60 * 1000,
-    limit: 30, // Increased from 5 to handle WebAuthn multi-step flows
+    limit: 3000, // 100x from 30 - generous for development
     standardHeaders: 'draft-7',
     keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
   }))
@@ -103,18 +103,18 @@ if (!isTest()) {
 
     return rateLimiter({
       windowMs: 15 * 60 * 1000,
-      limit: 20, // Increased from 5 to accommodate device registration flow
+      limit: 2000, // 100x from 20 - generous for development
       standardHeaders: 'draft-7',
       keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
     })(c, next)
   })
 }
 
-// AI endpoints rate limiter (10 req/hour) - bypassed in test mode
+// AI endpoints rate limiter (1,000 req/hour) - bypassed in test mode
 if (process.env.NODE_ENV !== 'test') {
   app.use('/api/agent/*', rateLimiter({
     windowMs: 60 * 60 * 1000, // 1 hour
-    limit: 10,
+    limit: 1000, // 100x from 10 - generous for development
     standardHeaders: 'draft-7',
     keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
   }))
