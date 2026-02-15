@@ -1,9 +1,19 @@
 import { NavLink, useNavigate } from "react-router"
-import { Hexagon, LayoutDashboard, CheckSquare, Settings, Folder, Monitor } from "lucide-react"
+import { Hexagon, LayoutDashboard, CheckSquare, Settings, Folder, Monitor, LogOut, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useUserProfileStore } from "@/stores/user-profile-store"
+import { useAuthStore } from "@/stores/auth-store"
+import { shouldUseSupabase } from "@/lib/supabase-client"
 import { Separator } from "@/components/ui/separator"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -14,7 +24,25 @@ const navItems = [
 
 export function Sidebar() {
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+  const profile = useUserProfileStore((s) => s.profile)
+  const signOut = useAuthStore((s) => s.signOut)
   const navigate = useNavigate()
+  const showAuth = shouldUseSupabase()
+
+  const getInitials = (name: string) => {
+    if (!name) return "U"
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2)
+  }
+
+  const handleSignOut = async () => {
+    await signOut()
+    navigate("/login")
+  }
 
   return (
     <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
@@ -58,15 +86,42 @@ export function Sidebar() {
 
       <Separator className="bg-sidebar-border" />
 
-      <div className="flex items-center gap-3 px-4 py-3">
-        <Avatar>
-          <AvatarFallback>U</AvatarFallback>
-        </Avatar>
-        <span className="flex-1 truncate text-sm text-sidebar-accent-foreground">User</span>
-        <button onClick={() => navigate("/settings")} className="rounded p-1 text-sidebar-foreground hover:bg-sidebar-accent cursor-pointer">
-          <Settings className="h-4 w-4" />
-        </button>
-      </div>
+      {!showAuth && (
+        <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
+          <div className="h-2 w-2 rounded-full bg-yellow-500" />
+          IndexedDB Mode (Local Only)
+        </div>
+      )}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="flex w-full items-center gap-3 px-4 py-3 hover:bg-sidebar-accent/50 transition-colors">
+            <Avatar>
+              <AvatarImage src={profile.avatarUrl} />
+              <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>
+            </Avatar>
+            <span className="flex-1 truncate text-left text-sm text-sidebar-accent-foreground">
+              {profile.name || "User"}
+            </span>
+            <ChevronRight className="h-4 w-4 text-sidebar-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem onClick={() => navigate("/settings")}>
+            <Settings className="mr-2 h-4 w-4" />
+            Settings
+          </DropdownMenuItem>
+          {showAuth && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign Out
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </aside>
   )
 }

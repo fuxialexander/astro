@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate, useLocation } from "react-router"
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser"
-import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client"
+import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { KeyRound, Fingerprint, ArrowRight, Loader2, AlertCircle, Code2 } from "lucide-react"
@@ -12,7 +12,7 @@ export function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/"
-  const devMode = !isSupabaseConfigured()
+  const devMode = !shouldUseSupabase()
 
   const [mode, setMode] = useState<Mode>("signin")
   const [email, setEmail] = useState("")
@@ -73,10 +73,21 @@ export function Login() {
       if (result.session?.properties?.hashed_token) {
         const supabase = getSupabase()
         if (supabase) {
-          await supabase.auth.verifyOtp({
+          const { data, error } = await supabase.auth.verifyOtp({
             token_hash: result.session.properties.hashed_token,
             type: "magiclink",
           })
+
+          if (error) {
+            throw new Error(`Session establishment failed: ${error.message}`)
+          }
+
+          if (!data.session) {
+            throw new Error("Session not established")
+          }
+
+          // Wait a bit for auth store to update
+          await new Promise(resolve => setTimeout(resolve, 100))
         }
       }
 
@@ -137,10 +148,21 @@ export function Login() {
       if (result.session?.properties?.hashed_token) {
         const supabase = getSupabase()
         if (supabase) {
-          await supabase.auth.verifyOtp({
+          const { data, error } = await supabase.auth.verifyOtp({
             token_hash: result.session.properties.hashed_token,
             type: "magiclink",
           })
+
+          if (error) {
+            throw new Error(`Session establishment failed: ${error.message}`)
+          }
+
+          if (!data.session) {
+            throw new Error("Session not established")
+          }
+
+          // Wait a bit for auth store to update
+          await new Promise(resolve => setTimeout(resolve, 100))
         }
       }
 

@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import type { Session, User } from "@supabase/supabase-js"
-import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client"
+import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
+import { setCurrentUser } from "@/lib/db"
 
 interface AuthState {
   session: Session | null
@@ -20,8 +21,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   initialized: false,
 
   initialize: async () => {
-    // If Supabase is not configured, skip auth (dev mode)
-    if (!isSupabaseConfigured()) {
+    console.log('[auth-store] Initializing...')
+    // If Supabase is not in use (not configured or IndexedDB-only mode), skip auth
+    if (!shouldUseSupabase()) {
+      console.log('[auth-store] IndexedDB-only mode, using dev mode')
+      // Track dev user for IndexedDB operations
+      setCurrentUser('dev')
       set({
         session: null,
         user: null,
@@ -33,12 +38,18 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     const supabase = getSupabase()
     if (!supabase) {
+      console.log('[auth-store] Supabase client not available')
       set({ loading: false, initialized: true })
       return
     }
 
     // Get initial session
     const { data: { session } } = await supabase.auth.getSession()
+    console.log('[auth-store] Initial session:', session ? `User ${session.user.id}` : 'None')
+
+    // Track current user for IndexedDB operations (warns on user switch)
+    setCurrentUser(session?.user?.id ?? null)
+
     set({
       session,
       user: session?.user ?? null,
@@ -47,7 +58,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     })
 
     // Listen for auth changes
-    supabase.auth.onAuthStateChange((_event, session) => {
+    supabase.auth.onAuthStateChange((event, session) => {
+      console.log('[auth-store] Auth state changed:', event, session ? `User ${session.user.id}` : 'None')
+
+      // Track current user for IndexedDB operations (warns on user switch)
+      setCurrentUser(session?.user?.id ?? null)
+
       set({
         session,
         user: session?.user ?? null,
@@ -60,6 +76,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (supabase) {
       await supabase.auth.signOut()
     }
+
+    // Clear user tracking
+    setCurrentUser(null)
+
     set({ session: null, user: null })
   },
 }))

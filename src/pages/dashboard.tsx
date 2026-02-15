@@ -23,6 +23,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
 import { useUsageStore } from "@/stores/usage-store"
+import { useUserProfileStore } from "@/stores/user-profile-store"
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
 
@@ -59,6 +60,7 @@ export function Dashboard() {
   const activityFeed = useRealtimeStore((s) => s.activityFeed)
   const connected = useRealtimeStore((s) => s.connected)
   const sessionMetrics = useUsageStore((s) => s.sessionMetrics)
+  const profile = useUserProfileStore((s) => s.profile)
   const navigate = useNavigate()
 
   const activeTasks = nodes.filter(
@@ -79,7 +81,9 @@ export function Dashboard() {
       {/* Header Row */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-[28px] font-semibold">Good morning, Alex</h1>
+          <h1 className="text-[28px] font-semibold">
+            Good morning{profile.name ? `, ${profile.name}` : ""}
+          </h1>
           <p className="text-sm text-muted-foreground">
             You have {pendingDecisions} pending decision{pendingDecisions !== 1 ? "s" : ""} and{" "}
             {activeTasks} active task{activeTasks !== 1 ? "s" : ""}

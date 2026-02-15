@@ -2,29 +2,57 @@ import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey } from "@/types"
 import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
+import { getAccessToken, shouldUseSupabase } from "./supabase-client"
 
 const BASE = "/api/data"
 
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const token = await getAccessToken()
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+  return headers
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init)
+  // In IndexedDB-only mode, throw immediately to trigger fallback
+  if (!shouldUseSupabase()) {
+    throw new Error('IndexedDB-only mode: skipping API call')
+  }
+
+  const headers = await getAuthHeaders()
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      ...headers,
+      ...init?.headers,
+    },
+  })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json() as Promise<T>
 }
 
-function post(url: string, body: unknown) {
-  return json(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+async function post(url: string, body: unknown) {
+  const headers = await getAuthHeaders()
+  return json(url, { method: "POST", headers, body: JSON.stringify(body) })
 }
 
-function patch(url: string, body: unknown) {
-  return json(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+async function patch(url: string, body: unknown) {
+  const headers = await getAuthHeaders()
+  return json(url, { method: "PATCH", headers, body: JSON.stringify(body) })
 }
 
-function put(url: string, body: unknown) {
-  return json(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+async function put(url: string, body: unknown) {
+  const headers = await getAuthHeaders()
+  return json(url, { method: "PUT", headers, body: JSON.stringify(body) })
 }
 
-function del(url: string) {
-  return json(url, { method: "DELETE" })
+async function del(url: string) {
+  const headers = await getAuthHeaders()
+  return json(url, { method: "DELETE", headers })
 }
 
 // Drizzle returns timestamps as strings or numbers — normalize to Date

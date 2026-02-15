@@ -4,6 +4,19 @@ import { parseSSEStream } from "@/lib/sse-parser"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
+import { getAccessToken } from "@/lib/supabase-client"
+
+// Helper: Create auth headers for API requests
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const token = await getAccessToken()
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+  return headers
+}
 
 // Helper: Resolve working directory from project config
 // For remote/hpc/cloud environments, a git repository URL is required unless
@@ -298,9 +311,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
     try {
       // Use the dispatch/task endpoint for full environment support
+      const headers = await getAuthHeaders()
       const response = await fetch("/api/dispatch/task", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           nodeId,
           projectId,
@@ -372,9 +386,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     const execution = get().executions.get(nodeId)
     if (execution?.executionId) {
       try {
+        const headers = await getAuthHeaders()
         await fetch("/api/dispatch/cancel", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             nodeId,
             executionId: execution.executionId
@@ -399,9 +414,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
 
     try {
+      const headers = await getAuthHeaders()
       const response = await fetch("/api/dispatch/steer", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           taskId: execution.executionId,
           machineId: execution.machineId,
@@ -498,7 +514,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   loadProviders: async () => {
     try {
-      const response = await fetch("/api/agent/providers")
+      const headers = await getAuthHeaders()
+      const response = await fetch("/api/agent/providers", { headers })
       if (response.ok) {
         const data = await response.json()
         const providers: ProviderStatus[] = (data.providers || []).map((p: Record<string, unknown>) => ({
@@ -521,8 +538,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   redetectProviders: async () => {
     try {
+      const headers = await getAuthHeaders()
       const response = await fetch("/api/agent/providers/detect", {
         method: "POST",
+        headers,
       })
       if (response.ok) {
         const data = await response.json()
@@ -543,7 +562,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   loadMachines: async () => {
     try {
-      const response = await fetch("/api/relay/machines")
+      const headers = await getAuthHeaders()
+      const response = await fetch("/api/relay/machines", { headers })
       if (response.ok) {
         const data = await response.json()
         // Map API shape (connectionStatus) to frontend shape (status)
@@ -996,9 +1016,10 @@ async function requestExecutionSummary(
 ) {
   if (!node || !execution.streamText) return
   try {
+    const headers = await getAuthHeaders()
     const response = await fetch("/api/agent/summarize", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         taskTitle: node.title,
         taskDescription: node.description,

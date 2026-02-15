@@ -45,19 +45,24 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
 
   load: async () => {
     try {
+      console.log('[user-profile-store] Loading profile from API...')
       const profile = await dataClient.getProfile()
       if (profile) {
+        console.log('[user-profile-store] Profile loaded from API')
         set({ profile, loaded: true })
         saveState("nexus-user-profile", profile)
         return
       }
-    } catch {
-      // API unavailable
+    } catch (error) {
+      console.error('[user-profile-store] Failed to load from API:', error)
+      // API unavailable - fall back to IndexedDB
     }
 
     // Fallback to IndexedDB
+    console.log('[user-profile-store] Falling back to IndexedDB...')
     const saved = await loadState<UserProfile>("nexus-user-profile")
     if (saved) {
+      console.log('[user-profile-store] Profile loaded from IndexedDB')
       set({
         profile: {
           ...saved,
@@ -71,6 +76,7 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
         loaded: true,
       })
     } else {
+      console.log('[user-profile-store] No profile found, using default')
       set({ loaded: true })
     }
   },

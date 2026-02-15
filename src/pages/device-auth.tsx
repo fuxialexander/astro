@@ -60,13 +60,12 @@ export function DeviceAuth() {
   // Check if user is authenticated - this is used to show auth UI
   const isUnauthenticated = initialized && !authLoading && !user
 
-  // Log auth state changes (read-only effect, no setState)
+  // Auth state tracking (no sensitive data logged)
   useEffect(() => {
-    console.log('[device-auth] Auth state:', { user: user?.id, authLoading, initialized, isUnauthenticated })
     if (isUnauthenticated) {
-      console.log('[device-auth] User not authenticated, showing login prompt')
+      console.log('[device-auth] User not authenticated')
     } else if (user) {
-      console.log('[device-auth] User authenticated:', user.id)
+      console.log('[device-auth] User authenticated')
     }
   }, [user, authLoading, initialized, isUnauthenticated])
 
@@ -115,8 +114,6 @@ export function DeviceAuth() {
   }, [codeFromUrl])
 
   async function handleAuthorize() {
-    console.log('[device-auth] handleAuthorize called', { user, deviceInfo })
-
     if (!user) {
       console.error('[device-auth] No user found')
       setStatus("error")
@@ -135,7 +132,7 @@ export function DeviceAuth() {
     setError(null)
 
     try {
-      console.log('[device-auth] Authorizing device:', deviceInfo.deviceCode, 'for user:', user.id)
+      console.log('[device-auth] Authorizing device...')
 
       const response = await fetch(`/api/device/code/${deviceInfo.deviceCode}/authorize`, {
         method: "POST",
@@ -144,7 +141,6 @@ export function DeviceAuth() {
       })
 
       const data = await response.json()
-      console.log('[device-auth] Authorization response:', { ok: response.ok, status: response.status, data })
 
       if (!response.ok) {
         setStatus("error")

@@ -23,6 +23,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { useRealtimeStore, type MachineEntry } from "@/stores/realtime-store"
 import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useAuthStore } from "@/stores/auth-store"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { formatDate, formatTimeShort } from "@/lib/date-utils"
 
@@ -257,6 +258,7 @@ function OfflineMachineCard({ machine, onRemove }: { machine: RegisteredMachine;
 export function Environments() {
   const [dialogOpen, setDialogOpen] = useState(false)
 
+  const user = useAuthStore((s) => s.user)
   const machines = useRealtimeStore((s) => s.machines)
   const realtimeConnected = useRealtimeStore((s) => s.connected)
   const connectRealtime = useRealtimeStore((s) => s.connect)
@@ -271,12 +273,14 @@ export function Environments() {
   // ensures the server has time to persist before the frontend re-fetches.
   const liveMachineCount = machines.size
   useEffect(() => {
-    fetchRegistered("user-1")
+    if (!user) return
+
+    fetchRegistered(user.id)
     if (liveMachineCount > 0) {
-      const timer = setTimeout(() => fetchRegistered("user-1"), 1000)
+      const timer = setTimeout(() => fetchRegistered(user.id), 1000)
       return () => clearTimeout(timer)
     }
-  }, [fetchRegistered, liveMachineCount])
+  }, [fetchRegistered, liveMachineCount, user])
 
   const liveMachines = Array.from(machines.values())
   const liveMachineIds = new Set(liveMachines.map((m) => m.machineId))
