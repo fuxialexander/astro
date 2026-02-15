@@ -4,6 +4,20 @@
 
 Nexus sits above execution tools (coding agents, analysis tools) to help users decompose complex goals into dependency graphs, dispatch tasks across environments (local, HPC, cloud), and focus human attention on strategic decisions.
 
+## 🚀 Multi-User Setup (New!)
+
+Want to deploy Nexus for your team with proper authentication and user isolation?
+
+**→ [Quick Start Guide (5 minutes)](QUICKSTART_MULTIUSER.md)**
+**→ [Full Setup Guide with Supabase](SETUP_MULTI_USER.md)**
+
+Features:
+- ✅ Self-hosted Supabase (free, runs on your machine)
+- ✅ WebAuthn passkey authentication (no passwords!)
+- ✅ Complete user isolation (RLS policies)
+- ✅ External access via Cloudflare Tunnel
+- ✅ $0 cost for unlimited users
+
 ## Features
 
 - **Smart Task Planning**: AI-powered task decomposition with dependency graphs
@@ -54,6 +68,28 @@ Nexus sits above execution tools (coding agents, analysis tools) to help users d
 Redis is **not required** for local development. It's only needed for horizontal scaling in production.
 
 ## Getting Started
+
+### For End Users
+
+**Important**: Nexus is currently a **single-user application** designed to run locally on your machine. There is no hosted service or multi-user support yet.
+
+**Quick Start**:
+1. Clone and install the repository (see Developer Setup below)
+2. Run `npm run dev` to start the local server
+3. Visit http://localhost:5173 in your browser
+4. Complete the onboarding flow to create your first project
+
+**Accessing from Remote Machines**:
+If you want to dispatch tasks to remote machines (e.g., HPC clusters), you can expose your local server via a Cloudflare Tunnel:
+1. Set `CLOUDFLARED_DOMAIN` in your `.env` file
+2. Run `bash ./scripts/start-tunnel.sh` to expose your server
+3. Run `bash ./scripts/agent-setup.sh` on remote machines to connect them
+
+⚠️ **Multi-User Limitations**: The default setup uses a local SQLite database with no authentication. If you expose your local server via cloudflared, other users who access your domain will see all your data with no separation.
+
+**For Multi-User Deployment**: Nexus includes a complete Supabase + authentication implementation with user isolation, passkey login, and Row Level Security. See [`setup_auth.md`](setup_auth.md) for instructions.
+
+### For Developers
 
 ```bash
 # Clone the repository
@@ -144,6 +180,111 @@ This builds the agent runner, runs the device auth flow (you approve in your bro
 After that you approve the machine in the browser, you will be directed to the welcome page, where you can create a project on local or remote machine (if you have already started the agent on the remote machine).
 
 
+## Database Modes
+
+Nexus supports two database modes:
+
+### 1. IndexedDB Mode (Local, Offline-first)
+
+**Default mode for local development** — No authentication required, all data stored client-side.
+
+**Setup:**
+```bash
+# Option A: Auto-detected (no Supabase env vars set)
+npm run dev
+
+# Option B: Explicit override (even if Supabase is configured)
+npm run dev:indexeddb
+
+# Or manually:
+USE_INDEXEDDB_ONLY=true VITE_USE_INDEXEDDB_ONLY=true npm run dev
+```
+
+**Features:**
+- ✅ No authentication required
+- ✅ All data stored in browser IndexedDB
+- ✅ Works completely offline
+- ✅ Faster iteration (no network latency)
+- ✅ Single-user only
+- ✅ Perfect for rapid prototyping
+
+**Use Cases:**
+- Local development without Supabase setup
+- Testing and comparison between modes
+- Offline-first scenarios
+- Avoiding WebAuthn/Touch ID constraints on localhost
+
+**Environment Variables:**
+```bash
+# Backend
+USE_INDEXEDDB_ONLY=true
+
+# Frontend
+VITE_USE_INDEXEDDB_ONLY=true
+```
+
+### 2. Supabase Mode (Multi-user, Server-backed)
+
+**Production mode** — Multi-user with authentication, PostgreSQL database, real-time collaboration.
+
+**Setup:**
+```bash
+# Local Supabase (Docker)
+bash ./scripts/setup-supabase-local.sh
+npm run dev
+
+# Or use convenience script:
+npm run dev:supabase
+```
+
+**Features:**
+- ✅ Multi-user with WebAuthn/passkey authentication
+- ✅ Server-side PostgreSQL database with RLS
+- ✅ Real-time collaboration
+- ✅ Data synced across devices
+- ✅ User isolation and access control
+- ✅ Push notifications (iOS app)
+
+**Environment Variables:**
+- `SUPABASE_URL` — Supabase API endpoint
+- `SUPABASE_SERVICE_ROLE_KEY` — Admin key (backend only)
+- `SUPABASE_ANON_KEY` — Public key (backend)
+- `VITE_SUPABASE_URL` — Frontend Supabase URL
+- `VITE_SUPABASE_ANON_KEY` — Frontend anon key
+
+**WebAuthn/Touch ID Requirements:**
+- ⚠️ Touch ID/Face ID only works with HTTPS or registered localhost
+- For external access: Use `bash ./scripts/start-tunnel-with-supabase.sh`
+- This sets `WEBAUTHN_RP_ID` to your tunnel domain (e.g., `abc123.ngrok.io`)
+
+**Deployment Guides:**
+- [Quick Start (5 minutes)](QUICKSTART_MULTIUSER.md)
+- [Full Setup Guide](SETUP_MULTI_USER.md)
+
+### Mode Switching
+
+The system automatically detects which mode to use:
+
+1. **Auto-detection**: If Supabase env vars are not set → IndexedDB mode
+2. **Explicit override**: If `USE_INDEXEDDB_ONLY=true` → IndexedDB mode (even if Supabase is configured)
+3. **Supabase mode**: If Supabase env vars are set and no override → Supabase mode
+
+**Visual Indicator**: The sidebar shows "IndexedDB Mode (Local Only)" badge when running in IndexedDB mode.
+
+### Trade-offs
+
+| Feature | IndexedDB Mode | Supabase Mode |
+|---------|---------------|---------------|
+| Authentication | None | WebAuthn/Passkeys |
+| Users | Single-user | Multi-user |
+| Data Storage | Browser only | PostgreSQL + IndexedDB cache |
+| Offline Support | Full | Partial (with cache) |
+| Collaboration | None | Real-time |
+| Deployment | Static site | Requires backend + DB |
+| Dev Speed | Fast | Slower (network latency) |
+| Production Ready | No | Yes |
+
+
 ## Project Structure
 
 ```
@@ -223,6 +364,35 @@ nexus/
 - **Relay**: WebSocket server for agent runner communication
 - **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend, production)
 
+## Testing
+
+Nexus includes comprehensive CLI-testable workflows for automated testing:
+
+```bash
+# Run all tests
+./scripts/test-runner.sh
+
+# Run unit tests only (fast, parallel)
+./scripts/test-runner.sh --unit
+
+# Run integration tests
+./scripts/test-runner.sh --integration
+
+# Run end-to-end workflow test
+./scripts/test-runner.sh --e2e
+```
+
+**Test Coverage:**
+- ✅ User authentication (WebAuthn + IndexedDB modes)
+- ✅ Device authorization flow (OAuth2 RFC 8628)
+- ✅ Project/task CRUD operations
+- ✅ Machine registration and management
+- ✅ Task dispatch and execution
+- ✅ Real-time events (SSE)
+- ✅ Database mode detection
+
+See [TESTING.md](TESTING.md) for complete testing guide.
+
 ## Building & Deployment
 
 ```bash
@@ -230,6 +400,65 @@ npm run build     # TypeScript check + Vite production build → dist/
 npm run deploy    # Build + deploy to Cloudflare Pages
 npm run lint      # ESLint
 ```
+
+### Deployment Considerations
+
+**Default Mode**: Nexus runs as a **single-user application** with local SQLite storage. This is perfect for personal use and development.
+
+**Multi-User Mode**: Nexus includes a complete **Supabase + authentication implementation** for multi-tenant deployment:
+
+✅ **Already Implemented**:
+1. **PostgreSQL Schema** (`supabase/migrations/20260209000000_initial_schema.sql`)
+   - Full migration from SQLite to PostgreSQL
+   - Row Level Security (RLS) policies for user isolation
+   - WebAuthn passkey authentication (passwordless)
+   - Project access control (owner/editor/viewer roles)
+   - Realtime subscriptions for live updates
+
+2. **Authentication System**
+   - Passkey-based sign-up/sign-in (WebAuthn)
+   - Session management via Supabase Auth
+   - Protected API routes with user context
+   - Auth guard for frontend routes
+
+3. **Multi-Tenancy**
+   - All data scoped by `user_id = auth.uid()`
+   - Projects, machines, tasks properly isolated
+   - Shared project access via member roles
+
+**To Enable Multi-User Mode**:
+
+See [`setup_auth.md`](setup_auth.md) for complete setup instructions. Quick summary:
+
+```bash
+# Option 1: Supabase Cloud (recommended)
+# 1. Create project at supabase.com
+# 2. Run migration in SQL editor
+# 3. Set environment variables:
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbG...
+SUPABASE_SERVICE_ROLE_KEY=eyJhbG...  # backend only
+
+# Option 2: Local Supabase (Docker)
+npx supabase init
+npx supabase start  # Local at http://127.0.0.1:54321
+```
+
+**Production Stack**:
+- **Frontend**: Cloudflare Pages
+- **Backend**: Fly.io (Hono + WebSocket relay)
+- **Database**: Supabase PostgreSQL (cloud or self-hosted)
+- **Auth**: Supabase Auth (WebAuthn passkeys)
+- **Redis**: Upstash Redis (optional, for horizontal scaling)
+
+**Cost Estimate** (using Supabase cloud):
+| Service | Tier | Monthly |
+|---------|------|---------|
+| Cloudflare Pages | Free | $0 |
+| Fly.io Backend | 1x shared-cpu, 256MB | ~$5 |
+| Supabase | Free tier | $0 (up to 500MB DB) |
+| Upstash Redis (optional) | Pay-per-request | ~$1-5 |
+| **Total** | | **~$5-10** |
 
 ## Known Issues
 

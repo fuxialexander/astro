@@ -14,10 +14,37 @@ The product vision is documented in `vision.md`. The UI design is in `UI.pen` (r
 npm run dev              # Start frontend (Vite) + backend (Hono + relay) concurrently
 npm run dev:frontend     # Vite dev server only (http://localhost:5173)
 npm run dev:backend      # Hono API server (port 3001) + WebSocket relay (port 3002)
+npm run dev:indexeddb    # IndexedDB-only mode (no Supabase, no auth)
+npm run dev:supabase     # Supabase mode (setup + start)
 npm run build            # TypeScript check + Vite production build
 npm run lint             # ESLint
 npm run deploy           # Build + deploy to Cloudflare Pages
 ```
+
+### Database Modes
+
+Nexus supports two database modes:
+
+**IndexedDB Mode** (default for local dev):
+- No authentication required
+- All data stored in browser IndexedDB
+- Single-user only
+- Perfect for rapid iteration
+- Start with: `npm run dev:indexeddb` or `npm run dev` (if no Supabase env vars)
+
+**Supabase Mode** (multi-user production):
+- WebAuthn/passkey authentication
+- PostgreSQL database with RLS
+- Multi-user with data isolation
+- Real-time collaboration
+- Start with: `npm run dev:supabase` or `npm run dev` (if Supabase env vars set)
+
+**Mode Detection:**
+1. If `USE_INDEXEDDB_ONLY=true` → IndexedDB mode (explicit override)
+2. If Supabase env vars not set → IndexedDB mode (auto-detected)
+3. If Supabase env vars set → Supabase mode
+
+**Visual Indicator:** Sidebar shows "IndexedDB Mode (Local Only)" badge when in IndexedDB mode.
 
 ### Local Development
 
