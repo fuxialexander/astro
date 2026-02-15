@@ -7,11 +7,16 @@
     "dev": "concurrently -n fe,be -c blue,green \"vite\" \"tsx watch --env-file-if-exists=.env server/index.ts\"",
     "dev:frontend": "vite",
     "dev:backend": "tsx watch --env-file-if-exists=.env server/index.ts",
+    "dev:indexeddb": "USE_INDEXEDDB_ONLY=true VITE_USE_INDEXEDDB_ONLY=true npm run dev",
+    "dev:supabase": "bash ./scripts/setup-supabase-local.sh && npm run dev",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler pages deploy dist --project-name=nexus-app",
     "verify": "bash scripts/verify-setup.sh",
+    "verify:env": "bash scripts/verify-environment-setup.sh",
+    "env:fix-permissions": "bash scripts/fix-env-permissions.sh",
+    "env:setup": "cp .env.example .env && echo '\n✅ Created .env file. Edit it and replace placeholder values.\n'",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prepare": "husky"
   },
@@ -42,10 +47,12 @@
     "cmdk": "^1.1.1",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.7",
+    "hono-rate-limiter": "^0.5.3",
     "idb-keyval": "^6.2.1",
     "ioredis": "^5.9.2",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.511.0",
+    "postgres": "^3.4.8",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router": "^7.6.1",
@@ -53,6 +60,9 @@
     "ws": "^8.19.0",
     "zod": "^4.3.6",
     "zustand": "^5.0.5"
+  },
+  "overrides": {
+    "esbuild": ">=0.25.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -65,7 +75,7 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.1",
     "concurrently": "^9.2.1",
-    "drizzle-kit": "^0.18.1",
+    "drizzle-kit": "^0.31.9",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

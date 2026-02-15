@@ -11,6 +11,8 @@ export default defineConfig({
     },
   },
   server: {
+    host: true, // Allow external access via cloudflared tunnel
+    allowedHosts: ['nexus.fuxialexander.work', '.fuxialexander.work'],
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
