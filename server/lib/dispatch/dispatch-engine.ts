@@ -29,6 +29,8 @@ import { ContextAssembler, createContextAssembler } from './context-assembler.js
 import { ResultRouter, createResultRouter } from './result-router.js'
 import { errorMessage } from '../error-utils.js'
 import { BranchManager, createBranchManager } from './branch-manager.js'
+import { nexusEventTransport } from '../events/nexus-event-transport.js'
+import type { TaskStartedEvent, TaskCompletedEvent as NexusTaskCompletedEvent } from '../events/types.js'
 
 /**
  * Callback to update plan node status
@@ -421,6 +423,18 @@ export class DispatchEngine extends EventEmitter {
         executionStartedAt: new Date(),
       })
 
+      // Emit task.started event to event transport
+      await nexusEventTransport.emitEvent({
+        type: 'task.started',
+        taskId: executionId,
+        nodeId: queueEntry.nodeId,
+        projectId: queueEntry.projectId,
+        executionId,
+        timestamp: new Date(),
+        node,
+        project,
+      } satisfies TaskStartedEvent)
+
       // Stream execution
       const stream = this.executionCallback(context, queueEntry)
 
@@ -492,6 +506,17 @@ export class DispatchEngine extends EventEmitter {
         this.queue.markCancelled(queueEntry.id)
         await this.nodeUpdateCallback(queueEntry.nodeId, { status: 'planned' })
         this.emit('task:cancelled', queueEntry.nodeId, queueEntry.projectId)
+
+        // Emit to event transport
+        await nexusEventTransport.emitEvent({
+          type: 'task.cancelled',
+          taskId: executionId,
+          nodeId: queueEntry.nodeId,
+          projectId: queueEntry.projectId,
+          executionId,
+          reason: 'User cancelled',
+          timestamp: new Date(),
+        })
       } else {
         // Handle error
         const errMsg = errorMessage(error)
@@ -526,6 +551,18 @@ export class DispatchEngine extends EventEmitter {
             retryCount: queueEntry.retryCount,
           }
           this.emit('task:failed', failedEvent)
+
+          // Emit to event transport
+          await nexusEventTransport.emitEvent({
+            type: 'task.failed',
+            taskId: executionId,
+            nodeId: queueEntry.nodeId,
+            projectId: queueEntry.projectId,
+            executionId,
+            error: errMsg,
+            node,
+            timestamp: new Date(),
+          })
         }
       }
     } finally {
@@ -579,6 +616,18 @@ export class DispatchEngine extends EventEmitter {
       routingDecision: routing,
     }
     this.emit('task:completed', completedEvent)
+
+    // Emit to event transport for hooks
+    await nexusEventTransport.emitEvent({
+      type: 'task.completed',
+      taskId: result.taskId,
+      nodeId: node.id,
+      projectId: queueEntry.projectId,
+      executionId: result.taskId,
+      result,
+      node,
+      timestamp: new Date(),
+    } satisfies NexusTaskCompletedEvent)
 
     // Trigger downstream dispatch if applicable
     if (routing.triggerDownstream && this.config.autoDispatch && routing.downstreamNodes) {

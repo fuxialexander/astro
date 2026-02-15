@@ -24,6 +24,10 @@ import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus, ensureMachineRegistered } from './lib/registered-machines-store.js'
 import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
+import { nexusEventTransport } from './lib/events/nexus-event-transport.js'
+import { sseNotificationHook } from './lib/events/hooks/sse-notification-hook.js'
+import { auditLogHook } from './lib/events/hooks/audit-log-hook.js'
+import { usageMetricsHook } from './lib/events/hooks/usage-metrics-hook.js'
 
 // Validate environment variables on startup
 try {
@@ -160,6 +164,13 @@ async function start() {
     console.warn('[backend] provider initialization warning:', error)
     // Continue even if initialization fails - providers can be detected on-demand
   }
+
+  // Register event transport hooks
+  console.log('[event-transport] Registering hooks...')
+  nexusEventTransport.registerHook('sse-notification', sseNotificationHook)
+  nexusEventTransport.registerHook('audit-log', auditLogHook)
+  nexusEventTransport.registerHook('usage-metrics', usageMetricsHook)
+  console.log('[event-transport] Registered 3 hooks:', nexusEventTransport.listHooks().join(', '))
 
   // Initialize relay server
   try {

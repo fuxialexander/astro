@@ -8,6 +8,7 @@
 import type { PlanNode, PlanEdge } from '../../../src/types/index.js'
 import type { ExecutionEnvironment, TaskResult } from '../providers/types.js'
 import type { ProviderType } from '../../types/relay.js'
+import type { ProcedureState } from './procedure-types.js'
 
 // ============================================================================
 // Dispatch State
@@ -77,6 +78,8 @@ export interface DispatchQueueEntry {
   executionId?: string
   /** Session ID for resumption */
   sessionId?: string
+  /** Procedure state (if using procedure-based workflow) */
+  procedureState?: ProcedureState
 }
 
 // ============================================================================
