@@ -163,11 +163,11 @@ deviceAuthRoute.post('/authorize', async (c) => {
     const body = await c.req.json() as DeviceAuthRequest;
 
     // Validate required fields
-    if (!body.environmentType) {
-      console.error('[device-auth] Missing required field: environmentType');
+    if (!body.machineInfo?.environmentType) {
+      console.error('[device-auth] Missing required field: machineInfo.environmentType');
       return c.json({
         error: 'invalid_request',
-        error_description: 'environmentType is required',
+        error_description: 'machineInfo.environmentType is required',
       }, 400);
     }
 
