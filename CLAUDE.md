@@ -89,8 +89,11 @@ src/
 │   ├── my-tasks.tsx              # Cross-project task list with filters, grouping, display settings
 │   ├── task-detail.tsx           # Task-agent detail: output, tool traces, file changes, steer chat
 │   ├── environments.tsx          # Machine/environment management, SLURM cluster display
+│   ├── agents.tsx                # Agent management and monitoring
+│   ├── initiatives.tsx           # Initiatives/projects grouping
 │   ├── device-auth.tsx           # Device code OAuth2 authentication flow
 │   ├── welcome.tsx               # Multi-step onboarding (user type, domains, repo)
+│   ├── login.tsx                 # WebAuthn/passkey login (public route)
 │   └── settings.tsx              # Backend connection, model selection
 ├── components/
 │   ├── ui/                       # shadcn/ui Radix primitives (button, input, badge, card, dialog, sheet, etc.)
@@ -124,6 +127,9 @@ src/
 │   ├── agent/
 │   │   ├── generation-overlay.tsx # Modal overlay during AI plan generation
 │   │   └── chat-panel.tsx        # Sidebar chat for plan refinement
+│   ├── activity-dialog.tsx       # Activity history dialog for projects
+│   ├── approval-card.tsx         # Approval/decision UI component
+│   ├── milestone-dialog.tsx      # Milestone creation/edit dialog
 │   ├── theme-provider.tsx        # Light/dark/system theme context
 │   └── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
 ├── stores/
@@ -138,6 +144,8 @@ src/
 │   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties), IndexedDB persistence
 │   ├── usage-store.ts            # Session usage metrics (cost, tokens, task counts), IndexedDB persistence
 │   ├── task-chat-store.ts        # Task-level chat history, IndexedDB persistence
+│   ├── activity-store.ts         # Activity tracking and history, IndexedDB persistence
+│   ├── initiative-store.ts       # Initiatives/projects grouping, IndexedDB persistence
 │   ├── ui-store.ts               # Sidebar collapsed, command palette open
 │   └── settings-store.ts         # Model selection, backend health, IndexedDB persistence
 ├── lib/
@@ -185,11 +193,13 @@ server/
 │   │   ├── branch-manager.ts     # Branch tracking/pruning
 │   │   ├── context-assembler.ts  # Assembles execution context (vision doc + dependencies)
 │   │   └── result-router.ts      # Routes task results to storage
-│   └── slurm/                    # HPC cluster support
-│       ├── types.ts              # SLURM job/partition types
-│       ├── job-manager.ts        # Submit/cancel/monitor jobs
-│       ├── script-generator.ts   # Generates SBATCH scripts
-│       └── parser.ts             # Parses SLURM output
+│   ├── slurm/                    # HPC cluster support
+│   │   ├── types.ts              # SLURM job/partition types
+│   │   ├── job-manager.ts        # Submit/cancel/monitor jobs
+│   │   ├── script-generator.ts   # Generates SBATCH scripts
+│   │   └── parser.ts             # Parses SLURM output
+│   └── mcp/                      # MCP server integration
+│       └── nexus-tools-server.ts # Custom MCP server (ask_user_question tool)
 ├── types/
 │   └── relay.ts                  # WebSocket protocol types for relay communication
 └── test/
@@ -216,9 +226,12 @@ docs/
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat, session activity) |
 | `/tasks` | My Tasks | Implemented (cross-project task list with filters, grouping, display settings) |
 | `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow) |
+| `/agents` | Agents | Implemented (agent listing and monitoring) |
+| `/initiatives` | Initiatives | Implemented (initiatives/projects grouping) |
 | `/settings` | Settings | Implemented (health check + model selection) |
 | `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
 | `/welcome` | Welcome | Implemented (standalone multi-step onboarding) |
+| `/login` | Login | Implemented (WebAuthn/passkey authentication) |
 | `/issues` | Issues List | **Not implemented** (designed in UI.pen, no code) |
 | `/issues/board` | Issues Board | **Not implemented** (designed in UI.pen, no code) |
 
@@ -247,6 +260,10 @@ docs/
 - **Branch pruning**: Killing a branch auto-cancels all downstream tasks
 - **Agent-agnostic execution**: Wraps existing agents (e.g., Claude Code), does not build custom agents
 - **Data flywheel**: Planning traces (decomposition, overrides, pruning decisions, outcomes) improve future plans via context engineering, not model retraining
+- **Activity Feed**: Real-time activity tracking system with IndexedDB persistence, captures all project/task events
+- **Approval System**: Dynamic tool-based approvals (`ask_user_question`) + procedure-level approvals with SSE notifications
+- **Realtime Sync**: Multi-device collaboration via Supabase Realtime with optimistic updates and conflict resolution
+- **MCP Integration**: Custom MCP server (`nexus-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
 
 ## Target Users
 
@@ -261,7 +278,7 @@ docs/
 - React Flow: define node data type as `type TaskNodeData = Node<{ ... }>`, use `NodeProps<TaskNodeData>`, cast `nodeTypes` to `any`; wrap in `ReactFlowProvider` when using `useReactFlow()` hooks
 - Task creation: use `TaskCreationForm` component with `mode="inline"|"popover"|"dialog"`; creates nodes via `usePlanStore.addNode()` + `addEdge()`
 - SSE streaming: use `readSSE()` from `api-client.ts` for server-sent events
-- Status types: `planned | dispatched | in_progress | auto_verified | awaiting_judgment | completed | pruned`
+- Status types: `planned | dispatched | in_progress | auto_verified | awaiting_approval | awaiting_judgment | completed | pruned`
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
 - PlanNode execution fields: `executionId`, `executionOutput`, `executionError`, `executionStartedAt`, `executionCompletedAt`
 - PlanNode list fields: `dueDate` (ISO YYYY-MM-DD), `estimate` (XS/S/M/L/XL), `milestoneId`
@@ -331,5 +348,21 @@ npx tsx server/test/relay-server.test.ts
 
 ## File Reference
 
+### Core Documentation
 - `vision.md` — Full product vision document (confidential, Feb 2026 draft)
 - `server/types/relay.ts` — Relay server protocol documentation (see type definitions)
+
+### Feature Documentation
+- `ACTIVITY_FEED.md` — Activity tracking system implementation and architecture
+- `APPROVAL_SYSTEM.md` — Complete approval system architecture (dynamic + procedure-level)
+- `APPROVAL_TESTING_CHEATSHEET.md` — Quick reference for approval testing scripts
+- `REALTIME_SYNC.md` — Supabase realtime sync system with multi-device collaboration
+- `REALTIME_SYNC_IMPLEMENTATION.md` — Realtime sync implementation details
+- `E2E_TEST_COMPATIBILITY_FIX.md` — Test mode event transport handling
+
+### Testing Documentation
+- `scripts/TESTING_APPROVAL.md` — Comprehensive approval system testing guide
+- `scripts/README.md` — Testing scripts documentation
+- `docs/APPROVAL_QUICKSTART.md` — Approval system quick start guide
+- `docs/realtime-sync-example.md` — Realtime sync usage examples
+- `docs/realtime-sync-quick-reference.md` — Realtime sync quick reference
