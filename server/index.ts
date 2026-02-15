@@ -84,11 +84,12 @@ if (!isTest()) {
   }))
 }
 
-// Auth endpoints rate limiter (5 req/15min per IP) - bypassed in test mode
+// Auth endpoints rate limiter (30 req/15min per IP) - bypassed in test mode
+// Higher limit to accommodate WebAuthn flows (register-options, login-options, verify)
 if (!isTest()) {
   app.use('/api/auth/*', rateLimiter({
     windowMs: 15 * 60 * 1000,
-    limit: 5,
+    limit: 30, // Increased from 5 to handle WebAuthn multi-step flows
     standardHeaders: 'draft-7',
     keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
   }))
