@@ -404,17 +404,17 @@ export function Projects() {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
           <div className="flex items-center gap-4">
-            <span className="text-base font-semibold">Projects</span>
-            <div className="flex items-center rounded-xl bg-secondary p-1 gap-0.5">
+            <h1 className="text-xl font-semibold font-secondary">Projects</h1>
+            <div className="flex items-center gap-1">
               {viewTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setViewTab(tab.id)}
                   className={cn(
-                    "rounded-lg px-4 py-1.5 text-[13px] transition-colors cursor-pointer",
+                    "rounded-lg px-3 py-1.5 text-sm transition-colors cursor-pointer",
                     viewTab === tab.id
-                      ? "bg-card font-medium text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "bg-accent font-semibold text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                   )}
                 >
                   {tab.label}

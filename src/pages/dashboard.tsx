@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/ui/status-badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
@@ -77,11 +78,11 @@ export function Dashboard() {
   const activeProjects = projects.filter((p) => p.status === "active")
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-8">
       {/* Header Row */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-[28px] font-semibold">
+          <h1 className="text-2xl font-semibold font-secondary md:text-[28px]">
             Good morning{profile.name ? `, ${profile.name}` : ""}
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -89,14 +90,14 @@ export function Dashboard() {
             {activeTasks} active task{activeTasks !== 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button asChild>
+        <div className="flex items-center gap-2 md:gap-3">
+          <Button asChild className="min-h-11">
             <Link to="/projects/new">
               <Plus className="h-4 w-4" />
               New Project
             </Link>
           </Button>
-          <Button variant="outline" asChild>
+          <Button variant="outline" asChild className="min-h-11">
             <Link to="/settings">Settings</Link>
           </Button>
         </div>
@@ -105,7 +106,7 @@ export function Dashboard() {
       {/* Stats Row - 3 cards */}
       <div className="grid grid-cols-3 gap-4">
         {/* Needs Attention */}
-        <Card className="rounded-xl shadow-sm cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=awaiting_judgment")}>
+        <Card className="rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=awaiting_judgment")}>
           <CardContent className="flex items-center justify-between p-6">
             <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Needs Attention</p>
@@ -118,7 +119,7 @@ export function Dashboard() {
         </Card>
 
         {/* Active Tasks */}
-        <Card className="rounded-xl shadow-sm cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=in_progress")}>
+        <Card className="rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=in_progress")}>
           <CardContent className="flex items-center justify-between p-6">
             <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Active Tasks</p>
@@ -131,7 +132,7 @@ export function Dashboard() {
         </Card>
 
         {/* Completed Today */}
-        <Card className="rounded-xl shadow-sm cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=completed")}>
+        <Card className="rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=completed")}>
           <CardContent className="flex items-center justify-between p-6">
             <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Completed Today</p>
@@ -159,17 +160,17 @@ export function Dashboard() {
               pendingNodes.map((node) => {
                 const project = projects.find((p) => p.id === node.projectId)
                 return (
-                  <Card key={node.id} className="rounded-xl shadow-sm">
+                  <Card key={node.id} className="rounded-2xl shadow-lg">
                     <CardContent className="flex flex-col gap-0 p-0">
                       {/* Card Header */}
                       <div className="flex flex-col gap-3 p-5">
                         <div className="flex items-center justify-between">
-                          <Badge variant="warning">Awaiting Judgment</Badge>
+                          <StatusBadge status="awaiting" />
                           <span className="text-xs text-muted-foreground">
                             {project?.name}
                           </span>
                         </div>
-                        <p className="text-base font-semibold">{node.title}</p>
+                        <p className="text-base font-semibold text-foreground">{node.title}</p>
                         <p className="text-sm text-muted-foreground">{node.description}</p>
 
                         {/* Confidence / Risk Row */}
@@ -187,11 +188,11 @@ export function Dashboard() {
                         {/* Verification Evidence */}
                         <div className="rounded-lg bg-muted p-3.5">
                           <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2 text-sm">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
                               <Check className="h-4 w-4 text-green-600" />
                               <span>All tests passing</span>
                             </div>
-                            <div className="flex items-center gap-2 text-sm">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
                               <Check className="h-4 w-4 text-green-600" />
                               <span>Build successful</span>
                             </div>
@@ -213,7 +214,7 @@ export function Dashboard() {
                 )
               })
             ) : (
-              <Card className="rounded-xl">
+              <Card className="rounded-2xl">
                 <CardContent className="p-0">
                   <EmptyState
                     icon={CheckCircle2}
@@ -255,10 +256,10 @@ export function Dashboard() {
                   )
                   return (
                     <Link key={project.id} to={`/project/${project.id}`}>
-                      <Card className="rounded-xl hover:border-primary/40 transition-colors">
+                      <Card className="rounded-2xl hover:border-primary/40 transition-colors">
                         <CardContent className="flex items-center justify-between p-4">
                           <div className="flex flex-col gap-0.5">
-                            <p className="text-sm font-semibold">{project.name}</p>
+                            <p className="text-sm font-semibold text-foreground">{project.name}</p>
                             <p className="text-xs text-muted-foreground">
                               {projectTasks.length} task{projectTasks.length !== 1 ? "s" : ""} in
                               progress
@@ -271,7 +272,7 @@ export function Dashboard() {
                   )
                 })
               ) : (
-                <Card className="rounded-xl">
+                <Card className="rounded-2xl">
                   <CardContent className="p-0">
                     <EmptyState
                       icon={Folder}
@@ -290,11 +291,11 @@ export function Dashboard() {
           </div>
 
           {/* System Health */}
-          <Card className="flex-1 rounded-xl shadow-sm">
+          <Card className="flex-1 rounded-2xl shadow">
             <CardContent className="flex flex-col p-0">
               {/* Header */}
               <div className="flex items-center justify-between border-b px-5 py-4">
-                <h2 className="text-base font-semibold">System Health</h2>
+                <h2 className="text-base font-semibold text-foreground">System Health</h2>
                 <div className="flex items-center gap-1.5">
                   <div
                     className={cn(

@@ -5,25 +5,21 @@ import {
   ListFilter,
   Folder,
   X,
-  Trash2,
-  GitPullRequest,
-  GitPullRequestDraft,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
+import { TaskRow } from "@/components/task-row"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { BoardView } from "@/components/board/board-view"
-import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
+import { type ListGroup } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { FilterSelect } from "@/components/views/filter-select"
-import { PropertyPicker } from "@/components/property-picker"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
-import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
+import { PRIORITY_CONFIG } from "@/lib/constants"
 import { STATUS_CONFIG, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { assignDefaultDates } from "@/lib/timeline-utils"
-import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
 
@@ -112,156 +108,6 @@ const STATUS_ORDER: Record<string, number> = {
 
 type MyTasksViewMode = "list" | "timeline" | "board"
 
-// --- Column definitions for task list ---
-function makeTaskColumns(
-  projectMap: Map<string, string>,
-  onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void,
-): ListColumn<PlanNode>[] {
-  return [
-    {
-      id: "name",
-      label: "Task",
-      width: "flex-1",
-      sortKey: "name",
-      render: (node) => {
-        const status = STATUS_CONFIG[node.status]
-        const StatusIcon = status.icon
-        return (
-          <div className="flex items-center gap-2.5 min-w-0">
-            <StatusIcon
-              className={cn(
-                "h-4 w-4 shrink-0",
-                status.color,
-                node.status === "in_progress" && "animate-spin"
-              )}
-            />
-            <span className="text-sm truncate">{node.title}</span>
-          </div>
-        )
-      },
-    },
-    {
-      id: "status",
-      label: "Status",
-      width: "w-[120px]",
-      sortKey: "status",
-      render: (node) => {
-        const status = STATUS_CONFIG[node.status]
-        return (
-          <PropertyPicker
-            value={node.status}
-            options={STATUS_OPTIONS}
-            title="Set status"
-            disabled={!onNodeUpdate}
-            onSelect={(id) => onNodeUpdate?.(node.id, { status: id as PlanNode["status"] })}
-          >
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-                status.bg,
-                status.color
-              )}
-            >
-              {status.label}
-            </span>
-          </PropertyPicker>
-        )
-      },
-    },
-    {
-      id: "priority",
-      label: "Priority",
-      width: "w-[90px]",
-      sortKey: "priority",
-      render: (node) => {
-        const priority = PRIORITY_CONFIG[node.priority ?? "none"]
-        const PriorityIcon = priority.icon
-        return (
-          <PropertyPicker
-            value={node.priority ?? "none"}
-            options={PRIORITY_OPTIONS}
-            title="Set priority"
-            disabled={!onNodeUpdate}
-            onSelect={(id) => onNodeUpdate?.(node.id, { priority: id as Priority })}
-          >
-            <div className="flex items-center gap-1.5">
-              <PriorityIcon className={cn("h-3.5 w-3.5", priority.color)} />
-              <span className="text-xs text-muted-foreground">{priority.label}</span>
-            </div>
-          </PropertyPicker>
-        )
-      },
-    },
-    {
-      id: "project",
-      label: "Project",
-      width: "w-[140px]",
-      render: (node) => (
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground truncate">{projectMap.get(node.projectId) ?? ""}</span>
-        </div>
-      ),
-    },
-    {
-      id: "dueDate",
-      label: "Due date",
-      width: "w-[90px]",
-      sortKey: "dueDate",
-      render: (node) => {
-        const dueDate = node.dueDate ?? node.endDate
-        const overdue = isOverdue(dueDate, node.status)
-        return (
-          <span className={cn("text-xs", overdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
-            {formatShortDate(dueDate)}
-          </span>
-        )
-      },
-    },
-    {
-      id: "estimate",
-      label: "Estimate",
-      width: "w-[70px]",
-      render: (node) => (
-        <PropertyPicker
-          value={node.estimate}
-          options={ESTIMATE_OPTIONS}
-          title="Set estimate"
-          disabled={!onNodeUpdate}
-          onSelect={(id) => onNodeUpdate?.(node.id, { estimate: id as PlanNode["estimate"] })}
-        >
-          <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-            {node.estimate ?? "\u2014"}
-          </span>
-        </PropertyPicker>
-      ),
-    },
-    {
-      id: "pr",
-      label: "PR",
-      width: "w-[70px]",
-      render: (node) => {
-        if (!node.prUrl) return null
-        const PrIcon = node.status === "completed" || node.status === "auto_verified"
-          ? GitPullRequest
-          : GitPullRequestDraft
-        return (
-          <a
-            href={node.prUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1 text-xs text-purple-500 hover:text-purple-600 transition-colors"
-            title={node.branchName ?? `PR #${node.prNumber}`}
-          >
-            <PrIcon className="h-3.5 w-3.5 shrink-0" />
-            {node.prNumber != null && <span>#{node.prNumber}</span>}
-          </a>
-        )
-      },
-    },
-  ]
-}
 
 export function MyTasks() {
   const projects = useProjectStore((s) => s.projects)
@@ -269,9 +115,7 @@ export function MyTasks() {
   const edges = usePlanStore((s) => s.edges)
   const displaySettings = useDisplaySettingsStore((s) => s.get("my-tasks"))
   const boardSettings = useDisplaySettingsStore((s) => s.get("my-tasks-board"))
-  const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const updateNode = usePlanStore((s) => s.updateNode)
-  const removeNodes = usePlanStore((s) => s.removeNodes)
 
   const [searchParams, setSearchParams] = useSearchParams()
   const [viewMode, setViewMode] = useState<MyTasksViewMode>("list")
@@ -298,21 +142,6 @@ export function MyTasks() {
     return m
   }, [projects])
 
-  const handleListNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
-    updateNode(id, updates)
-  }, [updateNode])
-
-  const columns = useMemo(() => makeTaskColumns(projectMap, handleListNodeUpdate), [projectMap, handleListNodeUpdate])
-
-  const taskBatchActions: BatchAction[] = useMemo(() => [
-    {
-      id: "delete",
-      label: "Delete",
-      icon: <Trash2 className="h-3.5 w-3.5" />,
-      variant: "destructive",
-      onAction: (ids) => removeNodes(ids),
-    },
-  ], [removeNodes])
 
   // Filter tasks
   const filteredTasks = useMemo(() => {
@@ -463,16 +292,6 @@ export function MyTasks() {
     setProjectFilter("all")
   }
 
-  const handleSort = useCallback((sortKey: string) => {
-    if (displaySettings.orderBy === sortKey) {
-      updateDisplaySettings("my-tasks", {
-        orderDirection: displaySettings.orderDirection === "asc" ? "desc" : "asc",
-      })
-    } else {
-      updateDisplaySettings("my-tasks", { orderBy: sortKey, orderDirection: "asc" })
-    }
-  }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
-
   const getProjectName = useCallback((node: PlanNode) => projectMap.get(node.projectId), [projectMap])
   const handleBoardNodeSelect = useCallback((node: PlanNode) => {
     window.location.href = `/project/${node.projectId}/plan`
@@ -504,7 +323,7 @@ export function MyTasks() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
         <div className="flex items-center gap-3">
-          <span className="text-base font-semibold">My Tasks</span>
+          <h1 className="text-2xl font-secondary font-semibold">My Tasks</h1>
           {activeCount > 0 && (
             <Badge variant="info" className="text-xs">
               {activeCount} active
@@ -516,15 +335,15 @@ export function MyTasks() {
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-xl bg-secondary p-1 gap-0.5">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
             {(["list", "timeline", "board"] as MyTasksViewMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
                 className={cn(
-                  "rounded-lg px-3.5 py-1 text-xs font-medium transition-colors cursor-pointer capitalize",
-                  viewMode === mode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  "rounded-lg px-3 py-1.5 text-sm transition-all cursor-pointer capitalize",
+                  viewMode === mode ? "bg-accent font-semibold text-accent-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 )}
               >
                 {mode}
@@ -538,27 +357,27 @@ export function MyTasks() {
       </div>
 
       {/* Filter Bar */}
-      <div className="flex items-center gap-2 border-b border-border px-6 py-2 shrink-0">
+      <div className="flex items-center gap-3 border-b border-border px-6 py-3 shrink-0">
         <button
-          className="flex items-center gap-2 hover:bg-muted/30 rounded-md px-2 py-1 transition-colors cursor-pointer"
+          className="flex items-center gap-2 hover:bg-muted/30 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"
           onClick={() => setShowFilters(!showFilters)}
         >
           <ListFilter className={cn("h-4 w-4", showFilters ? "text-primary" : "text-muted-foreground")} />
-          <span className={cn("text-sm", showFilters ? "text-foreground" : "text-muted-foreground")}>Filter</span>
+          <span className={cn("text-sm font-medium", showFilters ? "text-foreground" : "text-muted-foreground")}>Filter</span>
         </button>
 
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
-            className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
-            <X className="h-3 w-3" />
-            Clear
+            <X className="h-3.5 w-3.5" />
+            Clear filters
           </button>
         )}
 
         {showFilters && (
-          <div className="flex items-center gap-2 ml-2">
+          <div className="flex items-center gap-3 ml-2">
             <FilterSelect
               label="Status"
               value={statusFilter}
@@ -642,17 +461,38 @@ export function MyTasks() {
         sortedTasks.length === 0 ? (
           <div className="flex-1 overflow-auto">{emptyState}</div>
         ) : (
-          <ItemListView
-            columns={columns}
-            groups={listGroups}
-            visibleColumns={displaySettings.visibleProperties}
-            onItemClick={(node) => { window.location.href = `/project/${node.projectId}/plan` }}
-            getItemId={(n) => n.id}
-            batchActions={taskBatchActions}
-            sortColumn={displaySettings.orderBy}
-            sortDirection={displaySettings.orderDirection}
-            onSort={handleSort}
-          />
+          <div className="flex-1 overflow-auto px-6 py-6">
+            <div className="flex flex-col gap-6">
+              {listGroups.map((group) => (
+                <div key={group.key} className="flex flex-col gap-4">
+                  {/* Group Header */}
+                  {displaySettings.groupBy !== "none" && (
+                    <div className="flex items-center gap-2 px-2">
+                      {group.icon}
+                      <h2 className="text-sm font-semibold text-muted-foreground">
+                        {group.label}
+                      </h2>
+                      <span className="text-xs text-muted-foreground">
+                        ({group.items.length})
+                      </span>
+                    </div>
+                  )}
+                  {/* Task List */}
+                  <div className="flex flex-col gap-4">
+                    {group.items.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        projectName={projectMap.get(task.projectId)}
+                        showProject={displaySettings.groupBy !== "project"}
+                        onClick={() => { window.location.href = `/project/${task.projectId}/plan` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )
       )}
     </div>

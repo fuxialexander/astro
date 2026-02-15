@@ -375,15 +375,15 @@ export function ProjectOverview() {
         </div>
         <span className="text-lg font-semibold shrink-0">{project.name}</span>
         <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
-        <div className="flex items-center rounded-xl bg-secondary p-1 gap-0.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           {tabs.map((tab) =>
             tab.route ? (
               <Link
                 key={tab.id}
                 to={tab.route}
                 className={cn(
-                  "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors cursor-pointer",
-                  "text-muted-foreground hover:text-foreground"
+                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+                  "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 )}
               >
                 {tab.label}
@@ -394,10 +394,10 @@ export function ProjectOverview() {
                 type="button"
                 onClick={() => handleTabClick(tab)}
                 className={cn(
-                  "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors cursor-pointer",
+                  "rounded-lg px-3 py-1.5 text-sm transition-colors cursor-pointer",
                   activeTab === tab.id
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "bg-accent font-semibold text-accent-foreground"
+                    : "font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 )}
               >
                 {tab.label}

@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
 import { FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond, X, Calendar, Trash2, GitPullRequestDraft, GitPullRequest, Ellipsis, ChevronDown } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
@@ -727,12 +728,12 @@ export function PlanView() {
     <div className="flex h-full flex-col">
       {/* Single-line header: tabs + view mode + actions (title only on overview page) */}
       <header className="flex items-center gap-3 border-b border-border px-6 h-14 shrink-0 flex-wrap">
-        <div className="flex items-center rounded-xl bg-secondary p-1 gap-0.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <Link
             to={`/project/${id}`}
             className={cn(
-              "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors cursor-pointer",
-              "text-muted-foreground hover:text-foreground"
+              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+              "text-muted-foreground hover:text-foreground hover:bg-muted/50"
             )}
           >
             Overview
@@ -740,13 +741,13 @@ export function PlanView() {
           <Link
             to={`/project/${id}?tab=updates`}
             className={cn(
-              "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors cursor-pointer",
-              "text-muted-foreground hover:text-foreground"
+              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+              "text-muted-foreground hover:text-foreground hover:bg-muted/50"
             )}
           >
             Updates
           </Link>
-          <span className="rounded-lg px-3.5 py-1.5 text-xs font-medium bg-card text-foreground shadow-sm cursor-default">
+          <span className="rounded-lg px-3 py-1.5 text-sm font-semibold bg-accent text-accent-foreground cursor-default">
             Plan
           </span>
         </div>
@@ -874,13 +875,13 @@ export function PlanView() {
         {/* Detail pane with Execution Panel */}
         {selectedNode && !chatOpen && (
           <div className={cn(
-            "flex flex-col gap-5 border-l border-border bg-card p-6 overflow-auto",
+            "flex flex-col gap-5 border-l border-border bg-card p-5 overflow-auto",
             viewMode === "graph"
               ? "absolute right-0 top-0 bottom-0 w-[400px] z-10 shadow-lg"
               : "w-[400px] shrink-0"
           )}>
             <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold truncate flex-1">{selectedNode.title}</h3>
+              <h3 className="font-semibold text-base truncate flex-1">{selectedNode.title}</h3>
               <Button
                 variant="ghost"
                 size="icon"
@@ -1000,7 +1001,7 @@ export function PlanView() {
             <Separator />
 
             <div>
-              <h4 className="mb-2 text-sm font-semibold">Description</h4>
+              <h4 className="mb-3 text-sm font-semibold">Description</h4>
               <FileCompletionTextarea
                 projectId={project.id}
                 machineId={project.defaultMachineId}
@@ -1018,8 +1019,8 @@ export function PlanView() {
             </div>
             <Separator />
 
-            <div>
-              <h4 className="mb-3 text-sm font-semibold">Execution</h4>
+            <div className="flex flex-col gap-3">
+              <h4 className="text-sm font-semibold">Execution</h4>
               <ExecutionPanel node={selectedNode} projectId={project.id} />
             </div>
 

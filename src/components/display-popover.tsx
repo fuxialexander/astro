@@ -191,16 +191,16 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
               <Separator />
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-muted-foreground uppercase">Zoom</span>
-                <div className="flex items-center rounded-lg bg-secondary p-0.5 gap-0.5">
+                <div className="flex items-center gap-0.5">
                   {(["month", "quarter", "year"] as const).map((level) => (
                     <button
                       key={level}
                       onClick={() => handleUpdate({ zoom: level })}
                       className={cn(
-                        "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors cursor-pointer capitalize",
+                        "rounded-md px-2 py-1 text-xs transition-colors cursor-pointer capitalize",
                         settings.zoom === level
-                          ? "bg-card text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
+                          ? "bg-accent font-semibold text-accent-foreground"
+                          : "font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50"
                       )}
                     >
                       {level}

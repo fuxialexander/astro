@@ -1,17 +1,17 @@
 import { memo, useState, useCallback } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { CheckCircle2, Circle, Play, Eye, Scissors, Loader2, Plus, GitPullRequest, Sparkles, Check } from "lucide-react"
+import { Plus, GitPullRequest, Sparkles, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 
-const statusConfig: Record<string, { icon: typeof Circle; bg: string; border: string; iconColor: string }> = {
-  planned: { icon: Circle, bg: "bg-card", border: "border-border", iconColor: "text-muted-foreground" },
-  dispatched: { icon: Play, bg: "bg-blue-500/10", border: "border-blue-500", iconColor: "text-blue-500" },
-  in_progress: { icon: Loader2, bg: "bg-blue-500/10", border: "border-blue-500", iconColor: "text-blue-500" },
-  auto_verified: { icon: CheckCircle2, bg: "bg-green-500/10", border: "border-green-500", iconColor: "text-green-500" },
-  awaiting_judgment: { icon: Eye, bg: "bg-amber-500/10", border: "border-amber-500", iconColor: "text-amber-500" },
-  completed: { icon: CheckCircle2, bg: "bg-green-500/10", border: "border-green-500", iconColor: "text-green-500" },
-  pruned: { icon: Scissors, bg: "bg-muted", border: "border-border", iconColor: "text-muted-foreground" },
+const statusConfig: Record<string, { bg: string; border: string; dotColor: string }> = {
+  planned: { bg: "bg-card", border: "border-border", dotColor: "bg-muted-foreground" },
+  dispatched: { bg: "bg-card", border: "border-blue-500", dotColor: "bg-blue-500" },
+  in_progress: { bg: "bg-card", border: "border-blue-500", dotColor: "bg-blue-500" },
+  auto_verified: { bg: "bg-card", border: "border-green-500", dotColor: "bg-green-500" },
+  awaiting_judgment: { bg: "bg-card", border: "border-amber-500", dotColor: "bg-amber-500" },
+  completed: { bg: "bg-card", border: "border-green-500", dotColor: "bg-green-500" },
+  pruned: { bg: "bg-muted", border: "border-border", dotColor: "bg-muted-foreground" },
 }
 
 const priorityHighlight: Record<string, { bg: string; border: string }> = {
@@ -41,7 +41,6 @@ type TaskNodeData = Node<{
 
 export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeData>) {
   const statusCfg = statusConfig[data.status] ?? statusConfig.planned
-  const Icon = statusCfg.icon
   const isMilestone = data.nodeType === "milestone"
   const isTask = data.nodeType === "task"
   const [hovered, setHovered] = useState(false)
@@ -51,13 +50,13 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
     const mode = data.highlightBy ?? "status"
     if (mode === "priority") {
       const h = priorityHighlight[data.priority ?? "none"] ?? neutralHighlight
-      return { bg: h.bg, border: h.border, iconColor: statusCfg.iconColor }
+      return { bg: h.bg, border: h.border, dotColor: statusCfg.dotColor }
     }
     if (mode === "none") {
-      return { bg: neutralHighlight.bg, border: neutralHighlight.border, iconColor: statusCfg.iconColor }
+      return { bg: neutralHighlight.bg, border: neutralHighlight.border, dotColor: statusCfg.dotColor }
     }
     // Default: status-based (original behavior)
-    return { bg: statusCfg.bg, border: statusCfg.border, iconColor: statusCfg.iconColor }
+    return { bg: statusCfg.bg, border: statusCfg.border, dotColor: statusCfg.dotColor }
   })()
 
   // Get live progress from realtime store
@@ -92,10 +91,10 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   return (
     <div
       className={cn(
-        "relative flex items-center gap-2.5 border-[1.5px] px-3.5",
+        "relative flex items-center gap-2.5 border px-4 shadow-md",
         highlight.bg,
         highlight.border,
-        isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-[10px]",
+        isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-2xl",
         data.status === "pruned" && "opacity-50",
         isOverdue && "border-l-red-500 border-l-[3px]",
         isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background"
@@ -118,7 +117,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         </div>
       )}
 
-      {/* Status icon / Selection checkbox */}
+      {/* Status dot / Selection checkbox */}
       {showCheckbox ? (
         <button
           type="button"
@@ -133,7 +132,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           {isChecked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
         </button>
       ) : (
-        <Icon className={cn("h-3.5 w-3.5 shrink-0 relative z-10", highlight.iconColor, data.status === "in_progress" && "animate-spin")} />
+        <span className={cn("h-2 w-2 rounded-full shrink-0 relative z-10", highlight.dotColor)} />
       )}
 
       <span className={cn(
