@@ -16,6 +16,10 @@ set -e
 # - CRUD operations
 # ============================================================================
 
+# Set test mode environment variables for security fixes
+export NODE_ENV=test
+export ALLOW_E2E_BYPASS=true
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_BASE="http://localhost:3001"
 TEST_NAME="e2e-comprehensive-$(date +%s)"
@@ -112,7 +116,8 @@ log_info "  Email: e2e-test@nexus.local"
 # ============================================================================
 log_step "Step 3: Cleaning Up Previous State"
 
-rm -rf /tmp/fibonacci-test ~/.nexus/worktrees 2>/dev/null || true
+rm -rf ~/.nexus$HOME/.nexus/tmp/fibonacci-test ~/.nexus/worktrees 2>/dev/null || true
+mkdir -p ~/.nexus/tmp
 log_info "✓ Cleaned up previous test data"
 
 # ============================================================================
@@ -244,7 +249,7 @@ PROJECT_JSON=$(curl -s -X POST "$API_BASE/api/data/projects" \
   -d "{
     \"name\": \"Fibonacci - $TEST_NAME\",
     \"description\": \"E2E test project for worktree validation\",
-    \"workingDirectory\": \"/tmp/fibonacci-test\",
+    \"workingDirectory\": \"$HOME/.nexus/tmp/fibonacci-test\",
     \"userId\": \"$USER_ID\"
   }")
 
@@ -257,7 +262,7 @@ fi
 
 log_info "✓ Project created: $PROJECT_ID"
 log_info "  Name: Fibonacci - $TEST_NAME"
-log_info "  Working directory: /tmp/fibonacci-test"
+log_info "  Working directory: $HOME/.nexus/tmp/fibonacci-test"
 
 # ============================================================================
 # Step 7: Create Task Nodes
@@ -303,7 +308,7 @@ DISPATCH_JSON=$(curl -s -X POST "$API_BASE/api/dispatch/task" \
     \"title\": \"Create Fibonacci Script\",
     \"description\": \"Create a Python script called fibonacci.py that prints the first 10 Fibonacci numbers.\",
     \"targetMachineId\": \"$MACHINE_ID\",
-    \"workingDirectory\": \"/tmp/fibonacci-test\",
+    \"workingDirectory\": \"$HOME/.nexus/tmp/fibonacci-test\",
     \"preferredProvider\": \"claude-sdk\"
   }")
 
@@ -473,10 +478,10 @@ else
 fi
 
 # Check git repository initialization
-if [ -d "/tmp/fibonacci-test/.git" ]; then
+if [ -d "$HOME/.nexus/tmp/fibonacci-test/.git" ]; then
   log_info "✓ Git repository initialized in working directory"
 
-  cd /tmp/fibonacci-test
+  cd $HOME/.nexus/tmp/fibonacci-test
 
   # Check branches
   BRANCHES=$(git branch -a)

@@ -8,7 +8,7 @@ SUPABASE_URL="${SUPABASE_URL:-http://127.0.0.1:54321}"
 SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}"
 SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}"
 TEST_EMAIL="${TEST_EMAIL:-e2e-test@nexus.local}"
-TEST_PASSWORD="${TEST_PASSWORD:-TestPassword123!}"
+TEST_PASSWORD="${TEST_PASSWORD:-TestPassword123}"
 
 echo "Authenticating test user..."
 
@@ -28,7 +28,7 @@ if [ -n "$ACCESS_TOKEN" ]; then
   # Sign-in succeeded
   USER_ID=$(echo "$TOKEN_RESPONSE" | jq -r '.user.id')
   echo "✓ Signed in as existing user: $USER_ID"
-elif [ "$ERROR" = "invalid_grant" ]; then
+elif [ "$ERROR" = "invalid_grant" ] || [ "$ERROR" = "invalid_credentials" ]; then
   # User doesn't exist or wrong password - create user
   echo "User doesn't exist, creating via Admin API..."
 
