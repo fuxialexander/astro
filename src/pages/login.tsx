@@ -67,7 +67,7 @@ export function Login() {
             return // Success!
           }
         }
-      } catch (err) {
+      } catch {
         // Auth failed, fall through to registration if email provided
         if (!email) {
           setError("Email is required to create an account")
