@@ -285,6 +285,11 @@ export type {
   GitHubRepoSelection,
 } from '../../server/types/github';
 
+// Device auth and machine registry types (re-exported from server types)
+export type {
+  RegisteredMachine,
+} from '../../server/types/device-auth';
+
 // Command Palette types
 export type CommandCategory =
   | 'recent'

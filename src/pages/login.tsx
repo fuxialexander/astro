@@ -1,24 +1,160 @@
 import { useState, useCallback, useEffect } from "react"
-import { useNavigate, useLocation } from "react-router"
+import { useNavigate, useLocation, useSearchParams } from "react-router"
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser"
 import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { KeyRound, Fingerprint, ArrowRight, Loader2, AlertCircle, Code2 } from "lucide-react"
 
-type Mode = "signin" | "signup"
+type Mode = "auto" | "signin" | "signup"
 
 export function Login() {
   const navigate = useNavigate()
   const location = useLocation()
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/"
+  const [searchParams] = useSearchParams()
+
+  // Support both ?redirect=/device and location.state.from for redirect
+  const redirectParam = searchParams.get('redirect')
+  const stateFrom = (location.state as { from?: { pathname: string } })?.from?.pathname
+  const from = redirectParam || stateFrom || "/"
+
   const devMode = !shouldUseSupabase()
 
-  const [mode, setMode] = useState<Mode>("signin")
+  const [mode, setMode] = useState<Mode>("auto")
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+
+  // Unified passkey handler: try auth first, fall back to registration
+  const handlePasskey = useCallback(async () => {
+    if (mode === "signup" && !email) {
+      setError("Email is required for signup")
+      return
+    }
+
+    setLoading(true)
+    setError("")
+
+    try {
+      // Try authentication first (works for both auto and signin modes)
+      if (mode !== "signup") {
+        try {
+          const optionsRes = await fetch("/api/auth/webauthn/login-options", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email || undefined }),
+          })
+
+          if (optionsRes.ok) {
+            const { options, challengeKey } = await optionsRes.json()
+            const credential = await startAuthentication({ optionsJSON: options })
+
+            const verifyRes = await fetch("/api/auth/webauthn/login-verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ credential, challengeKey }),
+            })
+
+            if (verifyRes.ok) {
+              const result = await verifyRes.json()
+
+              if (result.session?.properties?.hashed_token) {
+                const supabase = getSupabase()
+                if (supabase) {
+                  const { error } = await supabase.auth.verifyOtp({
+                    token_hash: result.session.properties.hashed_token,
+                    type: "magiclink",
+                  })
+                  if (error) throw error
+                  await new Promise(resolve => setTimeout(resolve, 100))
+                }
+              }
+
+              navigate(from, { replace: true })
+              return // Success!
+            }
+          }
+
+          // If we're in explicit signin mode and it failed, show error
+          if (mode === "signin") {
+            throw new Error("No passkey found. Please sign up first.")
+          }
+        } catch (err) {
+          // If auto mode and auth failed, try registration
+          if (mode === "auto") {
+            if (!email) {
+              setError("Email is required to create an account")
+              setMode("signup")
+              setLoading(false)
+              return
+            }
+            // Fall through to registration below
+          } else {
+            throw err
+          }
+        }
+      }
+
+      // Registration flow
+      if (mode === "auto" || mode === "signup") {
+        if (!email) {
+          setError("Email is required")
+          setLoading(false)
+          return
+        }
+
+        const optionsRes = await fetch("/api/auth/webauthn/register-options", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, name: name || email }),
+        })
+
+        if (!optionsRes.ok) {
+          if (optionsRes.status === 503) {
+            throw new Error("Authentication service not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.")
+          }
+          throw new Error("Failed to get registration options")
+        }
+
+        const { options } = await optionsRes.json()
+        const credential = await startRegistration({ optionsJSON: options })
+
+        const verifyRes = await fetch("/api/auth/webauthn/register-verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, name: name || email, credential }),
+        })
+
+        if (!verifyRes.ok) {
+          const data = await verifyRes.json()
+          throw new Error(data.error || "Registration failed")
+        }
+
+        const result = await verifyRes.json()
+
+        if (result.session?.properties?.hashed_token) {
+          const supabase = getSupabase()
+          if (supabase) {
+            const { error } = await supabase.auth.verifyOtp({
+              token_hash: result.session.properties.hashed_token,
+              type: "magiclink",
+            })
+            if (error) throw error
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+        }
+
+        navigate(from, { replace: true })
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name !== "AbortError") {
+        setError(err.message)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [email, name, mode, from, navigate])
 
   // In dev mode, redirect to app immediately (no auth needed)
   useEffect(() => {
@@ -31,151 +167,6 @@ export function Login() {
     navigate(from, { replace: true })
   }, [from, navigate])
 
-  const handlePasskeySignIn = useCallback(async () => {
-    setLoading(true)
-    setError("")
-
-    try {
-      // Step 1: Get authentication options
-      const optionsRes = await fetch("/api/auth/webauthn/login-options", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email || undefined }),
-      })
-
-      if (!optionsRes.ok) {
-        if (optionsRes.status === 503) {
-          throw new Error("Authentication service not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.")
-        }
-        throw new Error("Failed to get authentication options")
-      }
-
-      const { options, challengeKey } = await optionsRes.json()
-
-      // Step 2: Trigger browser passkey prompt
-      const credential = await startAuthentication({ optionsJSON: options })
-
-      // Step 3: Verify with server
-      const verifyRes = await fetch("/api/auth/webauthn/login-verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential, challengeKey }),
-      })
-
-      if (!verifyRes.ok) {
-        const data = await verifyRes.json()
-        throw new Error(data.error || "Authentication failed")
-      }
-
-      const result = await verifyRes.json()
-
-      // Step 4: Exchange magic link token for session
-      if (result.session?.properties?.hashed_token) {
-        const supabase = getSupabase()
-        if (supabase) {
-          const { data, error } = await supabase.auth.verifyOtp({
-            token_hash: result.session.properties.hashed_token,
-            type: "magiclink",
-          })
-
-          if (error) {
-            throw new Error(`Session establishment failed: ${error.message}`)
-          }
-
-          if (!data.session) {
-            throw new Error("Session not established")
-          }
-
-          // Wait a bit for auth store to update
-          await new Promise(resolve => setTimeout(resolve, 100))
-        }
-      }
-
-      navigate(from, { replace: true })
-    } catch (err) {
-      if (err instanceof Error && err.name !== "AbortError") {
-        setError(err.message)
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [email, from, navigate])
-
-  const handlePasskeySignUp = useCallback(async () => {
-    if (!email) {
-      setError("Email is required")
-      return
-    }
-
-    setLoading(true)
-    setError("")
-
-    try {
-      // Step 1: Get registration options
-      const optionsRes = await fetch("/api/auth/webauthn/register-options", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name: name || email }),
-      })
-
-      if (!optionsRes.ok) {
-        if (optionsRes.status === 503) {
-          throw new Error("Authentication service not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.")
-        }
-        throw new Error("Failed to get registration options")
-      }
-
-      const { options } = await optionsRes.json()
-
-      // Step 2: Create passkey via browser
-      const credential = await startRegistration({ optionsJSON: options })
-
-      // Step 3: Verify with server
-      const verifyRes = await fetch("/api/auth/webauthn/register-verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name: name || email, credential }),
-      })
-
-      if (!verifyRes.ok) {
-        const data = await verifyRes.json()
-        throw new Error(data.error || "Registration failed")
-      }
-
-      const result = await verifyRes.json()
-
-      // Exchange token for session
-      if (result.session?.properties?.hashed_token) {
-        const supabase = getSupabase()
-        if (supabase) {
-          const { data, error } = await supabase.auth.verifyOtp({
-            token_hash: result.session.properties.hashed_token,
-            type: "magiclink",
-          })
-
-          if (error) {
-            throw new Error(`Session establishment failed: ${error.message}`)
-          }
-
-          if (!data.session) {
-            throw new Error("Session not established")
-          }
-
-          // Wait a bit for auth store to update
-          await new Promise(resolve => setTimeout(resolve, 100))
-        }
-      }
-
-      navigate(from, { replace: true })
-    } catch (err) {
-      if (err instanceof Error && err.name !== "AbortError") {
-        setError(err.message)
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [email, name, from, navigate])
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-8">
@@ -186,7 +177,7 @@ export function Login() {
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">Nexus</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {mode === "signin" ? "Sign in to your account" : "Create your account"}
+            {mode === "auto" ? "Sign in or create an account" : mode === "signin" ? "Sign in to your account" : "Create your account"}
           </p>
         </div>
 
@@ -250,74 +241,81 @@ export function Login() {
             <Input
               id="email"
               type="email"
-              placeholder={mode === "signin" ? "Optional for passkey sign-in" : "you@example.com"}
+              placeholder={mode === "auto" ? "Optional" : mode === "signin" ? "Optional for passkey sign-in" : "you@example.com"}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
             />
+            {mode === "auto" && (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Leave blank to use any passkey, or enter email to create/use a specific one
+              </p>
+            )}
           </div>
 
-          {mode === "signin" ? (
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={handlePasskeySignIn}
-              disabled={loading}
-            >
-              {loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Fingerprint className="mr-2 h-4 w-4" />
-              )}
-              Sign in with Passkey
-            </Button>
-          ) : (
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={handlePasskeySignUp}
-              disabled={loading || !email}
-            >
-              {loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <KeyRound className="mr-2 h-4 w-4" />
-              )}
-              Create Passkey
-            </Button>
-          )}
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={handlePasskey}
+            disabled={loading || (mode === "signup" && !email)}
+          >
+            {loading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : mode === "signup" ? (
+              <KeyRound className="mr-2 h-4 w-4" />
+            ) : (
+              <Fingerprint className="mr-2 h-4 w-4" />
+            )}
+            {mode === "signup" ? "Create Passkey" : "Continue with Passkey"}
+          </Button>
         </div>
 
         {/* Toggle mode */}
-        <div className="text-center text-sm text-muted-foreground">
-          {mode === "signin" ? (
-            <>
-              Don't have an account?{" "}
-              <button
-                className="font-medium text-primary hover:underline"
-                onClick={() => {
-                  setMode("signup")
-                  setError("")
-                }}
-              >
-                Sign up <ArrowRight className="inline h-3 w-3" />
-              </button>
-            </>
-          ) : (
-            <>
-              Already have an account?{" "}
-              <button
-                className="font-medium text-primary hover:underline"
-                onClick={() => {
-                  setMode("signin")
-                  setError("")
-                }}
-              >
-                Sign in <ArrowRight className="inline h-3 w-3" />
-              </button>
-            </>
-          )}
-        </div>
+        {mode !== "auto" && (
+          <div className="text-center text-sm text-muted-foreground">
+            {mode === "signin" ? (
+              <>
+                Don't have a passkey?{" "}
+                <button
+                  className="font-medium text-primary hover:underline"
+                  onClick={() => {
+                    setMode("signup")
+                    setError("")
+                  }}
+                >
+                  Sign up <ArrowRight className="inline h-3 w-3" />
+                </button>
+              </>
+            ) : (
+              <>
+                Already have a passkey?{" "}
+                <button
+                  className="font-medium text-primary hover:underline"
+                  onClick={() => {
+                    setMode("signin")
+                    setError("")
+                  }}
+                >
+                  Sign in <ArrowRight className="inline h-3 w-3" />
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {mode === "auto" && (
+          <div className="text-center text-sm text-muted-foreground">
+            Having trouble?{" "}
+            <button
+              className="font-medium text-primary hover:underline"
+              onClick={() => {
+                setMode("signup")
+                setError("")
+              }}
+            >
+              Create a new passkey <ArrowRight className="inline h-3 w-3" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

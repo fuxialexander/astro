@@ -16,6 +16,8 @@ import { repoRoute } from './routes/repo.js'
 import { dataRoute } from './routes/data.js'
 import { notificationsRoute } from './routes/notifications.js'
 import githubRoute from './routes/github.js'
+import { wellKnownRoute } from './routes/well-known.js'
+import systemRoute from './routes/system.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
@@ -126,6 +128,7 @@ if (process.env.NODE_ENV !== 'test') {
   }))
 }
 
+app.route('/.well-known', wellKnownRoute)
 app.route('/api', healthRoute)
 app.route('/api/auth', authRoute)
 app.route('/api/agent', agentRoute)
@@ -139,6 +142,7 @@ app.route('/api/repo', repoRoute)
 app.route('/api/data', dataRoute)
 app.route('/api/notifications', notificationsRoute)
 app.route('/api/github', githubRoute)
+app.route('/api/system', systemRoute)
 
 const port = 3001
 const relayPort = getRelayConfig().port

@@ -1,6 +1,9 @@
-import { useState } from "react"
-import { ChevronDown, ChevronRight, FilePlus, FileEdit, FileX, Plus, Minus } from "lucide-react"
+import { useState, useEffect } from "react"
+import { ChevronDown, ChevronRight, FilePlus, FileEdit, FileX, Plus, Minus, ExternalLink } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { buildFileUrlSync, getBrowserHostname } from "@/lib/path-utils"
+import { useMachinesStore } from "@/stores/machines-store"
+import { Badge } from "@/components/ui/badge"
 
 interface FileChange {
   path: string
@@ -13,6 +16,7 @@ interface FileChange {
 
 interface FileChangesViewProps {
   changes: FileChange[]
+  machineId?: string
 }
 
 const actionConfig: Record<string, { icon: typeof FileEdit; color: string; label: string }> = {
@@ -97,27 +101,58 @@ function DiffRenderer({ diff }: { diff: string }) {
   )
 }
 
-function FileChangeItem({ change }: { change: FileChange }) {
+function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change: FileChange; machineId?: string; useLocalUrls: boolean; useVSCode: boolean }) {
   const [expanded, setExpanded] = useState(false)
+  const [fileUrl, setFileUrl] = useState<string | undefined>()
   const config = actionConfig[change.action] || actionConfig.modified
   const Icon = config.icon
+
+  const machines = useMachinesStore((s) => s.machines)
+  const machine = machineId ? machines.find((m) => m.id === machineId) : undefined
+
+  // Build file URL for editor integration
+  useEffect(() => {
+    const buildUrl = async () => {
+      // Pre-cache hostname if needed
+      await getBrowserHostname()
+      const editorType = useVSCode ? 'vscode' : 'cursor'
+      const url = buildFileUrlSync(change.path, undefined, machine, useLocalUrls, editorType)
+      setFileUrl(url)
+    }
+    buildUrl()
+  }, [change.path, machine, useLocalUrls, useVSCode])
 
   // Extract filename from path
   const parts = change.path.split("/")
   const filename = parts.pop() || change.path
   const directory = parts.join("/")
 
+  const handleFileClick = (e: React.MouseEvent) => {
+    if (fileUrl) {
+      e.stopPropagation()
+      window.open(fileUrl, '_self')
+    }
+  }
+
   return (
     <div className="border border-border rounded-lg overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors cursor-pointer"
-      >
+      <div className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted/50 transition-colors">
         <Icon className={cn("h-4 w-4 shrink-0", config.color)} />
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium">{filename}</span>
-          {directory && (
-            <span className="text-xs text-muted-foreground ml-1.5">{directory}/</span>
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <div className="flex-1">
+            <span className="text-sm font-medium">{filename}</span>
+            {directory && (
+              <span className="text-xs text-muted-foreground ml-1.5">{directory}/</span>
+            )}
+          </div>
+          {fileUrl && (
+            <button
+              onClick={handleFileClick}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              title="Open in editor"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </button>
           )}
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -132,14 +167,19 @@ function FileChangeItem({ change }: { change: FileChange }) {
             </span>
           )}
           {change.diff && (
-            expanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            )
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="hover:bg-muted rounded p-1 transition-colors"
+            >
+              {expanded ? (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              )}
+            </button>
           )}
         </div>
-      </button>
+      </div>
 
       {expanded && change.diff && (
         <DiffRenderer diff={change.diff} />
@@ -148,7 +188,10 @@ function FileChangeItem({ change }: { change: FileChange }) {
   )
 }
 
-export function FileChangesView({ changes }: FileChangesViewProps) {
+export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
+  const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
+  const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
+
   if (changes.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -166,20 +209,40 @@ export function FileChangesView({ changes }: FileChangesViewProps) {
 
   return (
     <div className="flex-1 overflow-auto p-6">
-      {/* Summary */}
-      <div className="flex items-center gap-4 mb-4 text-sm text-muted-foreground">
-        <span>{changes.length} file{changes.length !== 1 ? "s" : ""} changed</span>
-        {created > 0 && <span className="text-green-600">{created} created</span>}
-        {modified > 0 && <span className="text-blue-600">{modified} modified</span>}
-        {deleted > 0 && <span className="text-red-600">{deleted} deleted</span>}
-        <span className="text-green-600 font-mono">+{totalAdded}</span>
-        <span className="text-red-600 font-mono">-{totalRemoved}</span>
+      {/* Summary and Editor Controls */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+          <span>{changes.length} file{changes.length !== 1 ? "s" : ""} changed</span>
+          {created > 0 && <span className="text-green-600">{created} created</span>}
+          {modified > 0 && <span className="text-blue-600">{modified} modified</span>}
+          {deleted > 0 && <span className="text-red-600">{deleted} deleted</span>}
+          <span className="text-green-600 font-mono">+{totalAdded}</span>
+          <span className="text-red-600 font-mono">-{totalRemoved}</span>
+        </div>
+
+        {/* Editor Controls */}
+        <div className="flex items-center gap-1.5">
+          <Badge
+            variant="outline"
+            className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-6 px-2"
+            onClick={() => setUseLocalUrls(!useLocalUrls)}
+          >
+            {useLocalUrls ? "Local" : "Remote"}
+          </Badge>
+          <Badge
+            variant="outline"
+            className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-6 px-2"
+            onClick={() => setUseVSCode(!useVSCode)}
+          >
+            {useVSCode ? "VSCode" : "Cursor"}
+          </Badge>
+        </div>
       </div>
 
       {/* File list */}
       <div className="flex flex-col gap-2">
         {changes.map((change, i) => (
-          <FileChangeItem key={i} change={change} />
+          <FileChangeItem key={i} change={change} machineId={machineId} useLocalUrls={useLocalUrls} useVSCode={useVSCode} />
         ))}
       </div>
     </div>

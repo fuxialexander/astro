@@ -46,6 +46,9 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     process.exit(1);
   }
 
+  // Initialize hardware-based machine ID if not set
+  await config.initializeMachineId();
+
   // Get configuration
   const runnerId = config.getRunnerId();
   const machineId = config.getMachineId();

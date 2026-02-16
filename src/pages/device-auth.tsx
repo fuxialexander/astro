@@ -61,14 +61,17 @@ export function DeviceAuth() {
   // Check if user is authenticated - this is used to show auth UI
   const isUnauthenticated = initialized && !authLoading && !user
 
-  // Auth state tracking (no sensitive data logged)
+  // Redirect to login if not authenticated (preserving device code)
   useEffect(() => {
-    if (isUnauthenticated) {
-      console.log('[device-auth] User not authenticated')
-    } else if (user) {
-      console.log('[device-auth] User authenticated')
+    if (isUnauthenticated && (codeFromUrl || deviceInfo)) {
+      // Preserve the device code in the redirect
+      const deviceCode = codeFromUrl || deviceInfo?.deviceCode
+      if (deviceCode) {
+        console.log('[device-auth] Redirecting to login with device code preserved')
+        navigate(`/login?redirect=${encodeURIComponent(`/device?code=${deviceCode}`)}`, { replace: true })
+      }
     }
-  }, [user, authLoading, initialized, isUnauthenticated])
+  }, [isUnauthenticated, codeFromUrl, deviceInfo, navigate])
 
   // Fetch device code info when code is provided
   useEffect(() => {
@@ -234,18 +237,13 @@ export function DeviceAuth() {
           </CardHeader>
 
           <CardContent>
-            {/* Unauthenticated State */}
+            {/* Loading State (redirecting to login) */}
             {isUnauthenticated && (
               <div className="flex flex-col items-center gap-4 py-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-warning/10">
-                  <AlertCircle className="h-8 w-8 text-warning" />
-                </div>
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 <p className="text-center text-sm text-muted-foreground">
-                  You must be logged in to authorize devices.
+                  Redirecting to login...
                 </p>
-                <Button onClick={() => navigate("/login")}>
-                  Log In
-                </Button>
               </div>
             )}
 

@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from "react"
-import { useParams, useNavigate, useSearchParams, Link } from "react-router"
+import { useState, useMemo, useEffect, useCallback } from "react"
+import { useParams, useSearchParams } from "react-router"
 import {
   Rocket,
   Star,
@@ -12,23 +12,33 @@ import {
   MessageSquare,
   FolderGit2,
   Diamond,
+  ExternalLink,
+  LayoutGrid,
+  List,
+  Calendar,
+  Network,
+  Maximize2,
+  X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/ui/button"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { MilestoneDialog } from "@/components/milestone-dialog"
 import { ActivityDialog } from "@/components/activity-dialog"
 import { ColorIconBadge } from "@/components/color-icon-picker"
+import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
+import { ChatPanel } from "@/components/agent/chat-panel"
+import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
+import { PlanListView, PlanBoardView, PlanTimelineView } from "@/pages/plan-view"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useActivityStore } from "@/stores/activity-store"
+import { useMachinesStore } from "@/stores/machines-store"
 import { cn } from "@/lib/utils"
 import type { Project, PlanNode } from "@/types"
-
-type TabId = "overview" | "updates"
 
 const healthLabels: Record<string, string> = {
   on_track: "On Track",
@@ -42,10 +52,117 @@ const healthColors: Record<string, string> = {
   off_track: "bg-red-500",
 }
 
+type ViewMode = "graph" | "list" | "timeline" | "board"
+
+const VALID_VIEWS = new Set<ViewMode>(["graph", "list", "timeline", "board"])
+const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
+
+const planGraphDisplayConfig: DisplayPopoverConfig = {
+  viewKey: "plan-graph",
+  groupByLabel: "Highlight by",
+  groupByOptions: [
+    { value: "status", label: "Status" },
+    { value: "priority", label: "Priority" },
+    { value: "none", label: "None" },
+  ],
+  orderByOptions: [],
+  propertyOptions: [],
+}
+
+const planListDisplayConfig: DisplayPopoverConfig = {
+  viewKey: "plan-list",
+  groupByOptions: [
+    { value: "none", label: "No grouping" },
+    { value: "milestone", label: "Milestone" },
+    { value: "status", label: "Status" },
+    { value: "priority", label: "Priority" },
+  ],
+  orderByOptions: [
+    { value: "name", label: "Name" },
+    { value: "status", label: "Status" },
+    { value: "priority", label: "Priority" },
+    { value: "dueDate", label: "Due date" },
+  ],
+  propertyOptions: [
+    { value: "priority", label: "Priority" },
+    { value: "status", label: "Status" },
+    { value: "dueDate", label: "Due date" },
+    { value: "estimate", label: "Estimate" },
+    { value: "milestone", label: "Milestone" },
+    { value: "labels", label: "Labels" },
+    { value: "pr", label: "PR" },
+  ],
+}
+
+const planTimelineDisplayConfig: DisplayPopoverConfig = {
+  viewKey: "plan-list",
+  groupByOptions: [
+    { value: "none", label: "No grouping" },
+    { value: "milestone", label: "Milestone" },
+    { value: "status", label: "Status" },
+    { value: "priority", label: "Priority" },
+  ],
+  orderByOptions: [
+    { value: "name", label: "Name" },
+    { value: "status", label: "Status" },
+    { value: "priority", label: "Priority" },
+    { value: "dueDate", label: "Due date" },
+  ],
+  propertyOptions: [
+    { value: "priority", label: "Priority" },
+    { value: "status", label: "Status" },
+    { value: "dueDate", label: "Due date" },
+    { value: "estimate", label: "Estimate" },
+    { value: "labels", label: "Labels" },
+    { value: "pr", label: "PR" },
+  ],
+  showZoom: true,
+}
+
+const planBoardDisplayConfig: DisplayPopoverConfig = {
+  viewKey: "plan-board",
+  columnByOptions: [
+    { value: "status", label: "Status" },
+    { value: "priority", label: "Priority" },
+    { value: "milestone", label: "Milestone" },
+  ],
+  groupByOptions: [
+    { value: "none", label: "No grouping" },
+  ],
+  orderByOptions: [
+    { value: "priority", label: "Priority" },
+    { value: "name", label: "Name" },
+    { value: "dueDate", label: "Due date" },
+  ],
+  propertyOptions: [
+    { value: "priority", label: "Priority" },
+    { value: "estimate", label: "Estimate" },
+    { value: "dueDate", label: "Due date" },
+    { value: "labels", label: "Labels" },
+    { value: "pr", label: "PR" },
+  ],
+}
+
 import { formatDate, formatRelativeTime } from "@/lib/date-utils"
 
 // --- Overview Tab Content ---
-function OverviewTab({ project }: { project: Project }) {
+function OverviewTab({
+  project,
+  viewMode,
+  setViewMode,
+  chatOpen,
+  setChatOpen,
+  isEnlarged,
+  setIsEnlarged,
+}: {
+  project: Project
+  viewMode: ViewMode
+  setViewMode: (mode: ViewMode) => void
+  chatOpen: boolean
+  setChatOpen: (open: boolean) => void
+  isEnlarged: boolean
+  setIsEnlarged: (enlarged: boolean) => void
+}) {
   const planNodes = usePlanStore((s) => s.nodes)
   const addNode = usePlanStore((s) => s.addNode)
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -54,10 +171,19 @@ function OverviewTab({ project }: { project: Project }) {
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const addActivity = useActivityStore((s) => s.addActivity)
   const activities = useActivityStore((s) => s.activities)
+  const machines = useMachinesStore((s) => s.machines)
+  const fetchMachines = useMachinesStore((s) => s.fetchMachines)
   const recentActivities = useMemo(
     () => activities.filter((a) => a.projectId === project.id).slice(0, 3),
     [activities, project.id]
   )
+
+  // Fetch machines on mount (for displaying machine hostname)
+  useEffect(() => {
+    if (machines.length === 0) {
+      fetchMachines()
+    }
+  }, [machines.length, fetchMachines])
   const allNodes = useMemo(() => planNodes.filter((n) => n.projectId === project.id), [planNodes, project.id])
   const [visionOpen, setVisionOpen] = useState(false)
   const [repoOpen, setRepoOpen] = useState(false)
@@ -68,6 +194,18 @@ function OverviewTab({ project }: { project: Project }) {
   const [editingStartDate, setEditingStartDate] = useState(false)
   const [editingTargetDate, setEditingTargetDate] = useState(false)
   const [editingInitiative, setEditingInitiative] = useState(false)
+  const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
+  const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
+  const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
+
+  // Handle decompose: open chat with pre-filled message
+  const handleDecomposeNode = useCallback((nodeId: string) => {
+    const node = planNodes.find((n) => n.id === nodeId)
+    if (!node) return
+    const message = `Decompose @${node.title} into smaller sub-tasks with minimal overlap. Each sub-task should be agent-solvable in one session.`
+    setChatInitialMessage(message)
+    setChatOpen(true)
+  }, [planNodes, setChatOpen])
 
   // Calculate real progress based on task completion
   const progress = useMemo(() => {
@@ -161,6 +299,159 @@ function OverviewTab({ project }: { project: Project }) {
     }
   }
 
+  // Generate editor URL (Cursor/VSCode) with local/remote protocol
+  const editorUrl = useMemo(() => {
+    if (!project.workingDirectory) return null
+
+    const path = project.workingDirectory
+    const editorScheme = useVSCode ? 'vscode' : 'cursor'
+
+    console.log('[EditorURL] Computing URL:', { useLocalUrls, useVSCode, editorScheme, defaultMachineId: project.defaultMachineId })
+
+    // Local mode - use file:// protocol
+    if (useLocalUrls) {
+      const url = `${editorScheme}://file${path}`
+      console.log('[EditorURL] Local mode:', url)
+      return url
+    }
+
+    // Remote mode - use SSH remote URL
+    if (project.defaultMachineId) {
+      const machine = machines.find((m) => m.id === project.defaultMachineId)
+      console.log('[EditorURL] Found machine:', machine?.hostname)
+      if (machine && machine.hostname) {
+        // Format: editor://vscode-remote/ssh-remote+hostname/path
+        const url = `${editorScheme}://vscode-remote/ssh-remote+${machine.hostname}${path}`
+        console.log('[EditorURL] Remote mode:', url)
+        return url
+      }
+    }
+
+    // Fallback to local file URL
+    const fallbackUrl = `${editorScheme}://file${path}`
+    console.log('[EditorURL] Fallback to local:', fallbackUrl, 'No machine configured')
+    return fallbackUrl
+  }, [project.workingDirectory, project.defaultMachineId, useLocalUrls, useVSCode, machines])
+
+  // Enlarged Plan View (Full Screen)
+  if (isEnlarged) {
+    return (
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
+        {/* Header with close button */}
+        <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
+          <h3 className="text-lg font-semibold">Plan</h3>
+          <div className="flex items-center gap-2">
+            {/* View mode selector */}
+            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+              <button
+                onClick={() => setViewMode("graph")}
+                className={cn(
+                  "p-1.5 rounded transition-colors",
+                  viewMode === "graph" ? "bg-background shadow-sm" : "hover:bg-background/50"
+                )}
+                title="Graph view"
+              >
+                <Network className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode("list")}
+                className={cn(
+                  "p-1.5 rounded transition-colors",
+                  viewMode === "list" ? "bg-background shadow-sm" : "hover:bg-background/50"
+                )}
+                title="List view"
+              >
+                <List className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode("timeline")}
+                className={cn(
+                  "p-1.5 rounded transition-colors",
+                  viewMode === "timeline" ? "bg-background shadow-sm" : "hover:bg-background/50"
+                )}
+                title="Timeline view"
+              >
+                <Calendar className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode("board")}
+                className={cn(
+                  "p-1.5 rounded transition-colors",
+                  viewMode === "board" ? "bg-background shadow-sm" : "hover:bg-background/50"
+                )}
+                title="Board view"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
+            {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
+            {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
+            {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
+            <Button
+              variant={chatOpen ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setChatOpen(!chatOpen)
+                if (chatOpen) setChatInitialMessage(undefined)
+              }}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEnlarged(false)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+        {/* Full screen plan view */}
+        <div className="flex-1 overflow-hidden relative">
+          {viewMode === "graph" ? (
+            <div className="absolute inset-0 touch-pan-x touch-pan-y">
+              <PlanCanvas projectId={project.id} onNodeSelect={() => {}} onDecomposeNode={handleDecomposeNode} />
+            </div>
+          ) : viewMode === "list" ? (
+            <div className="absolute inset-0 overflow-hidden">
+              <PlanListView projectId={project.id} onNodeSelect={() => {}} />
+            </div>
+          ) : viewMode === "board" ? (
+            <div className="absolute inset-0 overflow-hidden">
+              <PlanBoardView projectId={project.id} onNodeSelect={() => {}} />
+            </div>
+          ) : (
+            <div className="absolute inset-0 overflow-hidden">
+              <PlanTimelineView projectId={project.id} onNodeSelect={() => {}} />
+            </div>
+          )}
+        </div>
+        {/* Chat panel (if open) */}
+        {chatOpen && (
+          <div className="flex w-[400px] shrink-0 flex-col border-l border-border bg-card absolute right-0 top-14 bottom-0">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h3 className="text-sm font-semibold">Plan Chat</h3>
+              <button
+                onClick={() => {
+                  setChatOpen(false)
+                  setChatInitialMessage(undefined)
+                }}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-1 overflow-hidden">
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
@@ -186,44 +477,97 @@ function OverviewTab({ project }: { project: Project }) {
           </p>
         </div>
 
-        {/* Metrics Section — 3 cards in a row */}
-        <div className="flex gap-4">
-          {/* Progress Card */}
-          <Card className="flex-1">
-            <CardContent className="flex flex-col gap-2 p-5">
-              <span className="text-xs text-muted-foreground">Progress</span>
-              <div className="flex items-end gap-2">
-                <span className="text-[28px] font-bold leading-none">{progress}%</span>
+        {/* Plan View Section */}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Plan</h3>
+            <div className="flex items-center gap-2">
+              {/* View mode selector */}
+              <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+                <button
+                  onClick={() => setViewMode("graph")}
+                  className={cn(
+                    "p-1.5 rounded transition-colors",
+                    viewMode === "graph" ? "bg-background shadow-sm" : "hover:bg-background/50"
+                  )}
+                  title="Graph view"
+                >
+                  <Network className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setViewMode("list")}
+                  className={cn(
+                    "p-1.5 rounded transition-colors",
+                    viewMode === "list" ? "bg-background shadow-sm" : "hover:bg-background/50"
+                  )}
+                  title="List view"
+                >
+                  <List className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setViewMode("timeline")}
+                  className={cn(
+                    "p-1.5 rounded transition-colors",
+                    viewMode === "timeline" ? "bg-background shadow-sm" : "hover:bg-background/50"
+                  )}
+                  title="Timeline view"
+                >
+                  <Calendar className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setViewMode("board")}
+                  className={cn(
+                    "p-1.5 rounded transition-colors",
+                    viewMode === "board" ? "bg-background shadow-sm" : "hover:bg-background/50"
+                  )}
+                  title="Board view"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                </button>
               </div>
-              <div className="h-2 w-full rounded-full bg-border overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${progress}%` }}
-                />
+              {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
+              {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
+              {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
+              {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
+              <Button
+                variant={chatOpen ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setChatOpen(!chatOpen)
+                  if (chatOpen) setChatInitialMessage(undefined)
+                }}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsEnlarged(true)}
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+          {/* Plan canvas/view */}
+          <div className="relative h-[400px] rounded-lg border border-border overflow-hidden bg-card">
+            {viewMode === "graph" ? (
+              <div className="absolute inset-0 touch-pan-x touch-pan-y">
+                <PlanCanvas projectId={project.id} onNodeSelect={() => {}} onDecomposeNode={handleDecomposeNode} />
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Health Status Card */}
-          <Card className="flex-1">
-            <CardContent className="flex flex-col gap-2 p-5">
-              <span className="text-xs text-muted-foreground">Health Status</span>
-              <div className="flex items-center gap-2">
-                <span className={cn("h-3 w-3 rounded-full", healthColors[project.health ?? "on_track"])} />
-                <span className="text-xl font-semibold">{healthLabels[project.health ?? "on_track"]}</span>
+            ) : viewMode === "list" ? (
+              <div className="absolute inset-0 overflow-hidden">
+                <PlanListView projectId={project.id} onNodeSelect={() => {}} />
               </div>
-              <span className="text-xs text-muted-foreground">All milestones on schedule</span>
-            </CardContent>
-          </Card>
-
-          {/* Estimated Completion Card */}
-          <Card className="flex-1">
-            <CardContent className="flex flex-col gap-2 p-5">
-              <span className="text-xs text-muted-foreground">Estimated Completion</span>
-              <span className="text-xl font-semibold">{formatDate(project.targetDate)}</span>
-              <span className="text-xs text-muted-foreground">Based on current velocity</span>
-            </CardContent>
-          </Card>
+            ) : viewMode === "board" ? (
+              <div className="absolute inset-0 overflow-hidden">
+                <PlanBoardView projectId={project.id} onNodeSelect={() => {}} />
+              </div>
+            ) : (
+              <div className="absolute inset-0 overflow-hidden">
+                <PlanTimelineView projectId={project.id} onNodeSelect={() => {}} />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Milestones Section */}
@@ -310,31 +654,110 @@ function OverviewTab({ project }: { project: Project }) {
                 {project.visionDoc ? "Edit" : "Add"}
               </span>
             </div>
-            <div
-              className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
-              onClick={() => setRepoOpen(true)}
-            >
-              <FolderGit2 className="h-[18px] w-[18px] text-primary" />
-              <div className="flex-1 flex flex-col gap-0.5">
-                <span className="text-sm font-medium">Repository & Directory</span>
-                <span className="text-xs text-muted-foreground">
-                  {project.workingDirectory || project.repository
-                    ? (project.workingDirectory || project.repository)
-                    : "Click to configure working directory for agents"}
+            {/* Show repository/directory item when configured */}
+            {(project.workingDirectory || project.repository) && (
+              <div className="flex flex-col gap-2 rounded-lg bg-muted p-3 px-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <FolderGit2 className="h-[18px] w-[18px] text-primary shrink-0" />
+                  <div className="flex-1 flex flex-col gap-0.5 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm font-medium shrink-0">Working Directory</span>
+                      {project.defaultMachineId && (
+                        <span className="text-[10px] text-muted-foreground truncate">
+                          ({machines.find(m => m.id === project.defaultMachineId)?.hostname || 'unknown'})
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground font-mono truncate" title={project.workingDirectory || project.repository}>
+                      {project.workingDirectory || project.repository}
+                    </span>
+                    {editorUrl && (
+                      <span className="text-[10px] text-muted-foreground/70 font-mono truncate mt-0.5 break-all" title={editorUrl}>
+                        {editorUrl}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setRepoOpen(true)}
+                    className="text-xs font-medium text-primary hover:underline shrink-0"
+                  >
+                    Edit
+                  </button>
+                </div>
+                {editorUrl && (
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <Badge
+                      variant="outline"
+                      className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-6 px-2"
+                      onClick={() => setUseLocalUrls(!useLocalUrls)}
+                    >
+                      {useLocalUrls ? "Local" : "Remote"}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-6 px-2"
+                      onClick={() => setUseVSCode(!useVSCode)}
+                    >
+                      {useVSCode ? "VSCode" : "Cursor"}
+                    </Badge>
+                    <a
+                      href={editorUrl}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 transition-colors h-6"
+                    >
+                      <ExternalLink className="h-3 w-3 text-primary" />
+                      <span className="text-[10px] font-medium text-primary">Open in Editor</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Only show repository warning when NOT configured */}
+            {!(project.workingDirectory || project.repository) && (
+              <div
+                className="flex items-center gap-3 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 px-4 cursor-pointer hover:bg-amber-500/15 transition-colors"
+                onClick={() => setRepoOpen(true)}
+              >
+                <FolderGit2 className="h-[18px] w-[18px] text-amber-600 dark:text-amber-500" />
+                <div className="flex-1 flex flex-col gap-0.5">
+                  <span className="text-sm font-medium text-amber-900 dark:text-amber-100">Repository Not Configured</span>
+                  <span className="text-xs text-amber-700 dark:text-amber-300">
+                    Click to configure working directory for agents
+                  </span>
+                </div>
+                <span className="text-xs font-medium text-amber-600 dark:text-amber-500">
+                  Add
                 </span>
               </div>
-              <span className="text-xs font-medium text-primary">
-                {project.workingDirectory || project.repository ? "Edit" : "Add"}
-              </span>
-            </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Right Panel — Properties + Activity */}
+      {/* Right Panel — Properties + Activity OR Chat */}
       <div className="flex w-[320px] shrink-0 flex-col border-l border-border bg-card">
-        {/* Properties */}
-        <div className="flex flex-col gap-4 p-5">
+        {chatOpen ? (
+          /* Chat Panel */
+          <div className="flex flex-col h-full">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h3 className="text-sm font-semibold">Plan Chat</h3>
+              <button
+                onClick={() => {
+                  setChatOpen(false)
+                  setChatInitialMessage(undefined)
+                }}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <MessageSquare className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Properties */}
+            <div className="flex flex-col gap-4 p-5">
           <h3 className="text-sm font-semibold">Properties</h3>
 
           <div className="flex items-center justify-between">
@@ -362,6 +785,32 @@ function OverviewTab({ project }: { project: Project }) {
                 {project.status === "active" ? "Active" : "Archived"}
               </Badge>
             )}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] text-muted-foreground">Progress</span>
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 w-16 rounded-full bg-border overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <span className="text-[13px] font-medium">{progress}%</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] text-muted-foreground">Health</span>
+            <div className="flex items-center gap-1.5">
+              <span className={cn("h-2 w-2 rounded-full", healthColors[project.health ?? "on_track"])} />
+              <span className="text-[13px]">{healthLabels[project.health ?? "on_track"]}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] text-muted-foreground">Est. Completion</span>
+            <span className="text-[13px]">{formatDate(project.targetDate)}</span>
           </div>
 
           <div className="flex items-center justify-between">
@@ -477,7 +926,7 @@ function OverviewTab({ project }: { project: Project }) {
         <Separator />
 
         {/* Recent Activity */}
-        <div className="flex flex-1 flex-col gap-3 p-5">
+        <div className="flex flex-col gap-3 p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">Recent Activity</h3>
             <span
@@ -488,9 +937,9 @@ function OverviewTab({ project }: { project: Project }) {
             </span>
           </div>
           {recentActivities.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-center">
+            <div className="flex items-center justify-center h-24 text-center">
               <div className="flex flex-col gap-1">
-                <MessageSquare className="h-6 w-6 text-muted-foreground mx-auto" />
+                <MessageSquare className="h-5 w-5 text-muted-foreground mx-auto" />
                 <p className="text-xs text-muted-foreground">No activity yet</p>
               </div>
             </div>
@@ -532,44 +981,39 @@ function OverviewTab({ project }: { project: Project }) {
             </div>
           )}
         </div>
-      </div>
-    </div>
-  )
-}
 
-// --- Updates Tab Content ---
-function UpdatesTab() {
-  return (
-    <div className="flex flex-1 items-center justify-center text-muted-foreground">
-      <div className="flex flex-col items-center gap-2">
-        <MessageSquare className="h-8 w-8" />
-        <p className="text-sm font-medium">No project updates yet</p>
-        <p className="text-xs">Post updates to keep your team informed</p>
+        <Separator />
+
+        {/* Updates (Comment-like section) */}
+        <div className="flex flex-col flex-1 min-h-0 p-5">
+          <h3 className="text-sm font-semibold mb-3">Updates</h3>
+          <div className="flex-1 overflow-y-auto pr-2 -mr-2">
+            <div className="flex items-center justify-center h-full text-center">
+              <div className="flex flex-col gap-1">
+                <MessageSquare className="h-5 w-5 text-muted-foreground mx-auto" />
+                <p className="text-xs text-muted-foreground">No updates yet</p>
+              </div>
+            </div>
+          </div>
+        </div>
+          </>
+        )}
       </div>
     </div>
   )
 }
 
 // --- Main Project Overview Page ---
-const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
-
 export function ProjectOverview() {
   const { id } = useParams()
-  const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
+  const initialView = searchParams.get("view") as ViewMode | null
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const updateProject = useProjectStore((s) => s.updateProject)
-  const tabParam = searchParams.get("tab")
-  const [activeTab, setActiveTab] = useState<TabId>(() =>
-    tabParam === "updates" ? "updates" : "overview"
-  )
-
-  // Sync local tab with URL so Overview/Updates are deep-linkable
-  useEffect(() => {
-    if (tabParam === "updates") setActiveTab("updates")
-    else if (tabParam !== "overview" && !tabParam) setActiveTab("overview")
-  }, [tabParam])
+  const [viewMode, setViewMode] = useState<ViewMode>(initialView && VALID_VIEWS.has(initialView) ? initialView : "list")
+  const [chatOpen, setChatOpen] = useState(false)
+  const [isEnlarged, setIsEnlarged] = useState(false)
 
   // Refresh file tree cache if stale, missing, or from a different machine
   useEffect(() => {
@@ -609,25 +1053,9 @@ export function ProjectOverview() {
     )
   }
 
-  type TabDef = { id: string; label: string; route?: string }
-  const tabs: TabDef[] = [
-    { id: "overview", label: "Overview" },
-    { id: "updates", label: "Updates" },
-    { id: "plan", label: "Plan", route: `/project/${id}/plan` },
-  ]
-
-  function handleTabClick(tab: TabDef) {
-    if (tab.route) {
-      navigate(tab.route)
-    } else {
-      setActiveTab(tab.id as TabId)
-      setSearchParams(tab.id === "overview" ? {} : { tab: tab.id })
-    }
-  }
-
   return (
     <div className="flex h-full flex-col">
-      {/* Single-line header: identity + rounded tabs + actions */}
+      {/* Single-line header: identity */}
       <div className="flex items-center gap-3 border-b border-border px-6 h-14 shrink-0">
         <ColorIconBadge
           color={project.color}
@@ -639,43 +1067,20 @@ export function ProjectOverview() {
         />
         <span className="text-lg font-semibold shrink-0">{project.name}</span>
         <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
-        <div className="flex items-center gap-1 shrink-0">
-          {tabs.map((tab) =>
-            tab.route ? (
-              <Link
-                key={tab.id}
-                to={tab.route}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-                  "text-slate-700 dark:text-slate-300 hover:text-foreground hover:bg-muted/50"
-                )}
-              >
-                {tab.label}
-              </Link>
-            ) : (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => handleTabClick(tab)}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-sm transition-colors cursor-pointer",
-                  activeTab === tab.id
-                    ? "bg-accent font-semibold text-accent-foreground"
-                    : "font-medium text-slate-700 dark:text-slate-300 hover:text-foreground hover:bg-muted/50"
-                )}
-              >
-                {tab.label}
-              </button>
-            )
-          )}
-        </div>
         <div className="flex-1 min-w-0" />
       </div>
 
-      {/* Tab Content */}
+      {/* Content */}
       <div className="flex flex-1 overflow-hidden relative">
-        {activeTab === "overview" && <OverviewTab project={project} />}
-        {activeTab === "updates" && <UpdatesTab />}
+        <OverviewTab
+          project={project}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          chatOpen={chatOpen}
+          setChatOpen={setChatOpen}
+          isEnlarged={isEnlarged}
+          setIsEnlarged={setIsEnlarged}
+        />
       </div>
     </div>
   )

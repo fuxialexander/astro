@@ -61,10 +61,12 @@ export interface DataMapEntry {
 /**
  * Main setup orchestrator.
  *
- * 1. No dir + no repo → create ~/.nexus/projects/{sanitized-name}/ + git init
+ * 1. No dir + no repo → create ~/.nexus/projects/{projectId}/ + git init
  * 2. Repo URL → clone to ~/.nexus/repos/{projectId}/
  * 3. Local dir (git) → proceed
  * 4. Local dir (not git) → return { needsGitInit: true }
+ *
+ * Note: workingDirectory must be an absolute path (enforced in frontend validation)
  */
 export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
   const { projectId, projectName, projectDescription, workingDirectory, repository } = options
@@ -119,6 +121,8 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
 /**
  * Initialize git in a directory + generate .gitignore + CLAUDE.md + initial commit.
  * Called after user confirms git init for an existing non-git directory.
+ *
+ * Note: workingDirectory must be an absolute path (enforced in frontend validation)
  */
 export function initializeGitRepo(
   workingDirectory: string,
@@ -135,6 +139,8 @@ export function initializeGitRepo(
 
 /**
  * Get file tree for a directory via `git ls-files`.
+ *
+ * Note: workingDirectory must be an absolute path (enforced in frontend validation)
  */
 export function getFileTree(workingDirectory: string): string[] {
   if (!existsSync(workingDirectory)) return []

@@ -4,8 +4,8 @@
 
 import Conf from 'conf';
 import { randomUUID } from 'node:crypto';
-import { hostname } from 'node:os';
 import type { StoredConfig, ProviderType } from '../types.js';
+import { getHardwareId } from './hardware-id.js';
 
 const DEFAULT_RELAY_URL = 'ws://localhost:3002';
 const DEFAULT_API_URL = 'http://localhost:3001';
@@ -100,13 +100,36 @@ class ConfigManager {
   }
 
   /**
-   * Get machine ID, generating one if not set
+   * Initialize machine ID using hardware-based identifier
+   * Should be called during setup - async operation
+   */
+  async initializeMachineId(): Promise<{ id: string; source: 'uuid' | 'mac' | 'random' }> {
+    const existing = this.conf.get('machineId');
+    if (existing) {
+      // Already initialized - determine source from prefix
+      const source = existing.startsWith('mac-') ? 'mac' :
+                     existing.startsWith('rand-') ? 'random' : 'uuid';
+      return { id: existing, source };
+    }
+
+    // Get hardware-based ID (network-agnostic)
+    const { id, source } = await getHardwareId();
+    this.conf.set('machineId', id);
+
+    return { id, source };
+  }
+
+  /**
+   * Get machine ID (synchronous)
+   * Returns existing ID or generates a temporary one if not initialized
+   * Call initializeMachineId() during setup for proper hardware-based ID
    */
   getMachineId(): string {
     let machineId = this.conf.get('machineId');
     if (!machineId) {
-      // Use hostname + random suffix for machine ID
-      machineId = `${hostname()}-${randomUUID().slice(0, 8)}`;
+      // Fallback for legacy cases - use random UUID
+      // This should rarely happen if initializeMachineId() is called during setup
+      machineId = `rand-${randomUUID()}`;
       this.conf.set('machineId', machineId);
     }
     return machineId;

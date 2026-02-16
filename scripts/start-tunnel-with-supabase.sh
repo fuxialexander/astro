@@ -122,7 +122,7 @@ if [[ -f "$ENV_FILE" ]]; then
   echo "Updating .env.local with external URLs..."
   update_env_var "VITE_SUPABASE_URL" "https://$SUPABASE_SUBDOMAIN"
   update_env_var "SUPABASE_URL" "https://$SUPABASE_SUBDOMAIN"
-  update_env_var "WEBAUTHN_RP_ID" "$DOMAIN"
+  update_env_var "WEBAUTHN_RP_ID" "$APP_SUBDOMAIN"
   update_env_var "WEBAUTHN_ORIGIN" "https://$APP_SUBDOMAIN"
   echo "✓ Updated environment variables for external access"
 fi

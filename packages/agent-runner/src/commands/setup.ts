@@ -22,6 +22,7 @@ interface SetupOptions {
   api?: string;
   relay?: string;
   type?: string;
+  hostname?: string;
   skipAuth?: boolean;
   nonInteractive?: boolean;
   withSshConfig?: boolean;
@@ -29,6 +30,14 @@ interface SetupOptions {
 
 export async function setupCommand(options: SetupOptions = {}): Promise<void> {
   console.log(chalk.bold('\n🚀 Nexus Agent Runner Setup\n'));
+
+  // Step 0: Initialize hardware-based machine ID
+  console.log(chalk.dim('Generating stable machine identifier...'));
+  const hwId = await config.initializeMachineId();
+  const hwSource = hwId.source === 'uuid' ? 'Hardware UUID' :
+                   hwId.source === 'mac' ? 'MAC Address' : 'Random UUID';
+  console.log(chalk.green(`✓ Machine ID: ${hwId.id.slice(0, 16)}... (from ${hwSource})`));
+  console.log();
 
   // Step 1: Detect machine resources
   const resourceSpinner = ora('Detecting machine resources...').start();
@@ -165,7 +174,29 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
   if (!options.skipAuth) {
     console.log(chalk.bold('Device Authentication\n'));
 
-    if (!options.nonInteractive) {
+    // Check if already authenticated
+    const existingMachineId = config.getMachineId();
+    const hasTokens = config.getAccessToken() && config.getRefreshToken();
+
+    if (hasTokens && existingMachineId) {
+      console.log(chalk.green(`✓ Already authenticated (Machine: ${existingMachineId})`));
+      console.log();
+
+      if (!options.nonInteractive) {
+        const { reauthenticate } = await inquirer.prompt<{ reauthenticate: boolean }>([
+          {
+            type: 'confirm',
+            name: 'reauthenticate',
+            message: 'Re-authenticate this device?',
+            default: false,
+          },
+        ]);
+
+        if (reauthenticate) {
+          await runDeviceAuthFlow(apiUrl, relayUrl, resources, detectedProviders, !!options.relay, hwId);
+        }
+      }
+    } else if (!options.nonInteractive) {
       const { authenticate } = await inquirer.prompt<{ authenticate: boolean }>([
         {
           type: 'confirm',
@@ -176,7 +207,7 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
       ]);
 
       if (authenticate) {
-        await runDeviceAuthFlow(apiUrl, relayUrl, resources, detectedProviders, !!options.relay);
+        await runDeviceAuthFlow(apiUrl, relayUrl, resources, detectedProviders, !!options.relay, hwId);
       }
     } else {
       console.log(chalk.yellow('Skipping authentication in non-interactive mode'));
@@ -461,9 +492,14 @@ async function runDeviceAuthFlow(
   resources: Awaited<ReturnType<typeof getMachineResources>> | undefined,
   detectedProviders: Awaited<ReturnType<typeof detectProviders>>,
   relayExplicit = false,
+  hwId: { id: string; source: 'uuid' | 'mac' | 'random' },
 ): Promise<void> {
   const hostname = resources?.hostname ?? osHostname();
   const platform = resources?.platform ?? process.platform;
+
+  // Generate a stable machine name from hardware ID
+  const { generateMachineName } = await import('../lib/hardware-id.js');
+  const machineName = generateMachineName(hwId.id, hwId.source);
 
   // 1. Request device code
   const authSpinner = ora('Requesting device code...').start();
@@ -545,12 +581,16 @@ async function runDeviceAuthFlow(
       .map((p) => ({ type: p.type, name: p.name, version: p.version }));
 
     const regResponse = await registerMachine(apiUrl, tokenResponse.accessToken, {
-      hostname,
-      name: hostname,
+      hostname, // Actual network hostname (for display)
+      name: machineName, // Stable name from hardware ID
       platform,
       environmentType: config.getEnvironmentType() || 'local',
       providers: providerTypes,
       resources: resources ?? undefined,
+      metadata: {
+        hardwareId: hwId.id,
+        hardwareIdSource: hwId.source,
+      },
     });
 
     regSpinner.succeed(`Machine registered as "${regResponse.machineName}" (${regResponse.machineId})`);

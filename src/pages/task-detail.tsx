@@ -197,7 +197,7 @@ export function TaskDetail() {
           />
         </TabsContent>
         <TabsContent value="files" className="flex-1 m-0 min-h-0">
-          <FileChangesView changes={fileChanges} />
+          <FileChangesView changes={fileChanges} machineId={machineId} />
         </TabsContent>
       </Tabs>
     </div>

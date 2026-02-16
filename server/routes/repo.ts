@@ -158,6 +158,7 @@ repoRoute.post('/git-init', async (c) => {
  * GET /api/repo/file-tree?workingDirectory=path
  *
  * Lightweight refresh endpoint — returns current git ls-files output.
+ * Path expansion (tilde ~) is handled automatically in getFileTree.
  *
  * Response: { files: string[] }
  */

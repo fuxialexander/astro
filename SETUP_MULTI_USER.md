@@ -87,16 +87,18 @@ bash ./scripts/start-tunnel-with-supabase.sh
 
 This exposes:
 - `https://nexus.yourdomain.com` → Frontend app (port 5173)
-- `https://nexus-api.yourdomain.com` → Nexus backend (port 3001)
+- `https://nexus-api.yourdomain.com` → Nexus backend (port 3001) *[For local dev tunnels only]*
 - `https://nexus-relay.yourdomain.com` → WebSocket relay (port 3002)
 - `https://nexus-supabase.yourdomain.com` → Supabase API (port 54321)
 
 The script automatically updates `.env.local` with external URLs:
 ```
 VITE_SUPABASE_URL=https://nexus-supabase.yourdomain.com
-WEBAUTHN_RP_ID=yourdomain.com
-WEBAUTHN_ORIGIN=https://nexus-api.yourdomain.com
+WEBAUTHN_RP_ID=nexus.yourdomain.com
+WEBAUTHN_ORIGIN=https://nexus.yourdomain.com
 ```
+
+**Note**: For production, deploy both frontend and backend to `https://nexus.yourdomain.com` with the backend accessible at `/api`.
 
 ## Step 4: Start Frontend
 

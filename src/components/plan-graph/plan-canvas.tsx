@@ -11,7 +11,7 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Globe, Server, Cloud, CheckCircle2, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, FolderGit2, Info } from "lucide-react"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Globe, Server, Cloud, CheckCircle2, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, Info } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,7 +20,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Button } from "@/components/ui/button"
 import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -381,10 +380,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   }, [handleReorganize])
 
   const [showVisionDialog, setShowVisionDialog] = useState(false)
-  const [showRepoInput, setShowRepoInput] = useState(false)
-  const [repoUrl, setRepoUrl] = useState(project?.repository || "")
-  const [workingDir, setWorkingDir] = useState(project?.workingDirectory || "")
-  const updateProject = useProjectStore((s) => s.updateProject)
 
   const handleGeneratePlan = useCallback(() => {
     if (project && connectionStatus === "connected") {
@@ -410,93 +405,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     }
   }, [showVisionDialog, project, connectionStatus, projectNodes.length, startGeneration, projectId])
 
-  const handleSaveRepo = useCallback(() => {
-    if (project) {
-      updateProject(projectId, {
-        repository: repoUrl.trim() || undefined,
-        workingDirectory: workingDir.trim() || undefined,
-      })
-      setShowRepoInput(false)
-    }
-  }, [updateProject, projectId, project, repoUrl, workingDir])
-
   // Show empty state when no nodes and not currently generating
   if (projectNodes.length === 0 && !isProjectGenerating) {
     const isConnected = connectionStatus === "connected"
-    const hasRepo = !!(project?.repository || project?.workingDirectory)
 
     return (
-      <div className="h-full w-full bg-background flex items-center justify-center p-8">
+      <div ref={canvasRef} className="h-full w-full bg-background flex items-center justify-center p-8 relative">
         <div className="flex w-full max-w-[600px] flex-col gap-6">
-          {/* Repository setup section */}
-          <div className={cn(
-            "flex flex-col gap-4 rounded-xl border p-6",
-            hasRepo ? "border-primary/20 bg-primary/5" : "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
-          )}>
-            <div className="flex items-start gap-3">
-              <div className={cn(
-                "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-                hasRepo ? "bg-primary/10" : "bg-amber-100 dark:bg-amber-900/50"
-              )}>
-                <FolderGit2 className={cn("h-5 w-5", hasRepo ? "text-primary" : "text-amber-600 dark:text-amber-400")} />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-foreground mb-1">
-                  {hasRepo ? "Repository configured" : "Set up your repository first"}
-                </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  One project = one GitHub repo. Tasks work on different aspects of the same codebase in parallel.
-                </p>
-                {hasRepo && (
-                  <div className="mt-2 flex items-center gap-2 text-xs">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                    <span className="font-mono text-muted-foreground truncate">
-                      {project.repository || project.workingDirectory}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {showRepoInput ? (
-              <div className="flex flex-col gap-3 pt-2">
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-medium text-foreground">Repository URL (optional)</label>
-                  <input
-                    type="text"
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                    placeholder="https://github.com/user/repo"
-                    className="h-9 rounded-lg border border-border bg-background px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-medium text-foreground">Working directory (optional)</label>
-                  <input
-                    type="text"
-                    value={workingDir}
-                    onChange={(e) => setWorkingDir(e.target.value)}
-                    placeholder="/path/to/project"
-                    className="h-9 rounded-lg border border-border bg-background px-3 font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={handleSaveRepo}>Save</Button>
-                  <Button size="sm" variant="outline" onClick={() => setShowRepoInput(false)}>Cancel</Button>
-                </div>
-              </div>
-            ) : (
-              <Button
-                size="sm"
-                variant={hasRepo ? "outline" : "default"}
-                onClick={() => setShowRepoInput(true)}
-                className="w-fit"
-              >
-                {hasRepo ? "Change repository" : "Add repository"}
-              </Button>
-            )}
-          </div>
-
           {/* Planning options */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -518,7 +433,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                   <Sparkles className="h-5 w-5 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-base font-semibold text-foreground">Tell us your vision</div>
+                  <div className="text-base font-semibold text-foreground">Generate plan with AI</div>
                   <div className="text-xs text-muted-foreground mt-0.5">Let AI generate a structured plan with tasks and dependencies</div>
                 </div>
               </div>
@@ -526,10 +441,14 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
             {/* Option 2: Manual Add Task */}
             <button
-              onClick={() => {
-                // Trigger task creation form at center of canvas
-                const centerX = 400
-                const centerY = 300
+              type="button"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                // Calculate center of viewport for form positioning
+                const container = canvasRef.current
+                const centerX = container ? container.clientWidth / 2 - POPOVER_WIDTH / 2 : 300
+                const centerY = container ? container.clientHeight / 2 - POPOVER_HEIGHT_EST / 2 : 200
                 setAddChildState({
                   parentNodeId: "", // Root level task
                   position: { x: centerX, y: centerY },
@@ -537,7 +456,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                 })
               }}
               className={cn(
-                "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all cursor-pointer",
+                "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all",
                 "border-border bg-card hover:border-foreground/20"
               )}
             >
@@ -571,6 +490,26 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
             />
           )}
         </div>
+
+        {/* Floating creation form when adding first task */}
+        {addChildState && (
+          <div
+            className="absolute z-50"
+            style={{
+              left: `${addChildState.screenPosition.x}px`,
+              top: `${addChildState.screenPosition.y}px`,
+            }}
+          >
+            <TaskCreationForm
+              mode="popover"
+              projectId={projectId}
+              parentNodeId={addChildState.parentNodeId}
+              position={addChildState.position}
+              onCreated={handleTaskCreated}
+              onCancel={() => setAddChildState(null)}
+            />
+          </div>
+        )}
       </div>
     )
   }

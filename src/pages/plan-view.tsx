@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
-import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest } from "lucide-react"
+import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, ListPlus } from "lucide-react"
 
 // Media query hook for responsive rendering
 function useMediaQuery(query: string) {
@@ -310,8 +310,65 @@ function makePlanColumns(
   ]
 }
 
+// --- Plan Empty State (used in all views) ---
+function PlanEmptyState({ projectId, onAddTask }: { projectId: string; onAddTask: () => void }) {
+  const [visionOpen, setVisionOpen] = useState(false)
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+
+  return (
+    <>
+      <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project!} />
+      <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
+        <div className="flex flex-col gap-4 w-full max-w-lg">
+          <div className="text-center mb-2">
+            <h3 className="text-sm font-medium text-muted-foreground">Choose how to plan:</h3>
+          </div>
+
+          {/* Option 1: AI Generate Plan */}
+          <button
+            onClick={() => setVisionOpen(true)}
+            className={cn(
+              "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all cursor-pointer",
+              "border-primary/20 bg-primary/[0.03] hover:bg-primary/[0.05] hover:border-primary/30"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                <Sparkles className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1">
+                <div className="text-base font-semibold text-foreground">Generate plan with AI</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Let AI generate a structured plan with tasks and dependencies</div>
+              </div>
+            </div>
+          </button>
+
+          {/* Option 2: Manual Add Task */}
+          <button
+            onClick={onAddTask}
+            className={cn(
+              "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all cursor-pointer",
+              "border-border bg-card hover:border-foreground/20"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
+                <ListPlus className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="flex-1">
+                <div className="text-base font-semibold text-foreground">Add your first task</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Start planning manually with individual tasks</div>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // --- List View ---
-function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
+export function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const updateNode = usePlanStore((s) => s.updateNode)
   const removeNodes = usePlanStore((s) => s.removeNodes)
@@ -447,6 +504,9 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
     }
   }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
 
+  // Don't show empty state if we're currently creating a task
+  const showEmptyState = tasks.length === 0 && !creatingInGroup
+
   return (
     <ItemListView
       columns={columns}
@@ -460,12 +520,13 @@ function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSe
       sortColumn={displaySettings.orderBy}
       sortDirection={displaySettings.orderDirection}
       onSort={handleSort}
+      emptyState={showEmptyState ? <PlanEmptyState projectId={projectId} onAddTask={() => setCreatingInGroup("all")} /> : undefined}
     />
   )
 }
 
 // --- Timeline View ---
-function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
+export function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const planEdges = usePlanStore((s) => s.edges)
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -593,7 +654,7 @@ function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNo
 }
 
 // --- Board View Wrapper ---
-function PlanBoardView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
+export function PlanBoardView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const updateNode = usePlanStore((s) => s.updateNode)
   const boardSettings = useDisplaySettingsStore((s) => s.get("plan-board"))

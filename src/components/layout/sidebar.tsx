@@ -1,5 +1,5 @@
 import { NavLink, useNavigate, useParams } from "react-router"
-import { Hexagon, Radio, GitBranch, Target, Cpu, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search } from "lucide-react"
+import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -13,11 +13,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 
 const navItems = [
-  { to: "/", icon: Radio, label: "Pulse" },
-  { to: "/projects", icon: GitBranch, label: "Plan" },
-  { to: "/tasks", icon: CheckSquare, label: "My Tasks" },
-  { to: "/initiatives", icon: Target, label: "Initiatives" },
-  { to: "/agents", icon: Cpu, label: "Agents" },
+  { to: "/", icon: CheckSquare, label: "Tasks" },
+  { to: "/projects", icon: GitBranch, label: "Projects" },
   { to: "/environments", icon: Terminal, label: "Environments" },
 ]
 

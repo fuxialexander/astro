@@ -162,7 +162,7 @@ Then start the tunnel (creates it on first run):
 bash ./scripts/start-tunnel.sh
 ```
 
-This exposes `nexus-api.yourdomain.com` (port 3001) and `nexus-relay.yourdomain.com` (port 3002) via Cloudflare Tunnel.
+This exposes `nexus.yourdomain.com` (frontend + backend) and `nexus-relay.yourdomain.com` (WebSocket relay) via Cloudflare Tunnel.
 
 **2. Setup and start the agent**
 

@@ -70,7 +70,7 @@ export function Dashboard() {
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
   const navigate = useNavigate()
 
-  // Redirect first-time users to welcome screen
+  // Redirect first-time users to welcome screen (dashboard is now secondary)
   useEffect(() => {
     if (projectsLoaded && projects.length === 0) {
       navigate("/welcome")

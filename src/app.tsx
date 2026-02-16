@@ -29,6 +29,7 @@ import { useAgentStore } from "@/stores/agent-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { shouldUseSupabase } from "@/lib/supabase-client"
+import { getBrowserHostname } from "@/lib/path-utils"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
@@ -111,6 +112,12 @@ function DataLoader({ children }: { children: React.ReactNode }) {
 
     console.log('[DataLoader] Connecting realtime...')
     connectRealtime()
+
+    // Pre-cache browser hostname for file URL building
+    getBrowserHostname().catch((err) => {
+      console.warn('[DataLoader] Failed to cache browser hostname:', err)
+    })
+
     return () => disconnectRealtime()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run once when shouldLoadData becomes true
   }, [shouldLoadData])
@@ -152,7 +159,8 @@ export default function App() {
 
               {/* Authenticated routes - Responsive */}
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
-                <Route index element={<Dashboard />} />
+                <Route index element={<MyTasks />} />
+                <Route path="dashboard" element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="projects/new" element={<ProjectNew />} />
                 <Route path="project/:id" element={<ProjectOverview />} />

@@ -6,11 +6,16 @@ ENV_FILE="$(cd "$SCRIPT_DIR_TMP/.." && pwd)/.env"
 
 # Parse flags
 WITH_SSH_CONFIG=""
+MACHINE_NAME=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --with-ssh-config)
       WITH_SSH_CONFIG="--with-ssh-config"
       shift
+      ;;
+    --hostname|--machine-name)
+      MACHINE_NAME="$2"
+      shift 2
       ;;
     *)
       DOMAIN="$1"
@@ -25,16 +30,24 @@ if [[ -z "$DOMAIN" && -f "$ENV_FILE" ]]; then
 fi
 
 if [[ -z "$DOMAIN" ]]; then
-  echo "Usage: ./scripts/agent-setup.sh [domain] [--with-ssh-config]"
+  echo "Usage: ./scripts/agent-setup.sh [domain] [options]"
   echo "If no domain is given, reads CLOUDFLARED_DOMAIN from .env"
   echo "Example: ./scripts/agent-setup.sh fuxialexander.work"
   echo ""
   echo "Options:"
-  echo "  --with-ssh-config    Discover and configure remote hosts from SSH config"
+  echo "  --with-ssh-config         Discover and configure remote hosts from SSH config"
+  echo "  --hostname <name>         Set machine hostname (defaults to system hostname)"
+  echo "  --machine-name <name>     Alias for --hostname"
   exit 1
 fi
 
-API_URL="https://nexus-api.$DOMAIN"
+# Auto-detect machine name if not provided
+if [[ -z "$MACHINE_NAME" ]]; then
+  MACHINE_NAME="$(uname -n)"
+  echo "Auto-detected machine hostname: $MACHINE_NAME"
+fi
+
+API_URL="https://nexus.$DOMAIN"
 RELAY_URL="wss://nexus-relay.$DOMAIN"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,12 +70,13 @@ cd "$REPO_ROOT"
 # Run interactive setup (device auth flow)
 echo ""
 echo "Starting agent setup..."
-echo "  API:   $API_URL"
-echo "  Relay: $RELAY_URL"
+echo "  API:      $API_URL"
+echo "  Relay:    $RELAY_URL"
+echo "  Hostname: $MACHINE_NAME"
 echo ""
 echo "You will be prompted to approve the device in your browser."
 echo ""
-node "$RUNNER_DIR/dist/cli.js" setup --api "$API_URL" --relay "$RELAY_URL" --type remote $WITH_SSH_CONFIG
+node "$RUNNER_DIR/dist/cli.js" setup --api "$API_URL" --relay "$RELAY_URL" --type remote --hostname "$MACHINE_NAME" $WITH_SSH_CONFIG
 
 # Start the agent runner
 echo ""

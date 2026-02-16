@@ -23,6 +23,7 @@ import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-stor
 import { useExecutionStore } from "@/stores/execution-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
+import { shouldUseSupabase } from "@/lib/supabase-client"
 import { formatDate, formatTimeShort } from "@/lib/date-utils"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
@@ -237,6 +238,9 @@ export function Environments() {
   const realtimeConnected = useRealtimeStore((s) => s.connected)
   const connectRealtime = useRealtimeStore((s) => s.connect)
 
+  // Check if we're in multi-tenant mode (hide "Local" in production)
+  const isMultiTenant = shouldUseSupabase()
+
   const registeredMachines = useMachinesStore((s) => s.machines)
   const fetchRegistered = useMachinesStore((s) => s.fetchMachines)
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
@@ -290,9 +294,11 @@ export function Environments() {
     (m) => !m.isRevoked && !m.isConnected && !liveMachineIds.has(m.id) && m.environmentType === 'hpc'
   )
 
-  // +1 for the local machine (this server)
-  const totalMachines = 1 + remoteLiveMachines.length + hpcMachines.length + offlineNonHpcMachines.length + offlineHpcMachines.length
-  const connectedCount = 1 + remoteLiveMachines.length + hpcMachines.length
+  // In single-user mode, +1 for the local machine (this server)
+  // In multi-tenant mode, no local machine
+  const localMachineCount = isMultiTenant ? 0 : 1
+  const totalMachines = localMachineCount + remoteLiveMachines.length + hpcMachines.length + offlineNonHpcMachines.length + offlineHpcMachines.length
+  const connectedCount = localMachineCount + remoteLiveMachines.length + hpcMachines.length
   const activeTasks = liveMachines.reduce((sum, m) => sum + m.load.activeTasks, 0)
   const hpcClusterCount = hpcMachines.length + offlineHpcMachines.length
 
@@ -361,16 +367,18 @@ export function Environments() {
         />
       </div>
 
-      {/* Local */}
-      <div className="flex flex-col gap-4">
-        <div className="hidden md:flex items-center gap-3">
-          <Laptop className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Local</h2>
+      {/* Local - only show in single-user mode */}
+      {!isMultiTenant && (
+        <div className="flex flex-col gap-4">
+          <div className="hidden md:flex items-center gap-3">
+            <Laptop className="h-5 w-5 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">Local</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <LocalMachineCard />
+          </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <LocalMachineCard />
-        </div>
-      </div>
+      )}
 
       {/* Connected */}
       <div className="flex flex-col gap-4">

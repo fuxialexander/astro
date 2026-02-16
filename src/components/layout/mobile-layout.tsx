@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router';
-import { Activity, GitBranch, Bot, Server, Search } from 'lucide-react';
+import { CheckSquare, GitBranch, Server, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui-store';
 
@@ -12,25 +12,19 @@ interface TabItem {
 
 const tabs: TabItem[] = [
   {
-    id: 'pulse',
-    label: 'Pulse',
-    icon: Activity,
+    id: 'tasks',
+    label: 'Tasks',
+    icon: CheckSquare,
     path: '/',
   },
   {
-    id: 'plan',
-    label: 'Plan',
+    id: 'projects',
+    label: 'Projects',
     icon: GitBranch,
     path: '/projects',
   },
   {
-    id: 'agents',
-    label: 'Agents',
-    icon: Bot,
-    path: '/tasks',
-  },
-  {
-    id: 'envs',
+    id: 'environments',
     label: 'Envs',
     icon: Server,
     path: '/environments',

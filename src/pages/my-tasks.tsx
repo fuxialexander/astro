@@ -303,15 +303,19 @@ export function MyTasks() {
   const emptyState = (
     <EmptyState
       icon={CheckSquare}
-      title={hasActiveFilters ? "No matching tasks" : "No tasks yet"}
+      title={hasActiveFilters ? "No matching tasks" : "Welcome to Nexus"}
       description={
         hasActiveFilters
           ? "Try adjusting your filters to see more tasks."
-          : "Tasks from all your projects will appear here. Create a project and generate a plan to get started."
+          : projects.length === 0
+          ? "Create your first project to start organizing your work with tasks."
+          : "All your tasks will appear here. Go to a project to add tasks, or create a new project."
       }
       action={
         hasActiveFilters
           ? { label: "Clear Filters", onClick: clearFilters }
+          : projects.length === 0
+          ? { label: "Create Project", href: "/welcome" }
           : { label: "View Projects", href: "/projects" }
       }
       className="h-full"
@@ -323,7 +327,7 @@ export function MyTasks() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-secondary font-semibold">My Tasks</h1>
+          <h1 className="text-2xl font-secondary font-semibold">Tasks</h1>
           {activeCount > 0 && (
             <Badge variant="info" className="text-xs">
               {activeCount} active
@@ -336,23 +340,26 @@ export function MyTasks() {
           )}
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1">
-            {(["list", "timeline", "board"] as MyTasksViewMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-sm transition-all cursor-pointer capitalize",
-                  viewMode === mode ? "bg-accent font-semibold text-accent-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                )}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
-          {viewMode === "list" && <DisplayPopover config={myTasksDisplayConfig} />}
-          {viewMode === "timeline" && <DisplayPopover config={myTasksTimelineDisplayConfig} />}
-          {viewMode === "board" && <DisplayPopover config={myTasksBoardDisplayConfig} />}
+          {/* Only show view toggle when there are tasks */}
+          {sortedTasks.length > 0 && (
+            <div className="flex items-center gap-1">
+              {(["list", "timeline", "board"] as MyTasksViewMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-sm transition-all cursor-pointer capitalize",
+                    viewMode === mode ? "bg-accent font-semibold text-accent-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          )}
+          {sortedTasks.length > 0 && viewMode === "list" && <DisplayPopover config={myTasksDisplayConfig} />}
+          {sortedTasks.length > 0 && viewMode === "timeline" && <DisplayPopover config={myTasksTimelineDisplayConfig} />}
+          {sortedTasks.length > 0 && viewMode === "board" && <DisplayPopover config={myTasksBoardDisplayConfig} />}
         </div>
       </div>
 

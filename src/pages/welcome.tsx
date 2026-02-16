@@ -19,20 +19,28 @@ import {
   Moon,
   Sparkles,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
-import { useSettingsStore } from "@/stores/settings-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
-import { useRepoSetup } from "@/hooks/use-repo-setup"
-import { GitInitDialog } from "@/components/git-init-dialog"
+import { useMachinesStore } from "@/stores/machines-store"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { useTheme } from "@/components/theme-provider"
+import { shouldUseSupabase } from "@/lib/supabase-client"
+import { validateAbsolutePath } from "@/lib/path-utils"
+import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { cn } from "@/lib/utils"
-import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 
 const environmentConfig = {
   local: { icon: Laptop, label: "Local", description: "Run on this machine" },
@@ -51,12 +59,19 @@ export function Welcome() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showAddEnvironment, setShowAddEnvironment] = useState(false)
   const [isRefreshingMachines, setIsRefreshingMachines] = useState(false)
+  const [selectedMachineId, setSelectedMachineId] = useState<string | undefined>(undefined)
+  const [showWorkDirDialog, setShowWorkDirDialog] = useState(false)
+  const [workingDirectory, setWorkingDirectory] = useState("")
+  const [pathError, setPathError] = useState<string | null>(null)
 
   const navigate = useNavigate()
   const { theme, setTheme } = useTheme()
   const addProject = useProjectStore((s) => s.addProject)
   const addNode = usePlanStore((s) => s.addNode)
-  const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+  const { setupRepo } = useRepoSetup()
+
+  // Check if we're in multi-tenant mode (production)
+  const isMultiTenant = shouldUseSupabase()
 
   // GitHub integration
   const { connected, repos, selectedRepoIds, fetchRepos } = useGitHubStore()
@@ -64,11 +79,38 @@ export function Welcome() {
   // Machine/environment state
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
-  const machines = useRealtimeStore((s) => s.machines)
+  const liveMachines = useRealtimeStore((s) => s.machines)
+  const registeredMachines = useMachinesStore((s) => s.machines)
+  const fetchRegisteredMachines = useMachinesStore((s) => s.fetchMachines)
 
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
   }, [machinesLoaded, loadMachines])
+
+  // Fetch registered machines for multi-tenant mode
+  useEffect(() => {
+    if (isMultiTenant) {
+      fetchRegisteredMachines()
+    }
+  }, [isMultiTenant, fetchRegisteredMachines])
+
+  // Auto-select first machine in multi-tenant mode
+  useEffect(() => {
+    if (isMultiTenant && registeredMachines.length > 0 && !selectedMachineId) {
+      setSelectedMachineId(registeredMachines[0].id)
+    }
+  }, [isMultiTenant, registeredMachines, selectedMachineId])
+
+  // Auto-select first machine in single-user mode (from live machines)
+  useEffect(() => {
+    if (!isMultiTenant && liveMachines.size > 0 && !selectedMachineId) {
+      const firstMachine = Array.from(liveMachines.values())[0]
+      setSelectedMachineId(firstMachine.machineId)
+    }
+  }, [isMultiTenant, liveMachines, selectedMachineId])
+
+  // Check if user can create projects (has machines in multi-tenant, or in single-user mode)
+  const canCreateProjects = !isMultiTenant || registeredMachines.length > 0
 
   // Fetch repos when GitHub selector is opened
   useEffect(() => {
@@ -88,46 +130,67 @@ export function Welcome() {
     )
   })
 
-  // Shared repo setup hook
-  const { setupRepo, gitInitPrompt, dismissGitInit, confirmGitInit } = useRepoSetup()
+  // Show working directory dialog for empty project
+  function handleStartEmpty() {
+    setShowWorkDirDialog(true)
+  }
 
-  // Create default empty project with git repo
-  async function handleStartEmpty() {
-    setIsSubmitting(true)
-    const id = crypto.randomUUID()
-    const projectName = "quick-start"
-    const defaultWorkdir = `~/nexus-projects/${projectName}`
+  // Handle working directory path change with validation
+  function handleWorkDirChange(value: string) {
+    setWorkingDirectory(value)
+    const validation = validateAbsolutePath(value)
+    setPathError(validation.isValid ? null : validation.error || null)
+  }
 
-    addProject({
-      id,
-      name: "Quick Start",
-      description: "Your first project - start adding tasks below",
-      visionDoc: "",
-      status: "active",
-      workingDirectory: defaultWorkdir,
-      color: getRandomColor(),
-      icon: getRandomProjectIcon(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-
-    navigate(`/project/${id}/plan?view=list`)
-
-    // Set up git repo in background if backend is connected (silent, no UI feedback)
-    if (connectionStatus === "connected") {
-      try {
-        await setupRepo({
-          projectId: id,
-          projectName,
-          projectDescription: "Your first project - start adding tasks below",
-          workingDirectory: defaultWorkdir,
-        })
-      } catch (error) {
-        console.warn('[welcome] Failed to set up repo for empty project:', error)
+  // Create empty project with repo setup on selected machine
+  async function handleConfirmWorkDir() {
+    // Validate path only if provided
+    if (workingDirectory.trim()) {
+      const validation = validateAbsolutePath(workingDirectory)
+      if (!validation.isValid) {
+        setPathError(validation.error || 'Invalid path')
+        return
       }
     }
+    setPathError(null)
 
-    setIsSubmitting(false)
+    setIsSubmitting(true)
+    const id = crypto.randomUUID()
+
+    try {
+      // Call repo setup on the selected machine
+      // If workingDirectory is empty, backend will create default path: ~/.nexus/projects/{projectId}
+      const result = await setupRepo({
+        projectId: id,
+        projectName: "Quick Start",
+        projectDescription: "Your first project - start adding tasks below",
+        workingDirectory: workingDirectory.trim() || undefined,
+        targetMachineId: isMultiTenant ? selectedMachineId : undefined,
+      })
+
+      // Create project with resolved working directory from backend
+      addProject({
+        id,
+        name: "Quick Start",
+        description: "Your first project - start adding tasks below",
+        visionDoc: "",
+        status: "active",
+        defaultMachineId: selectedMachineId, // Save selected machine in both modes
+        workingDirectory: result?.workingDirectory,
+        color: '#06b6d4', // cyan blue
+        icon: 'FaStar',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      setShowWorkDirDialog(false)
+      setWorkingDirectory("")
+      setIsSubmitting(false)
+      navigate(`/tasks`)
+    } catch (error) {
+      console.error('[welcome] Repo setup failed:', error)
+      setIsSubmitting(false)
+    }
   }
 
   // Create project with repo and add first task manually (skip AI)
@@ -137,60 +200,59 @@ export function Welcome() {
 
     const id = crypto.randomUUID()
     const projectName = repoUrl.split("/").pop()?.replace(".git", "") || "New Project"
-    const defaultWorkdir = `~/nexus-projects/${projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`
 
-    addProject({
-      id,
-      name: projectName,
-      description: firstTask.trim(),
-      visionDoc: "",
-      status: "active",
-      repository: repoUrl.trim(),
-      workingDirectory: defaultWorkdir,
-      color: getRandomColor(),
-      icon: getRandomProjectIcon(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
+    try {
+      // Call repo setup to clone on the selected machine
+      const result = await setupRepo({
+        projectId: id,
+        projectName,
+        projectDescription: firstTask.trim(),
+        repository: repoUrl.trim(),
+        targetMachineId: isMultiTenant ? selectedMachineId : undefined,
+      })
 
-    // Add first task node with due date set to today
-    const taskId = crypto.randomUUID()
-    const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
-    addNode({
-      id: taskId,
-      projectId: id,
-      type: "task",
-      title: firstTask.trim(),
-      description: "",
-      status: "planned",
-      parentId: null,
-      dependencies: [],
-      verification: "auto",
-      position: { x: 0, y: 0 },
-      priority: "medium",
-      dueDate: today,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
+      // Create project with resolved working directory from backend
+      addProject({
+        id,
+        name: projectName,
+        description: firstTask.trim(),
+        visionDoc: "",
+        status: "active",
+        repository: repoUrl.trim(),
+        defaultMachineId: selectedMachineId, // Save selected machine in both modes
+        workingDirectory: result?.workingDirectory,
+        color: '#06b6d4', // cyan blue
+        icon: 'FaStar',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
 
-    navigate(`/project/${id}/plan?view=list`)
+      // Add first task node with due date set to today
+      const taskId = crypto.randomUUID()
+      const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+      addNode({
+        id: taskId,
+        projectId: id,
+        type: "task",
+        title: firstTask.trim(),
+        description: "",
+        status: "planned",
+        parentId: null,
+        dependencies: [],
+        verification: "auto",
+        position: { x: 0, y: 0 },
+        priority: "medium",
+        dueDate: today,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
 
-    // Set up repo in background (clone/init, silent, no UI feedback)
-    if (connectionStatus === "connected") {
-      try {
-        await setupRepo({
-          projectId: id,
-          projectName,
-          projectDescription: firstTask.trim(),
-          repository: repoUrl.trim(),
-          workingDirectory: defaultWorkdir,
-        })
-      } catch (error) {
-        console.warn('[welcome] Failed to set up repo:', error)
-      }
+      setIsSubmitting(false)
+      navigate(`/tasks`)
+    } catch (error) {
+      console.error('[welcome] Repo setup failed:', error)
+      setIsSubmitting(false)
     }
-
-    setIsSubmitting(false)
   }
 
   // Create project with repo and navigate to plan view (optionally use AI)
@@ -200,40 +262,39 @@ export function Welcome() {
 
     const id = crypto.randomUUID()
     const projectName = repoUrl.split("/").pop()?.replace(".git", "") || "New Project"
-    const defaultWorkdir = `~/nexus-projects/${projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`
 
-    addProject({
-      id,
-      name: projectName,
-      description: firstTask.trim() || `Work on ${projectName}`,
-      visionDoc: "",
-      status: "active",
-      repository: repoUrl.trim(),
-      workingDirectory: defaultWorkdir,
-      color: getRandomColor(),
-      icon: getRandomProjectIcon(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
+    try {
+      // Call repo setup to clone on the selected machine
+      const result = await setupRepo({
+        projectId: id,
+        projectName,
+        projectDescription: firstTask.trim() || `Work on ${projectName}`,
+        repository: repoUrl.trim(),
+        targetMachineId: isMultiTenant ? selectedMachineId : undefined,
+      })
 
-    navigate(`/project/${id}/plan?view=list`)
+      // Create project with resolved working directory from backend
+      addProject({
+        id,
+        name: projectName,
+        description: firstTask.trim() || `Work on ${projectName}`,
+        visionDoc: "",
+        status: "active",
+        repository: repoUrl.trim(),
+        defaultMachineId: selectedMachineId, // Save selected machine in both modes
+        workingDirectory: result?.workingDirectory,
+        color: '#06b6d4', // cyan blue
+        icon: 'FaStar',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
 
-    // Set up repo in background (clone/init, silent) - user can trigger AI from plan view
-    if (connectionStatus === "connected") {
-      try {
-        await setupRepo({
-          projectId: id,
-          projectName,
-          projectDescription: firstTask.trim() || `Work on ${projectName}`,
-          repository: repoUrl.trim(),
-          workingDirectory: defaultWorkdir,
-        })
-      } catch (error) {
-        console.warn('[welcome] Failed to set up repo:', error)
-      }
+      setIsSubmitting(false)
+      navigate(`/tasks`)
+    } catch (error) {
+      console.error('[welcome] Repo setup failed:', error)
+      setIsSubmitting(false)
     }
-
-    setIsSubmitting(false)
   }
 
   // Refresh machines list
@@ -247,13 +308,13 @@ export function Welcome() {
     setIsRefreshingMachines(false)
   }
 
-  // Group machines by environment type
-  const machinesByEnv = Array.from(machines.values()).reduce((acc, m) => {
+  // Group machines by environment type (for single-user mode)
+  const machinesByEnv = Array.from(liveMachines.values()).reduce((acc, m) => {
     const env = m.environmentType as keyof typeof environmentConfig
     if (!acc[env]) acc[env] = []
     acc[env].push(m)
     return acc
-  }, {} as Record<string, typeof machines extends Map<string, infer M> ? M[] : never>)
+  }, {} as Record<string, typeof liveMachines extends Map<string, infer M> ? M[] : never>)
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -295,33 +356,65 @@ export function Welcome() {
 
           {mode === "choose" ? (
             <>
-              {/* Two main options - side by side on desktop */}
-              <div className="flex w-full flex-col gap-4 md:flex-row md:gap-6">
-                <OptionCard
-                  icon={ListTodo}
-                  title="Start with empty project"
-                  description="Creates a new git repository and working directory. Start adding tasks immediately."
-                  workdir="~/nexus-projects/quick-start"
-                  onClick={handleStartEmpty}
-                  disabled={isSubmitting}
-                  primary
-                  className="flex-1"
-                />
-                <OptionCard
-                  icon={GitBranch}
-                  title="Start with a repo"
-                  description="Clone or link an existing repository. Manually add tasks or optionally use AI to generate a plan."
-                  workdir="You'll specify the repo URL"
-                  onClick={() => setMode("repo")}
-                  disabled={isSubmitting}
-                  className="flex-1"
-                />
-              </div>
+              {/* Machine registration required in multi-tenant mode */}
+              {isMultiTenant && !canCreateProjects && (
+                <div className="w-full flex flex-col items-center gap-4 py-8 px-4 rounded-2xl border-2 border-dashed border-border bg-muted/20">
+                  <Laptop className="h-12 w-12 text-muted-foreground" />
+                  <div className="flex flex-col items-center gap-2 text-center">
+                    <h3 className="text-lg font-semibold">Register your machine first</h3>
+                    <p className="text-sm text-muted-foreground max-w-md">
+                      To create projects, you need to register at least one machine where tasks will run.
+                      Click below to get started.
+                    </p>
+                  </div>
+                  <Button onClick={() => setShowAddEnvironment(true)} size="lg" className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Register Machine
+                  </Button>
+                </div>
+              )}
+
+              {/* Project creation options - only show if can create */}
+              {canCreateProjects && (
+                <>
+                  {/* Instructions in multi-tenant mode */}
+                  {isMultiTenant && registeredMachines.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-sm text-muted-foreground">
+                        Select a machine below, then choose how to start your project
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Two main options - side by side on desktop */}
+                  <div className="flex w-full flex-col gap-4 md:flex-row md:gap-6">
+                    <OptionCard
+                      icon={ListTodo}
+                      title="Start with empty project"
+                      description="Set up a new working directory on your selected machine and start adding tasks."
+                      onClick={handleStartEmpty}
+                      disabled={isSubmitting}
+                      primary
+                      className="flex-1"
+                    />
+                    <OptionCard
+                      icon={GitBranch}
+                      title="Start with a repo"
+                      description="Link an existing repository. Manually add tasks or optionally use AI to generate a plan."
+                      onClick={() => setMode("repo")}
+                      disabled={isSubmitting}
+                      className="flex-1"
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Available Environments */}
               <div className="w-full flex flex-col gap-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium text-muted-foreground">Available execution environments</h3>
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    {isMultiTenant ? "Select target machine" : "Available execution environments"}
+                  </h3>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -334,34 +427,52 @@ export function Welcome() {
                   </Button>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  {/* Local environment */}
-                  <EnvironmentCard
-                    env="local"
-                    machineCount={1}
-                    isLocal
-                  />
-
-                  {/* Other environments */}
-                  {(['remote', 'hpc', 'cloud'] as const).map((env) => {
-                    const count = machinesByEnv[env]?.length || 0
-                    return count > 0 ? (
+                  {/* Single-user mode: show "Local" + grouped environments */}
+                  {!isMultiTenant && (
+                    <>
                       <EnvironmentCard
-                        key={env}
-                        env={env}
-                        machineCount={count}
+                        env="local"
+                        machineCount={1}
+                        isLocal
                       />
-                    ) : null
-                  })}
+                      {(['remote', 'hpc', 'cloud'] as const).map((env) => {
+                        const count = machinesByEnv[env]?.length || 0
+                        return count > 0 ? (
+                          <EnvironmentCard
+                            key={env}
+                            env={env}
+                            machineCount={count}
+                          />
+                        ) : null
+                      })}
+                    </>
+                  )}
 
-                  {/* Add new device placeholder */}
+                  {/* Multi-tenant mode: show registered machines as selectable cards */}
+                  {isMultiTenant && registeredMachines.map((machine) => (
+                    <MachineCard
+                      key={machine.id}
+                      machine={machine}
+                      isSelected={selectedMachineId === machine.id}
+                      onClick={() => setSelectedMachineId(machine.id)}
+                    />
+                  ))}
+
+                  {/* Add new machine/environment */}
                   <button
                     onClick={() => setShowAddEnvironment(true)}
                     className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-foreground/20 hover:bg-muted/40 cursor-pointer"
                   >
                     <Plus className="h-6 w-6 text-muted-foreground" />
                     <div>
-                      <div className="text-sm font-medium text-foreground">Add environment</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Connect remote machines, HPC clusters, or cloud instances</div>
+                      <div className="text-sm font-medium text-foreground">
+                        {isMultiTenant ? "Register machine" : "Add environment"}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {isMultiTenant
+                          ? "Connect your laptop, workstation, or server"
+                          : "Connect remote machines, HPC clusters, or cloud instances"}
+                      </div>
                     </div>
                   </button>
                 </div>
@@ -537,18 +648,73 @@ export function Welcome() {
         </div>
       </div>
 
-      {/* Git init confirmation dialog */}
-      <GitInitDialog
-        prompt={gitInitPrompt}
-        onConfirm={confirmGitInit}
-        onDismiss={dismissGitInit}
-      />
-
       {/* Add environment dialog */}
       <AddEnvironmentDialog
         open={showAddEnvironment}
         onOpenChange={setShowAddEnvironment}
       />
+
+      {/* Working directory dialog */}
+      <Dialog open={showWorkDirDialog} onOpenChange={setShowWorkDirDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Set Working Directory</DialogTitle>
+            <DialogDescription>
+              Specify where your project files will be stored on the selected machine, or leave empty to use the default location.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 mt-2">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium">Working Directory (optional)</label>
+              <input
+                type="text"
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                placeholder="/absolute/path/to/project (optional)"
+                value={workingDirectory}
+                onChange={(e) => handleWorkDirChange(e.target.value)}
+                autoFocus
+              />
+              {pathError && (
+                <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>{pathError}</span>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Leave empty to use default path: <span className="font-mono">~/.nexus/projects/</span>
+                <br />
+                Or enter an absolute path starting with / (e.g., /Users/username/projects/my-app)
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowWorkDirDialog(false)
+                  setWorkingDirectory("")
+                  setPathError(null)
+                }}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirmWorkDir}
+                disabled={!!pathError || isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Setting up...
+                  </>
+                ) : (
+                  "Continue"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -636,5 +802,68 @@ function EnvironmentCard({
       </div>
       <p className="text-xs text-muted-foreground">{config.description}</p>
     </div>
+  )
+}
+
+function MachineCard({
+  machine,
+  isSelected,
+  onClick,
+}: {
+  machine: {
+    id: string
+    name: string
+    hostname: string
+    platform: string
+    environmentType: string
+    isConnected: boolean
+    providers: string[]
+  }
+  isSelected?: boolean
+  onClick?: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex flex-col gap-2 rounded-xl border-2 p-4 text-left transition-all cursor-pointer",
+        isSelected
+          ? "border-primary bg-primary/5 shadow-[0_0_0_3px_rgba(99,102,241,0.1)]"
+          : "border-border bg-card hover:border-primary/50 hover:bg-card/80"
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <div className={cn(
+          "flex h-8 w-8 items-center justify-center rounded-lg",
+          isSelected ? "bg-primary/20" : "bg-primary/10"
+        )}>
+          <Laptop className={cn("h-4 w-4", isSelected ? "text-primary" : "text-primary")} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-foreground truncate">{machine.name}</div>
+          <div className="text-xs text-muted-foreground truncate">{machine.hostname}</div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {isSelected && <CheckCircle2 className="h-4 w-4 text-primary" />}
+          <div className={cn(
+            "flex items-center gap-1 text-xs",
+            machine.isConnected ? "text-green-600" : "text-muted-foreground"
+          )}>
+            <span className={cn("h-1.5 w-1.5 rounded-full", machine.isConnected ? "bg-green-600" : "bg-muted-foreground")} />
+            <span>{machine.isConnected ? "Online" : "Offline"}</span>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">{machine.platform}</p>
+        {machine.providers.length > 0 && (
+          <div className="flex gap-1">
+            {machine.providers.slice(0, 2).map((p) => (
+              <span key={p} className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{p}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </button>
   )
 }

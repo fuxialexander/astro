@@ -30,6 +30,7 @@ program
   .option('--api <url>', 'API server URL')
   .option('--relay <url>', 'Custom relay server URL')
   .option('--type <type>', 'Environment type: local, remote, hpc, cloud')
+  .option('--hostname <hostname>', 'Machine hostname (defaults to system hostname)')
   .option('--skip-auth', 'Skip device authentication')
   .option('--non-interactive', 'Run in non-interactive mode')
   .option('--with-ssh-config', 'Discover and configure remote hosts from SSH config')
@@ -39,6 +40,7 @@ program
         api: options.api,
         relay: options.relay,
         type: options.type,
+        hostname: options.hostname,
         skipAuth: options.skipAuth,
         nonInteractive: options.nonInteractive,
         withSshConfig: options.withSshConfig,
