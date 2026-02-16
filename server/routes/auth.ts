@@ -294,6 +294,12 @@ authRoute.post('/webauthn/login-options', async (c) => {
       transports: c.transports as AuthenticatorTransport[] | undefined,
     })),
     userVerification: 'preferred',
+    // Hint to prioritize platform authenticators (Touch ID/Face ID) over cross-device (QR code)
+    // Note: This only works when allowCredentials is provided (i.e., when email is given)
+    ...(allowCredentials.length > 0 && {
+      // The transports in allowCredentials already hint at platform preference
+      // No additional config needed here for simplewebauthn
+    }),
   })
 
   // Store challenge

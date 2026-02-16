@@ -40,6 +40,7 @@ export function Login() {
       // Try authentication first (works for both auto and signin modes)
       if (mode !== "signup") {
         try {
+          // Note: Providing email helps browser prioritize local Touch ID/Face ID over QR codes
           const optionsRes = await fetch("/api/auth/webauthn/login-options", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
