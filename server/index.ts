@@ -3,6 +3,9 @@ import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serve } from '@hono/node-server'
 import { rateLimiter } from 'hono-rate-limiter'
+import { readFileSync } from 'fs'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 import { healthRoute } from './routes/health.js'
 import { agentRoute } from './routes/agent.js'
 import { authRoute } from './routes/auth.js'
@@ -47,11 +50,11 @@ const app = new Hono()
 app.use('/*', secureHeaders({
   contentSecurityPolicy: {
     defaultSrc: ["'self'"],
-    scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-    styleSrc: ["'self'", "'unsafe-inline'"],
+    scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdnjs.cloudflare.com"],
+    styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
     imgSrc: ["'self'", "data:", "https:"],
     connectSrc: ["'self'", "ws:", "wss:"],
-    fontSrc: ["'self'", "data:"],
+    fontSrc: ["'self'", "data:", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
   },
   strictTransportSecurity: "max-age=31536000; includeSubDomains",
   xFrameOptions: "DENY",
@@ -143,6 +146,20 @@ app.route('/api/data', dataRoute)
 app.route('/api/notifications', notificationsRoute)
 app.route('/api/github', githubRoute)
 app.route('/api/system', systemRoute)
+
+// Landing page route
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+app.get('/landing', (c) => {
+  try {
+    const html = readFileSync(join(__dirname, '../astro-landing.html'), 'utf-8')
+    return c.html(html)
+  } catch (err) {
+    console.error('[landing] Failed to read landing page:', err)
+    return c.text('Landing page not found', 404)
+  }
+})
 
 const port = 3001
 const relayPort = getRelayConfig().port
