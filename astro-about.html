@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why Astro? — Our Philosophy</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600;700&family=Spectral:wght@300;400;600&display=swap');
+
+        :root {
+            --space-navy: #0a0e27;
+            --deep-blue: #1a2a4e;
+            --electric-cyan: #5ba3d0;
+            --star-orange: #d4a574;
+            --off-white: #f5f5f0;
+            --subtle-blue: #2a3a5e;
+            --soft-gray: #a8a8a0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Spectral', serif;
+            background: var(--space-navy);
+            color: var(--off-white);
+            overflow-x: hidden;
+            line-height: 1.8;
+            font-weight: 300;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 2rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            background: rgba(10, 14, 39, 0.8);
+            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+        }
+
+        .logo {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.75rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            color: var(--off-white);
+        }
+
+        .back-link {
+            font-family: 'Spectral', serif;
+            color: var(--off-white);
+            text-decoration: none;
+            font-size: 0.875rem;
+            padding: 0.5rem 1.5rem;
+            border: 1px solid rgba(245, 245, 240, 0.3);
+            transition: all 0.3s ease;
+            letter-spacing: 0.05em;
+        }
+
+        .back-link:hover {
+            border-color: var(--off-white);
+            background: rgba(245, 245, 240, 0.05);
+        }
+
+        /* Hero */
+        .hero {
+            min-height: 70vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 8rem 2rem 4rem;
+        }
+
+        .hero-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(3rem, 8vw, 6rem);
+            font-weight: 300;
+            color: var(--off-white);
+            margin-bottom: 2rem;
+            letter-spacing: 0.02em;
+        }
+
+        .hero-description {
+            max-width: 800px;
+            font-size: 1.375rem;
+            line-height: 1.9;
+            color: rgba(245, 245, 240, 0.8);
+            margin-bottom: 3rem;
+        }
+
+        /* Content sections */
+        .content-section {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 6rem 2rem;
+        }
+
+        .metaphor-detail {
+            margin-bottom: 8rem;
+        }
+
+        .metaphor-detail:last-child {
+            margin-bottom: 4rem;
+        }
+
+        .metaphor-number {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 0.875rem;
+            letter-spacing: 0.2em;
+            color: var(--soft-gray);
+            margin-bottom: 1rem;
+        }
+
+        .metaphor-detail-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 400;
+            color: var(--off-white);
+            margin-bottom: 2rem;
+            letter-spacing: 0.02em;
+        }
+
+        .metaphor-detail-text {
+            font-size: 1.125rem;
+            line-height: 1.9;
+            color: rgba(245, 245, 240, 0.8);
+            margin-bottom: 1.5rem;
+        }
+
+        .metaphor-detail-text strong {
+            color: var(--off-white);
+            font-weight: 400;
+        }
+
+        .highlight-box {
+            background: rgba(26, 42, 78, 0.4);
+            border-left: 2px solid var(--star-orange);
+            padding: 2rem;
+            margin: 2rem 0;
+        }
+
+        .highlight-box p {
+            font-style: italic;
+            color: rgba(245, 245, 240, 0.9);
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 4rem 2rem;
+            border-top: 1px solid rgba(0, 212, 255, 0.2);
+        }
+
+        .footer-text {
+            font-size: 0.875rem;
+            color: var(--soft-gray);
+            margin-bottom: 1rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            nav {
+                padding: 1.5rem 2rem;
+            }
+
+            .content-section {
+                padding: 4rem 2rem;
+            }
+
+            .metaphor-detail {
+                margin-bottom: 5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav>
+        <div class="logo">ASTRO</div>
+        <a href="/landing" class="back-link">← Back to Home</a>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+        <h1 class="hero-title">Why Astro?</h1>
+        <p class="hero-description">
+            The name isn't arbitrary. Every element of Astro embodies a metaphor that centers
+            human decision-making in complex work—drawing from navigation, neuroscience, and exploration.
+        </p>
+    </section>
+
+    <!-- Content -->
+    <section class="content-section">
+        <!-- Astrocyte -->
+        <div class="metaphor-detail">
+            <div class="metaphor-number">ONE</div>
+            <h2 class="metaphor-detail-title">Astrocyte</h2>
+            <p class="metaphor-detail-text">
+                <strong>Astrocytes are the brain's support cells</strong>—star-shaped glial cells that don't fire signals
+                themselves, but coordinate and sustain the neurons that do. They manage the environment, handle resource
+                distribution, and maintain the infrastructure that allows neurons to execute their work.
+            </p>
+            <p class="metaphor-detail-text">
+                This is exactly what Astro does for your execution environments. While your code runs on laptops,
+                HPC clusters, and cloud infrastructure (the neurons), Astro provides the coordination layer—handling
+                dependencies, orchestrating parallel execution, and managing the complex dance of multi-environment work.
+            </p>
+            <div class="highlight-box">
+                <p>
+                    "Like astrocytes support neurons, Astro supports your execution. You focus on strategic decisions;
+                    we handle the infrastructure that makes parallel, multi-environment coordination possible."
+                </p>
+            </div>
+            <p class="metaphor-detail-text">
+                The name <strong>"Astro"</strong> comes from astrocyte—acknowledging that the real power isn't
+                in execution (that's Claude Code, that's your HPC cluster), but in the support system that lets
+                you orchestrate many executions simultaneously across different environments.
+            </p>
+        </div>
+
+        <!-- Astrolabe -->
+        <div class="metaphor-detail">
+            <div class="metaphor-number">TWO</div>
+            <h2 class="metaphor-detail-title">Astrolabe</h2>
+            <p class="metaphor-detail-text">
+                <strong>The astrolabe was the ancient navigator's essential tool</strong>—an instrument for measuring
+                the stars to determine position and plot courses. Before GPS, before maps, explorers used the astrolabe
+                to chart unknown territory by aligning their position with celestial bodies.
+            </p>
+            <p class="metaphor-detail-text">
+                Your plan is your astrolabe. It doesn't execute the work—it guides it. When you decompose "add authentication"
+                into 12 coordinated tasks with explicit dependencies, you're creating a navigation chart. Not a flat todo
+                list, but a structured graph that shows what can run in parallel, what must wait, and how everything connects
+                to your ultimate goal.
+            </p>
+            <div class="highlight-box">
+                <p>
+                    "Like the astrolabe kept explorers aligned with the stars, your plan keeps your execution aligned
+                    with your strategic intent—even as branches diverge and complexity grows."
+                </p>
+            </div>
+            <p class="metaphor-detail-text">
+                The power of the astrolabe wasn't accuracy alone—it was <strong>enabling exploration</strong>. With a
+                reliable navigation tool, explorers could venture farther into the unknown. Similarly, a clear plan
+                lets you launch multiple parallel missions with confidence, knowing you can always see how each piece
+                relates to the whole.
+            </p>
+        </div>
+
+        <!-- Astronaut -->
+        <div class="metaphor-detail">
+            <div class="metaphor-number">THREE</div>
+            <h2 class="metaphor-detail-title">Astronaut</h2>
+            <p class="metaphor-detail-text">
+                <strong>Astronauts are explorers navigating the unknown</strong>—highly trained decision-makers who must
+                balance protocol with judgment, planned procedures with real-time adaptation. They can't anticipate every
+                scenario, but they can prepare for decision-making under uncertainty.
+            </p>
+            <p class="metaphor-detail-text">
+                This is you in complex software work. You can't predict every obstacle, every performance bottleneck,
+                every architectural trade-off. But you can structure your work to surface the critical decision points:
+                <em>Should we pivot or debug? Double down or explore alternatives? Keep this branch or prune it?</em>
+            </p>
+            <div class="highlight-box">
+                <p>
+                    "Like astronauts make judgment calls that determine mission success, you make the strategic decisions
+                    that determine project success. Astro surfaces these moments and gives you the context to choose wisely."
+                </p>
+            </div>
+            <p class="metaphor-detail-text">
+                The astronaut metaphor reminds us that <strong>human judgment is irreplaceable</strong>. AI can execute
+                tasks brilliantly. AI can generate plans. But only you know when approach A's promising results justify
+                abandoning approach B. Only you can weigh product intuition against technical constraints. Only you can
+                make the calls that matter.
+            </p>
+            <p class="metaphor-detail-text">
+                And crucially—astronauts aren't tethered to mission control. They make decisions in the field, with the
+                tools and context they have. Similarly, Astro lets you review progress and make strategic calls from
+                your phone, your laptop, anywhere. You're not tied to a terminal. Strategic judgment happens on your schedule.
+            </p>
+        </div>
+
+        <!-- Closing -->
+        <div class="metaphor-detail">
+            <h2 class="metaphor-detail-title">Three Metaphors, One Vision</h2>
+            <p class="metaphor-detail-text">
+                These metaphors aren't decorative—they define how Astro works:
+            </p>
+            <p class="metaphor-detail-text">
+                <strong>Astrocyte</strong> → The infrastructure that coordinates execution across environments<br>
+                <strong>Astrolabe</strong> → The planning tool that enables parallel exploration<br>
+                <strong>Astronaut</strong> → You, making the judgment calls that determine success
+            </p>
+            <p class="metaphor-detail-text">
+                Together, they capture what makes Astro different from turn-by-turn AI tools: we don't replace human
+                decision-making—we amplify it at the scale of complexity that once required entire teams.
+            </p>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <section class="footer">
+        <p class="footer-text">© 2026 Astro — Mission Control for Builders & Scientists</p>
+        <a href="/landing" class="back-link">← Back to Home</a>
+    </section>
+</body>
+</html>

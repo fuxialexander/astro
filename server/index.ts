@@ -161,6 +161,16 @@ app.get('/landing', (c) => {
   }
 })
 
+app.get('/landing/about', (c) => {
+  try {
+    const html = readFileSync(join(__dirname, '../astro-about.html'), 'utf-8')
+    return c.html(html)
+  } catch (err) {
+    console.error('[landing] Failed to read about page:', err)
+    return c.text('About page not found', 404)
+  }
+})
+
 const port = 3001
 const relayPort = getRelayConfig().port
 
