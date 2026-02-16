@@ -224,9 +224,9 @@ docs/
 ### Routes
 | Path | Page | Status |
 |------|------|--------|
-| `/` | Dashboard | Implemented (stats, pending decisions, active projects, system health, usage metrics) |
+| `/` | Dashboard | Implemented (auto-redirects to /welcome if no projects; stats, pending decisions, active projects, system health, usage metrics) |
 | `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
-| `/projects/new` | New Project | Implemented (AI plan generation works) |
+| `/projects/new` | New Project | Implemented (simplified form: description + optional repo + environment) |
 | `/project/:id` | Project Overview | Implemented (overview + updates tabs, vision doc dialog) |
 | `/project/:id/plan` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation across all views) |
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat, session activity) |
@@ -236,7 +236,7 @@ docs/
 | `/initiatives` | Initiatives | Implemented (initiatives/projects grouping) |
 | `/settings` | Settings | Implemented (health check + model selection) |
 | `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
-| `/welcome` | Welcome | Implemented (standalone multi-step onboarding) |
+| `/welcome` | Welcome | Implemented (simplified 2-option onboarding: empty project or repo-based project) |
 | `/login` | Login | Implemented (WebAuthn/passkey authentication) |
 | `/issues` | Issues List | **Not implemented** (designed in UI.pen, no code) |
 | `/issues/board` | Issues Board | **Not implemented** (designed in UI.pen, no code) |
@@ -302,7 +302,7 @@ docs/
 
 ## UI/Design
 
-**When matching a design reference (ios.pen or similar), ask clarifying questions about visual style (glassmorphism, flat, material weight) BEFORE implementing. Start with a small component to validate the approach.**
+**When matching a design reference, ask clarifying questions about visual style (glassmorphism, flat, material weight) BEFORE implementing. Start with a small component to validate the approach.**
 
 ## Planning
 
