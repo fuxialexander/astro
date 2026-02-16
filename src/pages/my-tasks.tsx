@@ -469,10 +469,10 @@ export function MyTasks() {
                   {displaySettings.groupBy !== "none" && (
                     <div className="flex items-center gap-2 px-2">
                       {group.icon}
-                      <h2 className="text-sm font-semibold text-muted-foreground">
+                      <h2 className="text-sm font-semibold text-foreground">
                         {group.label}
                       </h2>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-xs text-foreground/60">
                         ({group.items.length})
                       </span>
                     </div>

@@ -44,6 +44,24 @@ export class ClaudeCodeProvider implements AgentProvider {
    */
   async detect(): Promise<ProviderDetectionResult> {
     try {
+      // Check if we're inside a Claude Code session (nested session blocked)
+      if (process.env.CLAUDECODE) {
+        // We're inside Claude Code, so it's definitely available
+        // Check if auth token exists
+        const hasToken = !!(process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY)
+
+        this.cachedDetection = {
+          installed: true,
+          authStatus: hasToken ? 'authenticated' : 'unauthenticated',
+          message: hasToken
+            ? 'Claude Code detected (running in nested session)'
+            : 'Claude Code installed but not authenticated',
+          detectedAt: new Date(),
+        }
+
+        return this.cachedDetection
+      }
+
       const abortController = new AbortController()
 
       // Timeout detection after 30 seconds
@@ -168,6 +186,24 @@ export class ClaudeCodeProvider implements AgentProvider {
       let mcpServers: Record<string, unknown> | undefined
       if (task.context.workingDirectory) {
         mcpServers = loadMcpConfig(task.context.workingDirectory)
+      }
+
+      // Add Nexus built-in MCP server for custom tools (plan/project management, user questions)
+      const nexusMcpPath = new URL('../mcp/nexus-tools-server.ts', import.meta.url).pathname
+      const nexusMcpServer = {
+        command: 'node',
+        args: ['--import=tsx/esm', nexusMcpPath],
+        env: {
+          NEXUS_EXECUTION_ID: task.taskId,
+          NEXUS_PROJECT_ID: task.context.projectId || '',
+          NEXUS_SERVER_URL: process.env.NEXUS_SERVER_URL || 'http://localhost:3001',
+          NEXUS_AUTH_TOKEN: task.context.authToken || '',
+        },
+      }
+
+      mcpServers = {
+        ...mcpServers,
+        'nexus-tools': nexusMcpServer,
       }
 
       // Process tool access control (Cyrus pattern)
@@ -358,6 +394,24 @@ export class ClaudeCodeProvider implements AgentProvider {
       let mcpServers: Record<string, unknown> | undefined
       if (task.context.workingDirectory) {
         mcpServers = loadMcpConfig(task.context.workingDirectory)
+      }
+
+      // Add Nexus built-in MCP server for custom tools (plan/project management, user questions)
+      const nexusMcpPath = new URL('../mcp/nexus-tools-server.ts', import.meta.url).pathname
+      const nexusMcpServer = {
+        command: 'node',
+        args: ['--import=tsx/esm', nexusMcpPath],
+        env: {
+          NEXUS_EXECUTION_ID: task.taskId,
+          NEXUS_PROJECT_ID: task.context.projectId || '',
+          NEXUS_SERVER_URL: process.env.NEXUS_SERVER_URL || 'http://localhost:3001',
+          NEXUS_AUTH_TOKEN: task.context.authToken || '',
+        },
+      }
+
+      mcpServers = {
+        ...mcpServers,
+        'nexus-tools': nexusMcpServer,
       }
 
       // Process tool access control (Cyrus pattern)

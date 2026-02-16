@@ -137,6 +137,8 @@ export interface TokenRefreshResponse {
   expiresIn: number;
   /** New refresh token (optional, if rotated) */
   refreshToken?: string;
+  /** New WebSocket token for relay connection */
+  wsToken?: string;
 }
 
 /** Token revocation request */

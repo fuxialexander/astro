@@ -13,6 +13,7 @@ import type { Task, TaskResult, TaskArtifact } from '../types.js';
 import type { ProviderAdapter, TaskOutputStream, ProviderStatus } from './base-adapter.js';
 import { buildHpcContext, type HpcContext } from '../lib/hpc-context.js';
 import type { SlurmJobMonitor } from '../lib/slurm-job-monitor.js';
+import { config } from '../lib/config.js';
 
 /** Active query state for a running task */
 interface ActiveQuery {
@@ -216,6 +217,10 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
     }
 
+    // Enable SDK debug logging to diagnose MCP connection issues
+    process.env.DEBUG_SDK = '1';
+    process.env.CLAUDE_CODE_DEBUG_LOGS_DIR = join(homedir(), '.nexus', 'logs', 'sdk-debug');
+
     // Save original cwd to restore later
     const originalCwd = process.cwd();
 
@@ -245,6 +250,70 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
         ...task.environment,
         CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1', // Enable additional directories for CLAUDE.md loading
       },
+      // Intercept built-in AskUserQuestion to handle approvals (following Cyrus pattern)
+      canUseTool: async (toolName: string, input: Record<string, unknown>, options: { toolUseID: string; signal: AbortSignal }) => {
+        if (toolName === 'AskUserQuestion') {
+          console.log(`[claude-sdk] Intercepted AskUserQuestion (toolUseID: ${options.toolUseID})`);
+
+          // Validate input structure
+          const askInput = input as { questions?: Array<{ question: string; options: Array<{ label: string; description?: string }> }> };
+          if (!askInput.questions || !Array.isArray(askInput.questions)) {
+            console.error('[claude-sdk] Invalid AskUserQuestion input: questions array missing');
+            return {
+              behavior: 'deny' as const,
+              message: 'Invalid AskUserQuestion input: questions array is required',
+            };
+          }
+
+          // Only support one question at a time (following Cyrus pattern)
+          if (askInput.questions.length !== 1) {
+            console.log(`[claude-sdk] Rejecting AskUserQuestion with ${askInput.questions.length} questions (only 1 allowed)`);
+            return {
+              behavior: 'deny' as const,
+              message: 'Only one question at a time is supported. Please ask each question separately.',
+            };
+          }
+
+          const question = askInput.questions[0];
+          const optionLabels = question.options.map(opt => opt.label);
+
+          try {
+            console.log(`[claude-sdk] Requesting approval from user: "${question.question}"`);
+
+            // Call the approval request handler (emits event and waits for response)
+            const result = await stream.approvalRequest(question.question, optionLabels);
+
+            if (result.answered && result.answer) {
+              console.log(`[claude-sdk] User approved with answer: "${result.answer}"`);
+
+              // Return the answer via updatedInput (SDK will see this as the tool result)
+              return {
+                behavior: 'allow' as const,
+                updatedInput: {
+                  questions: askInput.questions,
+                  answers: { [question.question]: result.answer },
+                },
+              };
+            } else {
+              console.log(`[claude-sdk] User denied approval: ${result.message || 'No response'}`);
+              return {
+                behavior: 'deny' as const,
+                message: result.message || 'User did not respond to the question',
+              };
+            }
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[claude-sdk] Error handling approval request: ${errorMessage}`);
+            return {
+              behavior: 'deny' as const,
+              message: `Failed to get user approval: ${errorMessage}`,
+            };
+          }
+        }
+
+        // Allow all other tools
+        return { behavior: 'allow' as const, updatedInput: input };
+      },
     };
 
     // Lazily initialize HPC context on first query
@@ -268,6 +337,35 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     // Add structured output format if requested (e.g., plan generation)
     if (task.outputFormat) {
       (options as Record<string, unknown>).outputFormat = task.outputFormat;
+    }
+
+    // Load MCP servers from config if available
+    const agentConfig = config.getConfig();
+    console.log(`[claude-sdk] Agent config loaded:`, JSON.stringify(agentConfig, null, 2));
+    console.log(`[claude-sdk] mcpServers present:`, !!agentConfig.mcpServers);
+    console.log(`[claude-sdk] mcpServers keys:`, agentConfig.mcpServers ? Object.keys(agentConfig.mcpServers) : 'N/A');
+    if (agentConfig.mcpServers && Object.keys(agentConfig.mcpServers).length > 0) {
+      console.log(`[claude-sdk] Loading ${Object.keys(agentConfig.mcpServers).length} MCP server(s): ${Object.keys(agentConfig.mcpServers).join(', ')}`);
+
+      // Inject execution ID into MCP server environment variables
+      const mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+      for (const [name, serverConfig] of Object.entries(agentConfig.mcpServers)) {
+        const server = serverConfig as { command: string; args: string[]; env?: Record<string, string> };
+        mcpServers[name] = {
+          ...server,
+          env: {
+            ...server.env,
+            NEXUS_EXECUTION_ID: task.id, // Inject current task ID for approval routing
+          },
+        };
+      }
+
+      (options as Record<string, unknown>).mcpServers = mcpServers;
+
+      // Allow all MCP tools from configured servers
+      const allowedTools = Object.keys(mcpServers).map(name => `mcp__${name}__*`);
+      (options as Record<string, unknown>).allowedTools = allowedTools;
+      console.log(`[claude-sdk] Allowed MCP tools:`, allowedTools);
     }
 
     // Use plain string prompt — simple and reliable

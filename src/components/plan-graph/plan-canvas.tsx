@@ -3,6 +3,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   Background,
+  BackgroundVariant,
   useReactFlow,
   ConnectionLineType,
   type Node,
@@ -215,7 +216,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       projectNodes.map((n) => ({
         id: n.id,
         type: "task",
-        position: n.position,
+        position: n.position || { x: 0, y: 0 }, // Defensive: ensure position is always defined
         data: {
           title: n.title,
           status: n.status,
@@ -237,16 +238,32 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   const rfEdges: Edge[] = useMemo(
     () =>
-      projectEdges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        type: "deletable",
-        data: { onDelete: handleEdgeDelete },
-        style: { stroke: "var(--border)", strokeWidth: 1.5 },
-        animated: e.type === "branch",
-      })),
-    [projectEdges, handleEdgeDelete]
+      projectEdges.map((e) => {
+        // Determine edge color based on target node status
+        const targetNode = projectNodes.find((n) => n.id === e.target)
+        const edgeColor = (() => {
+          if (!targetNode) return "#94A3B8" // slate-400 - visible on both themes
+          const status = targetNode.status
+          if (status === "completed" || status === "auto_verified") return "#22C55E" // green-500
+          if (status === "in_progress" || status === "dispatched") return "#F97316" // orange-500
+          return "#94A3B8" // slate-400 - visible default
+        })()
+
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          type: "deletable",
+          data: { onDelete: handleEdgeDelete },
+          style: {
+            stroke: edgeColor,
+            strokeWidth: 2.5,
+            strokeLinecap: "round" as const,
+          },
+          animated: e.type === "branch",
+        }
+      }),
+    [projectEdges, projectNodes, handleEdgeDelete]
   )
 
   // Connection handlers for mindmap-like drag interactions
@@ -414,51 +431,71 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         connectionLineType={ConnectionLineType.SmoothStep}
-        connectionLineStyle={{ stroke: "var(--border)", strokeWidth: 1.5 }}
+        connectionLineStyle={{ stroke: "hsl(var(--primary))", strokeWidth: 2.5, strokeLinecap: "round" }}
         connectionRadius={40}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         proOptions={{ hideAttribution: true }}
         className="bg-background"
       >
-        <Background gap={20} size={1} color="var(--border)" />
+        <Background gap={40} size={2} color="hsl(var(--muted-foreground))" style={{ opacity: 0.15 }} variant={BackgroundVariant.Dots} />
+
+        {/* Status legend */}
+        <div className="react-flow__panel absolute bottom-3 left-14 z-10 flex items-center gap-3 rounded-lg border border-border bg-card/85 backdrop-blur-sm px-2.5 py-1.5 shadow-sm text-[10px] font-medium">
+          <div className="flex items-center gap-1.5">
+            <div className="h-2 w-2 rounded-full bg-green-500" />
+            <span className="text-muted-foreground">Completed</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="h-2 w-2 rounded-full bg-orange-500" />
+            <span className="text-muted-foreground">In Progress</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="h-2 w-2 rounded-full bg-amber-500" />
+            <span className="text-muted-foreground">Awaiting</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="h-2 w-2 rounded-full border border-muted-foreground/40" />
+            <span className="text-muted-foreground">Planned</span>
+          </div>
+        </div>
 
         {/* Unified graph controls */}
-        <div className="react-flow__panel absolute bottom-3 left-2.5 z-10 flex flex-col rounded-lg border border-border bg-card shadow-md overflow-hidden">
+        <div className="react-flow__panel absolute bottom-3 left-2.5 z-10 flex flex-col rounded-xl border border-border bg-card shadow-lg overflow-hidden">
           <button
             type="button"
             onClick={handleReorganize}
             title="Reorganize layout"
-            className="flex h-[30px] w-[30px] items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
+            className="flex h-9 w-9 items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
-            <LayoutGrid className="h-3.5 w-3.5" />
+            <LayoutGrid className="h-4 w-4" />
           </button>
           <div className="h-px bg-border" />
           <button
             type="button"
             onClick={() => rfZoomIn({ duration: 200 })}
             title="Zoom in"
-            className="flex h-[30px] w-[30px] items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
+            className="flex h-9 w-9 items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-4 w-4" />
           </button>
           <div className="h-px bg-border" />
           <button
             type="button"
             onClick={() => rfZoomOut({ duration: 200 })}
             title="Zoom out"
-            className="flex h-[30px] w-[30px] items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
+            className="flex h-9 w-9 items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
-            <Minus className="h-3.5 w-3.5" />
+            <Minus className="h-4 w-4" />
           </button>
           <div className="h-px bg-border" />
           <button
             type="button"
             onClick={() => rfFitView({ padding: 0.3, duration: 300 })}
             title="Fit to view"
-            className="flex h-[30px] w-[30px] items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
+            className="flex h-9 w-9 items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
-            <Maximize className="h-3.5 w-3.5" />
+            <Maximize className="h-4 w-4" />
           </button>
         </div>
 

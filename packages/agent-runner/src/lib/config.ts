@@ -26,6 +26,11 @@ interface ConfigSchema {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   lastConnected?: string;
   setupCompleted: boolean;
+  mcpServers?: Record<string, {
+    command: string;
+    args: string[];
+    env?: Record<string, string>;
+  }>;
 }
 
 class ConfigManager {
@@ -78,6 +83,7 @@ class ConfigManager {
       providers: this.conf.get('providers'),
       autoStart: this.conf.get('autoStart'),
       logLevel: this.conf.get('logLevel'),
+      mcpServers: this.conf.get('mcpServers'),
     };
   }
 

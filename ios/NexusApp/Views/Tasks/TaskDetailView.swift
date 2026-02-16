@@ -33,8 +33,12 @@ struct TaskDetailView: View {
         projectStore.project(id: projectId)
     }
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        Group {
+        ZStack {
+            AdaptiveColors.background(colorScheme).ignoresSafeArea()
+
             if let node {
                 VStack(spacing: 0) {
                     // Segmented tab picker
@@ -44,10 +48,12 @@ struct TaskDetailView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, NexusTheme.Spacing.lg)
+                    .padding(.vertical, NexusTheme.Spacing.md)
+                    .background(AdaptiveColors.surface(colorScheme))
 
                     Divider()
+                        .background(AdaptiveColors.border(colorScheme))
 
                     // Tab content
                     switch selectedTab {
@@ -82,13 +88,14 @@ struct TaskDetailView: View {
                                 Task { await executionStore.cancelExecution(nodeId: nodeId) }
                             } label: {
                                 Image(systemName: "stop.circle")
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(AdaptiveColors.danger)
                             }
                         } else if node.status == .planned || node.status == .completed {
                             Button {
                                 dispatchAndGoToSession(node)
                             } label: {
                                 Image(systemName: "play.circle")
+                                    .foregroundStyle(AdaptiveColors.primary)
                             }
                         }
                     }
@@ -147,6 +154,7 @@ private struct TaskOverviewTab: View {
     @Environment(ExecutionStore.self) private var executionStore
     @Environment(RealtimeStore.self) private var realtimeStore
     @Environment(SessionStore.self) private var sessionStore
+    @Environment(\.colorScheme) private var colorScheme
 
     private let availableModels: [(id: String, label: String)] = [
         ("claude-sonnet-4-5-20250929", "Sonnet 4.5"),
@@ -166,7 +174,7 @@ private struct TaskOverviewTab: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: NexusTheme.Spacing.lg) {
                 // Tappable property badges
                 HStack(spacing: 10) {
                     // Status picker
@@ -259,54 +267,73 @@ private struct TaskOverviewTab: View {
                     }
                 }
 
+                // Pending Approval
+                if let approval = realtimeStore.pendingApprovals.first(where: { $0.nodeId == nodeId }) {
+                    ApprovalCard(approval: approval) { approved, selectedOption in
+                        try await realtimeStore.respondToApproval(
+                            approval.approvalId!,
+                            approved: approved,
+                            selectedOption: selectedOption
+                        )
+                    }
+                }
+
                 // Description
                 if !node.description.isEmpty {
                     Text(node.description)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
+                        .font(NexusTheme.Typography.body)
+                        .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                 }
 
                 // Model/Machine picker + Run button (if not already running)
                 if execution?.status != .running {
-                    HStack {
-                        Text("Model")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Picker("Model", selection: $selectedModel) {
-                            ForEach(availableModels, id: \.id) { model in
-                                Text(model.label).tag(model.id)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-                    .padding(.horizontal, 4)
-
-                    if !connectedMachines.isEmpty {
+                    VStack(spacing: NexusTheme.Spacing.md) {
                         HStack {
-                            Text("Machine")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                            Text("Model")
+                                .font(NexusTheme.Typography.subheadline)
+                                .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                             Spacer()
-                            Picker("Machine", selection: $selectedMachineId) {
-                                Text("Auto").tag(nil as String?)
-                                ForEach(connectedMachines) { machine in
-                                    Text(machine.name).tag(machine.machineId as String?)
+                            Picker("Model", selection: $selectedModel) {
+                                ForEach(availableModels, id: \.id) { model in
+                                    Text(model.label).tag(model.id)
                                 }
                             }
                             .pickerStyle(.menu)
                         }
-                        .padding(.horizontal, 4)
-                    }
+                        .padding(NexusTheme.Spacing.md)
+                        .background(AdaptiveColors.surfaceElevated(colorScheme))
+                        .cornerRadius(NexusTheme.CornerRadius.md)
 
-                    Button {
-                        onRun()
-                    } label: {
-                        Label("Run Task", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
+                        if !connectedMachines.isEmpty {
+                            HStack {
+                                Text("Machine")
+                                    .font(NexusTheme.Typography.subheadline)
+                                    .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
+                                Spacer()
+                                Picker("Machine", selection: $selectedMachineId) {
+                                    Text("Auto").tag(nil as String?)
+                                    ForEach(connectedMachines) { machine in
+                                        Text(machine.name).tag(machine.machineId as String?)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                            }
+                            .padding(NexusTheme.Spacing.md)
+                            .background(AdaptiveColors.surfaceElevated(colorScheme))
+                            .cornerRadius(NexusTheme.CornerRadius.md)
+                        }
+
+                        Button {
+                            onRun()
+                        } label: {
+                            Label("Run Task", systemImage: "play.fill")
+                                .font(NexusTheme.Typography.bodyMedium)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, NexusTheme.Spacing.md)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AdaptiveColors.success)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
                 }
 
                 // Execution summary card (from SessionStore)
@@ -324,8 +351,9 @@ private struct TaskOverviewTab: View {
                     gitSection(branch: branch, prUrl: node.prUrl, prNumber: node.prNumber)
                 }
             }
-            .padding()
+            .padding(NexusTheme.Spacing.lg)
         }
+        .adaptiveScrollFade(colorScheme: colorScheme)
     }
 
     private func updateField(_ field: String, value: String?) {
@@ -337,22 +365,24 @@ private struct TaskOverviewTab: View {
 
     @ViewBuilder
     private func executionMetrics(_ exec: TaskExecution) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: NexusTheme.Spacing.md) {
             HStack {
                 Text("Last Execution")
-                    .font(.subheadline.weight(.semibold))
+                    .font(NexusTheme.Typography.subheadline.weight(.semibold))
+                    .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                 Spacer()
                 HStack(spacing: 4) {
                     Circle()
                         .fill(statusColor(exec.status))
                         .frame(width: 8, height: 8)
                     Text(exec.status.rawValue.capitalized)
-                        .font(.caption)
+                        .font(NexusTheme.Typography.caption1)
+                        .foregroundColor(AdaptiveColors.textSecondary(colorScheme))
                 }
             }
 
             if let metrics = exec.metrics {
-                HStack(spacing: 16) {
+                HStack(spacing: NexusTheme.Spacing.lg) {
                     if let cost = metrics.estimatedCostUsd {
                         metricItem(label: "Cost", value: String(format: "$%.3f", cost))
                     }
@@ -367,49 +397,55 @@ private struct TaskOverviewTab: View {
             }
 
             Text(exec.startedAt.relativeString)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                .font(NexusTheme.Typography.caption1)
+                .foregroundStyle(AdaptiveColors.textTertiary(colorScheme))
         }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(NexusTheme.Spacing.lg)
+        .background(AdaptiveColors.surfaceElevated(colorScheme))
+        .cornerRadius(NexusTheme.CornerRadius.md)
     }
 
     @ViewBuilder
     private func gitSection(branch: String, prUrl: String?, prNumber: Int?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: NexusTheme.Spacing.sm) {
             Text("Git")
-                .font(.subheadline.weight(.semibold))
+                .font(NexusTheme.Typography.subheadline.weight(.semibold))
+                .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
 
             HStack {
                 Image(systemName: "arrow.triangle.branch")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(NexusTheme.Typography.caption1)
+                    .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                 Text(branch)
-                    .font(.subheadline.monospaced())
+                    .font(NexusTheme.Typography.subheadline.monospaced())
+                    .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
             }
 
             if let prUrl, let prNumber {
                 Link(destination: URL(string: prUrl)!) {
                     HStack {
                         Image(systemName: "arrow.triangle.pull")
-                            .font(.caption)
+                            .font(NexusTheme.Typography.caption1)
                         Text("PR #\(prNumber)")
-                            .font(.subheadline)
+                            .font(NexusTheme.Typography.subheadline)
                     }
+                    .foregroundColor(AdaptiveColors.primary)
                 }
             }
         }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(NexusTheme.Spacing.lg)
+        .background(AdaptiveColors.surfaceElevated(colorScheme))
+        .cornerRadius(NexusTheme.CornerRadius.md)
     }
 
     private func metricItem(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value)
-                .font(.subheadline.weight(.medium).monospacedDigit())
+                .font(NexusTheme.Typography.subheadline.weight(.medium).monospacedDigit())
+                .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
             Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(NexusTheme.Typography.caption2)
+                .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
         }
     }
 
@@ -428,67 +464,70 @@ private struct TaskOverviewTab: View {
 
 private struct SummaryCard: View {
     let summary: ExecutionSummary
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: NexusTheme.Spacing.md) {
+            HStack(spacing: NexusTheme.Spacing.sm) {
                 Image(systemName: "doc.text.magnifyingglass")
-                    .font(.subheadline)
-                    .foregroundStyle(.blue)
+                    .font(NexusTheme.Typography.subheadline)
+                    .foregroundStyle(AdaptiveColors.primary)
                 Text("Execution Summary")
-                    .font(.subheadline.weight(.semibold))
+                    .font(NexusTheme.Typography.subheadline.weight(.semibold))
+                    .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                 Spacer()
                 Text(summary.status.capitalized)
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .font(NexusTheme.Typography.caption1.weight(.medium))
+                    .padding(.horizontal, NexusTheme.Spacing.sm)
+                    .padding(.vertical, 4)
                     .background(statusBadgeColor, in: Capsule())
                     .foregroundStyle(.white)
             }
 
             Text(summary.workCompleted)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(NexusTheme.Typography.subheadline)
+                .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
 
             if !summary.filesChanged.isEmpty {
-                HStack(spacing: 4) {
+                HStack(spacing: NexusTheme.Spacing.xs) {
                     Image(systemName: "doc.badge.gearshape")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(NexusTheme.Typography.caption1)
+                        .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                     Text("\(summary.filesChanged.count) file\(summary.filesChanged.count == 1 ? "" : "s") changed")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(NexusTheme.Typography.caption1)
+                        .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                 }
             }
 
             if !summary.followUps.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: NexusTheme.Spacing.xs) {
                     Text("Follow-ups")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .font(NexusTheme.Typography.caption1.weight(.medium))
+                        .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                     ForEach(summary.followUps, id: \.self) { followUp in
-                        HStack(alignment: .top, spacing: 6) {
+                        HStack(alignment: .top, spacing: NexusTheme.Spacing.sm) {
                             Text("\u{2022}")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(NexusTheme.Typography.caption1)
+                                .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                             Text(followUp)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(NexusTheme.Typography.caption1)
+                                .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                         }
                     }
                 }
             }
         }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(NexusTheme.Spacing.lg)
+        .background(AdaptiveColors.surfaceElevated(colorScheme))
+        .cornerRadius(NexusTheme.CornerRadius.md)
     }
 
     private var statusBadgeColor: Color {
         switch summary.status.lowercased() {
-        case "success", "completed": return .green
-        case "failure", "error", "failed": return .red
-        case "cancelled": return .orange
-        default: return .gray
+        case "success", "completed": return AdaptiveColors.statusCompleted
+        case "failure", "error", "failed": return AdaptiveColors.statusError
+        case "cancelled": return AdaptiveColors.statusAwaiting
+        default: return AdaptiveColors.statusPruned
         }
     }
 }
@@ -506,6 +545,7 @@ private struct TaskSessionTab: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(ExecutionStore.self) private var executionStore
     @Environment(SessionStore.self) private var sessionStore
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var message = ""
     @State private var isStreamingChat = false
@@ -537,10 +577,16 @@ private struct TaskSessionTab: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            sessionScrollView
-            Divider()
-            inputArea
+        ZStack {
+            AdaptiveColors.background(colorScheme).ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                sessionScrollView
+                Divider()
+                    .background(AdaptiveColors.border(colorScheme))
+                inputArea
+                    .background(AdaptiveColors.surface(colorScheme))
+            }
         }
         .task {
             await loadChatHistory()
@@ -577,7 +623,7 @@ private struct TaskSessionTab: View {
 
     @ViewBuilder
     private var sessionContent: some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: NexusTheme.Spacing.sm) {
             executionEventsSection
             chatSection
         }
@@ -640,52 +686,56 @@ private struct TaskSessionTab: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: NexusTheme.Spacing.lg) {
             Image(systemName: "play.circle")
                 .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(AdaptiveColors.textTertiary(colorScheme))
 
             Text("No session yet")
-                .font(.headline)
+                .font(NexusTheme.Typography.headline)
+                .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
 
             Text("Run this task to see the agent's output, tool calls, and interact with it.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(NexusTheme.Typography.subheadline)
+                .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                 .multilineTextAlignment(.center)
 
             Button {
                 onDispatch()
             } label: {
                 Label("Run Task", systemImage: "play.fill")
+                    .padding(.horizontal, NexusTheme.Spacing.xl)
+                    .padding(.vertical, NexusTheme.Spacing.md)
             }
             .buttonStyle(.borderedProminent)
+            .tint(AdaptiveColors.success)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 60)
     }
 
     private var inputArea: some View {
-        HStack(alignment: .bottom, spacing: 12) {
+        HStack(alignment: .bottom, spacing: NexusTheme.Spacing.md) {
             // Run/Stop button
             if isRunning {
                 Button {
                     onCancel()
                 } label: {
                     Image(systemName: "stop.fill")
-                        .font(.callout)
+                        .font(NexusTheme.Typography.callout)
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
-                        .background(Color.red, in: Circle())
+                        .background(AdaptiveColors.danger, in: Circle())
                 }
             } else {
                 Button {
                     onDispatch()
                 } label: {
                     Image(systemName: "play.fill")
-                        .font(.callout)
+                        .font(NexusTheme.Typography.callout)
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
-                        .background(Color.green, in: Circle())
+                        .background(AdaptiveColors.success, in: Circle())
                 }
             }
 
@@ -694,7 +744,7 @@ private struct TaskSessionTab: View {
                 .textFieldStyle(.plain)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
+                .background(AdaptiveColors.surfaceElevated(colorScheme), in: RoundedRectangle(cornerRadius: 22))
                 .lineLimit(1...4)
                 .disabled(isStreamingChat)
 
@@ -709,16 +759,16 @@ private struct TaskSessionTab: View {
                     sendMessage()
                 } label: {
                     Image(systemName: "arrow.up")
-                        .font(.callout.weight(.semibold))
+                        .font(NexusTheme.Typography.callout.weight(.semibold))
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
-                        .background(message.isEmpty || isStreamingChat ? Color.gray.opacity(0.5) : Color.accentColor, in: Circle())
+                        .background(message.isEmpty || isStreamingChat ? AdaptiveColors.textTertiary(colorScheme) : AdaptiveColors.primary, in: Circle())
                 }
                 .disabled(message.isEmpty || isStreamingChat)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, NexusTheme.Spacing.lg)
+        .padding(.vertical, NexusTheme.Spacing.md)
     }
 
     private func sendMessage(interrupt: Bool = false) {
@@ -833,11 +883,12 @@ private struct SessionEventRow: View {
 private struct TextEventRow: View {
     let content: String
     let timestamp: Date
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Text(content)
             .font(.system(.subheadline, design: .monospaced))
-            .foregroundStyle(.primary)
+            .foregroundStyle(AdaptiveColors.textPrimary(colorScheme))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 2)
     }
@@ -845,15 +896,17 @@ private struct TextEventRow: View {
 
 private struct StreamingTextRow: View {
     let text: String
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: NexusTheme.Spacing.sm) {
             ProgressView()
                 .scaleEffect(0.6)
+                .tint(AdaptiveColors.primary)
 
             Text(text.suffix(2000))
                 .font(.system(.subheadline, design: .monospaced))
-                .foregroundStyle(.primary)
+                .foregroundStyle(AdaptiveColors.textPrimary(colorScheme))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
@@ -867,28 +920,29 @@ private struct ToolUseRow: View {
     let timestamp: Date
 
     @State private var isExpanded = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: NexusTheme.Spacing.xs) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: NexusTheme.Spacing.sm) {
                     Image(systemName: "wrench.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                        .font(NexusTheme.Typography.caption1)
+                        .foregroundStyle(AdaptiveColors.warning)
 
                     Text(toolName)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
+                        .font(NexusTheme.Typography.subheadline.weight(.medium))
+                        .foregroundStyle(AdaptiveColors.textPrimary(colorScheme))
 
                     Spacer()
 
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .font(NexusTheme.Typography.caption1)
+                        .foregroundStyle(AdaptiveColors.textTertiary(colorScheme))
                 }
             }
             .buttonStyle(.plain)
@@ -896,15 +950,15 @@ private struct ToolUseRow: View {
             if isExpanded {
                 Text(formatToolInput(toolInput))
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .padding(8)
+                    .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
+                    .padding(NexusTheme.Spacing.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 6))
+                    .background(AdaptiveColors.surfaceElevated(colorScheme), in: RoundedRectangle(cornerRadius: NexusTheme.CornerRadius.sm))
             }
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
-        .background(Color.orange.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.vertical, NexusTheme.Spacing.xs)
+        .padding(.horizontal, NexusTheme.Spacing.sm)
+        .background(AdaptiveColors.warning.opacity(0.08), in: RoundedRectangle(cornerRadius: NexusTheme.CornerRadius.sm))
     }
 
     private func formatToolInput(_ input: AnyCodable) -> String {
@@ -924,20 +978,21 @@ private struct ToolResultRow: View {
     let result: AnyCodable?
     let success: Bool?
     let timestamp: Date
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: NexusTheme.Spacing.sm) {
             Image(systemName: success == true ? "checkmark.circle.fill" : success == false ? "xmark.circle.fill" : "circle.fill")
-                .font(.caption)
-                .foregroundStyle(success == true ? .green : success == false ? .red : .gray)
+                .font(NexusTheme.Typography.caption1)
+                .foregroundStyle(success == true ? AdaptiveColors.success : success == false ? AdaptiveColors.danger : AdaptiveColors.textTertiary(colorScheme))
 
             Text(toolName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(NexusTheme.Typography.caption1)
+                .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
 
             Text("completed")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                .font(NexusTheme.Typography.caption1)
+                .foregroundStyle(AdaptiveColors.textTertiary(colorScheme))
         }
         .padding(.vertical, 2)
     }
@@ -949,89 +1004,93 @@ private struct SteerEventRow: View {
     let ackMessage: String?
     let interrupted: Bool?
     let timestamp: Date
+    @Environment(\.colorScheme) private var colorScheme
 
     private var isInterrupted: Bool { interrupted == true }
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            HStack(spacing: 6) {
+        VStack(alignment: .trailing, spacing: NexusTheme.Spacing.xs) {
+            HStack(spacing: NexusTheme.Spacing.sm) {
                 Image(systemName: isInterrupted ? "bolt.fill" : "arrow.triangle.turn.up.right.diamond.fill")
-                    .font(.caption)
-                    .foregroundStyle(isInterrupted ? .orange : .purple)
+                    .font(NexusTheme.Typography.caption1)
+                    .foregroundStyle(isInterrupted ? AdaptiveColors.warning : Color.purple)
 
                 Text("You")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(isInterrupted ? .orange : .purple)
+                    .font(NexusTheme.Typography.caption1.weight(.medium))
+                    .foregroundStyle(isInterrupted ? AdaptiveColors.warning : Color.purple)
             }
 
-            HStack(spacing: 4) {
+            HStack(spacing: NexusTheme.Spacing.xs) {
                 if isInterrupted {
                     Image(systemName: "bolt.fill")
-                        .font(.caption2)
+                        .font(NexusTheme.Typography.caption2)
                 }
                 Text(message)
-                    .font(.subheadline)
+                    .font(NexusTheme.Typography.subheadline)
             }
-            .padding(8)
+            .padding(NexusTheme.Spacing.sm)
             .foregroundStyle(.white)
-            .background(isInterrupted ? Color.orange : Color.purple.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
+            .background(isInterrupted ? AdaptiveColors.warning : Color.purple.opacity(0.8), in: RoundedRectangle(cornerRadius: NexusTheme.CornerRadius.sm))
 
             if let accepted {
-                HStack(spacing: 4) {
+                HStack(spacing: NexusTheme.Spacing.xs) {
                     Image(systemName: accepted ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(accepted ? .green : .red)
+                        .font(NexusTheme.Typography.caption2)
+                        .foregroundStyle(accepted ? AdaptiveColors.success : AdaptiveColors.danger)
                     Text(accepted ? (isInterrupted ? "Interrupted" : "Queued") : (ackMessage ?? "Failed"))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(NexusTheme.Typography.caption2)
+                        .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.vertical, 4)
+        .padding(.vertical, NexusTheme.Spacing.xs)
     }
 }
 
 private struct UserMessageRow: View {
     let message: String
     let timestamp: Date
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 4) {
+        VStack(alignment: .trailing, spacing: NexusTheme.Spacing.xs) {
             Text("You")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
+                .font(NexusTheme.Typography.caption2.weight(.medium))
+                .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
 
             Text(message)
-                .font(.subheadline)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16))
+                .font(NexusTheme.Typography.subheadline)
+                .padding(.horizontal, NexusTheme.Spacing.md)
+                .padding(.vertical, NexusTheme.Spacing.sm)
+                .background(AdaptiveColors.primary, in: RoundedRectangle(cornerRadius: NexusTheme.CornerRadius.lg))
                 .foregroundStyle(.white)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.vertical, 4)
+        .padding(.vertical, NexusTheme.Spacing.xs)
     }
 }
 
 private struct AssistantMessageRow: View {
     let content: String
     let timestamp: Date
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: NexusTheme.Spacing.xs) {
             Text("Assistant")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
+                .font(NexusTheme.Typography.caption2.weight(.medium))
+                .foregroundStyle(AdaptiveColors.textSecondary(colorScheme))
 
             Text(content)
-                .font(.subheadline)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                .font(NexusTheme.Typography.subheadline)
+                .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
+                .padding(.horizontal, NexusTheme.Spacing.md)
+                .padding(.vertical, NexusTheme.Spacing.sm)
+                .background(AdaptiveColors.surfaceElevated(colorScheme), in: RoundedRectangle(cornerRadius: NexusTheme.CornerRadius.lg))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 4)
+        .padding(.vertical, NexusTheme.Spacing.xs)
     }
 }
 
@@ -1040,54 +1099,57 @@ private struct FileChangeRow: View {
     let action: String
     let linesAdded: Int?
     let linesRemoved: Int?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: NexusTheme.Spacing.sm) {
             Image(systemName: action == "create" ? "doc.badge.plus" : action == "delete" ? "doc.badge.minus" : "doc.badge.gearshape")
-                .font(.caption)
-                .foregroundStyle(action == "create" ? .green : action == "delete" ? .red : .blue)
+                .font(NexusTheme.Typography.caption1)
+                .foregroundStyle(action == "create" ? AdaptiveColors.success : action == "delete" ? AdaptiveColors.danger : AdaptiveColors.primary)
 
             Text(path.components(separatedBy: "/").last ?? path)
-                .font(.caption.monospaced())
+                .font(NexusTheme.Typography.caption1.monospaced())
+                .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                 .lineLimit(1)
 
             Spacer()
 
             if let added = linesAdded, added > 0 {
                 Text("+\(added)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.green)
+                    .font(NexusTheme.Typography.caption1.monospaced())
+                    .foregroundStyle(AdaptiveColors.success)
             }
             if let removed = linesRemoved, removed > 0 {
                 Text("-\(removed)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.red)
+                    .font(NexusTheme.Typography.caption1.monospaced())
+                    .foregroundStyle(AdaptiveColors.danger)
             }
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
-        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 6))
+        .padding(.vertical, NexusTheme.Spacing.xs)
+        .padding(.horizontal, NexusTheme.Spacing.sm)
+        .background(AdaptiveColors.surfaceElevated(colorScheme), in: RoundedRectangle(cornerRadius: NexusTheme.CornerRadius.sm))
     }
 }
 
 private struct ErrorEventRow: View {
     let error: String
     let timestamp: Date
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: NexusTheme.Spacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.red)
+                .font(NexusTheme.Typography.caption1)
+                .foregroundStyle(AdaptiveColors.danger)
 
             Text(error)
-                .font(.subheadline)
-                .foregroundStyle(.red)
+                .font(NexusTheme.Typography.subheadline)
+                .foregroundStyle(AdaptiveColors.danger)
         }
-        .padding(8)
+        .padding(NexusTheme.Spacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-        .padding(.vertical, 4)
+        .background(AdaptiveColors.danger.opacity(0.1), in: RoundedRectangle(cornerRadius: NexusTheme.CornerRadius.sm))
+        .padding(.vertical, NexusTheme.Spacing.xs)
     }
 }
 
@@ -1096,6 +1158,7 @@ private struct ErrorEventRow: View {
 private struct InterruptableSendButton: View {
     let disabled: Bool
     let onSend: (_ interrupt: Bool) -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var dragOffset: CGFloat = 0
     @State private var isInterruptMode: Bool = false
@@ -1104,12 +1167,12 @@ private struct InterruptableSendButton: View {
 
     var body: some View {
         let currentColor = disabled
-            ? Color.gray.opacity(0.5)
-            : (isInterruptMode ? Color.orange : Color.accentColor)
+            ? AdaptiveColors.textTertiary(colorScheme)
+            : (isInterruptMode ? AdaptiveColors.warning : AdaptiveColors.primary)
         let currentIcon = isInterruptMode ? "bolt.fill" : "arrow.up"
 
         Image(systemName: currentIcon)
-            .font(.callout.weight(.semibold))
+            .font(NexusTheme.Typography.callout.weight(.semibold))
             .foregroundStyle(.white)
             .frame(width: 36, height: 36)
             .background(currentColor, in: Circle())

@@ -6,6 +6,7 @@
 
 import { create } from 'zustand'
 import { getSupabase } from '@/lib/supabase-client'
+import { loadState, saveState } from '@/lib/db'
 
 export interface RegisteredMachine {
   id: string
@@ -41,6 +42,23 @@ export const useMachinesStore = create<MachinesState>((set) => ({
     try {
       // Get auth token from Supabase session
       const supabase = getSupabase()
+      if (!supabase) {
+        // No Supabase configured — fall back to IndexedDB cache
+        const cached = await loadState<RegisteredMachine[]>('nexus-machines')
+        if (cached) {
+          set({
+            machines: cached.map((m) => ({
+              ...m,
+              registeredAt: m.registeredAt,
+              lastSeenAt: m.lastSeenAt,
+            })),
+            loading: false,
+          })
+        } else {
+          set({ machines: [], loading: false })
+        }
+        return
+      }
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session?.access_token) {
@@ -56,15 +74,36 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         throw new Error('Failed to fetch machines')
       }
       const data = await response.json()
-      set({ machines: data.machines || [], loading: false })
+      const machines = data.machines || []
+      set({ machines, loading: false })
+      // Update IndexedDB cache for offline fallback
+      saveState('nexus-machines', machines)
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'Unknown error', loading: false })
+      // API unavailable — fall back to IndexedDB cache
+      const cached = await loadState<RegisteredMachine[]>('nexus-machines')
+      if (cached) {
+        set({
+          machines: cached.map((m) => ({
+            ...m,
+            registeredAt: m.registeredAt,
+            lastSeenAt: m.lastSeenAt,
+          })),
+          loading: false,
+          error: null, // Clear error on successful cache fallback
+        })
+      } else {
+        set({ error: err instanceof Error ? err.message : 'Unknown error', loading: false })
+      }
     }
   },
 
-  revokeMachine: async (machineId: string) => {
+  revokeMachine: async (machineId: string): Promise<boolean> => {
     try {
       const supabase = getSupabase()
+      if (!supabase) {
+        console.warn('Cannot revoke machine: Supabase not configured')
+        return false
+      }
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session?.access_token) {
@@ -81,9 +120,12 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         throw new Error('Failed to revoke machine')
       }
       // Remove from local state
-      set((state) => ({
-        machines: state.machines.filter((m) => m.id !== machineId),
-      }))
+      set((state) => {
+        const nextMachines = state.machines.filter((m) => m.id !== machineId)
+        // Update IndexedDB cache
+        saveState('nexus-machines', nextMachines)
+        return { machines: nextMachines }
+      })
       return true
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' })
@@ -91,9 +133,13 @@ export const useMachinesStore = create<MachinesState>((set) => ({
     }
   },
 
-  renameMachine: async (machineId: string, name: string) => {
+  renameMachine: async (machineId: string, name: string): Promise<boolean> => {
     try {
       const supabase = getSupabase()
+      if (!supabase) {
+        console.warn('Cannot rename machine: Supabase not configured')
+        return false
+      }
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session?.access_token) {
@@ -112,11 +158,14 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         throw new Error('Failed to rename machine')
       }
       // Update local state
-      set((state) => ({
-        machines: state.machines.map((m) =>
+      set((state) => {
+        const nextMachines = state.machines.map((m) =>
           m.id === machineId ? { ...m, name } : m
-        ),
-      }))
+        )
+        // Update IndexedDB cache
+        saveState('nexus-machines', nextMachines)
+        return { machines: nextMachines }
+      })
       return true
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' })

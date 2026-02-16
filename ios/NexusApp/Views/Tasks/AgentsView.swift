@@ -66,7 +66,7 @@ struct AgentsView: View {
                             Text("Running")
                                 .font(.system(size: 14, weight: .semibold))
                                 .tracking(0.5)
-                                .foregroundStyle(Color(hex: "64748B"))
+                                .foregroundStyle(colorFromHex( "64748B"))
 
                             ForEach(runningTasks) { node in
                                 NavigationLink(value: node) {
@@ -92,7 +92,7 @@ struct AgentsView: View {
             LinearGradient(
                 colors: [
                     Color.black.opacity(0.85),
-                    Color(hex: "0A0E1A").opacity(0.9)
+                    colorFromHex( "0A0E1A").opacity(0.9)
                 ],
                 startPoint: .top,
                 endPoint: .bottom

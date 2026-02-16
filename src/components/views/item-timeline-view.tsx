@@ -13,6 +13,21 @@ import {
 } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
 
+// Map barClass to ios.pen gradient styles
+function getBarGradient(barClass: string): string {
+  if (barClass.includes("green")) {
+    return "linear-gradient(to bottom, #34D399, #10B981)" // Completed
+  } else if (barClass.includes("blue")) {
+    return "linear-gradient(to bottom, #60A5FA, #3B82F6)" // In-progress
+  } else if (barClass.includes("amber") || barClass.includes("yellow")) {
+    return "linear-gradient(to bottom, #FCD34D, #F59E0B)" // Awaiting judgment
+  } else if (barClass.includes("primary")) {
+    return "linear-gradient(to bottom, #6B7280, #4B5563)" // Planned (gray)
+  } else {
+    return "linear-gradient(to bottom, #6B7280, #4B5563)" // Default gray
+  }
+}
+
 type ZoomLevel = "month" | "quarter" | "year"
 
 export interface TimelineItem {
@@ -324,7 +339,7 @@ export function ItemTimelineView<T>({
       {/* Left panel */}
       <div className="shrink-0 border-r border-border flex flex-col" style={{ width: `${leftColumnWidth}px` }}>
         <div className="flex h-10 shrink-0 items-center border-b border-border px-4">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase">{leftHeader}</span>
+          <span className="text-[11px] font-semibold uppercase" style={{ color: '#94A3B8' }}>{leftHeader}</span>
         </div>
         <div ref={leftRef} className="flex-1 overflow-auto" onScroll={handleLeftScroll} style={{ overflowX: "hidden" }}>
           <div className="h-10 shrink-0" />
@@ -336,9 +351,9 @@ export function ItemTimelineView<T>({
                 onClick={() => toggleGroup(row.label)}
                 className="flex items-center gap-2 bg-muted/50 px-4 border-b border-border w-full h-8 text-left cursor-pointer hover:bg-muted/70 transition-colors"
               >
-                <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", !collapsed.has(row.label) && "rotate-90")} />
-                <span className="text-xs font-semibold text-muted-foreground">{row.label}</span>
-                <span className="text-[11px] text-muted-foreground">{row.count}</span>
+                <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", !collapsed.has(row.label) && "rotate-90")} style={{ color: '#CBD5E1' }} />
+                <span className="text-xs font-medium" style={{ fontSize: '12px', fontWeight: 500, color: '#CBD5E1' }}>{row.label}</span>
+                <span className="text-[11px]" style={{ color: '#CBD5E1' }}>{row.count}</span>
               </button>
             ) : (
               <div
@@ -371,7 +386,7 @@ export function ItemTimelineView<T>({
                 onClick={() => setPreset(level)}
                 className={cn(
                   "rounded-md px-2.5 py-0.5 text-[11px] font-medium transition-colors cursor-pointer capitalize",
-                  activePreset === level ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  activePreset === level ? "bg-card text-foreground shadow-sm" : "text-foreground/70 hover:text-foreground hover:bg-card/50"
                 )}
               >
                 {level}
@@ -390,8 +405,8 @@ export function ItemTimelineView<T>({
             {columnInfos.map((col, i) => (
               <span
                 key={i}
-                className="absolute top-0 h-full flex items-center justify-center text-[11px] text-muted-foreground border-l border-border/30"
-                style={{ left: `${col.left}px`, width: `${col.width}px` }}
+                className="absolute top-0 h-full flex items-center justify-center text-[11px] border-l border-border/30"
+                style={{ left: `${col.left}px`, width: `${col.width}px`, color: '#94A3B8' }}
               >
                 {col.label}
               </span>
@@ -409,8 +424,8 @@ export function ItemTimelineView<T>({
             ))}
             {todayOffset > 0 && todayOffset < totalWidth && (
               <div
-                className="absolute top-0 bottom-0 w-0.5 bg-primary opacity-60"
-                style={{ left: `${todayOffset}px` }}
+                className="absolute top-0 bottom-0 w-0.5"
+                style={{ left: `${todayOffset}px`, backgroundColor: 'rgba(59, 130, 246, 0.15)' }}
               />
             )}
           </div>
@@ -419,7 +434,13 @@ export function ItemTimelineView<T>({
           <div className="relative" style={{ width: `${totalWidth}px` }}>
             {visibleRows.map((row, i) => {
               if (row.kind === "header") {
-                return <div key={`header-${i}`} className="border-b border-border bg-muted/50 h-8" />
+                return (
+                  <div
+                    key={`header-${i}`}
+                    className="border-b border-border h-8"
+                    style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)' }}
+                  />
+                )
               }
 
               const tl = row.timeline
@@ -431,27 +452,37 @@ export function ItemTimelineView<T>({
               const endD = parseDate(tl.endDate)
               const barLeft = diffDays(timelineStart, startD) * effectivePpd
               const barWidth = Math.max(diffDays(startD, endD) * effectivePpd, 4)
-              const barTop = (rowHeight - 20) / 2
+              const barTop = (rowHeight - 10) / 2 // 10px bar height
 
               return (
                 <div key={tl.id} className="border-b border-border relative" style={{ height: `${rowHeight}px` }}>
                   <div
                     onClick={() => onItemClick?.(row.item)}
                     className={cn(
-                      "absolute h-5 rounded transition hover:brightness-110 timeline-bar",
-                      tl.barClass,
+                      "absolute rounded-md transition hover:brightness-110 timeline-bar",
                       onItemClick && "cursor-pointer"
                     )}
-                    style={{ left: `${barLeft}px`, width: `${barWidth}px`, top: `${barTop}px` }}
+                    style={{
+                      left: `${barLeft}px`,
+                      width: `${barWidth}px`,
+                      top: `${barTop}px`,
+                      height: '10px',
+                      background: getBarGradient(tl.barClass)
+                    }}
                     title={tl.label}
                   >
                     {tl.progressClass && tl.progressPct != null && tl.progressPct > 0 && tl.progressPct < 100 && (
-                      <div className={cn("h-full rounded-l", tl.progressClass)} style={{ width: `${tl.progressPct}%` }} />
-                    )}
-                    {tl.label && barWidth > 60 && (
-                      <span className="absolute inset-0 flex items-center px-2 text-xs font-medium text-white truncate">
-                        {tl.label}
-                      </span>
+                      <div
+                        className="h-full rounded-l-md"
+                        style={{
+                          width: `${tl.progressPct}%`,
+                          background: tl.barClass.includes("blue")
+                            ? "linear-gradient(to bottom, #3B82F6, #2563EB)"
+                            : tl.barClass.includes("green")
+                            ? "linear-gradient(to bottom, #10B981, #059669)"
+                            : "linear-gradient(to bottom, #4B5563, #374151)"
+                        }}
+                      />
                     )}
                     {onDateChange && (
                       <>
@@ -459,13 +490,13 @@ export function ItemTimelineView<T>({
                           className="drag-handle absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
                           onMouseDown={(e) => handleDragMouseDown(e, "left", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate)}
                         >
-                          <div className="w-0.5 h-3 rounded-full bg-white/60" />
+                          <div className="w-0.5 h-2 rounded-full bg-white/60" />
                         </div>
                         <div
                           className="drag-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
                           onMouseDown={(e) => handleDragMouseDown(e, "right", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate)}
                         >
-                          <div className="w-0.5 h-3 rounded-full bg-white/60" />
+                          <div className="w-0.5 h-2 rounded-full bg-white/60" />
                         </div>
                       </>
                     )}

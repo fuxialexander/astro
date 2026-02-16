@@ -48,7 +48,7 @@ export function formatDuration(start?: Date, end?: Date): string {
   return `${seconds}s`
 }
 
-/** "5s ago", "3m ago", "2h ago" — relative time from now */
+/** "5s ago", "3m ago", "2h ago", "3d ago", "2w ago" — relative time from now */
 export function formatRelativeTime(date: Date): string {
   const diff = Date.now() - new Date(date).getTime()
   const seconds = Math.floor(diff / 1000)
@@ -56,8 +56,15 @@ export function formatRelativeTime(date: Date): string {
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return `${minutes}m ago`
   const hours = Math.floor(minutes / 60)
-  if (hours > 0) return `${hours}h ${minutes % 60}m ago`
-  return `${minutes}m ago`
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  const weeks = Math.floor(days / 7)
+  if (weeks < 4) return `${weeks}w ago`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo ago`
+  const years = Math.floor(days / 365)
+  return `${years}y ago`
 }
 
 /** Due-date with urgency coloring: { text: "Jan 5", className: "text-red-500" } */

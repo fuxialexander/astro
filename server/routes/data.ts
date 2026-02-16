@@ -2,11 +2,13 @@ import { Hono } from 'hono'
 import { db } from '../lib/db/index.js'
 import {
   projects,
+  initiatives,
   planNodes,
   planEdges,
   userProfiles,
   displaySettings,
   usageMetrics,
+  sessions,
   taskChatSessions,
   taskChatMessages,
   taskExecutions,
@@ -45,12 +47,14 @@ app.post('/projects', async (c) => {
     targetDate: body.targetDate ?? null,
     lead: body.lead ?? null,
     health: body.health ?? null,
-    initiative: body.initiative ?? null,
+    initiativeId: body.initiativeId ?? null,
     progress: body.progress ?? 0,
     labels: body.labels ?? [],
+    color: body.color ?? '#3b82f6',
+    icon: body.icon ?? '📋',
     workingDirectory: body.workingDirectory ?? null,
-    createdAt: body.createdAt ? new Date(body.createdAt) : now,
-    updatedAt: body.updatedAt ? new Date(body.updatedAt) : now,
+    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
+    updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   }
   await db.insert(projects).values(row).onConflictDoUpdate({
     target: projects.id,
@@ -107,9 +111,11 @@ app.patch('/projects/:id', async (c) => {
   if (body.targetDate !== undefined) patch.targetDate = body.targetDate || null
   if (body.lead !== undefined) patch.lead = body.lead || null
   if (body.health !== undefined) patch.health = body.health || null
-  if (body.initiative !== undefined) patch.initiative = body.initiative || null
+  if (body.initiativeId !== undefined) patch.initiativeId = body.initiativeId || null
   if (body.progress !== undefined) patch.progress = body.progress
   if (body.labels !== undefined) patch.labels = body.labels
+  if (body.color !== undefined) patch.color = body.color
+  if (body.icon !== undefined) patch.icon = body.icon
   if (body.workingDirectory !== undefined) patch.workingDirectory = body.workingDirectory || null
   if (body.repository !== undefined) patch.repository = body.repository || null
   if (body.defaultEnvironment !== undefined) patch.defaultEnvironment = body.defaultEnvironment || null
@@ -152,11 +158,151 @@ app.delete('/projects/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// ── Initiatives ───────────────────────────────────────────────────────
+
+app.get('/initiatives', async (c) => {
+  const rows = await db.select().from(initiatives).where(eq(initiatives.ownerId, c.get('user')!.id))
+  return c.json(rows)
+})
+
+app.post('/initiatives', async (c) => {
+  const body = await c.req.json()
+  const now = new Date()
+
+  const initiativeId = body.id || crypto.randomUUID()
+
+  const row = {
+    id: initiativeId,
+    ownerId: c.get('user')!.id,
+    name: body.name,
+    description: body.description ?? '',
+    goal: body.goal ?? null,
+    status: body.status ?? 'active',
+    startDate: body.startDate ?? null,
+    targetDate: body.targetDate ?? null,
+    lead: body.lead ?? null,
+    color: body.color ?? '#3b82f6',
+    icon: body.icon ?? '🎯',
+    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
+    updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
+  }
+  await db.insert(initiatives).values(row).onConflictDoUpdate({
+    target: initiatives.id,
+    set: { ...row, id: undefined } as typeof row,
+  })
+  const [created] = await db.select().from(initiatives).where(eq(initiatives.id, initiativeId))
+  return c.json(created, 201)
+})
+
+app.get('/initiatives/:id', async (c) => {
+  const userId = c.get('user')!.id
+  const initiativeId = c.req.param('id')
+  const [row] = await db.select().from(initiatives).where(
+    and(eq(initiatives.id, initiativeId), eq(initiatives.ownerId, userId))
+  )
+  if (!row) return c.json({ error: 'Not found' }, 404)
+  return c.json(row)
+})
+
+app.patch('/initiatives/:id', async (c) => {
+  const userId = c.get('user')!.id
+  const id = c.req.param('id')
+
+  const [existing] = await db.select().from(initiatives).where(
+    and(eq(initiatives.id, id), eq(initiatives.ownerId, userId))
+  )
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  const body = await c.req.json()
+  const patch: Record<string, unknown> = { updatedAt: new Date() }
+  if (body.name !== undefined) patch.name = body.name
+  if (body.description !== undefined) patch.description = body.description
+  if (body.goal !== undefined) patch.goal = body.goal || null
+  if (body.status !== undefined) patch.status = body.status
+  if (body.startDate !== undefined) patch.startDate = body.startDate || null
+  if (body.targetDate !== undefined) patch.targetDate = body.targetDate || null
+  if (body.lead !== undefined) patch.lead = body.lead || null
+  if (body.color !== undefined) patch.color = body.color
+  if (body.icon !== undefined) patch.icon = body.icon
+
+  await db.update(initiatives).set(patch).where(
+    and(eq(initiatives.id, id), eq(initiatives.ownerId, userId))
+  )
+  const [updated] = await db.select().from(initiatives).where(eq(initiatives.id, id))
+  return c.json(updated)
+})
+
+app.delete('/initiatives/:id', async (c) => {
+  const userId = c.get('user')!.id
+  const initiativeId = c.req.param('id')
+
+  const [existing] = await db.select().from(initiatives).where(
+    and(eq(initiatives.id, initiativeId), eq(initiatives.ownerId, userId))
+  )
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  // Unassign projects from this initiative
+  await db.update(projects)
+    .set({ initiativeId: null })
+    .where(eq(projects.initiativeId, initiativeId))
+
+  await db.delete(initiatives).where(
+    and(eq(initiatives.id, initiativeId), eq(initiatives.ownerId, userId))
+  )
+  return c.json({ ok: true })
+})
+
 // ── Plan (nodes + edges) ──────────────────────────────────────────────
 
 app.get('/plan', async (c) => {
-  const nodes = await db.select().from(planNodes)
-  const edges = await db.select().from(planEdges)
+  const userId = c.get('user')!.id
+
+  // Get user's projects
+  const userProjects = await db.select().from(projects).where(eq(projects.ownerId, userId))
+  const projectIds = new Set(userProjects.map(p => p.id))
+
+  // Get all nodes for user's projects
+  const rawNodes = await db.select().from(planNodes)
+  const nodes = rawNodes
+    .filter(n => projectIds.has(n.projectId))
+    .map(n => ({
+      id: n.clientId, // Use clientId as frontend ID
+      projectId: n.projectId,
+      type: n.type,
+      title: n.title,
+      description: n.description,
+      status: n.status,
+      parentId: n.parentId,
+      dependencies: [], // Will be populated below
+      environment: n.environment,
+      verification: n.verification,
+      position: { x: n.positionX, y: n.positionY },
+      startDate: n.startDate,
+      endDate: n.endDate,
+      priority: n.priority,
+      estimate: n.estimate,
+      dueDate: n.dueDate,
+      milestoneId: n.milestoneId,
+      labelIds: n.labelIds,
+      executionId: n.executionId,
+      executionOutput: n.executionOutput,
+      executionError: n.executionError,
+      executionStartedAt: n.executionStartedAt,
+      executionCompletedAt: n.executionCompletedAt,
+      createdAt: n.createdAt,
+      updatedAt: n.updatedAt,
+    }))
+
+  const rawEdges = await db.select().from(planEdges)
+  const edges = rawEdges
+    .filter(e => projectIds.has(e.projectId))
+    .map(e => ({
+      id: e.clientId,
+      source: e.sourceClientId,
+      target: e.targetClientId,
+      type: e.type,
+    }))
+
   return c.json({ nodes, edges })
 })
 
@@ -170,8 +316,43 @@ app.get('/plan/:projectId', async (c) => {
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
-  const nodes = await db.select().from(planNodes).where(eq(planNodes.projectId, projectId))
-  const edges = await db.select().from(planEdges).where(eq(planEdges.projectId, projectId))
+  const rawNodes = await db.select().from(planNodes).where(eq(planNodes.projectId, projectId))
+  const nodes = rawNodes.map(n => ({
+    id: n.clientId, // Use clientId as frontend ID
+    projectId: n.projectId,
+    type: n.type,
+    title: n.title,
+    description: n.description,
+    status: n.status,
+    parentId: n.parentId,
+    dependencies: [], // Will be populated from planNodeDependencies if needed
+    environment: n.environment,
+    verification: n.verification,
+    position: { x: n.positionX, y: n.positionY },
+    startDate: n.startDate,
+    endDate: n.endDate,
+    priority: n.priority,
+    estimate: n.estimate,
+    dueDate: n.dueDate,
+    milestoneId: n.milestoneId,
+    labelIds: n.labelIds,
+    executionId: n.executionId,
+    executionOutput: n.executionOutput,
+    executionError: n.executionError,
+    executionStartedAt: n.executionStartedAt,
+    executionCompletedAt: n.executionCompletedAt,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+  }))
+
+  const rawEdges = await db.select().from(planEdges).where(eq(planEdges.projectId, projectId))
+  const edges = rawEdges.map(e => ({
+    id: e.clientId,
+    source: e.sourceClientId,
+    target: e.targetClientId,
+    type: e.type,
+  }))
+
   return c.json({ nodes, edges })
 })
 
@@ -220,10 +401,10 @@ app.put('/plan/:projectId', async (c) => {
         executionId: (n.executionId as string) ?? null,
         executionOutput: (n.executionOutput as string) ?? null,
         executionError: (n.executionError as string) ?? null,
-        executionStartedAt: n.executionStartedAt ? new Date(n.executionStartedAt as string) : null,
-        executionCompletedAt: n.executionCompletedAt ? new Date(n.executionCompletedAt as string) : null,
-        createdAt: n.createdAt ? new Date(n.createdAt as string) : new Date(),
-        updatedAt: n.updatedAt ? new Date(n.updatedAt as string) : new Date(),
+        executionStartedAt: (typeof n.executionStartedAt === 'string' || typeof n.executionStartedAt === 'number') ? new Date(n.executionStartedAt as string | number) : null,
+        executionCompletedAt: (typeof n.executionCompletedAt === 'string' || typeof n.executionCompletedAt === 'number') ? new Date(n.executionCompletedAt as string | number) : null,
+        createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
+        updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
       await tx.insert(planNodes).values(row)
     }
@@ -276,10 +457,10 @@ app.post('/plan/nodes', async (c) => {
     executionId: body.executionId ?? null,
     executionOutput: body.executionOutput ?? null,
     executionError: body.executionError ?? null,
-    executionStartedAt: body.executionStartedAt ? new Date(body.executionStartedAt) : null,
-    executionCompletedAt: body.executionCompletedAt ? new Date(body.executionCompletedAt) : null,
-    createdAt: body.createdAt ? new Date(body.createdAt) : now,
-    updatedAt: body.updatedAt ? new Date(body.updatedAt) : now,
+    executionStartedAt: (typeof body.executionStartedAt === 'string' || typeof body.executionStartedAt === 'number') ? new Date(body.executionStartedAt) : null,
+    executionCompletedAt: (typeof body.executionCompletedAt === 'string' || typeof body.executionCompletedAt === 'number') ? new Date(body.executionCompletedAt) : null,
+    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
+    updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   })
   return c.json({ ok: true }, 201)
 })
@@ -414,7 +595,7 @@ app.put('/profile', async (c) => {
     notificationsEnabled: body.notificationsEnabled ?? true,
     emailNotifications: body.emailNotifications ?? false,
     apiKeys: body.apiKeys ?? [],
-    createdAt: body.createdAt ? new Date(body.createdAt) : now,
+    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: now,
   }
 
@@ -589,7 +770,7 @@ app.post('/chat/:nodeId/session', async (c) => {
       userId: c.get('user')!.id,
       projectId: body.projectId,
       sessionId: body.sessionId ?? null,
-      createdAt: body.createdAt ? new Date(body.createdAt) : now,
+      createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: now,
     })
   }
@@ -614,12 +795,12 @@ app.post('/chat/:nodeId/messages', async (c) => {
     sessionId: session.id,
     role: body.role,
     content: body.content,
-    createdAt: body.timestamp ? new Date(body.timestamp) : new Date(),
+    createdAt: (typeof body.timestamp === 'string' || typeof body.timestamp === 'number') ? new Date(body.timestamp) : new Date(),
   }).onConflictDoUpdate({
     target: taskChatMessages.id,
     set: {
       content: body.content,
-      createdAt: body.timestamp ? new Date(body.timestamp) : new Date(),
+      createdAt: (typeof body.timestamp === 'string' || typeof body.timestamp === 'number') ? new Date(body.timestamp) : new Date(),
     },
   })
   return c.json({ ok: true }, 201)
@@ -650,6 +831,82 @@ app.delete('/chat/:nodeId', async (c) => {
     // Messages will cascade delete via foreign key
     await db.delete(taskChatSessions).where(eq(taskChatSessions.id, session.id))
   }
+
+  return c.json({ ok: true })
+})
+
+// ── Unified Sessions ──────────────────────────────────────────────────
+
+app.get('/sessions', async (c) => {
+  const userId = c.get('user')!.id
+  const userSessions = await db.select().from(sessions).where(eq(sessions.userId, userId))
+  return c.json(userSessions)
+})
+
+app.get('/sessions/:sessionId', async (c) => {
+  const sessionId = c.req.param('sessionId')
+  const userId = c.get('user')!.id
+  const [session] = await db.select().from(sessions).where(
+    and(eq(sessions.id, sessionId), eq(sessions.userId, userId))
+  )
+  return c.json(session || null)
+})
+
+app.post('/sessions', async (c) => {
+  const userId = c.get('user')!.id
+  const body = await c.req.json()
+
+  await db.insert(sessions).values({
+    ...body,
+    userId,
+  })
+
+  return c.json(body)
+})
+
+app.patch('/sessions/:sessionId', async (c) => {
+  const sessionId = c.req.param('sessionId')
+  const userId = c.get('user')!.id
+  const body = await c.req.json()
+
+  await db.update(sessions)
+    .set({ ...body, updatedAt: new Date() })
+    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+
+  return c.json({ ok: true })
+})
+
+app.delete('/sessions/:sessionId', async (c) => {
+  const sessionId = c.req.param('sessionId')
+  const userId = c.get('user')!.id
+
+  await db.delete(sessions).where(
+    and(eq(sessions.id, sessionId), eq(sessions.userId, userId))
+  )
+
+  return c.json({ ok: true })
+})
+
+app.post('/sessions/:sessionId/messages', async (c) => {
+  const sessionId = c.req.param('sessionId')
+  const userId = c.get('user')!.id
+  const message = await c.req.json()
+
+  // Get current session
+  const [session] = await db.select().from(sessions).where(
+    and(eq(sessions.id, sessionId), eq(sessions.userId, userId))
+  )
+
+  if (!session) {
+    return c.json({ error: 'Session not found' }, 404)
+  }
+
+  // Append message to messages array
+  const updatedMessages = [...(session.messages || []), message]
+
+  await db.update(sessions)
+    .set({ messages: updatedMessages, updatedAt: new Date() })
+    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
 
   return c.json({ ok: true })
 })

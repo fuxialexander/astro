@@ -10,15 +10,26 @@ struct Project: Codable, Identifiable, Hashable {
     var targetDate: String?
     var lead: String?
     var health: ProjectHealth?
-    var initiative: String?
+    var initiativeId: String?
     var progress: Int?
     var labels: [ProjectLabel]?
+    var color: String
+    var icon: String
     var workingDirectory: String?
     var repository: String?
     var defaultEnvironment: TaskEnvironment?
     var defaultMachineId: String?
     var createdAt: Date
     var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, visionDoc, status
+        case startDate, targetDate, lead, health
+        case initiativeId, progress, labels, color, icon
+        case workingDirectory, repository
+        case defaultEnvironment, defaultMachineId
+        case createdAt, updatedAt
+    }
 
     enum ProjectStatus: String, Codable, CaseIterable {
         case active, archived

@@ -46,6 +46,14 @@ export interface ActivityEvent {
   machineId?: string
 }
 
+export interface DynamicApprovalRequest {
+  taskId: string
+  requestId: string
+  question: string
+  options: string[]
+  timestamp: Date
+}
+
 export interface TaskStream {
   taskId: string
   machineId?: string
@@ -109,6 +117,8 @@ interface RealtimeState {
   taskStreams: Map<string, TaskStream>
   // Attached sessions from MCP bridge
   attachedSessions: Map<string, AttachedSession>
+  // Dynamic approval requests (AskUserQuestion tool)
+  dynamicApprovals: Map<string, DynamicApprovalRequest>
 
   // Actions
   connect: () => void
@@ -117,6 +127,8 @@ interface RealtimeState {
   addSteerMessage: (taskId: string, message: string, interrupted?: boolean) => void
   updateSteerMessage: (taskId: string, index: number, update: { accepted?: boolean; ackMessage?: string }) => void
   getSessionsForTask: (taskId: string) => AttachedSession[]
+  getDynamicApproval: (requestId: string) => DynamicApprovalRequest | undefined
+  respondToDynamicApproval: (taskId: string, requestId: string, answer: string) => Promise<void>
 }
 
 let activityCounter = 0
@@ -127,6 +139,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   activityFeed: [],
   taskStreams: new Map(),
   attachedSessions: new Map(),
+  dynamicApprovals: new Map(),
 
   connect: () => {
     realtimeClient.connect()
@@ -194,6 +207,57 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   getSessionsForTask: (taskId: string) => {
     const sessions = get().attachedSessions
     return Array.from(sessions.values()).filter((s) => s.taskId === taskId)
+  },
+
+  getDynamicApproval: (requestId: string) => {
+    return get().dynamicApprovals.get(requestId)
+  },
+
+  respondToDynamicApproval: async (taskId: string, requestId: string, answer: string) => {
+    // taskId is actually the executionId - find the nodeId first
+    const planStore = usePlanStore.getState()
+    const node = planStore.nodes.find((n) => n.executionId === taskId)
+    if (!node) {
+      console.error('[realtime] No node found for executionId:', taskId)
+      return
+    }
+
+    // Get the machine ID for this task from execution store
+    const execution = useExecutionStore.getState().getExecution(node.id)
+    if (!execution?.machineId) {
+      console.error('[realtime] No machine ID for task:', taskId)
+      return
+    }
+
+    try {
+      const response = await fetch('/api/dispatch/approval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId,
+          machineId: execution.machineId,
+          requestId,
+          answered: true,
+          answer,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to send approval response: ${response.status}`)
+      }
+
+      // Remove from pending approvals
+      set((state) => {
+        const newApprovals = new Map(state.dynamicApprovals)
+        newApprovals.delete(requestId)
+        return { dynamicApprovals: newApprovals }
+      })
+
+      console.log('[realtime] Approval response sent:', { taskId, requestId, answer })
+    } catch (error) {
+      console.error('[realtime] Failed to send approval response:', error)
+      throw error
+    }
   },
 }))
 
@@ -587,6 +651,80 @@ function handleRealtimeEvent(
         const message = (eventData as { message?: string }).message || 'Unknown error'
         addActivity(set, 'error', `Session error: ${message}`, { taskId })
       }
+      break
+    }
+
+    case 'approval:requested': {
+      const approvalId = data.approvalId as string
+      const nodeId = data.nodeId as string
+      const projectId = data.projectId as string
+      const executionId = data.executionId as string
+      const message = data.message as string
+      const options = data.options as string[] | undefined
+      const timestamp = new Date(data.timestamp as string)
+
+      // Add to execution store's pending approvals
+      const execStore = useExecutionStore.getState()
+      execStore.addPendingApproval({
+        approvalId,
+        nodeId,
+        projectId,
+        executionId,
+        message,
+        options,
+        timestamp,
+      })
+
+      // Add to activity feed
+      addActivity(
+        set,
+        'progress',
+        `Approval requested: ${message}`,
+        { taskId: executionId }
+      )
+      break
+    }
+
+    case 'approval:responded': {
+      const approvalId = data.approvalId as string
+      const approved = data.approved as boolean
+      const selectedOption = data.selectedOption as string | undefined
+
+      // Activity already logged when user clicks button
+      // Just log for debugging
+      console.log('[realtime] Approval responded:', { approvalId, approved, selectedOption })
+      break
+    }
+
+    case 'task:approval_request': {
+      const taskId = data.taskId as string
+      const requestId = data.requestId as string
+      const question = data.question as string
+      const options = data.options as string[]
+      const timestamp = new Date()
+
+      // Add to dynamic approvals map
+      set((state) => {
+        const newApprovals = new Map(state.dynamicApprovals)
+        newApprovals.set(requestId, {
+          taskId,
+          requestId,
+          question,
+          options,
+          timestamp,
+        })
+        return { dynamicApprovals: newApprovals }
+      })
+
+      // Add to activity feed
+      addActivity(
+        set,
+        'approval',
+        `Agent asking: ${question}`,
+        { taskId }
+      )
+
+      console.log('[realtime] Dynamic approval request received:', { taskId, requestId, question, options })
       break
     }
   }

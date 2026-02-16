@@ -12,6 +12,7 @@ import { Projects } from "@/pages/projects"
 import { ProjectNew } from "@/pages/project-new"
 import { ProjectOverview } from "@/pages/project-overview"
 import { PlanView } from "@/pages/plan-view"
+import Initiatives from "@/pages/initiatives"
 import { Login } from "@/pages/login"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
@@ -22,12 +23,17 @@ import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useTaskChatStore } from "@/stores/task-chat-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { useSessionStore } from "@/stores/session-store"
+import { useInitiativeStore } from "@/stores/initiative-store"
+import { useExecutionStore } from "@/stores/execution-store"
+import { useAgentStore } from "@/stores/agent-store"
+import { useActivityStore } from "@/stores/activity-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { shouldUseSupabase } from "@/lib/supabase-client"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
+import { Agents } from "@/pages/agents"
 import { MyTasks } from "@/pages/my-tasks"
 import { Welcome } from "@/pages/welcome"
 
@@ -63,6 +69,10 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadTaskChat = useTaskChatStore((s) => s.load)
   const loadUsage = useUsageStore((s) => s.load)
   const loadSessions = useSessionStore((s) => s.load)
+  const loadInitiatives = useInitiativeStore((s) => s.load)
+  const loadExecutions = useExecutionStore((s) => s.load)
+  const loadAgent = useAgentStore((s) => s.load)
+  const loadActivities = useActivityStore((s) => s.loadActivities)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -73,6 +83,10 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const taskChatLoaded = useTaskChatStore((s) => s.loaded)
   const usageLoaded = useUsageStore((s) => s.loaded)
   const sessionsLoaded = useSessionStore((s) => s.loaded)
+  const initiativesLoaded = useInitiativeStore((s) => s.loaded)
+  const executionsLoaded = useExecutionStore((s) => s.loaded)
+  const agentLoaded = useAgentStore((s) => s.loaded)
+  const activitiesLoaded = useActivityStore((s) => s.loaded)
 
   // Only load data if authenticated or in IndexedDB-only mode
   const shouldLoadData = !shouldUseSupabase() || (authInitialized && session)
@@ -81,21 +95,27 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     console.log('[DataLoader] shouldLoadData:', shouldLoadData, '{ authInitialized:', authInitialized, 'session:', session ? 'present' : 'none', '}')
     if (!shouldLoadData) return
 
-    console.log('[DataLoader] Loading all stores...')
-    loadProjects()
-    loadPlan()
-    loadSettings()
-    loadUserProfile()
-    loadDisplaySettings()
-    loadTaskChat()
-    loadUsage()
-    loadSessions()
+    // Only load if not already loaded (prevents duplicate API calls on re-renders)
+    if (!projectsLoaded) loadProjects()
+    if (!planLoaded) loadPlan()
+    if (!settingsLoaded) loadSettings()
+    if (!userProfileLoaded) loadUserProfile()
+    if (!displaySettingsLoaded) loadDisplaySettings()
+    if (!taskChatLoaded) loadTaskChat()
+    if (!usageLoaded) loadUsage()
+    if (!sessionsLoaded) loadSessions()
+    if (!initiativesLoaded) loadInitiatives()
+    if (!executionsLoaded) loadExecutions()
+    if (!agentLoaded) loadAgent()
+    if (!activitiesLoaded) loadActivities()
+
+    console.log('[DataLoader] Connecting realtime...')
     connectRealtime()
     return () => disconnectRealtime()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- shouldLoadData already captures authInitialized and session
-  }, [shouldLoadData, loadProjects, loadPlan, loadSettings, loadUserProfile, loadDisplaySettings, loadTaskChat, loadUsage, loadSessions, connectRealtime, disconnectRealtime])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run once when shouldLoadData becomes true
+  }, [shouldLoadData])
 
-  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded
+  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded
 
   // Show loading state only if we should load data and it's not loaded yet
   if (shouldLoadData && !allLoaded) {
@@ -138,7 +158,9 @@ export default function App() {
                 <Route path="project/:id" element={<ProjectOverview />} />
                 <Route path="project/:id/plan" element={<PlanView />} />
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
+                <Route path="initiatives" element={<Initiatives />} />
                 <Route path="tasks" element={<MyTasks />} />
+                <Route path="agents" element={<Agents />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="settings" element={<Settings />} />
               </Route>

@@ -17,11 +17,14 @@ export type RealtimeEventType =
   | 'task:tool_trace'
   | 'task:file_change'
   | 'task:session_init'
+  | 'task:approval_request'
   | 'machine:connected'
   | 'machine:disconnected'
   | 'session:attached'
   | 'session:detached'
   | 'session:event'
+  | 'approval:requested'
+  | 'approval:responded'
   | 'heartbeat'
 
 export interface RealtimeEvent {
@@ -82,11 +85,14 @@ export class RealtimeClient {
       'task:tool_trace',
       'task:file_change',
       'task:session_init',
+      'task:approval_request',
       'machine:connected',
       'machine:disconnected',
       'session:attached',
       'session:detached',
       'session:event',
+      'approval:requested',
+      'approval:responded',
       'heartbeat',
     ]
 

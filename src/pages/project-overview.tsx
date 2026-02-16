@@ -5,27 +5,28 @@ import {
   Star,
   Pencil,
   Plus,
-  Share2,
-  Ellipsis,
   FileText,
   CircleCheck,
   Play,
   User,
   MessageSquare,
-  GitPullRequest,
   FolderGit2,
   Diamond,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
+import { MilestoneDialog } from "@/components/milestone-dialog"
+import { ActivityDialog } from "@/components/activity-dialog"
+import { ColorIconBadge } from "@/components/color-icon-picker"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
+import { useInitiativeStore } from "@/stores/initiative-store"
+import { useActivityStore } from "@/stores/activity-store"
 import { cn } from "@/lib/utils"
-import type { Project } from "@/types"
+import type { Project, PlanNode } from "@/types"
 
 type TabId = "overview" | "updates"
 
@@ -41,18 +42,137 @@ const healthColors: Record<string, string> = {
   off_track: "bg-red-500",
 }
 
-import { formatDate } from "@/lib/date-utils"
+import { formatDate, formatRelativeTime } from "@/lib/date-utils"
 
 // --- Overview Tab Content ---
 function OverviewTab({ project }: { project: Project }) {
   const planNodes = usePlanStore((s) => s.nodes)
+  const addNode = usePlanStore((s) => s.addNode)
+  const updateNode = usePlanStore((s) => s.updateNode)
+  const removeNodes = usePlanStore((s) => s.removeNodes)
+  const updateProject = useProjectStore((s) => s.updateProject)
+  const initiatives = useInitiativeStore((s) => s.initiatives)
+  const addActivity = useActivityStore((s) => s.addActivity)
+  const activities = useActivityStore((s) => s.activities)
+  const recentActivities = useMemo(
+    () => activities.filter((a) => a.projectId === project.id).slice(0, 3),
+    [activities, project.id]
+  )
   const allNodes = useMemo(() => planNodes.filter((n) => n.projectId === project.id), [planNodes, project.id])
   const [visionOpen, setVisionOpen] = useState(false)
   const [repoOpen, setRepoOpen] = useState(false)
+  const [activityDialogOpen, setActivityDialogOpen] = useState(false)
+  const [milestoneDialogOpen, setMilestoneDialogOpen] = useState(false)
+  const [editingMilestone, setEditingMilestone] = useState<PlanNode | undefined>(undefined)
+  const [editingStatus, setEditingStatus] = useState(false)
+  const [editingStartDate, setEditingStartDate] = useState(false)
+  const [editingTargetDate, setEditingTargetDate] = useState(false)
+  const [editingInitiative, setEditingInitiative] = useState(false)
+
+  // Calculate real progress based on task completion
+  const progress = useMemo(() => {
+    const tasks = allNodes.filter((n) => n.type !== "milestone")
+    if (tasks.length === 0) return 0
+    const completed = tasks.filter((n) => n.status === "completed" || n.status === "auto_verified")
+    return Math.round((completed.length / tasks.length) * 100)
+  }, [allNodes])
+
+  // Get milestones for this project
+  const milestones = useMemo(() => allNodes.filter((n) => n.type === "milestone"), [allNodes])
+
+  const handleMilestoneAdd = () => {
+    setEditingMilestone(undefined)
+    setMilestoneDialogOpen(true)
+  }
+
+  const handleMilestoneEdit = (milestone: PlanNode) => {
+    setEditingMilestone(milestone)
+    setMilestoneDialogOpen(true)
+  }
+
+  const handleMilestoneSave = (data: { title: string; description: string; dueDate?: string }) => {
+    if (editingMilestone) {
+      // Update existing milestone
+      updateNode(editingMilestone.id, {
+        title: data.title,
+        description: data.description,
+        dueDate: data.dueDate,
+      })
+      addActivity({
+        projectId: project.id,
+        type: "milestone.updated",
+        title: `Updated milestone: ${data.title}`,
+        nodeId: editingMilestone.id,
+      })
+    } else {
+      // Create new milestone
+      const newMilestone: PlanNode = {
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        type: "milestone",
+        title: data.title,
+        description: data.description,
+        dueDate: data.dueDate,
+        status: "planned",
+        parentId: null,
+        dependencies: [],
+        verification: "human",
+        position: { x: 0, y: 0 }, // Will be calculated by layout algorithm
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      addNode(newMilestone)
+      addActivity({
+        projectId: project.id,
+        type: "milestone.created",
+        title: `Created milestone: ${data.title}`,
+        description: data.description,
+        nodeId: newMilestone.id,
+      })
+    }
+  }
+
+  const handleMilestoneDelete = (milestoneId: string) => {
+    // Check if any tasks are assigned to this milestone
+    const milestone = allNodes.find((n) => n.id === milestoneId)
+    const assignedTasks = allNodes.filter((n) => n.milestoneId === milestoneId && n.type !== "milestone")
+
+    if (assignedTasks.length > 0) {
+      const confirmDelete = window.confirm(
+        `This milestone has ${assignedTasks.length} assigned task(s). Deleting it will unassign these tasks. Continue?`
+      )
+      if (!confirmDelete) return
+
+      // Unassign tasks from this milestone
+      for (const task of assignedTasks) {
+        updateNode(task.id, { milestoneId: undefined })
+      }
+    }
+
+    removeNodes([milestoneId])
+
+    if (milestone) {
+      addActivity({
+        projectId: project.id,
+        type: "milestone.deleted",
+        title: `Deleted milestone: ${milestone.title}`,
+        nodeId: milestoneId,
+      })
+    }
+  }
+
   return (
     <div className="flex flex-1 overflow-hidden">
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
       <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
+      <ActivityDialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen} projectId={project.id} />
+      <MilestoneDialog
+        open={milestoneDialogOpen}
+        onOpenChange={setMilestoneDialogOpen}
+        milestone={editingMilestone}
+        onSave={handleMilestoneSave}
+        onDelete={editingMilestone ? () => handleMilestoneDelete(editingMilestone.id) : undefined}
+      />
       {/* Main Content */}
       <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
         {/* Description Section */}
@@ -73,12 +193,12 @@ function OverviewTab({ project }: { project: Project }) {
             <CardContent className="flex flex-col gap-2 p-5">
               <span className="text-xs text-muted-foreground">Progress</span>
               <div className="flex items-end gap-2">
-                <span className="text-[28px] font-bold leading-none">{project.progress ?? 0}%</span>
+                <span className="text-[28px] font-bold leading-none">{progress}%</span>
               </div>
               <div className="h-2 w-full rounded-full bg-border overflow-hidden">
                 <div
                   className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${project.progress ?? 0}%` }}
+                  style={{ width: `${progress}%` }}
                 />
               </div>
             </CardContent>
@@ -104,6 +224,68 @@ function OverviewTab({ project }: { project: Project }) {
               <span className="text-xs text-muted-foreground">Based on current velocity</span>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Milestones Section */}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Milestones</h3>
+            <Plus
+              className="h-4 w-4 text-muted-foreground cursor-pointer hover:text-foreground"
+              onClick={handleMilestoneAdd}
+            />
+          </div>
+          {milestones.length === 0 ? (
+            <div className="flex items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 p-6">
+              <div className="flex flex-col items-center gap-2 text-center">
+                <Diamond className="h-8 w-8 text-muted-foreground" />
+                <p className="text-sm font-medium text-muted-foreground">No milestones yet</p>
+                <p className="text-xs text-muted-foreground">Click the + icon to create your first milestone</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {milestones.map((milestone) => {
+                const tasks = allNodes.filter((n) => n.milestoneId === milestone.id && n.type !== "milestone")
+                const completed = tasks.filter((t) => t.status === "completed" || t.status === "auto_verified").length
+                const pct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0
+
+                return (
+                  <div
+                    key={milestone.id}
+                    className="flex items-start gap-3 rounded-lg bg-muted p-4 cursor-pointer hover:bg-muted/80 transition-colors"
+                    onClick={() => handleMilestoneEdit(milestone)}
+                  >
+                    <Diamond className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                    <div className="flex-1 flex flex-col gap-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium truncate">{milestone.title}</span>
+                        {milestone.dueDate && (
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            Due {formatDate(milestone.dueDate)}
+                          </span>
+                        )}
+                      </div>
+                      {milestone.description && (
+                        <p className="text-xs text-muted-foreground line-clamp-2">{milestone.description}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-medium text-muted-foreground shrink-0">
+                          {completed}/{tasks.length}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Resources Section */}
@@ -145,14 +327,6 @@ function OverviewTab({ project }: { project: Project }) {
                 {project.workingDirectory || project.repository ? "Edit" : "Add"}
               </span>
             </div>
-            <div className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4">
-              <GitPullRequest className="h-[18px] w-[18px]" />
-              <div className="flex-1 flex flex-col gap-0.5">
-                <span className="text-sm font-medium">feat: Agent Runner CLI (npx @nexus/agent)</span>
-                <span className="text-xs text-muted-foreground">nexus#3 · Pull Request</span>
-              </div>
-              <span className="text-xs font-medium text-primary cursor-pointer">Open</span>
-            </div>
           </div>
         </div>
       </div>
@@ -165,9 +339,29 @@ function OverviewTab({ project }: { project: Project }) {
 
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-muted-foreground">Status</span>
-            <Badge variant="success" className="text-xs">
-              {project.status === "active" ? "Active" : "Archived"}
-            </Badge>
+            {editingStatus ? (
+              <select
+                className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
+                value={project.status}
+                onChange={(e) => {
+                  updateProject(project.id, { status: e.target.value as "active" | "archived" })
+                  setEditingStatus(false)
+                }}
+                onBlur={() => setEditingStatus(false)}
+                autoFocus
+              >
+                <option value="active">Active</option>
+                <option value="archived">Archived</option>
+              </select>
+            ) : (
+              <Badge
+                variant="success"
+                className="text-xs cursor-pointer hover:opacity-80"
+                onClick={() => setEditingStatus(true)}
+              >
+                {project.status === "active" ? "Active" : "Archived"}
+              </Badge>
+            )}
           </div>
 
           <div className="flex items-center justify-between">
@@ -182,20 +376,83 @@ function OverviewTab({ project }: { project: Project }) {
 
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-muted-foreground">Start Date</span>
-            <span className="text-[13px]">{formatDate(project.startDate)}</span>
+            {editingStartDate ? (
+              <input
+                type="date"
+                className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
+                value={project.startDate || ""}
+                onChange={(e) => {
+                  updateProject(project.id, { startDate: e.target.value })
+                }}
+                onBlur={() => setEditingStartDate(false)}
+                autoFocus
+              />
+            ) : (
+              <span
+                className="text-[13px] cursor-pointer hover:underline"
+                onClick={() => setEditingStartDate(true)}
+              >
+                {formatDate(project.startDate)}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-muted-foreground">Target Date</span>
-            <span className="text-[13px]">{formatDate(project.targetDate)}</span>
+            {editingTargetDate ? (
+              <input
+                type="date"
+                className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
+                value={project.targetDate || ""}
+                onChange={(e) => {
+                  updateProject(project.id, { targetDate: e.target.value })
+                }}
+                onBlur={() => setEditingTargetDate(false)}
+                autoFocus
+              />
+            ) : (
+              <span
+                className="text-[13px] cursor-pointer hover:underline"
+                onClick={() => setEditingTargetDate(true)}
+              >
+                {formatDate(project.targetDate)}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-muted-foreground">Initiative</span>
-            <div className="flex items-center gap-1">
-              <Rocket className="h-3.5 w-3.5 text-primary" />
-              <span className="text-[13px]">{project.initiative ?? "—"}</span>
-            </div>
+            {editingInitiative ? (
+              <select
+                className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
+                value={project.initiativeId || ""}
+                onChange={(e) => {
+                  updateProject(project.id, { initiativeId: e.target.value || undefined })
+                  setEditingInitiative(false)
+                }}
+                onBlur={() => setEditingInitiative(false)}
+                autoFocus
+              >
+                <option value="">No initiative</option>
+                {initiatives
+                  .filter(i => i.status === "active")
+                  .map((initiative) => (
+                    <option key={initiative.id} value={initiative.id}>
+                      {initiative.name}
+                    </option>
+                  ))}
+              </select>
+            ) : (
+              <div
+                className="flex items-center gap-1 cursor-pointer hover:opacity-80"
+                onClick={() => setEditingInitiative(true)}
+              >
+                <Rocket className="h-3.5 w-3.5 text-primary" />
+                <span className="text-[13px]">
+                  {initiatives.find(i => i.id === project.initiativeId)?.name ?? "—"}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Labels */}
@@ -215,31 +472,6 @@ function OverviewTab({ project }: { project: Project }) {
               </div>
             </div>
           )}
-
-          {/* Milestones */}
-          {(() => {
-            const milestones = allNodes.filter((n) => n.type === "milestone")
-            if (milestones.length === 0) return null
-            return (
-              <div className="flex flex-col gap-2">
-                <span className="text-[13px] text-muted-foreground">Milestones</span>
-                <div className="flex flex-col gap-1.5">
-                  {milestones.map((m) => {
-                    const tasks = allNodes.filter((n) => n.milestoneId === m.id && n.type !== "milestone")
-                    const completed = tasks.filter((t) => t.status === "completed" || t.status === "auto_verified").length
-                    const pct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0
-                    return (
-                      <div key={m.id} className="flex items-center gap-2">
-                        <Diamond className="h-3 w-3 text-primary shrink-0" />
-                        <span className="text-[12px] flex-1 truncate">{m.title}</span>
-                        <span className="text-[11px] text-muted-foreground">{pct}%</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })()}
         </div>
 
         <Separator />
@@ -248,31 +480,57 @@ function OverviewTab({ project }: { project: Project }) {
         <div className="flex flex-1 flex-col gap-3 p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">Recent Activity</h3>
-            <span className="text-xs text-primary cursor-pointer">View all</span>
+            <span
+              className="text-xs text-primary cursor-pointer hover:underline"
+              onClick={() => setActivityDialogOpen(true)}
+            >
+              View all
+            </span>
           </div>
-          <div className="flex flex-col gap-3">
-            <div className="flex gap-2.5">
-              <CircleCheck className="h-4 w-4 shrink-0 text-green-500 mt-0.5" />
-              <div className="flex flex-col gap-0.5">
-                <span className="text-[13px]">Agent Runner CLI completed</span>
-                <span className="text-[11px] text-muted-foreground">2 hours ago</span>
+          {recentActivities.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-center">
+              <div className="flex flex-col gap-1">
+                <MessageSquare className="h-6 w-6 text-muted-foreground mx-auto" />
+                <p className="text-xs text-muted-foreground">No activity yet</p>
               </div>
             </div>
-            <div className="flex gap-2.5">
-              <Play className="h-4 w-4 shrink-0 text-blue-500 mt-0.5" />
-              <div className="flex flex-col gap-0.5">
-                <span className="text-[13px]">Provider abstraction started</span>
-                <span className="text-[11px] text-muted-foreground">5 hours ago</span>
-              </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {recentActivities.map((activity) => {
+                // Map activity types to icons
+                const iconMap = {
+                  "task.completed": { Icon: CircleCheck, color: "text-green-500" },
+                  "task.started": { Icon: Play, color: "text-blue-500" },
+                  "task.failed": { Icon: User, color: "text-red-500" },
+                  "task.cancelled": { Icon: User, color: "text-orange-500" },
+                  "milestone.created": { Icon: Plus, color: "text-primary" },
+                  "milestone.updated": { Icon: Pencil, color: "text-primary" },
+                  "milestone.deleted": { Icon: User, color: "text-red-500" },
+                  "vision.updated": { Icon: FileText, color: "text-primary" },
+                  "repo.configured": { Icon: FolderGit2, color: "text-primary" },
+                  "plan.refined": { Icon: User, color: "text-purple-500" },
+                  "project.updated": { Icon: Pencil, color: "text-muted-foreground" },
+                  "project.created": { Icon: Rocket, color: "text-purple-500" },
+                  "task.created": { Icon: Plus, color: "text-blue-500" },
+                }
+
+                const config = iconMap[activity.type] || { Icon: User, color: "text-muted-foreground" }
+                const Icon = config.Icon
+
+                return (
+                  <div key={activity.id} className="flex gap-2.5">
+                    <Icon className={cn("h-4 w-4 shrink-0 mt-0.5", config.color)} />
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="text-[13px] truncate">{activity.title}</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {formatRelativeTime(activity.timestamp)}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <div className="flex gap-2.5">
-              <User className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
-              <div className="flex flex-col gap-0.5">
-                <span className="text-[13px]">Alex updated project description</span>
-                <span className="text-[11px] text-muted-foreground">Yesterday</span>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -301,6 +559,7 @@ export function ProjectOverview() {
   const [searchParams, setSearchParams] = useSearchParams()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
+  const updateProject = useProjectStore((s) => s.updateProject)
   const tabParam = searchParams.get("tab")
   const [activeTab, setActiveTab] = useState<TabId>(() =>
     tabParam === "updates" ? "updates" : "overview"
@@ -370,9 +629,14 @@ export function ProjectOverview() {
     <div className="flex h-full flex-col">
       {/* Single-line header: identity + rounded tabs + actions */}
       <div className="flex items-center gap-3 border-b border-border px-6 h-14 shrink-0">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
-          <Rocket className="h-[18px] w-[18px] text-primary-foreground" />
-        </div>
+        <ColorIconBadge
+          color={project.color}
+          icon={project.icon}
+          type="project"
+          editable
+          onColorChange={(color) => updateProject(project.id, { color })}
+          onIconChange={(icon) => updateProject(project.id, { icon })}
+        />
         <span className="text-lg font-semibold shrink-0">{project.name}</span>
         <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
         <div className="flex items-center gap-1 shrink-0">
@@ -383,7 +647,7 @@ export function ProjectOverview() {
                 to={tab.route}
                 className={cn(
                   "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-                  "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  "text-slate-700 dark:text-slate-300 hover:text-foreground hover:bg-muted/50"
                 )}
               >
                 {tab.label}
@@ -397,7 +661,7 @@ export function ProjectOverview() {
                   "rounded-lg px-3 py-1.5 text-sm transition-colors cursor-pointer",
                   activeTab === tab.id
                     ? "bg-accent font-semibold text-accent-foreground"
-                    : "font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    : "font-medium text-slate-700 dark:text-slate-300 hover:text-foreground hover:bg-muted/50"
                 )}
               >
                 {tab.label}
@@ -406,15 +670,6 @@ export function ProjectOverview() {
           )}
         </div>
         <div className="flex-1 min-w-0" />
-        <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm">
-            <Share2 className="h-3.5 w-3.5" />
-            Share
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <Ellipsis className="h-5 w-5" />
-          </Button>
-        </div>
       </div>
 
       {/* Tab Content */}

@@ -47,7 +47,7 @@ struct PulseView: View {
             LinearGradient(
                 colors: [
                     Color.black.opacity(0.85),
-                    Color(hex: "0A0E1A").opacity(0.9)
+                    colorFromHex( "0A0E1A").opacity(0.9)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -104,7 +104,7 @@ private struct DecisionCard: View {
 
                 Text(timeAgo)
                     .font(.system(size: 12))
-                    .foregroundStyle(Color(hex: "475569"))
+                    .foregroundStyle(colorFromHex( "475569"))
             }
 
             // Title

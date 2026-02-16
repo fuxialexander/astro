@@ -272,6 +272,18 @@ interface AgentRunnerTaskSteerAckMessage {
   };
 }
 
+/** Agent runner's approval request message format */
+interface AgentRunnerTaskApprovalRequestMessage {
+  type: 'task_approval_request';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    requestId: string;
+    question: string;
+    options: string[];
+  };
+}
+
 /** Agent runner's task result message format */
 interface AgentRunnerTaskResultMessage {
   type: 'task_result';
@@ -321,6 +333,7 @@ export interface RelayServerEvents {
   'task:tool_trace': (trace: TaskToolTraceMessage) => void;
   'task:file_change': (change: TaskFileChangeMessage) => void;
   'task:session_init': (msg: TaskSessionInitMessage) => void;
+  'task:approval_request': (msg: { taskId: string; requestId: string; question: string; options: string[] }) => void;
   'machine:connected': (machineId: string) => void;
   'machine:disconnected': (machineId: string, reason?: string) => void;
   // Session attachment events (MCP bridge)
@@ -619,6 +632,10 @@ export class RelayServer extends EventEmitter {
 
       case 'task_steer_ack':
         this.handleAgentRunnerTaskSteerAck(message as AgentRunnerTaskSteerAckMessage);
+        break;
+
+      case 'task_approval_request':
+        this.handleAgentRunnerTaskApprovalRequest(message as AgentRunnerTaskApprovalRequestMessage);
         break;
 
       case 'task.steer.ack':
@@ -950,6 +967,40 @@ export class RelayServer extends EventEmitter {
       console.error(`[relay] Error steering task ${taskId}:`, err);
       return false;
     }
+  }
+
+  /**
+   * Send approval response back to agent runner
+   */
+  sendApprovalResponse(
+    taskId: string,
+    machineId: string,
+    requestId: string,
+    answered: boolean,
+    answer?: string,
+    message?: string
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for approval response`);
+      return false;
+    }
+
+    // Send in agent-runner's expected format (type: 'task_approval_response')
+    const responseMsg = {
+      type: 'task_approval_response',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, requestId, answered, answer, message },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      console.error(`[relay] Failed to send approval response for task ${taskId} to machine ${machineId} (socket not open)`);
+      return false;
+    }
+    socket.send(JSON.stringify(responseMsg));
+    console.log(`[relay] Approval response sent for task ${taskId} request ${requestId} to machine ${machineId}`);
+    return true;
   }
 
   /**
@@ -1372,6 +1423,20 @@ export class RelayServer extends EventEmitter {
       interrupted: payload.interrupted,
     };
     this.emit('task:steer_ack', ackMsg);
+  }
+
+  /**
+   * Handle agent runner's approval request message
+   */
+  private handleAgentRunnerTaskApprovalRequest(message: AgentRunnerTaskApprovalRequestMessage): void {
+    const { payload } = message;
+    console.log(`[relay] Approval request from task ${payload.taskId}: ${payload.question}`);
+    this.emit('task:approval_request', {
+      taskId: payload.taskId,
+      requestId: payload.requestId,
+      question: payload.question,
+      options: payload.options,
+    });
   }
 
   private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {

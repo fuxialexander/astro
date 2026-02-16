@@ -6,6 +6,7 @@
  */
 
 import { create } from 'zustand'
+import { loadState, saveState } from '@/lib/db'
 
 // ============================================================================
 // Types
@@ -149,19 +150,35 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
         throw new Error(`Failed to fetch clusters: ${response.statusText}`)
       }
       const data = await response.json() as { clusters: Array<Omit<SlurmCluster, 'lastHeartbeat'> & { lastHeartbeat: string }> }
+      const clusters = data.clusters.map((c) => ({
+        ...c,
+        lastHeartbeat: new Date(c.lastHeartbeat),
+      }))
       set({
-        clusters: data.clusters.map((c) => ({
-          ...c,
-          lastHeartbeat: new Date(c.lastHeartbeat),
-        })),
+        clusters,
         loading: false,
         lastFetched: new Date(),
       })
+      // Save to IndexedDB for offline fallback
+      saveState('nexus-slurm-clusters', clusters)
     } catch (error) {
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      })
+      // API unavailable — fall back to IndexedDB cache
+      const cached = await loadState<Array<Omit<SlurmCluster, 'lastHeartbeat'> & { lastHeartbeat: string }>>('nexus-slurm-clusters')
+      if (cached) {
+        set({
+          clusters: cached.map((c) => ({
+            ...c,
+            lastHeartbeat: new Date(c.lastHeartbeat),
+          })),
+          loading: false,
+          error: 'Using cached data (offline)',
+        })
+      } else {
+        set({
+          loading: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        })
+      }
     }
   },
 
@@ -173,61 +190,79 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
         throw new Error(`Failed to fetch jobs: ${response.statusText}`)
       }
       const data = await response.json() as { jobs: Array<Omit<SlurmJob, 'submitTime' | 'startTime' | 'endTime'> & { submitTime?: string; startTime?: string; endTime?: string }> }
+      const jobs = data.jobs.map((j) => ({
+        ...j,
+        submitTime: j.submitTime ? new Date(j.submitTime) : undefined,
+        startTime: j.startTime ? new Date(j.startTime) : undefined,
+        endTime: j.endTime ? new Date(j.endTime) : undefined,
+      }))
       set({
-        jobs: data.jobs.map((j) => ({
-          ...j,
-          submitTime: j.submitTime ? new Date(j.submitTime) : undefined,
-          startTime: j.startTime ? new Date(j.startTime) : undefined,
-          endTime: j.endTime ? new Date(j.endTime) : undefined,
-        })),
+        jobs,
         loading: false,
       })
+      // Save to IndexedDB for offline fallback
+      saveState('nexus-slurm-jobs', jobs)
     } catch (error) {
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      })
+      // API unavailable — fall back to IndexedDB cache
+      const cached = await loadState<Array<Omit<SlurmJob, 'submitTime' | 'startTime' | 'endTime'> & { submitTime?: string; startTime?: string; endTime?: string }>>('nexus-slurm-jobs')
+      if (cached) {
+        set({
+          jobs: cached.map((j) => ({
+            ...j,
+            submitTime: j.submitTime ? new Date(j.submitTime) : undefined,
+            startTime: j.startTime ? new Date(j.startTime) : undefined,
+            endTime: j.endTime ? new Date(j.endTime) : undefined,
+          })),
+          loading: false,
+          error: 'Using cached data (offline)',
+        })
+      } else {
+        set({
+          loading: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        })
+      }
     }
   },
 
   addCluster: (cluster) => {
-    set((state) => ({
-      clusters: [...state.clusters.filter(c => c.machineId !== cluster.machineId), cluster],
-    }))
+    const next = [...get().clusters.filter(c => c.machineId !== cluster.machineId), cluster]
+    set({ clusters: next })
+    saveState('nexus-slurm-clusters', next)
   },
 
   updateCluster: (machineId, updates) => {
-    set((state) => ({
-      clusters: state.clusters.map(c =>
-        c.machineId === machineId ? { ...c, ...updates } : c
-      ),
-    }))
+    const next = get().clusters.map(c =>
+      c.machineId === machineId ? { ...c, ...updates } : c
+    )
+    set({ clusters: next })
+    saveState('nexus-slurm-clusters', next)
   },
 
   removeCluster: (machineId) => {
-    set((state) => ({
-      clusters: state.clusters.filter(c => c.machineId !== machineId),
-    }))
+    const next = get().clusters.filter(c => c.machineId !== machineId)
+    set({ clusters: next })
+    saveState('nexus-slurm-clusters', next)
   },
 
   addJob: (job) => {
-    set((state) => ({
-      jobs: [...state.jobs.filter(j => j.taskId !== job.taskId), job],
-    }))
+    const next = [...get().jobs.filter(j => j.taskId !== job.taskId), job]
+    set({ jobs: next })
+    saveState('nexus-slurm-jobs', next)
   },
 
   updateJob: (taskId, updates) => {
-    set((state) => ({
-      jobs: state.jobs.map(j =>
-        j.taskId === taskId ? { ...j, ...updates } : j
-      ),
-    }))
+    const next = get().jobs.map(j =>
+      j.taskId === taskId ? { ...j, ...updates } : j
+    )
+    set({ jobs: next })
+    saveState('nexus-slurm-jobs', next)
   },
 
   removeJob: (taskId) => {
-    set((state) => ({
-      jobs: state.jobs.filter(j => j.taskId !== taskId),
-    }))
+    const next = get().jobs.filter(j => j.taskId !== taskId)
+    set({ jobs: next })
+    saveState('nexus-slurm-jobs', next)
   },
 
   getClusterById: (machineId) => {

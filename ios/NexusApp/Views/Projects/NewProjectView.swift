@@ -140,6 +140,8 @@ struct NewProjectView: View {
             description: trimmedDesc,
             visionDoc: trimmedVision,
             status: .active,
+            color: "blue",
+            icon: "📁",
             workingDirectory: trimmedDir.isEmpty ? nil : trimmedDir,
             repository: trimmedRepo.isEmpty ? nil : trimmedRepo,
             defaultEnvironment: selectedEnvironment,

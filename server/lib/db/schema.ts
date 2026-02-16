@@ -12,13 +12,32 @@ export const projects = pgTable('projects', {
   targetDate: date('target_date'),
   lead: text('lead'),
   health: text('health'), // 'on_track' | 'at_risk' | 'off_track'
-  initiative: text('initiative'),
+  initiativeId: uuid('initiative_id'),
   progress: integer('progress').default(0),
   labels: jsonb('labels').$type<{ id: string; name: string; color: string }[]>().notNull().default([]),
+  color: text('color').default('#3b82f6'),
+  icon: text('icon').default('📋'),
   workingDirectory: text('working_directory'),
   repository: text('repository'),
   defaultEnvironment: text('default_environment'),
   defaultMachineId: text('default_machine_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// ── Initiatives ───────────────────────────────────────────────────────
+export const initiatives = pgTable('initiatives', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  goal: text('goal'),
+  status: text('status').notNull().default('active'), // 'active' | 'on_hold' | 'completed' | 'cancelled'
+  startDate: date('start_date'),
+  targetDate: date('target_date'),
+  lead: text('lead'),
+  color: text('color').default('#3b82f6'),
+  icon: text('icon').default('🎯'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
@@ -114,7 +133,38 @@ export const usageMetrics = pgTable('usage_metrics', {
   pk: primaryKey({ columns: [table.userId, table.sessionDate] }),
 }))
 
-// ── Task Chat Sessions ────────────────────────────────────────────────
+// ── Unified Sessions (new unified session store) ─────────────────────
+export const sessions = pgTable('sessions', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+  type: text('type').notNull(), // 'plan-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation'
+  status: text('status').notNull().default('active'), // 'active' | 'streaming' | 'completed' | 'error' | 'cancelled'
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  nodeId: text('node_id'),
+  providerSessionId: text('provider_session_id'),
+  providerId: text('provider_id'),
+  model: text('model'),
+  messages: jsonb('messages').$type<Array<{
+    id: string
+    role: 'user' | 'assistant' | 'system'
+    content: string
+    timestamp: string
+    appliedMutations?: unknown
+  }>>().notNull().default([]),
+  activityEvents: jsonb('activity_events').default([]),
+  toolTraces: jsonb('tool_traces').default([]),
+  fileChanges: jsonb('file_changes').default([]),
+  streamText: text('stream_text').default(''),
+  summary: jsonb('summary'),
+  metrics: jsonb('metrics'),
+  steerMessages: jsonb('steer_messages').default([]),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  completedAt: timestamp('completed_at'),
+})
+
+// ── Task Chat Sessions (legacy, will be migrated to sessions) ─────────
 export const taskChatSessions = pgTable('task_chat_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   nodeId: text('node_id').notNull(),

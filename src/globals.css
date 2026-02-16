@@ -57,7 +57,7 @@
   --card-foreground: #1E293B;
   --popover: #FFFFFF;
   --popover-foreground: #1E293B;
-  --primary: #3B82F6;
+  --primary: #F97316;
   --primary-foreground: #FFFFFF;
   --secondary: #64748B;
   --secondary-foreground: #FFFFFF;
@@ -69,7 +69,7 @@
   --destructive-foreground: #FFFFFF;
   --border: #E2E8F0;
   --input: #E2E8F0;
-  --ring: #3B82F6;
+  --ring: #F97316;
   --tile: #F8FAFC;
 
   --sidebar: #FFFFFF;
@@ -89,39 +89,56 @@
   --error-foreground: #FFFFFF;
   --info: #3B82F6;
   --info-foreground: #FFFFFF;
+
+  /* Accent colors from ios.pen */
+  --accent-coral: #E85A4F;
+  --accent-green: #32D583;
+  --accent-amber: #F59E0B;
+  --accent-blue: #3B82F6;
+  --accent-indigo: #6366F1;
+  --accent-red: #EF4444;
 }
 
 .dark {
-  --background: #0A0E1A;
+  /* Background layers from ios.pen */
+  --background: #0B0B0E;
   --foreground: #FAFAF9;
-  --card: #111827;
+  --card: #16161A;
   --card-foreground: #FAFAF9;
-  --popover: #111827;
+  --popover: #16161A;
   --popover-foreground: #FAFAF9;
   --primary: #3B82F6;
   --primary-foreground: #FFFFFF;
-  --secondary: #64748B;
+  --secondary: #6B6B70;
   --secondary-foreground: #FFFFFF;
-  --muted: #1E293B;
-  --muted-foreground: #8B8B90;
-  --accent: #3B82F615;
+  --muted: #1A1A1E;
+  --muted-foreground: #6B6B70;
+  --accent: rgba(59, 130, 246, 0.08);
   --accent-foreground: #DBEAFE;
   --destructive: #EF4444;
   --destructive-foreground: #FFFFFF;
-  --border: #1E293B;
-  --input: #1E293B;
-  --ring: #3B82F6;
-  --tile: #111827;
 
-  --sidebar: #111827;
-  --sidebar-foreground: #64748B;
-  --sidebar-accent: #1E293B;
+  /* Borders from ios.pen */
+  --border: #2A2A2E;
+  --border-subtle: #2A2A2E;
+  --border-strong: #3A3A40;
+  --input: #2A2A2E;
+  --ring: #3B82F6;
+  --tile: #16161A;
+
+  /* Elevated background */
+  --bg-elevated: #1A1A1E;
+
+  --sidebar: #16161A;
+  --sidebar-foreground: #6B6B70;
+  --sidebar-accent: #1A1A1E;
   --sidebar-accent-foreground: #FAFAF9;
-  --sidebar-border: #1E293B;
+  --sidebar-border: #2A2A2E;
   --sidebar-primary: #3B82F6;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-ring: #1E293B;
+  --sidebar-ring: #2A2A2E;
 
+  /* Status colors from ios.pen */
   --success: #16A34A;
   --success-foreground: #FFFFFF;
   --warning: #F59E0B;
@@ -130,6 +147,26 @@
   --error-foreground: #FFFFFF;
   --info: #3B82F6;
   --info-foreground: #FFFFFF;
+
+  /* Text hierarchy from ios.pen */
+  --text-primary: #FAFAF9;
+  --text-secondary: #6B6B70;
+  --text-tertiary: #4A4A50;
+
+  /* Status-specific colors */
+  --status-planned: #9CA3AF;
+  --status-inprogress: #3B82F6;
+  --status-completed: #16A34A;
+  --status-awaiting: #F59E0B;
+  --status-error: #EF4444;
+
+  /* Accent colors from ios.pen */
+  --accent-coral: #E85A4F;
+  --accent-green: #32D583;
+  --accent-amber: #F59E0B;
+  --accent-blue: #3B82F6;
+  --accent-indigo: #6366F1;
+  --accent-red: #EF4444;
 }
 
 /* Sheet slide-in animations */

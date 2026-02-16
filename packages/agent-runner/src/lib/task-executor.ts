@@ -225,6 +225,9 @@ export class TaskExecutor {
       sessionInit: (sessionId: string, model?: string) => {
         this.wsClient.sendTaskSessionInit(normalizedTask.id, sessionId, model);
       },
+      approvalRequest: async (question: string, options: string[]) => {
+        return this.wsClient.sendApprovalRequest(normalizedTask.id, question, options);
+      },
     };
 
     const runningTask: RunningTask = {

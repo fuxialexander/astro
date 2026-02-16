@@ -29,6 +29,13 @@
       "when": 1771027200000,
       "tag": "0003_push_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1771197237610,
+      "tag": "0004_natural_cable",
+      "breakpoints": true
     }
   ]
 }

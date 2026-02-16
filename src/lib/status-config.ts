@@ -61,6 +61,14 @@ export const STATUS_CONFIG: Record<PlanNode["status"], StatusEntry> = {
     badgeVariant: "warning",
     barClass: "bg-amber-500",
   },
+  awaiting_approval: {
+    icon: Eye,
+    label: "Awaiting Approval",
+    color: "text-amber-600",
+    bg: "bg-amber-500/10",
+    badgeVariant: "warning",
+    barClass: "bg-amber-500",
+  },
   completed: {
     icon: CheckCircle2,
     label: "Completed",

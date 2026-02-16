@@ -1,14 +1,33 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
-import { FileText, Plus, Share2, CheckCircle2, Clock, Circle, MessageSquare, XCircle, Diamond, X, Calendar, Trash2, GitPullRequestDraft, GitPullRequest, Ellipsis, ChevronDown } from "lucide-react"
+import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest } from "lucide-react"
+
+// Media query hook for responsive rendering
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.matchMedia(query).matches
+    }
+    return false
+  })
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query)
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches)
+    mediaQuery.addEventListener("change", handler)
+    return () => mediaQuery.removeEventListener("change", handler)
+  }, [query])
+
+  return matches
+}
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
 import { ExecutionPanel } from "@/components/execution"
@@ -637,20 +656,9 @@ export function PlanView() {
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [viewMode, setViewMode] = useState<ViewMode>(initialView && VALID_VIEWS.has(initialView) ? initialView : "graph")
-  const [viewMenuOpen, setViewMenuOpen] = useState(false)
-  const viewMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const mouseInTriggerRef = useRef(false)
-  const mouseInContentRef = useRef(false)
-  const viewMenuOpenedAtRef = useRef(0)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [visionOpen, setVisionOpen] = useState(false)
-
-  // Clear view menu close timer on unmount
-  useEffect(() => {
-    return () => {
-      if (viewMenuCloseTimerRef.current) clearTimeout(viewMenuCloseTimerRef.current)
-    }
-  }, [])
+  const isMobile = useMediaQuery("(max-width: 767px)")
 
   // Handle decompose: open chat with pre-filled message
   const handleDecomposeNode = useCallback((nodeId: string) => {
@@ -694,26 +702,19 @@ export function PlanView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, project?.workingDirectory, project?.defaultMachineId])
 
+  // Count upstream dependencies
+  const upstreamCount = useMemo(() => {
+    if (!selectedNode) return 0
+    const planEdges = usePlanStore.getState().edges
+    return planEdges.filter((e) => e.target === selectedNode.id).length
+  }, [selectedNode])
+
   if (!project) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         Project not found
       </div>
     )
-  }
-
-  const handleApprove = () => {
-    if (selectedNode) {
-      updateNode(selectedNode.id, { status: "completed" })
-      setSelectedNode({ ...selectedNode, status: "completed" })
-    }
-  }
-
-  const handleReject = () => {
-    if (selectedNode) {
-      updateNode(selectedNode.id, { status: "planned" })
-      setSelectedNode({ ...selectedNode, status: "planned" })
-    }
   }
 
   const handlePrune = () => {
@@ -723,11 +724,140 @@ export function PlanView() {
     }
   }
 
+  // Render inspector panel content (shared between mobile sheet and desktop sidebar)
+  const renderInspectorContent = () => (
+    <>
+      <div className="flex flex-col gap-3.5">
+        {/* Priority — editable */}
+        <div className="flex items-center justify-between text-[13px]">
+          <span className="text-muted-foreground">Priority</span>
+          <PropertyPicker
+            value={selectedNode!.priority ?? "none"}
+            options={PRIORITY_OPTIONS}
+            title="Set priority"
+            onSelect={(id) => {
+              updateNode(selectedNode!.id, { priority: id as Priority })
+              setSelectedNode({ ...selectedNode!, priority: id as Priority })
+            }}
+          >
+            {(() => {
+              const config = PRIORITY_CONFIG[(selectedNode!.priority ?? "none") as Priority]
+              return (
+                <span className={cn("text-[13px] font-medium", config.color)}>
+                  {config.label}
+                </span>
+              )
+            })()}
+          </PropertyPicker>
+        </div>
+
+        {/* Estimate — editable */}
+        <div className="flex items-center justify-between text-[13px]">
+          <span className="text-muted-foreground">Estimate</span>
+          <PropertyPicker
+            value={selectedNode!.estimate}
+            options={ESTIMATE_OPTIONS}
+            title="Set estimate"
+            onSelect={(id) => {
+              updateNode(selectedNode!.id, { estimate: id as PlanNode["estimate"] })
+              setSelectedNode({ ...selectedNode!, estimate: id as PlanNode["estimate"] })
+            }}
+          >
+            <span className="text-[13px] font-medium text-foreground">
+              {selectedNode!.estimate ?? "\u2014"}
+            </span>
+          </PropertyPicker>
+        </div>
+
+        {/* Dependencies — read-only */}
+        <div className="flex items-center justify-between text-[13px]">
+          <span className="text-muted-foreground">Dependencies</span>
+          <span className="text-[13px] font-medium text-foreground">
+            {upstreamCount > 0 ? `${upstreamCount} upstream` : "\u2014"}
+          </span>
+        </div>
+
+        {/* Status — editable */}
+        <div className="flex items-center justify-between text-[13px]">
+          <span className="text-muted-foreground">Status</span>
+          <PropertyPicker
+            value={selectedNode!.status}
+            options={STATUS_OPTIONS}
+            title="Set status"
+            onSelect={(id) => {
+              updateNode(selectedNode!.id, { status: id as PlanNode["status"] })
+              setSelectedNode({ ...selectedNode!, status: id as PlanNode["status"] })
+            }}
+          >
+            <span className="text-[13px] font-medium text-foreground">
+              {statusLabels[selectedNode!.status]}
+            </span>
+          </PropertyPicker>
+        </div>
+
+        {/* Elapsed time — read-only */}
+        {selectedNode!.executionId && (
+          <div className="flex items-center justify-between text-[13px]">
+            <span className="text-muted-foreground">Elapsed</span>
+            <span className="text-[13px] font-medium text-blue-500">3:24</span>
+          </div>
+        )}
+      </div>
+      <Separator />
+
+      <div className="flex flex-col gap-2">
+        <h4 className="text-[13px] font-semibold text-muted-foreground">Description</h4>
+        <FileCompletionTextarea
+          projectId={project.id}
+          machineId={project.defaultMachineId}
+          workingDirectory={project.workingDirectory}
+          fileTree={project.fileTree}
+          value={selectedNode!.description ?? ""}
+          onChange={(val) => {
+            updateNode(selectedNode!.id, { description: val })
+            setSelectedNode({ ...selectedNode!, description: val })
+          }}
+          placeholder="Describe this task... Use @ to reference files"
+          rows={4}
+          className="w-full resize-none rounded-md border-none bg-transparent px-0 py-0 text-[13px] leading-[1.5] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0"
+        />
+      </div>
+      <Separator />
+
+      <div className="flex flex-col gap-2.5">
+        {selectedNode!.executionId ? (
+          <Link
+            to={`/project/${project.id}/task/${selectedNode!.id}`}
+            className="flex items-center justify-center gap-2 h-10 rounded-[10px] bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+          >
+            <FileText className="h-4 w-4" />
+            View Execution
+          </Link>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <ExecutionPanel node={selectedNode!} projectId={project.id} />
+          </div>
+        )}
+
+        {selectedNode!.status !== "pruned" && (
+          <button
+            onClick={handlePrune}
+            className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-destructive text-sm font-medium hover:bg-muted/50 transition-colors"
+          >
+            <XCircle className="h-4 w-4" />
+            Prune Branch
+          </button>
+        )}
+      </div>
+    </>
+  )
+
   return (
     <div className="flex h-full flex-col">
-      {/* Single-line header: tabs + view mode + actions (title only on overview page) */}
-      <header className="flex items-center gap-3 border-b border-border px-6 h-14 shrink-0 flex-wrap">
-        <div className="flex items-center gap-1 shrink-0">
+      {/* Header: responsive tabs + view mode + actions */}
+      <header className="flex flex-col md:flex-row md:items-center gap-3 border-b border-border px-4 md:px-6 py-3 md:h-14 md:py-0 shrink-0">
+        {/* Project tabs - wrap on mobile */}
+        <div className="flex items-center gap-1 shrink-0 flex-wrap">
           <Link
             to={`/project/${id}`}
             className={cn(
@@ -750,79 +880,40 @@ export function PlanView() {
             Plan
           </span>
         </div>
-        <Separator orientation="vertical" className="h-5 shrink-0" />
-        <div className="flex items-center gap-2 shrink-0">
-          <DropdownMenu open={viewMenuOpen} onOpenChange={setViewMenuOpen}>
-            <DropdownMenuTrigger asChild>
+        <Separator orientation="vertical" className="h-5 shrink-0 hidden md:block" />
+
+        {/* View mode toggle - responsive */}
+        <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
+          <div className="flex items-center gap-1">
+            {(["graph", "list", "timeline", "board"] as ViewMode[]).map((mode) => (
               <button
-                className="flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/80 cursor-pointer capitalize"
-                onMouseEnter={() => {
-                  mouseInTriggerRef.current = true
-                  viewMenuOpenedAtRef.current = Date.now()
-                  if (viewMenuCloseTimerRef.current) {
-                    clearTimeout(viewMenuCloseTimerRef.current)
-                    viewMenuCloseTimerRef.current = null
-                  }
-                  setViewMenuOpen(true)
-                }}
-                onMouseLeave={() => {
-                  mouseInTriggerRef.current = false
-                  // Ignore spurious leave right after open (e.g. when dropdown content mounts)
-                  if (Date.now() - viewMenuOpenedAtRef.current < 120) return
-                  if (viewMenuCloseTimerRef.current) clearTimeout(viewMenuCloseTimerRef.current)
-                  viewMenuCloseTimerRef.current = setTimeout(() => {
-                    viewMenuCloseTimerRef.current = null
-                    if (!mouseInTriggerRef.current && !mouseInContentRef.current) setViewMenuOpen(false)
-                  }, 220)
-                }}
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
+                  viewMode === mode
+                    ? "bg-accent text-accent-foreground"
+                    : "text-slate-700 dark:text-slate-300 hover:text-foreground hover:bg-muted/50"
+                )}
               >
-                {viewMode}
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                {mode}
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="min-w-[7rem]"
-              onMouseEnter={() => {
-                mouseInContentRef.current = true
-                if (viewMenuCloseTimerRef.current) {
-                  clearTimeout(viewMenuCloseTimerRef.current)
-                  viewMenuCloseTimerRef.current = null
-                }
-                setViewMenuOpen(true)
-              }}
-              onMouseLeave={() => {
-                mouseInContentRef.current = false
-                if (viewMenuCloseTimerRef.current) clearTimeout(viewMenuCloseTimerRef.current)
-                viewMenuCloseTimerRef.current = setTimeout(() => {
-                  viewMenuCloseTimerRef.current = null
-                  if (!mouseInTriggerRef.current && !mouseInContentRef.current) setViewMenuOpen(false)
-                }, 200)
-              }}
-            >
-              {(["graph", "list", "timeline", "board"] as ViewMode[]).map((mode) => (
-                <DropdownMenuItem
-                  key={mode}
-                  className="capitalize cursor-pointer"
-                  onClick={() => setViewMode(mode)}
-                >
-                  {mode}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            ))}
+          </div>
           {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
           {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
           {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
           {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
         </div>
-        <div className="flex-1 min-w-0" />
-        <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)}>
+        <div className="flex-1 min-w-0 hidden md:block" />
+
+        {/* Action buttons - responsive */}
+        <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
+          <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)} className="hidden md:flex">
             <FileText className="h-3.5 w-3.5" />
             Vision
           </Button>
-          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)} className="hidden md:flex">
             <Plus className="h-3.5 w-3.5" />
             Add Task
           </Button>
@@ -832,13 +923,7 @@ export function PlanView() {
             onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setSelectedNode(null); if (chatOpen) setChatInitialMessage(undefined) }}
           >
             <MessageSquare className="h-3.5 w-3.5" />
-            Chat
-          </Button>
-          <Button variant="outline" size="icon" className="h-8 w-8">
-            <Share2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <Ellipsis className="h-5 w-5" />
+            <span className="hidden md:inline ml-1.5">Chat</span>
           </Button>
         </div>
       </header>
@@ -846,214 +931,116 @@ export function PlanView() {
       {/* Canvas/List + Detail/Chat pane */}
       <div className="flex flex-1 overflow-hidden relative">
         {viewMode === "graph" ? (
-          <div className="absolute inset-0">
-            <PlanCanvas projectId={project.id} onNodeSelect={setSelectedNode} onDecomposeNode={handleDecomposeNode} />
+          <div className="flex-1 relative overflow-hidden">
+            <div className="absolute inset-0 touch-pan-x touch-pan-y">
+              <PlanCanvas projectId={project.id} onNodeSelect={setSelectedNode} onDecomposeNode={handleDecomposeNode} />
+            </div>
           </div>
         ) : viewMode === "list" ? (
           <div className="flex flex-1 flex-col overflow-hidden">
             <PlanListView projectId={project.id} onNodeSelect={setSelectedNode} />
           </div>
         ) : viewMode === "board" ? (
-          <PlanBoardView projectId={project.id} onNodeSelect={setSelectedNode} />
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <PlanBoardView projectId={project.id} onNodeSelect={setSelectedNode} />
+          </div>
         ) : (
-          <PlanTimelineView projectId={project.id} onNodeSelect={setSelectedNode} />
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <PlanTimelineView projectId={project.id} onNodeSelect={setSelectedNode} />
+          </div>
         )}
 
-        {/* Chat panel — right sidebar */}
+        {/* Floating add button (mobile only) */}
+        <button
+          onClick={() => setCreateDialogOpen(true)}
+          className="md:hidden fixed bottom-24 right-4 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:scale-105 transition-transform z-30"
+          aria-label="Add task"
+        >
+          <Plus className="h-6 w-6" />
+        </button>
+
+        {/* Chat panel — bottom sheet on mobile, right sidebar on desktop */}
         {chatOpen && (
-          <div className={cn(
-            "z-20",
-            viewMode === "graph"
-              ? "absolute right-0 top-0 bottom-0 w-[380px] shadow-lg"
-              : "w-[380px] shrink-0"
-          )}>
-            <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
-          </div>
+          <>
+            {/* Mobile: bottom sheet */}
+            {isMobile && (
+              <Sheet open={chatOpen} onOpenChange={(open) => { setChatOpen(open); if (!open) setChatInitialMessage(undefined) }}>
+                <SheetContent side="bottom" className="h-[80vh] w-full">
+                  <SheetHeader>
+                    <SheetTitle>Plan Chat</SheetTitle>
+                  </SheetHeader>
+                  <div className="flex-1 overflow-hidden mt-4">
+                    <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
+                  </div>
+                </SheetContent>
+              </Sheet>
+            )}
+
+            {/* Desktop: right sidebar */}
+            {!isMobile && (
+              <div className="w-[380px] shrink-0">
+                <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
+              </div>
+            )}
+          </>
         )}
 
-        {/* Detail pane with Execution Panel */}
+        {/* Detail pane with Execution Panel — full-screen sheet on mobile, right sidebar on desktop */}
         {selectedNode && !chatOpen && (
-          <div className={cn(
-            "flex flex-col gap-5 border-l border-border bg-card p-5 overflow-auto",
-            viewMode === "graph"
-              ? "absolute right-0 top-0 bottom-0 w-[400px] z-10 shadow-lg"
-              : "w-[400px] shrink-0"
-          )}>
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold text-base truncate flex-1">{selectedNode.title}</h3>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0"
-                onClick={() => setSelectedNode(null)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <Separator />
-
-            <div className="flex flex-col gap-3">
-              {/* Status — editable */}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Status</span>
-                <PropertyPicker
-                  value={selectedNode.status}
-                  options={STATUS_OPTIONS}
-                  title="Set status"
-                  onSelect={(id) => {
-                    updateNode(selectedNode.id, { status: id as PlanNode["status"] })
-                    setSelectedNode({ ...selectedNode, status: id as PlanNode["status"] })
-                  }}
-                >
-                  <Badge variant={statusVariant[selectedNode.status] ?? "secondary"} className="text-[10px]">
-                    {statusLabels[selectedNode.status]}
-                  </Badge>
-                </PropertyPicker>
-              </div>
-
-              {/* Priority — editable */}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Priority</span>
-                <PropertyPicker
-                  value={selectedNode.priority ?? "none"}
-                  options={PRIORITY_OPTIONS}
-                  title="Set priority"
-                  onSelect={(id) => {
-                    updateNode(selectedNode.id, { priority: id as Priority })
-                    setSelectedNode({ ...selectedNode, priority: id as Priority })
-                  }}
-                >
-                  {(() => {
-                    const config = PRIORITY_CONFIG[(selectedNode.priority ?? "none") as Priority]
-                    const PIcon = config.icon
-                    return (
-                      <span className="inline-flex items-center gap-1.5">
-                        <PIcon className={cn("h-3.5 w-3.5", config.color)} />
-                        <span className="text-sm">{config.label}</span>
-                      </span>
-                    )
-                  })()}
-                </PropertyPicker>
-              </div>
-
-              {/* Estimate — editable */}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Estimate</span>
-                <PropertyPicker
-                  value={selectedNode.estimate}
-                  options={ESTIMATE_OPTIONS}
-                  title="Set estimate"
-                  onSelect={(id) => {
-                    updateNode(selectedNode.id, { estimate: id as PlanNode["estimate"] })
-                    setSelectedNode({ ...selectedNode, estimate: id as PlanNode["estimate"] })
-                  }}
-                >
-                  <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-                    {selectedNode.estimate ?? "\u2014"}
-                  </span>
-                </PropertyPicker>
-              </div>
-
-              {/* Due date — editable */}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Due date</span>
-                <label className="inline-flex items-center gap-1.5 rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer">
-                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className={cn("text-sm", selectedNode.dueDate ? "text-foreground" : "text-muted-foreground")}>
-                    {selectedNode.dueDate
-                      ? new Date(selectedNode.dueDate + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-                      : "\u2014"}
-                  </span>
-                  <input
-                    type="date"
-                    className="sr-only"
-                    value={selectedNode.dueDate ?? ""}
-                    onChange={(e) => {
-                      const val = e.target.value || undefined
-                      updateNode(selectedNode.id, { dueDate: val })
-                      setSelectedNode({ ...selectedNode, dueDate: val })
-                    }}
-                  />
-                </label>
-              </div>
-
-              {/* Type — read-only */}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Type</span>
-                <span className="capitalize">{selectedNode.type}</span>
-              </div>
-
-              {/* Verification — read-only */}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Verification</span>
-                <span className="capitalize">{selectedNode.verification}</span>
-              </div>
-
-              {/* Environment — read-only */}
-              {selectedNode.environment && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Environment</span>
-                  <span className="capitalize">{selectedNode.environment}</span>
-                </div>
-              )}
-            </div>
-            <Separator />
-
-            <div>
-              <h4 className="mb-3 text-sm font-semibold">Description</h4>
-              <FileCompletionTextarea
-                projectId={project.id}
-                machineId={project.defaultMachineId}
-                workingDirectory={project.workingDirectory}
-                fileTree={project.fileTree}
-                value={selectedNode.description ?? ""}
-                onChange={(val) => {
-                  updateNode(selectedNode.id, { description: val })
-                  setSelectedNode({ ...selectedNode, description: val })
-                }}
-                placeholder="Describe this task... Use @ to reference files"
-                rows={4}
-                className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-            <Separator />
-
-            <div className="flex flex-col gap-3">
-              <h4 className="text-sm font-semibold">Execution</h4>
-              <ExecutionPanel node={selectedNode} projectId={project.id} />
-            </div>
-
-            {selectedNode.status === "awaiting_judgment" && (
-              <>
-                <Separator />
-                <div className="flex items-center gap-2.5">
-                  <Button size="sm" className="flex-1" onClick={handleApprove}>
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Approve
-                  </Button>
-                  <Button variant="outline" size="sm" className="flex-1" onClick={handleReject}>
-                    <Clock className="h-3.5 w-3.5" />
-                    Retry
-                  </Button>
-                  <Button variant="outline" size="icon" className="h-8 w-8" onClick={handlePrune}>
-                    <XCircle className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </>
+          <>
+            {/* Mobile: full-screen sheet */}
+            {isMobile && (
+              <Sheet open={!!selectedNode} onOpenChange={(open) => !open && setSelectedNode(null)}>
+                <SheetContent side="right" className="w-full p-0">
+                  <div className="flex flex-col gap-5 p-4 overflow-auto h-full">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="font-semibold text-base truncate flex-1">{selectedNode.title}</h3>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => setSelectedNode(null)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <Separator />
+                    {renderInspectorContent()}
+                  </div>
+                </SheetContent>
+              </Sheet>
             )}
 
-            {selectedNode.status !== "awaiting_judgment" && selectedNode.status !== "pruned" && (
-              <>
-                <Separator />
-                <div className="flex items-center gap-2.5">
-                  <Button variant="outline" size="sm" className="flex-1" onClick={handlePrune}>
-                    <Circle className="h-3.5 w-3.5" />
-                    Prune Branch
+            {/* Desktop: right sidebar following theme */}
+            {!isMobile && (
+              <div className="flex flex-col gap-5 border-l bg-card p-5 overflow-auto border-border w-[320px] shrink-0">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Node Inspector</h4>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-[18px] w-[18px] shrink-0 p-0 hover:bg-transparent"
+                    onClick={() => setSelectedNode(null)}
+                  >
+                    <X className="h-[18px] w-[18px] text-muted-foreground" />
                   </Button>
                 </div>
-              </>
+                <div className="flex flex-col gap-2">
+                  <h3 className="font-semibold text-xl text-foreground truncate font-serif">
+                    {selectedNode.title}
+                  </h3>
+                  {selectedNode.executionId && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <div className="h-2 w-2 rounded-full bg-muted" />
+                      <span className="text-muted-foreground">MacBook Pro</span>
+                    </div>
+                  )}
+                </div>
+                <Separator />
+                {renderInspectorContent()}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
 

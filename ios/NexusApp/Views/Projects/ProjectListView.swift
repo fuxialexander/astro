@@ -2,6 +2,9 @@ import SwiftUI
 
 struct ProjectListView: View {
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(PlanStore.self) private var planStore
+    @Environment(\.colorScheme) private var colorScheme
+
     @State private var searchText = ""
     @State private var showNewProject = false
     @State private var sortBy: SortOption = .updated
@@ -28,19 +31,32 @@ struct ProjectListView: View {
     }
 
     var body: some View {
-        List {
-            ForEach(filteredProjects) { project in
-                NavigationLink(destination: ProjectDetailView(projectId: project.id)) {
-                    ProjectRow(project: project)
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        Task { try? await projectStore.deleteProject(project.id) }
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+        ZStack {
+            AdaptiveColors.background(colorScheme).ignoresSafeArea()
+
+            ScrollView {
+                LazyVStack(spacing: NexusTheme.Spacing.md) {
+                    ForEach(filteredProjects) { project in
+                        NavigationLink(destination: ProjectDetailView(projectId: project.id)) {
+                            AdaptiveProjectCard(
+                                project: project,
+                                isGenerating: planStore.isGenerating(projectId: project.id)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                Task { try? await projectStore.deleteProject(project.id) }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
                 }
+                .padding(NexusTheme.Spacing.lg)
+                .padding(.bottom, NexusTheme.Spacing.xxxl)
             }
+            .adaptiveScrollFade(colorScheme: colorScheme)
         }
         .searchable(text: $searchText, prompt: "Search projects")
         .navigationTitle("Projects")
@@ -83,90 +99,4 @@ struct ProjectListView: View {
     }
 }
 
-private struct ProjectRow: View {
-    let project: Project
-    @Environment(PlanStore.self) private var planStore
-
-    private var isGenerating: Bool {
-        planStore.isGenerating(projectId: project.id)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(project.name)
-                    .font(.body.weight(.medium))
-                Spacer()
-                if isGenerating {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                } else if let health = project.health {
-                    HealthBadge(health: health)
-                }
-            }
-
-            Text(project.description)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-
-            HStack(spacing: 12) {
-                if isGenerating {
-                    Text("Generating plan...")
-                        .font(.caption2)
-                        .foregroundStyle(.blue)
-                } else if let progress = project.progress {
-                    HStack(spacing: 4) {
-                        ProgressView(value: Double(progress), total: 100)
-                            .frame(width: 40)
-                        Text("\(progress)%")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if let startDate = project.startDate {
-                    Text(startDate)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-
-                Spacer()
-
-                Text(project.updatedAt.relativeString)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct HealthBadge: View {
-    let health: Project.ProjectHealth
-
-    var body: some View {
-        Text(displayName)
-            .font(.caption2.weight(.medium))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.15), in: Capsule())
-            .foregroundStyle(color)
-    }
-
-    private var displayName: String {
-        switch health {
-        case .onTrack: return "On Track"
-        case .atRisk: return "At Risk"
-        case .offTrack: return "Off Track"
-        }
-    }
-
-    private var color: Color {
-        switch health {
-        case .onTrack: return .green
-        case .atRisk: return .yellow
-        case .offTrack: return .red
-        }
-    }
-}
+// Removed: ProjectRow and HealthBadge are now replaced by AdaptiveProjectCard and NexusHealthIndicator from the design system

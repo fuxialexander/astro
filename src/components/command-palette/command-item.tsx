@@ -12,6 +12,7 @@ interface CommandItemProps {
   onMultiSelect?: () => void
   multiSelectEnabled?: boolean
   itemIndex: number
+  numberShortcut?: number
 }
 
 export function CommandItem({
@@ -24,6 +25,7 @@ export function CommandItem({
   onMultiSelect,
   multiSelectEnabled,
   itemIndex,
+  numberShortcut,
 }: CommandItemProps) {
   const Icon = item.icon
   const hasChildren = item.children && item.children.length > 0
@@ -80,8 +82,13 @@ export function CommandItem({
         )}
       </div>
 
+      {/* Number shortcut */}
+      {numberShortcut && (
+        <kbd className="shortcut-badge number-shortcut">{numberShortcut}</kbd>
+      )}
+
       {/* Keyboard shortcut */}
-      {item.shortcut && (
+      {!numberShortcut && item.shortcut && (
         <kbd className="shortcut-badge">{formatShortcut(item.shortcut)}</kbd>
       )}
 

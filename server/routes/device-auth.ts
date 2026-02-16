@@ -45,6 +45,7 @@ import {
   createWebSocketToken,
   createRefreshToken,
   verifyAccessToken,
+  verifyRefreshToken,
   refreshTokens,
   revokeRefreshToken,
   revokeAllMachineTokens,
@@ -494,7 +495,7 @@ deviceAuthRoute.post('/register', async (c) => {
 
 /**
  * POST /device/refresh
- * Refresh an access token
+ * Refresh an access token and WebSocket token
  */
 deviceAuthRoute.post('/refresh', async (c) => {
   try {
@@ -510,11 +511,29 @@ deviceAuthRoute.post('/refresh', async (c) => {
       return c.json({ error: 'Invalid or expired refresh token' }, 401);
     }
 
+    // Verify the refresh token to get machine info for wsToken
+    const verified = await verifyRefreshToken(body.refreshToken);
+    if (!verified) {
+      return c.json({ error: 'Invalid refresh token' }, 401);
+    }
+
+    const { entry } = verified;
+
+    // Create a new WebSocket token (uses RELAY_JWT_SECRET)
+    const wsToken = createWebSocketToken({
+      machineId: entry.machineId,
+      userId: entry.userId,
+      workspaceId: entry.workspaceId,
+      scopes: ['machine:connect', 'machine:execute'],
+      expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
+    });
+
     const response: TokenRefreshResponse = {
       accessToken: result.accessToken,
       tokenType: 'Bearer',
       expiresIn: result.expiresIn,
       refreshToken: result.refreshToken,
+      wsToken, // Include refreshed WebSocket token
     };
 
     return c.json(response);

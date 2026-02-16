@@ -4,7 +4,10 @@ import { parseSSEStream } from "@/lib/sse-parser"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
-import { getAccessToken } from "@/lib/supabase-client"
+import { getAccessToken, shouldUseSupabase } from "@/lib/supabase-client"
+import type { ApprovalRequest } from "@/components/approval-card"
+import { loadState, saveState } from "@/lib/db"
+import { dataClient } from "@/lib/data-client"
 
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -153,6 +156,12 @@ interface ExecutionState {
   // Batch execution state per project
   batchExecutions: Map<string, BatchExecution>
 
+  // Pending approval requests
+  pendingApprovals: Map<string, ApprovalRequest>
+
+  // Load state
+  loaded: boolean
+
   // Actions
   startExecution: (nodeId: string, projectId: string, options?: ExecutionOptions) => Promise<void>
   cancelExecution: (nodeId: string) => Promise<void>
@@ -179,15 +188,100 @@ interface ExecutionState {
   // Selection
   selectExecution: (nodeId: string | null) => void
 
+  // Approval actions
+  addPendingApproval: (approval: ApprovalRequest) => void
+  respondToApproval: (approvalId: string, approved: boolean, selectedOption?: string) => Promise<void>
+  getPendingApproval: (approvalId: string) => ApprovalRequest | undefined
+  getPendingApprovalForNode: (nodeId: string) => ApprovalRequest | undefined
+
   // Mutation methods for relay/realtime events
   appendText: (nodeId: string, text: string) => void
   addToolTrace: (nodeId: string, trace: ToolTrace) => void
   addFileChange: (nodeId: string, change: FileChange) => void
   updateToolTraceResult: (nodeId: string, toolName: string, result: unknown, success?: boolean, duration?: number) => void
+
+  // Persistence
+  load: () => Promise<void>
+  persist: () => Promise<void>
 }
 
 // Abort controllers for active executions
 const abortControllers = new Map<string, AbortController>()
+
+// Max number of completed executions to keep in IndexedDB
+const MAX_STORED_EXECUTIONS = 100
+
+// Helper: Serialize execution for storage (convert Map to Record and Date to ISO strings)
+function serializeExecutions(executions: Map<string, TaskExecution>): Record<string, SerializedTaskExecution> {
+  const record: Record<string, SerializedTaskExecution> = {}
+  for (const [nodeId, execution] of executions) {
+    // Only persist completed executions (success, failure, cancelled)
+    if (execution.status === 'success' || execution.status === 'failure' || execution.status === 'cancelled') {
+      record[nodeId] = {
+        ...execution,
+        startedAt: execution.startedAt.toISOString(),
+        completedAt: execution.completedAt?.toISOString(),
+        toolTraces: execution.toolTraces.map((t) => ({
+          ...t,
+          timestamp: t.timestamp.toISOString(),
+        })),
+        fileChanges: execution.fileChanges.map((f) => ({
+          ...f,
+          timestamp: f.timestamp.toISOString(),
+        })),
+        activityEvents: execution.activityEvents.map((e) => ({
+          ...e,
+          timestamp: e.timestamp.toISOString(),
+        })),
+      }
+    }
+  }
+  return record
+}
+
+// Helper: Deserialize execution from storage (convert Record to Map and ISO strings to Date)
+function deserializeExecutions(record: Record<string, SerializedTaskExecution>): Map<string, TaskExecution> {
+  const map = new Map<string, TaskExecution>()
+  for (const [nodeId, execution] of Object.entries(record)) {
+    map.set(nodeId, {
+      ...execution,
+      startedAt: new Date(execution.startedAt),
+      completedAt: execution.completedAt ? new Date(execution.completedAt) : undefined,
+      toolTraces: execution.toolTraces.map((t) => ({
+        ...t,
+        timestamp: new Date(t.timestamp),
+      })),
+      fileChanges: execution.fileChanges.map((f) => ({
+        ...f,
+        timestamp: new Date(f.timestamp),
+      })),
+      activityEvents: execution.activityEvents.map((e) => ({
+        ...e,
+        timestamp: new Date(e.timestamp),
+      })),
+    })
+  }
+  return map
+}
+
+// Serialized type with ISO date strings for storage
+type SerializedTaskActivityEvent =
+  | { type: 'text'; content: string; timestamp: string }
+  | { type: 'tool_use'; id: string; toolName: string; toolInput: unknown; timestamp: string }
+  | { type: 'tool_result'; id: string; toolName: string; toolResult?: unknown; success?: boolean; duration?: number; timestamp: string }
+  | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; interrupted?: boolean; timestamp: string }
+  | { type: 'chat_user'; message: string; timestamp: string }
+  | { type: 'chat_assistant'; content: string; timestamp: string }
+  | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: string }
+  | { type: 'error'; error: string; timestamp: string }
+
+interface SerializedTaskExecution extends Omit<TaskExecution, 'startedAt' | 'completedAt' | 'toolTraces' | 'fileChanges' | 'activityEvents'> {
+  startedAt: string
+  completedAt?: string
+  toolTraces: Array<Omit<ToolTrace, 'timestamp'> & { timestamp: string }>
+  fileChanges: Array<Omit<FileChange, 'timestamp'> & { timestamp: string }>
+  activityEvents: SerializedTaskActivityEvent[]
+}
 
 export const useExecutionStore = create<ExecutionState>((set, get) => ({
   executions: new Map(),
@@ -197,6 +291,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   machinesLoaded: false,
   selectedExecutionId: null,
   batchExecutions: new Map(),
+  pendingApprovals: new Map(),
+  loaded: false,
 
   startExecution: async (nodeId: string, projectId: string, options?: ExecutionOptions) => {
     // Get node and project info
@@ -370,6 +466,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           status: "awaiting_judgment",
           executionError: message,
         })
+
+        // Persist failed execution to IndexedDB and Supabase
+        get().persist()
       }
     } finally {
       abortControllers.delete(nodeId)
@@ -593,6 +692,45 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     set({ selectedExecutionId: nodeId })
   },
 
+  addPendingApproval: (approval: ApprovalRequest) => {
+    set((state) => {
+      const newApprovals = new Map(state.pendingApprovals)
+      newApprovals.set(approval.approvalId, approval)
+      return { pendingApprovals: newApprovals }
+    })
+  },
+
+  respondToApproval: async (approvalId: string, approved: boolean, selectedOption?: string) => {
+    const headers = await getAuthHeaders()
+
+    const response = await fetch('/api/dispatch/approve', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ approvalId, approved, selectedOption }),
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to respond to approval')
+    }
+
+    // Remove from pending approvals
+    set((state) => {
+      const newApprovals = new Map(state.pendingApprovals)
+      newApprovals.delete(approvalId)
+      return { pendingApprovals: newApprovals }
+    })
+  },
+
+  getPendingApproval: (approvalId: string) => {
+    return get().pendingApprovals.get(approvalId)
+  },
+
+  getPendingApprovalForNode: (nodeId: string) => {
+    const approvals = Array.from(get().pendingApprovals.values())
+    return approvals.find((a) => a.nodeId === nodeId)
+  },
+
   appendText: (nodeId: string, text: string) => {
     set((state) => {
       const newExecutions = new Map(state.executions)
@@ -666,6 +804,74 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }
       return { executions: newExecutions }
     })
+  },
+
+  load: async () => {
+    try {
+      // Try loading from Supabase first (if enabled)
+      if (shouldUseSupabase()) {
+        try {
+          const executionsRecord = await dataClient.getExecutions()
+          // dataClient already deserializes dates, just convert Record to Map
+          const executions = new Map<string, TaskExecution>(Object.entries(executionsRecord))
+          set({ executions, loaded: true })
+          console.log('[execution-store] Loaded executions from Supabase:', executions.size)
+          return
+        } catch (err) {
+          console.warn('[execution-store] Failed to load from Supabase, falling back to IndexedDB:', err)
+        }
+      }
+
+      // Fall back to IndexedDB
+      const stored = await loadState<Record<string, SerializedTaskExecution>>('nexus-executions')
+      if (stored) {
+        const executions = deserializeExecutions(stored)
+        set({ executions, loaded: true })
+        console.log('[execution-store] Loaded executions from IndexedDB:', executions.size)
+      } else {
+        set({ loaded: true })
+        console.log('[execution-store] No stored executions found')
+      }
+    } catch (error) {
+      console.error('[execution-store] Failed to load executions:', error)
+      set({ loaded: true })
+    }
+  },
+
+  persist: async () => {
+    const { executions } = get()
+    try {
+      // Serialize and apply cleanup (keep last 100 completed executions)
+      const completedExecutions = Array.from(executions.entries())
+        .filter(([, exec]) => exec.status === 'success' || exec.status === 'failure' || exec.status === 'cancelled')
+        .sort((a, b) => {
+          const aTime = a[1].completedAt?.getTime() ?? 0
+          const bTime = b[1].completedAt?.getTime() ?? 0
+          return bTime - aTime // Most recent first
+        })
+        .slice(0, MAX_STORED_EXECUTIONS)
+
+      const toStore = new Map(completedExecutions)
+      const serialized = serializeExecutions(toStore)
+
+      // Save to IndexedDB
+      await saveState('nexus-executions', serialized)
+      console.log('[execution-store] Persisted', Object.keys(serialized).length, 'executions to IndexedDB')
+
+      // Fire-and-forget: sync to Supabase (if enabled)
+      if (shouldUseSupabase()) {
+        // Only sync newly completed executions (not already in DB)
+        for (const [, execution] of completedExecutions) {
+          if (execution.status === 'success' || execution.status === 'failure' || execution.status === 'cancelled') {
+            dataClient.saveExecution(execution).catch((err) => {
+              console.warn('[execution-store] Failed to sync execution to Supabase:', err)
+            })
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[execution-store] Failed to persist executions:', error)
+    }
   },
 }))
 
@@ -956,6 +1162,9 @@ function handleSSEEvent(
         if (isSuccess && execution) {
           requestExecutionSummary(nodeId, execution, node)
         }
+
+        // Persist completed execution to IndexedDB and Supabase
+        useExecutionStore.getState().persist()
       } catch {
         // Ignore parse errors
       }
@@ -981,6 +1190,9 @@ function handleSSEEvent(
           status: "awaiting_judgment",
           executionError: errorMessage,
         })
+
+        // Persist failed execution to IndexedDB and Supabase
+        useExecutionStore.getState().persist()
       } catch {
         // Ignore parse errors
       }
@@ -998,6 +1210,9 @@ function handleSSEEvent(
         return { executions: newExecutions }
       })
       planStore.updateNode(nodeId, { status: "planned" })
+
+      // Persist cancelled execution to IndexedDB and Supabase
+      useExecutionStore.getState().persist()
       break
     }
 

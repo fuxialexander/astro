@@ -5,10 +5,26 @@ import AuthenticationServices
 @MainActor
 final class PasskeyManager: NSObject {
     private var continuation: CheckedContinuation<ASAuthorization, Error>?
-    private let relyingPartyIdentifier: String
 
-    init(relyingPartyIdentifier: String = "localhost") {
-        self.relyingPartyIdentifier = relyingPartyIdentifier
+    /// Derive relying party ID from server URL
+    /// - For localhost: "localhost"
+    /// - For production: extract domain (e.g., "nexus.app" from "https://nexus.app")
+    private var relyingPartyIdentifier: String {
+        let serverURL = SessionManager.shared.serverURL
+
+        // Parse the server URL
+        guard let url = URL(string: serverURL),
+              let host = url.host else {
+            return "localhost" // Fallback
+        }
+
+        // For localhost/127.0.0.1, return "localhost"
+        if host == "localhost" || host == "127.0.0.1" {
+            return "localhost"
+        }
+
+        // For production, return the full host (e.g., "nexus.app" or "api.nexus.app")
+        return host
     }
 
     // MARK: - Register new passkey

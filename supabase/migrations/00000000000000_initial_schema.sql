@@ -12,6 +12,7 @@ create extension if not exists "pgcrypto";
 -- ============================================================================
 create type project_status as enum ('active', 'archived');
 create type project_health as enum ('on_track', 'at_risk', 'off_track');
+create type initiative_status as enum ('active', 'on_hold', 'completed', 'cancelled');
 create type node_type as enum ('milestone', 'task', 'branch', 'decision');
 create type node_status as enum (
   'planned', 'dispatched', 'in_progress',
@@ -98,9 +99,11 @@ create table projects (
   target_date date,
   lead text,
   health project_health,
-  initiative text,
+  initiative_id uuid,
   progress integer default 0 check (progress >= 0 and progress <= 100),
   labels jsonb not null default '[]',
+  color text default '#3b82f6',  -- Hex color for visual identification
+  icon text default '📋',  -- Emoji icon for visual identification
   working_directory text,
   repository text,  -- Added from 20260210000000_add_project_repository.sql
   default_environment text,  -- Default environment for task execution
@@ -115,6 +118,36 @@ create index idx_projects_status on projects(status);
 create trigger projects_updated_at
   before update on projects
   for each row execute function update_updated_at();
+
+-- Initiatives (high-level organizational grouping)
+create table initiatives (
+  id uuid primary key default uuid_generate_v4(),
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  description text not null default '',
+  goal text,
+  status initiative_status not null default 'active',
+  start_date date,
+  target_date date,
+  lead text,
+  color text default '#3b82f6',  -- Hex color for visual grouping
+  icon text default '🎯',  -- Emoji icon for visual identification
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index idx_initiatives_owner on initiatives(owner_id);
+create index idx_initiatives_status on initiatives(status);
+
+create trigger initiatives_updated_at
+  before update on initiatives
+  for each row execute function update_updated_at();
+
+-- Add foreign key constraint to projects.initiative_id
+alter table projects add constraint projects_initiative_id_fkey
+  foreign key (initiative_id) references initiatives(id) on delete set null;
+
+create index idx_projects_initiative on projects(initiative_id);
 
 -- Project members (for shared access)
 create table project_members (
@@ -382,6 +415,7 @@ create index idx_passkeys_user on passkey_credentials(user_id);
 
 -- Enable RLS on all tables
 alter table user_profiles enable row level security;
+alter table initiatives enable row level security;
 alter table projects enable row level security;
 alter table project_members enable row level security;
 alter table plan_nodes enable row level security;
@@ -405,6 +439,23 @@ create policy "Users can update own profile"
   on user_profiles for update using (id = auth.uid());
 create policy "Users can insert own profile"
   on user_profiles for insert with check (id = auth.uid());
+
+-- Initiatives: owner or project member access
+create policy "Users can view own/accessible initiatives"
+  on initiatives for select using (
+    owner_id = auth.uid() OR
+    exists (
+      select 1 from projects p
+      where p.initiative_id = initiatives.id
+      and user_has_project_access(p.id)
+    )
+  );
+create policy "Users can create initiatives"
+  on initiatives for insert with check (owner_id = auth.uid());
+create policy "Owners can update initiatives"
+  on initiatives for update using (owner_id = auth.uid());
+create policy "Owners can delete initiatives"
+  on initiatives for delete using (owner_id = auth.uid());
 
 -- Projects: owner or member access
 create policy "Users can view own/member projects"
@@ -568,14 +619,67 @@ create policy "Users can delete own passkeys"
   on passkey_credentials for delete using (user_id = auth.uid());
 
 -- ============================================================================
+-- Sessions Table (unified session store)
+-- ============================================================================
+create table sessions (
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  type text not null, -- 'plan-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation'
+  status text not null default 'active', -- 'active' | 'streaming' | 'completed' | 'error' | 'cancelled'
+  project_id uuid not null references projects(id) on delete cascade,
+  node_id text,
+  provider_session_id text,
+  provider_id text,
+  model text,
+  messages jsonb not null default '[]',
+  activity_events jsonb default '[]',
+  tool_traces jsonb default '[]',
+  file_changes jsonb default '[]',
+  stream_text text default '',
+  summary jsonb,
+  metrics jsonb,
+  steer_messages jsonb default '[]',
+  metadata jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_at timestamptz
+);
+
+create index idx_sessions_user on sessions(user_id);
+create index idx_sessions_project on sessions(project_id);
+create index idx_sessions_node on sessions(node_id);
+create index idx_sessions_type on sessions(type);
+
+create trigger sessions_updated_at
+  before update on sessions
+  for each row execute function update_updated_at();
+
+alter table sessions enable row level security;
+
+create policy "Users can view own sessions"
+  on sessions for select using (user_id = auth.uid());
+create policy "Users can create sessions"
+  on sessions for insert with check (user_id = auth.uid());
+create policy "Users can update own sessions"
+  on sessions for update using (user_id = auth.uid());
+create policy "Users can delete own sessions"
+  on sessions for delete using (user_id = auth.uid());
+
+-- ============================================================================
 -- Realtime Subscriptions
 -- ============================================================================
 -- Enable realtime on tables that need cross-device sync
+alter publication supabase_realtime add table initiatives;
 alter publication supabase_realtime add table projects;
 alter publication supabase_realtime add table plan_nodes;
 alter publication supabase_realtime add table plan_edges;
 alter publication supabase_realtime add table task_executions;
 alter publication supabase_realtime add table registered_machines;
+alter publication supabase_realtime add table user_profiles;
+alter publication supabase_realtime add table display_settings;
+alter publication supabase_realtime add table task_chat_sessions;
+alter publication supabase_realtime add table task_chat_messages;
+alter publication supabase_realtime add table sessions;
 
 -- ============================================================================
 -- Auto-create user profile on signup

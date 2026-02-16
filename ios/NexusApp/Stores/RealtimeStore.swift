@@ -6,6 +6,7 @@ import Observation
 final class RealtimeStore {
     var connectedMachines: [MachineInfo] = []
     var recentEvents: [ActivityEvent] = []
+    var pendingApprovals: [ActivityEvent] = []
     var isConnected = false
 
     private var sseClient: SSEClient?
@@ -100,6 +101,16 @@ final class RealtimeStore {
                 connectedMachines.removeAll { $0.machineId == machineId }
             }
 
+        case .approvalRequested:
+            // Add to pending approvals
+            pendingApprovals.append(event)
+
+        case .approvalResponded:
+            // Remove from pending approvals when responded
+            if let approvalId = event.approvalId {
+                pendingApprovals.removeAll { $0.approvalId == approvalId }
+            }
+
         default:
             break
         }
@@ -130,5 +141,26 @@ final class RealtimeStore {
                 return false
             }
         }
+    }
+
+    var approvalEvents: [ActivityEvent] {
+        recentEvents.filter {
+            switch $0.type {
+            case .approvalRequested, .approvalResponded:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    // MARK: - Approval Actions
+
+    func respondToApproval(_ approvalId: String, approved: Bool, selectedOption: String? = nil) async throws {
+        try await NexusAPI.shared.respondToApproval(
+            approvalId: approvalId,
+            approved: approved,
+            selectedOption: selectedOption
+        )
     }
 }

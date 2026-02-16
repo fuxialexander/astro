@@ -25,6 +25,8 @@ import { usePlanStore } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
+import { useExecutionStore } from "@/stores/execution-store"
+import { ApprovalCard } from "@/components/approval-card"
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
 
@@ -62,6 +64,8 @@ export function Dashboard() {
   const connected = useRealtimeStore((s) => s.connected)
   const sessionMetrics = useUsageStore((s) => s.sessionMetrics)
   const profile = useUserProfileStore((s) => s.profile)
+  const pendingApprovals = useExecutionStore((s) => s.pendingApprovals)
+  const respondToApproval = useExecutionStore((s) => s.respondToApproval)
   const navigate = useNavigate()
 
   const activeTasks = nodes.filter(
@@ -71,10 +75,10 @@ export function Dashboard() {
     (n) => n.status === "completed" || n.status === "auto_verified"
   ).length
   const pendingDecisions = nodes.filter(
-    (n) => n.status === "awaiting_judgment"
+    (n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval"
   ).length
 
-  const pendingNodes = nodes.filter((n) => n.status === "awaiting_judgment")
+  const pendingNodes = nodes.filter((n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval")
   const activeProjects = projects.filter((p) => p.status === "active")
 
   return (
@@ -159,6 +163,23 @@ export function Dashboard() {
             {pendingNodes.length > 0 ? (
               pendingNodes.map((node) => {
                 const project = projects.find((p) => p.id === node.projectId)
+                // Check if this node has a pending approval request
+                const approval = Array.from(pendingApprovals.values()).find(
+                  (a) => a.nodeId === node.id
+                )
+
+                // If awaiting approval, show ApprovalCard
+                if (node.status === "awaiting_approval" && approval) {
+                  return (
+                    <ApprovalCard
+                      key={node.id}
+                      approval={approval}
+                      onRespond={respondToApproval}
+                    />
+                  )
+                }
+
+                // Otherwise, show judgment card
                 return (
                   <Card key={node.id} className="rounded-2xl shadow-lg">
                     <CardContent className="flex flex-col gap-0 p-0">

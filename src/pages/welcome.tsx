@@ -22,6 +22,10 @@ import {
   ChevronDown,
   CheckCircle2,
   Bot,
+  RefreshCw,
+  Github,
+  Search,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
@@ -37,15 +41,34 @@ import { useProjectStore } from "@/stores/project-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
+import { useRealtimeStore, type MachineEntry } from "@/stores/realtime-store"
+import { useGitHubStore } from "@/stores/github-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
+import { useWelcomeFormPersistence } from "@/hooks/use-welcome-form-persistence"
 import { GitInitDialog } from "@/components/git-init-dialog"
+import { MobileStatusBar } from "@/components/mobile/status-bar"
 import { cn } from "@/lib/utils"
 
 type UserType = "builder" | "scientist" | null
 type InputMode = "type" | "paste" | "import" | "repo"
 
 const TOTAL_STEPS = 3
+
+// Convert realtime machine to MachineInfo format
+function convertRealtimeMachine(machine: MachineEntry): MachineInfo {
+  return {
+    machineId: machine.machineId,
+    name: machine.name,
+    environmentType: machine.environmentType as 'local' | 'remote' | 'hpc' | 'cloud',
+    hostname: machine.machineId, // Use machineId as fallback
+    status: (machine.connectionStatus === 'connected' ? 'online' : 'offline') as 'online' | 'offline' | 'busy',
+    providers: machine.providers.map((p) => ({
+      type: p.type,
+      status: p.status,
+    })),
+  }
+}
 
 const environmentConfig = {
   local: { icon: Laptop, label: "Local", description: "Run on this machine" },
@@ -98,34 +121,26 @@ function StepIndicator({ current }: { current: number }) {
 // --- Main Component ---
 
 export function Welcome() {
-  const [step, setStep] = useState(1)
-  const [userType, setUserType] = useState<UserType>(null)
-  const [inputMode, setInputMode] = useState<InputMode>("type")
-  const [description, setDescription] = useState("")
-  const [pastedDoc, setPastedDoc] = useState("")
-  const [repoUrl, setRepoUrl] = useState("")
-  const [repoPath, setRepoPath] = useState("")
-  const [domain, setDomain] = useState("")
-  const [startDate, setStartDate] = useState("")
-  const [targetDate, setTargetDate] = useState("")
-  const [techStack, setTechStack] = useState("")
-  const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
-  const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
+  // Form persistence hook
+  const { state: formState, updateField, clearState } = useWelcomeFormPersistence()
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
 
   // Shared repo setup hook
   const { setupRepo, gitInitPrompt, dismissGitInit, confirmGitInit } = useRepoSetup()
 
-  // Machine state
+  // Machine state from execution store (legacy, for getMachinesForEnvironment)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
+
+  // Real-time machine updates
+  const realtimeMachines = useRealtimeStore((s) => s.machines)
 
   // Provider state
   const providers = useExecutionStore((s) => s.providers)
@@ -139,19 +154,85 @@ export function Welcome() {
     if (!providersLoaded) loadProviders()
   }, [machinesLoaded, loadMachines, providersLoaded, loadProviders])
 
-  const availableMachines = getMachinesForEnvironment(selectedEnvironment)
-  const isRemoteEnv = selectedEnvironment !== "local"
-  const EnvironmentIcon = environmentConfig[selectedEnvironment].icon
+  // Derive machine list: combine execution store + realtime store
+  const availableMachines = getMachinesForEnvironment(formState.selectedEnvironment)
+  const realtimeMachinesList = Array.from(realtimeMachines.values()).filter(
+    (m) => m.environmentType === formState.selectedEnvironment
+  )
+
+  const isRemoteEnv = formState.selectedEnvironment !== "local"
+  const EnvironmentIcon = environmentConfig[formState.selectedEnvironment].icon
+
+  // Extract persisted state for easier access
+  const step = formState.currentStep
+  const userType = formState.userType
+  const inputMode = formState.inputMode
+  const description = formState.description
+  const pastedDoc = formState.pastedDoc
+  const repoUrl = formState.repoUrl
+  const repoPath = formState.repoPath
+  const domain = formState.domain
+  const startDate = formState.startDate
+  const targetDate = formState.targetDate
+  const techStack = formState.techStack
+  const selectedEnvironment = formState.selectedEnvironment
+  const selectedMachineId = formState.selectedMachineId
+
+  // Find selected machine from either store
+  const selectedMachine = selectedMachineId
+    ? availableMachines.find((m) => m.machineId === selectedMachineId) ||
+      (realtimeMachinesList.find((m) => m.machineId === selectedMachineId)
+        ? convertRealtimeMachine(realtimeMachinesList.find((m) => m.machineId === selectedMachineId)!)
+        : null)
+    : null
+
+  // Wrapper functions to update persisted state
+  const setStep = (val: number) => updateField('currentStep', val)
+  const setUserType = (val: UserType) => updateField('userType', val)
+  const setInputMode = (val: InputMode) => updateField('inputMode', val)
+  const setDescription = (val: string) => updateField('description', val)
+  const setPastedDoc = (val: string) => updateField('pastedDoc', val)
+  const setRepoUrl = (val: string) => updateField('repoUrl', val)
+  const setRepoPath = (val: string) => updateField('repoPath', val)
+  const setDomain = (val: string) => updateField('domain', val)
+  const setStartDate = (val: string) => updateField('startDate', val)
+  const setTargetDate = (val: string) => updateField('targetDate', val)
+  const setTechStack = (val: string) => updateField('techStack', val)
+  const setSelectedEnvironment = (val: EnvironmentType) => updateField('selectedEnvironment', val)
+  const setSelectedMachineId = (val: string | null) => updateField('selectedMachineId', val)
+
+  // GitHub integration
+  const { connected, repos, selectedRepoIds, error: githubError, fetchRepos, connect } = useGitHubStore()
+  const [showGitHubRepos, setShowGitHubRepos] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+
+  // Fetch repos when GitHub selector is opened
+  useEffect(() => {
+    if (connected && showGitHubRepos && repos.length === 0) {
+      fetchRepos()
+    }
+  }, [connected, showGitHubRepos, repos.length, fetchRepos])
+
+  // Filter repos by search query
+  const filteredRepos = repos.filter((repo) => {
+    if (!searchQuery) return selectedRepoIds.length === 0 || selectedRepoIds.includes(repo.id)
+    const query = searchQuery.toLowerCase()
+    return (
+      repo.name.toLowerCase().includes(query) ||
+      repo.fullName.toLowerCase().includes(query) ||
+      repo.description?.toLowerCase().includes(query)
+    )
+  })
 
   // Voice transcription
   const handleTranscript = useCallback((text: string) => {
-    setDescription((prev) => {
-      if (prev.trim()) {
-        return prev.trim() + " " + text
-      }
-      return text
-    })
-  }, [])
+    const prev = description
+    if (prev.trim()) {
+      setDescription(prev.trim() + " " + text)
+    } else {
+      setDescription(text)
+    }
+  }, [description, setDescription])
 
   const {
     isRecording,
@@ -227,6 +308,9 @@ export function Welcome() {
       updatedAt: new Date(),
     })
 
+    // Clear persisted form state after successful submission
+    clearState()
+
     navigate(`/project/${id}/plan`)
 
     if (connectionStatus !== "connected") return
@@ -269,8 +353,12 @@ export function Welcome() {
     : placeholderByType.default
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
-      <div className="flex w-full max-w-[600px] flex-col items-center gap-10">
+    <div className="flex min-h-screen flex-col bg-background">
+      {/* Mobile Status Bar */}
+      <MobileStatusBar />
+
+      <div className="flex flex-1 items-center justify-center px-4 py-12">
+        <div className="flex w-full max-w-[600px] flex-col items-center gap-10">
         {/* Step indicator */}
         <StepIndicator current={step} />
 
@@ -602,7 +690,7 @@ export function Welcome() {
                             key={env}
                             onClick={() => {
                               setSelectedEnvironment(env)
-                              setSelectedMachine(null)
+                              setSelectedMachineId(null)
                             }}
                             className="gap-2"
                           >
@@ -623,46 +711,78 @@ export function Welcome() {
                   </DropdownMenu>
 
                   {/* Machine selector for non-local environments */}
-                  {isRemoteEnv && availableMachines.length > 0 && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-                          <Server className="h-4 w-4 text-muted-foreground" />
-                          <span className="max-w-[140px] truncate">
-                            {selectedMachine?.name || "Select machine"}
-                          </span>
-                          <ChevronDown className="h-3 w-3 opacity-50" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {availableMachines.map((machine) => (
-                          <DropdownMenuItem
-                            key={machine.machineId}
-                            onClick={() => setSelectedMachine(machine)}
-                            className="gap-2"
-                          >
-                            <Server className="h-4 w-4" />
-                            <div className="flex flex-col">
-                              <span>{machine.name}</span>
-                              <span className="text-xs text-muted-foreground">
-                                {machine.hostname || machine.machineId}
+                  {isRemoteEnv && (
+                    <>
+                      {(availableMachines.length > 0 || realtimeMachinesList.length > 0) ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                              <Server className="h-4 w-4 text-muted-foreground" />
+                              <span className="max-w-[140px] truncate">
+                                {selectedMachine?.name || "Select machine"}
                               </span>
-                            </div>
-                            {selectedMachine?.machineId === machine.machineId && (
-                              <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                            )}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-
-                  {isRemoteEnv && availableMachines.length === 0 && machinesLoaded && (
-                    <span className="text-xs text-muted-foreground">
-                      No {environmentConfig[selectedEnvironment].label.toLowerCase()} machines connected
-                    </span>
+                              <ChevronDown className="h-3 w-3 opacity-50" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {/* Show machines from both stores */}
+                            {availableMachines.map((machine) => (
+                              <DropdownMenuItem
+                                key={machine.machineId}
+                                onClick={() => setSelectedMachineId(machine.machineId)}
+                                className="gap-2"
+                              >
+                                <Server className="h-4 w-4" />
+                                <div className="flex flex-col">
+                                  <span>{machine.name}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {machine.hostname || machine.machineId}
+                                  </span>
+                                </div>
+                                {selectedMachineId === machine.machineId && (
+                                  <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                                )}
+                              </DropdownMenuItem>
+                            ))}
+                            {/* Add realtime machines not in execution store */}
+                            {realtimeMachinesList
+                              .filter((rtm) => !availableMachines.some((m) => m.machineId === rtm.machineId))
+                              .map((machine) => (
+                                <DropdownMenuItem
+                                  key={machine.machineId}
+                                  onClick={() => setSelectedMachineId(machine.machineId)}
+                                  className="gap-2"
+                                >
+                                  <Server className="h-4 w-4" />
+                                  <div className="flex flex-col">
+                                    <span>{machine.name}</span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {machine.machineId}
+                                    </span>
+                                  </div>
+                                  {selectedMachineId === machine.machineId && (
+                                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                                  )}
+                                </DropdownMenuItem>
+                              ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <div className="flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 text-sm border border-amber-200 dark:border-amber-900">
+                          <RefreshCw className="h-4 w-4 text-amber-600 dark:text-amber-400 animate-spin" />
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-medium text-amber-900 dark:text-amber-100">
+                              Waiting for agent...
+                            </span>
+                            <span className="text-xs text-amber-700 dark:text-amber-300">
+                              Complete the agent setup in your terminal. This page will update automatically.
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -755,13 +875,137 @@ export function Welcome() {
                     <GitBranch className="h-4 w-4 text-muted-foreground" />
                     Link a repository (optional)
                   </label>
-                  <input
-                    type="text"
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                    placeholder="https://github.com/user/repo or /path/to/local/repo"
-                    className="h-10 rounded-xl border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
+
+                  {/* GitHub Repo Selector */}
+                  {showGitHubRepos ? (
+                    <div className="flex flex-col gap-2 p-3 rounded-xl border border-border bg-card">
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search repositories..."
+                            className="w-full rounded-lg border border-border bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                          />
+                        </div>
+                        <button
+                          onClick={() => {
+                            setShowGitHubRepos(false)
+                            setSearchQuery("")
+                          }}
+                          className="p-2 rounded-md hover:bg-muted transition-colors"
+                        >
+                          <X className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-background">
+                        {filteredRepos.length === 0 ? (
+                          <div className="p-4 text-center text-sm text-muted-foreground">
+                            {searchQuery ? "No repositories found" : "No repositories available"}
+                          </div>
+                        ) : (
+                          filteredRepos.map((repo) => (
+                            <button
+                              key={repo.id}
+                              onClick={() => {
+                                setRepoUrl(repo.htmlUrl)
+                                setShowGitHubRepos(false)
+                                setSearchQuery("")
+                              }}
+                              className="w-full p-3 text-left hover:bg-muted/50 border-b last:border-b-0 transition-colors"
+                            >
+                              <div className="flex items-start gap-2">
+                                <Github className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-sm truncate">
+                                    {repo.fullName}
+                                  </div>
+                                  {repo.description && (
+                                    <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                                      {repo.description}
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-2 mt-1">
+                                    {repo.language && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {repo.language}
+                                      </span>
+                                    )}
+                                    {repo.private && (
+                                      <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                                        Private
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ) : repoUrl ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={repoUrl}
+                        onChange={(e) => setRepoUrl(e.target.value)}
+                        placeholder="https://github.com/user/repo or /path/to/local/repo"
+                        className="flex-1 h-10 rounded-xl border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <button
+                        onClick={() => setRepoUrl("")}
+                        className="p-2 rounded-md hover:bg-muted transition-colors"
+                      >
+                        <X className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      {connected ? (
+                        <>
+                          <button
+                            onClick={() => setShowGitHubRepos(true)}
+                            className="flex-1 h-10 flex items-center justify-center gap-2 rounded-xl border border-border bg-card text-sm text-foreground hover:border-foreground/20 transition-colors"
+                          >
+                            <Github className="h-4 w-4" />
+                            Browse GitHub repos
+                          </button>
+                          <button
+                            onClick={() => setRepoUrl("/")}
+                            className="flex-1 h-10 flex items-center justify-center gap-2 rounded-xl border border-border bg-card text-sm text-muted-foreground hover:border-foreground/20 transition-colors"
+                          >
+                            <GitBranch className="h-4 w-4" />
+                            Enter manually
+                          </button>
+                        </>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={connect}
+                              className="flex-1 h-10 flex items-center justify-center gap-2 rounded-xl border border-primary/50 bg-primary/10 text-sm text-primary hover:bg-primary/20 transition-colors"
+                            >
+                              <Github className="h-4 w-4" />
+                              Connect GitHub
+                            </button>
+                            <button
+                              onClick={() => setRepoUrl("/")}
+                              className="flex-1 h-10 flex items-center justify-center gap-2 rounded-xl border border-border bg-card text-sm text-muted-foreground hover:border-foreground/20 transition-colors"
+                            >
+                              <GitBranch className="h-4 w-4" />
+                              Enter manually
+                            </button>
+                          </div>
+                          {githubError && (
+                            <p className="text-sm text-destructive">{githubError}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -911,6 +1155,7 @@ export function Welcome() {
             </div>
           </>
         )}
+        </div>
       </div>
 
       {/* Git init confirmation dialog */}

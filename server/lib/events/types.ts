@@ -6,6 +6,7 @@
 
 import type { PlanNode, Project } from '../../../src/types/index.js'
 import type { TaskResult } from '../providers/types.js'
+import type { SubroutineDefinition } from '../dispatch/procedure-types.js'
 
 /**
  * Events emitted by task execution lifecycle
@@ -17,6 +18,8 @@ export type NexusEvent =
   | TaskFailedEvent
   | TaskCancelledEvent
   | BranchPrunedEvent
+  | ApprovalRequestedEvent
+  | ApprovalRespondedEvent
 
 export interface TaskStartedEvent {
   type: 'task.started'
@@ -81,6 +84,29 @@ export interface BranchPrunedEvent {
   prunedNodes: string[]
   cancelledTasks: string[]
   reason?: string
+  timestamp: Date
+}
+
+export interface ApprovalRequestedEvent {
+  type: 'approval.requested'
+  approvalId: string
+  nodeId: string
+  projectId: string
+  executionId: string
+  subroutine?: SubroutineDefinition // Optional for dynamic approvals from MCP tool
+  message: string
+  options?: string[] // If present, multi-choice; if absent, binary approve/reject
+  timestamp: Date
+}
+
+export interface ApprovalRespondedEvent {
+  type: 'approval.responded'
+  approvalId: string
+  nodeId: string
+  projectId: string
+  executionId: string
+  approved: boolean
+  selectedOption?: string // For multi-choice approvals
   timestamp: Date
 }
 

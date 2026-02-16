@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate } from "react-router"
-import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, Bot, AlertCircle } from "lucide-react"
+import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, Bot, AlertCircle, Github, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {
@@ -15,9 +15,11 @@ import { useProjectStore } from "@/stores/project-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
+import { useGitHubStore } from "@/stores/github-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { GitInitDialog } from "@/components/git-init-dialog"
+import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 
 const environmentConfig = {
   local: { icon: Laptop, label: "Local", description: "Run on this machine" },
@@ -33,17 +35,40 @@ export function ProjectNew() {
   const [repoUrl, setRepoUrl] = useState("")
   const [workingDir, setWorkingDir] = useState("")
   const [showRepoInput, setShowRepoInput] = useState(false)
+  const [showGitHubRepos, setShowGitHubRepos] = useState(false)
   const [showDirInput, setShowDirInput] = useState(false)
   const [startDate, setStartDate] = useState("")
   const [targetDate, setTargetDate] = useState("")
   const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
   const [repoSetupError, setRepoSetupError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+
+  // GitHub integration
+  const { connected, repos, selectedRepoIds, fetchRepos } = useGitHubStore()
+
+  // Fetch repos when GitHub selector is opened
+  useEffect(() => {
+    if (connected && showGitHubRepos && repos.length === 0) {
+      fetchRepos()
+    }
+  }, [connected, showGitHubRepos, repos.length, fetchRepos])
+
+  // Filter repos by search query
+  const filteredRepos = repos.filter((repo) => {
+    if (!searchQuery) return selectedRepoIds.length === 0 || selectedRepoIds.includes(repo.id)
+    const query = searchQuery.toLowerCase()
+    return (
+      repo.name.toLowerCase().includes(query) ||
+      repo.fullName.toLowerCase().includes(query) ||
+      repo.description?.toLowerCase().includes(query)
+    )
+  })
 
   // Shared repo setup hook
   const { setupRepo, gitInitPrompt, dismissGitInit, confirmGitInit } = useRepoSetup()
@@ -105,6 +130,8 @@ export function ProjectNew() {
       status: "active",
       startDate: startDate || undefined,
       targetDate: targetDate || undefined,
+      color: getRandomColor(),
+      icon: getRandomProjectIcon(),
       workingDirectory: workingDir.trim() || undefined,
       repository: repoUrl.trim() || undefined,
       defaultEnvironment: isRemote ? selectedEnvironment : undefined,
@@ -154,7 +181,7 @@ export function ProjectNew() {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
       console.error('[project-new] Repo setup failed:', errorMsg, error)
       setRepoSetupError(errorMsg)
-      setGenerationPhase(id, null)
+      setGenerationPhase(id, 'idle')
 
       // If remote machine failed, suggest fallback to local setup
       if (isRemote && !repoUrl.trim()) {
@@ -251,7 +278,60 @@ export function ProjectNew() {
                   <Upload className="h-4 w-4" />
                   Upload docs
                 </button>
-                {showRepoInput ? (
+                {showGitHubRepos ? (
+                  <div className="flex-1 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search repositories..."
+                          className="w-full rounded-lg border border-border bg-card pl-8 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      </div>
+                      <button
+                        onClick={() => { setShowGitHubRepos(false); setSearchQuery("") }}
+                        className="p-1.5 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <X className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto rounded-lg border border-border">
+                      {filteredRepos.length === 0 ? (
+                        <div className="p-3 text-center text-sm text-muted-foreground">
+                          {searchQuery ? "No repositories found" : "No repositories available"}
+                        </div>
+                      ) : (
+                        filteredRepos.map((repo) => (
+                          <button
+                            key={repo.id}
+                            onClick={() => {
+                              setRepoUrl(repo.htmlUrl)
+                              setShowGitHubRepos(false)
+                              setShowRepoInput(true)
+                            }}
+                            className="w-full p-3 text-left hover:bg-muted/50 border-b last:border-b-0 transition-colors"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-sm truncate">
+                                  {repo.fullName}
+                                </div>
+                                {repo.description && (
+                                  <div className="text-xs text-muted-foreground line-clamp-1">
+                                    {repo.description}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : showRepoInput ? (
                   <div className="flex items-center gap-2 flex-1">
                     <input
                       type="text"
@@ -269,13 +349,24 @@ export function ProjectNew() {
                     </button>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => setShowRepoInput(true)}
-                    className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
-                  >
-                    <LinkIcon className="h-4 w-4" />
-                    Link repo
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {connected && (
+                      <button
+                        onClick={() => setShowGitHubRepos(true)}
+                        className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
+                      >
+                        <Github className="h-4 w-4" />
+                        Browse repos
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowRepoInput(true)}
+                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
+                    >
+                      <LinkIcon className="h-4 w-4" />
+                      {connected ? "Manual URL" : "Link repo"}
+                    </button>
+                  </div>
                 )}
                 {showDirInput ? (
                   <div className="flex items-center gap-2 flex-1">

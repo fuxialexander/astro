@@ -25,6 +25,8 @@ import type {
 } from '../types/relay.js'
 import { requireAuth } from '../middleware/auth.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
+import { nexusEventTransport } from '../lib/events/nexus-event-transport.js'
+import type { ApprovalRequestedEvent, ApprovalRespondedEvent } from '../lib/events/types.js'
 
 const eventsRoute = new Hono()
 
@@ -173,6 +175,18 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
     }
 
+    const onTaskApprovalRequest = (msg: { taskId: string; requestId: string; question: string; options: string[] }) => {
+      if (!alive) return
+      const data = JSON.stringify({
+        taskId: msg.taskId,
+        requestId: msg.requestId,
+        question: msg.question,
+        options: msg.options,
+      })
+      const id = eventBuffer.push('task:approval_request', data)
+      stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
+    }
+
     const onMachineConnected = (machineId: string, userId: string) => {
       if (!alive) return
       const entry = machineRegistry.get(machineId)
@@ -217,6 +231,37 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'session:event', data }).catch(() => { alive = false })
     }
 
+    // Approval event handlers
+    const onApprovalRequested = (event: ApprovalRequestedEvent) => {
+      if (!alive) return
+      const data = JSON.stringify({
+        approvalId: event.approvalId,
+        nodeId: event.nodeId,
+        projectId: event.projectId,
+        executionId: event.executionId,
+        message: event.message,
+        options: event.options,
+        timestamp: event.timestamp,
+      })
+      const id = eventBuffer.push('approval:requested', data)
+      stream.writeSSE({ id, event: 'approval:requested', data }).catch(() => { alive = false })
+    }
+
+    const onApprovalResponded = (event: ApprovalRespondedEvent) => {
+      if (!alive) return
+      const data = JSON.stringify({
+        approvalId: event.approvalId,
+        nodeId: event.nodeId,
+        projectId: event.projectId,
+        executionId: event.executionId,
+        approved: event.approved,
+        selectedOption: event.selectedOption,
+        timestamp: event.timestamp,
+      })
+      const id = eventBuffer.push('approval:responded', data)
+      stream.writeSSE({ id, event: 'approval:responded', data }).catch(() => { alive = false })
+    }
+
     // Subscribe to relay events
     relayServer.on('task:result', onTaskResult)
     relayServer.on('task:stdout', onTaskStdout)
@@ -226,6 +271,7 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('task:tool_trace', onTaskToolTrace)
     relayServer.on('task:file_change', onTaskFileChange)
     relayServer.on('task:session_init', onTaskSessionInit)
+    relayServer.on('task:approval_request', onTaskApprovalRequest)
     relayServer.on('machine:connected', onMachineConnected)
     relayServer.on('machine:disconnected', onMachineDisconnected)
     // Session events
@@ -242,6 +288,21 @@ eventsRoute.get('/stream', async (c) => {
     executionEventBus.on('task:file_change', onTaskFileChange)
     executionEventBus.on('task:session_init', onTaskSessionInit)
     executionEventBus.on('task:steer_ack', onTaskSteerAck)
+
+    // Subscribe to approval events from nexusEventTransport
+    const approvalRequestedHandler = (event: unknown) => {
+      onApprovalRequested(event as ApprovalRequestedEvent)
+    }
+    const approvalRespondedHandler = (event: unknown) => {
+      onApprovalResponded(event as ApprovalRespondedEvent)
+    }
+    nexusEventTransport.on('event', (event) => {
+      if (event.type === 'approval.requested') {
+        approvalRequestedHandler(event)
+      } else if (event.type === 'approval.responded') {
+        approvalRespondedHandler(event)
+      }
+    })
 
     // Keepalive heartbeat (15s)
     const heartbeat = setInterval(() => {
@@ -285,6 +346,10 @@ eventsRoute.get('/stream', async (c) => {
       executionEventBus.off('task:file_change', onTaskFileChange)
       executionEventBus.off('task:session_init', onTaskSessionInit)
       executionEventBus.off('task:steer_ack', onTaskSteerAck)
+
+      // Cleanup nexusEventTransport listeners
+      nexusEventTransport.off('event', approvalRequestedHandler)
+      nexusEventTransport.off('event', approvalRespondedHandler)
     })
 
     // Keep the stream open until aborted

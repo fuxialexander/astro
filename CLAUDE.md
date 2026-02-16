@@ -8,6 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The product vision is documented in `vision.md`. The UI design is in `UI.pen` (read via Pencil MCP tools only, not with `Read` or `Grep`).
 
+## Build & Quality
+
+**After implementing any feature or code change, always run `npm run build` (or equivalent TypeScript compilation check) and fix ALL type errors before considering the task complete. Do not present work as done until it compiles cleanly.**
+
+**After fixing lint errors or making code changes, run `npm run lint` and fix all issues before committing. Never commit code with known lint errors.**
+
 ## Build & Dev Commands
 
 ```bash
@@ -286,6 +292,22 @@ docs/
 - Usage tracking: `useUsageStore` accumulates session metrics (cost, tokens, task counts) from execution results
 - Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`
 
+## Database
+
+**When implementing database-backed features, always include the Supabase schema migration as part of the initial implementation. Do not wait for the user to ask about database schema changes.**
+
+## Debugging
+
+**When debugging issues, investigate the root cause before attempting fixes. Check if setup scripts, cached tokens, or stale state could be the source. Do not iterate through surface-level fixes.**
+
+## UI/Design
+
+**When matching a design reference (ios.pen or similar), ask clarifying questions about visual style (glassmorphism, flat, material weight) BEFORE implementing. Start with a small component to validate the approach.**
+
+## Planning
+
+**When referencing existing codebases or config paths for integration plans, verify the actual paths and file structure by reading the filesystem first. Do not assume paths like ~/.cyrus/ — check what actually exists.**
+
 ## Relay Server
 
 The relay server is a WebSocket hub that brokers communication between the platform and agent runners on user machines.
@@ -359,6 +381,9 @@ npx tsx server/test/relay-server.test.ts
 - `REALTIME_SYNC.md` — Supabase realtime sync system with multi-device collaboration
 - `REALTIME_SYNC_IMPLEMENTATION.md` — Realtime sync implementation details
 - `E2E_TEST_COMPATIBILITY_FIX.md` — Test mode event transport handling
+- `docs/MCP_TOOLS_REFERENCE.md` — Complete MCP tools reference (18 tools for agents)
+- `docs/MCP_TOOLS_IMPLEMENTATION.md` — MCP tools implementation summary
+- `docs/MCP_INSTALLATION.md` — MCP installation guide (npm package, local dev, troubleshooting)
 
 ### Testing Documentation
 - `scripts/TESTING_APPROVAL.md` — Comprehensive approval system testing guide
@@ -366,3 +391,34 @@ npx tsx server/test/relay-server.test.ts
 - `docs/APPROVAL_QUICKSTART.md` — Approval system quick start guide
 - `docs/realtime-sync-example.md` — Realtime sync usage examples
 - `docs/realtime-sync-quick-reference.md` — Realtime sync quick reference
+
+## MCP Tools for Agents
+
+Agents running inside Nexus tasks have access to **18 MCP tools** for self-directed work:
+
+### Plan Management (5 tools)
+- `query_plan` - Get plan graph (nodes + edges)
+- `create_task` - Create new task
+- `update_task` - Update task properties
+- `create_dependency` - Create dependency edges
+- `delete_task` - Delete task
+
+### Project Management (4 tools)
+- `query_projects` - List projects
+- `get_project` - Get project details
+- `create_project` - Create new project
+- `update_project` - Update project
+
+### Initiative Management (3 tools)
+- `query_initiatives` - List initiatives
+- `create_initiative` - Create new initiative
+- `update_initiative` - Update initiative
+
+### Data Access (2 tools)
+- `get_user_profile` - Get user context
+- `query_executions` - Query execution history
+
+### User Interaction (1 tool)
+- `ask_user_question` - Ask user for decisions
+
+See `docs/MCP_TOOLS_REFERENCE.md` for complete documentation with examples.

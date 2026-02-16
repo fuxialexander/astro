@@ -3,6 +3,7 @@ import { generatePlan } from "@/lib/api-client"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { loadState, saveState } from "@/lib/db"
 import type { PlanNode, PlanEdge } from "@/types"
 
 export type GenerationPhase = 'idle' | 'repo_setup' | 'generating'
@@ -17,6 +18,17 @@ export interface GenerationSession {
   error: string | null
   startedAt: number
   completedAt: number | null
+}
+
+interface SerializedSession {
+  projectId: string
+  projectName: string
+  phase: GenerationPhase
+  status: GenerationStatus
+  streamText: string
+  error: string | null
+  startedAt: string
+  completedAt: string | null
 }
 
 interface RepoKeyFiles {
@@ -34,6 +46,8 @@ interface RepoContext {
 
 interface AgentState {
   sessions: Map<string, GenerationSession>
+  loaded: boolean
+  load: () => Promise<void>
   startGeneration: (projectId: string, projectName: string, description: string, visionDoc?: string, repoContext?: RepoContext) => Promise<void>
   setGenerationPhase: (projectId: string, phase: GenerationPhase) => void
   abort: (projectId: string) => void
@@ -41,6 +55,16 @@ interface AgentState {
 }
 
 const abortControllers = new Map<string, AbortController>()
+
+// Debounce timer for persistence
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+const PERSIST_DEBOUNCE_MS = 500
+
+// Cleanup timer for completed sessions
+let cleanupTimer: ReturnType<typeof setInterval> | null = null
+const CLEANUP_INTERVAL_MS = 60_000 // 1 minute
+const COMPLETED_SESSION_TTL_MS = 5 * 60_000 // 5 minutes
+const MAX_SESSIONS = 10
 
 function updateSession(
   sessions: Map<string, GenerationSession>,
@@ -55,16 +79,115 @@ function updateSession(
   return next
 }
 
+async function persistSessions(sessions: Map<string, GenerationSession>): Promise<void> {
+  const serialized: SerializedSession[] = Array.from(sessions.values()).map((session) => ({
+    ...session,
+    startedAt: new Date(session.startedAt).toISOString(),
+    completedAt: session.completedAt ? new Date(session.completedAt).toISOString() : null,
+  }))
+  await saveState("nexus-agent-sessions", serialized)
+}
+
+function debouncedPersist(sessions: Map<string, GenerationSession>): void {
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = setTimeout(() => {
+    persistSessions(sessions).catch((err) => {
+      console.error("[agent-store] Failed to persist sessions:", err)
+    })
+  }, PERSIST_DEBOUNCE_MS)
+}
+
+function cleanupOldSessions(sessions: Map<string, GenerationSession>): Map<string, GenerationSession> {
+  const now = Date.now()
+  const next = new Map(sessions)
+
+  // Remove completed/error sessions older than TTL
+  for (const [projectId, session] of next.entries()) {
+    if (session.status !== "active" && session.completedAt) {
+      const age = now - session.completedAt
+      if (age > COMPLETED_SESSION_TTL_MS) {
+        console.log(`[agent-store] Cleaning up old session for ${projectId}`)
+        next.delete(projectId)
+      }
+    }
+  }
+
+  // Keep only last MAX_SESSIONS sessions (sort by startedAt, keep newest)
+  if (next.size > MAX_SESSIONS) {
+    const sorted = Array.from(next.entries()).sort((a, b) => b[1].startedAt - a[1].startedAt)
+    const toKeep = sorted.slice(0, MAX_SESSIONS)
+    next.clear()
+    toKeep.forEach(([id, session]) => next.set(id, session))
+    console.log(`[agent-store] Trimmed sessions from ${sessions.size} to ${MAX_SESSIONS}`)
+  }
+
+  return next
+}
+
+function startCleanupTimer(get: () => AgentState, set: (fn: (s: AgentState) => Partial<AgentState>) => void): void {
+  if (cleanupTimer) return
+
+  cleanupTimer = setInterval(() => {
+    const { sessions } = get()
+    const cleaned = cleanupOldSessions(sessions)
+
+    if (cleaned.size !== sessions.size) {
+      set(() => ({ sessions: cleaned }))
+      persistSessions(cleaned).catch((err) => {
+        console.error("[agent-store] Failed to persist after cleanup:", err)
+      })
+    }
+  }, CLEANUP_INTERVAL_MS)
+}
+
 export const useAgentStore = create<AgentState>((set, get) => ({
   sessions: new Map(),
+  loaded: false,
+
+  load: async () => {
+    try {
+      const stored = await loadState<SerializedSession[]>("nexus-agent-sessions")
+      if (!stored || !Array.isArray(stored)) {
+        console.log("[agent-store] No sessions to restore")
+        set({ loaded: true })
+        return
+      }
+
+      // Deserialize sessions
+      const sessions = new Map<string, GenerationSession>()
+      for (const session of stored) {
+        // Only restore active sessions for crash recovery
+        if (session.status === "active") {
+          sessions.set(session.projectId, {
+            ...session,
+            startedAt: new Date(session.startedAt).getTime(),
+            completedAt: session.completedAt ? new Date(session.completedAt).getTime() : null,
+          })
+        }
+      }
+
+      if (sessions.size > 0) {
+        console.log(`[agent-store] Restored ${sessions.size} active session(s) from crash recovery`)
+      }
+
+      set({ sessions, loaded: true })
+
+      // Start cleanup timer
+      startCleanupTimer(get, set)
+    } catch (err) {
+      console.error("[agent-store] Failed to load sessions:", err)
+      set({ loaded: true })
+    }
+  },
 
   setGenerationPhase: (projectId, phase) => {
     set((s) => {
       const existing = s.sessions.get(projectId)
+      let sessions: Map<string, GenerationSession>
       if (!existing) {
         // Create a placeholder session if setGenerationPhase is called before startGeneration
-        const next = new Map(s.sessions)
-        next.set(projectId, {
+        sessions = new Map(s.sessions)
+        sessions.set(projectId, {
           projectId,
           projectName: "",
           phase,
@@ -74,9 +197,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           startedAt: Date.now(),
           completedAt: null,
         })
-        return { sessions: next }
+      } else {
+        sessions = updateSession(s.sessions, projectId, { phase })
       }
-      return { sessions: updateSession(s.sessions, projectId, { phase }) }
+      debouncedPersist(sessions)
+      return { sessions }
     })
   },
 
@@ -95,8 +220,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     // Initialize or update the session
     set((s) => {
-      const next = new Map(s.sessions)
-      next.set(projectId, {
+      const sessions = new Map(s.sessions)
+      sessions.set(projectId, {
         projectId,
         projectName,
         phase: "generating",
@@ -106,7 +231,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         startedAt: Date.now(),
         completedAt: null,
       })
-      return { sessions: next }
+      // Persist immediately when starting generation
+      persistSessions(sessions).catch((err) => {
+        console.error("[agent-store] Failed to persist on start:", err)
+      })
+      return { sessions }
     })
 
     const { model, defaultProvider } = useSettingsStore.getState()
@@ -138,7 +267,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               if (!session.streamText) {
                 console.log(`[plan-gen] First stream chunk received for ${projectId}`)
               }
-              return { sessions: updateSession(s.sessions, projectId, { streamText: session.streamText + text }) }
+              const sessions = updateSession(s.sessions, projectId, { streamText: session.streamText + text })
+              // Debounced persist for frequent text updates
+              debouncedPersist(sessions)
+              return { sessions }
             })
           },
           onPlanResult: (result) => {
@@ -242,9 +374,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           },
           onError: (error) => {
             console.error(`[plan-gen] Error for ${projectId}:`, error)
-            set((s) => ({
-              sessions: updateSession(s.sessions, projectId, { error, status: "error", completedAt: Date.now() }),
-            }))
+            set((s) => {
+              const sessions = updateSession(s.sessions, projectId, { error, status: "error", completedAt: Date.now() })
+              // Persist immediately on error
+              persistSessions(sessions).catch((err) => {
+                console.error("[agent-store] Failed to persist on error:", err)
+              })
+              return { sessions }
+            })
           },
           onDone: () => {
             console.log(`[plan-gen] Generation completed for ${projectId}`)
@@ -252,13 +389,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               const session = s.sessions.get(projectId)
               // Only mark completed if not already in error state
               if (session?.status === "error") return s
-              return {
-                sessions: updateSession(s.sessions, projectId, {
-                  status: "completed",
-                  phase: "idle",
-                  completedAt: Date.now(),
-                }),
-              }
+              const sessions = updateSession(s.sessions, projectId, {
+                status: "completed",
+                phase: "idle",
+                completedAt: Date.now(),
+              })
+              // Persist immediately on completion
+              persistSessions(sessions).catch((err) => {
+                console.error("[agent-store] Failed to persist on completion:", err)
+              })
+              return { sessions }
             })
           },
         },
@@ -270,9 +410,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       } else {
         const msg = e instanceof Error ? e.message : "unknown error"
         console.error(`[plan-gen] Generation failed for ${projectId}:`, msg)
-        set((s) => ({
-          sessions: updateSession(s.sessions, projectId, { error: msg, status: "error", completedAt: Date.now() }),
-        }))
+        set((s) => {
+          const sessions = updateSession(s.sessions, projectId, { error: msg, status: "error", completedAt: Date.now() })
+          // Persist immediately on error
+          persistSessions(sessions).catch((err) => {
+            console.error("[agent-store] Failed to persist on error:", err)
+          })
+          return { sessions }
+        })
       }
     } finally {
       abortControllers.delete(projectId)
@@ -280,13 +425,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       set((s) => {
         const session = s.sessions.get(projectId)
         if (session?.status === "active") {
-          return {
-            sessions: updateSession(s.sessions, projectId, {
-              status: "completed",
-              phase: "idle",
-              completedAt: Date.now(),
-            }),
-          }
+          const sessions = updateSession(s.sessions, projectId, {
+            status: "completed",
+            phase: "idle",
+            completedAt: Date.now(),
+          })
+          // Persist immediately on finalization
+          persistSessions(sessions).catch((err) => {
+            console.error("[agent-store] Failed to persist on finalization:", err)
+          })
+          return { sessions }
         }
         return s
       })
@@ -307,9 +455,23 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   dismissSession: (projectId) => {
     set((s) => {
-      const next = new Map(s.sessions)
-      next.delete(projectId)
-      return { sessions: next }
+      const sessions = new Map(s.sessions)
+      sessions.delete(projectId)
+      // Persist immediately after dismissal
+      persistSessions(sessions).catch((err) => {
+        console.error("[agent-store] Failed to persist after dismissal:", err)
+      })
+      return { sessions }
     })
   },
 }))
+
+// Start cleanup timer when store is created
+if (typeof window !== "undefined") {
+  // Only run in browser environment
+  useAgentStore.subscribe((state) => {
+    if (state.loaded) {
+      startCleanupTimer(useAgentStore.getState, useAgentStore.setState)
+    }
+  })
+}

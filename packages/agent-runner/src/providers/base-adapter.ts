@@ -19,6 +19,8 @@ export interface TaskOutputStream {
   fileChange: (path: string, action: 'created' | 'modified' | 'deleted', linesAdded?: number, linesRemoved?: number, diff?: string) => void;
   /** Structured session init event */
   sessionInit: (sessionId: string, model?: string) => void;
+  /** Request user approval/decision - returns a promise that resolves with user's answers */
+  approvalRequest: (question: string, options: string[]) => Promise<{ answered: boolean; answer?: string; message?: string }>;
 }
 
 export interface ProviderAdapter {

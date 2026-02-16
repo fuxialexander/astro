@@ -3,14 +3,17 @@ import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink } f
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { MobileStatusBar } from "@/components/mobile/status-bar"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { UnifiedActivityView } from "@/components/task-detail/unified-activity-view"
 import { FileChangesView } from "@/components/task-detail/file-changes-view"
+import { ApprovalCard } from "@/components/approval-card"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
+import { cn } from "@/lib/utils"
 
 // Deduplicate file changes: keep latest per path
 function deduplicateFileChanges(changes: Array<{ path: string; action: string; linesAdded?: number; linesRemoved?: number; diff?: string; timestamp: Date }>): Array<{ path: string; action: string; linesAdded?: number; linesRemoved?: number; diff?: string; timestamp: Date }> {
@@ -29,9 +32,14 @@ export function TaskDetail() {
   const execution = useExecutionStore((s) => nodeId ? s.getExecution(nodeId) : undefined)
   const cancelExecution = useExecutionStore((s) => s.cancelExecution)
   const isExecuting = useExecutionStore((s) => nodeId ? s.isExecuting(nodeId) : false)
+  const getPendingApprovalForNode = useExecutionStore((s) => s.getPendingApprovalForNode)
+  const respondToApproval = useExecutionStore((s) => s.respondToApproval)
 
   // Compute executionId early for use in hooks
   const executionId = node?.executionId || execution?.executionId || ""
+
+  // Check for pending approval
+  const pendingApproval = nodeId ? getPendingApprovalForNode(nodeId) : undefined
 
   // Get realtime stream data
   const taskStream = useRealtimeStore((s) => {
@@ -69,51 +77,57 @@ export function TaskDetail() {
 
   return (
     <div className="flex h-full flex-col">
+      {/* Mobile Status Bar */}
+      <MobileStatusBar />
+
       {/* Header */}
-      <div className="flex items-center gap-4 border-b border-border px-6 py-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+      <div className="flex items-center gap-3 md:gap-4 border-b border-border px-4 md:px-6 py-3 md:py-4">
+        <Button variant="ghost" size="icon" className="h-8 w-8 md:h-9 md:w-9 shrink-0" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold truncate">{node.title}</h1>
-            <Badge variant={statusBadgeVariants[node.status] || "secondary"}>
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+            <h1 className="text-base md:text-lg font-semibold truncate">{node.title}</h1>
+            <Badge variant={statusBadgeVariants[node.status] || "secondary"} className="text-[10px]">
               {node.status.replace(/_/g, " ")}
             </Badge>
           </div>
-          <p className="text-sm text-muted-foreground truncate mt-0.5">
+          <p className="text-xs md:text-sm text-muted-foreground truncate mt-0.5">
             {project?.name} &middot; {node.type}
           </p>
         </div>
       </div>
 
-      {/* Meta Row */}
-      <div className="flex items-center gap-6 border-b border-border px-6 py-3 text-sm">
+      {/* Meta Row - scrollable on mobile */}
+      <div className={cn(
+        "flex items-center gap-4 md:gap-6 border-b border-border px-4 md:px-6 py-2 md:py-3 text-xs md:text-sm",
+        "overflow-x-auto"
+      )}>
         {node.executionStartedAt && (
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Clock className="h-3.5 w-3.5" />
-            <span>{formatDuration(node.executionStartedAt, node.executionCompletedAt)}</span>
+          <div className="flex items-center gap-1.5 text-muted-foreground shrink-0">
+            <Clock className="h-3 w-3 md:h-3.5 md:w-3.5" />
+            <span className="whitespace-nowrap">{formatDuration(node.executionStartedAt, node.executionCompletedAt)}</span>
           </div>
         )}
         {taskStream?.progress != null && taskStream.progress > 0 && (
-          <div className="flex items-center gap-1.5">
-            <div className="h-1.5 w-24 rounded-full bg-muted overflow-hidden">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="h-1.5 w-16 md:w-24 rounded-full bg-muted overflow-hidden">
               <div
                 className="h-full rounded-full bg-blue-500 transition-all duration-500"
                 style={{ width: `${taskStream.progress}%` }}
               />
             </div>
-            <span className="text-xs text-muted-foreground">{taskStream.progress}%</span>
+            <span className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">{taskStream.progress}%</span>
           </div>
         )}
         {execution?.executionId && (
-          <div className="flex items-center gap-1.5 text-muted-foreground">
+          <div className="hidden md:flex items-center gap-1.5 text-muted-foreground shrink-0">
             <Monitor className="h-3.5 w-3.5" />
             <span className="font-mono text-xs">{execution.executionId.slice(0, 20)}</span>
           </div>
         )}
         {(node.branchName || execution?.branchName) && (
-          <div className="flex items-center gap-1.5 text-muted-foreground">
+          <div className="hidden md:flex items-center gap-1.5 text-muted-foreground shrink-0">
             <GitBranch className="h-3.5 w-3.5" />
             <span className="font-mono text-xs">{node.branchName || execution?.branchName}</span>
           </div>
@@ -123,39 +137,50 @@ export function TaskDetail() {
             href={node.prUrl || execution?.prUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5"
+            className="inline-flex items-center gap-1.5 shrink-0"
           >
-            <Badge variant="outline" className="gap-1 cursor-pointer hover:bg-accent">
+            <Badge variant="outline" className="gap-1 cursor-pointer hover:bg-accent text-[10px]">
               <ExternalLink className="h-3 w-3" />
-              PR #{node.prNumber || execution?.prNumber}
+              <span className="hidden sm:inline">PR </span>#{node.prNumber || execution?.prNumber}
             </Badge>
           </a>
         )}
-        <div className="flex-1" />
+        <div className="flex-1 min-w-[20px]" />
         {/* Action buttons */}
         {isRunning && (
           <Button
             variant="destructive"
             size="sm"
+            className="h-8 shrink-0"
             onClick={() => nodeId && cancelExecution(nodeId)}
           >
-            <Square className="h-3.5 w-3.5" />
-            Stop
+            <Square className="h-3 w-3 md:h-3.5 md:w-3.5" />
+            <span className="hidden sm:inline ml-1.5">Stop</span>
           </Button>
         )}
         {isExecuting && (
-          <div className="flex items-center gap-1.5 text-blue-500">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            <span className="text-xs font-medium">Running</span>
+          <div className="flex items-center gap-1.5 text-blue-500 shrink-0">
+            <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
+            <span className="text-[10px] md:text-xs font-medium">Running</span>
           </div>
         )}
       </div>
 
+      {/* Approval Card (if pending) */}
+      {node.status === "awaiting_approval" && pendingApproval && (
+        <div className="px-4 md:px-6 pt-4">
+          <ApprovalCard
+            approval={pendingApproval}
+            onRespond={respondToApproval}
+          />
+        </div>
+      )}
+
       {/* Tabbed Content: Activity + Files */}
       <Tabs defaultValue="activity" className="flex-1 flex flex-col min-h-0">
-        <TabsList className="mx-6 mt-4 w-fit">
-          <TabsTrigger value="activity">Activity</TabsTrigger>
-          <TabsTrigger value="files">
+        <TabsList className="mx-4 md:mx-6 mt-3 md:mt-4 w-fit">
+          <TabsTrigger value="activity" className="text-xs md:text-sm">Activity</TabsTrigger>
+          <TabsTrigger value="files" className="text-xs md:text-sm">
             Files {fileChanges.length > 0 && `(${fileChanges.length})`}
           </TabsTrigger>
         </TabsList>

@@ -385,7 +385,27 @@ Execute the task described above. Focus on completing the task thoroughly and co
 - Use appropriate tools to accomplish the task
 - Report progress and any issues encountered
 - Verify your work when possible
-- Be thorough but efficient`)
+- Be thorough but efficient
+
+### Making Decisions vs. Asking for User Input
+
+**When to proceed independently:**
+- Standard best practices and established patterns exist
+- Technical decisions with clear trade-offs you can evaluate
+- Implementation details that don't affect user-facing behavior
+- Refactoring and code quality improvements
+
+**When to note that user input would be valuable:**
+If you encounter a decision point where multiple approaches are equally valid and the choice depends on user preferences or priorities (e.g., which library to use, architectural patterns, feature trade-offs), note it clearly in your output:
+1. Describe the decision point
+2. Present 2-3 viable options with brief trade-offs
+3. State which option you recommend and why
+4. Proceed with your recommended approach unless instructed otherwise
+
+The user can review your reasoning in the task output and provide guidance if they disagree with your choice.
+
+**Example:**
+"I need to choose a state management solution. Options: (1) Zustand - lightweight, already in project, (2) Redux Toolkit - more structured, better DevTools, (3) React Context - native, no deps. I recommend Zustand since it's already used in the project and matches the codebase style. Proceeding with Zustand unless you'd like a different approach."`)
 
       const prompt = promptParts.join('\n\n---\n\n')
 
@@ -734,12 +754,8 @@ async function dispatchViaRelay(
       alive = false
     }
 
-    const onStdout = (msg: import('../types/relay.js').TaskStdoutMessage) => {
-      if (!alive || msg.output.taskId !== executionId) return
-      lastActivity = Date.now()
-      stream.writeSSE({ event: 'text', data: msg.output.data }).catch(() => { alive = false })
-    }
-
+    // Note: We only listen to task:text, not task:stdout, to avoid duplicates.
+    // The relay server emits both events, but task:text is the formatted agent output.
     const onText = (msg: import('../types/relay.js').TaskTextMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
@@ -801,7 +817,6 @@ async function dispatchViaRelay(
     }
 
     relayServer.on('task:result', onResult)
-    relayServer.on('task:stdout', onStdout)
     relayServer.on('task:text', onText)
     relayServer.on('task:session_init', onSessionInit)
     relayServer.on('task:progress', onProgress)
@@ -815,7 +830,6 @@ async function dispatchViaRelay(
     if (!dispatched) {
       // Clean up listeners
       relayServer.off('task:result', onResult)
-      relayServer.off('task:stdout', onStdout)
       relayServer.off('task:text', onText)
       relayServer.off('task:session_init', onSessionInit)
       relayServer.off('task:progress', onProgress)
@@ -924,6 +938,37 @@ dispatchRoute.post('/steer', async (c) => {
 })
 
 /**
+ * Send approval response back to agent runner
+ *
+ * POST /api/dispatch/approval
+ */
+dispatchRoute.post('/approval', async (c) => {
+  const { taskId, machineId, requestId, answered, answer, message } = await c.req.json<{
+    taskId: string
+    machineId: string
+    requestId: string
+    answered: boolean
+    answer?: string
+    message?: string
+  }>()
+
+  if (!taskId || !machineId || !requestId) {
+    return c.json({ success: false, error: 'taskId, machineId, and requestId are required' }, 400)
+  }
+
+  const sent = relayServer.sendApprovalResponse(taskId, machineId, requestId, answered, answer, message)
+
+  if (!sent) {
+    return c.json(
+      { success: false, error: `Failed to send approval response for task ${taskId} on machine ${machineId}` },
+      500
+    )
+  }
+
+  return c.json({ success: true, taskId, machineId, requestId, message: 'Approval response sent' })
+})
+
+/**
  * Cancel a task
  *
  * POST /api/dispatch/cancel
@@ -965,6 +1010,77 @@ dispatchRoute.post('/prune', async (c) => {
   }
 
   return c.json(result)
+})
+
+/**
+ * Respond to approval request
+ *
+ * POST /api/dispatch/approve
+ */
+dispatchRoute.post('/approve', async (c) => {
+  const { approvalId, approved, selectedOption } = await c.req.json<{
+    approvalId: string
+    approved: boolean
+    selectedOption?: string
+  }>()
+
+  if (!approvalId) {
+    return c.json({ success: false, error: 'approvalId required' }, 400)
+  }
+
+  if (approved === undefined || approved === null) {
+    return c.json({ success: false, error: 'approved (boolean) required' }, 400)
+  }
+
+  try {
+    await dispatchEngine.respondToApproval(approvalId, approved, selectedOption)
+    return c.json({ success: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ success: false, error: message }, 400)
+  }
+})
+
+/**
+ * Request dynamic approval (called by MCP tool server)
+ *
+ * POST /api/dispatch/request-dynamic-approval
+ *
+ * This endpoint is called by the Nexus MCP server when the agent uses
+ * the ask_user_question tool. It blocks until the user responds.
+ */
+dispatchRoute.post('/request-dynamic-approval', async (c) => {
+  const { executionId, question, options } = await c.req.json<{
+    executionId: string
+    question: string
+    options: string[]
+  }>()
+
+  if (!executionId) {
+    return c.json({ success: false, error: 'executionId required' }, 400)
+  }
+
+  if (!question || typeof question !== 'string') {
+    return c.json({ success: false, error: 'question required (string)' }, 400)
+  }
+
+  if (!Array.isArray(options) || options.length < 2 || options.length > 5) {
+    return c.json({ success: false, error: 'options must be array of 2-5 strings' }, 400)
+  }
+
+  try {
+    // This blocks until user responds or timeout (5 minutes)
+    const selectedOption = await dispatchEngine.requestDynamicApproval(
+      executionId,
+      question,
+      options
+    )
+
+    return c.json({ success: true, selectedOption })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ success: false, error: message }, 400)
+  }
 })
 
 /**

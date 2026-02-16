@@ -55,12 +55,53 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         seen.add(key)
         return true
       })
+      // Ensure all nodes have positions - if any are missing, calculate for all projects
+      const needsLayout = nodes.some((n) => !n.position)
+      if (needsLayout) {
+        console.log("[plan-store] Nodes missing positions, calculating layout for all projects")
+        const projectIds = new Set(nodes.map((n) => n.projectId))
+        for (const projectId of projectIds) {
+          const projectNodes = nodes.filter((n) => n.projectId === projectId)
+          const nodeIds = new Set(projectNodes.map((n) => n.id))
+          const projectEdges = edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+          const positions = layoutGraph(projectNodes, projectEdges)
+          for (const node of projectNodes) {
+            const pos = positions.get(node.id)
+            if (pos) {
+              node.position = pos
+            } else {
+              // Fallback: assign a default position if layout calculation failed
+              node.position = { x: 0, y: 0 }
+            }
+          }
+        }
+      }
       set({ nodes, edges, loaded: true })
       saveToIdb(nodes, edges)
     } catch {
       // API unavailable — fall back to IndexedDB cache
       const cached = await loadFromIdb()
       if (cached) {
+        // Ensure all cached nodes have positions
+        const needsLayout = cached.nodes.some((n) => !n.position)
+        if (needsLayout) {
+          console.log("[plan-store] Cached nodes missing positions, calculating layout")
+          const projectIds = new Set(cached.nodes.map((n) => n.projectId))
+          for (const projectId of projectIds) {
+            const projectNodes = cached.nodes.filter((n) => n.projectId === projectId)
+            const nodeIds = new Set(projectNodes.map((n) => n.id))
+            const projectEdges = cached.edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+            const positions = layoutGraph(projectNodes, projectEdges)
+            for (const node of projectNodes) {
+              const pos = positions.get(node.id)
+              if (pos) {
+                node.position = pos
+              } else {
+                node.position = { x: 0, y: 0 }
+              }
+            }
+          }
+        }
         set({ ...cached, loaded: true })
       } else {
         set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true })
@@ -75,7 +116,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     const nextNodes = [...get().nodes, node]
     set({ nodes: nextNodes })
     saveState("nexus-plan-nodes", nextNodes)
-    dataClient.addNode(node).catch(() => {})
+    dataClient.addNode(node).catch((err) => {
+      console.error('[plan-store] Failed to save node to API:', err)
+    })
   },
 
   updateNode: (id, updates) => {
@@ -84,7 +127,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     )
     set({ nodes: nextNodes })
     saveState("nexus-plan-nodes", nextNodes)
-    dataClient.updateNode(id, updates).catch(() => {})
+    dataClient.updateNode(id, updates).catch((err) => {
+      console.error('[plan-store] Failed to update node in API:', err)
+    })
   },
 
   removeNodes: (ids) => {
@@ -94,7 +139,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ nodes: nextNodes, edges: nextEdges })
     saveToIdb(nextNodes, nextEdges)
     for (const id of ids) {
-      dataClient.deleteNode(id).catch(() => {})
+      dataClient.deleteNode(id).catch((err) => {
+        console.error('[plan-store] Failed to delete node from API:', err)
+      })
     }
   },
 
@@ -111,7 +158,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     // Determine projectId from source node
     const sourceNode = get().nodes.find((n) => n.id === edge.source)
     if (sourceNode) {
-      dataClient.addEdge({ ...edge, projectId: sourceNode.projectId }).catch(() => {})
+      dataClient.addEdge({ ...edge, projectId: sourceNode.projectId }).catch((err) => {
+        console.error('[plan-store] Failed to save edge to API:', err)
+      })
     }
   },
 
@@ -122,7 +171,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     const nextEdges = get().edges.filter((e) => !(e.source === source && e.target === target))
     set({ edges: nextEdges })
     saveState("nexus-plan-edges", nextEdges)
-    dataClient.deleteEdge(edgeToRemove.id).catch(() => {})
+    dataClient.deleteEdge(edgeToRemove.id).catch((err) => {
+      console.error('[plan-store] Failed to delete edge from API:', err)
+    })
   },
 
   setProjectPlan: (projectId, newNodes, newEdges) => {
@@ -143,7 +194,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     const nextEdges = [...otherEdges, ...dedupedNewEdges]
     set({ nodes: nextNodes, edges: nextEdges })
     saveToIdb(nextNodes, nextEdges)
-    dataClient.setProjectPlan(projectId, newNodes, dedupedNewEdges).catch(() => {})
+    dataClient.setProjectPlan(projectId, newNodes, dedupedNewEdges).catch((err) => {
+      console.error('[plan-store] Failed to save project plan to API:', err)
+    })
   },
 
   reorganizeProject: (projectId) => {
@@ -164,7 +217,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
     // Sync position updates to API
     for (const [nodeId, pos] of positions) {
-      dataClient.updateNode(nodeId, { position: pos }).catch(() => {})
+      dataClient.updateNode(nodeId, { position: pos }).catch((err) => {
+        console.error(`[plan-store] Failed to update position for node ${nodeId}:`, err)
+      })
     }
   },
 }))

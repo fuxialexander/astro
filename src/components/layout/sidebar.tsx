@@ -1,5 +1,5 @@
 import { NavLink, useNavigate, useParams } from "react-router"
-import { Hexagon, Radio, GitBranch, Target, Cpu, Terminal, Settings, LogOut, ChevronRight, Sun, Moon, CheckSquare, Search } from "lucide-react"
+import { Hexagon, Radio, GitBranch, Target, Cpu, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -11,13 +11,6 @@ import { useUIStore } from "@/stores/ui-store"
 import { shouldUseSupabase } from "@/lib/supabase-client"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 const navItems = [
   { to: "/", icon: Radio, label: "Pulse" },
@@ -236,43 +229,46 @@ export function Sidebar() {
         </Button>
       </div>
 
-      {/* User Profile */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="flex w-full items-center gap-2 border-t border-border dark:border-border px-5 py-3 hover:bg-muted/50 transition-colors">
-            <Avatar className="h-8 w-8">
-              <AvatarImage src={profile.avatarUrl} />
-              <AvatarFallback className="text-[13px] font-bold">{getInitials(profile.name)}</AvatarFallback>
-            </Avatar>
-            <div className="flex flex-1 flex-col items-start gap-0.5 min-w-0">
-              <span className="text-[13px] font-semibold text-foreground truncate w-full">
-                {profile.name || "User"}
+      {/* User Profile - Icon Row */}
+      <div className="flex items-center justify-between border-t border-border dark:border-border px-5 py-3 gap-2">
+        {/* User Avatar & Info */}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarImage src={profile.avatarUrl} />
+            <AvatarFallback className="text-[13px] font-bold">{getInitials(profile.name)}</AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col items-start gap-0.5 min-w-0">
+            <span className="text-[13px] font-semibold text-foreground truncate w-full">
+              {profile.name || "User"}
+            </span>
+            {profile.email && (
+              <span className="text-[11px] text-muted-foreground truncate w-full">
+                {profile.email}
               </span>
-              {profile.email && (
-                <span className="text-[11px] text-muted-foreground truncate w-full">
-                  {profile.email}
-                </span>
-              )}
-            </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            )}
+          </div>
+        </div>
+
+        {/* Icon Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => navigate("/settings")}
+            className="p-2 rounded-md hover:bg-muted/50 transition-colors"
+            title="Settings"
+          >
+            <Settings className="h-4 w-4 text-muted-foreground" />
           </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem onClick={() => navigate("/settings")}>
-            <Settings className="mr-2 h-4 w-4" />
-            Settings
-          </DropdownMenuItem>
           {showAuth && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
-              </DropdownMenuItem>
-            </>
+            <button
+              onClick={handleSignOut}
+              className="p-2 rounded-md hover:bg-destructive/10 transition-colors"
+              title="Sign Out"
+            >
+              <LogOut className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+            </button>
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </div>
+      </div>
     </aside>
   )
 }

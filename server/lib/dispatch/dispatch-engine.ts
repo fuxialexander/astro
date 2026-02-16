@@ -98,6 +98,15 @@ export class DispatchEngine extends EventEmitter {
     projectId: string
   }>()
 
+  /** Pending approvals waiting for user response */
+  private pendingApprovals = new Map<string, {
+    resolve: (result: boolean | string) => void
+    reject: (error: Error) => void
+    nodeId: string
+    projectId: string
+    executionId: string
+  }>()
+
   /** Plan graph poll interval */
   private pollInterval: ReturnType<typeof setInterval> | null = null
 
@@ -688,8 +697,10 @@ export class DispatchEngine extends EventEmitter {
 
     // Check if approval required
     if (subroutine.requiresApproval && !state.awaitingApproval) {
-      const approved = await this.requestApproval(node, subroutine)
-      if (!approved) {
+      const approvalResult = await this.requestApproval(node, subroutine)
+
+      // Check if approval was denied (false for binary, empty for multi-choice)
+      if (approvalResult === false) {
         console.log(`[dispatch] Approval denied for subroutine '${subroutine.name}'`)
         await this.nodeUpdateCallback?.(node.id, {
           status: 'planned',
@@ -697,6 +708,9 @@ export class DispatchEngine extends EventEmitter {
         })
         return
       }
+
+      // Store approval result for use in subsequent prompts
+      state.approvalResult = approvalResult
       state.awaitingApproval = false
     }
 
@@ -859,17 +873,161 @@ export class DispatchEngine extends EventEmitter {
 
   /**
    * Request user approval for subroutine
+   * Returns true/false for binary approval, or selected option string for multi-choice
    */
   private async requestApproval(
     node: PlanNode,
     subroutine: SubroutineDefinition
-  ): Promise<boolean> {
-    // Emit approval request event
+  ): Promise<boolean | string> {
+    const executionId = this.activeExecutions.get(node.id)?.executionId
+    if (!executionId) {
+      throw new Error('No active execution found for approval request')
+    }
+
+    const approvalId = `approval-${node.id}-${Date.now()}`
+
     console.log(`[dispatch] Requesting approval for ${subroutine.name}: ${subroutine.approvalMessage}`)
 
-    // For now, auto-approve (TODO: implement real approval flow)
-    // In production, this would emit an event and wait for user response
-    return true
+    // Emit approval request event
+    await nexusEventTransport.emitEvent({
+      type: 'approval.requested',
+      approvalId,
+      nodeId: node.id,
+      projectId: node.projectId,
+      executionId,
+      subroutine,
+      message: subroutine.approvalMessage || 'Approval required to continue',
+      options: subroutine.approvalOptions,
+      timestamp: new Date(),
+    })
+
+    // Update node status to awaiting_approval
+    if (this.nodeUpdateCallback) {
+      await this.nodeUpdateCallback(node.id, {
+        status: 'awaiting_approval',
+        executionError: undefined, // Clear any previous errors
+      })
+    }
+
+    // Create promise that will be resolved when user responds
+    return new Promise<boolean | string>((resolve, reject) => {
+      this.pendingApprovals.set(approvalId, {
+        resolve,
+        reject,
+        nodeId: node.id,
+        projectId: node.projectId,
+        executionId,
+      })
+
+      // Set timeout (5 minutes)
+      setTimeout(() => {
+        if (this.pendingApprovals.has(approvalId)) {
+          this.pendingApprovals.delete(approvalId)
+          reject(new Error('Approval request timed out after 5 minutes'))
+        }
+      }, 5 * 60 * 1000)
+    })
+  }
+
+  /**
+   * Handle approval response from user
+   */
+  async respondToApproval(
+    approvalId: string,
+    approved: boolean,
+    selectedOption?: string
+  ): Promise<void> {
+    const pending = this.pendingApprovals.get(approvalId)
+    if (!pending) {
+      throw new Error(`No pending approval found for ID: ${approvalId}`)
+    }
+
+    // Emit approval responded event
+    await nexusEventTransport.emitEvent({
+      type: 'approval.responded',
+      approvalId,
+      nodeId: pending.nodeId,
+      projectId: pending.projectId,
+      executionId: pending.executionId,
+      approved,
+      selectedOption,
+      timestamp: new Date(),
+    })
+
+    // Update node status back to in_progress
+    if (this.nodeUpdateCallback) {
+      await this.nodeUpdateCallback(pending.nodeId, {
+        status: 'in_progress',
+      })
+    }
+
+    // Resolve the promise
+    this.pendingApprovals.delete(approvalId)
+
+    if (selectedOption) {
+      pending.resolve(selectedOption)
+    } else {
+      pending.resolve(approved)
+    }
+  }
+
+  /**
+   * Request dynamic approval from MCP tool (AskUserQuestion)
+   * This is called when the agent uses the ask_user_question tool during execution
+   */
+  async requestDynamicApproval(
+    executionId: string,
+    question: string,
+    options: string[]
+  ): Promise<string> {
+    // Find the node by executionId
+    const activeExecution = Array.from(this.activeExecutions.entries()).find(
+      ([, exec]) => exec.executionId === executionId
+    )
+
+    if (!activeExecution) {
+      throw new Error(`No active execution found for ID: ${executionId}`)
+    }
+
+    const [nodeId, execInfo] = activeExecution
+    const approvalId = `approval-tool-${nodeId}-${Date.now()}`
+
+    console.log(`[dispatch] Dynamic approval requested via tool: ${question}`)
+
+    // Emit approval request event
+    await nexusEventTransport.emitEvent({
+      type: 'approval.requested',
+      approvalId,
+      nodeId,
+      projectId: execInfo.projectId,
+      executionId,
+      subroutine: undefined, // Dynamic approvals don't have a subroutine context
+      message: question,
+      options,
+      timestamp: new Date(),
+    })
+
+    // Note: We don't update node status for dynamic approvals since they can happen mid-execution
+    // The agent is still running, just paused waiting for user input
+
+    // Create promise that will be resolved when user responds
+    return new Promise<string>((resolve, reject) => {
+      this.pendingApprovals.set(approvalId, {
+        resolve: (result) => resolve(result as string),
+        reject,
+        nodeId,
+        projectId: execInfo.projectId,
+        executionId,
+      })
+
+      // Set timeout (5 minutes)
+      setTimeout(() => {
+        if (this.pendingApprovals.has(approvalId)) {
+          this.pendingApprovals.delete(approvalId)
+          reject(new Error('User question timed out after 5 minutes'))
+        }
+      }, 5 * 60 * 1000)
+    })
   }
 
   /**

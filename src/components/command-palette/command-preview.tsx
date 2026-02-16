@@ -14,8 +14,9 @@ export function CommandPreview({ item }: CommandPreviewProps) {
   return (
     <div className="command-preview-container">
       <div className="command-preview">
-        <div className="command-preview-title">{preview.title}</div>
-        <div className="command-preview-content">{preview.content}</div>
+        {item.category && (
+          <div className="command-preview-category">{item.category}</div>
+        )}
 
         {preview.metadata && Object.keys(preview.metadata).length > 0 && (
           <div className="command-preview-metadata">

@@ -21,15 +21,18 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Github,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useGitHubStore } from "@/stores/github-store"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
 import type { DomainExpertise, ExperienceLevel, PreferredEnvironment } from "@/types"
 
 const models = [
@@ -976,6 +979,110 @@ function AgentsContent() {
   )
 }
 
+function ConnectedAccountsContent() {
+  const { connected, user, repos, selectedRepoIds, fetchStatus, disconnect } = useGitHubStore()
+
+  useEffect(() => {
+    fetchStatus()
+  }, [fetchStatus])
+
+  return (
+    <div className="flex flex-col gap-8">
+      <h1 className="text-[28px] font-semibold">Connected accounts</h1>
+
+      {/* GitHub Integration */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">GitHub</h2>
+        <p className="text-[13px] text-muted-foreground">
+          Connect your GitHub account to browse and select repositories when creating projects.
+        </p>
+
+        <div className="rounded-xl border border-border bg-card">
+          <div className="flex items-center justify-between px-4 py-4 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-lg",
+                connected ? "bg-primary/10" : "bg-muted"
+              )}>
+                <Github className={cn("h-5 w-5", connected ? "text-primary" : "text-muted-foreground")} />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">GitHub</span>
+                {connected ? (
+                  <span className="text-[13px] text-muted-foreground">
+                    Connected as @{user?.login}
+                  </span>
+                ) : (
+                  <span className="text-[13px] text-muted-foreground">
+                    Not connected
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {connected ? (
+                <Badge variant="success" className="gap-1">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Connected
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="gap-1">
+                  <XCircle className="h-3 w-3" />
+                  Disconnected
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          {connected ? (
+            <>
+              <div className="px-4 py-3.5 border-b border-border">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm">Repositories</span>
+                    <span className="text-[13px] text-muted-foreground">
+                      {repos.length} repositories • {selectedRepoIds.length} selected
+                    </span>
+                  </div>
+                  <GitHubSyncButton />
+                </div>
+              </div>
+              <div className="px-4 py-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm">Disconnect</span>
+                    <span className="text-[13px] text-muted-foreground">
+                      Remove GitHub integration and clear repository cache
+                    </span>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={disconnect}>
+                    Disconnect
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="px-4 py-4">
+              <GitHubConnectButton />
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Other Integrations (Placeholder) */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Other integrations</h2>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-12">
+          <p className="text-sm text-muted-foreground">More integrations coming soon</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            GitLab, Bitbucket, Linear, and more
+          </p>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function PlaceholderContent({ title }: { title: string }) {
   return (
     <div className="flex flex-col gap-8">
@@ -1012,6 +1119,8 @@ export function Settings() {
         return <ModelsContent />
       case "agents":
         return <AgentsContent />
+      case "connected-accounts":
+        return <ConnectedAccountsContent />
       default:
         return <PlaceholderContent title={tabTitles[activeTab]} />
     }

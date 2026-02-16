@@ -3,45 +3,83 @@ import SwiftUI
 struct DecisionCarousel: View {
     @Environment(PlanStore.self) private var planStore
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(RealtimeStore.self) private var realtimeStore
 
     private var decisions: [PlanNode] {
         planStore.pendingDecisions()
     }
 
-    var body: some View {
-        if !decisions.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text("Pending Decisions")
-                        .font(.headline)
-                    Spacer()
-                    Text("\(decisions.count)")
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(.orange.opacity(0.2), in: Capsule())
-                }
+    private var pendingApprovals: [ActivityEvent] {
+        realtimeStore.pendingApprovals
+    }
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(decisions) { decision in
-                            NavigationLink(value: DecisionDestination(nodeId: decision.id, projectId: decision.projectId)) {
-                                DecisionCard(
-                                    decision: decision,
-                                    projectName: projectStore.project(id: decision.projectId)?.name ?? ""
-                                )
-                            }
-                            .buttonStyle(.plain)
+    var body: some View {
+        VStack(spacing: 16) {
+            // Pending Approvals Section
+            if !pendingApprovals.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Approval Required")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(pendingApprovals.count)")
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(.orange.opacity(0.2), in: Capsule())
+                    }
+
+                    ForEach(pendingApprovals, id: \.id) { approval in
+                        ApprovalCard(approval: approval) { approved, selectedOption in
+                            try await realtimeStore.respondToApproval(
+                                approval.approvalId!,
+                                approved: approved,
+                                selectedOption: selectedOption
+                            )
                         }
                     }
                 }
+                .padding()
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
-            .padding()
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .navigationDestination(for: DecisionDestination.self) { dest in
-                TaskDetailView(nodeId: dest.nodeId, projectId: dest.projectId)
+
+            // Pending Decisions Section
+            if !decisions.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "questionmark.diamond.fill")
+                            .foregroundStyle(.orange)
+                        Text("Pending Decisions")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(decisions.count)")
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(.orange.opacity(0.2), in: Capsule())
+                    }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(decisions) { decision in
+                                NavigationLink(value: DecisionDestination(nodeId: decision.id, projectId: decision.projectId)) {
+                                    DecisionCard(
+                                        decision: decision,
+                                        projectName: projectStore.project(id: decision.projectId)?.name ?? ""
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                .padding()
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .navigationDestination(for: DecisionDestination.self) { dest in
+                    TaskDetailView(nodeId: dest.nodeId, projectId: dest.projectId)
+                }
             }
         }
     }

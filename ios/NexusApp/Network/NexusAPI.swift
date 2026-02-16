@@ -84,6 +84,28 @@ actor NexusAPI {
         try await requestVoid("DELETE", path: "/api/data/projects/\(id)")
     }
 
+    // MARK: - Initiatives
+
+    func getInitiatives() async throws -> [Initiative] {
+        try await request("GET", path: "/api/data/initiatives")
+    }
+
+    func createInitiative(_ initiative: Initiative) async throws -> Initiative {
+        try await request("POST", path: "/api/data/initiatives", body: initiative)
+    }
+
+    func getInitiative(_ id: String) async throws -> Initiative {
+        try await request("GET", path: "/api/data/initiatives/\(id)")
+    }
+
+    func updateInitiative(_ id: String, patch: [String: AnyCodable]) async throws -> Initiative {
+        try await request("PATCH", path: "/api/data/initiatives/\(id)", body: patch)
+    }
+
+    func deleteInitiative(_ id: String) async throws {
+        try await requestVoid("DELETE", path: "/api/data/initiatives/\(id)")
+    }
+
     // MARK: - Plan (nodes + edges)
 
     func getPlan(projectId: String) async throws -> PlanData {
@@ -268,6 +290,17 @@ actor NexusAPI {
     func getReadyTasks(projectId: String) async throws -> ReadyTasksResponse {
         try await request("GET", path: "/api/dispatch/ready/\(projectId)")
     }
+
+    func respondToApproval(approvalId: String, approved: Bool, selectedOption: String? = nil) async throws {
+        var body: [String: AnyCodable] = [
+            "approvalId": AnyCodable(approvalId),
+            "approved": AnyCodable(approved),
+        ]
+        if let selectedOption {
+            body["selectedOption"] = AnyCodable(selectedOption)
+        }
+        try await requestVoid("POST", path: "/api/dispatch/approve", body: body)
+    }
 }
 
 // MARK: - Response Types
@@ -407,6 +440,26 @@ struct RepoSetupResult: Codable {
 }
 
 struct EmptyResponse: Codable {}
+
+struct ApprovalRequestEvent: Codable {
+    var approvalId: String
+    var nodeId: String?
+    var projectId: String
+    var executionId: String
+    var message: String
+    var options: [String]?
+    var timestamp: String
+}
+
+struct ApprovalRespondEvent: Codable {
+    var approvalId: String
+    var nodeId: String?
+    var projectId: String
+    var executionId: String
+    var approved: Bool
+    var selectedOption: String?
+    var timestamp: String
+}
 
 // MARK: - Error
 

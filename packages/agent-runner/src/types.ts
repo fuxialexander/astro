@@ -134,6 +134,7 @@ export type WSMessageType =
   | 'task_file_change'
   | 'task_session_init'
   | 'task_steer_ack'
+  | 'task_approval_request'
   | 'resource_update'
   | 'file_list_response'
   // Server -> Client
@@ -142,6 +143,7 @@ export type WSMessageType =
   | 'task_dispatch'
   | 'task_cancel'
   | 'task_steer'
+  | 'task_approval_response'
   | 'config_update'
   | 'file_list_request'
   | 'repo_setup_request'
@@ -271,6 +273,16 @@ export interface TaskSteerAckWSMessage extends WSMessage {
   };
 }
 
+export interface TaskApprovalRequestMessage extends WSMessage {
+  type: 'task_approval_request';
+  payload: {
+    taskId: string;
+    requestId: string;
+    question: string;
+    options: string[];
+  };
+}
+
 export interface ResourceUpdateMessage extends WSMessage {
   type: 'resource_update';
   payload: {
@@ -317,6 +329,17 @@ export interface TaskSteerIncomingMessage extends WSMessage {
     message: string;
     action?: string;
     interrupt?: boolean;
+  };
+}
+
+export interface TaskApprovalResponseMessage extends WSMessage {
+  type: 'task_approval_response';
+  payload: {
+    taskId: string;
+    requestId: string;
+    answered: boolean;
+    answer?: string;
+    message?: string;
   };
 }
 
@@ -403,6 +426,11 @@ export interface StoredConfig {
   providers: ProviderType[];
   autoStart: boolean;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  mcpServers?: Record<string, {
+    command: string;
+    args: string[];
+    env?: Record<string, string>;
+  }>;
 }
 
 // ============================================================================

@@ -20,16 +20,24 @@ const SheetOverlay = forwardRef<
 ))
 SheetOverlay.displayName = "SheetOverlay"
 
+type SheetSide = "right" | "bottom"
+
+const sheetVariants = {
+  right: "inset-y-0 right-0 h-full w-[400px] border-l",
+  bottom: "inset-x-0 bottom-0 w-full border-t rounded-t-2xl",
+}
+
 const SheetContent = forwardRef<
   HTMLDivElement,
-  ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { side?: SheetSide }
+>(({ side = "right", className, children, ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "sheet-content fixed inset-y-0 right-0 z-50 flex h-full w-[400px] flex-col border-l bg-card shadow-lg",
+        "sheet-content fixed z-50 flex flex-col bg-card shadow-lg",
+        sheetVariants[side],
         className
       )}
       {...props}

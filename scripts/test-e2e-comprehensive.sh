@@ -141,7 +141,7 @@ fi
 
 log_info "Requesting device authorization code..."
 DEVICE_RESP=$(curl -s -X POST "$API_BASE/api/device/authorize" \
-  -H "Content-Type: application/json" -d '{"environmentType": "local"}')
+  -H "Content-Type: application/json" -d '{"machineInfo": {"environmentType": "local"}}')
 DEVICE_CODE=$(echo "$DEVICE_RESP" | jq -r '.deviceCode')
 USER_CODE=$(echo "$DEVICE_RESP" | jq -r '.userCode')
 
@@ -209,7 +209,13 @@ node dist/cli.js config --set accessToken="$NEW_ACCESS_TOKEN" 2>/dev/null
 node dist/cli.js config --set refreshToken="$NEW_REFRESH_TOKEN" 2>/dev/null
 node dist/cli.js config --set wsToken="$WS_TOKEN" 2>/dev/null
 node dist/cli.js config --set machineId="$MACHINE_ID" 2>/dev/null
-log_info "✓ Agent runner config updated with fresh tokens"
+node dist/cli.js config --set relayUrl="ws://localhost:3002" 2>/dev/null
+
+# Mark setup as complete by editing config JSON directly
+CONFIG_FILE="$HOME/Library/Preferences/nexus-agent-nodejs/config.json"
+jq '.setupCompleted = true' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+
+log_info "✓ Agent runner config updated with fresh tokens and local relay URL"
 
 # Restart agent runner with new config
 if [ -f /tmp/agent-runner.pid ]; then
@@ -230,10 +236,26 @@ log_info "✓ Agent runner restarted (PID: $AGENT_PID)"
 # ============================================================================
 log_step "Step 5: Verifying Machine Connection"
 
-RELAY_STATUS=$(curl -s "$API_BASE/api/relay/status")
-CONNECTED_MACHINES=$(echo "$RELAY_STATUS" | jq -r '.machines.total')
+# Poll for machine connection (up to 30 seconds)
+log_info "Waiting for agent runner to connect to relay..."
+CONNECTED_MACHINES=0
+for i in {1..30}; do
+  RELAY_STATUS=$(curl -s "$API_BASE/api/relay/status")
+  CONNECTED_MACHINES=$(echo "$RELAY_STATUS" | jq -r '.machines.total')
 
-log_info "✓ Relay server has $CONNECTED_MACHINES connected machine(s)"
+  if [ "$CONNECTED_MACHINES" -gt "0" ]; then
+    log_info "✓ Relay server has $CONNECTED_MACHINES connected machine(s) (after ${i}s)"
+    break
+  fi
+
+  if [ $i -eq 30 ]; then
+    log_error "Timeout waiting for machine to connect to relay"
+    echo "$RELAY_STATUS" | jq . >> "$LOG_DIR/error.log"
+    exit 1
+  fi
+
+  sleep 1
+done
 
 # Save relay status to log
 echo "$RELAY_STATUS" | jq . > "$LOG_DIR/relay-status.json"

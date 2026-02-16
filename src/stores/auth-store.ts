@@ -2,6 +2,7 @@ import { create } from "zustand"
 import type { Session, User } from "@supabase/supabase-js"
 import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
 import { setCurrentUser } from "@/lib/db"
+import { setupRealtimeSync, teardownRealtimeSync } from "@/lib/realtime-sync"
 
 interface AuthState {
   session: Session | null
@@ -57,6 +58,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       initialized: true,
     })
 
+    // Setup realtime sync if authenticated
+    if (session) {
+      console.log('[auth-store] Setting up realtime sync for authenticated user')
+      setupRealtimeSync()
+    }
+
     // Listen for auth changes
     supabase.auth.onAuthStateChange((event, session) => {
       console.log('[auth-store] Auth state changed:', event, session ? `User ${session.user.id}` : 'None')
@@ -68,6 +75,15 @@ export const useAuthStore = create<AuthState>((set) => ({
         session,
         user: session?.user ?? null,
       })
+
+      // Setup/teardown realtime sync based on auth state
+      if (session) {
+        console.log('[auth-store] Setting up realtime sync after auth state change')
+        setupRealtimeSync()
+      } else {
+        console.log('[auth-store] Tearing down realtime sync after sign out')
+        teardownRealtimeSync()
+      }
     })
   },
 
@@ -79,6 +95,9 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     // Clear user tracking
     setCurrentUser(null)
+
+    // Teardown realtime sync
+    await teardownRealtimeSync()
 
     set({ session: null, user: null })
   },

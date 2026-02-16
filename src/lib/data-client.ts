@@ -1,4 +1,4 @@
-import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey } from "@/types"
+import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, TaskExecution } from "@/types"
 import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
@@ -69,6 +69,14 @@ function mapProject(row: Record<string, unknown>): Project {
     updatedAt: toDate(row.updatedAt ?? row.updated_at),
     labels: (row.labels as Project["labels"]) ?? [],
   } as Project
+}
+
+function mapInitiative(row: Record<string, unknown>): Initiative {
+  return {
+    ...row,
+    createdAt: toDate(row.createdAt ?? row.created_at),
+    updatedAt: toDate(row.updatedAt ?? row.updated_at),
+  } as Initiative
 }
 
 function mapNode(row: Record<string, unknown>): PlanNode {
@@ -170,6 +178,31 @@ export const dataClient = {
     await del(`${BASE}/projects/${id}`)
   },
 
+  // ── Initiatives ─────────────────────────────────────────────────────
+  async listInitiatives(): Promise<Initiative[]> {
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/initiatives`)
+    return rows.map(mapInitiative)
+  },
+
+  async createInitiative(initiative: Initiative): Promise<Initiative> {
+    const row = await post(`${BASE}/initiatives`, initiative) as Record<string, unknown>
+    return mapInitiative(row)
+  },
+
+  async getInitiative(id: string): Promise<Initiative> {
+    const row = await json<Record<string, unknown>>(`${BASE}/initiatives/${id}`)
+    return mapInitiative(row)
+  },
+
+  async updateInitiative(id: string, patch_: Partial<Initiative>): Promise<Initiative> {
+    const row = await patch(`${BASE}/initiatives/${id}`, patch_) as Record<string, unknown>
+    return mapInitiative(row)
+  },
+
+  async deleteInitiative(id: string): Promise<void> {
+    await del(`${BASE}/initiatives/${id}`)
+  },
+
   // ── Plan ────────────────────────────────────────────────────────────
   async getAllPlans(): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
     const data = await json<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>(`${BASE}/plan`)
@@ -268,6 +301,140 @@ export const dataClient = {
 
   async deleteChatSession(nodeId: string): Promise<void> {
     await del(`${BASE}/chat/${nodeId}`)
+  },
+
+  // ── Sessions ────────────────────────────────────────────────────────
+  async getAllSessions(): Promise<import("@/types").Session[]> {
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/sessions`)
+    return rows.map(row => ({
+      ...row,
+      createdAt: toDate(row.createdAt ?? row.created_at),
+      updatedAt: toDate(row.updatedAt ?? row.updated_at),
+      completedAt: row.completedAt ? toDate(row.completedAt) : undefined,
+      messages: (row.messages as Array<Record<string, unknown>> ?? []).map(m => ({
+        ...m,
+        timestamp: toDate(m.timestamp),
+      })),
+      steerMessages: (row.steerMessages as Array<Record<string, unknown>> ?? []).map(m => ({
+        ...m,
+        timestamp: toDate(m.timestamp),
+      })),
+      activityEvents: (row.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
+        ...e,
+        timestamp: toDate(e.timestamp),
+      })),
+      toolTraces: (row.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
+        ...t,
+        timestamp: toDate(t.timestamp),
+      })),
+      fileChanges: (row.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
+        ...f,
+        timestamp: toDate(f.timestamp),
+      })),
+    })) as import("@/types").Session[]
+  },
+
+  async getSession(sessionId: string): Promise<import("@/types").Session | null> {
+    const row = await json<Record<string, unknown> | null>(`${BASE}/sessions/${sessionId}`)
+    if (!row) return null
+    return {
+      ...row,
+      createdAt: toDate(row.createdAt ?? row.created_at),
+      updatedAt: toDate(row.updatedAt ?? row.updated_at),
+      completedAt: row.completedAt ? toDate(row.completedAt) : undefined,
+      messages: (row.messages as Array<Record<string, unknown>> ?? []).map(m => ({
+        ...m,
+        timestamp: toDate(m.timestamp),
+      })),
+      steerMessages: (row.steerMessages as Array<Record<string, unknown>> ?? []).map(m => ({
+        ...m,
+        timestamp: toDate(m.timestamp),
+      })),
+      activityEvents: (row.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
+        ...e,
+        timestamp: toDate(e.timestamp),
+      })),
+      toolTraces: (row.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
+        ...t,
+        timestamp: toDate(t.timestamp),
+      })),
+      fileChanges: (row.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
+        ...f,
+        timestamp: toDate(f.timestamp),
+      })),
+    } as import("@/types").Session
+  },
+
+  async createSession(session: import("@/types").Session): Promise<import("@/types").Session> {
+    const row = await post(`${BASE}/sessions`, session) as Record<string, unknown>
+    return {
+      ...row,
+      createdAt: toDate(row.createdAt ?? row.created_at),
+      updatedAt: toDate(row.updatedAt ?? row.updated_at),
+      completedAt: row.completedAt ? toDate(row.completedAt) : undefined,
+      messages: (row.messages as Array<Record<string, unknown>> ?? []).map(m => ({
+        ...m,
+        timestamp: toDate(m.timestamp),
+      })),
+      steerMessages: (row.steerMessages as Array<Record<string, unknown>> ?? []).map(m => ({
+        ...m,
+        timestamp: toDate(m.timestamp),
+      })),
+      activityEvents: (row.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
+        ...e,
+        timestamp: toDate(e.timestamp),
+      })),
+      toolTraces: (row.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
+        ...t,
+        timestamp: toDate(t.timestamp),
+      })),
+      fileChanges: (row.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
+        ...f,
+        timestamp: toDate(f.timestamp),
+      })),
+    } as import("@/types").Session
+  },
+
+  async updateSession(sessionId: string, updates: Partial<import("@/types").Session>): Promise<void> {
+    await patch(`${BASE}/sessions/${sessionId}`, updates)
+  },
+
+  async deleteSession(sessionId: string): Promise<void> {
+    await del(`${BASE}/sessions/${sessionId}`)
+  },
+
+  async addSessionMessage(sessionId: string, message: import("@/types").SessionMessage): Promise<void> {
+    await post(`${BASE}/sessions/${sessionId}/messages`, message)
+  },
+
+  // ── Executions ──────────────────────────────────────────────────────
+  async getExecutions(): Promise<Record<string, TaskExecution>> {
+    const rows = await json<Record<string, Record<string, unknown>>>(`${BASE}/executions`)
+    const result: Record<string, TaskExecution> = {}
+    for (const [nodeId, row] of Object.entries(rows)) {
+      result[nodeId] = {
+        ...row,
+        startedAt: toDate(row.startedAt ?? row.started_at),
+        completedAt: row.completedAt ? toDate(row.completedAt) : undefined,
+        toolTraces: (row.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
+          ...t,
+          timestamp: toDate(t.timestamp),
+        })),
+        fileChanges: (row.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
+          ...f,
+          timestamp: toDate(f.timestamp),
+        })),
+        activityEvents: (row.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
+          ...e,
+          timestamp: toDate(e.timestamp),
+        })),
+      } as TaskExecution
+    }
+    return result
+  },
+
+  async saveExecution(execution: TaskExecution): Promise<void> {
+    await post(`${BASE}/executions`, execution)
   },
 
   // ── Settings ────────────────────────────────────────────────────────

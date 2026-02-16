@@ -91,24 +91,37 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   return (
     <div
       className={cn(
-        "relative flex items-center gap-2.5 border px-4 shadow-md",
+        "relative flex items-center gap-2.5 border px-3 shadow-sm",
         highlight.bg,
         highlight.border,
-        isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-2xl",
+        isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-xl",
         data.status === "pruned" && "opacity-50",
         isOverdue && "border-l-red-500 border-l-[3px]",
-        isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background"
+        isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
+        isRunning && "shadow-lg shadow-primary/20"
       )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       <Handle type="target" position={Position.Top} className="!bg-border !w-2 !h-2 !border-none" />
 
+      {/* Active glow effect for running tasks */}
+      {isRunning && (
+        <div className="absolute -inset-4 -z-10 opacity-20 pointer-events-none">
+          <div
+            className="absolute inset-0 rounded-full blur-xl"
+            style={{
+              background: "radial-gradient(ellipse 160px 60px at center, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0) 70%)",
+            }}
+          />
+        </div>
+      )}
+
       {/* Progress bar overlay for running tasks (clipped to node border) */}
       {isRunning && progress > 0 && (
         <div className={cn(
           "absolute inset-0 overflow-hidden pointer-events-none",
-          isMilestone ? "rounded-[20px]" : "rounded-[10px]"
+          isMilestone ? "rounded-[20px]" : "rounded-xl"
         )}>
           <div
             className="absolute left-0 top-0 bottom-0 bg-blue-500/10 transition-all duration-500"

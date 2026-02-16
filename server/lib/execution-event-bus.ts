@@ -11,7 +11,14 @@
 
 import { EventEmitter } from 'events'
 
-class ExecutionEventBus extends EventEmitter {}
+class ExecutionEventBus extends EventEmitter {
+  constructor() {
+    super()
+    // Allow up to 100 concurrent task listeners (default is 10)
+    // This is expected for concurrent task execution, not a memory leak
+    this.setMaxListeners(100)
+  }
+}
 
 // Use globalThis to guarantee singleton across module reloads (tsx watch)
 const globalKey = '__nexus_execution_event_bus__'

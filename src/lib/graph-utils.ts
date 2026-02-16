@@ -16,6 +16,8 @@ function overlapsAny(
   allNodes: PlanNode[],
 ): boolean {
   return allNodes.some((n) => {
+    // Skip nodes without positions
+    if (!n.position) return false
     const w = n.type === "milestone" ? 200 : NODE_WIDTH
     const h = n.type === "milestone" ? 40 : NODE_HEIGHT
     return (
@@ -37,11 +39,16 @@ export function calculateChildPosition(
   allNodes: PlanNode[],
   allEdges: PlanEdge[]
 ): { x: number; y: number } {
+  // If parent has no position, return default
+  if (!parentNode.position) {
+    return { x: 0, y: 0 }
+  }
+
   // Find existing children of this parent
   const childIds = new Set(
     allEdges.filter((e) => e.source === parentNode.id).map((e) => e.target)
   )
-  const childNodes = allNodes.filter((n) => childIds.has(n.id))
+  const childNodes = allNodes.filter((n) => childIds.has(n.id) && n.position)
 
   const baseY = parentNode.position.y + NODE_HEIGHT + VERTICAL_GAP
 

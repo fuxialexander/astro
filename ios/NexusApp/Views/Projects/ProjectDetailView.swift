@@ -7,10 +7,11 @@ struct ProjectDetailView: View {
     @Environment(PlanStore.self) private var planStore
     @Environment(NavigationContext.self) private var navigationContext
     @SwiftUI.Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var selectedTab: Tab = .overview
     @State private var showVisionDoc = false
-    
+
     // Two-panel state: chat OR detail, not both
     @State private var rightPanelMode: RightPanelMode = .none
     @State private var selectedNode: PlanNode?
@@ -41,25 +42,29 @@ struct ProjectDetailView: View {
     }
 
     var body: some View {
-        Group {
-            if let project {
-                VStack(spacing: 0) {
-                    // Generation progress banner
-                    if let gen = generationState, gen.isGenerating {
-                        GenerationBanner(state: gen)
-                    } else if let gen = generationState, gen.nodeCount > 0, !gen.isGenerating {
-                        // Just finished — show success briefly
-                        GenerationCompleteBanner(nodeCount: gen.nodeCount)
-                    }
+        ZStack {
+            AdaptiveColors.background(colorScheme).ignoresSafeArea()
 
-                    if isWide {
-                        iPadLayout(project: project)
-                    } else {
-                        compactLayout(project: project)
+            Group {
+                if let project {
+                    VStack(spacing: 0) {
+                        // Generation progress banner
+                        if let gen = generationState, gen.isGenerating {
+                            GenerationBanner(state: gen)
+                        } else if let gen = generationState, gen.nodeCount > 0, !gen.isGenerating {
+                            // Just finished — show success briefly
+                            GenerationCompleteBanner(nodeCount: gen.nodeCount)
+                        }
+
+                        if isWide {
+                            iPadLayout(project: project)
+                        } else {
+                            compactLayout(project: project)
+                        }
                     }
+                } else {
+                    ContentUnavailableView("Project Not Found", systemImage: "folder.badge.questionmark")
                 }
-            } else {
-                ContentUnavailableView("Project Not Found", systemImage: "folder.badge.questionmark")
             }
         }
         .task {
@@ -146,7 +151,7 @@ struct ProjectDetailView: View {
             // Main content area
             VStack(spacing: 0) {
                 // Tab bar
-                HStack(spacing: 0) {
+                HStack(spacing: NexusTheme.Spacing.sm) {
                     ForEach(Tab.allCases, id: \.self) { tab in
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) {
@@ -154,20 +159,21 @@ struct ProjectDetailView: View {
                             }
                         } label: {
                             Text(tab.rawValue)
-                                .font(.subheadline.weight(selectedTab == tab ? .semibold : .regular))
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(selectedTab == tab ? Color.accentColor.opacity(0.1) : .clear)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .font(selectedTab == tab ? NexusTheme.Typography.bodyMedium : NexusTheme.Typography.body)
+                                .foregroundColor(selectedTab == tab ? AdaptiveColors.primary : AdaptiveColors.textSecondary(colorScheme))
+                                .padding(.horizontal, NexusTheme.Spacing.lg)
+                                .padding(.vertical, NexusTheme.Spacing.md)
+                                .background(selectedTab == tab ? AdaptiveColors.primary.opacity(0.1) : Color.clear)
+                                .clipShape(RoundedRectangle(cornerRadius: NexusTheme.CornerRadius.md))
                         }
                         .buttonStyle(.plain)
                     }
                     Spacer()
                     toolbarButtons
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 6)
-                .background(.bar)
+                .padding(.horizontal, NexusTheme.Spacing.lg)
+                .padding(.vertical, NexusTheme.Spacing.md)
+                .background(AdaptiveColors.surface(colorScheme))
 
                 Divider()
 
@@ -519,7 +525,9 @@ private struct AddTaskSheet: View {
 
 private struct ProjectOverviewTab: View {
     let project: Project
+
     @Environment(PlanStore.self) private var planStore
+    @Environment(\.colorScheme) private var colorScheme
 
     private var nodes: [PlanNode] {
         planStore.nodes(for: project.id)
@@ -527,83 +535,103 @@ private struct ProjectOverviewTab: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: NexusTheme.Spacing.xl) {
                 // Description
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: NexusTheme.Spacing.md) {
                     Text("Description")
-                        .font(.headline)
+                        .font(NexusTheme.Typography.headline)
+                        .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                     Text(project.description)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
+                        .font(NexusTheme.Typography.body)
+                        .foregroundColor(AdaptiveColors.textSecondary(colorScheme))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .adaptiveCard(padding: NexusTheme.Spacing.lg, colorScheme: colorScheme)
 
-                // Stats
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    StatCard(title: "Total Tasks", value: "\(nodes.count)", icon: "list.bullet", color: .blue)
-                    StatCard(title: "Completed", value: "\(nodes.filter { $0.status.isDone }.count)", icon: "checkmark", color: .green)
-                    StatCard(title: "In Progress", value: "\(nodes.filter { $0.status.isActive }.count)", icon: "bolt", color: .orange)
+                // Stats Grid
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: NexusTheme.Spacing.md) {
+                    AdaptiveStatsCard(
+                        title: "Total Tasks",
+                        value: "\(nodes.count)",
+                        icon: "list.bullet",
+                        color: AdaptiveColors.primary
+                    )
+                    AdaptiveStatsCard(
+                        title: "Completed",
+                        value: "\(nodes.filter { $0.status.isDone }.count)",
+                        icon: "checkmark.circle.fill",
+                        color: AdaptiveColors.statusCompleted
+                    )
+                    AdaptiveStatsCard(
+                        title: "In Progress",
+                        value: "\(nodes.filter { $0.status.isActive }.count)",
+                        icon: "bolt.circle.fill",
+                        color: AdaptiveColors.statusInProgress
+                    )
                 }
 
-                // Health & Progress
+                // Health
                 if let health = project.health {
                     HStack {
                         Text("Health")
-                            .font(.subheadline.weight(.medium))
+                            .font(NexusTheme.Typography.bodyMedium)
+                            .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                         Spacer()
-                        Text(health.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
-                            .font(.subheadline)
+                        NexusHealthIndicator(health: health)
                     }
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .adaptiveCard(padding: NexusTheme.Spacing.lg, colorScheme: colorScheme)
                 }
 
+                // Progress
                 if let progress = project.progress {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: NexusTheme.Spacing.md) {
                         HStack {
                             Text("Progress")
-                                .font(.subheadline.weight(.medium))
+                                .font(NexusTheme.Typography.bodyMedium)
+                                .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                             Spacer()
                             Text("\(progress)%")
-                                .font(.subheadline.monospacedDigit())
+                                .font(NexusTheme.Typography.bodyMedium.monospacedDigit())
+                                .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                         }
                         ProgressView(value: Double(progress), total: 100)
+                            .tint(AdaptiveColors.primary)
                     }
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .adaptiveCard(padding: NexusTheme.Spacing.lg, colorScheme: colorScheme)
                 }
 
                 // Dates
                 if project.startDate != nil || project.targetDate != nil {
                     HStack {
                         if let start = project.startDate {
-                            VStack(alignment: .leading) {
+                            VStack(alignment: .leading, spacing: NexusTheme.Spacing.xs) {
                                 Text("Start")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(NexusTheme.Typography.caption1)
+                                    .foregroundColor(AdaptiveColors.textSecondary(colorScheme))
                                 Text(start)
-                                    .font(.subheadline)
+                                    .font(NexusTheme.Typography.bodyMedium)
+                                    .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                             }
                         }
                         Spacer()
                         if let target = project.targetDate {
-                            VStack(alignment: .trailing) {
+                            VStack(alignment: .trailing, spacing: NexusTheme.Spacing.xs) {
                                 Text("Target")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(NexusTheme.Typography.caption1)
+                                    .foregroundColor(AdaptiveColors.textSecondary(colorScheme))
                                 Text(target)
-                                    .font(.subheadline)
+                                    .font(NexusTheme.Typography.bodyMedium)
+                                    .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                             }
                         }
                     }
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .adaptiveCard(padding: NexusTheme.Spacing.lg, colorScheme: colorScheme)
                 }
             }
-            .padding()
+            .padding(NexusTheme.Spacing.lg)
+            .padding(.bottom, NexusTheme.Spacing.xxxl)
         }
+        .adaptiveScrollFade(colorScheme: colorScheme)
     }
 }
 
@@ -612,6 +640,7 @@ private struct ProjectOverviewTab: View {
 private struct GenerationBanner: View {
     let state: PlanStore.GenerationState
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var dots = ""
     @State private var isExpanded = false
 
@@ -622,44 +651,48 @@ private struct GenerationBanner: View {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: NexusTheme.Spacing.md) {
                     ProgressView()
                         .scaleEffect(0.8)
+                        .tint(AdaptiveColors.primary)
 
                     Text("Generating plan\(dots)")
-                        .font(.subheadline.weight(.medium))
+                        .font(NexusTheme.Typography.bodyMedium)
+                        .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
 
                     Spacer()
 
                     if let error = state.error {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                            .font(NexusTheme.Typography.caption1)
+                            .foregroundColor(AdaptiveColors.warning)
                     }
 
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(NexusTheme.Typography.caption1)
+                        .foregroundColor(AdaptiveColors.textSecondary(colorScheme))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, NexusTheme.Spacing.lg)
+                .padding(.vertical, NexusTheme.Spacing.md)
             }
             .buttonStyle(.plain)
 
             if isExpanded && !state.text.isEmpty {
                 ScrollView {
                     Text(state.text.suffix(2000))
-                        .font(.system(.caption2, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(AdaptiveColors.textSecondary(colorScheme))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, NexusTheme.Spacing.lg)
+                        .padding(.vertical, NexusTheme.Spacing.md)
                 }
                 .frame(maxHeight: 150)
             }
 
             Divider()
+                .background(AdaptiveColors.border(colorScheme))
         }
-        .background(.ultraThinMaterial)
+        .background(AdaptiveColors.surfaceElevated(colorScheme))
         .task {
             while true {
                 try? await Task.sleep(for: .milliseconds(500))
@@ -671,27 +704,30 @@ private struct GenerationBanner: View {
 
 private struct GenerationCompleteBanner: View {
     let nodeCount: Int
+
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isVisible = true
 
     var body: some View {
         if isVisible {
-            HStack(spacing: 10) {
+            HStack(spacing: NexusTheme.Spacing.md) {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundColor(AdaptiveColors.statusCompleted)
                 Text("Plan generated: \(nodeCount) nodes")
-                    .font(.subheadline.weight(.medium))
+                    .font(NexusTheme.Typography.bodyMedium)
+                    .foregroundColor(AdaptiveColors.textPrimary(colorScheme))
                 Spacer()
                 Button {
                     withAnimation { isVisible = false }
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(NexusTheme.Typography.caption1)
+                        .foregroundColor(AdaptiveColors.textSecondary(colorScheme))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(Color.green.opacity(0.1))
+            .padding(.horizontal, NexusTheme.Spacing.lg)
+            .padding(.vertical, NexusTheme.Spacing.md)
+            .background(AdaptiveColors.statusCompleted.opacity(0.1))
             .transition(.move(edge: .top).combined(with: .opacity))
             .task {
                 try? await Task.sleep(for: .seconds(5))

@@ -15,6 +15,7 @@ import { fsRoute } from './routes/fs.js'
 import { repoRoute } from './routes/repo.js'
 import { dataRoute } from './routes/data.js'
 import { notificationsRoute } from './routes/notifications.js'
+import githubRoute from './routes/github.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
@@ -137,6 +138,7 @@ app.route('/api/fs', fsRoute)
 app.route('/api/repo', repoRoute)
 app.route('/api/data', dataRoute)
 app.route('/api/notifications', notificationsRoute)
+app.route('/api/github', githubRoute)
 
 const port = 3001
 const relayPort = getRelayConfig().port
@@ -166,13 +168,18 @@ async function start() {
     // Continue even if initialization fails - providers can be detected on-demand
   }
 
-  // Register event transport hooks
-  console.log('[event-transport] Registering hooks...')
-  nexusEventTransport.registerHook('sse-notification', sseNotificationHook)
-  nexusEventTransport.registerHook('audit-log', auditLogHook)
-  nexusEventTransport.registerHook('usage-metrics', usageMetricsHook)
-  nexusEventTransport.registerHook('pr-creation', prCreationHook)
-  console.log('[event-transport] Registered 4 hooks:', nexusEventTransport.listHooks().join(', '))
+  // Register event transport hooks (skip in test mode to avoid side effects)
+  if (!isTest()) {
+    console.log('[event-transport] Registering hooks...')
+    nexusEventTransport.registerHook('sse-notification', sseNotificationHook)
+    nexusEventTransport.registerHook('audit-log', auditLogHook)
+    nexusEventTransport.registerHook('usage-metrics', usageMetricsHook)
+    nexusEventTransport.registerHook('pr-creation', prCreationHook)
+    console.log('[event-transport] Registered 4 hooks:', nexusEventTransport.listHooks().join(', '))
+  } else {
+    console.log('[event-transport] Test mode detected - hooks disabled')
+    nexusEventTransport.setEnabled(false)
+  }
 
   // Initialize relay server
   try {

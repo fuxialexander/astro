@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { MobileStatusBar } from "@/components/mobile/status-bar"
 import { useAuthStore } from "@/stores/auth-store"
 
 type AuthStatus = "loading" | "pending" | "success" | "error" | "denied" | "expired" | "unauthenticated"
@@ -207,8 +208,12 @@ export function DeviceAuth() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md">
+    <div className="flex min-h-screen flex-col bg-background">
+      {/* Mobile Status Bar */}
+      <MobileStatusBar />
+
+      <div className="flex flex-1 flex-col items-center justify-center p-4">
+        <div className="w-full max-w-md">
         {/* Logo/Brand */}
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold">Nexus</h1>
@@ -396,11 +401,12 @@ export function DeviceAuth() {
           </CardContent>
         </Card>
 
-        {/* Footer */}
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          Having trouble? Run <code className="rounded bg-muted px-1 py-0.5">npx @nexus/agent setup</code> to
-          start the device authentication process.
-        </p>
+          {/* Footer */}
+          <p className="mt-4 text-center text-xs text-muted-foreground">
+            Having trouble? Run <code className="rounded bg-muted px-1 py-0.5">npx @nexus/agent setup</code> to
+            start the device authentication process.
+          </p>
+        </div>
       </div>
     </div>
   )

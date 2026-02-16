@@ -19,6 +19,8 @@ import type {
   TaskSessionInitMessage,
   TaskSteerAckWSMessage,
   TaskSteerIncomingMessage,
+  TaskApprovalRequestMessage,
+  TaskApprovalResponseMessage,
   ResourceUpdateMessage,
   RegisteredMessage,
   HeartbeatAckMessage,
@@ -73,6 +75,7 @@ type IncomingMessage =
   | TaskDispatchMessage
   | TaskCancelMessage
   | TaskSteerIncomingMessage
+  | TaskApprovalResponseMessage
   | ConfigUpdateMessage
   | FileListRequestMessage
   | RepoSetupRequestMessage
@@ -94,6 +97,7 @@ export class WebSocketClient {
   private isConnecting = false;
   private shouldReconnect = true;
   private activeTasks: Set<string> = new Set();
+  private pendingApprovals: Map<string, { resolve: (result: { answered: boolean; answer?: string; message?: string }) => void; reject: (error: Error) => void }> = new Map();
 
   private onEvent?: RunnerEventHandler;
   private onTaskDispatch?: (task: Task) => void;
@@ -410,6 +414,38 @@ export class WebSocketClient {
   }
 
   /**
+   * Send approval request and wait for response (following Cyrus pattern)
+   * Returns a promise that resolves when the user responds or rejects on timeout
+   */
+  sendApprovalRequest(taskId: string, question: string, options: string[]): Promise<{ answered: boolean; answer?: string; message?: string }> {
+    const requestId = `${taskId}-${Date.now()}`;
+
+    return new Promise((resolve, reject) => {
+      // Store the promise handlers
+      this.pendingApprovals.set(requestId, { resolve, reject });
+
+      // Send the approval request message
+      const msg: TaskApprovalRequestMessage = {
+        type: 'task_approval_request',
+        timestamp: new Date().toISOString(),
+        payload: { taskId, requestId, question, options },
+      };
+      this.send(msg);
+
+      console.log(`[ws-client] Sent approval request ${requestId} for task ${taskId}`);
+
+      // Set timeout (60 seconds for user to respond)
+      setTimeout(() => {
+        const pending = this.pendingApprovals.get(requestId);
+        if (pending) {
+          this.pendingApprovals.delete(requestId);
+          pending.resolve({ answered: false, message: 'Approval request timed out (60s)' });
+        }
+      }, 60000);
+    });
+  }
+
+  /**
    * Send resource update
    */
   async sendResourceUpdate(): Promise<void> {
@@ -555,6 +591,9 @@ export class WebSocketClient {
       case 'task_steer':
         this.handleTaskSteer(message as unknown as TaskSteerIncomingMessage);
         break;
+      case 'task_approval_response':
+        this.handleApprovalResponse(message as TaskApprovalResponseMessage);
+        break;
       case 'config_update':
         this.handleConfigUpdate(message);
         break;
@@ -601,6 +640,19 @@ export class WebSocketClient {
   private handleTaskSteer(message: TaskSteerIncomingMessage): void {
     const { taskId, message: steerMessage, action, interrupt } = message.payload;
     this.onTaskSteer?.(taskId, steerMessage, action, interrupt);
+  }
+
+  private handleApprovalResponse(message: TaskApprovalResponseMessage): void {
+    const { requestId, answered, answer, message: responseMessage } = message.payload;
+    const pending = this.pendingApprovals.get(requestId);
+
+    if (pending) {
+      console.log(`[ws-client] Received approval response for ${requestId}: answered=${answered}, answer=${answer}`);
+      this.pendingApprovals.delete(requestId);
+      pending.resolve({ answered, answer, message: responseMessage });
+    } else {
+      console.warn(`[ws-client] Received approval response for unknown request ${requestId}`);
+    }
   }
 
   private handleConfigUpdate(message: ConfigUpdateMessage): void {

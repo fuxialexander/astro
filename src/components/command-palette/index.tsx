@@ -66,8 +66,14 @@ export function CommandPalette() {
           title: project.name,
           content: project.description,
           metadata: {
-            Status: project.status,
+            ...(project.health && { Health: project.health.replace(/_/g, ' ') }),
+            ...(project.progress !== undefined && { Progress: `${project.progress}%` }),
             ...(project.lead && { Lead: project.lead }),
+            ...(project.startDate && { Started: new Date(project.startDate).toLocaleDateString() }),
+            ...(project.targetDate && { Target: new Date(project.targetDate).toLocaleDateString() }),
+            ...(project.labels && project.labels.length > 0 && {
+              Labels: project.labels.map(l => l.name).join(', ')
+            }),
           },
         },
       }))
@@ -253,6 +259,23 @@ export function CommandPalette() {
         }
       }
 
+      // Number keys 1-9 - execute command by index
+      if (e.key >= "1" && e.key <= "9") {
+        e.preventDefault()
+        const numberIndex = parseInt(e.key, 10)
+        // Find the nth item (skip category headers)
+        let itemCount = 0
+        for (const item of flatCommands) {
+          if (item.type === "item") {
+            itemCount++
+            if (itemCount === numberIndex && item.item) {
+              handleExecuteCommand(item.item)
+              return
+            }
+          }
+        }
+      }
+
       // Toggle multi-select mode
       if ((e.metaKey || e.ctrlKey) && e.key === "m") {
         e.preventDefault()
@@ -338,9 +361,10 @@ export function CommandPalette() {
             <div className="command-list-container">
               <div
                 ref={listRef}
-                className="max-h-[400px] overflow-auto"
-                style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}
+                className="h-[400px] overflow-auto"
+                style={{ position: "relative" }}
               >
+                <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
                 <Command.List>
                   {flatCommands.length === 0 ? (
                     <div className="command-empty-state">
@@ -376,6 +400,18 @@ export function CommandPalette() {
                       const isSelected = virtualRow.index === selectedIndex
                       const isMultiSelected = selectedCommands.includes(cmd.id)
 
+                      // Calculate item number (1-9) for number shortcuts
+                      let itemNumber: number | undefined
+                      let itemCount = 0
+                      for (let i = 0; i <= virtualRow.index; i++) {
+                        if (flatCommands[i].type === "item") {
+                          itemCount++
+                        }
+                      }
+                      if (itemCount > 0 && itemCount <= 9) {
+                        itemNumber = itemCount
+                      }
+
                       return (
                         <div
                           key={virtualRow.index}
@@ -398,12 +434,14 @@ export function CommandPalette() {
                             onMultiSelect={() => toggleCommandSelection(cmd.id)}
                             multiSelectEnabled={multiSelectMode}
                             itemIndex={virtualRow.index}
+                            numberShortcut={itemNumber}
                           />
                         </div>
                       )
                     })
                   )}
                 </Command.List>
+                </div>
               </div>
             </div>
 

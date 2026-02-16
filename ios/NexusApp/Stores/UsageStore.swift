@@ -32,4 +32,15 @@ final class UsageStore {
     var formattedCost: String {
         String(format: "$%.2f", todayUsage.totalCostUsd)
     }
+
+    var formattedTokens: String {
+        let tokens = totalTokens
+        if tokens >= 1_000_000 {
+            return String(format: "%.1fM", Double(tokens) / 1_000_000)
+        } else if tokens >= 1_000 {
+            return String(format: "%.1fK", Double(tokens) / 1_000)
+        } else {
+            return "\(tokens)"
+        }
+    }
 }

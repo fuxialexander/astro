@@ -264,6 +264,15 @@ export interface TaskFileChangeMessage extends BaseMessage {
   diff?: string;
 }
 
+/** Task approval request (agent requesting user decision) */
+export interface TaskApprovalRequestMessage extends BaseMessage {
+  type: 'task.approval_request';
+  taskId: string;
+  requestId: string;
+  question: string;
+  options: string[];
+}
+
 /** Heartbeat pong response */
 export interface HeartbeatPongMessage extends BaseMessage {
   type: 'heartbeat.pong';
@@ -306,6 +315,16 @@ export interface TaskSteerMessage extends BaseMessage {
   message: string;
   action?: 'guidance' | 'redirect' | 'pause' | 'resume';
   interrupt?: boolean;
+}
+
+/** Task approval response (relay → agent with user's decision) */
+export interface TaskApprovalResponseMessage extends BaseMessage {
+  type: 'task.approval_response';
+  taskId: string;
+  requestId: string;
+  answered: boolean;
+  answer?: string;
+  message?: string;
 }
 
 /** File list request (relay → agent) */
@@ -418,6 +437,7 @@ export type AgentToRelayMessage =
   | TaskSteerAckMessage
   | TaskToolTraceMessage
   | TaskFileChangeMessage
+  | TaskApprovalRequestMessage
   | HeartbeatPongMessage
   | FileListResponseMessage;
 
@@ -437,6 +457,7 @@ export type RelayToAgentMessage =
   | TaskDispatchMessage
   | TaskCancelMessage
   | TaskSteerMessage
+  | TaskApprovalResponseMessage
   | HeartbeatPingMessage
   | MachineRegisterAckMessage
   | FileListRequestMessage

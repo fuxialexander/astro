@@ -37,6 +37,9 @@ targets:
       properties:
         com.apple.security.application-groups:
           - "group.com.nexus.app"
+        com.apple.developer.associated-domains:
+          - "webcredentials:nexus.app"
+          - "webcredentials:localhost"
 
   # MARK: - iOS Widget Extension
   NexusWidgetExtension:

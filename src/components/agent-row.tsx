@@ -18,7 +18,8 @@ export function AgentRow({
   return (
     <button
       onClick={onClick}
-      className="w-full flex flex-col gap-3 rounded-2xl bg-card shadow-sm p-4 text-left transition-colors hover:bg-accent"
+      className="w-full flex flex-col gap-3 rounded-2xl bg-card p-4 text-left transition-colors hover:bg-accent"
+      style={{ boxShadow: '0px 2px 12px -2px rgba(0, 0, 0, 0.15)' }}
     >
       {/* Top row: task name + duration */}
       <div className="flex items-start justify-between gap-2">

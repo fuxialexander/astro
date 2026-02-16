@@ -23,12 +23,13 @@ TOKEN_RESPONSE=$(curl -s "${SUPABASE_URL}/auth/v1/token?grant_type=password" \
 
 ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token // empty')
 ERROR=$(echo "$TOKEN_RESPONSE" | jq -r '.error // empty')
+ERROR_CODE=$(echo "$TOKEN_RESPONSE" | jq -r '.error_code // empty')
 
 if [ -n "$ACCESS_TOKEN" ]; then
   # Sign-in succeeded
   USER_ID=$(echo "$TOKEN_RESPONSE" | jq -r '.user.id')
   echo "✓ Signed in as existing user: $USER_ID"
-elif [ "$ERROR" = "invalid_grant" ] || [ "$ERROR" = "invalid_credentials" ]; then
+elif [ "$ERROR" = "invalid_grant" ] || [ "$ERROR" = "invalid_credentials" ] || [ "$ERROR_CODE" = "invalid_credentials" ]; then
   # User doesn't exist or wrong password - create user
   echo "User doesn't exist, creating via Admin API..."
 

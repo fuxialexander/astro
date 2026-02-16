@@ -8,6 +8,10 @@ export function QuickActions({ selectedCount, onClearSelection }: QuickActionsPr
     return (
       <div className="keyboard-hints">
         <div className="keyboard-hint">
+          <kbd>1-9</kbd>
+          <span>Quick select</span>
+        </div>
+        <div className="keyboard-hint">
           <kbd>↑↓</kbd>
           <span>Navigate</span>
         </div>

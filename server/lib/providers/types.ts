@@ -101,6 +101,10 @@ export type ExecutionEnvironment = 'local' | 'hpc' | 'cloud'
 export interface TaskContext {
   /** Project ID the task belongs to */
   projectId: string
+  /** Node ID the task belongs to (for plan nodes) */
+  nodeId?: string
+  /** Auth token for API access (passed to MCP tools) */
+  authToken?: string
   /** Vision document content (injected into context) */
   visionDoc?: string
   /** Working directory for the task */

@@ -2,8 +2,6 @@ import { useEffect, useState } from "react"
 import {
   Server,
   Monitor,
-  Cpu,
-  HardDrive,
   Activity,
   Wifi,
   RefreshCw,
@@ -49,98 +47,74 @@ function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
   )
 }
 
-function MachineCard({ machine, registeredMachine, onRemove }: { machine: MachineEntry; registeredMachine?: RegisteredMachine; onRemove?: () => void }) {
-  const providers = machine.providers.map((p) => p.type)
+function MachineCard({ machine, onRemove }: { machine: MachineEntry; registeredMachine?: RegisteredMachine; onRemove?: () => void }) {
+  const providers = machine.providers.map((p) => p.type).join(" · ")
   const hpcCapability = machine.providers.find((p) => p.hpcCapability)?.hpcCapability
+  const loadPercent = Math.round(machine.load.cpuPercent)
+  const loadColor = loadPercent > 75 ? "bg-amber-500 dark:bg-amber-500" : "bg-blue-500 dark:bg-blue-500"
 
   return (
-    <Card>
-      {/* Header */}
-      <div className="flex items-center justify-between p-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-            {hpcCapability ? <Server className="h-5 w-5 text-primary" /> : <Monitor className="h-5 w-5 text-primary" />}
-          </div>
-          <div>
-            <p className="font-medium">{machine.name || machine.machineId}</p>
-            <p className="text-xs text-muted-foreground">{machine.machineId}</p>
+    <div className="rounded-2xl bg-card dark:bg-card p-4 shadow-[0px_2px_12px_-2px_rgba(0,0,0,0.25)] flex flex-col gap-3.5">
+      {/* Top Row: Status + Name + Time */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="h-2.5 w-2.5 rounded-full bg-green-500 shrink-0" />
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <p className="font-semibold text-base text-foreground truncate">
+              {machine.name || machine.machineId}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">
+              {providers}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {hpcCapability && (
-            <Badge className="gap-1.5 bg-purple-500/10 text-purple-600 border-0">
-              <Server className="h-3 w-3" />
-              HPC{hpcCapability.clusterName ? ` · ${hpcCapability.clusterName}` : ""}
-            </Badge>
-          )}
-          <Badge className="gap-1.5 bg-success/10 text-success border-0">
-            <span className="h-1.5 w-1.5 rounded-full bg-success" />
-            Connected
-          </Badge>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs font-semibold text-green-500">Active now</span>
           {onRemove && (
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onRemove}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive md:flex hidden"
+              onClick={onRemove}
+            >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           )}
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex flex-col gap-4 px-6 pb-4">
-        {providers.length > 0 && (
-          <div className="flex gap-1.5">
-            {providers.map((p) => (
-              <Badge key={p} variant="outline" className="text-[11px]">{p}</Badge>
-            ))}
-          </div>
-        )}
-        {hpcCapability && (
-          <div className="flex flex-col gap-1.5 rounded-lg bg-muted/50 p-3 text-xs">
-            {hpcCapability.partitions.length > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Partitions:</span>
-                <span className="font-medium">{hpcCapability.partitions.join(", ")}</span>
-              </div>
-            )}
-            {hpcCapability.accounts.length > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Accounts:</span>
-                <span className="font-medium">{hpcCapability.accounts.join(", ")}</span>
-              </div>
-            )}
-            {hpcCapability.defaultPartition && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Default partition:</span>
-                <span className="font-medium">{hpcCapability.defaultPartition}</span>
-              </div>
-            )}
-          </div>
-        )}
-        <div className="grid grid-cols-3 gap-4 text-xs">
-          <div className="flex items-center gap-1.5">
-            <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-muted-foreground">CPU</span>
-            <span className="font-medium">{Math.round(machine.load.cpuPercent)}%</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <HardDrive className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-muted-foreground">Mem</span>
-            <span className="font-medium">{Math.round(machine.load.memoryPercent)}%</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-muted-foreground">Tasks</span>
-            <span className="font-medium">{machine.load.activeTasks}</span>
-          </div>
+      {/* Bottom Row: Load bar */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="text-muted-foreground font-medium">Load</span>
+          <span className="text-muted-foreground font-semibold">{loadPercent}%</span>
+        </div>
+        <div className="h-1 w-full rounded-sm bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-sm ${loadColor} transition-all duration-500`}
+            style={{ width: `${Math.min(loadPercent, 100)}%` }}
+          />
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t px-6 py-3 text-xs text-muted-foreground">
-        <span>Registered {registeredMachine ? formatDate(registeredMachine.registeredAt) : "—"}</span>
-        <span>Last seen {registeredMachine ? formatTimeShort(registeredMachine.lastSeenAt) : "just now"}</span>
-      </div>
-    </Card>
+      {/* HPC Info (Desktop only) */}
+      {hpcCapability && (
+        <div className="hidden md:flex flex-col gap-1.5 rounded-lg bg-muted/50 p-3 text-xs border-t border-border">
+          {hpcCapability.partitions.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Partitions:</span>
+              <span className="font-medium">{hpcCapability.partitions.join(", ")}</span>
+            </div>
+          )}
+          {hpcCapability.accounts.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Accounts:</span>
+              <span className="font-medium">{hpcCapability.accounts.join(", ")}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -333,29 +307,35 @@ export function Environments() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-8 px-10">
+    <div className="flex flex-col gap-6 p-4 md:p-8 md:px-10">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="font-primary text-[28px] font-semibold">Environments</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground hidden md:block">
             Manage your connected machines and compute resources
+          </p>
+          <p className="text-sm text-muted-foreground md:hidden">
+            {connectedCount} machines connected
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={handleRefresh}>
+          <Button variant="outline" onClick={handleRefresh} className="hidden md:flex">
             <RefreshCw className="h-4 w-4" />
             Refresh
           </Button>
-          <Button onClick={() => setDialogOpen(true)}>
+          <Button onClick={() => setDialogOpen(true)} size="icon" className="md:hidden h-11 w-11 rounded-[22px]">
+            <Plus className="h-5 w-5" />
+          </Button>
+          <Button onClick={() => setDialogOpen(true)} className="hidden md:flex">
             <Plus className="h-4 w-4" />
             Add Environment
           </Button>
         </div>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-4 gap-4">
+      {/* Stats Row - Desktop only */}
+      <div className="hidden md:grid grid-cols-4 gap-4">
         <StatCard
           label="Total Machines"
           value={totalMachines}
@@ -378,7 +358,7 @@ export function Environments() {
           iconColor="text-blue-500"
         />
         <StatCard
-          label="HPC Clusters"
+          label="SLURM Clusters"
           value={hpcClusterCount}
           icon={Server}
           iconBg="bg-purple-500/10"
@@ -388,26 +368,27 @@ export function Environments() {
 
       {/* Local */}
       <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-3">
+        <div className="hidden md:flex items-center gap-3">
           <Laptop className="h-5 w-5 text-muted-foreground" />
           <h2 className="text-lg font-semibold">Local</h2>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <LocalMachineCard />
         </div>
       </div>
 
-      {/* Remote */}
+      {/* Connected */}
       <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-3">
+        <div className="hidden md:flex items-center gap-3">
           <Globe className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Remote</h2>
+          <h2 className="text-lg font-semibold">Connected</h2>
           {remoteLiveMachines.length > 0 && (
             <Badge variant="success">{remoteLiveMachines.length} connected</Badge>
           )}
         </div>
+        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Connected</p>
         {remoteLiveMachines.length > 0 || offlineNonHpcMachines.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {remoteLiveMachines.map((m) => (
               <MachineCard
                 key={m.machineId}
@@ -438,19 +419,20 @@ export function Environments() {
         )}
       </div>
 
-      {/* HPC Clusters */}
+      {/* SLURM Clusters */}
       <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-3">
+        <div className="hidden md:flex items-center gap-3">
           <Server className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">HPC Clusters</h2>
+          <h2 className="text-lg font-semibold">SLURM Clusters</h2>
           {hpcMachines.length > 0 && (
             <Badge variant="success">
               {hpcMachines.length} connected
             </Badge>
           )}
         </div>
+        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">SLURM Clusters</p>
         {hpcMachines.length > 0 || offlineHpcMachines.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {hpcMachines.map((m) => (
               <MachineCard
                 key={m.machineId}
@@ -468,10 +450,10 @@ export function Environments() {
             <CardContent className="p-0">
               <EmptyState
                 icon={Server}
-                title="No HPC clusters connected"
+                title="No SLURM clusters connected"
                 description="Connect to an HPC login node with Slurm installed. The agent runner will auto-detect the cluster and inject HPC context into Claude sessions."
                 action={{
-                  label: "Add HPC Machine",
+                  label: "Add SLURM Cluster",
                   onClick: () => setDialogOpen(true),
                 }}
                 className="py-8"
@@ -483,10 +465,11 @@ export function Environments() {
 
       {/* Cloud */}
       <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-3">
+        <div className="hidden md:flex items-center gap-3">
           <Cloud className="h-5 w-5 text-muted-foreground" />
           <h2 className="text-lg font-semibold">Cloud</h2>
         </div>
+        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Cloud</p>
         <Card>
           <CardContent className="p-0">
             <EmptyState

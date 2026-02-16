@@ -8,6 +8,7 @@
 
 import { create } from "zustand"
 import { loadState, saveState } from "@/lib/db"
+import { dataClient } from "@/lib/data-client"
 import type {
   Session,
   SessionType,
@@ -171,7 +172,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   loaded: false,
 
   load: async () => {
-    // Try loading session store data
+    try {
+      // Try API first
+      const apiSessions = await dataClient.getAllSessions()
+      if (apiSessions && apiSessions.length > 0) {
+        const sessions = new Map<string, Session>()
+        for (const session of apiSessions) {
+          sessions.set(session.id, session)
+        }
+        set({ sessions, loaded: true })
+        // Save to IndexedDB for offline cache
+        saveState("nexus-sessions", serializeSessions(sessions))
+        return
+      }
+    } catch {
+      // API unavailable, fall through to IndexedDB
+    }
+
+    // Fallback to IndexedDB
     const saved = await loadState<Record<string, Session>>("nexus-sessions")
     if (saved && Object.keys(saved).length > 0) {
       set({ sessions: deserializeSessions(saved), loaded: true })
@@ -215,6 +233,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     sessions.set(id, session)
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.createSession(session).catch(() => {})
     return session
   },
 
@@ -261,6 +281,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     sessions.set(sessionId, updated)
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.addSessionMessage(sessionId, newMessage).catch(() => {})
   },
 
   appendToLastAssistantMessage: (sessionId, chunk) => {
@@ -302,13 +324,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       ...(appliedMutations ? { appliedMutations } : {}),
     }
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       messages: updatedMessages,
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { messages: updatedMessages, updatedAt: updated.updatedAt }).catch(() => {})
   },
 
   setProviderSessionId: (sessionId, providerSessionId) => {
@@ -316,13 +342,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = sessions.get(sessionId)
     if (!session) return
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       providerSessionId,
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { providerSessionId, updatedAt: updated.updatedAt }).catch(() => {})
   },
 
   setStatus: (sessionId, status) => {
@@ -330,16 +360,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = sessions.get(sessionId)
     if (!session) return
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       status,
       updatedAt: new Date(),
       ...(status === "completed" || status === "error" || status === "cancelled"
         ? { completedAt: new Date() }
         : {}),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { status, updatedAt: updated.updatedAt, completedAt: updated.completedAt }).catch(() => {})
   },
 
   setSummary: (sessionId, summary) => {
@@ -347,13 +381,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = sessions.get(sessionId)
     if (!session) return
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       summary,
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { summary, updatedAt: updated.updatedAt }).catch(() => {})
   },
 
   setMetrics: (sessionId, metrics) => {
@@ -361,13 +399,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = sessions.get(sessionId)
     if (!session) return
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       metrics,
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     debouncedSave(sessions)
+    // Fire-and-forget API call (debounced in memory, but API call is immediate)
+    dataClient.updateSession(sessionId, { metrics, updatedAt: updated.updatedAt }).catch(() => {})
   },
 
   addActivityEvent: (sessionId, event) => {
@@ -375,13 +417,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = sessions.get(sessionId)
     if (!session) return
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       activityEvents: [...(session.activityEvents || []), event],
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     debouncedSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { activityEvents: updated.activityEvents, updatedAt: updated.updatedAt }).catch(() => {})
   },
 
   addToolTrace: (sessionId, trace) => {
@@ -389,13 +435,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = sessions.get(sessionId)
     if (!session) return
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       toolTraces: [...(session.toolTraces || []), trace],
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     debouncedSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { toolTraces: updated.toolTraces, updatedAt: updated.updatedAt }).catch(() => {})
   },
 
   addFileChange: (sessionId, change) => {
@@ -403,13 +453,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = sessions.get(sessionId)
     if (!session) return
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       fileChanges: [...(session.fileChanges || []), change],
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     debouncedSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { fileChanges: updated.fileChanges, updatedAt: updated.updatedAt }).catch(() => {})
   },
 
   setStreamText: (sessionId, text) => {
@@ -417,13 +471,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = sessions.get(sessionId)
     if (!session) return
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       streamText: text,
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     debouncedSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { streamText: text, updatedAt: updated.updatedAt }).catch(() => {})
   },
 
   appendStreamText: (sessionId, chunk) => {
@@ -431,13 +489,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = sessions.get(sessionId)
     if (!session) return
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       streamText: (session.streamText || "") + chunk,
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     debouncedSave(sessions)
+    // No API call during streaming for performance - final state saved via setStreamText
   },
 
   addSteerMessage: (sessionId, message, interrupted?) => {
@@ -451,7 +512,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       timestamp: new Date(),
     }
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       steerMessages: [...(session.steerMessages || []), steerMsg],
       activityEvents: [
@@ -459,9 +520,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         { type: "steer" as const, message, interrupted, timestamp: new Date() },
       ],
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, {
+      steerMessages: updated.steerMessages,
+      activityEvents: updated.activityEvents,
+      updatedAt: updated.updatedAt
+    }).catch(() => {})
   },
 
   updateSteerMessage: (sessionId, index, update) => {
@@ -485,14 +554,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return e
     })
 
-    sessions.set(sessionId, {
+    const updated = {
       ...session,
       steerMessages: updatedSteers,
       activityEvents: updatedEvents as TaskActivityEvent[],
       updatedAt: new Date(),
-    })
+    }
+
+    sessions.set(sessionId, updated)
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, {
+      steerMessages: updated.steerMessages,
+      activityEvents: updated.activityEvents,
+      updatedAt: updated.updatedAt
+    }).catch(() => {})
   },
 
   deleteSession: (sessionId) => {
@@ -500,16 +577,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     sessions.delete(sessionId)
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.deleteSession(sessionId).catch(() => {})
   },
 
   clearSessionsForNode: (nodeId) => {
     const sessions = new Map(get().sessions)
+    const idsToDelete: string[] = []
     for (const [id, session] of sessions) {
       if (session.nodeId === nodeId) {
         sessions.delete(id)
+        idsToDelete.push(id)
       }
     }
     set({ sessions })
     immediateSave(sessions)
+    // Fire-and-forget API calls
+    for (const id of idsToDelete) {
+      dataClient.deleteSession(id).catch(() => {})
+    }
   },
 }))

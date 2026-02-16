@@ -27,6 +27,9 @@ export interface SubroutineDefinition {
   /** Approval message shown to user */
   approvalMessage?: string
 
+  /** Multiple choice options for approval (if omitted, shows binary approve/reject) */
+  approvalOptions?: string[]
+
   /** Run validation loop after this subroutine */
   usesValidationLoop?: boolean
 
@@ -100,8 +103,8 @@ export interface ProcedureState {
   /** Approval state */
   awaitingApproval?: boolean
 
-  /** Approval result */
-  approvalGranted?: boolean
+  /** Approval result (boolean for binary, or selected option for multi-choice) */
+  approvalResult?: boolean | string
 }
 
 /**
@@ -175,6 +178,37 @@ export const BUILT_IN_PROCEDURES: Record<string, ProcedureDefinition> = {
         promptTemplate: 'Write a comprehensive report with findings and recommendations.',
         singleTurn: true,
         disallowAllTools: true,
+      },
+    ],
+  },
+
+  'feature-implementation': {
+    name: 'feature-implementation',
+    description: 'Plan → Choose approach → Implement → Test',
+    subroutines: [
+      {
+        name: 'plan',
+        promptTemplate: 'Analyze the feature request:\n\n{{task.description}}\n\nIdentify 2-3 possible implementation approaches.',
+        singleTurn: true,
+        disallowAllTools: true,
+      },
+      {
+        name: 'choose-approach',
+        promptTemplate: 'Based on the selected approach: {{approvalResult}}\n\nProceed with implementation.',
+        requiresApproval: true,
+        approvalMessage: 'Which implementation approach should I use?',
+        approvalOptions: [
+          'Approach 1: Minimal change to existing code',
+          'Approach 2: Refactor for cleaner architecture',
+          'Approach 3: Build new abstraction',
+        ],
+      },
+      {
+        name: 'implement',
+        promptTemplate: 'Implement the feature using the chosen approach. Write comprehensive tests.',
+        usesValidationLoop: true,
+        validationCommand: 'npm test',
+        maxValidationIterations: 3,
       },
     ],
   },

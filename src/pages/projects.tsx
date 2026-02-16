@@ -10,6 +10,7 @@ import { ItemTimelineView, type TimelineRow } from "@/components/views/item-time
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { useInitiativeStore } from "@/stores/initiative-store"
 import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
@@ -84,7 +85,9 @@ const PROJECT_COLUMNS: ListColumn<Project>[] = [
         className="flex items-center gap-2.5 min-w-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+        <span className="text-base shrink-0" style={{ color: p.color || "#3b82f6" }}>
+          {p.icon || "📋"}
+        </span>
         <span className="text-sm truncate">{p.name}</span>
       </Link>
     ),
@@ -158,6 +161,7 @@ export function Projects() {
   const updateProject = useProjectStore((s) => s.updateProject)
   const deleteProject = useProjectStore((s) => s.deleteProject)
   const allNodes = usePlanStore((s) => s.nodes)
+  const initiatives = useInitiativeStore((s) => s.initiatives)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const statusFilter = searchParams.get("status")
@@ -165,6 +169,12 @@ export function Projects() {
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const [viewTab, setViewTab] = useState<ViewTab>("all")
   const [showFilter, setShowFilter] = useState(!!statusFilter)
+
+  // Helper to get initiative name from ID
+  const getInitiativeName = useCallback((initiativeId?: string) => {
+    if (!initiativeId) return undefined
+    return initiatives.find(i => i.id === initiativeId)?.name
+  }, [initiatives])
 
   const projectBatchActions: BatchAction[] = useMemo(() => [
     {
@@ -231,7 +241,7 @@ export function Projects() {
       let group: string
       switch (displaySettings.groupBy) {
         case "initiative":
-          group = p.initiative ?? "Other"
+          group = getInitiativeName(p.initiativeId) ?? "Other"
           break
         case "status":
           group = p.status === "active" ? "Active" : "Archived"
@@ -255,7 +265,7 @@ export function Projects() {
         items,
       }
     })
-  }, [sortedProjects, displaySettings.groupBy])
+  }, [sortedProjects, displaySettings.groupBy, getInitiativeName])
 
   // Timeline-specific settings
   const timelineDisplaySettings = useDisplaySettingsStore((s) => s.get("projects-timeline"))
@@ -347,7 +357,7 @@ export function Projects() {
       let group: string
       switch (timelineDisplaySettings.groupBy) {
         case "initiative":
-          group = p.initiative ?? "Other"
+          group = getInitiativeName(p.initiativeId) ?? "Other"
           break
         case "status":
           group = p.status === "active" ? "Active" : "Archived"
@@ -369,17 +379,7 @@ export function Projects() {
       }
     }
     return result
-  }, [timelineSortedProjects, projectDateRanges, timelineDisplaySettings.groupBy])
-
-  // Initiative counts for right panel
-  const initiativeCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const p of projects) {
-      const init = p.initiative ?? "Other"
-      counts[init] = (counts[init] ?? 0) + 1
-    }
-    return counts
-  }, [projects])
+  }, [timelineSortedProjects, projectDateRanges, timelineDisplaySettings.groupBy, getInitiativeName])
 
   const handleSort = useCallback((sortKey: string) => {
     if (displaySettings.orderBy === sortKey) {
@@ -398,9 +398,7 @@ export function Projects() {
   ]
 
   return (
-    <div className="flex h-full">
-      {/* Main content */}
-      <div className="flex flex-1 flex-col min-w-0">
+    <div className="flex flex-1 flex-col min-w-0 h-full">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
           <div className="flex items-center gap-4">
@@ -602,8 +600,8 @@ export function Projects() {
                               </div>
                             </div>
                             <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                              {project.initiative && (
-                                <span className="truncate">{project.initiative}</span>
+                              {getInitiativeName(project.initiativeId) && (
+                                <span className="truncate">{getInitiativeName(project.initiativeId)}</span>
                               )}
                               {project.targetDate && (
                                 <span className={cn(
@@ -631,32 +629,6 @@ export function Projects() {
             )}
           </div>
         )}
-      </div>
-
-      {/* Right Panel — Initiatives (hidden in timeline mode) */}
-      <div className={cn("flex w-[280px] shrink-0 flex-col border-l border-border bg-card", viewTab === "timeline" && "hidden")}>
-        <div className="flex items-center gap-2 border-b border-border px-4 h-12">
-          <Folder className="h-4 w-4" />
-          <span className="text-sm font-semibold">Projects</span>
-        </div>
-        <div className="flex border-b border-border px-4">
-          <button className="border-b-2 border-primary px-3 py-3 text-[13px] font-medium cursor-pointer">Initiatives</button>
-          <button className="px-3 py-3 text-[13px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors">Health</button>
-        </div>
-        <div className="flex flex-col gap-1 p-2">
-          {Object.entries(initiativeCounts).map(([name, count]) => {
-            const Icon = initiativeIcons[name] ?? Users
-            const iconColor = initiativeIconColors[name] ?? "text-green-600"
-            return (
-              <div key={name} className="flex items-center gap-2.5 rounded-md px-3 py-2.5">
-                <Icon className={`h-4 w-4 ${iconColor}`} />
-                <span className="flex-1 text-[13px]">{name}</span>
-                <span className="text-[13px] text-muted-foreground">{count}</span>
-              </div>
-            )
-          })}
-        </div>
-      </div>
     </div>
   )
 }

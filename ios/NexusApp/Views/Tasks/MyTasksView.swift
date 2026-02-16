@@ -3,6 +3,7 @@ import SwiftUI
 struct MyTasksView: View {
     @Environment(PlanStore.self) private var planStore
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(\.colorScheme) private var colorScheme
 
     var initialStatusFilter: Set<PlanNode.NodeStatus>? = nil
 
@@ -58,31 +59,56 @@ struct MyTasksView: View {
     }
 
     var body: some View {
-        List {
-            ForEach(groupedTasks, id: \.0) { groupName, tasks in
-                Section(groupName) {
-                    ForEach(tasks) { task in
-                        NavigationLink(destination: TaskDetailView(nodeId: task.id, projectId: task.projectId)) {
-                            TaskRow(node: task)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                Task { try? await planStore.deleteNode(id: task.id, projectId: task.projectId) }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+        ZStack {
+            AdaptiveColors.background(colorScheme).ignoresSafeArea()
+
+            ScrollView {
+                LazyVStack(spacing: NexusTheme.Spacing.lg, pinnedViews: [.sectionHeaders]) {
+                    ForEach(groupedTasks, id: \.0) { groupName, tasks in
+                        Section {
+                            ForEach(tasks) { task in
+                                NavigationLink(destination: TaskDetailView(nodeId: task.id, projectId: task.projectId)) {
+                                    AdaptiveTaskRow(
+                                        node: task,
+                                        projectName: groupBy != .project ? projectStore.project(id: task.projectId)?.name : nil
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        Task { try? await planStore.deleteNode(id: task.id, projectId: task.projectId) }
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
                             }
+                        } header: {
+                            NexusSectionHeader(
+                                title: groupName,
+                                count: tasks.count
+                            )
+                            .padding(.horizontal, NexusTheme.Spacing.lg)
+                            .padding(.top, NexusTheme.Spacing.md)
+                            .padding(.bottom, NexusTheme.Spacing.sm)
+                            .background(AdaptiveColors.background(colorScheme))
                         }
                     }
                 }
+                .padding(NexusTheme.Spacing.lg)
             }
-        }
-        .overlay {
+            .adaptiveScrollFade(colorScheme: colorScheme)
+
             if allTasks.isEmpty {
-                ContentUnavailableView("No Tasks", systemImage: "checkmark.circle", description: Text("Tasks from your projects will appear here."))
+                ContentUnavailableView(
+                    "No Tasks",
+                    systemImage: "checkmark.circle",
+                    description: Text("Tasks from your projects will appear here.")
+                )
             }
         }
         .searchable(text: $searchText, prompt: "Search tasks")
         .navigationTitle(statusFilter.isEmpty ? "My Tasks" : "Running Tasks")
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -133,7 +159,7 @@ struct MyTasksView: View {
                         Image(systemName: "line.3.horizontal.decrease.circle")
                         if !statusFilter.isEmpty || priorityFilter != nil {
                             Circle()
-                                .fill(.blue)
+                                .fill(AdaptiveColors.primary)
                                 .frame(width: 8, height: 8)
                                 .offset(x: 4, y: -4)
                         }
