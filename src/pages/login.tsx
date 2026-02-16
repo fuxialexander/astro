@@ -245,14 +245,14 @@ export function Login() {
             <Input
               id="email"
               type="email"
-              placeholder={mode === "auto" ? "Optional" : mode === "signin" ? "Optional for passkey sign-in" : "you@example.com"}
+              placeholder={mode === "auto" ? "Required first time, optional after" : mode === "signin" ? "Optional for passkey sign-in" : "you@example.com"}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
             />
             {mode === "auto" && (
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Leave blank to use any passkey, or enter email to create/use a specific one
+                Required for first-time setup, then optional for sign-in with existing passkey
               </p>
             )}
           </div>
