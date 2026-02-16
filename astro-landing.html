@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Astro — Your Mission Control</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600;700&family=Spectral:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --space-navy: #0a0e27;
+            --deep-blue: #1a2a4e;
+            --electric-cyan: #5ba3d0;
+            --star-orange: #d4a574;
+            --off-white: #f5f5f0;
+            --subtle-blue: #2a3a5e;
+            --soft-gray: #a8a8a0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Spectral', serif;
+            background: var(--space-navy);
+            color: var(--off-white);
+            overflow-x: hidden;
+            line-height: 1.7;
+            font-weight: 300;
+        }
+
+        /* Three.js Canvas Background */
+        #canvas-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
+
+        /* Content Container */
+        .content {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 2rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            background: rgba(10, 14, 39, 0.3);
+            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+        }
+
+        .logo {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.75rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            color: var(--off-white);
+        }
+
+        .nav-cta {
+            font-family: 'Spectral', serif;
+            padding: 0.5rem 1.5rem;
+            background: transparent;
+            border: 1px solid rgba(245, 245, 240, 0.3);
+            color: var(--off-white);
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            letter-spacing: 0.05em;
+            font-weight: 400;
+        }
+
+        .nav-cta:hover {
+            border-color: var(--off-white);
+            background: rgba(245, 245, 240, 0.05);
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 0 2rem;
+            position: relative;
+        }
+
+        .hero-label {
+            font-family: 'Spectral', serif;
+            font-size: 0.875rem;
+            letter-spacing: 0.2em;
+            color: var(--soft-gray);
+            margin-bottom: 2rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease forwards;
+            font-weight: 300;
+        }
+
+        .hero-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(5rem, 15vw, 12rem);
+            font-weight: 300;
+            letter-spacing: 0.02em;
+            color: var(--off-white);
+            margin-bottom: 2rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease 0.2s forwards;
+            line-height: 0.9;
+        }
+
+        .hero-subtitle {
+            font-size: clamp(1.25rem, 2.5vw, 2rem);
+            font-weight: 300;
+            color: var(--soft-gray);
+            margin-bottom: 4rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease 0.4s forwards;
+            letter-spacing: 0.05em;
+            font-style: italic;
+        }
+
+        .hero-description {
+            max-width: 700px;
+            font-size: 1.125rem;
+            line-height: 1.9;
+            color: rgba(245, 245, 240, 0.7);
+            margin-bottom: 4rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease 0.6s forwards;
+            font-weight: 300;
+        }
+
+        .hero-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem 2.5rem;
+            background: rgba(245, 245, 240, 0.05);
+            color: var(--off-white);
+            font-family: 'Spectral', serif;
+            font-weight: 400;
+            font-size: 1rem;
+            letter-spacing: 0.05em;
+            border: 1px solid rgba(245, 245, 240, 0.2);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            opacity: 0;
+            animation: fadeInUp 1s ease 0.8s forwards;
+        }
+
+        .hero-cta:hover {
+            background: rgba(245, 245, 240, 0.1);
+            border-color: var(--off-white);
+        }
+
+        /* Feature Pills */
+        .feature-pills {
+            display: flex;
+            gap: 2rem;
+            margin-top: 4rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            opacity: 0;
+            animation: fadeInUp 1s ease 1s forwards;
+        }
+
+        .pill {
+            padding: 0.5rem 1.25rem;
+            background: transparent;
+            border: 1px solid rgba(245, 245, 240, 0.2);
+            border-radius: 100px;
+            font-family: 'Spectral', serif;
+            font-size: 0.875rem;
+            color: var(--soft-gray);
+            transition: all 0.3s ease;
+            font-weight: 300;
+        }
+
+        .pill:hover {
+            border-color: rgba(245, 245, 240, 0.4);
+            color: var(--off-white);
+        }
+
+        /* Metaphor Section */
+        .metaphor-section {
+            padding: 10rem 4rem;
+            position: relative;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 6rem;
+        }
+
+        .section-label {
+            font-family: 'Spectral', serif;
+            font-size: 0.875rem;
+            letter-spacing: 0.2em;
+            color: var(--soft-gray);
+            margin-bottom: 1.5rem;
+            font-weight: 300;
+        }
+
+        .section-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 400;
+            color: var(--off-white);
+            margin-bottom: 2rem;
+            letter-spacing: 0.02em;
+        }
+
+        .section-description {
+            max-width: 700px;
+            margin: 0 auto;
+            font-size: 1.125rem;
+            color: rgba(232, 244, 248, 0.7);
+            line-height: 1.8;
+        }
+
+        /* Metaphor Grid */
+        .metaphor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 3rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .metaphor-card {
+            background: transparent;
+            border-top: 1px solid rgba(245, 245, 240, 0.15);
+            padding: 3rem 0;
+            transition: all 0.3s ease;
+        }
+
+        .metaphor-card:hover {
+            border-top-color: rgba(245, 245, 240, 0.3);
+        }
+
+        .metaphor-icon {
+            display: none;
+        }
+
+        .metaphor-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 2rem;
+            font-weight: 400;
+            color: var(--off-white);
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.02em;
+        }
+
+        .metaphor-description {
+            color: rgba(232, 244, 248, 0.8);
+            line-height: 1.8;
+            font-size: 1rem;
+        }
+
+        /* Mission Statement Section */
+        .mission-section {
+            padding: 10rem 4rem;
+            background: linear-gradient(135deg, rgba(26, 42, 78, 0.4) 0%, rgba(10, 14, 39, 0.8) 100%);
+            border-top: 1px solid rgba(0, 212, 255, 0.2);
+            border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+        }
+
+        .mission-content {
+            max-width: 1000px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .mission-statement {
+            font-size: clamp(1.125rem, 2vw, 1.375rem);
+            line-height: 1.9;
+            color: rgba(245, 245, 240, 0.8);
+            font-weight: 300;
+            margin-bottom: 3rem;
+        }
+
+        .mission-statement strong {
+            color: var(--off-white);
+            font-weight: 400;
+        }
+
+        /* Footer CTA */
+        .footer-cta {
+            padding: 8rem 4rem;
+            text-align: center;
+        }
+
+        .footer-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 400;
+            color: var(--off-white);
+            margin-bottom: 2rem;
+            letter-spacing: 0.02em;
+        }
+
+        .footer-subtitle {
+            font-size: 1.25rem;
+            color: rgba(232, 244, 248, 0.7);
+            margin-bottom: 3rem;
+        }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            nav {
+                padding: 1.5rem 2rem;
+            }
+
+            .metaphor-section,
+            .mission-section,
+            .footer-cta {
+                padding: 6rem 2rem;
+            }
+
+            .feature-pills {
+                gap: 1rem;
+            }
+
+            .pill {
+                font-size: 0.75rem;
+                padding: 0.5rem 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Three.js Canvas Background -->
+    <canvas id="canvas-bg"></canvas>
+
+    <div class="content">
+        <!-- Navigation -->
+        <nav>
+            <div class="logo">ASTRO</div>
+            <button class="nav-cta">Get Early Access</button>
+        </nav>
+
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="hero-label">Mission Control</div>
+            <h1 class="hero-title">Astro</h1>
+            <p class="hero-subtitle">Your mission control</p>
+            <p class="hero-description">
+                For long-horizon planning and complex pivots that require human judgment.
+                Plan as a graph, execute everywhere, decide from anywhere.
+            </p>
+            <button class="hero-cta">
+                <span>Request Access</span>
+                <span>→</span>
+            </button>
+
+            <div class="feature-pills">
+                <div class="pill">Execute Everywhere</div>
+                <div class="pill">Human Judgment</div>
+                <div class="pill">Plan as a Graph</div>
+            </div>
+        </section>
+
+        <!-- Metaphor Section -->
+        <section class="metaphor-section">
+            <div class="section-header">
+                <div class="section-label">Three Principles</div>
+                <h2 class="section-title">Guidance, Support, Exploration</h2>
+                <p class="section-description">
+                    Every element of Astro embodies a core metaphor that centers human decision-making in complex, long-horizon work.
+                </p>
+            </div>
+
+            <div class="metaphor-grid">
+                <div class="metaphor-card">
+                    <div class="metaphor-icon">
+                        <!-- Placeholder for astrocyte vector graphic -->
+                    </div>
+                    <h3 class="metaphor-title">Astrocyte</h3>
+                    <p class="metaphor-description">
+                        Like astrocytes support neurons in the brain, Astro provides the infrastructure that coordinates execution while you focus on strategic decisions. We handle dependencies and orchestration across environments—you handle the judgment calls that determine success.
+                    </p>
+                </div>
+
+                <div class="metaphor-card">
+                    <div class="metaphor-icon">
+                        <!-- Placeholder for astronaut vector graphic -->
+                    </div>
+                    <h3 class="metaphor-title">Astronaut</h3>
+                    <p class="metaphor-description">
+                        Navigate uncharted complexity with confidence. Long-horizon planning requires human intuition for when to pivot, which branches to prune, and where to double down. Astro surfaces these critical decision points and gives you the context to choose wisely.
+                    </p>
+                </div>
+
+                <div class="metaphor-card">
+                    <div class="metaphor-icon">
+                        <!-- Placeholder for astrolabe vector graphic -->
+                    </div>
+                    <h3 class="metaphor-title">Astrolabe</h3>
+                    <p class="metaphor-description">
+                        Your navigation instrument for complex work. Like the ancient astrolabe guided explorers by the stars, Astro keeps your strategic intent visible throughout execution, ensuring every decision—whether to continue, pivot, or prune—aligns with your ultimate goal.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Mission Statement -->
+        <section class="mission-section">
+            <div class="mission-content">
+                <div class="section-label">Our Mission</div>
+                <p class="mission-statement">
+                    <strong>Astro is mission control for ambitious builders and scientists.</strong> We provide the planning and orchestration layer for long-horizon work—helping you structure complex goals, coordinate execution across environments, and surface the critical moments that require human judgment. When should you pivot? Which branches deserve continued investment? Where does your unique strategic insight matter most? <strong>Astro amplifies human decision-making at the scale of complexity that once required entire teams.</strong>
+                </p>
+            </div>
+        </section>
+
+        <!-- Footer CTA -->
+        <section class="footer-cta">
+            <h2 class="footer-title">Ready to launch?</h2>
+            <p class="footer-subtitle">Join the waitlist for early access</p>
+            <button class="hero-cta">Get Early Access →</button>
+        </section>
+    </div>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Three.js Scene Setup
+        const canvas = document.getElementById('canvas-bg');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        camera.position.z = 5;
+
+        // Create star field - simpler and more refined
+        const starsGeometry = new THREE.BufferGeometry();
+        const starCount = 800;
+        const positions = new Float32Array(starCount * 3);
+
+        for (let i = 0; i < starCount * 3; i += 3) {
+            positions[i] = (Math.random() - 0.5) * 100;
+            positions[i + 1] = (Math.random() - 0.5) * 100;
+            positions[i + 2] = (Math.random() - 0.5) * 100;
+        }
+
+        starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        const starsMaterial = new THREE.PointsMaterial({
+            size: 0.03,
+            color: 0xf5f5f0,
+            transparent: true,
+            opacity: 0.5
+        });
+
+        const stars = new THREE.Points(starsGeometry, starsMaterial);
+        scene.add(stars);
+
+        // Create elegant flowing curves
+        const curves = [];
+        const curveMaterial = new THREE.LineBasicMaterial({
+            color: 0xf5f5f0,
+            transparent: true,
+            opacity: 0.15,
+            linewidth: 1
+        });
+
+        // Create 5 smooth Bezier curves that flow elegantly
+        for (let i = 0; i < 5; i++) {
+            const angle = (i / 5) * Math.PI * 2;
+            const radius = 6 + i * 0.5;
+
+            // Create smooth curve with control points
+            const curve = new THREE.CubicBezierCurve3(
+                new THREE.Vector3(
+                    Math.cos(angle) * radius,
+                    Math.sin(angle) * radius,
+                    -2
+                ),
+                new THREE.Vector3(
+                    Math.cos(angle + 1) * (radius + 2),
+                    Math.sin(angle + 1) * (radius - 1),
+                    0
+                ),
+                new THREE.Vector3(
+                    Math.cos(angle + 2) * (radius - 1),
+                    Math.sin(angle + 2) * (radius + 2),
+                    1
+                ),
+                new THREE.Vector3(
+                    Math.cos(angle + 3) * radius,
+                    Math.sin(angle + 3) * radius,
+                    2
+                )
+            );
+
+            const points = curve.getPoints(100);
+            const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(lineGeometry, curveMaterial);
+            curves.push({ line, speed: 0.0001 + i * 0.00005 });
+            scene.add(line);
+        }
+
+        // Add a few subtle accent points along the curves
+        const accentGeometry = new THREE.SphereGeometry(0.02, 16, 16);
+        const accentMaterial = new THREE.MeshBasicMaterial({
+            color: 0xd4a574,
+            transparent: true,
+            opacity: 0.3
+        });
+
+        const accents = [];
+        for (let i = 0; i < 8; i++) {
+            const accent = new THREE.Mesh(accentGeometry, accentMaterial);
+            const angle = (i / 8) * Math.PI * 2;
+            const radius = 5 + (i % 3) * 2;
+            accent.position.set(
+                Math.cos(angle) * radius,
+                Math.sin(angle) * radius,
+                (i % 3) - 1
+            );
+            accents.push(accent);
+            scene.add(accent);
+        }
+
+        // Mouse interaction
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetX = 0;
+        let targetY = 0;
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+            mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Smooth mouse following
+            targetX += (mouseX - targetX) * 0.05;
+            targetY += (mouseY - targetY) * 0.05;
+
+            // Subtle star field rotation
+            stars.rotation.y += 0.00005;
+
+            // Gentle curve rotation
+            curves.forEach((curveObj, i) => {
+                curveObj.line.rotation.z += curveObj.speed;
+            });
+
+            // Gentle accent pulse
+            accents.forEach((accent, i) => {
+                accent.material.opacity = 0.2 + Math.sin(Date.now() * 0.001 + i) * 0.1;
+            });
+
+            // Camera movement based on mouse
+            camera.position.x = targetX * 0.5;
+            camera.position.y = targetY * 0.5;
+            camera.lookAt(scene.position);
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Scroll-based parallax
+        window.addEventListener('scroll', () => {
+            const scrolled = window.pageYOffset;
+            stars.rotation.z = scrolled * 0.0001;
+        });
+    </script>
+</body>
+</html>
