@@ -5,8 +5,8 @@
  */
 
 import { create } from 'zustand'
-import { getSupabase } from '@/lib/supabase-client'
-import { loadState, saveState } from '@/lib/db'
+import { getSupabase, shouldUseSupabase } from '@/lib/supabase-client'
+import { loadState, saveState, getBrowserUserId } from '@/lib/db'
 
 export interface RegisteredMachine {
   id: string
@@ -40,36 +40,29 @@ export const useMachinesStore = create<MachinesState>((set) => ({
   fetchMachines: async () => {
     set({ loading: true, error: null })
     try {
-      // Get auth token from Supabase session
-      const supabase = getSupabase()
-      if (!supabase) {
-        // No Supabase configured — fall back to IndexedDB cache
-        const cached = await loadState<RegisteredMachine[]>('nexus-machines')
-        if (cached) {
-          set({
-            machines: cached.map((m) => ({
-              ...m,
-              registeredAt: m.registeredAt,
-              lastSeenAt: m.lastSeenAt,
-            })),
-            loading: false,
-          })
-        } else {
-          set({ machines: [], loading: false })
+      const headers: Record<string, string> = {}
+
+      if (shouldUseSupabase()) {
+        // Supabase mode: use access token
+        const supabase = getSupabase()
+        if (!supabase) {
+          throw new Error('Supabase not configured')
         }
-        return
-      }
-      const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session } } = await supabase.auth.getSession()
 
-      if (!session?.access_token) {
-        throw new Error('Not authenticated')
+        if (!session?.access_token) {
+          throw new Error('Not authenticated')
+        }
+
+        headers['Authorization'] = `Bearer ${session.access_token}`
+      } else {
+        // IndexedDB mode: use browser user ID
+        const browserUserId = await getBrowserUserId()
+        headers['X-User-Id'] = browserUserId
       }
 
-      const response = await fetch('/api/device/machines', {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-      })
+      const response = await fetch('/api/device/machines', { headers })
+
       if (!response.ok) {
         throw new Error('Failed to fetch machines')
       }
@@ -99,22 +92,29 @@ export const useMachinesStore = create<MachinesState>((set) => ({
 
   revokeMachine: async (machineId: string): Promise<boolean> => {
     try {
-      const supabase = getSupabase()
-      if (!supabase) {
-        console.warn('Cannot revoke machine: Supabase not configured')
-        return false
-      }
-      const { data: { session } } = await supabase.auth.getSession()
+      const headers: Record<string, string> = {}
 
-      if (!session?.access_token) {
-        throw new Error('Not authenticated')
+      if (shouldUseSupabase()) {
+        const supabase = getSupabase()
+        if (!supabase) {
+          throw new Error('Supabase not configured')
+        }
+        const { data: { session } } = await supabase.auth.getSession()
+
+        if (!session?.access_token) {
+          throw new Error('Not authenticated')
+        }
+
+        headers['Authorization'] = `Bearer ${session.access_token}`
+      } else {
+        // IndexedDB mode: use browser user ID
+        const browserUserId = await getBrowserUserId()
+        headers['X-User-Id'] = browserUserId
       }
 
       const response = await fetch(`/api/device/machines/${machineId}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-        },
+        headers,
       })
       if (!response.ok) {
         throw new Error('Failed to revoke machine')
@@ -135,23 +135,31 @@ export const useMachinesStore = create<MachinesState>((set) => ({
 
   renameMachine: async (machineId: string, name: string): Promise<boolean> => {
     try {
-      const supabase = getSupabase()
-      if (!supabase) {
-        console.warn('Cannot rename machine: Supabase not configured')
-        return false
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
       }
-      const { data: { session } } = await supabase.auth.getSession()
 
-      if (!session?.access_token) {
-        throw new Error('Not authenticated')
+      if (shouldUseSupabase()) {
+        const supabase = getSupabase()
+        if (!supabase) {
+          throw new Error('Supabase not configured')
+        }
+        const { data: { session } } = await supabase.auth.getSession()
+
+        if (!session?.access_token) {
+          throw new Error('Not authenticated')
+        }
+
+        headers['Authorization'] = `Bearer ${session.access_token}`
+      } else {
+        // IndexedDB mode: use browser user ID
+        const browserUserId = await getBrowserUserId()
+        headers['X-User-Id'] = browserUserId
       }
 
       const response = await fetch(`/api/device/machines/${machineId}`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({ name }),
       })
       if (!response.ok) {

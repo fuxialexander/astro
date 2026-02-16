@@ -284,6 +284,30 @@ The system automatically detects which mode to use:
 | Dev Speed | Fast | Slower (network latency) |
 | Production Ready | No | Yes |
 
+### Database Reset & Cleanup
+
+Need to start with a clean database? See **[DATABASE_RESET.md](DATABASE_RESET.md)** for comprehensive reset instructions.
+
+**Quick Commands:**
+
+```bash
+# Reset everything (Supabase + IndexedDB instructions)
+npm run db:reset
+
+# Reset Supabase database only
+npm run db:reset:supabase
+
+# Show IndexedDB reset instructions
+npm run db:reset:indexeddb
+```
+
+**Browser-based reset (IndexedDB only):**
+1. Visit http://localhost:5173/reset-indexeddb.html
+2. Click "Reset Everything"
+3. Done!
+
+For detailed instructions, troubleshooting, and recovery options, see [DATABASE_RESET.md](DATABASE_RESET.md).
+
 
 ## Project Structure
 

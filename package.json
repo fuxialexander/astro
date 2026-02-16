@@ -25,6 +25,9 @@
     "test:approval:interactive": "tsx scripts/test-approval-system.ts",
     "test:approval:quick": "bash scripts/test-approval-quick.sh",
     "demo:approval": "tsx scripts/demo-approval-flow.ts",
+    "db:reset": "bash scripts/reset-database.sh --all",
+    "db:reset:supabase": "bash scripts/reset-database.sh --supabase",
+    "db:reset:indexeddb": "bash scripts/reset-database.sh --indexeddb",
     "prepare": "husky"
   },
   "dependencies": {
@@ -68,6 +71,7 @@
     "postgres": "^3.4.8",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-icons": "^5.5.0",
     "react-router": "^7.6.1",
     "tailwind-merge": "^3.3.0",
     "ws": "^8.19.0",

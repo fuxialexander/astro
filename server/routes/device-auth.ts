@@ -58,7 +58,7 @@ import {
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
-import { getServiceClient, shouldUseSupabase } from '../lib/supabase.js';
+import { getServiceClient, shouldUseSupabase, createUserClient } from '../lib/supabase.js';
 import { requireAuth } from '../middleware/auth.js';
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js';
 
@@ -654,24 +654,73 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
   // Get userId from auth middleware (required by requireAuth)
   const user = c.get('user') as { id: string };
 
-  const machines = await getUserMachines(user.id);
+  if (shouldUseSupabase()) {
+    // Supabase mode: Use RLS for filtering (user-scoped client)
+    // Extract token from Authorization header or query param
+    let token: string | undefined;
+    const authHeader = c.req.header('Authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    } else {
+      token = c.req.query('token');
+    }
 
-  return c.json({
-    machines: machines.map((m) => ({
-      id: m.id,
-      name: m.name,
-      hostname: m.hostname,
-      platform: m.platform,
-      environmentType: m.environmentType,
-      providers: m.providers,
-      userId: m.userId,  // Include userId for test verification
-      registeredAt: m.registeredAt,
-      lastSeenAt: m.lastSeenAt,
-      isConnected: m.isConnected,
-      isRevoked: m.isRevoked,
-    })),
-    count: machines.length,
-  });
+    if (!token) {
+      return c.json({ error: 'Missing authentication token' }, 401);
+    }
+
+    // Create user-scoped client (respects RLS)
+    const userSupabase = createUserClient(token);
+    const { data, error } = await userSupabase
+      .from('registered_machines')
+      .select('*')
+      .eq('is_revoked', false)
+      .order('registered_at', { ascending: false });
+
+    if (error) {
+      console.error('[device-auth] Failed to fetch machines from Supabase:', error);
+      return c.json({ error: 'Failed to fetch machines' }, 500);
+    }
+
+    const machines = (data || []).map((row: Record<string, unknown>) => ({
+      id: row.id as string,
+      name: row.name as string,
+      hostname: row.hostname as string,
+      platform: row.platform as string,
+      environmentType: row.environment_type as string,
+      providers: row.providers as string[],
+      userId: row.user_id as string,
+      registeredAt: new Date(row.registered_at as string),
+      lastSeenAt: new Date(row.last_seen_at as string),
+      isConnected: row.is_connected as boolean,
+      isRevoked: row.is_revoked as boolean,
+    }));
+
+    return c.json({
+      machines,
+      count: machines.length,
+    });
+  } else {
+    // IndexedDB mode: Use manual filtering (SQLite)
+    const machines = await getUserMachines(user.id);
+
+    return c.json({
+      machines: machines.map((m) => ({
+        id: m.id,
+        name: m.name,
+        hostname: m.hostname,
+        platform: m.platform,
+        environmentType: m.environmentType,
+        providers: m.providers,
+        userId: m.userId,
+        registeredAt: m.registeredAt,
+        lastSeenAt: m.lastSeenAt,
+        isConnected: m.isConnected,
+        isRevoked: m.isRevoked,
+      })),
+      count: machines.length,
+    });
+  }
 });
 
 /**
@@ -681,59 +730,149 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
 deviceAuthRoute.get('/machines/:id', requireAuth, async (c) => {
   const user = c.get('user') as { id: string };
   const id = c.req.param('id');
-  const machine = await getMachine(id);
 
-  if (!machine) {
-    return c.json({ error: 'Machine not found' }, 404);
+  if (shouldUseSupabase()) {
+    // Supabase mode: Use RLS for filtering
+    let token: string | undefined;
+    const authHeader = c.req.header('Authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    } else {
+      token = c.req.query('token');
+    }
+
+    if (!token) {
+      return c.json({ error: 'Missing authentication token' }, 401);
+    }
+
+    const userSupabase = createUserClient(token);
+    const { data, error } = await userSupabase
+      .from('registered_machines')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error || !data) {
+      return c.json({ error: 'Machine not found' }, 404);
+    }
+
+    return c.json({
+      machine: {
+        id: data.id,
+        name: data.name,
+        hostname: data.hostname,
+        platform: data.platform,
+        environmentType: data.environment_type,
+        providers: data.providers,
+        registeredAt: new Date(data.registered_at),
+        lastSeenAt: new Date(data.last_seen_at),
+        isConnected: data.is_connected,
+        isRevoked: data.is_revoked,
+        metadata: data.metadata,
+      },
+    });
+  } else {
+    // IndexedDB mode: Use manual ownership check
+    const machine = await getMachine(id);
+
+    if (!machine) {
+      return c.json({ error: 'Machine not found' }, 404);
+    }
+
+    // Verify ownership
+    if (machine.userId !== user.id) {
+      return c.json({ error: 'Not authorized to view this machine' }, 403);
+    }
+
+    return c.json({
+      machine: {
+        id: machine.id,
+        name: machine.name,
+        hostname: machine.hostname,
+        platform: machine.platform,
+        environmentType: machine.environmentType,
+        providers: machine.providers,
+        registeredAt: machine.registeredAt,
+        lastSeenAt: machine.lastSeenAt,
+        isConnected: machine.isConnected,
+        isRevoked: machine.isRevoked,
+        metadata: machine.metadata,
+      },
+    });
   }
-
-  // Verify ownership
-  if (machine.userId !== user.id) {
-    return c.json({ error: 'Not authorized to view this machine' }, 403);
-  }
-
-  return c.json({
-    machine: {
-      id: machine.id,
-      name: machine.name,
-      hostname: machine.hostname,
-      platform: machine.platform,
-      environmentType: machine.environmentType,
-      providers: machine.providers,
-      registeredAt: machine.registeredAt,
-      lastSeenAt: machine.lastSeenAt,
-      isConnected: machine.isConnected,
-      isRevoked: machine.isRevoked,
-      metadata: machine.metadata,
-    },
-  });
 });
 
 /**
  * PATCH /device/machines/:id
  * Update a machine (e.g., rename)
  */
-deviceAuthRoute.patch('/machines/:id', async (c) => {
+deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
+  const user = c.get('user') as { id: string };
   const id = c.req.param('id');
-  const machine = await getMachine(id);
-
-  if (!machine) {
-    return c.json({ error: 'Machine not found' }, 404);
-  }
-
   const body = await c.req.json() as { name?: string };
 
-  if (body.name) {
-    machine.name = body.name;
+  if (!body.name) {
+    return c.json({ error: 'Missing name field' }, 400);
   }
 
-  return c.json({
-    success: true,
-    machine: {
-      id: machine.id,
-      name: machine.name,
-    },
-  });
+  if (shouldUseSupabase()) {
+    // Supabase mode: Use RLS for update
+    let token: string | undefined;
+    const authHeader = c.req.header('Authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    }
+
+    if (!token) {
+      return c.json({ error: 'Missing authentication token' }, 401);
+    }
+
+    const userSupabase = createUserClient(token);
+    const { data, error } = await userSupabase
+      .from('registered_machines')
+      .update({ name: body.name })
+      .eq('id', id)
+      .select('id, name')
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return c.json({ error: 'Machine not found or not authorized' }, 404);
+      }
+      console.error('[device-auth] Failed to update machine:', error);
+      return c.json({ error: 'Failed to update machine' }, 500);
+    }
+
+    return c.json({
+      success: true,
+      machine: {
+        id: data.id,
+        name: data.name,
+      },
+    });
+  } else {
+    // IndexedDB mode: Manual ownership check
+    const machine = await getMachine(id);
+
+    if (!machine) {
+      return c.json({ error: 'Machine not found' }, 404);
+    }
+
+    // Verify ownership
+    if (machine.userId !== user.id) {
+      return c.json({ error: 'Not authorized to update this machine' }, 403);
+    }
+
+    machine.name = body.name;
+
+    return c.json({
+      success: true,
+      machine: {
+        id: machine.id,
+        name: machine.name,
+      },
+    });
+  }
 });
 
 /**
@@ -743,42 +882,104 @@ deviceAuthRoute.patch('/machines/:id', async (c) => {
 deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
   const id = c.req.param('id');
   const user = c.get('user') as { id: string };
-  const machine = await getMachine(id);
 
-  if (!machine) {
-    return c.json({ error: 'Machine not found' }, 404);
+  if (shouldUseSupabase()) {
+    // Supabase mode: Use RLS for delete
+    let token: string | undefined;
+    const authHeader = c.req.header('Authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    }
+
+    if (!token) {
+      return c.json({ error: 'Missing authentication token' }, 401);
+    }
+
+    const userSupabase = createUserClient(token);
+
+    // First, fetch the machine details for audit log
+    const { data: machine, error: fetchError } = await userSupabase
+      .from('registered_machines')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !machine) {
+      return c.json({ error: 'Machine not found or not authorized' }, 404);
+    }
+
+    // Revoke all tokens for this machine
+    await revokeAllMachineTokens(id);
+
+    // Mark machine as revoked (using RLS)
+    const { error: updateError } = await userSupabase
+      .from('registered_machines')
+      .update({ is_revoked: true, is_connected: false })
+      .eq('id', id);
+
+    if (updateError) {
+      console.error('[device-auth] Failed to revoke machine:', updateError);
+      return c.json({ error: 'Failed to revoke machine' }, 500);
+    }
+
+    // Audit log the machine revocation
+    await logAuditEvent({
+      userId: user.id,
+      action: AuditActions.MACHINE_REVOKE,
+      resourceType: ResourceTypes.MACHINE,
+      resourceId: id,
+      details: {
+        machineName: machine.name,
+        hostname: machine.hostname,
+        platform: machine.platform,
+      },
+      ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+      userAgent: c.req.header('user-agent'),
+    });
+
+    return c.json({
+      success: true,
+      message: `Machine "${machine.name}" has been revoked`,
+    });
+  } else {
+    // IndexedDB mode: Manual ownership check
+    const machine = await getMachine(id);
+
+    if (!machine) {
+      return c.json({ error: 'Machine not found' }, 404);
+    }
+
+    // Verify the user owns this machine
+    if (machine.userId !== user.id) {
+      return c.json({ error: 'Not authorized to revoke this machine' }, 403);
+    }
+
+    // Revoke all tokens for this machine
+    await revokeAllMachineTokens(id);
+
+    // Mark machine as revoked
+    await revokeMachine(id);
+
+    // Audit log the machine revocation
+    await logAuditEvent({
+      userId: user.id,
+      action: AuditActions.MACHINE_REVOKE,
+      resourceType: ResourceTypes.MACHINE,
+      resourceId: id,
+      details: {
+        machineName: machine.name,
+        hostname: machine.hostname,
+        platform: machine.platform,
+      },
+      ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+      userAgent: c.req.header('user-agent'),
+    });
+
+    return c.json({
+      success: true,
+      message: `Machine "${machine.name}" has been revoked`,
+    });
   }
-
-  // Verify the user owns this machine
-  if (machine.userId !== user.id) {
-    return c.json({ error: 'Not authorized to revoke this machine' }, 403);
-  }
-
-  // Revoke all tokens for this machine
-  await revokeAllMachineTokens(id);
-
-  // Mark machine as revoked
-  await revokeMachine(id);
-
-  // Audit log the machine revocation
-  await logAuditEvent({
-    userId: user.id,
-    action: AuditActions.MACHINE_REVOKE,
-    resourceType: ResourceTypes.MACHINE,
-    resourceId: id,
-    details: {
-      machineName: machine.name,
-      hostname: machine.hostname,
-      platform: machine.platform,
-    },
-    ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
-    userAgent: c.req.header('user-agent'),
-  });
-
-  return c.json({
-    success: true,
-    message: `Machine "${machine.name}" has been revoked`,
-  });
 });
 
 // ============================================================================

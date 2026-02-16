@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { Link, useNavigate } from "react-router"
 import {
   Plus,
@@ -57,6 +58,7 @@ function ActivityItem({ event }: { event: ActivityEvent }) {
 
 export function Dashboard() {
   const projects = useProjectStore((s) => s.projects)
+  const projectsLoaded = useProjectStore((s) => s.loaded)
   const nodes = usePlanStore((s) => s.nodes)
   const updateNode = usePlanStore((s) => s.updateNode)
   const machines = useRealtimeStore((s) => s.machines)
@@ -67,6 +69,13 @@ export function Dashboard() {
   const pendingApprovals = useExecutionStore((s) => s.pendingApprovals)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
   const navigate = useNavigate()
+
+  // Redirect first-time users to welcome screen
+  useEffect(() => {
+    if (projectsLoaded && projects.length === 0) {
+      navigate("/welcome")
+    }
+  }, [projectsLoaded, projects.length, navigate])
 
   const activeTasks = nodes.filter(
     (n) => n.status === "in_progress" || n.status === "dispatched"

@@ -28,6 +28,7 @@ import { formatShortDate } from "@/lib/date-utils"
 import { ColorIconPicker } from "@/components/color-icon-picker"
 import { getRandomColor, getRandomInitiativeIcon } from "@/lib/color-icon-utils"
 import type { Initiative } from "@/types"
+import * as FaIcons from "react-icons/fa"
 
 const statusConfig: Record<Initiative["status"], { label: string; variant: "default" | "success" | "warning" | "destructive" }> = {
   active: { label: "Active", variant: "success" },
@@ -182,8 +183,15 @@ export default function InitiativesPage() {
                 >
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <div className="flex items-start gap-2 flex-1 min-w-0">
-                      <span className="text-2xl shrink-0" style={{ color: initiative.color || "#3b82f6" }}>
-                        {initiative.icon || "🎯"}
+                      <span className="text-2xl shrink-0" style={{ color: initiative.color || "#6366f1" }}>
+                        {(() => {
+                          const icon = initiative.icon || "FaBullseye";
+                          if (icon.startsWith("Fa") && icon in FaIcons) {
+                            const IconComponent = FaIcons[icon as keyof typeof FaIcons];
+                            return <IconComponent size={24} />;
+                          }
+                          return icon;
+                        })()}
                       </span>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-medium text-sm mb-1 truncate">{initiative.name}</h3>

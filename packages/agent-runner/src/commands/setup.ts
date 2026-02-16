@@ -24,6 +24,7 @@ interface SetupOptions {
   type?: string;
   skipAuth?: boolean;
   nonInteractive?: boolean;
+  withSshConfig?: boolean;
 }
 
 export async function setupCommand(options: SetupOptions = {}): Promise<void> {
@@ -62,21 +63,23 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     detectedProviders = [];
   }
 
-  // Step 3: Discover SSH hosts
-  const sshSpinner = ora('Discovering remote hosts...').start();
-  let discoveredHosts: DiscoveredHost[];
-  try {
-    discoveredHosts = await discoverRemoteHosts();
-    if (discoveredHosts.length > 0) {
-      sshSpinner.succeed(`Found ${discoveredHosts.length} remote host(s)`);
-      console.log(chalk.dim(formatDiscoveredHosts(discoveredHosts)));
-    } else {
-      sshSpinner.info('No remote hosts discovered');
+  // Step 3: Discover SSH hosts (only if --with-ssh-config flag is set)
+  let discoveredHosts: DiscoveredHost[] = [];
+  if (options.withSshConfig) {
+    const sshSpinner = ora('Discovering remote hosts...').start();
+    try {
+      discoveredHosts = await discoverRemoteHosts();
+      if (discoveredHosts.length > 0) {
+        sshSpinner.succeed(`Found ${discoveredHosts.length} remote host(s)`);
+        console.log(chalk.dim(formatDiscoveredHosts(discoveredHosts)));
+      } else {
+        sshSpinner.info('No remote hosts discovered');
+      }
+      console.log();
+    } catch {
+      sshSpinner.fail('Failed to discover remote hosts');
+      discoveredHosts = [];
     }
-    console.log();
-  } catch {
-    sshSpinner.fail('Failed to discover remote hosts');
-    discoveredHosts = [];
   }
 
   // Step 4a: Configure API URL
@@ -233,8 +236,8 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     .map((p) => p.type as ProviderType);
   config.setProviders(providerTypes);
 
-  // Step 8: Offer to install on remote hosts
-  if (discoveredHosts.length > 0 && !options.nonInteractive) {
+  // Step 8: Offer to install on remote hosts (only if SSH discovery was enabled)
+  if (options.withSshConfig && discoveredHosts.length > 0 && !options.nonInteractive) {
     console.log(chalk.bold('Remote Installation\n'));
     console.log(chalk.dim('You have SSH access to these hosts. Would you like to install'));
     console.log(chalk.dim('the agent runner on any of them?\n'));

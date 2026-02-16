@@ -11,7 +11,7 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { GitBranch, LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Globe, Server, Cloud, CheckCircle2, Square, PlayCircle, Plus, Minus, Maximize } from "lucide-react"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Globe, Server, Cloud, CheckCircle2, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, FolderGit2, Info } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,6 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Button } from "@/components/ui/button"
 import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -29,8 +30,9 @@ import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
-import { EmptyState } from "@/components/ui/empty-state"
+import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { calculateChildPosition } from "@/lib/graph-utils"
+import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 
 const environmentConfig = {
@@ -378,32 +380,197 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     handleReorganize()
   }, [handleReorganize])
 
+  const [showVisionDialog, setShowVisionDialog] = useState(false)
+  const [showRepoInput, setShowRepoInput] = useState(false)
+  const [repoUrl, setRepoUrl] = useState(project?.repository || "")
+  const [workingDir, setWorkingDir] = useState(project?.workingDirectory || "")
+  const updateProject = useProjectStore((s) => s.updateProject)
+
   const handleGeneratePlan = useCallback(() => {
     if (project && connectionStatus === "connected") {
-      startGeneration(projectId, project.name, project.description || project.name, project.visionDoc)
+      // If no vision doc, show dialog first to let user add one
+      if (!project.visionDoc?.trim()) {
+        setShowVisionDialog(true)
+        // Note: User will need to manually trigger generation after saving vision doc
+      } else {
+        startGeneration(projectId, project.name, project.description || project.name, project.visionDoc)
+      }
     }
   }, [startGeneration, projectId, project, connectionStatus])
+
+  // Auto-trigger generation when vision dialog closes and vision doc exists
+  useEffect(() => {
+    if (!showVisionDialog && project?.visionDoc?.trim() && connectionStatus === "connected") {
+      const hasNoNodes = projectNodes.length === 0
+      const justClosedDialog = !showVisionDialog
+      // Only auto-generate if we just closed the dialog and have no nodes yet
+      if (hasNoNodes && justClosedDialog) {
+        startGeneration(projectId, project.name, project.description || project.name, project.visionDoc)
+      }
+    }
+  }, [showVisionDialog, project, connectionStatus, projectNodes.length, startGeneration, projectId])
+
+  const handleSaveRepo = useCallback(() => {
+    if (project) {
+      updateProject(projectId, {
+        repository: repoUrl.trim() || undefined,
+        workingDirectory: workingDir.trim() || undefined,
+      })
+      setShowRepoInput(false)
+    }
+  }, [updateProject, projectId, project, repoUrl, workingDir])
 
   // Show empty state when no nodes and not currently generating
   if (projectNodes.length === 0 && !isProjectGenerating) {
     const isConnected = connectionStatus === "connected"
+    const hasRepo = !!(project?.repository || project?.workingDirectory)
+
     return (
-      <div className="h-full w-full bg-background flex items-center justify-center">
-        <EmptyState
-          icon={GitBranch}
-          title="Structure your plan"
-          description={isConnected
-            ? "Generate an AI-structured plan that breaks down your goal into tasks with dependencies, verification steps, and execution environments."
-            : "Connect to the backend in Settings to enable AI plan generation."
-          }
-          action={isConnected ? {
-            label: "Generate Plan",
-            onClick: handleGeneratePlan,
-          } : {
-            label: "Go to Settings",
-            href: "/settings",
-          }}
-        />
+      <div className="h-full w-full bg-background flex items-center justify-center p-8">
+        <div className="flex w-full max-w-[600px] flex-col gap-6">
+          {/* Repository setup section */}
+          <div className={cn(
+            "flex flex-col gap-4 rounded-xl border p-6",
+            hasRepo ? "border-primary/20 bg-primary/5" : "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
+          )}>
+            <div className="flex items-start gap-3">
+              <div className={cn(
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
+                hasRepo ? "bg-primary/10" : "bg-amber-100 dark:bg-amber-900/50"
+              )}>
+                <FolderGit2 className={cn("h-5 w-5", hasRepo ? "text-primary" : "text-amber-600 dark:text-amber-400")} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-foreground mb-1">
+                  {hasRepo ? "Repository configured" : "Set up your repository first"}
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  One project = one GitHub repo. Tasks work on different aspects of the same codebase in parallel.
+                </p>
+                {hasRepo && (
+                  <div className="mt-2 flex items-center gap-2 text-xs">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                    <span className="font-mono text-muted-foreground truncate">
+                      {project.repository || project.workingDirectory}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {showRepoInput ? (
+              <div className="flex flex-col gap-3 pt-2">
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-medium text-foreground">Repository URL (optional)</label>
+                  <input
+                    type="text"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    placeholder="https://github.com/user/repo"
+                    className="h-9 rounded-lg border border-border bg-background px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-medium text-foreground">Working directory (optional)</label>
+                  <input
+                    type="text"
+                    value={workingDir}
+                    onChange={(e) => setWorkingDir(e.target.value)}
+                    placeholder="/path/to/project"
+                    className="h-9 rounded-lg border border-border bg-background px-3 font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSaveRepo}>Save</Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowRepoInput(false)}>Cancel</Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                variant={hasRepo ? "outline" : "default"}
+                onClick={() => setShowRepoInput(true)}
+                className="w-fit"
+              >
+                {hasRepo ? "Change repository" : "Add repository"}
+              </Button>
+            )}
+          </div>
+
+          {/* Planning options */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Info className="h-4 w-4" />
+              <span>Choose how to plan:</span>
+            </div>
+
+            {/* Option 1: AI Generate Plan */}
+            <button
+              onClick={handleGeneratePlan}
+              disabled={!isConnected}
+              className={cn(
+                "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+                "border-primary/20 bg-primary/[0.03] hover:bg-primary/[0.05] hover:border-primary/30"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-base font-semibold text-foreground">Tell us your vision</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Let AI generate a structured plan with tasks and dependencies</div>
+                </div>
+              </div>
+            </button>
+
+            {/* Option 2: Manual Add Task */}
+            <button
+              onClick={() => {
+                // Trigger task creation form at center of canvas
+                const centerX = 400
+                const centerY = 300
+                setAddChildState({
+                  parentNodeId: "", // Root level task
+                  position: { x: centerX, y: centerY },
+                  screenPosition: { x: centerX, y: centerY },
+                })
+              }}
+              className={cn(
+                "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all cursor-pointer",
+                "border-border bg-card hover:border-foreground/20"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
+                  <ListPlus className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-base font-semibold text-foreground">Add your first task</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Start planning manually with individual tasks</div>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          {!isConnected && (
+            <div className="flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 px-4 py-3 text-sm">
+              <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-amber-900 dark:text-amber-100">
+                Connect to backend in <a href="/settings" className="underline font-medium">Settings</a> to enable AI plan generation
+              </span>
+            </div>
+          )}
+
+          {/* Vision Doc Dialog */}
+          {project && (
+            <VisionDocDialog
+              open={showVisionDialog}
+              onOpenChange={setShowVisionDialog}
+              project={project}
+            />
+          )}
+        </div>
       </div>
     )
   }

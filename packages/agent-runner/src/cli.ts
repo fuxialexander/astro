@@ -32,6 +32,7 @@ program
   .option('--type <type>', 'Environment type: local, remote, hpc, cloud')
   .option('--skip-auth', 'Skip device authentication')
   .option('--non-interactive', 'Run in non-interactive mode')
+  .option('--with-ssh-config', 'Discover and configure remote hosts from SSH config')
   .action(async (options) => {
     try {
       await setupCommand({
@@ -40,6 +41,7 @@ program
         type: options.type,
         skipAuth: options.skipAuth,
         nonInteractive: options.nonInteractive,
+        withSshConfig: options.withSshConfig,
       });
     } catch (error) {
       console.error('Setup failed:', error instanceof Error ? error.message : String(error));

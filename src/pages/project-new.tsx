@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate } from "react-router"
-import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, Bot, AlertCircle, Github, Search } from "lucide-react"
+import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {
@@ -37,8 +37,6 @@ export function ProjectNew() {
   const [showRepoInput, setShowRepoInput] = useState(false)
   const [showGitHubRepos, setShowGitHubRepos] = useState(false)
   const [showDirInput, setShowDirInput] = useState(false)
-  const [startDate, setStartDate] = useState("")
-  const [targetDate, setTargetDate] = useState("")
   const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
   const [repoSetupError, setRepoSetupError] = useState<string | null>(null)
@@ -78,17 +76,9 @@ export function ProjectNew() {
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
 
-  // Provider state
-  const providers = useExecutionStore((s) => s.providers)
-  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
-  const loadProviders = useExecutionStore((s) => s.loadProviders)
-  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
-  const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
-
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
-    if (!providersLoaded) loadProviders()
-  }, [machinesLoaded, loadMachines, providersLoaded, loadProviders])
+  }, [machinesLoaded, loadMachines])
 
   const availableMachines = getMachinesForEnvironment(selectedEnvironment)
   const isRemote = selectedEnvironment !== "local"
@@ -128,8 +118,6 @@ export function ProjectNew() {
       description: description.trim(),
       visionDoc: "",
       status: "active",
-      startDate: startDate || undefined,
-      targetDate: targetDate || undefined,
       color: getRandomColor(),
       icon: getRandomProjectIcon(),
       workingDirectory: workingDir.trim() || undefined,
@@ -211,9 +199,9 @@ export function ProjectNew() {
 
         {/* Heading */}
         <div className="flex flex-col items-center gap-3">
-          <h1 className="text-3xl font-bold">What are you building?</h1>
+          <h1 className="text-3xl font-bold">Create a new project</h1>
           <p className="max-w-[480px] text-center text-[15px] leading-relaxed text-muted-foreground">
-            Describe your goal and we'll generate an intelligent plan with tasks, dependencies, and milestones.
+            Describe what you want to work on. Add a repo to get AI-generated plan suggestions.
           </p>
         </div>
 
@@ -497,87 +485,6 @@ export function ProjectNew() {
             </div>
           </div>
 
-          {/* AI Provider */}
-          <div className="flex flex-col gap-3">
-            <span className="text-[13px] font-medium text-muted-foreground">AI Agent</span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer w-fit">
-                  <Bot className="h-4 w-4" />
-                  {defaultProvider
-                    ? providers.find((p) => p.id === defaultProvider)?.name ?? defaultProvider
-                    : "Auto (first available)"}
-                  <ChevronDown className="h-3 w-3 opacity-50" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuLabel>Select AI Agent</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => setDefaultProvider("")}
-                  className="gap-2"
-                >
-                  <Zap className="h-4 w-4" />
-                  <div className="flex flex-col">
-                    <span>Auto</span>
-                    <span className="text-xs text-muted-foreground">Use first available provider</span>
-                  </div>
-                  {!defaultProvider && (
-                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                  )}
-                </DropdownMenuItem>
-                {providers.map((p) => (
-                  <DropdownMenuItem
-                    key={p.id}
-                    onClick={() => setDefaultProvider(p.id)}
-                    disabled={!p.available}
-                    className="gap-2"
-                  >
-                    <Bot className="h-4 w-4" />
-                    <div className="flex flex-col">
-                      <span>{p.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {p.available ? "Ready" : p.installed ? "Not authenticated" : "Not installed"}
-                      </span>
-                    </div>
-                    {defaultProvider === p.id && (
-                      <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-                {providers.length === 0 && providersLoaded && (
-                  <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                    No providers detected. Install Claude Code or Codex CLI.
-                  </div>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {/* Timeline & Constraints */}
-          <div className="flex flex-col gap-3">
-            <span className="text-[13px] font-medium text-muted-foreground">Timeline & Constraints</span>
-            <div className="flex gap-3">
-              <div className="flex flex-col gap-1 flex-1">
-                <label className="text-[11px] text-muted-foreground">Start Date</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-              <div className="flex flex-col gap-1 flex-1">
-                <label className="text-[11px] text-muted-foreground">Target Date</label>
-                <input
-                  type="date"
-                  value={targetDate}
-                  onChange={(e) => setTargetDate(e.target.value)}
-                  className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Generate button */}

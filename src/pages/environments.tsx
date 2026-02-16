@@ -301,11 +301,6 @@ export function Environments() {
     if (!realtimeConnected) connectRealtime()
   }
 
-  const handleMachineAdded = () => {
-    if (user) fetchRegistered()
-    if (!realtimeConnected) connectRealtime()
-  }
-
   return (
     <div className="flex flex-col gap-6 p-4 md:p-8 md:px-10">
       {/* Header */}
@@ -490,7 +485,6 @@ export function Environments() {
       <AddEnvironmentDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        onMachineAdded={handleMachineAdded}
       />
     </div>
   )

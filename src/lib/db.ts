@@ -3,21 +3,23 @@ import { get, set, clear } from "idb-keyval"
 /**
  * IndexedDB storage utilities for local-only mode
  *
- * IMPORTANT: IndexedDB mode is designed for single-user development only.
- * It does NOT provide multi-tenancy isolation. All data is stored in the same
- * browser database without user-specific namespacing.
+ * IMPORTANT: IndexedDB mode is designed for single-user per browser.
+ * Each browser generates a unique user ID that persists across sessions.
+ * This provides basic user isolation when multiple people use different browsers.
  *
- * For multi-user production deployments, use Supabase mode which provides
- * proper authentication and row-level security (RLS).
+ * For multi-user production deployments with proper authentication,
+ * use Supabase mode which provides row-level security (RLS).
  *
  * User Switching Warning:
  * If you switch users in auth (e.g., dev mode), you should clear IndexedDB
- * manually to avoid data leakage between "users". This is by design - IndexedDB
- * mode assumes a single local user.
+ * manually to avoid data leakage between "users".
  */
 
 // Track current user ID to detect user switches
 let currentUserId: string | null = null
+
+// Key for storing the persistent browser user ID
+const BROWSER_USER_ID_KEY = 'nexus-browser-user-id'
 
 /**
  * Set the current user ID for IndexedDB operations
@@ -39,6 +41,27 @@ export function setCurrentUser(userId: string | null) {
  */
 export function getCurrentUser(): string | null {
   return currentUserId
+}
+
+/**
+ * Get or generate a persistent user ID for this browser.
+ * In IndexedDB mode, each browser gets a unique UUID that persists across sessions.
+ * This provides basic user isolation when multiple people use different browsers.
+ */
+export async function getBrowserUserId(): Promise<string> {
+  // Try to load existing browser user ID
+  const existingId = await get<string>(BROWSER_USER_ID_KEY)
+
+  if (existingId) {
+    return existingId
+  }
+
+  // Generate a new UUID for this browser using the browser's built-in crypto API
+  const newId = crypto.randomUUID()
+  await set(BROWSER_USER_ID_KEY, newId)
+  console.log('[db] Generated new browser user ID:', newId)
+
+  return newId
 }
 
 /**

@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import type { Session, User } from "@supabase/supabase-js"
 import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
-import { setCurrentUser } from "@/lib/db"
+import { setCurrentUser, getBrowserUserId } from "@/lib/db"
 import { setupRealtimeSync, teardownRealtimeSync } from "@/lib/realtime-sync"
 
 interface AuthState {
@@ -25,9 +25,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     console.log('[auth-store] Initializing...')
     // If Supabase is not in use (not configured or IndexedDB-only mode), skip auth
     if (!shouldUseSupabase()) {
-      console.log('[auth-store] IndexedDB-only mode, using dev mode')
-      // Track dev user for IndexedDB operations
-      setCurrentUser('dev')
+      console.log('[auth-store] IndexedDB-only mode, generating browser user ID')
+      // Track browser-specific user ID for IndexedDB operations
+      const browserUserId = await getBrowserUserId()
+      setCurrentUser(browserUserId)
+      console.log('[auth-store] Using browser user ID:', browserUserId)
       set({
         session: null,
         user: null,

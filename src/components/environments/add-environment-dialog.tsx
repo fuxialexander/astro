@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { Monitor, Server, Cloud, Globe, Copy, Check, Loader2 } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Monitor, Cloud, Globe, Copy, Check, CheckCircle2, AlertCircle, ExternalLink } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -9,11 +9,11 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { useExecutionStore } from "@/stores/execution-store"
 
 interface AddEnvironmentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onMachineAdded?: () => void
 }
 
 function CopyBlock({ text }: { text: string }) {
@@ -39,25 +39,22 @@ function CopyBlock({ text }: { text: string }) {
   )
 }
 
-export function AddEnvironmentDialog({ open, onOpenChange, onMachineAdded }: AddEnvironmentDialogProps) {
-  const [simulating, setSimulating] = useState<string | null>(null)
+export function AddEnvironmentDialog({ open, onOpenChange }: AddEnvironmentDialogProps) {
+  const providers = useExecutionStore((s) => s.providers)
+  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
+  const loadProviders = useExecutionStore((s) => s.loadProviders)
 
-  const handleSimulate = async (type: "local" | "hpc", name?: string) => {
-    setSimulating(type)
-    try {
-      const res = await fetch("/api/device/simulate-machine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, name }),
-      })
-      if (!res.ok) throw new Error("Failed to simulate machine")
-      onMachineAdded?.()
-    } catch (err) {
-      console.error("Failed to simulate machine:", err)
-    } finally {
-      setSimulating(null)
+  // Load providers when dialog opens
+  useEffect(() => {
+    if (open && !providersLoaded) {
+      loadProviders()
     }
-  }
+  }, [open, providersLoaded, loadProviders])
+
+  // Check if Claude Code or Codex is available locally
+  const claudeCode = providers.find((p) => p.id === "claude-code")
+  const codex = providers.find((p) => p.id === "codex")
+  const hasLocalProvider = claudeCode?.available || codex?.available
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -76,10 +73,6 @@ export function AddEnvironmentDialog({ open, onOpenChange, onMachineAdded }: Add
               <Globe className="h-4 w-4" />
               Remote
             </TabsTrigger>
-            <TabsTrigger value="hpc" className="flex-1 gap-1.5">
-              <Server className="h-4 w-4" />
-              HPC
-            </TabsTrigger>
             <TabsTrigger value="cloud" className="flex-1 gap-1.5">
               <Cloud className="h-4 w-4" />
               Cloud
@@ -87,73 +80,120 @@ export function AddEnvironmentDialog({ open, onOpenChange, onMachineAdded }: Add
           </TabsList>
 
           <TabsContent value="local" className="mt-4 flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-muted-foreground">
-                Run this command on the machine you want to connect:
-              </p>
-              <CopyBlock text="npx @nexus/agent setup" />
-            </div>
-            <a
-              href="/device"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-primary hover:underline"
-            >
-              Or enter a device code manually
-            </a>
-            <Separator />
-            <div className="flex flex-col gap-2">
-              <p className="text-xs text-muted-foreground">For testing and demos:</p>
-              <Button
-                variant="outline"
-                onClick={() => handleSimulate("local")}
-                disabled={simulating !== null}
-              >
-                {simulating === "local" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Monitor className="h-4 w-4" />
-                )}
-                Simulate Machine
-              </Button>
-            </div>
+            {hasLocalProvider ? (
+              // Provider detected - show ready state
+              <div className="flex flex-col gap-4">
+                <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 p-4">
+                  <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-green-900 dark:text-green-100">
+                      Local environment ready
+                    </p>
+                    <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                      {claudeCode?.available && `Claude Code is installed and authenticated`}
+                      {codex?.available && !claudeCode?.available && `Codex is installed and authenticated`}
+                      {claudeCode?.available && codex?.available && ` (both Claude Code and Codex available)`}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Your local machine is ready to execute tasks. You can start using it in your projects.
+                </p>
+              </div>
+            ) : (
+              // No provider detected - show setup instructions
+              <div className="flex flex-col gap-4">
+                <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 p-4">
+                  <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                      No local agent detected
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                      Install and authenticate Claude Code or Codex to run tasks locally
+                    </p>
+                  </div>
+                </div>
+
+                {/* Claude Code setup */}
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm font-medium text-foreground">Option 1: Claude Code (Recommended)</p>
+                  {claudeCode?.installed && !claudeCode.available ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs text-muted-foreground">Claude Code is installed but not authenticated.</p>
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-xs font-medium text-foreground">Run this command to authenticate:</p>
+                        <CopyBlock text="claude-code auth login" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs text-muted-foreground">Install Claude Code CLI and authenticate:</p>
+                      <div className="flex flex-col gap-1.5">
+                        <CopyBlock text="npm install -g @anthropics/claude-code" />
+                        <CopyBlock text="claude-code auth login" />
+                      </div>
+                      <a
+                        href="https://docs.anthropic.com/claude-code"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        View Claude Code documentation
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Codex setup */}
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm font-medium text-foreground">Option 2: Codex</p>
+                  {codex?.installed && !codex.available ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs text-muted-foreground">Codex is installed but not authenticated.</p>
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-xs font-medium text-foreground">Run this command to authenticate:</p>
+                        <CopyBlock text="codex auth login" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs text-muted-foreground">Install Codex CLI and authenticate:</p>
+                      <div className="flex flex-col gap-1.5">
+                        <CopyBlock text="npm install -g codex-cli" />
+                        <CopyBlock text="codex auth login" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="remote" className="mt-4 flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <p className="text-sm text-muted-foreground">
-                On the remote machine, clone the repo and run:
+                On the remote machine (server, HPC login node, etc.), run:
               </p>
-              <CopyBlock text="./scripts/agent-setup.sh yourdomain.com" />
+              <CopyBlock text="npx @nexus/agent setup" />
             </div>
             <p className="text-xs text-muted-foreground">
-              This requires a Cloudflare Tunnel running on the server.
-              See <code className="font-mono bg-muted px-1 rounded">scripts/start-tunnel.sh</code> for setup.
+              <strong>For HPC clusters:</strong> Install on the login node if allowed by your administrator.
+              Some clusters restrict login node processes, so check your cluster's policies first.
             </p>
-          </TabsContent>
-
-          <TabsContent value="hpc" className="mt-4 flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-muted-foreground">
-                Run on your cluster's login node:
-              </p>
-              <CopyBlock text='npx @nexus/agent setup --type hpc --name "Sherlock HPC"' />
-            </div>
             <Separator />
             <div className="flex flex-col gap-2">
-              <p className="text-xs text-muted-foreground">For testing and demos:</p>
-              <Button
-                variant="outline"
-                onClick={() => handleSimulate("hpc", "Sherlock HPC")}
-                disabled={simulating !== null}
-              >
-                {simulating === "hpc" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Server className="h-4 w-4" />
-                )}
-                Simulate HPC Cluster
-              </Button>
+              <p className="text-sm font-medium text-foreground">Batch adding</p>
+              <p className="text-xs text-muted-foreground">
+                To batch add servers from your SSH config without connecting to each machine separately, run:
+              </p>
+              <CopyBlock text="npx @nexus/agent setup --with-ssh-config" />
+              <p className="text-xs text-muted-foreground">
+                You'll be prompted to choose which SSH hosts to add. <strong>Prerequisite:</strong> Key-based login must be configured for those hosts.
+              </p>
             </div>
           </TabsContent>
 

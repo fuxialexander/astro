@@ -4,16 +4,33 @@ set -euo pipefail
 SCRIPT_DIR_TMP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$(cd "$SCRIPT_DIR_TMP/.." && pwd)/.env"
 
+# Parse flags
+WITH_SSH_CONFIG=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --with-ssh-config)
+      WITH_SSH_CONFIG="--with-ssh-config"
+      shift
+      ;;
+    *)
+      DOMAIN="$1"
+      shift
+      ;;
+  esac
+done
+
 # Use argument, or fall back to CLOUDFLARED_DOMAIN from .env
-DOMAIN="${1:-}"
 if [[ -z "$DOMAIN" && -f "$ENV_FILE" ]]; then
   DOMAIN="$(grep -E '^CLOUDFLARED_DOMAIN=' "$ENV_FILE" | cut -d= -f2- | tr -d '[:space:]')"
 fi
 
 if [[ -z "$DOMAIN" ]]; then
-  echo "Usage: ./scripts/agent-setup.sh [domain]"
+  echo "Usage: ./scripts/agent-setup.sh [domain] [--with-ssh-config]"
   echo "If no domain is given, reads CLOUDFLARED_DOMAIN from .env"
   echo "Example: ./scripts/agent-setup.sh fuxialexander.work"
+  echo ""
+  echo "Options:"
+  echo "  --with-ssh-config    Discover and configure remote hosts from SSH config"
   exit 1
 fi
 
@@ -45,7 +62,7 @@ echo "  Relay: $RELAY_URL"
 echo ""
 echo "You will be prompted to approve the device in your browser."
 echo ""
-node "$RUNNER_DIR/dist/cli.js" setup --api "$API_URL" --relay "$RELAY_URL" --type remote
+node "$RUNNER_DIR/dist/cli.js" setup --api "$API_URL" --relay "$RELAY_URL" --type remote $WITH_SSH_CONFIG
 
 # Start the agent runner
 echo ""

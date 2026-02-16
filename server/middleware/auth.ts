@@ -28,14 +28,17 @@ export interface AuthUser {
 /**
  * Middleware that requires a valid Supabase JWT.
  *
- * In development without Supabase configured, passes through with a
- * default user ID (preserving the current zero-auth dev experience).
+ * In development without Supabase configured, accepts a browser user ID
+ * from the X-User-Id header to provide per-browser user isolation.
  */
 export async function requireAuth(c: Context, next: Next) {
   // If Supabase is not configured or IndexedDB-only mode, allow unauthenticated access (dev mode)
   if (!shouldUseSupabase()) {
-    // Use a fixed UUID for dev-user to satisfy PostgreSQL UUID constraints
-    c.set('user', { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' } satisfies AuthUser)
+    // In IndexedDB mode, use browser-specific user ID from header for per-browser isolation
+    const browserUserId = c.req.header('X-User-Id')
+    const userId = browserUserId || '00000000-0000-0000-0000-000000000000' // Fallback to fixed UUID for backward compatibility
+
+    c.set('user', { id: userId, email: 'dev@localhost' } satisfies AuthUser)
     return next()
   }
 

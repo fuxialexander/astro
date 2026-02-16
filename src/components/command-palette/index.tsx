@@ -234,18 +234,26 @@ export function CommandPalette() {
         return
       }
 
-      // Arrow navigation
+      // Arrow navigation (skip category headers)
       if (e.key === "ArrowDown") {
         e.preventDefault()
         setSelectedIndex((prev) => {
-          const next = prev + 1
+          // Find next item (skip categories)
+          let next = prev + 1
+          while (next < flatCommands.length && flatCommands[next].type !== "item") {
+            next++
+          }
           return next < flatCommands.length ? next : prev
         })
       }
       if (e.key === "ArrowUp") {
         e.preventDefault()
         setSelectedIndex((prev) => {
-          const next = prev - 1
+          // Find previous item (skip categories)
+          let next = prev - 1
+          while (next >= 0 && flatCommands[next].type !== "item") {
+            next--
+          }
           return next >= 0 ? next : prev
         })
       }
@@ -304,6 +312,17 @@ export function CommandPalette() {
     document.addEventListener("keydown", handler)
     return () => document.removeEventListener("keydown", handler)
   }, [open, setOpen])
+
+  // Reset selection to first item when palette opens or filtered commands change
+  useEffect(() => {
+    if (!open) return
+
+    // Find first item (skip categories)
+    const firstItemIndex = flatCommands.findIndex(item => item.type === "item")
+    if (firstItemIndex !== -1) {
+      setSelectedIndex(firstItemIndex)
+    }
+  }, [open, flatCommands])
 
   // Update selected item for preview
   useEffect(() => {
