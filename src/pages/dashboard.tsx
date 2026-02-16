@@ -96,7 +96,7 @@ export function Dashboard() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold font-secondary md:text-[28px]">
-            Good morning{profile.name ? `, ${profile.name}` : ""}
+            Good morning{profile.name && !profile.name.includes("@") ? `, ${profile.name}` : ""}
           </h1>
           <p className="text-sm text-muted-foreground">
             You have {pendingDecisions} pending decision{pendingDecisions !== 1 ? "s" : ""} and{" "}

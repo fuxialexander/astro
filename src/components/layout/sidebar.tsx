@@ -1,5 +1,6 @@
+import { useState, useRef, useEffect } from "react"
 import { NavLink, useNavigate, useParams } from "react-router"
-import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search } from "lucide-react"
+import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -8,15 +9,20 @@ import { useAuthStore } from "@/stores/auth-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useUIStore } from "@/stores/ui-store"
+import { useSidebarStore } from "@/stores/sidebar-store"
 import { shouldUseSupabase } from "@/lib/supabase-client"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 
-const navItems = [
-  { to: "/", icon: CheckSquare, label: "Tasks" },
-  { to: "/projects", icon: GitBranch, label: "Projects" },
-  { to: "/environments", icon: Terminal, label: "Environments" },
-]
+// Icon mapping
+const iconMap: Record<string, typeof CheckSquare> = {
+  CheckSquare,
+  GitBranch,
+  Terminal,
+  Radio,
+  Target,
+  Cpu,
+}
 
 // Project color palette (matching ios.pen design)
 const projectColors = [
@@ -38,12 +44,61 @@ export function Sidebar() {
   const planNodes = usePlanStore((s) => s.nodes)
   const signOut = useAuthStore((s) => s.signOut)
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
+  const sidebarItems = useSidebarStore((s) => s.items)
+  const isEditing = useSidebarStore((s) => s.isEditing)
+  const setEditing = useSidebarStore((s) => s.setEditing)
+  const toggleItemVisibility = useSidebarStore((s) => s.toggleItemVisibility)
+  const reorderItems = useSidebarStore((s) => s.reorderItems)
+  const subscribeToChanges = useSidebarStore((s) => s.subscribeToChanges)
   const navigate = useNavigate()
   const params = useParams()
   const showAuth = shouldUseSupabase()
 
   const activeProjectId = params.id
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
+
+  // Long press state
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const longPressTimer = useRef<number | null>(null)
+
+  // Subscribe to realtime changes (multi-device sync)
+  useEffect(() => {
+    const unsubscribe = subscribeToChanges()
+    return () => unsubscribe()
+  }, [subscribeToChanges])
+
+  const handleLongPressStart = () => {
+    longPressTimer.current = window.setTimeout(() => {
+      setEditing(true)
+    }, 500) // 500ms long press
+  }
+
+  const handleLongPressEnd = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index)
+    e.dataTransfer.effectAllowed = "move"
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+  }
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault()
+    if (draggedIndex !== null && draggedIndex !== dropIndex) {
+      reorderItems(draggedIndex, dropIndex)
+    }
+    setDraggedIndex(null)
+  }
+
+  const visibleItems = sidebarItems.filter((item) => item.visible)
 
   const calculateProgress = (projectId: string): number => {
     const projectTasks = planNodes.filter(
@@ -57,14 +112,44 @@ export function Sidebar() {
     return Math.round((completedTasks.length / projectTasks.length) * 100)
   }
 
-  const getInitials = (name: string) => {
-    if (!name) return "U"
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2)
+  const getInitials = (nameOrEmail: string) => {
+    if (!nameOrEmail) return "U"
+
+    // If it's an email, use first part before @
+    if (nameOrEmail.includes("@")) {
+      const username = nameOrEmail.split("@")[0]
+      // Handle dots/underscores in username (e.g., john.doe → JD)
+      const parts = username.split(/[._-]/)
+      if (parts.length >= 2) {
+        return (parts[0][0] + parts[1][0]).toUpperCase()
+      }
+      return username.slice(0, 2).toUpperCase()
+    }
+
+    // If it's a name, use first letters of first/last name
+    const parts = nameOrEmail.trim().split(/\s+/)
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    }
+
+    // Single word name - use first two letters
+    return nameOrEmail.slice(0, 2).toUpperCase()
+  }
+
+  const getDisplayName = (nameOrEmail: string) => {
+    if (!nameOrEmail) return "User"
+
+    // If it's an email, show username part in a nicer format
+    if (nameOrEmail.includes("@")) {
+      const username = nameOrEmail.split("@")[0]
+      // Replace dots/underscores with spaces and capitalize (e.g., john.doe → John Doe)
+      return username
+        .split(/[._-]/)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ")
+    }
+
+    return nameOrEmail
   }
 
   const getProjectColor = (index: number) => {
@@ -118,25 +203,85 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex flex-col gap-1 px-4 py-2">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/"}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
-                isActive
-                  ? "bg-accent text-accent-foreground font-semibold"
-                  : "text-muted-foreground hover:bg-muted/50"
-              )
-            }
+      <nav
+        className="flex flex-col gap-1 px-4 py-2"
+        onMouseDown={handleLongPressStart}
+        onMouseUp={handleLongPressEnd}
+        onMouseLeave={handleLongPressEnd}
+        onTouchStart={handleLongPressStart}
+        onTouchEnd={handleLongPressEnd}
+      >
+        {/* Visible items */}
+        {(isEditing ? sidebarItems : visibleItems).map((item, index) => {
+          const Icon = iconMap[item.icon] || CheckSquare
+          const isHidden = !item.visible
+
+          return (
+            <div
+              key={item.id}
+              draggable={isEditing}
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, index)}
+              className={cn(
+                "relative group",
+                isHidden && "opacity-40"
+              )}
+            >
+              {isEditing ? (
+                <div
+                  className={cn(
+                    "flex items-center gap-2 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium bg-muted/30 border-2 border-dashed",
+                    isHidden ? "border-muted-foreground/20" : "border-muted-foreground/40"
+                  )}
+                >
+                  <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+                  <Icon className="h-5 w-5" />
+                  <span className="flex-1">{item.label}</span>
+                  {!item.protected && (
+                    <button
+                      onClick={() => toggleItemVisibility(item.id)}
+                      className={cn(
+                        "flex h-5 w-5 items-center justify-center rounded-full transition-colors",
+                        isHidden
+                          ? "bg-green-500 hover:bg-green-600 text-white"
+                          : "bg-red-500 hover:bg-red-600 text-white"
+                      )}
+                    >
+                      {isHidden ? <Plus className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
+                    </button>
+                  )}
+                </div>
+              ) : !isHidden ? (
+                <NavLink
+                  to={item.to}
+                  end={item.to === "/"}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
+                      isActive
+                        ? "bg-accent text-accent-foreground font-semibold"
+                        : "text-muted-foreground hover:bg-muted/50"
+                    )
+                  }
+                >
+                  <Icon className="h-5 w-5" />
+                  <span className="flex-1">{item.label}</span>
+                </NavLink>
+              ) : null}
+            </div>
+          )
+        })}
+
+        {/* Edit mode toggle button */}
+        {isEditing && (
+          <button
+            onClick={() => setEditing(false)}
+            className="mt-2 rounded-[10px] px-3.5 py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
-            <item.icon className="h-5 w-5" />
-            <span className="flex-1">{item.label}</span>
-          </NavLink>
-        ))}
+            Done
+          </button>
+        )}
       </nav>
 
       {/* Projects Section */}
@@ -236,7 +381,7 @@ export function Sidebar() {
           </Avatar>
           <div className="flex flex-col items-start gap-0.5 min-w-0">
             <span className="text-[13px] font-semibold text-foreground truncate w-full">
-              {profile.name || "User"}
+              {getDisplayName(profile.name)}
             </span>
             {profile.email && (
               <span className="text-[11px] text-muted-foreground truncate w-full">

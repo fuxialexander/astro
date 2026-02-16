@@ -28,6 +28,7 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useAuthStore } from "@/stores/auth-store"
+import { useSidebarStore } from "@/stores/sidebar-store"
 import { shouldUseSupabase } from "@/lib/supabase-client"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { Settings } from "@/pages/settings"
@@ -74,6 +75,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadExecutions = useExecutionStore((s) => s.load)
   const loadAgent = useAgentStore((s) => s.load)
   const loadActivities = useActivityStore((s) => s.loadActivities)
+  const loadSidebar = useSidebarStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -88,6 +90,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const executionsLoaded = useExecutionStore((s) => s.loaded)
   const agentLoaded = useAgentStore((s) => s.loaded)
   const activitiesLoaded = useActivityStore((s) => s.loaded)
+  const sidebarLoaded = useSidebarStore((s) => s.loaded)
 
   // Only load data if authenticated or in IndexedDB-only mode
   const shouldLoadData = !shouldUseSupabase() || (authInitialized && session)
@@ -109,6 +112,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!executionsLoaded) loadExecutions()
     if (!agentLoaded) loadAgent()
     if (!activitiesLoaded) loadActivities()
+    if (!sidebarLoaded) loadSidebar()
 
     console.log('[DataLoader] Connecting realtime...')
     connectRealtime()
@@ -122,7 +126,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run once when shouldLoadData becomes true
   }, [shouldLoadData])
 
-  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded
+  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && sidebarLoaded
 
   // Show loading state only if we should load data and it's not loaded yet
   if (shouldLoadData && !allLoaded) {

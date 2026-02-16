@@ -104,10 +104,13 @@ export function Login() {
           return
         }
 
+        // Use first part of email as fallback name (e.g., "john.doe@example.com" → "john.doe")
+        const displayName = name || email.split('@')[0]
+
         const optionsRes = await fetch("/api/auth/webauthn/register-options", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, name: name || email }),
+          body: JSON.stringify({ email, name: displayName }),
         })
 
         if (!optionsRes.ok) {
@@ -123,7 +126,7 @@ export function Login() {
         const verifyRes = await fetch("/api/auth/webauthn/register-verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, name: name || email, credential }),
+          body: JSON.stringify({ email, name: displayName, credential }),
         })
 
         if (!verifyRes.ok) {

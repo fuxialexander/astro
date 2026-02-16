@@ -1,6 +1,7 @@
 import { Outlet } from "react-router"
 import { Sidebar } from "./sidebar"
 import { DynamicApprovalDialog } from "@/components/dynamic-approval-dialog"
+import { WelcomeProfileDialog } from "@/components/welcome-profile-dialog"
 
 export function AppLayout() {
   return (
@@ -10,6 +11,7 @@ export function AppLayout() {
         <Outlet />
       </main>
       <DynamicApprovalDialog />
+      <WelcomeProfileDialog />
     </div>
   )
 }
