@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
+import { ColorIconBadge } from "@/components/color-icon-picker"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
@@ -85,9 +86,11 @@ const PROJECT_COLUMNS: ListColumn<Project>[] = [
         className="flex items-center gap-2.5 min-w-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="text-base shrink-0" style={{ color: p.color || "#3b82f6" }}>
-          {p.icon || "📋"}
-        </span>
+        <ColorIconBadge
+          color={p.color}
+          icon={p.icon}
+          type="project"
+        />
         <span className="text-sm truncate">{p.name}</span>
       </Link>
     ),
@@ -504,7 +507,11 @@ export function Projects() {
                     className="flex items-center gap-3 w-full hover:bg-muted/30 transition-colors"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <ColorIconBadge
+                      color={proj.color}
+                      icon={proj.icon}
+                      type="project"
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{proj.name}</div>
                       <div className="text-[11px] text-muted-foreground">
@@ -579,7 +586,11 @@ export function Projects() {
                             className="rounded-lg border border-border bg-card p-3 hover:border-primary/40 hover:shadow-sm transition-all"
                           >
                             <div className="flex items-start gap-2 mb-2">
-                              <Folder className="h-4 w-4 shrink-0 text-blue-500 mt-0.5" />
+                              <ColorIconBadge
+                                color={project.color}
+                                icon={project.icon}
+                                type="project"
+                              />
                               <span className="text-sm font-medium leading-snug">{project.name}</span>
                             </div>
                             <div className="mb-2">
