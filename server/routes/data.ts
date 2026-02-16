@@ -911,6 +911,46 @@ app.post('/sessions/:sessionId/messages', async (c) => {
   return c.json({ ok: true })
 })
 
+// ── Task Executions ───────────────────────────────────────────────────
+
+app.get('/executions', async (c) => {
+  const userId = c.get('user')!.id
+
+  // Get user's projects
+  const userProjects = await db.select().from(projects).where(eq(projects.ownerId, userId))
+  const projectIds = new Set(userProjects.map(p => p.id))
+
+  if (projectIds.size === 0) {
+    return c.json({})
+  }
+
+  // Get all executions for user's projects
+  const executions = await db.select().from(taskExecutions)
+  const filtered = executions.filter(e => projectIds.has(e.projectId))
+
+  // Convert to map keyed by nodeId
+  const result: Record<string, unknown> = {}
+  for (const exec of filtered) {
+    result[exec.nodeId] = {
+      executionId: exec.id,
+      nodeId: exec.nodeId,
+      projectId: exec.projectId,
+      status: exec.status,
+      output: exec.output,
+      error: exec.error,
+      toolTraces: exec.toolTraces || [],
+      fileChanges: exec.fileChanges || [],
+      machineId: exec.machineId,
+      provider: exec.provider,
+      startedAt: exec.startedAt,
+      completedAt: exec.completedAt,
+      duration: exec.duration,
+    }
+  }
+
+  return c.json(result)
+})
+
 // ── Data Export (GDPR compliance) ────────────────────────────────────
 
 app.get('/export', async (c) => {

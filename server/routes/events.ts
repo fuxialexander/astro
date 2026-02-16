@@ -290,19 +290,15 @@ eventsRoute.get('/stream', async (c) => {
     executionEventBus.on('task:steer_ack', onTaskSteerAck)
 
     // Subscribe to approval events from nexusEventTransport
-    const approvalRequestedHandler = (event: unknown) => {
-      onApprovalRequested(event as ApprovalRequestedEvent)
-    }
-    const approvalRespondedHandler = (event: unknown) => {
-      onApprovalResponded(event as ApprovalRespondedEvent)
-    }
-    nexusEventTransport.on('event', (event) => {
+    const nexusEventHandler = (event: { type: string; [key: string]: unknown }) => {
+      if (!alive) return
       if (event.type === 'approval.requested') {
-        approvalRequestedHandler(event)
+        onApprovalRequested(event as ApprovalRequestedEvent)
       } else if (event.type === 'approval.responded') {
-        approvalRespondedHandler(event)
+        onApprovalResponded(event as ApprovalRespondedEvent)
       }
-    })
+    }
+    nexusEventTransport.on('event', nexusEventHandler)
 
     // Keepalive heartbeat (15s)
     const heartbeat = setInterval(() => {
@@ -330,6 +326,7 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('task:tool_trace', onTaskToolTrace)
       relayServer.off('task:file_change', onTaskFileChange)
       relayServer.off('task:session_init', onTaskSessionInit)
+      relayServer.off('task:approval_request', onTaskApprovalRequest)
       relayServer.off('machine:connected', onMachineConnected)
       relayServer.off('machine:disconnected', onMachineDisconnected)
       // Session events cleanup
@@ -348,8 +345,7 @@ eventsRoute.get('/stream', async (c) => {
       executionEventBus.off('task:steer_ack', onTaskSteerAck)
 
       // Cleanup nexusEventTransport listeners
-      nexusEventTransport.off('event', approvalRequestedHandler)
-      nexusEventTransport.off('event', approvalRespondedHandler)
+      nexusEventTransport.off('event', nexusEventHandler)
     })
 
     // Keep the stream open until aborted

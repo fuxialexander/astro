@@ -23,7 +23,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -57,7 +56,6 @@ export function Welcome() {
   const { theme, setTheme } = useTheme()
   const addProject = useProjectStore((s) => s.addProject)
   const addNode = usePlanStore((s) => s.addNode)
-  const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
 
   // GitHub integration
@@ -115,9 +113,8 @@ export function Welcome() {
 
     navigate(`/project/${id}/plan?view=list`)
 
-    // Set up git repo in background if backend is connected
+    // Set up git repo in background if backend is connected (silent, no UI feedback)
     if (connectionStatus === "connected") {
-      setGenerationPhase(id, 'repo_setup')
       try {
         await setupRepo({
           projectId: id,
@@ -128,7 +125,6 @@ export function Welcome() {
       } catch (error) {
         console.warn('[welcome] Failed to set up repo for empty project:', error)
       }
-      setGenerationPhase(id, 'idle')
     }
 
     setIsSubmitting(false)
@@ -179,9 +175,8 @@ export function Welcome() {
 
     navigate(`/project/${id}/plan?view=list`)
 
-    // Set up repo in background (clone/init)
+    // Set up repo in background (clone/init, silent, no UI feedback)
     if (connectionStatus === "connected") {
-      setGenerationPhase(id, 'repo_setup')
       try {
         await setupRepo({
           projectId: id,
@@ -193,7 +188,6 @@ export function Welcome() {
       } catch (error) {
         console.warn('[welcome] Failed to set up repo:', error)
       }
-      setGenerationPhase(id, 'idle')
     }
 
     setIsSubmitting(false)
@@ -224,9 +218,8 @@ export function Welcome() {
 
     navigate(`/project/${id}/plan?view=list`)
 
-    // Set up repo in background (clone/init) - user can trigger AI from plan view
+    // Set up repo in background (clone/init, silent) - user can trigger AI from plan view
     if (connectionStatus === "connected") {
-      setGenerationPhase(id, 'repo_setup')
       try {
         await setupRepo({
           projectId: id,
@@ -238,7 +231,6 @@ export function Welcome() {
       } catch (error) {
         console.warn('[welcome] Failed to set up repo:', error)
       }
-      setGenerationPhase(id, 'idle')
     }
 
     setIsSubmitting(false)
