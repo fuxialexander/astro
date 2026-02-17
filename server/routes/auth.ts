@@ -10,6 +10,7 @@
  */
 
 import { Hono } from 'hono'
+import { rateLimiter } from 'hono-rate-limiter'
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -30,6 +31,19 @@ const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'Nexus'
 const RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost'
 const ORIGIN = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173'
 
+// Security configuration
+const CHALLENGE_TTL_MS = parseInt(process.env.CHALLENGE_TTL_MS || '300000') // 5 minutes default
+const SESSION_VERIFY_DELAY_MS = parseInt(process.env.SESSION_VERIFY_DELAY_MS || '100') // 100ms default
+const CLEANUP_INTERVAL_MS = parseInt(process.env.CLEANUP_INTERVAL_MS || '60000') // 1 minute default
+
+// Rate limiting: Prevent enumeration and DoS attacks
+const authLimiter = rateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 10, // Max 10 requests per windowMs per IP
+  standardHeaders: 'draft-6',
+  keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+})
+
 // In-memory challenge store (short-lived, per-request)
 // In production, use Redis or a database with TTL
 const challengeStore = new Map<string, { challenge: string; expiresAt: number }>()
@@ -37,7 +51,7 @@ const challengeStore = new Map<string, { challenge: string; expiresAt: number }>
 function storeChallenge(key: string, challenge: string) {
   challengeStore.set(key, {
     challenge,
-    expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+    expiresAt: Date.now() + CHALLENGE_TTL_MS,
   })
 }
 
@@ -58,14 +72,15 @@ setInterval(() => {
   for (const [key, entry] of challengeStore) {
     if (now > entry.expiresAt) challengeStore.delete(key)
   }
-}, 60000)
+}, CLEANUP_INTERVAL_MS)
 
 /**
  * POST /api/auth/webauthn/check-user
  *
  * Check if a user exists with the given email.
+ * Rate limited to prevent user enumeration attacks.
  */
-authRoute.post('/webauthn/check-user', async (c) => {
+authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
   if (!shouldUseSupabase()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
@@ -92,8 +107,9 @@ authRoute.post('/webauthn/check-user', async (c) => {
  * POST /api/auth/webauthn/register-options
  *
  * Generate registration options for a new passkey.
+ * Rate limited to prevent DoS attacks.
  */
-authRoute.post('/webauthn/register-options', async (c) => {
+authRoute.post('/webauthn/register-options', authLimiter, async (c) => {
   if (!shouldUseSupabase()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
@@ -147,13 +163,6 @@ authRoute.post('/webauthn/register-options', async (c) => {
       residentKey: 'preferred', // Prefer discoverable credentials for better UX
       userVerification: 'required', // REQUIRE biometric/PIN verification
     },
-  })
-
-  // Debug: Log the generated options
-  console.log('[webauthn] Registration options generated:', {
-    authenticatorSelection: options.authenticatorSelection,
-    rpId: options.rp.id,
-    userVerification: options.authenticatorSelection?.userVerification,
   })
 
   // Store challenge for verification
@@ -230,7 +239,22 @@ authRoute.post('/webauthn/register-verify', async (c) => {
 
       // Note: User profile is auto-created by Postgres trigger (handle_new_user)
       // from supabase/migrations/20260209000000_initial_schema.sql
-      console.log('[auth] User profile will be auto-created by Postgres trigger for user:', userId)
+      // Wait briefly for trigger to complete
+      await new Promise(resolve => setTimeout(resolve, SESSION_VERIFY_DELAY_MS))
+
+      // Verify profile was created successfully
+      const { data: profile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('id', userId)
+        .single()
+
+      if (profileError || !profile) {
+        console.error('[auth] User profile creation failed:', profileError)
+        // Clean up auth user if profile creation failed
+        await supabase.auth.admin.deleteUser(userId)
+        return c.json({ error: 'Failed to create user profile' }, 500)
+      }
     }
 
     // Store passkey credential (as base64 for bytea column)
@@ -288,8 +312,9 @@ authRoute.post('/webauthn/register-verify', async (c) => {
  * POST /api/auth/webauthn/login-options
  *
  * Generate authentication options for passkey login.
+ * Rate limited to prevent DoS attacks.
  */
-authRoute.post('/webauthn/login-options', async (c) => {
+authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
   if (!shouldUseSupabase()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }

@@ -24,8 +24,6 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    // Increase connection limits for tunnel
-    maxConcurrentRequests: 100,
     cors: true,
   },
   optimizeDeps: {

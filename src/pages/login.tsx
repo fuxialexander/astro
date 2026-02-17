@@ -8,6 +8,23 @@ import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight } from "lucide-rea
 
 type AuthStep = "email" | "name" | "authenticating" | "registering"
 
+// Map technical errors to user-friendly messages
+function getFriendlyErrorMessage(message: string): string {
+  if (message.includes("Failed to get login options") || message.includes("Failed to check user") || message.includes("Failed to get registration options")) {
+    return "Connection error. Please check your internet and try again."
+  }
+  if (message.includes("Authentication failed") || message.includes("Verification failed") || message.includes("Registration failed")) {
+    return "Authentication failed. Please try again."
+  }
+  if (message.includes("platform") || message.includes("authenticator")) {
+    return "This device doesn't support passkeys. Please use a device with Face ID, Touch ID, or Windows Hello."
+  }
+  if (message.includes("Authentication service not configured")) {
+    return message // Keep specific config errors
+  }
+  return "Something went wrong. Please try again."
+}
+
 export function Login() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -28,66 +45,50 @@ export function Login() {
   const [platformAuthAvailable, setPlatformAuthAvailable] = useState<boolean | null>(null)
 
   // Authenticate existing user (called from handleEmailSubmit)
+  // NOTE: Does NOT manage loading state - caller manages it
   const authenticateUser = useCallback(async () => {
-    try {
-      const optionsRes = await fetch("/api/auth/webauthn/login-options", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      })
+    const optionsRes = await fetch("/api/auth/webauthn/login-options", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    })
 
-      if (!optionsRes.ok) {
-        throw new Error("Failed to get login options")
-      }
-
-      const { options, challengeKey } = await optionsRes.json()
-
-      // Debug: Log what we're about to call
-      console.log('[passkey] Authentication options:', JSON.stringify(options, null, 2))
-
-      const credential = await startAuthentication({
-        optionsJSON: options,
-        useBrowserAutofill: false, // Disable autofill which might show QR codes
-      })
-
-      const verifyRes = await fetch("/api/auth/webauthn/login-verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential, challengeKey }),
-      })
-
-      if (!verifyRes.ok) {
-        throw new Error("Authentication failed")
-      }
-
-      const result = await verifyRes.json()
-
-      if (result.session?.properties?.hashed_token) {
-        const supabase = getSupabase()
-        if (supabase) {
-          const { error } = await supabase.auth.verifyOtp({
-            token_hash: result.session.properties.hashed_token,
-            type: "magiclink",
-          })
-          if (error) throw error
-          await new Promise(resolve => setTimeout(resolve, 100))
-        }
-      }
-
-      navigate(from, { replace: true })
-    } catch (err) {
-      if (err instanceof Error) {
-        if (err.name === "AbortError") {
-          setError("Authentication cancelled")
-        } else if (err.name === "NotAllowedError") {
-          setError("Face ID/Touch ID was cancelled or not recognized. Please try again.")
-        } else {
-          setError(err.message)
-        }
-        setStep("email")
-      }
-      setLoading(false)
+    if (!optionsRes.ok) {
+      throw new Error("Failed to get login options")
     }
+
+    const { options, challengeKey } = await optionsRes.json()
+
+    const credential = await startAuthentication({
+      optionsJSON: options,
+      useBrowserAutofill: false, // Disable autofill which might show QR codes
+    })
+
+    const verifyRes = await fetch("/api/auth/webauthn/login-verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential, challengeKey }),
+    })
+
+    if (!verifyRes.ok) {
+      throw new Error("Authentication failed")
+    }
+
+    const result = await verifyRes.json()
+
+    if (result.session?.properties?.hashed_token) {
+      const supabase = getSupabase()
+      if (supabase) {
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: result.session.properties.hashed_token,
+          type: "magiclink",
+        })
+        if (error) throw error
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+
+    navigate(from, { replace: true })
   }, [email, from, navigate])
 
   // Check if user exists and proceed with appropriate flow
@@ -115,6 +116,7 @@ export function Login() {
         // Existing user - proceed with authentication
         setStep("authenticating")
         await authenticateUser()
+        // Success - authenticateUser navigates away
       } else {
         // New user - show name field
         setStep("name")
@@ -122,8 +124,16 @@ export function Login() {
       }
     } catch (err) {
       if (err instanceof Error) {
-        setError(err.message)
+        // Handle WebAuthn-specific errors
+        if (err.name === "AbortError") {
+          setError("Authentication cancelled")
+        } else if (err.name === "NotAllowedError") {
+          setError("Face ID/Touch ID was cancelled or not recognized. Please try again.")
+        } else {
+          setError(getFriendlyErrorMessage(err.message))
+        }
       }
+      setStep("email")
       setLoading(false)
     }
   }, [email, authenticateUser])
@@ -154,9 +164,6 @@ export function Login() {
       }
 
       const { options } = await optionsRes.json()
-
-      // Debug: Log what we're about to call
-      console.log('[passkey] Registration options:', JSON.stringify(options, null, 2))
 
       const credential = await startRegistration({
         optionsJSON: options,
@@ -191,17 +198,16 @@ export function Login() {
       navigate(from, { replace: true })
     } catch (err) {
       if (err instanceof Error) {
+        // Handle WebAuthn-specific errors
         if (err.name === "AbortError") {
           setError("Registration cancelled")
         } else if (err.name === "NotAllowedError") {
           setError("Face ID/Touch ID was cancelled or not recognized. Please try again.")
-        } else if (err.message.includes("platform")) {
-          setError("This device doesn't support passkeys. Please use a device with Face ID, Touch ID, or Windows Hello.")
         } else {
-          setError(err.message)
+          setError(getFriendlyErrorMessage(err.message))
         }
-        setStep("name")
       }
+      setStep("name")
       setLoading(false)
     }
   }, [email, name, from, navigate])
