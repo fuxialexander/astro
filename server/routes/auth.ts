@@ -61,6 +61,34 @@ setInterval(() => {
 }, 60000)
 
 /**
+ * POST /api/auth/webauthn/check-user
+ *
+ * Check if a user exists with the given email.
+ */
+authRoute.post('/webauthn/check-user', async (c) => {
+  if (!shouldUseSupabase()) {
+    return c.json({ error: 'Supabase not configured' }, 503)
+  }
+
+  const { email } = await c.req.json<{ email: string }>()
+
+  if (!email) {
+    return c.json({ error: 'Email is required' }, 400)
+  }
+
+  const supabase = getServiceClient()
+  const { data: existingUsers } = await supabase
+    .from('user_profiles')
+    .select('id')
+    .eq('email', email)
+    .limit(1)
+
+  return c.json({
+    exists: !!(existingUsers && existingUsers.length > 0),
+  })
+})
+
+/**
  * POST /api/auth/webauthn/register-options
  *
  * Generate registration options for a new passkey.
@@ -115,10 +143,17 @@ authRoute.post('/webauthn/register-options', async (c) => {
       transports: c.transports as AuthenticatorTransport[] | undefined,
     })),
     authenticatorSelection: {
-      authenticatorAttachment: 'platform', // Prefer Touch ID/Face ID
-      residentKey: 'discouraged', // Don't require passkey to be discoverable
-      userVerification: 'preferred',
+      authenticatorAttachment: 'platform', // REQUIRE platform authenticator (Face ID/Touch ID/Windows Hello)
+      residentKey: 'preferred', // Prefer discoverable credentials for better UX
+      userVerification: 'required', // REQUIRE biometric/PIN verification
     },
+  })
+
+  // Debug: Log the generated options
+  console.log('[webauthn] Registration options generated:', {
+    authenticatorSelection: options.authenticatorSelection,
+    rpId: options.rp.id,
+    userVerification: options.authenticatorSelection?.userVerification,
   })
 
   // Store challenge for verification
@@ -293,13 +328,7 @@ authRoute.post('/webauthn/login-options', async (c) => {
       id: c.id,
       transports: c.transports as AuthenticatorTransport[] | undefined,
     })),
-    userVerification: 'preferred',
-    // Hint to prioritize platform authenticators (Touch ID/Face ID) over cross-device (QR code)
-    // Note: This only works when allowCredentials is provided (i.e., when email is given)
-    ...(allowCredentials.length > 0 && {
-      // The transports in allowCredentials already hint at platform preference
-      // No additional config needed here for simplewebauthn
-    }),
+    userVerification: 'required', // REQUIRE biometric/PIN verification (no QR code fallback)
   })
 
   // Store challenge

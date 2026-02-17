@@ -32,14 +32,104 @@
             font-weight: 300;
         }
 
-        /* Three.js Canvas Background */
-        #canvas-bg {
+        /* Mission Blueprint Background System */
+        .blueprint-background {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Canvas for star field */
+        #starfield-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.4;
+        }
+
+        /* SVG layers container */
+        .svg-layers {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .svg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Grid overlay - subtle blueprint grid */
+        .grid-layer {
+            opacity: 0.08;
+            animation: gridPulse 20s ease-in-out infinite;
+        }
+
+        /* Orbital trajectories layer */
+        .orbits-layer {
+            opacity: 0.15;
+        }
+
+        /* Constellation network layer */
+        .constellation-layer {
+            opacity: 0.2;
+        }
+
+        /* Technical overlay layer */
+        .technical-layer {
+            opacity: 0.12;
+        }
+
+        /* Scanning effect layer */
+        .scan-layer {
+            opacity: 0.1;
+            mix-blend-mode: screen;
+        }
+
+        /* Animations */
+        @keyframes gridPulse {
+            0%, 100% { opacity: 0.08; }
+            50% { opacity: 0.12; }
+        }
+
+        @keyframes drawPath {
+            to { stroke-dashoffset: 0; }
+        }
+
+        @keyframes orbitRotate {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes nodePulse {
+            0%, 100% {
+                opacity: 0.4;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.8;
+                transform: scale(1.2);
+            }
+        }
+
+        @keyframes scanSweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes coordinateFade {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.6; }
         }
 
         /* Content Container */
@@ -61,6 +151,12 @@
             backdrop-filter: blur(10px);
             background: rgba(10, 14, 39, 0.3);
             border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+            transform: translateY(-100%);
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        nav.scrolled {
+            transform: translateY(0);
         }
 
         .logo {
@@ -97,7 +193,7 @@
             justify-content: center;
             align-items: center;
             text-align: center;
-            padding: 0 2rem;
+            padding: 8rem 2rem 0;
             position: relative;
         }
 
@@ -333,7 +429,6 @@
             }
         }
 
-
         /* Responsive */
         @media (max-width: 768px) {
             nav {
@@ -358,8 +453,180 @@
     </style>
 </head>
 <body>
-    <!-- Three.js Canvas Background -->
-    <canvas id="canvas-bg"></canvas>
+    <!-- Mission Blueprint Background System -->
+    <div class="blueprint-background">
+        <!-- Canvas for particle star field -->
+        <canvas id="starfield-canvas"></canvas>
+
+        <!-- SVG Layers -->
+        <div class="svg-layers">
+            <!-- Layer 1: Technical Grid -->
+            <svg class="svg-layer grid-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+                <defs>
+                    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(91, 163, 208, 0.3)" stroke-width="0.5"/>
+                    </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid)" />
+            </svg>
+
+            <!-- Layer 2: Orbital Trajectories -->
+            <svg class="svg-layer orbits-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+                <g transform="translate(960, 540)">
+                    <!-- Orbit 1 - Large ellipse -->
+                    <ellipse cx="0" cy="0" rx="600" ry="300"
+                        fill="none"
+                        stroke="rgba(91, 163, 208, 0.4)"
+                        stroke-width="1.5"
+                        stroke-dasharray="10 20"
+                        style="
+                            stroke-dashoffset: 3000;
+                            animation: drawPath 25s ease-in-out infinite alternate;
+                        "/>
+
+                    <!-- Orbit 2 - Medium ellipse -->
+                    <ellipse cx="0" cy="0" rx="450" ry="250"
+                        fill="none"
+                        stroke="rgba(212, 165, 116, 0.3)"
+                        stroke-width="1"
+                        stroke-dasharray="8 15"
+                        style="
+                            stroke-dashoffset: 2400;
+                            animation: drawPath 20s ease-in-out 2s infinite alternate;
+                        "/>
+
+                    <!-- Orbit 3 - Inner ellipse -->
+                    <ellipse cx="0" cy="0" rx="300" ry="150"
+                        fill="none"
+                        stroke="rgba(91, 163, 208, 0.35)"
+                        stroke-width="1"
+                        stroke-dasharray="6 12"
+                        style="
+                            stroke-dashoffset: 1800;
+                            animation: drawPath 18s ease-in-out 4s infinite alternate;
+                        "/>
+
+                    <!-- Mission waypoints on orbits -->
+                    <g class="waypoints">
+                        <!-- Waypoint 1 -->
+                        <g transform="translate(400, -150)">
+                            <circle r="4" fill="rgba(91, 163, 208, 0.6)" style="animation: nodePulse 3s ease-in-out infinite;"/>
+                            <circle r="8" fill="none" stroke="rgba(91, 163, 208, 0.3)" stroke-width="1"/>
+                            <text x="15" y="5" fill="rgba(245, 245, 240, 0.4)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 4s ease-in-out infinite;">WAY-01</text>
+                        </g>
+
+                        <!-- Waypoint 2 -->
+                        <g transform="translate(-300, 100)">
+                            <circle r="4" fill="rgba(212, 165, 116, 0.6)" style="animation: nodePulse 3s ease-in-out 1s infinite;"/>
+                            <circle r="8" fill="none" stroke="rgba(212, 165, 116, 0.3)" stroke-width="1"/>
+                            <text x="15" y="5" fill="rgba(245, 245, 240, 0.4)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 4s ease-in-out 1s infinite;">WAY-02</text>
+                        </g>
+
+                        <!-- Waypoint 3 -->
+                        <g transform="translate(200, 120)">
+                            <circle r="4" fill="rgba(91, 163, 208, 0.6)" style="animation: nodePulse 3s ease-in-out 2s infinite;"/>
+                            <circle r="8" fill="none" stroke="rgba(91, 163, 208, 0.3)" stroke-width="1"/>
+                            <text x="15" y="5" fill="rgba(245, 245, 240, 0.4)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 4s ease-in-out 2s infinite;">WAY-03</text>
+                        </g>
+                    </g>
+                </g>
+            </svg>
+
+            <!-- Layer 3: Constellation Network -->
+            <svg class="svg-layer constellation-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+                <!-- Constellation nodes and connections -->
+                <g class="constellation">
+                    <!-- Connection lines -->
+                    <line x1="200" y1="150" x2="450" y2="280" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out infinite alternate;"/>
+                    <line x1="450" y1="280" x2="700" y2="200" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 1s infinite alternate;"/>
+                    <line x1="700" y1="200" x2="900" y2="350" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 2s infinite alternate;"/>
+                    <line x1="1100" y1="250" x2="1350" y2="180" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 3s infinite alternate;"/>
+                    <line x1="1350" y1="180" x2="1600" y2="320" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 4s infinite alternate;"/>
+
+                    <!-- Bottom connections -->
+                    <line x1="300" y1="750" x2="550" y2="850" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 2.5s infinite alternate;"/>
+                    <line x1="550" y1="850" x2="800" y2="780" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 3.5s infinite alternate;"/>
+                    <line x1="1200" y1="800" x2="1450" y2="900" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 4.5s infinite alternate;"/>
+
+                    <!-- Nodes -->
+                    <circle cx="200" cy="150" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out infinite;"/>
+                    <circle cx="450" cy="280" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 0.5s infinite;"/>
+                    <circle cx="700" cy="200" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 1s infinite;"/>
+                    <circle cx="900" cy="350" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 1.5s infinite;"/>
+                    <circle cx="1100" cy="250" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 2s infinite;"/>
+                    <circle cx="1350" cy="180" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 2.5s infinite;"/>
+                    <circle cx="1600" cy="320" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 3s infinite;"/>
+
+                    <circle cx="300" cy="750" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 1s infinite;"/>
+                    <circle cx="550" cy="850" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 2s infinite;"/>
+                    <circle cx="800" cy="780" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 3s infinite;"/>
+                    <circle cx="1200" cy="800" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 1.5s infinite;"/>
+                    <circle cx="1450" cy="900" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 2.5s infinite;"/>
+                </g>
+            </svg>
+
+            <!-- Layer 4: Technical Overlay (coordinates, labels) -->
+            <svg class="svg-layer technical-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+                <!-- Corner coordinate frames -->
+                <g class="corner-frame top-left">
+                    <line x1="50" y1="50" x2="150" y2="50" stroke="rgba(91, 163, 208, 0.4)" stroke-width="1"/>
+                    <line x1="50" y1="50" x2="50" y2="150" stroke="rgba(91, 163, 208, 0.4)" stroke-width="1"/>
+                    <text x="60" y="70" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 5s ease-in-out infinite;">00°00'N</text>
+                    <text x="60" y="85" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 5s ease-in-out 0.5s infinite;">00°00'W</text>
+                </g>
+
+                <g class="corner-frame top-right">
+                    <line x1="1870" y1="50" x2="1770" y2="50" stroke="rgba(212, 165, 116, 0.4)" stroke-width="1"/>
+                    <line x1="1870" y1="50" x2="1870" y2="150" stroke="rgba(212, 165, 116, 0.4)" stroke-width="1"/>
+                    <text x="1780" y="70" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end" style="animation: coordinateFade 5s ease-in-out 1s infinite;">SECTOR-A</text>
+                </g>
+
+                <g class="corner-frame bottom-left">
+                    <line x1="50" y1="1030" x2="150" y2="1030" stroke="rgba(91, 163, 208, 0.4)" stroke-width="1"/>
+                    <line x1="50" y1="1030" x2="50" y2="930" stroke="rgba(91, 163, 208, 0.4)" stroke-width="1"/>
+                    <text x="60" y="1020" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 5s ease-in-out 1.5s infinite;">ALT: 400km</text>
+                </g>
+
+                <g class="corner-frame bottom-right">
+                    <line x1="1870" y1="1030" x2="1770" y2="1030" stroke="rgba(212, 165, 116, 0.4)" stroke-width="1"/>
+                    <line x1="1870" y1="1030" x2="1870" y2="930" stroke="rgba(212, 165, 116, 0.4)" stroke-width="1"/>
+                    <text x="1860" y="1020" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end" style="animation: coordinateFade 5s ease-in-out 2s infinite;">MISSION: ACTIVE</text>
+                </g>
+
+                <!-- Radial coordinate system -->
+                <g transform="translate(960, 540)">
+                    <circle r="200" fill="none" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                    <circle r="400" fill="none" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                    <circle r="600" fill="none" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.5" stroke-dasharray="2 4"/>
+
+                    <!-- Radial lines -->
+                    <line x1="0" y1="0" x2="0" y2="-600" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                    <line x1="0" y1="0" x2="424" y2="-424" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                    <line x1="0" y1="0" x2="600" y2="0" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                    <line x1="0" y1="0" x2="424" y2="424" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                    <line x1="0" y1="0" x2="0" y2="600" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                    <line x1="0" y1="0" x2="-424" y2="424" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                    <line x1="0" y1="0" x2="-600" y2="0" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                    <line x1="0" y1="0" x2="-424" y2="-424" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
+                </g>
+            </svg>
+
+            <!-- Layer 5: Scanning Effect -->
+            <svg class="svg-layer scan-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+                <defs>
+                    <linearGradient id="scanGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:rgba(91, 163, 208, 0); stop-opacity:0" />
+                        <stop offset="50%" style="stop-color:rgba(91, 163, 208, 0.3); stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:rgba(91, 163, 208, 0); stop-opacity:0" />
+                    </linearGradient>
+                </defs>
+
+                <g transform="translate(960, 540)" style="animation: scanSweep 30s linear infinite; transform-origin: center;">
+                    <line x1="0" y1="0" x2="800" y2="0" stroke="url(#scanGradient)" stroke-width="2"/>
+                </g>
+            </svg>
+        </div>
+    </div>
 
     <div class="content">
         <!-- Navigation -->
@@ -370,7 +637,6 @@
 
         <!-- Hero Section -->
         <section class="hero">
-            <div class="hero-label">For Builders & Scientists</div>
             <h1 class="hero-title">Astro</h1>
             <p class="hero-subtitle">The planning layer AI tools are missing</p>
             <p class="hero-description">
@@ -384,9 +650,9 @@
             </button>
 
             <div class="feature-pills">
-                <div class="pill">Planning Layer</div>
-                <div class="pill">Execute Everywhere</div>
-                <div class="pill">Human Judgment</div>
+                <div class="pill">Plan the Work</div>
+                <div class="pill">Execute in Parallel</div>
+                <div class="pill">Decide Anywhere</div>
             </div>
         </section>
 
@@ -468,162 +734,94 @@
         </section>
     </div>
 
-    <!-- Three.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Canvas star field script -->
     <script>
-        // Three.js Scene Setup
-        const canvas = document.getElementById('canvas-bg');
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+        const canvas = document.getElementById('starfield-canvas');
+        const ctx = canvas.getContext('2d');
 
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        camera.position.z = 5;
+        // Set canvas size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
 
-        // Create star field - simpler and more refined
-        const starsGeometry = new THREE.BufferGeometry();
-        const starCount = 800;
-        const positions = new Float32Array(starCount * 3);
+        // Star particles
+        const stars = [];
+        const starCount = 200;
 
-        for (let i = 0; i < starCount * 3; i += 3) {
-            positions[i] = (Math.random() - 0.5) * 100;
-            positions[i + 1] = (Math.random() - 0.5) * 100;
-            positions[i + 2] = (Math.random() - 0.5) * 100;
+        class Star {
+            constructor() {
+                this.reset();
+                this.y = Math.random() * canvas.height;
+                this.opacity = Math.random() * 0.5 + 0.2;
+            }
+
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = -10;
+                this.speed = Math.random() * 0.5 + 0.2;
+                this.size = Math.random() * 1.5 + 0.5;
+                this.twinkleSpeed = Math.random() * 0.02 + 0.01;
+                this.twinkleOffset = Math.random() * Math.PI * 2;
+            }
+
+            update() {
+                this.y += this.speed;
+
+                if (this.y > canvas.height) {
+                    this.reset();
+                }
+
+                // Twinkling effect
+                this.opacity = 0.3 + Math.sin(Date.now() * this.twinkleSpeed + this.twinkleOffset) * 0.3;
+            }
+
+            draw() {
+                ctx.fillStyle = `rgba(245, 245, 240, ${this.opacity})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
-        starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-        const starsMaterial = new THREE.PointsMaterial({
-            size: 0.03,
-            color: 0xf5f5f0,
-            transparent: true,
-            opacity: 0.5
-        });
-
-        const stars = new THREE.Points(starsGeometry, starsMaterial);
-        scene.add(stars);
-
-        // Create elegant flowing curves
-        const curves = [];
-        const curveMaterial = new THREE.LineBasicMaterial({
-            color: 0xf5f5f0,
-            transparent: true,
-            opacity: 0.15,
-            linewidth: 1
-        });
-
-        // Create 5 smooth Bezier curves that flow elegantly
-        for (let i = 0; i < 5; i++) {
-            const angle = (i / 5) * Math.PI * 2;
-            const radius = 6 + i * 0.5;
-
-            // Create smooth curve with control points
-            const curve = new THREE.CubicBezierCurve3(
-                new THREE.Vector3(
-                    Math.cos(angle) * radius,
-                    Math.sin(angle) * radius,
-                    -2
-                ),
-                new THREE.Vector3(
-                    Math.cos(angle + 1) * (radius + 2),
-                    Math.sin(angle + 1) * (radius - 1),
-                    0
-                ),
-                new THREE.Vector3(
-                    Math.cos(angle + 2) * (radius - 1),
-                    Math.sin(angle + 2) * (radius + 2),
-                    1
-                ),
-                new THREE.Vector3(
-                    Math.cos(angle + 3) * radius,
-                    Math.sin(angle + 3) * radius,
-                    2
-                )
-            );
-
-            const points = curve.getPoints(100);
-            const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
-            const line = new THREE.Line(lineGeometry, curveMaterial);
-            curves.push({ line, speed: 0.0001 + i * 0.00005 });
-            scene.add(line);
+        // Initialize stars
+        for (let i = 0; i < starCount; i++) {
+            stars.push(new Star());
         }
-
-        // Add a few subtle accent points along the curves
-        const accentGeometry = new THREE.SphereGeometry(0.02, 16, 16);
-        const accentMaterial = new THREE.MeshBasicMaterial({
-            color: 0xd4a574,
-            transparent: true,
-            opacity: 0.3
-        });
-
-        const accents = [];
-        for (let i = 0; i < 8; i++) {
-            const accent = new THREE.Mesh(accentGeometry, accentMaterial);
-            const angle = (i / 8) * Math.PI * 2;
-            const radius = 5 + (i % 3) * 2;
-            accent.position.set(
-                Math.cos(angle) * radius,
-                Math.sin(angle) * radius,
-                (i % 3) - 1
-            );
-            accents.push(accent);
-            scene.add(accent);
-        }
-
-        // Mouse interaction
-        let mouseX = 0;
-        let mouseY = 0;
-        let targetX = 0;
-        let targetY = 0;
-
-        document.addEventListener('mousemove', (e) => {
-            mouseX = (e.clientX / window.innerWidth) * 2 - 1;
-            mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
-        });
 
         // Animation loop
         function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            stars.forEach(star => {
+                star.update();
+                star.draw();
+            });
+
             requestAnimationFrame(animate);
-
-            // Smooth mouse following
-            targetX += (mouseX - targetX) * 0.05;
-            targetY += (mouseY - targetY) * 0.05;
-
-            // Subtle star field rotation
-            stars.rotation.y += 0.00005;
-
-            // Gentle curve rotation
-            curves.forEach((curveObj, i) => {
-                curveObj.line.rotation.z += curveObj.speed;
-            });
-
-            // Gentle accent pulse
-            accents.forEach((accent, i) => {
-                accent.material.opacity = 0.2 + Math.sin(Date.now() * 0.001 + i) * 0.1;
-            });
-
-            // Camera movement based on mouse
-            camera.position.x = targetX * 0.5;
-            camera.position.y = targetY * 0.5;
-            camera.lookAt(scene.position);
-
-            renderer.render(scene, camera);
         }
 
         animate();
+    </script>
 
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+    <!-- Scroll-triggered navigation -->
+    <script>
+        const nav = document.querySelector('nav');
+        let lastScroll = 0;
 
-        // Scroll-based parallax
         window.addEventListener('scroll', () => {
-            const scrolled = window.pageYOffset;
-            stars.rotation.z = scrolled * 0.0001;
+            const currentScroll = window.pageYOffset;
+
+            // Show nav when scrolled down more than 100px
+            if (currentScroll > 100) {
+                nav.classList.add('scrolled');
+            } else {
+                nav.classList.remove('scrolled');
+            }
+
+            lastScroll = currentScroll;
         });
     </script>
 </body>

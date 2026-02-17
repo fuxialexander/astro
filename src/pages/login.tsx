@@ -1,10 +1,12 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate, useLocation, useSearchParams } from "react-router"
-import { startRegistration, startAuthentication } from "@simplewebauthn/browser"
+import { startRegistration, startAuthentication, browserSupportsWebAuthn, platformAuthenticatorIsAvailable } from "@simplewebauthn/browser"
 import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Fingerprint, Loader2, AlertCircle, Code2 } from "lucide-react"
+import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight } from "lucide-react"
+
+type AuthStep = "email" | "name" | "authenticating" | "registering"
 
 export function Login() {
   const navigate = useNavigate()
@@ -18,79 +20,130 @@ export function Login() {
 
   const devMode = !shouldUseSupabase()
 
+  const [step, setStep] = useState<AuthStep>("email")
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [platformAuthAvailable, setPlatformAuthAvailable] = useState<boolean | null>(null)
 
-  // Unified passkey handler: try auth first, fall back to registration
-  const handlePasskey = useCallback(async () => {
+  // Authenticate existing user (called from handleEmailSubmit)
+  const authenticateUser = useCallback(async () => {
+    try {
+      const optionsRes = await fetch("/api/auth/webauthn/login-options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      })
+
+      if (!optionsRes.ok) {
+        throw new Error("Failed to get login options")
+      }
+
+      const { options, challengeKey } = await optionsRes.json()
+
+      // Debug: Log what we're about to call
+      console.log('[passkey] Authentication options:', JSON.stringify(options, null, 2))
+
+      const credential = await startAuthentication({
+        optionsJSON: options,
+        useBrowserAutofill: false, // Disable autofill which might show QR codes
+      })
+
+      const verifyRes = await fetch("/api/auth/webauthn/login-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential, challengeKey }),
+      })
+
+      if (!verifyRes.ok) {
+        throw new Error("Authentication failed")
+      }
+
+      const result = await verifyRes.json()
+
+      if (result.session?.properties?.hashed_token) {
+        const supabase = getSupabase()
+        if (supabase) {
+          const { error } = await supabase.auth.verifyOtp({
+            token_hash: result.session.properties.hashed_token,
+            type: "magiclink",
+          })
+          if (error) throw error
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+
+      navigate(from, { replace: true })
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.name === "AbortError") {
+          setError("Authentication cancelled")
+        } else if (err.name === "NotAllowedError") {
+          setError("Face ID/Touch ID was cancelled or not recognized. Please try again.")
+        } else {
+          setError(err.message)
+        }
+        setStep("email")
+      }
+      setLoading(false)
+    }
+  }, [email, from, navigate])
+
+  // Check if user exists and proceed with appropriate flow
+  const handleEmailSubmit = useCallback(async () => {
+    if (!email) return
+
     setLoading(true)
     setError("")
 
     try {
-      // Try authentication first
-      try {
-        // Note: Providing email helps browser prioritize local Touch ID/Face ID over QR codes
-        const optionsRes = await fetch("/api/auth/webauthn/login-options", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: email || undefined }),
-        })
+      // Check if user exists
+      const checkRes = await fetch("/api/auth/webauthn/check-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      })
 
-        if (optionsRes.ok) {
-          const { options, challengeKey } = await optionsRes.json()
-          const credential = await startAuthentication({ optionsJSON: options })
-
-          const verifyRes = await fetch("/api/auth/webauthn/login-verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ credential, challengeKey }),
-          })
-
-          if (verifyRes.ok) {
-            const result = await verifyRes.json()
-
-            if (result.session?.properties?.hashed_token) {
-              const supabase = getSupabase()
-              if (supabase) {
-                const { error } = await supabase.auth.verifyOtp({
-                  token_hash: result.session.properties.hashed_token,
-                  type: "magiclink",
-                })
-                if (error) throw error
-                await new Promise(resolve => setTimeout(resolve, 100))
-              }
-            }
-
-            navigate(from, { replace: true })
-            return // Success!
-          }
-        }
-      } catch {
-        // Auth failed, fall through to registration if email provided
-        if (!email) {
-          setError("Email is required to create an account")
-          setLoading(false)
-          return
-        }
-        // Fall through to registration below
+      if (!checkRes.ok) {
+        throw new Error("Failed to check user")
       }
 
-      // Registration flow
-      if (!email) {
-        setError("Email is required")
+      const { exists } = await checkRes.json()
+
+      if (exists) {
+        // Existing user - proceed with authentication
+        setStep("authenticating")
+        await authenticateUser()
+      } else {
+        // New user - show name field
+        setStep("name")
         setLoading(false)
-        return
       }
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message)
+      }
+      setLoading(false)
+    }
+  }, [email, authenticateUser])
 
-      // Use first part of email as fallback name (e.g., "john.doe@example.com" → "john.doe")
-      const displayName = name || email.split('@')[0]
+  // Register new user
+  const handleRegister = useCallback(async () => {
+    if (!name) {
+      setError("Name is required")
+      return
+    }
 
+    setLoading(true)
+    setError("")
+    setStep("registering")
+
+    try {
       const optionsRes = await fetch("/api/auth/webauthn/register-options", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name: displayName }),
+        body: JSON.stringify({ email, name }),
       })
 
       if (!optionsRes.ok) {
@@ -101,12 +154,19 @@ export function Login() {
       }
 
       const { options } = await optionsRes.json()
-      const credential = await startRegistration({ optionsJSON: options })
+
+      // Debug: Log what we're about to call
+      console.log('[passkey] Registration options:', JSON.stringify(options, null, 2))
+
+      const credential = await startRegistration({
+        optionsJSON: options,
+        useAutoRegister: false, // Disable auto-register which might trigger QR codes
+      })
 
       const verifyRes = await fetch("/api/auth/webauthn/register-verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name: displayName, credential }),
+        body: JSON.stringify({ email, name, credential }),
       })
 
       if (!verifyRes.ok) {
@@ -130,13 +190,57 @@ export function Login() {
 
       navigate(from, { replace: true })
     } catch (err) {
-      if (err instanceof Error && err.name !== "AbortError") {
-        setError(err.message)
+      if (err instanceof Error) {
+        if (err.name === "AbortError") {
+          setError("Registration cancelled")
+        } else if (err.name === "NotAllowedError") {
+          setError("Face ID/Touch ID was cancelled or not recognized. Please try again.")
+        } else if (err.message.includes("platform")) {
+          setError("This device doesn't support passkeys. Please use a device with Face ID, Touch ID, or Windows Hello.")
+        } else {
+          setError(err.message)
+        }
+        setStep("name")
       }
-    } finally {
       setLoading(false)
     }
   }, [email, name, from, navigate])
+
+  // Handle Enter key on email field
+  const handleEmailKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleEmailSubmit()
+    }
+  }, [handleEmailSubmit])
+
+  // Handle Enter key on name field
+  const handleNameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleRegister()
+    }
+  }, [handleRegister])
+
+  // Check if platform authenticator is available (Face ID/Touch ID/Windows Hello)
+  useEffect(() => {
+    if (!shouldUseSupabase()) return
+
+    async function checkPlatformAuth() {
+      if (!browserSupportsWebAuthn()) {
+        setPlatformAuthAvailable(false)
+        setError("Your browser doesn't support passkeys. Please use a modern browser like Chrome, Safari, or Edge.")
+        return
+      }
+
+      const available = await platformAuthenticatorIsAvailable()
+      setPlatformAuthAvailable(available)
+
+      if (!available) {
+        setError("No Face ID, Touch ID, or Windows Hello detected on this device. Please use a device with biometric authentication.")
+      }
+    }
+
+    checkPlatformAuth()
+  }, [])
 
   // In dev mode, redirect to app immediately (no auth needed)
   useEffect(() => {
@@ -159,7 +263,10 @@ export function Login() {
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">Nexus</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in or create an account
+            {step === "email" && "Enter your email to continue"}
+            {step === "name" && "Welcome! Let's create your account"}
+            {step === "authenticating" && "Authenticating..."}
+            {step === "registering" && "Creating your account..."}
           </p>
         </div>
 
@@ -198,53 +305,132 @@ export function Login() {
           </div>
         )}
 
-        {/* Form */}
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="name" className="mb-1.5 block text-sm font-medium">
-              Name <span className="text-muted-foreground font-normal">(optional)</span>
-            </label>
-            <Input
-              id="name"
-              type="text"
-              placeholder="Can be set later"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={loading}
-            />
-          </div>
+        {/* Email Step */}
+        {step === "email" && (
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
+                Email
+              </label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="your@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={handleEmailKeyDown}
+                disabled={loading}
+                autoComplete="email webauthn"
+                autoFocus
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Press Enter to continue
+              </p>
+            </div>
 
-          <div>
-            <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
-              Email
-            </label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="Required first time, optional after"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+            <Button
+              className="w-full"
+              size="lg"
+              onClick={handleEmailSubmit}
+              disabled={loading || !email || platformAuthAvailable === false}
+            >
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRight className="mr-2 h-4 w-4" />
+              )}
+              Continue
+            </Button>
+
+            {platformAuthAvailable === false && (
+              <p className="text-xs text-muted-foreground text-center">
+                Passkey authentication requires Face ID, Touch ID, or Windows Hello
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Name Step (for new users) */}
+        {step === "name" && (
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/50 p-3 text-sm">
+              <p className="text-muted-foreground">Email</p>
+              <p className="font-medium">{email}</p>
+            </div>
+
+            <div>
+              <label htmlFor="name" className="mb-1.5 block text-sm font-medium">
+                Name
+              </label>
+              <Input
+                id="name"
+                type="text"
+                placeholder="Your full name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={handleNameKeyDown}
+                disabled={loading}
+                required
+                autoComplete="name"
+                autoFocus
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Press Enter to create account with passkey
+              </p>
+            </div>
+
+            <Button
+              className="w-full"
+              size="lg"
+              onClick={handleRegister}
+              disabled={loading || !name || platformAuthAvailable === false}
+            >
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Fingerprint className="mr-2 h-4 w-4" />
+              )}
+              Create Account
+            </Button>
+
+            {platformAuthAvailable === false && (
+              <p className="text-xs text-destructive text-center">
+                This device doesn't support passkey creation
+              </p>
+            )}
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                setStep("email")
+                setName("")
+              }}
               disabled={loading}
-            />
-            <p className="mt-1.5 text-xs text-muted-foreground">
-              Required for first-time setup, then optional for sign-in with existing passkey
+            >
+              Use a different email
+            </Button>
+
+            <p className="text-xs text-muted-foreground text-center">
+              You'll use Face ID, Touch ID, or Windows Hello
             </p>
           </div>
+        )}
 
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={handlePasskey}
-            disabled={loading}
-          >
-            {loading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Fingerprint className="mr-2 h-4 w-4" />
-            )}
-            Continue with Passkey
-          </Button>
-        </div>
+        {/* Authenticating/Registering State */}
+        {(step === "authenticating" || step === "registering") && (
+          <div className="space-y-4 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+              <Fingerprint className="h-8 w-8 text-primary animate-pulse" />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {step === "authenticating"
+                ? "Follow the prompt on your device to sign in"
+                : "Follow the prompt on your device to create your account"}
+            </p>
+          </div>
+        )}
 
       </div>
     </div>
