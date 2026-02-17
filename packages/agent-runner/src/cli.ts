@@ -34,6 +34,8 @@ program
   .option('--skip-auth', 'Skip device authentication')
   .option('--non-interactive', 'Run in non-interactive mode')
   .option('--with-ssh-config', 'Discover and configure remote hosts from SSH config')
+  .option('--auto-start', 'Enable auto-start on login')
+  .option('--install-mcp', 'Install MCP integration for Claude Code')
   .action(async (options) => {
     try {
       await setupCommand({
@@ -44,6 +46,8 @@ program
         skipAuth: options.skipAuth,
         nonInteractive: options.nonInteractive,
         withSshConfig: options.withSshConfig,
+        autoStart: options.autoStart,
+        installMcp: options.installMcp,
       });
     } catch (error) {
       console.error('Setup failed:', error instanceof Error ? error.message : String(error));
@@ -60,6 +64,9 @@ program
   .option('--max-tasks <number>', 'Maximum concurrent tasks', parseInt)
   .option('--log-level <level>', 'Log level: debug, info, warn, error')
   .option('--preserve-worktrees', 'Preserve worktrees after task completion (for debugging)')
+  .option('--allow-non-git', 'Allow execution in non-git directories without prompting')
+  .option('--sandbox', 'Always use sandbox mode (work on copies)')
+  .option('--max-sandbox-size <mb>', 'Maximum sandbox size in MB (default: 100)', parseInt)
   .action(async (options) => {
     try {
       await startCommand({
@@ -68,6 +75,9 @@ program
         maxTasks: options.maxTasks,
         logLevel: options.logLevel,
         preserveWorktrees: options.preserveWorktrees,
+        allowNonGit: options.allowNonGit,
+        useSandbox: options.sandbox,
+        maxSandboxSize: options.maxSandboxSize ? options.maxSandboxSize * 1024 * 1024 : undefined,
       });
     } catch (error) {
       console.error('Start failed:', error instanceof Error ? error.message : String(error));
@@ -83,6 +93,9 @@ program
   .option('--max-tasks <number>', 'Maximum concurrent tasks', parseInt)
   .option('--log-level <level>', 'Log level: debug, info, warn, error')
   .option('--preserve-worktrees', 'Preserve worktrees after task completion (for debugging)')
+  .option('--allow-non-git', 'Allow execution in non-git directories without prompting')
+  .option('--sandbox', 'Always use sandbox mode (work on copies)')
+  .option('--max-sandbox-size <mb>', 'Maximum sandbox size in MB (default: 100)', parseInt)
   .action(async (options) => {
     try {
       await startCommand({
@@ -91,6 +104,9 @@ program
         maxTasks: options.maxTasks,
         logLevel: options.logLevel,
         preserveWorktrees: options.preserveWorktrees,
+        allowNonGit: options.allowNonGit,
+        useSandbox: options.sandbox,
+        maxSandboxSize: options.maxSandboxSize ? options.maxSandboxSize * 1024 * 1024 : undefined,
       });
     } catch (error) {
       console.error('Connect failed:', error instanceof Error ? error.message : String(error));

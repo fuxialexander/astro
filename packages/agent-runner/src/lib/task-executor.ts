@@ -16,12 +16,27 @@ import { ClaudeSdkAdapter } from '../providers/claude-sdk-adapter.js';
 import { SlurmJobMonitor } from './slurm-job-monitor.js';
 import { createWorktree } from './worktree.js';
 import { pushAndCreatePR } from './git-pr.js';
+import {
+  checkWorkdirSafety,
+  isGitAvailable,
+  createSandbox,
+  WorkdirSafetyTier,
+  type SafetyCheckResult,
+  type SandboxSetup,
+} from './workdir-safety.js';
 
 interface RunningTask {
   task: Task;
   abortController: AbortController;
   adapter: ProviderAdapter;
   outputSequence: { stdout: number; stderr: number };
+  sandbox?: SandboxSetup;
+}
+
+interface PendingSafetyCheck {
+  task: Task;
+  safetyResult: SafetyCheckResult;
+  resolveDecision: (decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel') => void;
 }
 
 export interface TaskExecutorOptions {
@@ -31,6 +46,9 @@ export interface TaskExecutorOptions {
   useWorktree?: boolean;
   worktreeRoot?: string;
   preserveWorktrees?: boolean; // Don't cleanup worktrees for debugging
+  allowNonGit?: boolean; // Allow execution in non-git directories without prompting
+  useSandbox?: boolean; // Always use sandbox mode
+  maxSandboxSize?: number; // Max sandbox size in bytes
 }
 
 export class TaskExecutor {
@@ -44,6 +62,14 @@ export class TaskExecutor {
   private worktreeRoot?: string;
   private preserveWorktrees: boolean;
   private jobMonitor: SlurmJobMonitor;
+  private allowNonGit: boolean;
+  private useSandbox: boolean;
+  private maxSandboxSize: number;
+  private gitAvailable: boolean = false;
+
+  // Safety tracking
+  private tasksByDirectory: Map<string, Set<string>> = new Map(); // workdir -> taskIds
+  private pendingSafetyChecks: Map<string, PendingSafetyCheck> = new Map(); // taskId -> pending check
 
   constructor(options: TaskExecutorOptions) {
     this.wsClient = options.wsClient;
@@ -52,21 +78,84 @@ export class TaskExecutor {
     this.useWorktree = options.useWorktree ?? true;
     this.worktreeRoot = options.worktreeRoot;
     this.preserveWorktrees = options.preserveWorktrees ?? false;
+    this.allowNonGit = options.allowNonGit ?? false;
+    this.useSandbox = options.useSandbox ?? false;
+    this.maxSandboxSize = options.maxSandboxSize ?? 100 * 1024 * 1024; // 100MB
     this.jobMonitor = new SlurmJobMonitor(options.wsClient);
+
+    // Check git availability on startup
+    isGitAvailable().then((available) => {
+      this.gitAvailable = available;
+      console.log(`[executor] Git ${available ? 'available' : 'not available'}`);
+    }).catch(() => {
+      this.gitAvailable = false;
+    });
   }
 
   /**
-   * Submit a task for execution
+   * Submit a task for execution (with safety checks)
    */
   async submitTask(task: Task): Promise<void> {
+    const normalizedTask = {
+      ...task,
+      workingDirectory: resolveWorkingDirectory(task.workingDirectory, task.projectId),
+    };
+
+    // Perform safety check
+    const safetyCheck = await this.performSafetyCheck(normalizedTask);
+
+    // Handle safety tiers
+    if (safetyCheck.tier === WorkdirSafetyTier.UNSAFE) {
+      // BLOCK: unsafe conditions
+      this.wsClient.sendTaskResult({
+        taskId: normalizedTask.id,
+        status: 'failed',
+        error: safetyCheck.blockReason,
+        completedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (safetyCheck.tier === WorkdirSafetyTier.RISKY && !this.allowNonGit) {
+      // PROMPT: risky conditions require user decision
+      await this.requestSafetyDecision(normalizedTask, safetyCheck);
+      // Execution will continue when decision is received
+      return;
+    }
+
+    if (safetyCheck.tier === WorkdirSafetyTier.GUARDED) {
+      // WARN: inform user but continue
+      this.wsClient.sendTaskStatus(normalizedTask.id, 'queued', 0, safetyCheck.warning);
+    }
+
+    // Track task by directory
+    this.trackTaskDirectory(normalizedTask);
+
     // Check if we can run immediately
     if (this.runningTasks.size < this.maxConcurrentTasks) {
-      await this.executeTask(task);
+      await this.executeTask(normalizedTask, this.useSandbox);
     } else {
       // Queue the task
-      this.taskQueue.push(task);
-      this.wsClient.sendTaskStatus(task.id, 'queued', 0, 'Waiting for available slot');
+      this.taskQueue.push(normalizedTask);
+      this.wsClient.sendTaskStatus(normalizedTask.id, 'queued', 0, 'Waiting for available slot');
     }
+  }
+
+  /**
+   * Handle safety decision from user (via server)
+   */
+  async handleSafetyDecision(
+    taskId: string,
+    decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel',
+  ): Promise<void> {
+    const pending = this.pendingSafetyChecks.get(taskId);
+    if (!pending) {
+      console.warn(`[executor] Safety decision for ${taskId} but no pending check`);
+      return;
+    }
+
+    this.pendingSafetyChecks.delete(taskId);
+    pending.resolveDecision(decision);
   }
 
   /**
@@ -169,13 +258,177 @@ export class TaskExecutor {
   // Private Methods
   // ============================================================================
 
-  private async executeTask(task: Task): Promise<void> {
-    // Resolve workingDirectory: git URL → local clone, empty → cwd
-    const normalizedTask = {
-      ...task,
-      workingDirectory: resolveWorkingDirectory(task.workingDirectory, task.projectId),
-    };
-    console.log(`[executor] Task ${task.id}: workingDirectory resolved to ${normalizedTask.workingDirectory}`);
+  /**
+   * Perform safety check on working directory
+   */
+  private async performSafetyCheck(task: Task): Promise<SafetyCheckResult> {
+    const activeTasksInDir = this.getActiveTasksInDirectory(task.workingDirectory);
+    return await checkWorkdirSafety(task.workingDirectory, activeTasksInDir, this.gitAvailable);
+  }
+
+  /**
+   * Request safety decision from user
+   */
+  private async requestSafetyDecision(
+    task: Task,
+    safetyCheck: SafetyCheckResult,
+  ): Promise<void> {
+    // Send safety prompt to server (which forwards to UI)
+    const options = [
+      { id: 'proceed', label: 'Continue anyway', description: 'Execute in non-git directory at your own risk' },
+      { id: 'init-git', label: 'Initialize git first', description: 'Create git repository before execution' },
+      { id: 'sandbox', label: 'Use sandbox mode', description: 'Work on a copy, review changes before applying' },
+      { id: 'cancel', label: 'Cancel task', description: 'Do not execute this task' },
+    ];
+
+    // Create promise that will be resolved when decision arrives
+    const decisionPromise = new Promise<'proceed' | 'init-git' | 'sandbox' | 'cancel'>((resolve) => {
+      this.pendingSafetyChecks.set(task.id, {
+        task,
+        safetyResult: safetyCheck,
+        resolveDecision: resolve,
+      });
+    });
+
+    // Send prompt
+    this.wsClient.sendSafetyPrompt(task.id, safetyCheck.tier, safetyCheck.warning, options);
+
+    // Wait for decision
+    const decision = await decisionPromise;
+
+    // Handle decision
+    switch (decision) {
+      case 'proceed':
+        // Mark as allowed and continue
+        this.trackTaskDirectory(task);
+        if (this.runningTasks.size < this.maxConcurrentTasks) {
+          await this.executeTask(task, false);
+        } else {
+          this.taskQueue.push(task);
+          this.wsClient.sendTaskStatus(task.id, 'queued', 0, 'Waiting for available slot');
+        }
+        break;
+
+      case 'sandbox':
+        // Execute in sandbox mode
+        this.trackTaskDirectory(task);
+        if (this.runningTasks.size < this.maxConcurrentTasks) {
+          await this.executeTask(task, true); // Force sandbox mode
+        } else {
+          this.taskQueue.push(task);
+          this.wsClient.sendTaskStatus(task.id, 'queued', 0, 'Waiting for available slot (sandbox)');
+        }
+        break;
+
+      case 'init-git':
+        // Initialize git and retry
+        try {
+          await this.initializeGit(task.workingDirectory);
+          this.wsClient.sendTaskStatus(task.id, 'queued', 0, 'Git initialized, proceeding...');
+          this.trackTaskDirectory(task);
+          if (this.runningTasks.size < this.maxConcurrentTasks) {
+            await this.executeTask(task, false);
+          } else {
+            this.taskQueue.push(task);
+            this.wsClient.sendTaskStatus(task.id, 'queued', 0, 'Waiting for available slot');
+          }
+        } catch (error) {
+          this.wsClient.sendTaskResult({
+            taskId: task.id,
+            status: 'failed',
+            error: `Failed to initialize git: ${error instanceof Error ? error.message : String(error)}`,
+            completedAt: new Date().toISOString(),
+          });
+        }
+        break;
+
+      case 'cancel':
+        // Cancel the task
+        this.wsClient.sendTaskResult({
+          taskId: task.id,
+          status: 'cancelled',
+          completedAt: new Date().toISOString(),
+        });
+        break;
+    }
+  }
+
+  /**
+   * Initialize git repository in a directory
+   */
+  private async initializeGit(workdir: string): Promise<void> {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFileAsync = promisify(execFile);
+
+    await execFileAsync('git', ['init'], { cwd: workdir, timeout: 10_000 });
+    await execFileAsync('git', ['add', '.'], { cwd: workdir, timeout: 10_000 });
+    await execFileAsync('git', ['commit', '-m', 'Initial commit'], { cwd: workdir, timeout: 10_000 });
+  }
+
+  /**
+   * Track task by directory for parallel execution safety
+   */
+  private trackTaskDirectory(task: Task): void {
+    const tasks = this.tasksByDirectory.get(task.workingDirectory) || new Set();
+    tasks.add(task.id);
+    this.tasksByDirectory.set(task.workingDirectory, tasks);
+  }
+
+  /**
+   * Untrack task from directory
+   */
+  private untrackTaskDirectory(task: Task): void {
+    const tasks = this.tasksByDirectory.get(task.workingDirectory);
+    if (tasks) {
+      tasks.delete(task.id);
+      if (tasks.size === 0) {
+        this.tasksByDirectory.delete(task.workingDirectory);
+      }
+    }
+  }
+
+  /**
+   * Get count of active tasks in a directory
+   */
+  private getActiveTasksInDirectory(workdir: string): number {
+    const tasks = this.tasksByDirectory.get(workdir);
+    return tasks ? tasks.size : 0;
+  }
+
+  private async executeTask(task: Task, useSandbox = false): Promise<void> {
+    console.log(`[executor] Task ${task.id}: workingDirectory=${task.workingDirectory} sandbox=${useSandbox}`);
+
+    // Setup sandbox if requested
+    let sandbox: SandboxSetup | undefined;
+    let workdir = task.workingDirectory;
+
+    if (useSandbox) {
+      try {
+        this.wsClient.sendTaskStatus(task.id, 'running', 0, 'Creating sandbox...');
+        sandbox = await createSandbox({
+          workdir: task.workingDirectory,
+          taskId: task.id,
+          maxSize: this.maxSandboxSize,
+        });
+        workdir = sandbox.sandboxPath;
+        console.log(`[executor] Task ${task.id}: sandbox created at ${sandbox.sandboxPath}`);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[executor] Task ${task.id}: sandbox creation failed: ${errorMsg}`);
+        this.wsClient.sendTaskResult({
+          taskId: task.id,
+          status: 'failed',
+          error: `Sandbox creation failed: ${errorMsg}`,
+          completedAt: new Date().toISOString(),
+        });
+        this.untrackTaskDirectory(task);
+        this.processQueue();
+        return;
+      }
+    }
+
+    const normalizedTask = { ...task, workingDirectory: workdir };
 
     // Get or create adapter for this provider
     const adapter = await this.getAdapter(normalizedTask.provider);
@@ -187,6 +440,8 @@ export class TaskExecutor {
         error: `Provider ${normalizedTask.provider} not available`,
         completedAt: new Date().toISOString(),
       });
+      if (sandbox) await sandbox.cleanup();
+      this.untrackTaskDirectory(task);
       this.processQueue();
       return;
     }
@@ -235,6 +490,7 @@ export class TaskExecutor {
       abortController,
       adapter,
       outputSequence,
+      sandbox,
     };
 
     this.runningTasks.set(normalizedTask.id, runningTask);
@@ -312,12 +568,23 @@ export class TaskExecutor {
       });
     } finally {
       clearTimeout(timeoutId);
-      // Skip cleanup if preserveWorktrees is enabled (for debugging)
+
+      // Cleanup worktree
       if (!this.preserveWorktrees) {
         await prepared.cleanup({ keepBranch });
       } else {
         console.log(`[executor] Task ${task.id}: worktree preserved for debugging (cleanup skipped)`);
       }
+
+      // Cleanup sandbox if used
+      if (sandbox) {
+        console.log(`[executor] Task ${task.id}: cleaning up sandbox`);
+        await sandbox.cleanup();
+      }
+
+      // Untrack task from directory
+      this.untrackTaskDirectory(task);
+
       this.runningTasks.delete(task.id);
       this.wsClient.removeActiveTask(task.id);
       this.processQueue();

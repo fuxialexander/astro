@@ -21,6 +21,9 @@ interface StartOptions {
   maxTasks?: number;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
   preserveWorktrees?: boolean;
+  allowNonGit?: boolean;
+  useSandbox?: boolean;
+  maxSandboxSize?: number;
 }
 
 // Get package version from package.json
@@ -166,6 +169,9 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     wsClient,
     maxConcurrentTasks: maxTasks,
     preserveWorktrees: options.preserveWorktrees,
+    allowNonGit: options.allowNonGit,
+    useSandbox: options.useSandbox,
+    maxSandboxSize: options.maxSandboxSize,
   });
 
   // Set up task handlers
@@ -177,6 +183,13 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
 
   wsClient['onTaskCancel'] = (taskId: string) => {
     taskExecutor.cancelTask(taskId);
+  };
+
+  wsClient['onTaskSafetyDecision'] = (taskId: string, decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel') => {
+    log('info', `Safety decision for task ${taskId}: ${decision}`, logLevel);
+    taskExecutor.handleSafetyDecision(taskId, decision).catch((error) => {
+      log('error', `Failed to handle safety decision for task ${taskId}: ${error.message}`, logLevel);
+    });
   };
 
   wsClient['onTaskSteer'] = (taskId: string, message: string, action?: string, interrupt?: boolean) => {

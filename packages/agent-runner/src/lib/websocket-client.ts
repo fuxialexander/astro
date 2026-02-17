@@ -21,6 +21,7 @@ import type {
   TaskSteerIncomingMessage,
   TaskApprovalRequestMessage,
   TaskApprovalResponseMessage,
+  TaskSafetyDecisionMessage,
   ResourceUpdateMessage,
   RegisteredMessage,
   HeartbeatAckMessage,
@@ -63,6 +64,7 @@ export interface WebSocketClientOptions {
   onTaskDispatch?: (task: Task) => void;
   onTaskCancel?: (taskId: string) => void;
   onTaskSteer?: (taskId: string, message: string, action?: string, interrupt?: boolean) => void;
+  onTaskSafetyDecision?: (taskId: string, decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel') => void;
   onFileList?: (path: string, correlationId: string) => void;
   onRepoSetup?: (payload: RepoSetupRequestMessage['payload']) => void;
   version?: string;
@@ -76,6 +78,7 @@ type IncomingMessage =
   | TaskCancelMessage
   | TaskSteerIncomingMessage
   | TaskApprovalResponseMessage
+  | TaskSafetyDecisionMessage
   | ConfigUpdateMessage
   | FileListRequestMessage
   | RepoSetupRequestMessage
@@ -103,6 +106,7 @@ export class WebSocketClient {
   private onTaskDispatch?: (task: Task) => void;
   private onTaskCancel?: (taskId: string) => void;
   private onTaskSteer?: (taskId: string, message: string, action?: string, interrupt?: boolean) => void;
+  private onTaskSafetyDecision?: (taskId: string, decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel') => void;
   private onFileList?: (path: string, correlationId: string) => void;
   private onRepoSetup?: (payload: RepoSetupRequestMessage['payload']) => void;
 
@@ -118,6 +122,7 @@ export class WebSocketClient {
     this.onTaskDispatch = options.onTaskDispatch;
     this.onTaskCancel = options.onTaskCancel;
     this.onTaskSteer = options.onTaskSteer;
+    this.onTaskSafetyDecision = options.onTaskSafetyDecision;
     this.onFileList = options.onFileList;
     this.onRepoSetup = options.onRepoSetup;
   }
@@ -446,6 +451,30 @@ export class WebSocketClient {
   }
 
   /**
+   * Send safety prompt to user
+   */
+  sendSafetyPrompt(
+    taskId: string,
+    safetyTier: 'safe' | 'guarded' | 'risky' | 'unsafe',
+    warning: string | undefined,
+    options: Array<{ id: string; label: string; description?: string }>,
+  ): void {
+    const msg = {
+      type: 'task_safety_prompt' as const,
+      timestamp: new Date().toISOString(),
+      payload: {
+        taskId,
+        safetyTier,
+        warning,
+        blockReason: undefined,
+        options,
+      },
+    };
+    this.send(msg);
+    console.log(`[ws-client] Sent safety prompt for task ${taskId} (tier: ${safetyTier})`);
+  }
+
+  /**
    * Send resource update
    */
   async sendResourceUpdate(): Promise<void> {
@@ -594,6 +623,9 @@ export class WebSocketClient {
       case 'task_approval_response':
         this.handleApprovalResponse(message as TaskApprovalResponseMessage);
         break;
+      case 'task_safety_decision':
+        this.handleSafetyDecision(message as unknown as { type: 'task_safety_decision'; timestamp: string; payload: { taskId: string; decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel' } });
+        break;
       case 'config_update':
         this.handleConfigUpdate(message);
         break;
@@ -640,6 +672,12 @@ export class WebSocketClient {
   private handleTaskSteer(message: TaskSteerIncomingMessage): void {
     const { taskId, message: steerMessage, action, interrupt } = message.payload;
     this.onTaskSteer?.(taskId, steerMessage, action, interrupt);
+  }
+
+  private handleSafetyDecision(message: { type: 'task_safety_decision'; timestamp: string; payload: { taskId: string; decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel' } }): void {
+    const { taskId, decision } = message.payload;
+    console.log(`[ws-client] Received safety decision for ${taskId}: ${decision}`);
+    this.onTaskSafetyDecision?.(taskId, decision);
   }
 
   private handleApprovalResponse(message: TaskApprovalResponseMessage): void {

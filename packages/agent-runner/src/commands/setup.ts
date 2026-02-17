@@ -26,6 +26,8 @@ interface SetupOptions {
   skipAuth?: boolean;
   nonInteractive?: boolean;
   withSshConfig?: boolean;
+  autoStart?: boolean;
+  installMcp?: boolean;
 }
 
 export async function setupCommand(options: SetupOptions = {}): Promise<void> {
@@ -91,77 +93,13 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     }
   }
 
-  // Step 4a: Configure API URL
-  let apiUrl = options.api ?? config.getApiUrl();
-
-  if (!options.nonInteractive) {
-    const { customApi } = await inquirer.prompt<{ customApi: boolean }>([
-      {
-        type: 'confirm',
-        name: 'customApi',
-        message: `Use default API server (${apiUrl})?`,
-        default: true,
-      },
-    ]);
-
-    if (!customApi) {
-      const { newApi } = await inquirer.prompt<{ newApi: string }>([
-        {
-          type: 'input',
-          name: 'newApi',
-          message: 'Enter API server URL:',
-          default: apiUrl,
-          validate: (input: string) => {
-            try {
-              new URL(input);
-              return true;
-            } catch {
-              return 'Please enter a valid URL';
-            }
-          },
-        },
-      ]);
-      apiUrl = newApi;
-    }
-  }
-
+  // Step 4a: Configure API URL (use defaults without prompting)
+  const apiUrl = options.api ?? config.getApiUrl();
   config.setApiUrl(apiUrl);
   console.log(chalk.green(`✓ API server: ${apiUrl}\n`));
 
-  // Step 4b: Configure relay URL
-  let relayUrl = options.relay ?? config.getRelayUrl();
-
-  if (!options.nonInteractive) {
-    const { customRelay } = await inquirer.prompt<{ customRelay: boolean }>([
-      {
-        type: 'confirm',
-        name: 'customRelay',
-        message: `Use default relay server (${relayUrl})?`,
-        default: true,
-      },
-    ]);
-
-    if (!customRelay) {
-      const { newRelay } = await inquirer.prompt<{ newRelay: string }>([
-        {
-          type: 'input',
-          name: 'newRelay',
-          message: 'Enter relay server URL:',
-          default: relayUrl,
-          validate: (input: string) => {
-            try {
-              new URL(input);
-              return true;
-            } catch {
-              return 'Please enter a valid URL';
-            }
-          },
-        },
-      ]);
-      relayUrl = newRelay;
-    }
-  }
-
+  // Step 4b: Configure relay URL (use defaults without prompting)
+  const relayUrl = options.relay ?? config.getRelayUrl();
   config.setRelayUrl(relayUrl);
   console.log(chalk.green(`✓ Relay server: ${relayUrl}\n`));
 
@@ -180,22 +118,8 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
 
     if (hasTokens && existingMachineId) {
       console.log(chalk.green(`✓ Already authenticated (Machine: ${existingMachineId})`));
+      console.log(chalk.dim('  To re-authenticate, run: npx @nexus/agent config --reset'));
       console.log();
-
-      if (!options.nonInteractive) {
-        const { reauthenticate } = await inquirer.prompt<{ reauthenticate: boolean }>([
-          {
-            type: 'confirm',
-            name: 'reauthenticate',
-            message: 'Re-authenticate this device?',
-            default: false,
-          },
-        ]);
-
-        if (reauthenticate) {
-          await runDeviceAuthFlow(apiUrl, relayUrl, resources, detectedProviders, !!options.relay, hwId);
-        }
-      }
     } else if (!options.nonInteractive) {
       const { authenticate } = await inquirer.prompt<{ authenticate: boolean }>([
         {
@@ -290,46 +214,23 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     }
   }
 
-  // Step 9: Configure auto-start
-  if (!options.nonInteractive) {
-    const { autoStart } = await inquirer.prompt<{ autoStart: boolean }>([
-      {
-        type: 'confirm',
-        name: 'autoStart',
-        message: 'Enable auto-start on login?',
-        default: false,
-      },
-    ]);
+  // Step 9: Configure auto-start (use flag instead of prompting)
+  const autoStart = options.autoStart ?? false;
+  config.setAutoStart(autoStart);
 
-    config.setAutoStart(autoStart);
-
-    if (autoStart) {
-      console.log(chalk.green('✓ Auto-start enabled'));
-      console.log(chalk.dim('  The agent will start automatically when you log in'));
-      console.log(chalk.yellow('  Note: Auto-start setup is not yet implemented'));
-    }
+  if (autoStart) {
+    console.log(chalk.green('✓ Auto-start enabled'));
+    console.log(chalk.dim('  The agent will start automatically when you log in'));
+    console.log(chalk.yellow('  Note: Auto-start setup is not yet implemented'));
   }
 
-  // Step 10: Configure MCP for Claude Code integration
+  // Step 10: Configure MCP for Claude Code integration (install by default if flag is set)
   let mcpConfigured = false;
-  if (!options.nonInteractive) {
+  if (options.installMcp) {
     console.log();
     console.log(chalk.bold('Claude Code Integration\n'));
-    console.log(chalk.dim('The MCP bridge allows you to attach existing Claude Code sessions'));
-    console.log(chalk.dim('to Nexus tasks, streaming your activity for monitoring.\n'));
-
-    const { configureMcp } = await inquirer.prompt<{ configureMcp: boolean }>([
-      {
-        type: 'confirm',
-        name: 'configureMcp',
-        message: 'Configure MCP integration for Claude Code?',
-        default: true,
-      },
-    ]);
-
-    if (configureMcp) {
-      mcpConfigured = await configureMcpForClaudeCode();
-    }
+    console.log(chalk.dim('Configuring MCP bridge for Claude Code integration...\n'));
+    mcpConfigured = await configureMcpForClaudeCode();
   }
 
   // Mark setup as complete

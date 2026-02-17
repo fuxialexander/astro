@@ -135,6 +135,8 @@ export type WSMessageType =
   | 'task_session_init'
   | 'task_steer_ack'
   | 'task_approval_request'
+  | 'task_safety_prompt'
+  | 'task_safety_response'
   | 'resource_update'
   | 'file_list_response'
   // Server -> Client
@@ -144,6 +146,7 @@ export type WSMessageType =
   | 'task_cancel'
   | 'task_steer'
   | 'task_approval_response'
+  | 'task_safety_decision'
   | 'config_update'
   | 'file_list_request'
   | 'repo_setup_request'
@@ -283,6 +286,30 @@ export interface TaskApprovalRequestMessage extends WSMessage {
   };
 }
 
+export interface TaskSafetyPromptMessage extends WSMessage {
+  type: 'task_safety_prompt';
+  payload: {
+    taskId: string;
+    safetyTier: 'safe' | 'guarded' | 'risky' | 'unsafe';
+    warning?: string;
+    blockReason?: string;
+    options: Array<{
+      id: string;
+      label: string;
+      description?: string;
+    }>;
+  };
+}
+
+export interface TaskSafetyResponseMessage extends WSMessage {
+  type: 'task_safety_response';
+  payload: {
+    taskId: string;
+    decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel';
+    sandboxMode?: boolean;
+  };
+}
+
 export interface ResourceUpdateMessage extends WSMessage {
   type: 'resource_update';
   payload: {
@@ -340,6 +367,15 @@ export interface TaskApprovalResponseMessage extends WSMessage {
     answered: boolean;
     answer?: string;
     message?: string;
+  };
+}
+
+export interface TaskSafetyDecisionMessage extends WSMessage {
+  type: 'task_safety_decision';
+  payload: {
+    taskId: string;
+    decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel';
+    sandboxMode?: boolean;
   };
 }
 

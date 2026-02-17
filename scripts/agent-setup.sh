@@ -7,6 +7,8 @@ ENV_FILE="$(cd "$SCRIPT_DIR_TMP/.." && pwd)/.env"
 # Parse flags
 WITH_SSH_CONFIG=""
 MACHINE_NAME=""
+AUTO_START="false"
+DOMAIN=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --with-ssh-config)
@@ -16,6 +18,10 @@ while [[ $# -gt 0 ]]; do
     --hostname|--machine-name)
       MACHINE_NAME="$2"
       shift 2
+      ;;
+    --auto-start)
+      AUTO_START="true"
+      shift
       ;;
     *)
       DOMAIN="$1"
@@ -38,6 +44,7 @@ if [[ -z "$DOMAIN" ]]; then
   echo "  --with-ssh-config         Discover and configure remote hosts from SSH config"
   echo "  --hostname <name>         Set machine hostname (defaults to system hostname)"
   echo "  --machine-name <name>     Alias for --hostname"
+  echo "  --auto-start              Enable auto-start on login (default: false)"
   exit 1
 fi
 
@@ -67,16 +74,26 @@ npm install
 npm run build
 cd "$REPO_ROOT"
 
-# Run interactive setup (device auth flow)
+# Build setup command with flags
+SETUP_FLAGS="--api $API_URL --relay $RELAY_URL --type remote --hostname $MACHINE_NAME --install-mcp"
+if [[ "$AUTO_START" == "true" ]]; then
+  SETUP_FLAGS="$SETUP_FLAGS --auto-start"
+fi
+if [[ -n "$WITH_SSH_CONFIG" ]]; then
+  SETUP_FLAGS="$SETUP_FLAGS --with-ssh-config"
+fi
+
+# Run setup (device auth flow)
 echo ""
 echo "Starting agent setup..."
 echo "  API:      $API_URL"
 echo "  Relay:    $RELAY_URL"
 echo "  Hostname: $MACHINE_NAME"
+echo "  Auto-start: $AUTO_START"
 echo ""
 echo "You will be prompted to approve the device in your browser."
 echo ""
-node "$RUNNER_DIR/dist/cli.js" setup --api "$API_URL" --relay "$RELAY_URL" --type remote --hostname "$MACHINE_NAME" $WITH_SSH_CONFIG
+node "$RUNNER_DIR/dist/cli.js" setup $SETUP_FLAGS
 
 # Start the agent runner
 echo ""
