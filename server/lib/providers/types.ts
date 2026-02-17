@@ -457,6 +457,12 @@ export interface PreparedContext {
   filePath?: string
   /** Prompt content (for system_prompt or prompt_prefix methods) */
   promptContent?: string
+  /** System prompt blocks with cache controls (for providers supporting prompt caching) */
+  systemBlocks?: Array<{
+    type: 'text'
+    text: string
+    cache_control?: { type: 'ephemeral'; ttl?: '5m' | '1h' }
+  }>
   /** Custom data (for custom method) */
   customData?: unknown
 }

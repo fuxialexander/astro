@@ -21,6 +21,12 @@ import type {
 } from '../types.js'
 import { errorMessage } from '../../error-utils.js'
 import { loadMcpConfig, mergeAllowedTools } from '../mcp-loader.js'
+import { readRepoContext } from '../../repo-context.js'
+import {
+  buildCachedSystemPrompt,
+  calculateCacheStats,
+  extractSourceRepoPath,
+} from '../cache-utils.js'
 
 // Map of active tasks for cancellation
 const activeTasks = new Map<string, AbortController>()
@@ -241,9 +247,14 @@ export class ClaudeCodeProvider implements AgentProvider {
             }),
       }
 
-      // Add system prompt if provided
-      if (task.systemPrompt || (preparedContext.method === 'system_prompt' && preparedContext.promptContent)) {
-        options.systemPrompt = task.systemPrompt ?? preparedContext.promptContent
+      // Add system prompt (prefer systemBlocks for caching, fallback to string)
+      if (task.systemPrompt) {
+        options.systemPrompt = task.systemPrompt
+      } else if (preparedContext.systemBlocks && preparedContext.systemBlocks.length > 0) {
+        // Use structured blocks with cache_control
+        options.systemPrompt = preparedContext.systemBlocks as unknown as string
+      } else if (preparedContext.promptContent) {
+        options.systemPrompt = preparedContext.promptContent
       }
 
       // Add output format for structured JSON output
@@ -286,6 +297,16 @@ export class ClaudeCodeProvider implements AgentProvider {
             resultMetrics.inputTokens = usage.input_tokens
             resultMetrics.outputTokens = usage.output_tokens
             resultMetrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
+
+            // Log cache effectiveness
+            if (usage.cache_read_input_tokens || usage.cache_creation_input_tokens) {
+              const cacheStats = calculateCacheStats(usage)
+              console.log(
+                `[claude-code] Cache stats: ${cacheStats.totalInputTokens} tokens, ` +
+                `${(cacheStats.cacheHitRate * 100).toFixed(1)}% hit rate, ` +
+                `~${cacheStats.estimatedSavings.toFixed(0)}% cost savings`
+              )
+            }
           }
           if (typeof msgAny.total_cost_usd === 'number') {
             resultMetrics.estimatedCostUsd = msgAny.total_cost_usd
@@ -449,9 +470,14 @@ export class ClaudeCodeProvider implements AgentProvider {
             }),
       }
 
-      // Add system prompt if provided
-      if (task.systemPrompt || (preparedContext.method === 'system_prompt' && preparedContext.promptContent)) {
-        options.systemPrompt = task.systemPrompt ?? preparedContext.promptContent
+      // Add system prompt (prefer systemBlocks for caching, fallback to string)
+      if (task.systemPrompt) {
+        options.systemPrompt = task.systemPrompt
+      } else if (preparedContext.systemBlocks && preparedContext.systemBlocks.length > 0) {
+        // Use structured blocks with cache_control
+        options.systemPrompt = preparedContext.systemBlocks as unknown as string
+      } else if (preparedContext.promptContent) {
+        options.systemPrompt = preparedContext.promptContent
       }
 
       // Add output format for structured JSON output (e.g., plan generation)
@@ -536,6 +562,16 @@ export class ClaudeCodeProvider implements AgentProvider {
             resultMetrics.inputTokens = usage.input_tokens
             resultMetrics.outputTokens = usage.output_tokens
             resultMetrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
+
+            // Log cache effectiveness
+            if (usage.cache_read_input_tokens || usage.cache_creation_input_tokens) {
+              const cacheStats = calculateCacheStats(usage)
+              console.log(
+                `[claude-code] Cache stats: ${cacheStats.totalInputTokens} tokens, ` +
+                `${(cacheStats.cacheHitRate * 100).toFixed(1)}% hit rate, ` +
+                `~${cacheStats.estimatedSavings.toFixed(0)}% cost savings`
+              )
+            }
           }
           if (typeof msgAny.total_cost_usd === 'number') {
             resultMetrics.estimatedCostUsd = msgAny.total_cost_usd
@@ -697,38 +733,48 @@ export class ClaudeCodeProvider implements AgentProvider {
 
   /**
    * Build the context injection for Claude Code.
-   * Claude Code uses system prompts for context injection.
+   * Claude Code uses system prompts with prompt caching for efficiency.
+   *
+   * Cache strategy:
+   * - Repo context (1h): Stable across all tasks in a project
+   * - Vision doc (1h): Stable per project
+   * - Dependency context (5m): Shared by downstream tasks
    */
   async prepareContext(context: TaskContext): Promise<PreparedContext> {
-    const parts: string[] = []
-
-    // Add vision doc
-    if (context.visionDoc) {
-      parts.push(`## Project Vision Document\n${context.visionDoc}`)
-    }
-
-    // Add dependency context
-    if (context.dependencyContext) {
-      parts.push(`## Dependency Context\n${context.dependencyContext}`)
-    }
-
-    // Add working directory info
+    // For worktrees, read repo context from SOURCE repo (not worktree)
+    // This enables cache hits across all worktrees from the same repo
+    let repoContext
     if (context.workingDirectory) {
-      parts.push(`## Working Directory\n${context.workingDirectory}`)
+      const sourceRepoPath = extractSourceRepoPath(context.workingDirectory)
+      repoContext = readRepoContext(sourceRepoPath)
+
+      // Log if we're using a worktree (different from source)
+      if (sourceRepoPath !== context.workingDirectory) {
+        console.log(
+          `[claude-code] Using repo context from source: ${sourceRepoPath} (worktree: ${context.workingDirectory})`
+        )
+      }
     }
 
-    // Add environment info
-    if (context.environment) {
-      parts.push(`## Execution Environment\n${context.environment}`)
-    }
+    // Build cached system prompt blocks
+    const systemBlocks = buildCachedSystemPrompt({
+      baseInstructions: context.environment
+        ? `## Execution Environment\n${context.environment}`
+        : undefined,
+      repoContext,
+      visionDoc: context.visionDoc,
+      dependencyContext: context.dependencyContext,
+      workingDirectory: context.workingDirectory,
+    })
 
-    if (parts.length === 0) {
+    if (systemBlocks.length === 0) {
       return { method: 'system_prompt' }
     }
 
+    // Return as structured blocks (SDK supports array of system blocks)
     return {
       method: 'system_prompt',
-      promptContent: parts.join('\n\n'),
+      systemBlocks, // Pass blocks directly for cache_control support
     }
   }
 }
