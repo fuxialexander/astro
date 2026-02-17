@@ -235,7 +235,7 @@ export class ClaudeCodeProvider implements AgentProvider {
               // Execution & planning-with-repo: controlled tool access
               permissionMode: 'bypassPermissions' as const,
               ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
-              // Add MCP servers if found
+              // Add MCP servers if found (with caching on last tool)
               ...(mcpServers ? { mcpServers } : {}),
               // Add tool restrictions if specified
               ...(allowedTools ? { allowedTools } : {}),
@@ -458,7 +458,7 @@ export class ClaudeCodeProvider implements AgentProvider {
               // Execution & planning-with-repo: controlled tool access
               permissionMode: 'bypassPermissions' as const,
               ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
-              // Add MCP servers if found
+              // Add MCP servers if found (with caching on last tool)
               ...(mcpServers ? { mcpServers } : {}),
               // Add tool restrictions if specified
               ...(allowedTools ? { allowedTools } : {}),
