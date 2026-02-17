@@ -13,11 +13,23 @@ export default defineConfig({
   server: {
     host: true, // Allow external access via cloudflared tunnel
     allowedHosts: ['nexus.fuxialexander.work', '.fuxialexander.work'],
+    hmr: {
+      protocol: 'wss',
+      host: 'nexus.fuxialexander.work',
+      clientPort: 443,
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
     },
+    // Increase connection limits for tunnel
+    maxConcurrentRequests: 100,
+    cors: true,
+  },
+  optimizeDeps: {
+    // Pre-bundle all dependencies to reduce concurrent requests
+    include: ['react', 'react-dom', 'react-router', 'zustand', '@simplewebauthn/browser'],
   },
 })

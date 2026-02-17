@@ -91,6 +91,11 @@ ingress:
     service: http://localhost:5173
     originRequest:
       noTLSVerify: true
+      http2Origin: false
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
   - hostname: $API_SUBDOMAIN
     service: http://localhost:3001
   - hostname: $RELAY_SUBDOMAIN
