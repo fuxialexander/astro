@@ -15,40 +15,50 @@ interface AuthState {
   signOut: () => Promise<void>
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+// Track the auth state change subscription so we can clean up on re-initialize
+let authSubscription: { unsubscribe: () => void } | null = null
+let initializeInProgress = false
+
+export const useAuthStore = create<AuthState>((set, get) => ({
   session: null,
   user: null,
   loading: true,
   initialized: false,
 
   initialize: async () => {
-    console.log('[auth-store] Initializing...')
+    // Guard against concurrent/duplicate calls (e.g. StrictMode double-invoke)
+    if (initializeInProgress || get().initialized) return
+    initializeInProgress = true
+
+    // Clean up any existing listener before registering a new one
+    if (authSubscription) {
+      authSubscription.unsubscribe()
+      authSubscription = null
+    }
+
     // If Supabase is not in use (not configured or IndexedDB-only mode), skip auth
     if (!shouldUseSupabase()) {
-      console.log('[auth-store] IndexedDB-only mode, generating browser user ID')
-      // Track browser-specific user ID for IndexedDB operations
       const browserUserId = await getBrowserUserId()
       setCurrentUser(browserUserId)
-      console.log('[auth-store] Using browser user ID:', browserUserId)
       set({
         session: null,
         user: null,
         loading: false,
         initialized: true,
       })
+      initializeInProgress = false
       return
     }
 
     const supabase = getSupabase()
     if (!supabase) {
-      console.log('[auth-store] Supabase client not available')
       set({ loading: false, initialized: true })
+      initializeInProgress = false
       return
     }
 
     // Get initial session
     const { data: { session } } = await supabase.auth.getSession()
-    console.log('[auth-store] Initial session:', session ? `User ${session.user.id}` : 'None')
 
     // Track current user for IndexedDB operations (warns on user switch)
     setCurrentUser(session?.user?.id ?? null)
@@ -62,14 +72,11 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     // Setup realtime sync if authenticated
     if (session) {
-      console.log('[auth-store] Setting up realtime sync for authenticated user')
       setupRealtimeSync()
     }
 
-    // Listen for auth changes
-    supabase.auth.onAuthStateChange((event, session) => {
-      console.log('[auth-store] Auth state changed:', event, session ? `User ${session.user.id}` : 'None')
-
+    // Listen for auth changes (single listener, cleaned up on re-initialize)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       // Track current user for IndexedDB operations (warns on user switch)
       setCurrentUser(session?.user?.id ?? null)
 
@@ -80,13 +87,13 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       // Setup/teardown realtime sync based on auth state
       if (session) {
-        console.log('[auth-store] Setting up realtime sync after auth state change')
         setupRealtimeSync()
       } else {
-        console.log('[auth-store] Tearing down realtime sync after sign out')
         teardownRealtimeSync()
       }
     })
+    authSubscription = subscription
+    initializeInProgress = false
   },
 
   signOut: async () => {

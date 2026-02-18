@@ -93,10 +93,9 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const sidebarLoaded = useSidebarStore((s) => s.loaded)
 
   // Only load data if authenticated or in IndexedDB-only mode
-  const shouldLoadData = !shouldUseSupabase() || (authInitialized && session)
+  const shouldLoadData = !shouldUseSupabase() || !!(authInitialized && session)
 
   useEffect(() => {
-    console.log('[DataLoader] shouldLoadData:', shouldLoadData, '{ authInitialized:', authInitialized, 'session:', session ? 'present' : 'none', '}')
     if (!shouldLoadData) return
 
     // Only load if not already loaded (prevents duplicate API calls on re-renders)
@@ -114,7 +113,6 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!activitiesLoaded) loadActivities()
     if (!sidebarLoaded) loadSidebar()
 
-    console.log('[DataLoader] Connecting realtime...')
     connectRealtime()
 
     // Pre-cache browser hostname for file URL building

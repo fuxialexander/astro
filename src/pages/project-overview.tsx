@@ -186,31 +186,21 @@ function OverviewTab({
     const path = project.workingDirectory
     const editorScheme = useVSCode ? 'vscode' : 'cursor'
 
-    console.log('[EditorURL] Computing URL:', { useLocalUrls, useVSCode, editorScheme, defaultMachineId: project.defaultMachineId })
-
     // Local mode - use file:// protocol
     if (useLocalUrls) {
-      const url = `${editorScheme}://file${path}`
-      console.log('[EditorURL] Local mode:', url)
-      return url
+      return `${editorScheme}://file${path}`
     }
 
     // Remote mode - use SSH remote URL
     if (project.defaultMachineId) {
       const machine = machines.find((m) => m.id === project.defaultMachineId)
-      console.log('[EditorURL] Found machine:', machine?.hostname)
       if (machine && machine.hostname) {
-        // Format: editor://vscode-remote/ssh-remote+hostname/path
-        const url = `${editorScheme}://vscode-remote/ssh-remote+${machine.hostname}${path}`
-        console.log('[EditorURL] Remote mode:', url)
-        return url
+        return `${editorScheme}://vscode-remote/ssh-remote+${machine.hostname}${path}`
       }
     }
 
     // Fallback to local file URL
-    const fallbackUrl = `${editorScheme}://file${path}`
-    console.log('[EditorURL] Fallback to local:', fallbackUrl, 'No machine configured')
-    return fallbackUrl
+    return `${editorScheme}://file${path}`
   }, [project.workingDirectory, project.defaultMachineId, useLocalUrls, useVSCode, machines])
 
   const navigate = useNavigate()
