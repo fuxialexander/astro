@@ -22,7 +22,7 @@ interface SidebarStore {
   reorderItems: (startIndex: number, endIndex: number) => void
   resetToDefault: () => void
   subscribeToChanges: () => () => void
-  syncWithProjectCount: (projectCount: number) => void
+  syncWithProjectCount: () => void
 }
 
 const defaultItems: SidebarItem[] = [
@@ -185,7 +185,7 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
     }
   },
 
-  syncWithProjectCount: (_projectCount: number) => {
+  syncWithProjectCount: () => {
     // Tasks is always visible (it's the home route)
   },
 }))
