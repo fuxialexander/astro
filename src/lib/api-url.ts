@@ -16,7 +16,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 /**
  * Build a full API URL from a path.
  * @param path - API path (e.g., "/api/health")
- * @returns Full URL (e.g., "https://nexus-backend.fly.dev/api/health" in prod)
+ * @returns Full URL (e.g., "https://astro-backend.fly.dev/api/health" in prod)
  */
 export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path}`

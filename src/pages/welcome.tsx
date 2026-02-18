@@ -195,7 +195,7 @@ export function Welcome() {
 
     try {
       // Call repo setup on the selected machine
-      // If workingDirectory is empty, backend will create default path: ~/.nexus/projects/{projectId}
+      // If workingDirectory is empty, backend will create default path: ~/.astro/projects/{projectId}
       const result = await setupRepo({
         projectId: id,
         projectName: "Quick Start",
@@ -381,13 +381,13 @@ export function Welcome() {
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
               <Compass className="h-6 w-6 text-primary-foreground" />
             </div>
-            <span className="text-sm font-bold tracking-[4px] text-foreground">NEXUS</span>
+            <span className="text-sm font-bold tracking-[4px] text-foreground">ASTRO</span>
           </div>
 
           {/* Heading */}
           <div className="flex flex-col items-center gap-2">
             <h1 className="text-center text-3xl font-semibold text-foreground">
-              Welcome to Nexus
+              Welcome to Astro
             </h1>
             <p className="max-w-[560px] text-center text-[15px] leading-relaxed text-muted-foreground">
               AI-powered task planning and execution. Start simple, scale gradually.
@@ -735,7 +735,7 @@ export function Welcome() {
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                Leave empty to use default path: <span className="font-mono">~/.nexus/projects/</span>
+                Leave empty to use default path: <span className="font-mono">~/.astro/projects/</span>
                 <br />
                 Or enter an absolute path starting with / (e.g., /Users/username/projects/my-app)
               </p>

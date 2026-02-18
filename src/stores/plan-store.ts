@@ -23,8 +23,8 @@ const SEED_NODES: PlanNode[] = []
 const SEED_EDGES: PlanEdge[] = []
 
 async function loadFromIdb(): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] } | null> {
-  const savedNodes = await loadState<PlanNode[]>("nexus-plan-nodes")
-  const savedEdges = await loadState<PlanEdge[]>("nexus-plan-edges")
+  const savedNodes = await loadState<PlanNode[]>("astro-plan-nodes")
+  const savedEdges = await loadState<PlanEdge[]>("astro-plan-edges")
   if (savedNodes && savedEdges) {
     return {
       nodes: savedNodes.map(n => ({ ...n, createdAt: new Date(n.createdAt), updatedAt: new Date(n.updatedAt) })),
@@ -35,8 +35,8 @@ async function loadFromIdb(): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] } |
 }
 
 function saveToIdb(nodes: PlanNode[], edges: PlanEdge[]) {
-  saveState("nexus-plan-nodes", nodes)
-  saveState("nexus-plan-edges", edges)
+  saveState("astro-plan-nodes", nodes)
+  saveState("astro-plan-edges", edges)
 }
 
 export const usePlanStore = create<PlanState>((set, get) => ({
@@ -115,7 +115,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
     const nextNodes = [...get().nodes, node]
     set({ nodes: nextNodes })
-    saveState("nexus-plan-nodes", nextNodes)
+    saveState("astro-plan-nodes", nextNodes)
     dataClient.addNode(node).catch((err) => {
       console.error('[plan-store] Failed to save node to API:', err)
     })
@@ -126,7 +126,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       n.id === id ? { ...n, ...updates, updatedAt: new Date() } : n
     )
     set({ nodes: nextNodes })
-    saveState("nexus-plan-nodes", nextNodes)
+    saveState("astro-plan-nodes", nextNodes)
     dataClient.updateNode(id, updates).catch((err) => {
       console.error('[plan-store] Failed to update node in API:', err)
     })
@@ -154,7 +154,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
     const nextEdges = [...get().edges, edge]
     set({ edges: nextEdges })
-    saveState("nexus-plan-edges", nextEdges)
+    saveState("astro-plan-edges", nextEdges)
     // Determine projectId from source node
     const sourceNode = get().nodes.find((n) => n.id === edge.source)
     if (sourceNode) {
@@ -170,7 +170,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
     const nextEdges = get().edges.filter((e) => !(e.source === source && e.target === target))
     set({ edges: nextEdges })
-    saveState("nexus-plan-edges", nextEdges)
+    saveState("astro-plan-edges", nextEdges)
     dataClient.deleteEdge(edgeToRemove.id).catch((err) => {
       console.error('[plan-store] Failed to delete edge from API:', err)
     })
@@ -213,7 +213,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       return newPos ? { ...n, position: newPos, updatedAt: new Date() } : n
     })
     set({ nodes: nextNodes })
-    saveState("nexus-plan-nodes", nextNodes)
+    saveState("astro-plan-nodes", nextNodes)
 
     // Sync position updates to API
     for (const [nodeId, pos] of positions) {

@@ -64,10 +64,10 @@ export async function createServerWorktree(options: {
   }
 
   const repoName = sanitize(basename(gitRoot))
-  const baseRoot = join(tmpdir(), 'nexus-worktrees', repoName)
+  const baseRoot = join(tmpdir(), 'astro-worktrees', repoName)
   await mkdir(baseRoot, { recursive: true })
 
-  const branchName = `nexus/${sanitize(nodeId)}`
+  const branchName = `astro/${sanitize(nodeId)}`
   const worktreePath = join(baseRoot, sanitize(taskId))
 
   // Clean up any existing worktree at this path

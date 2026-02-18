@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Nexus Setup Verification Script
+# Astro Setup Verification Script
 # This script checks if the development environment is properly configured
 
 set -e
 
-echo "🔍 Verifying Nexus development environment setup..."
+echo "🔍 Verifying Astro development environment setup..."
 echo ""
 
 # Color codes

@@ -4,7 +4,7 @@ set -e
 # ============================================================================
 # Comprehensive End-to-End Test
 # ============================================================================
-# Tests all aspects of the Nexus workflow:
+# Tests all aspects of the Astro workflow:
 # - Authentication (Supabase mode)
 # - Device authorization flow
 # - Machine registration
@@ -23,7 +23,7 @@ export ALLOW_E2E_BYPASS=true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_BASE="http://localhost:3001"
 TEST_NAME="e2e-comprehensive-$(date +%s)"
-LOG_DIR="/tmp/nexus-e2e-logs-$(date +%s)"
+LOG_DIR="/tmp/astro-e2e-logs-$(date +%s)"
 WORKTREE_SNAPSHOT="$LOG_DIR/worktree-snapshot.txt"
 
 # Create log directory
@@ -109,15 +109,15 @@ AUTH_TOKEN="$ACCESS_TOKEN"
 USER_ID="$USER_ID"
 
 log_info "✓ Authenticated as: $USER_ID"
-log_info "  Email: e2e-test@nexus.local"
+log_info "  Email: e2e-test@astro.local"
 
 # ============================================================================
 # Step 3: Clean Up Previous State
 # ============================================================================
 log_step "Step 3: Cleaning Up Previous State"
 
-rm -rf ~/.nexus$HOME/.nexus/tmp/fibonacci-test ~/.nexus/worktrees 2>/dev/null || true
-mkdir -p ~/.nexus/tmp
+rm -rf ~/.astro$HOME/.astro/tmp/fibonacci-test ~/.astro/worktrees 2>/dev/null || true
+mkdir -p ~/.astro/tmp
 log_info "✓ Cleaned up previous test data"
 
 # ============================================================================
@@ -212,7 +212,7 @@ node dist/cli.js config --set machineId="$MACHINE_ID" 2>/dev/null
 node dist/cli.js config --set relayUrl="ws://localhost:3002" 2>/dev/null
 
 # Mark setup as complete by editing config JSON directly
-CONFIG_FILE="$HOME/Library/Preferences/nexus-agent-nodejs/config.json"
+CONFIG_FILE="$HOME/Library/Preferences/astro-agent-nodejs/config.json"
 jq '.setupCompleted = true' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
 
 log_info "✓ Agent runner config updated with fresh tokens and local relay URL"
@@ -271,7 +271,7 @@ PROJECT_JSON=$(curl -s -X POST "$API_BASE/api/data/projects" \
   -d "{
     \"name\": \"Fibonacci - $TEST_NAME\",
     \"description\": \"E2E test project for worktree validation\",
-    \"workingDirectory\": \"$HOME/.nexus/tmp/fibonacci-test\",
+    \"workingDirectory\": \"$HOME/.astro/tmp/fibonacci-test\",
     \"userId\": \"$USER_ID\"
   }")
 
@@ -284,7 +284,7 @@ fi
 
 log_info "✓ Project created: $PROJECT_ID"
 log_info "  Name: Fibonacci - $TEST_NAME"
-log_info "  Working directory: $HOME/.nexus/tmp/fibonacci-test"
+log_info "  Working directory: $HOME/.astro/tmp/fibonacci-test"
 
 # ============================================================================
 # Step 7: Create Task Nodes
@@ -330,7 +330,7 @@ DISPATCH_JSON=$(curl -s -X POST "$API_BASE/api/dispatch/task" \
     \"title\": \"Create Fibonacci Script\",
     \"description\": \"Create a Python script called fibonacci.py that prints the first 10 Fibonacci numbers.\",
     \"targetMachineId\": \"$MACHINE_ID\",
-    \"workingDirectory\": \"$HOME/.nexus/tmp/fibonacci-test\",
+    \"workingDirectory\": \"$HOME/.astro/tmp/fibonacci-test\",
     \"preferredProvider\": \"claude-sdk\"
   }")
 
@@ -365,7 +365,7 @@ EXECUTION_LOG="$LOG_DIR/execution.log"
 log_info "Monitoring execution (300s timeout)..."
 
 # Monitor worktree creation in background
-WORKTREE_BASE="$HOME/.nexus/worktrees/fibonacci-test"
+WORKTREE_BASE="$HOME/.astro/worktrees/fibonacci-test"
 (
   for i in {1..600}; do
     if [ -d "$WORKTREE_BASE" ]; then
@@ -493,17 +493,17 @@ log_step "Step 10: Verifying Worktree Architecture"
 
 # Check that worktree was in correct location
 if [ "$WORKTREE_CAPTURED" = true ]; then
-  log_info "✓ Worktree was created in ~/.nexus/worktrees/"
+  log_info "✓ Worktree was created in ~/.astro/worktrees/"
   log_info "✓ Snapshot captured before cleanup"
 else
   log_warn "Worktree was cleaned up before we could capture it"
 fi
 
 # Check git repository initialization
-if [ -d "$HOME/.nexus/tmp/fibonacci-test/.git" ]; then
+if [ -d "$HOME/.astro/tmp/fibonacci-test/.git" ]; then
   log_info "✓ Git repository initialized in working directory"
 
-  cd $HOME/.nexus/tmp/fibonacci-test
+  cd $HOME/.astro/tmp/fibonacci-test
 
   # Check branches
   BRANCHES=$(git branch -a)
@@ -513,10 +513,10 @@ if [ -d "$HOME/.nexus/tmp/fibonacci-test/.git" ]; then
   done
 
   # Check for task branch
-  if echo "$BRANCHES" | grep -q "nexus/"; then
+  if echo "$BRANCHES" | grep -q "astro/"; then
     log_info "✓ Task-specific branch created"
   else
-    log_warn "No nexus/* branch found"
+    log_warn "No astro/* branch found"
   fi
 
   # Save git log

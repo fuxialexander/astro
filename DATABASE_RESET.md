@@ -1,10 +1,10 @@
 # Database Reset Guide
 
-This guide explains how to completely reset your Nexus database and start with a clean slate.
+This guide explains how to completely reset your Astro database and start with a clean slate.
 
 ## Overview
 
-Nexus supports **two database modes**:
+Astro supports **two database modes**:
 
 1. **IndexedDB Mode** (default for local dev)
    - Data stored in browser IndexedDB
@@ -77,7 +77,7 @@ Displays step-by-step instructions to clear browser storage.
 
 4. In the left sidebar:
    - Expand **IndexedDB**
-   - Right-click on the Nexus database
+   - Right-click on the Astro database
    - Click **Delete database**
 
 5. Expand **Local Storage** → `http://localhost:5173`
@@ -168,7 +168,7 @@ bash scripts/clean-start.sh
 
 This script will:
 1. Stop all running processes
-2. Clean agent runner cache (`~/.nexus-agent`)
+2. Clean agent runner cache (`~/.astro-agent`)
 3. Remove and reinstall node_modules
 4. Clean build artifacts
 5. Rebuild the project
@@ -201,7 +201,7 @@ After resetting Supabase:
 
 **Problem:** IndexedDB deletion fails with "blocked" error
 
-**Solution:** Close ALL browser tabs/windows accessing Nexus, then try again
+**Solution:** Close ALL browser tabs/windows accessing Astro, then try again
 
 ### Supabase Reset Hangs
 
@@ -344,5 +344,5 @@ When testing new Supabase migrations:
 
 - [IndexedDB API Documentation](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
 - [Supabase CLI Documentation](https://supabase.com/docs/guides/cli)
-- [Nexus Setup Guide](./README.md)
+- [Astro Setup Guide](./README.md)
 - [Testing Documentation](./scripts/README.md)

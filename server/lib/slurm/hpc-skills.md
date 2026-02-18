@@ -1,4 +1,4 @@
-# HPC/Slurm Skills for Nexus Agents
+# HPC/Slurm Skills for Astro Agents
 
 This document provides guidance for AI agents executing tasks on HPC clusters via Slurm.
 
@@ -65,9 +65,9 @@ Request only what you need:
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=nexus_task
-#SBATCH --output=nexus_%j.out
-#SBATCH --error=nexus_%j.err
+#SBATCH --job-name=astro_task
+#SBATCH --output=astro_%j.out
+#SBATCH --error=astro_%j.err
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -212,7 +212,7 @@ sinfo -o "%P %G %D %t"
 
 ## Resource Hints in Task Descriptions
 
-When describing tasks in Nexus, include resource hints:
+When describing tasks in Astro, include resource hints:
 
 **Good examples:**
 - "Train the model using 2 GPUs for approximately 8 hours"
@@ -257,7 +257,7 @@ When describing tasks in Nexus, include resource hints:
 sacct -j <jobid> --format=JobID,State,ExitCode
 
 # Check error output
-cat nexus_<jobid>.err
+cat astro_<jobid>.err
 
 # Check resource usage
 sacct -j <jobid> --format=JobID,MaxRSS,MaxVMSize,Elapsed,CPUTime
@@ -273,14 +273,14 @@ sacct -j <jobid> --format=JobID,MaxRSS,MaxVMSize,Elapsed,CPUTime
 6. **Use array jobs** - For embarrassingly parallel tasks
 7. **Specify account** - If you have multiple allocations
 
-## Integration with Nexus
+## Integration with Astro
 
-Nexus automatically:
+Astro automatically:
 - Generates SBATCH scripts from task descriptions
 - Parses resource hints from task descriptions
 - Monitors job status via squeue/sacct
 - Streams job output back to the plan view
-- Maps Slurm job states to Nexus task states
+- Maps Slurm job states to Astro task states
 
 When writing task descriptions, be explicit about:
 - Required computational resources
@@ -292,5 +292,5 @@ The agent runner on the login node will:
 1. Generate an appropriate SBATCH script
 2. Submit the job with `sbatch`
 3. Monitor progress with `squeue`
-4. Stream stdout/stderr back to Nexus
+4. Stream stdout/stderr back to Astro
 5. Report final status when job completes

@@ -187,7 +187,7 @@ export function Sidebar() {
           />
         </div>
         <span className="font-secondary text-xl font-semibold text-foreground">
-          Nexus
+          Astro
         </span>
       </div>
 

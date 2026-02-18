@@ -82,13 +82,13 @@ let saveTimeout: ReturnType<typeof setTimeout> | null = null
 function debouncedSave(sessions: Map<string, Session>) {
   if (saveTimeout) clearTimeout(saveTimeout)
   saveTimeout = setTimeout(() => {
-    saveState("nexus-sessions", serializeSessions(sessions))
+    saveState("astro-sessions", serializeSessions(sessions))
   }, 500)
 }
 
 function immediateSave(sessions: Map<string, Session>) {
   if (saveTimeout) clearTimeout(saveTimeout)
-  saveState("nexus-sessions", serializeSessions(sessions))
+  saveState("astro-sessions", serializeSessions(sessions))
 }
 
 function serializeSessions(sessions: Map<string, Session>): Record<string, Session> {
@@ -182,7 +182,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }
         set({ sessions, loaded: true })
         // Save to IndexedDB for offline cache
-        saveState("nexus-sessions", serializeSessions(sessions))
+        saveState("astro-sessions", serializeSessions(sessions))
         return
       }
     } catch {
@@ -190,14 +190,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
 
     // Fallback to IndexedDB
-    const saved = await loadState<Record<string, Session>>("nexus-sessions")
+    const saved = await loadState<Record<string, Session>>("astro-sessions")
     if (saved && Object.keys(saved).length > 0) {
       set({ sessions: deserializeSessions(saved), loaded: true })
       return
     }
 
     // Migration: check for old task-chat-store data
-    const oldChats = await loadState<Record<string, unknown>>("nexus-task-chats")
+    const oldChats = await loadState<Record<string, unknown>>("astro-task-chats")
     if (oldChats && Object.keys(oldChats).length > 0) {
       const migrated = migrateTaskChatData(oldChats as Parameters<typeof migrateTaskChatData>[0])
       set({ sessions: migrated, loaded: true })

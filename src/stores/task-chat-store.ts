@@ -83,7 +83,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
           })
         }
         set({ sessions, loaded: true })
-        saveState("nexus-task-chats", serializeSessions(sessions))
+        saveState("astro-task-chats", serializeSessions(sessions))
         return
       }
     } catch {
@@ -91,7 +91,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     }
 
     // Fallback to IndexedDB
-    const saved = await loadState<Record<string, TaskChatSession>>("nexus-task-chats")
+    const saved = await loadState<Record<string, TaskChatSession>>("astro-task-chats")
     if (saved) {
       set({ sessions: deserializeSessions(saved), loaded: true })
     } else {
@@ -118,7 +118,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     const sessions = new Map(get().sessions)
     sessions.set(nodeId, session)
     set({ sessions })
-    saveState("nexus-task-chats", serializeSessions(sessions))
+    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.createChatSession(nodeId, projectId).catch(() => {})
 
     return session
@@ -143,7 +143,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
 
     sessions.set(nodeId, updatedSession)
     set({ sessions })
-    saveState("nexus-task-chats", serializeSessions(sessions))
+    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.addChatMessage(nodeId, newMessage).catch(() => {})
   },
 
@@ -169,7 +169,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
 
     sessions.set(nodeId, updatedSession)
     set({ sessions })
-    saveState("nexus-task-chats", serializeSessions(sessions))
+    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.addChatMessage(nodeId, updatedMessages[updatedMessages.length - 1]).catch(() => {})
   },
 
@@ -211,7 +211,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
 
     sessions.set(nodeId, updatedSession)
     set({ sessions })
-    saveState("nexus-task-chats", serializeSessions(sessions))
+    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.updateChatSessionId(nodeId, sessionId).catch(() => {})
   },
 
@@ -219,7 +219,7 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     const sessions = new Map(get().sessions)
     sessions.delete(nodeId)
     set({ sessions })
-    saveState("nexus-task-chats", serializeSessions(sessions))
+    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.deleteChatSession(nodeId).catch(() => {})
   },
 }))

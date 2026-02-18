@@ -4,7 +4,7 @@ set -e
 # ============================================================================
 # Comprehensive End-to-End Test with Approval System
 # ============================================================================
-# Tests all aspects of the Nexus workflow including approval system:
+# Tests all aspects of the Astro workflow including approval system:
 # - Authentication (Supabase mode)
 # - Device authorization flow
 # - Machine registration
@@ -24,7 +24,7 @@ export ALLOW_E2E_BYPASS=true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_BASE="http://localhost:3001"
 TEST_NAME="e2e-approval-$(date +%s)"
-LOG_DIR="/tmp/nexus-e2e-logs-$(date +%s)"
+LOG_DIR="/tmp/astro-e2e-logs-$(date +%s)"
 WORKTREE_SNAPSHOT="$LOG_DIR/worktree-snapshot.txt"
 APPROVAL_LOG="$LOG_DIR/approval-events.log"
 
@@ -112,15 +112,15 @@ AUTH_TOKEN="$ACCESS_TOKEN"
 USER_ID="$USER_ID"
 
 log_info "✓ Authenticated as: $USER_ID"
-log_info "  Email: e2e-test@nexus.local"
+log_info "  Email: e2e-test@astro.local"
 
 # ============================================================================
 # Step 3: Clean Up Previous State
 # ============================================================================
 log_step "Step 3: Cleaning Up Previous State"
 
-rm -rf ~/.nexus/tmp/approval-test ~/.nexus/worktrees 2>/dev/null || true
-mkdir -p ~/.nexus/tmp
+rm -rf ~/.astro/tmp/approval-test ~/.astro/worktrees 2>/dev/null || true
+mkdir -p ~/.astro/tmp
 log_info "✓ Cleaned up previous test data"
 
 # ============================================================================
@@ -214,7 +214,7 @@ node dist/cli.js config --set machineId="$MACHINE_ID" 2>/dev/null
 node dist/cli.js config --set relayUrl="ws://localhost:3002" 2>/dev/null
 
 # Mark setup as complete (no MCP needed - using built-in AskUserQuestion tool)
-CONFIG_FILE="$HOME/Library/Preferences/nexus-agent-nodejs/config.json"
+CONFIG_FILE="$HOME/Library/Preferences/astro-agent-nodejs/config.json"
 
 log_info "Updating agent runner config..."
 
@@ -268,7 +268,7 @@ PROJECT_JSON=$(curl -s -X POST "$API_BASE/api/data/projects" \
   -d "{
     \"name\": \"Approval Test - $TEST_NAME\",
     \"description\": \"E2E test project for approval system validation\",
-    \"workingDirectory\": \"$HOME/.nexus/tmp/approval-test\",
+    \"workingDirectory\": \"$HOME/.astro/tmp/approval-test\",
     \"userId\": \"$USER_ID\"
   }")
 
@@ -403,7 +403,7 @@ DISPATCH_JSON=$(curl -s -X POST "$API_BASE/api/dispatch/task" \
     \"title\": \"Create Calculator with User Choice\",
     \"description\": \"IMPORTANT: Use the AskUserQuestion tool FIRST to ask: 'Which calculator features would you like me to implement?' with options: 'Basic arithmetic', 'Scientific functions', 'All features'. Then implement the user's choice.\",
     \"targetMachineId\": \"$MACHINE_ID\",
-    \"workingDirectory\": \"$HOME/.nexus/tmp/approval-test\",
+    \"workingDirectory\": \"$HOME/.astro/tmp/approval-test\",
     \"preferredProvider\": \"claude-sdk\"
   }")
 
@@ -491,7 +491,7 @@ WORKTREE_CAPTURED=false
 log_info "Waiting for execution to complete (240s timeout)..."
 
 # Monitor worktree in background
-WORKTREE_BASE="$HOME/.nexus/worktrees/approval-test"
+WORKTREE_BASE="$HOME/.astro/worktrees/approval-test"
 (
   for i in {1..480}; do
     if [ -d "$WORKTREE_BASE" ]; then
@@ -566,11 +566,11 @@ fi
 log_step "Step 12: Verifying Approval Flow"
 
 # Check that calculator.py was created with scientific operations
-if [ -f "$HOME/.nexus/tmp/approval-test/calculator.py" ] || [ -f "$WORKTREE_SNAPSHOT" ]; then
+if [ -f "$HOME/.astro/tmp/approval-test/calculator.py" ] || [ -f "$WORKTREE_SNAPSHOT" ]; then
   log_info "✓ Calculator file created"
 
   # Check if it has the selected operations
-  CALC_CONTENT=$(cat "$HOME/.nexus/tmp/approval-test/calculator.py" 2>/dev/null || grep -A100 "Calculator Implementation" "$WORKTREE_SNAPSHOT" 2>/dev/null || echo "")
+  CALC_CONTENT=$(cat "$HOME/.astro/tmp/approval-test/calculator.py" 2>/dev/null || grep -A100 "Calculator Implementation" "$WORKTREE_SNAPSHOT" 2>/dev/null || echo "")
 
   if echo "$CALC_CONTENT" | grep -qi "multiply\|divide\|power"; then
     log_approval "✓ Calculator implements scientific operations (user's choice)"

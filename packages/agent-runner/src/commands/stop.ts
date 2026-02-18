@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 const execAsync = promisify(exec);
 
 export async function stopCommand(): Promise<void> {
-  console.log(chalk.bold('\n🛑 Stopping Nexus Agent Runner...\n'));
+  console.log(chalk.bold('\n🛑 Stopping Astro Agent Runner...\n'));
 
   try {
     // Find running agent processes
@@ -18,10 +18,10 @@ export async function stopCommand(): Promise<void> {
     let killCommand: (pid: string) => string;
 
     if (platform === 'win32') {
-      findCommand = 'wmic process where "commandline like \'%nexus-agent%start%\'" get processid';
+      findCommand = 'wmic process where "commandline like \'%astro-agent%start%\'" get processid';
       killCommand = (pid) => `taskkill /PID ${pid} /F`;
     } else {
-      findCommand = "pgrep -f 'nexus-agent.*start'";
+      findCommand = "pgrep -f 'astro-agent.*start'";
       killCommand = (pid) => `kill -TERM ${pid}`;
     }
 

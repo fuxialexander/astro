@@ -1,6 +1,6 @@
 # Approval System - Quick Start Guide
 
-This guide shows you how to add user approvals to your agent workflows in Nexus.
+This guide shows you how to add user approvals to your agent workflows in Astro.
 
 ## Three Ways to Get User Input
 
@@ -272,11 +272,11 @@ Approvals timeout after 5 minutes by default. The agent receives an error and ca
 ┌─────────────────────────────────────────────────────────────┐
 │ Agent (Claude SDK)                                           │
 │   ↓ calls ask_user_question tool                            │
-│ MCP Server (nexus-tools-server.ts)                          │
+│ MCP Server (astro-tools-server.ts)                          │
 │   ↓ HTTP POST /api/dispatch/request-dynamic-approval        │
 │ Dispatch Engine (dispatch-engine.ts)                        │
 │   ↓ emits approval.requested event                          │
-│ Event System (nexusEventTransport)                          │
+│ Event System (astroEventTransport)                          │
 │   ↓ SSE to browser                                          │
 │ UI (ApprovalCard)                                           │
 │   ↓ user selects                                            │
@@ -295,7 +295,7 @@ Approvals timeout after 5 minutes by default. The agent receives an error and ca
 
 **MCP tool not available:**
 - Verify Claude Code provider is being used
-- Check agent logs for "Nexus MCP Tools Server running"
+- Check agent logs for "Astro MCP Tools Server running"
 - Ensure MCP server is in provider's mcpServers config
 
 **Approval timeout:**
@@ -307,5 +307,5 @@ Approvals timeout after 5 minutes by default. The agent receives an error and ca
 
 - `APPROVAL_SYSTEM.md` - Complete architecture documentation
 - `scripts/README.md` - Testing documentation
-- `server/lib/mcp/nexus-tools-server.ts` - MCP server implementation
+- `server/lib/mcp/astro-tools-server.ts` - MCP server implementation
 - `server/lib/dispatch/dispatch-engine.ts` - Approval logic

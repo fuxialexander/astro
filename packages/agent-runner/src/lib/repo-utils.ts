@@ -106,11 +106,11 @@ function readKeyFiles(dir: string): RepoKeyFiles {
 }
 
 /**
- * Clone a git repository to ~/.nexus/repos/<projectId>/.
+ * Clone a git repository to ~/.astro/repos/<projectId>/.
  * If already cloned, fetch latest. Returns the local path.
  */
 function cloneRepository(repoUrl: string, projectId: string): string {
-  const repoDir = join(homedir(), '.nexus', 'repos', projectId);
+  const repoDir = join(homedir(), '.astro', 'repos', projectId);
 
   if (existsSync(join(repoDir, '.git'))) {
     // Already cloned — fetch latest
@@ -121,7 +121,7 @@ function cloneRepository(repoUrl: string, projectId: string): string {
     }
   } else {
     // Ensure parent directory exists
-    mkdirSync(join(homedir(), '.nexus', 'repos'), { recursive: true });
+    mkdirSync(join(homedir(), '.astro', 'repos'), { recursive: true });
     // Clone the repo
     execSync(`git clone ${JSON.stringify(repoUrl)} ${JSON.stringify(repoDir)}`, {
       stdio: 'ignore',
@@ -148,11 +148,11 @@ export function localRepoSetup(options: {
       return { success: false, error: 'Project ID is required when creating a new directory' };
     }
     try {
-      const dir = join(homedir(), '.nexus', 'projects', projectId);
+      const dir = join(homedir(), '.astro', 'projects', projectId);
       mkdirSync(dir, { recursive: true });
       execSync('git init', { cwd: dir, stdio: 'ignore' });
-      execSync('git config user.name "Nexus Agent" || true', { cwd: dir, stdio: 'ignore' });
-      execSync('git config user.email "agent@nexus.local" || true', { cwd: dir, stdio: 'ignore' });
+      execSync('git config user.name "Astro Agent" || true', { cwd: dir, stdio: 'ignore' });
+      execSync('git config user.email "agent@astro.local" || true', { cwd: dir, stdio: 'ignore' });
       const fileTree = getFileTree(dir);
       return {
         success: true,

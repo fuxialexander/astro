@@ -27,7 +27,7 @@ import { errorMessage } from '../lib/error-utils.js'
 const authRoute = new Hono()
 
 // Configuration from environment
-const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'Nexus'
+const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'Astro'
 const RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost'
 const ORIGIN = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173'
 

@@ -226,7 +226,7 @@ export async function createSandbox(options: SandboxOptions): Promise<SandboxSet
     );
   }
 
-  const sandboxRoot = join(homedir(), '.nexus', 'sandbox');
+  const sandboxRoot = join(homedir(), '.astro', 'sandbox');
   const sandboxPath = join(sandboxRoot, taskId);
 
   // Remove existing sandbox if present

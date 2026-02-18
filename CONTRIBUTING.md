@@ -1,6 +1,6 @@
-# Contributing to Nexus
+# Contributing to Astro
 
-Thank you for your interest in contributing to Nexus! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to Astro! This document provides guidelines and instructions for contributing to the project.
 
 ## Table of Contents
 
@@ -31,8 +31,8 @@ By participating in this project, you agree to maintain a respectful and collabo
 1. **Fork and Clone**
 
    ```bash
-   git clone git@github.com:YOUR_USERNAME/nexus.git
-   cd nexus
+   git clone git@github.com:YOUR_USERNAME/astro.git
+   cd astro
    ```
 
 2. **Install Dependencies**
@@ -303,4 +303,4 @@ Please be aware of these existing issues:
 - Review existing issues and PRs
 - Check documentation in `docs/`
 
-Thank you for contributing to Nexus!
+Thank you for contributing to Astro!

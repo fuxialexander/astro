@@ -68,7 +68,7 @@ export function WelcomeProfileDialog() {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Sparkles className="h-6 w-6 text-primary" />
           </div>
-          <DialogTitle className="text-center text-xl">Welcome to Nexus!</DialogTitle>
+          <DialogTitle className="text-center text-xl">Welcome to Astro!</DialogTitle>
           <DialogDescription className="text-center">
             We noticed you haven't set your name yet. Would you like to personalize your profile?
           </DialogDescription>

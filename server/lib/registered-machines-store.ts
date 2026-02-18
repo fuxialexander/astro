@@ -181,7 +181,7 @@ export async function registerMachine(params: {
         throw new Error(
           `User not found in database (userId: ${machine.userId}). ` +
           `The authentication token may be stale. Please delete your agent config ` +
-          `(~/Library/Preferences/nexus-agent-nodejs/config.json) and run device authorization again.`
+          `(~/Library/Preferences/astro-agent-nodejs/config.json) and run device authorization again.`
         )
       }
 
@@ -299,7 +299,7 @@ export async function ensureMachineRegistered(machineId: string, params: {
         throw new Error(
           `User not found in database (userId: ${params.userId}). ` +
           `The authentication token may be stale. Please delete your agent config ` +
-          `(~/Library/Preferences/nexus-agent-nodejs/config.json) and run device authorization again.`
+          `(~/Library/Preferences/astro-agent-nodejs/config.json) and run device authorization again.`
         )
       }
 

@@ -1,6 +1,6 @@
 # Agent Runner Protocol Guide
 
-This guide explains how to build an agent runner that connects to the Nexus relay server, receives task dispatches, and streams results back.
+This guide explains how to build an agent runner that connects to the Astro relay server, receives task dispatches, and streams results back.
 
 ## Connection
 
@@ -117,7 +117,7 @@ Missing 3 consecutive heartbeats (90s) triggers automatic disconnection.
 }
 ```
 
-When the `workingDirectory` is a Git repository, the Nexus agent runner executes the task inside a
+When the `workingDirectory` is a Git repository, the Astro agent runner executes the task inside a
 temporary Git worktree cloned from the repo root. The worktree is removed after the task finishes.
 
 ### Step 4: Stream Results

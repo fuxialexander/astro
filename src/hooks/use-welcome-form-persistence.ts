@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
-const STORAGE_KEY = 'nexus:welcome-form-state'
+const STORAGE_KEY = 'astro:welcome-form-state'
 
 export interface WelcomeFormState {
   // Step 1

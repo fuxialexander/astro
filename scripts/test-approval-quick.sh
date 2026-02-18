@@ -11,10 +11,10 @@ COLORS_GREEN='\033[0;32m'
 COLORS_RED='\033[0;31m'
 COLORS_RESET='\033[0m'
 
-echo -e "\n${COLORS_CYAN}Starting Nexus backend server...${COLORS_RESET}\n"
+echo -e "\n${COLORS_CYAN}Starting Astro backend server...${COLORS_RESET}\n"
 
 # Start backend in background
-npm run dev:backend > /tmp/nexus-backend.log 2>&1 &
+npm run dev:backend > /tmp/astro-backend.log 2>&1 &
 BACKEND_PID=$!
 
 # Cleanup function
@@ -43,7 +43,7 @@ done
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
   echo -e "${COLORS_RED}✗ Server failed to start within 30 seconds${COLORS_RESET}"
   echo -e "\nBackend logs:"
-  cat /tmp/nexus-backend.log
+  cat /tmp/astro-backend.log
   exit 1
 fi
 

@@ -50,7 +50,7 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
       if (profile) {
         console.log('[user-profile-store] Profile loaded from API')
         set({ profile, loaded: true })
-        saveState("nexus-user-profile", profile)
+        saveState("astro-user-profile", profile)
         return
       }
     } catch (error) {
@@ -60,7 +60,7 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
 
     // Fallback to IndexedDB
     console.log('[user-profile-store] Falling back to IndexedDB...')
-    const saved = await loadState<UserProfile>("nexus-user-profile")
+    const saved = await loadState<UserProfile>("astro-user-profile")
     if (saved) {
       console.log('[user-profile-store] Profile loaded from IndexedDB')
       set({
@@ -88,7 +88,7 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
       updatedAt: new Date(),
     }
     set({ profile })
-    saveState("nexus-user-profile", profile)
+    saveState("astro-user-profile", profile)
     dataClient.updateProfile(profile).catch(() => {})
   },
 

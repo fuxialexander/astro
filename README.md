@@ -1,8 +1,8 @@
-# Nexus
+# Astro
 
 > A planning-first platform for builders and scientists — AI-assisted task decomposition, multi-environment execution, and real-time progress tracking.
 
-Nexus sits above execution tools (coding agents, analysis tools) to help users decompose complex goals into dependency graphs, dispatch tasks across environments (local, HPC, cloud), and focus human attention on strategic decisions.
+Astro sits above execution tools (coding agents, analysis tools) to help users decompose complex goals into dependency graphs, dispatch tasks across environments (local, HPC, cloud), and focus human attention on strategic decisions.
 
 ## Features
 
@@ -68,8 +68,8 @@ Redis is **not required** for local development. It's only needed for horizontal
 
 ```bash
 # Clone the repository
-git clone git@github.com:fuxialexander/nexus.git
-cd nexus
+git clone git@github.com:fuxialexander/astro.git
+cd astro
 
 # install nodejs and npm if not already installed
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
@@ -121,7 +121,7 @@ No environment variables are required for local development. The Claude Agent SD
 
 Local agent should directly work if you have already set up `claude` or `codex` locally. For `claude`, authenticate via `claude login` (credentials are stored in `~/.claude/` and picked up automatically by the SDK). For `codex`, it reads credentials from its own environment variables (`OPENAI_API_KEY`).
 
-To connect to a remote machine (e.g. HPC cluster, SSH server) to your local Nexus server:
+To connect to a remote machine (e.g. HPC cluster, SSH server) to your local Astro server:
 
 **Prerequisites**: [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) installed on the server machine, a Cloudflare domain configured. Then in your local machine run `cloudflared tunnel login` to login to your Cloudflare account. And set your domain in `.env` as `CLOUDFLARED_DOMAIN=yourdomain.com`.
 
@@ -137,7 +137,7 @@ Then start the tunnel (creates it on first run):
 bash ./scripts/start-tunnel.sh
 ```
 
-This exposes `nexus.yourdomain.com` (frontend + backend) and `nexus-relay.yourdomain.com` (WebSocket relay) via Cloudflare Tunnel.
+This exposes `astro.yourdomain.com` (frontend + backend) and `astro-relay.yourdomain.com` (WebSocket relay) via Cloudflare Tunnel.
 
 **2. Setup and start the agent**
 
@@ -149,7 +149,7 @@ This builds the agent runner, runs the device auth flow (you approve in your bro
 
 ```bash
 # you can also add `~/.local/bin` to your PATH for easy access
-~/.local/bin/nexus-agent start --foreground # add --foreground to run in foreground for easy interruption
+~/.local/bin/astro-agent start --foreground # add --foreground to run in foreground for easy interruption
 ```
 
 After that you approve the machine in the browser, you will be directed to the welcome page, where you can create a project on local or remote machine (if you have already started the agent on the remote machine).
@@ -157,7 +157,7 @@ After that you approve the machine in the browser, you will be directed to the w
 
 ## Database Modes
 
-Nexus supports two database modes:
+Astro supports two database modes:
 
 ### 1. IndexedDB Mode (Local, Offline-first)
 
@@ -268,7 +268,7 @@ npm run db:reset           # Reset everything
 ## Project Structure
 
 ```
-nexus/
+astro/
 ├── src/                          # Frontend React application
 │   ├── pages/                    # Route pages (dashboard, projects, plan-view, etc.)
 │   ├── components/               # React components
@@ -346,7 +346,7 @@ nexus/
 
 ## Testing
 
-Nexus includes comprehensive CLI-testable workflows for automated testing:
+Astro includes comprehensive CLI-testable workflows for automated testing:
 
 ```bash
 # Run all tests
@@ -398,7 +398,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, coding standard
 
 ## Support
 
-For questions or issues, please open an issue on [GitHub](https://github.com/fuxialexander/nexus/issues).
+For questions or issues, please open an issue on [GitHub](https://github.com/fuxialexander/astro/issues).
 
 ## Acknowledgments
 

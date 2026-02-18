@@ -1,10 +1,10 @@
 #!/bin/bash
-# Clean Database Setup for Nexus
+# Clean Database Setup for Astro
 # Initializes database with single clean migration
 
 set -e
 
-echo "🗄️  Setting up Nexus database..."
+echo "🗄️  Setting up Astro database..."
 echo ""
 
 # Check if Supabase CLI is available

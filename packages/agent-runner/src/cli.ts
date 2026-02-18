@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 
 /**
- * Nexus Agent Runner CLI
+ * Astro Agent Runner CLI
  *
  * Lightweight agent runner for local, remote, and HPC environments.
- * Connects to the Nexus relay server to receive and execute tasks.
+ * Connects to the Astro relay server to receive and execute tasks.
  *
  * Usage:
- *   npx @nexus/agent setup     - Initial setup and configuration
- *   npx @nexus/agent start     - Start the agent runner
- *   npx @nexus/agent stop      - Stop running agent
- *   npx @nexus/agent status    - Show current status
+ *   npx @astro/agent setup     - Initial setup and configuration
+ *   npx @astro/agent start     - Start the agent runner
+ *   npx @astro/agent stop      - Stop running agent
+ *   npx @astro/agent status    - Show current status
  */
 
 import { Command } from 'commander';
@@ -19,8 +19,8 @@ import { setupCommand, startCommand, statusCommand, stopCommand, mcpCommand } fr
 const program = new Command();
 
 program
-  .name('nexus-agent')
-  .description('Nexus Agent Runner - Execute tasks from the Nexus planning platform')
+  .name('astro-agent')
+  .description('Astro Agent Runner - Execute tasks from the Astro planning platform')
   .version('0.1.0');
 
 // Setup command

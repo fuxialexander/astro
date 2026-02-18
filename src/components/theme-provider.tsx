@@ -15,7 +15,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 
 export function ThemeProvider({ children, defaultTheme = "system" }: { children: ReactNode; defaultTheme?: Theme }) {
   const [theme, setTheme] = useState<Theme>(() => {
-    const stored = localStorage.getItem("nexus-theme") as Theme | null
+    const stored = localStorage.getItem("astro-theme") as Theme | null
     return stored || defaultTheme
   })
 
@@ -30,7 +30,7 @@ export function ThemeProvider({ children, defaultTheme = "system" }: { children:
       root.classList.add(theme)
     }
 
-    localStorage.setItem("nexus-theme", theme)
+    localStorage.setItem("astro-theme", theme)
   }, [theme])
 
   return (

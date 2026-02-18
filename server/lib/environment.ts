@@ -192,9 +192,9 @@ export function getWebAuthnConfig() {
   return {
     rpName: requireEnvVar('WEBAUTHN_RP_NAME', {
       required: false,
-      testDefault: 'Nexus Test',
+      testDefault: 'Astro Test',
       description: 'WebAuthn relying party name',
-    }) || 'Nexus',
+    }) || 'Astro',
     rpId: requireEnvVar('WEBAUTHN_RP_ID', {
       required: false,
       testDefault: 'localhost',

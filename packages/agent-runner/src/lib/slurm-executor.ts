@@ -50,7 +50,7 @@ export class SlurmExecutor {
   private scriptDir: string;
 
   constructor(private slurmInfo: SlurmInfo) {
-    this.scriptDir = path.join(os.tmpdir(), 'nexus-slurm-scripts');
+    this.scriptDir = path.join(os.tmpdir(), 'astro-slurm-scripts');
     fs.mkdir(this.scriptDir, { recursive: true }).catch(() => {
       // Ignore if already exists
     });
@@ -69,7 +69,7 @@ export class SlurmExecutor {
 
     // Generate batch script
     const script = this.generateScript(task, slurmConfig);
-    const scriptPath = path.join(this.scriptDir, `nexus_${task.taskId}.sh`);
+    const scriptPath = path.join(this.scriptDir, `astro_${task.taskId}.sh`);
 
     await fs.writeFile(scriptPath, script, { mode: 0o755 });
 
@@ -87,8 +87,8 @@ export class SlurmExecutor {
 
     // Set up output paths
     const workdir = task.workingDirectory || process.cwd();
-    const outputPath = path.join(workdir, `nexus_${task.taskId}_${slurmJobId}.out`);
-    const errorPath = path.join(workdir, `nexus_${task.taskId}_${slurmJobId}.err`);
+    const outputPath = path.join(workdir, `astro_${task.taskId}_${slurmJobId}.out`);
+    const errorPath = path.join(workdir, `astro_${task.taskId}_${slurmJobId}.err`);
 
     // Track the job
     const tracker: JobTracker = {
@@ -154,12 +154,12 @@ export class SlurmExecutor {
     lines.push('');
 
     // Job name
-    lines.push(`#SBATCH --job-name=nexus_${this.sanitizeName(task.title)}`);
+    lines.push(`#SBATCH --job-name=astro_${this.sanitizeName(task.title)}`);
 
     // Output files
     const workdir = task.workingDirectory || '$HOME';
-    lines.push(`#SBATCH --output=${workdir}/nexus_${task.taskId}_%j.out`);
-    lines.push(`#SBATCH --error=${workdir}/nexus_${task.taskId}_%j.err`);
+    lines.push(`#SBATCH --output=${workdir}/astro_${task.taskId}_%j.out`);
+    lines.push(`#SBATCH --error=${workdir}/astro_${task.taskId}_%j.err`);
 
     // Partition
     if (config.partition) {
@@ -202,7 +202,7 @@ export class SlurmExecutor {
     lines.push('set -e');
     lines.push('');
     lines.push('# Job info');
-    lines.push('echo "=== Nexus Job ==="');
+    lines.push('echo "=== Astro Job ==="');
     lines.push('echo "Job ID: $SLURM_JOB_ID"');
     lines.push('echo "Job Name: $SLURM_JOB_NAME"');
     lines.push('echo "Node: $SLURMD_NODENAME"');
@@ -222,8 +222,8 @@ export class SlurmExecutor {
 
     // Environment variables
     lines.push('# Environment');
-    lines.push(`export NEXUS_TASK_ID="${task.taskId}"`);
-    lines.push(`export NEXUS_PROJECT_ID="${task.projectId}"`);
+    lines.push(`export ASTRO_TASK_ID="${task.taskId}"`);
+    lines.push(`export ASTRO_PROJECT_ID="${task.projectId}"`);
     lines.push('');
 
     // Extract and add commands from task description

@@ -1,5 +1,5 @@
 /**
- * Nexus Agent Runner
+ * Astro Agent Runner
  *
  * Lightweight agent runner for local, remote, and HPC environments.
  * Exports the public API for programmatic use.

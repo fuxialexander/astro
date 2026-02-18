@@ -80,8 +80,8 @@ export interface InstallOptions {
  *   1. `npm pack` in the agent-runner directory → tarball
  *   2. `scp` tarball to remote ~/
  *   3. `ssh npm install -g <tarball>` on remote
- *   4. `ssh nexus-agent setup --non-interactive --skip-auth` on remote
- *   5. Push tokens via `ssh nexus-agent config --set` commands
+ *   4. `ssh astro-agent setup --non-interactive --skip-auth` on remote
+ *   5. Push tokens via `ssh astro-agent config --set` commands
  */
 export async function packAndInstall(
   opts: InstallOptions,
@@ -100,13 +100,13 @@ export async function packAndInstall(
 
   // 2. SCP tarball to remote
   log(`Copying to ${host.name}...`);
-  const scpArgs = buildScpArgs(host, tarball, '~/nexus-agent.tgz');
+  const scpArgs = buildScpArgs(host, tarball, '~/astro-agent.tgz');
   await execFile('scp', scpArgs);
 
   // 3. Install to user-local prefix to avoid EACCES on system dirs
   log(`Installing on ${host.name}...`);
   const npmPrefix = '~/.local';
-  await sshExec(host, `mkdir -p ${npmPrefix} && npm install -g --prefix ${npmPrefix} ~/nexus-agent.tgz`);
+  await sshExec(host, `mkdir -p ${npmPrefix} && npm install -g --prefix ${npmPrefix} ~/astro-agent.tgz`);
 
   // 4. Ensure ~/.local/bin is on PATH for this session and future logins
   const binDir = `${npmPrefix}/bin`;
@@ -121,23 +121,23 @@ export async function packAndInstall(
   log(`Running setup on ${host.name}...`);
   await sshExec(
     host,
-    `${pathExport} && nexus-agent setup --non-interactive --skip-auth --type remote --api ${apiUrl} --relay ${relayUrl}`,
+    `${pathExport} && astro-agent setup --non-interactive --skip-auth --type remote --api ${apiUrl} --relay ${relayUrl}`,
   );
 
   // 6. Push tokens
   log(`Configuring tokens on ${host.name}...`);
   const setCommands = [
-    `nexus-agent config --set apiUrl=${apiUrl}`,
-    `nexus-agent config --set relayUrl=${relayUrl}`,
-    `nexus-agent config --set accessToken=${accessToken}`,
-    `nexus-agent config --set refreshToken=${refreshToken}`,
-    `nexus-agent config --set wsToken=${wsToken}`,
-    `nexus-agent config --set machineId=${machineId}`,
+    `astro-agent config --set apiUrl=${apiUrl}`,
+    `astro-agent config --set relayUrl=${relayUrl}`,
+    `astro-agent config --set accessToken=${accessToken}`,
+    `astro-agent config --set refreshToken=${refreshToken}`,
+    `astro-agent config --set wsToken=${wsToken}`,
+    `astro-agent config --set machineId=${machineId}`,
   ];
   await sshExec(host, `${pathExport} && ${setCommands.join(' && ')}`);
 
   // Clean up remote tarball
-  await sshExec(host, 'rm -f ~/nexus-agent.tgz').catch(() => {});
+  await sshExec(host, 'rm -f ~/astro-agent.tgz').catch(() => {});
 
   log(`Done — ${host.name} is configured`);
 }

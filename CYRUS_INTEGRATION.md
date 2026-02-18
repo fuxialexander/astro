@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document summarizes the integration of Cyrus's battle-tested architecture patterns into Nexus, focusing on event-driven post-execution hooks, procedure-based workflows, and enhanced task execution infrastructure.
+This document summarizes the integration of Cyrus's battle-tested architecture patterns into Astro, focusing on event-driven post-execution hooks, procedure-based workflows, and enhanced task execution infrastructure.
 
 ## What Was Implemented
 
@@ -12,12 +12,12 @@ This document summarizes the integration of Cyrus's battle-tested architecture p
 
 **Files Created**:
 1. `server/lib/events/types.ts` - Event type definitions
-   - `NexusEvent` union type (task.started, task.completed, task.failed, task.cancelled, branch.pruned, task.progress)
+   - `AstroEvent` union type (task.started, task.completed, task.failed, task.cancelled, branch.pruned, task.progress)
    - `EventHook` function signature for hook handlers
-   - `NexusEventTransportEvents` interface for typed event emitter
+   - `AstroEventTransportEvents` interface for typed event emitter
 
-2. `server/lib/events/nexus-event-transport.ts` - Event bus implementation
-   - Singleton `NexusEventTransport` class extending EventEmitter
+2. `server/lib/events/astro-event-transport.ts` - Event bus implementation
+   - Singleton `AstroEventTransport` class extending EventEmitter
    - Hook registration/unregistration (`registerHook`, `unregisterHook`)
    - Async event emission with error isolation (`emitEvent`)
    - Enable/disable toggle for testing
@@ -31,11 +31,11 @@ This document summarizes the integration of Cyrus's battle-tested architecture p
 
 **Files Created**:
 1. `server/lib/events/hooks/sse-notification-hook.ts`
-   - Bridges `NexusEvent` to existing `executionEventBus` for SSE delivery
+   - Bridges `AstroEvent` to existing `executionEventBus` for SSE delivery
    - Real-time UI updates for task.started, task.progress, task.completed, task.failed, task.cancelled, branch.pruned
 
 2. `server/lib/events/hooks/audit-log-hook.ts`
-   - Structured JSONL logging to `~/.nexus/logs/execution-YYYY-MM-DD.jsonl`
+   - Structured JSONL logging to `~/.astro/logs/execution-YYYY-MM-DD.jsonl`
    - Per-day log files for debugging and compliance
    - All task lifecycle events logged with timestamps
 
@@ -46,7 +46,7 @@ This document summarizes the integration of Cyrus's battle-tested architecture p
 
 **Integration Points**:
 - Modified `server/lib/dispatch/dispatch-engine.ts`:
-  - Imports `nexusEventTransport` and event types
+  - Imports `astroEventTransport` and event types
   - Emits `task.started` event when execution begins (line ~435)
   - Emits `task.completed` event in `handleResult()` (line ~598)
   - Emits `task.cancelled` event on abort (line ~511)
@@ -90,7 +90,7 @@ This document summarizes the integration of Cyrus's battle-tested architecture p
 
 **After**: Clean separation via event transport:
 ```
-Task Execution → NexusEventTransport → Hooks (SSE, audit log, usage metrics)
+Task Execution → AstroEventTransport → Hooks (SSE, audit log, usage metrics)
 ```
 
 **Benefits**:
@@ -135,7 +135,7 @@ Task Execution → NexusEventTransport → Hooks (SSE, audit log, usage metrics)
 
 ### 3. Comprehensive Audit Trail (✅ Complete)
 
-**JSONL Logs** (`~/.nexus/logs/execution-*.jsonl`):
+**JSONL Logs** (`~/.astro/logs/execution-*.jsonl`):
 ```json
 {"timestamp":"2026-02-15T17:30:00.000Z","type":"task.started","taskId":"exec-node-123","nodeId":"node-123","projectId":"proj-1","executionId":"exec-node-123"}
 {"timestamp":"2026-02-15T17:31:00.000Z","type":"task.completed","taskId":"exec-node-123","status":"success","metrics":{"durationMs":60000,"tokensUsed":1500,"estimatedCostUsd":0.015}}
@@ -297,7 +297,7 @@ result.metadata = {
    - Automatic PR creation on task completion
 
 5. **Linear Integration Hook** - ❌ Not Implemented (by design)
-   - Nexus uses its own API, not Linear
+   - Astro uses its own API, not Linear
    - Could add similar integration with GitHub Issues or Linear if needed
 
 ## Testing & Verification
@@ -319,8 +319,8 @@ curl -X POST http://localhost:3001/api/dispatch/task \
 
 3. **Verify JSONL logs created**:
 ```bash
-ls ~/.nexus/logs/
-cat ~/.nexus/logs/execution-$(date +%Y-%m-%d).jsonl | jq .
+ls ~/.astro/logs/
+cat ~/.astro/logs/execution-$(date +%Y-%m-%d).jsonl | jq .
 ```
 
 4. **Verify SSE events emitted**:
@@ -406,7 +406,7 @@ Add to `ClaudeCodeProvider` (or create `CyrusClaudeProvider`):
 
 **New Files** (14):
 - `server/lib/events/types.ts` - Event type definitions
-- `server/lib/events/nexus-event-transport.ts` - Event bus implementation
+- `server/lib/events/astro-event-transport.ts` - Event bus implementation
 - `server/lib/events/__tests__/event-transport.test.ts` - Unit tests
 - `server/lib/events/hooks/sse-notification-hook.ts` - SSE notification hook
 - `server/lib/events/hooks/audit-log-hook.ts` - JSONL audit logging
@@ -432,7 +432,7 @@ Add to `ClaudeCodeProvider` (or create `CyrusClaudeProvider`):
 - ✅ Event transport system operational (singleton, hook registration)
 - ✅ 4 hooks registered and running (SSE, audit log, usage metrics, PR creation)
 - ✅ Events emitted at all task lifecycle points (started, completed, failed, cancelled)
-- ✅ JSONL logs created in `~/.nexus/logs/`
+- ✅ JSONL logs created in `~/.astro/logs/`
 - ✅ Hook errors isolated (don't crash execution)
 
 **Phase 3: Post-Execution Hooks** ✅
@@ -463,7 +463,7 @@ Add to `ClaudeCodeProvider` (or create `CyrusClaudeProvider`):
 ## Architectural Benefits
 
 1. **Extensibility**: Adding new hooks is trivial (register in `server/index.ts`)
-2. **Testability**: Mock `nexusEventTransport` for unit tests
+2. **Testability**: Mock `astroEventTransport` for unit tests
 3. **Observability**: JSONL audit trail + usage metrics aggregation
 4. **Decoupling**: Execution logic separate from side effects
 5. **Error Resilience**: Hook failures don't crash main execution flow

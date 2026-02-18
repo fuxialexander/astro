@@ -24,10 +24,10 @@ export const useInitiativeStore = create<InitiativeState>((set, get) => ({
       const initiatives = await dataClient.listInitiatives()
       set({ initiatives, loaded: true })
       // Update IndexedDB cache for offline fallback
-      saveState("nexus-initiatives", initiatives)
+      saveState("astro-initiatives", initiatives)
     } catch {
       // API unavailable — fall back to IndexedDB cache
-      const saved = await loadState<Initiative[]>("nexus-initiatives")
+      const saved = await loadState<Initiative[]>("astro-initiatives")
       if (saved) {
         set({
           initiatives: saved.map(i => ({
@@ -46,7 +46,7 @@ export const useInitiativeStore = create<InitiativeState>((set, get) => ({
   addInitiative: (initiative) => {
     const next = [...get().initiatives, initiative]
     set({ initiatives: next })
-    saveState("nexus-initiatives", next)
+    saveState("astro-initiatives", next)
     dataClient.createInitiative(initiative).catch(() => {})
   },
 
@@ -55,14 +55,14 @@ export const useInitiativeStore = create<InitiativeState>((set, get) => ({
       i.id === id ? { ...i, ...updates, updatedAt: new Date() } : i
     )
     set({ initiatives: next })
-    saveState("nexus-initiatives", next)
+    saveState("astro-initiatives", next)
     dataClient.updateInitiative(id, updates).catch(() => {})
   },
 
   deleteInitiative: (id) => {
     const next = get().initiatives.filter((i) => i.id !== id)
     set({ initiatives: next })
-    saveState("nexus-initiatives", next)
+    saveState("astro-initiatives", next)
     dataClient.deleteInitiative(id).catch(() => {})
   },
 }))

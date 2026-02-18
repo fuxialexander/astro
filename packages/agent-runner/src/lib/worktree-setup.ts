@@ -1,7 +1,7 @@
 /**
  * Worktree setup script execution
  *
- * Runs `nexus-setup.sh` (if present) inside the worktree to perform
+ * Runs `astro-setup.sh` (if present) inside the worktree to perform
  * environment-specific setup like `npm install`, venv creation, etc.
  */
 
@@ -20,7 +20,7 @@ export interface SetupScriptOptions {
   timeout?: number;
 }
 
-const SETUP_SCRIPT = 'nexus-setup.sh';
+const SETUP_SCRIPT = 'astro-setup.sh';
 const DEFAULT_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 const KILL_GRACE = 5_000; // 5s after SIGTERM before SIGKILL
 
@@ -49,9 +49,9 @@ export async function runSetupScript(options: SetupScriptOptions): Promise<void>
       cwd: worktreePath,
       env: {
         ...process.env,
-        NEXUS_TASK_ID: taskId,
-        NEXUS_PROJECT_ID: projectId ?? '',
-        NEXUS_NODE_ID: nodeId ?? '',
+        ASTRO_TASK_ID: taskId,
+        ASTRO_PROJECT_ID: projectId ?? '',
+        ASTRO_NODE_ID: nodeId ?? '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

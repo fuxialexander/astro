@@ -4,7 +4,7 @@ This document shows a practical example of how the realtime sync system works ac
 
 ## Scenario: Creating a New Task
 
-Alice is working on a project called "Website Redesign" and wants to create a new task. She has Nexus open on both her laptop and her phone.
+Alice is working on a project called "Website Redesign" and wants to create a new task. She has Astro open on both her laptop and her phone.
 
 ### Timeline
 

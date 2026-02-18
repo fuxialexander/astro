@@ -148,7 +148,7 @@ export class ContextBuilder {
    * Build a context file and return its path.
    */
   private async buildContextFile(content: string): Promise<PreparedContext> {
-    const tempDir = join(tmpdir(), 'nexus-context')
+    const tempDir = join(tmpdir(), 'astro-context')
     await mkdir(tempDir, { recursive: true })
 
     const fileName = `context-${randomUUID()}.md`

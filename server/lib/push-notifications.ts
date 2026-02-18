@@ -81,7 +81,7 @@ async function sendAPNs(deviceToken: string, payload: PushPayload) {
   const teamId = process.env.APNS_TEAM_ID
   const keyId = process.env.APNS_KEY_ID
   const authKey = process.env.APNS_AUTH_KEY // .p8 file content
-  const bundleId = process.env.APNS_BUNDLE_ID || 'com.nexus.app'
+  const bundleId = process.env.APNS_BUNDLE_ID || 'com.astro.app'
 
   if (!teamId || !keyId || !authKey) {
     console.warn('[push] APNs not configured (missing APNS_TEAM_ID/APNS_KEY_ID/APNS_AUTH_KEY), skipping notification')

@@ -1,7 +1,7 @@
 /**
- * Types for the Nexus MCP Bridge
+ * Types for the Astro MCP Bridge
  *
- * This MCP server allows existing Claude Code sessions to connect to Nexus
+ * This MCP server allows existing Claude Code sessions to connect to Astro
  * and link their activity to specific tasks.
  */
 
@@ -14,7 +14,7 @@ export type SessionAttachmentState = 'disconnected' | 'connecting' | 'attached' 
 
 /** Session attachment information */
 export interface SessionAttachment {
-  /** Task identifier in Nexus (e.g., "RES-13") */
+  /** Task identifier in Astro (e.g., "RES-13") */
   taskId: string;
   /** Unique session ID for this attachment */
   sessionId: string;
@@ -24,11 +24,11 @@ export interface SessionAttachment {
   attachedAt?: Date;
   /** Error message if state is 'error' */
   error?: string;
-  /** Number of events sent to Nexus */
+  /** Number of events sent to Astro */
   eventCount: number;
 }
 
-/** Session event types that can be sent to Nexus */
+/** Session event types that can be sent to Astro */
 export type SessionEventType =
   | 'tool_call'
   | 'tool_result'
@@ -148,15 +148,15 @@ export type SessionEventInput =
 // MCP Tool Input Types
 // ============================================================================
 
-/** Input for nexus_attach tool */
+/** Input for astro_attach tool */
 export interface AttachInput {
   /** Task identifier to attach to (e.g., "RES-13") */
   taskId: string;
 }
 
-/** Input for nexus_send tool */
+/** Input for astro_send tool */
 export interface SendInput {
-  /** Message or event to send to Nexus */
+  /** Message or event to send to Astro */
   message: string;
   /** Optional event type */
   eventType?: SessionEventType;
@@ -172,18 +172,18 @@ export interface McpToolResponse {
   message: string;
 }
 
-/** Response from nexus_attach */
+/** Response from astro_attach */
 export interface AttachResponse extends McpToolResponse {
   sessionId?: string;
   taskId?: string;
 }
 
-/** Response from nexus_detach */
+/** Response from astro_detach */
 export interface DetachResponse extends McpToolResponse {
   eventsSent?: number;
 }
 
-/** Response from nexus_status */
+/** Response from astro_status */
 export interface StatusResponse extends McpToolResponse {
   state: SessionAttachmentState;
   taskId?: string;
@@ -193,7 +193,7 @@ export interface StatusResponse extends McpToolResponse {
   relayConnected?: boolean;
 }
 
-/** Response from nexus_send */
+/** Response from astro_send */
 export interface SendResponse extends McpToolResponse {
   eventId?: string;
 }

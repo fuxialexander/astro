@@ -2,7 +2,7 @@
  * OpenAI Codex Provider Adapter
  *
  * Implements the AgentProvider interface for OpenAI Codex CLI.
- * This adapter translates Nexus task dispatches into Codex CLI invocations.
+ * This adapter translates Astro task dispatches into Codex CLI invocations.
  *
  * Key characteristics:
  * - Spawns Codex CLI as external process
@@ -120,7 +120,7 @@ function checkOpenAIAuth(): 'authenticated' | 'unauthenticated' {
 
 /**
  * OpenAI Codex provider adapter.
- * Wraps the OpenAI Codex CLI for use with the Nexus provider abstraction.
+ * Wraps the OpenAI Codex CLI for use with the Astro provider abstraction.
  */
 export class CodexProvider implements AgentProvider {
   readonly id = 'codex'

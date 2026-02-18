@@ -1,6 +1,6 @@
 # Relay Server
 
-WebSocket hub that brokers communication between the Nexus platform (plan graph, dispatch engine) and agent runners on user machines.
+WebSocket hub that brokers communication between the Astro platform (plan graph, dispatch engine) and agent runners on user machines.
 
 ## Overview
 
@@ -14,7 +14,7 @@ The relay server enables multi-environment task dispatch by:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Nexus Platform                          │
+│                         Astro Platform                          │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
 │  │ Plan Graph  │  │  Dispatch   │  │      HTTP API           │  │
 │  │             │──│   Engine    │──│  /api/relay/*           │  │

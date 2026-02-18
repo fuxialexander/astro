@@ -1,11 +1,11 @@
 {
-  "name": "@nexus/agent",
+  "name": "@astro/agent",
   "version": "0.1.0",
-  "description": "Nexus Agent Runner CLI - Lightweight agent runner for local, remote, and HPC environments",
+  "description": "Astro Agent Runner CLI - Lightweight agent runner for local, remote, and HPC environments",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "nexus-agent": "dist/cli.js"
+    "astro-agent": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
-    "nexus",
+    "astro",
     "agent",
     "cli",
     "ai",

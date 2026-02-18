@@ -1,5 +1,5 @@
 {
-  "name": "nexus",
+  "name": "astro",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -16,7 +16,7 @@
     "build:server": "tsc -b",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy:frontend": "npm run build && wrangler pages deploy dist --project-name=nexus-app",
+    "deploy:frontend": "npm run build && wrangler pages deploy dist --project-name=astro-app",
     "deploy:backend": "bash ./scripts/deploy-fly.sh",
     "deploy": "npm run deploy:backend && npm run deploy:frontend",
     "deploy:prod": "npm run deploy:backend && npm run deploy:frontend",

@@ -85,7 +85,7 @@ async function persistSessions(sessions: Map<string, GenerationSession>): Promis
     startedAt: new Date(session.startedAt).toISOString(),
     completedAt: session.completedAt ? new Date(session.completedAt).toISOString() : null,
   }))
-  await saveState("nexus-agent-sessions", serialized)
+  await saveState("astro-agent-sessions", serialized)
 }
 
 function debouncedPersist(sessions: Map<string, GenerationSession>): void {
@@ -146,7 +146,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   load: async () => {
     try {
-      const stored = await loadState<SerializedSession[]>("nexus-agent-sessions")
+      const stored = await loadState<SerializedSession[]>("astro-agent-sessions")
       if (!stored || !Array.isArray(stored)) {
         console.log("[agent-store] No sessions to restore")
         set({ loaded: true })

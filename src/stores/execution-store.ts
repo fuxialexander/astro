@@ -824,7 +824,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }
 
       // Fall back to IndexedDB
-      const stored = await loadState<Record<string, SerializedTaskExecution>>('nexus-executions')
+      const stored = await loadState<Record<string, SerializedTaskExecution>>('astro-executions')
       if (stored) {
         const executions = deserializeExecutions(stored)
         set({ executions, loaded: true })
@@ -856,7 +856,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const serialized = serializeExecutions(toStore)
 
       // Save to IndexedDB
-      await saveState('nexus-executions', serialized)
+      await saveState('astro-executions', serialized)
       console.log('[execution-store] Persisted', Object.keys(serialized).length, 'executions to IndexedDB')
 
       // Fire-and-forget: sync to Supabase (if enabled)

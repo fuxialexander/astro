@@ -13,7 +13,7 @@
 
 | Input | Example | Resolves To | Notes |
 |-------|---------|-------------|-------|
-| Git URL | `https://github.com/user/repo` | `~/.nexus/repos/<projectId>/` | Auto-clones |
+| Git URL | `https://github.com/user/repo` | `~/.astro/repos/<projectId>/` | Auto-clones |
 | Absolute path | `/Users/alice/project` | `/Users/alice/project` | Uses as-is |
 | Relative path | `./my-folder` | `<cwd>/my-folder` | Resolved to absolute |
 | Empty/null | `undefined` | `process.cwd()` | Current working dir |
@@ -86,7 +86,7 @@ If any fails → **Not a git repo**
 ```
 1. Check size (exclude: node_modules, .git, venv, etc.)
 2. Size < limit? → Continue
-3. Copy to ~/.nexus/sandbox/<taskId>/
+3. Copy to ~/.astro/sandbox/<taskId>/
 4. Execute in sandbox
 5. Cleanup or copyBack()
 ```
@@ -137,7 +137,7 @@ cd ~/no-git && run task-2  # Blocked!
 
 ### 📦 Scenario: Sandbox mode
 ```bash
-npx @nexus/agent start --sandbox
+npx @astro/agent start --sandbox
 # → ALL tasks use sandbox
 # → Original files safe
 # → Review before applying
@@ -157,7 +157,7 @@ git commit -m "Before AI"
 ### Tip 2: Sandbox for Experiments
 ```bash
 # Try risky changes safely:
-npx @nexus/agent start --sandbox --max-sandbox-size 500
+npx @astro/agent start --sandbox --max-sandbox-size 500
 # → Work on copy
 # → Discard if bad
 ```
@@ -173,7 +173,7 @@ git add . && git commit -m "Checkpoint"
 ### Tip 4: Automation Mode
 ```bash
 # CI/CD pipelines:
-npx @nexus/agent start --allow-non-git
+npx @astro/agent start --allow-non-git
 # → No prompts
 # → Faster execution
 # → ⚠️ Use only in controlled environments
@@ -187,7 +187,7 @@ npx @nexus/agent start --allow-non-git
 Directory size (500MB) exceeds limit (100MB)
 
 # Solution:
-npx @nexus/agent start --sandbox --max-sandbox-size 600
+npx @astro/agent start --sandbox --max-sandbox-size 600
 ```
 
 ### "Parallel execution blocked"
@@ -199,7 +199,7 @@ Multiple tasks in same non-git directory
 1. Wait: Let first task finish
 2. Git: git init && git add . && git commit -m "Initial"
 3. Different dir: Use separate folders
-4. Sandbox: npx @nexus/agent start --sandbox
+4. Sandbox: npx @astro/agent start --sandbox
 ```
 
 ### "Git not available"

@@ -69,11 +69,11 @@ const INTERNAL_FIELDS = new Set(["id", "projectId", "createdAt", "updatedAt", "p
 
 // ---- Update parsing utilities ----
 
-const UPDATE_BLOCK_RE = /```nexus-updates\s*\n([\s\S]*?)```/g
-const EDGE_BLOCK_RE = /```nexus-edges\s*\n([\s\S]*?)```/g
-const ADD_NODES_BLOCK_RE = /```nexus-add-nodes\s*\n([\s\S]*?)```/g
+const UPDATE_BLOCK_RE = /```astro-updates\s*\n([\s\S]*?)```/g
+const EDGE_BLOCK_RE = /```astro-edges\s*\n([\s\S]*?)```/g
+const ADD_NODES_BLOCK_RE = /```astro-add-nodes\s*\n([\s\S]*?)```/g
 
-/** Extract nexus-updates, nexus-edges, and nexus-add-nodes blocks from a message. */
+/** Extract astro-updates, astro-edges, and astro-add-nodes blocks from a message. */
 function extractMutations(content: string): { cleanContent: string; mutations: AppliedMutations } {
   const nodeUpdates: ParsedNodeUpdate[] = []
   const edgeOps: ParsedEdgeOp[] = []

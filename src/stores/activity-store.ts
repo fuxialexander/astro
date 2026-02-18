@@ -37,7 +37,7 @@ type ActivityStore = {
   clearProjectActivities: (projectId: string) => void
 }
 
-const ACTIVITY_STORE_KEY = "nexus:activities"
+const ACTIVITY_STORE_KEY = "astro:activities"
 const MAX_ACTIVITIES = 1000 // Keep last 1000 activities
 
 export const useActivityStore = create<ActivityStore>((set, get) => ({

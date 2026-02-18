@@ -1,10 +1,10 @@
-# Nexus MCP Tools Reference
+# Astro MCP Tools Reference
 
-This document describes all MCP (Model Context Protocol) tools available to agents running within Nexus task execution.
+This document describes all MCP (Model Context Protocol) tools available to agents running within Astro task execution.
 
 ## Overview
 
-Agents executing tasks in Nexus have access to **18 comprehensive MCP tools** that enable them to:
+Agents executing tasks in Astro have access to **18 comprehensive MCP tools** that enable them to:
 - **Manage the plan** (create/update/delete tasks, dependencies)
 - **Manage projects** (create/update projects, query project details)
 - **Manage initiatives** (group related projects)
@@ -696,10 +696,10 @@ create_task({
 
 The MCP server automatically receives these environment variables from the provider:
 
-- `NEXUS_EXECUTION_ID`: Current execution/task ID
-- `NEXUS_PROJECT_ID`: Current project ID (used as default for tools)
-- `NEXUS_SERVER_URL`: Nexus API server URL (default: http://localhost:3001)
-- `NEXUS_AUTH_TOKEN`: Authentication token for API requests
+- `ASTRO_EXECUTION_ID`: Current execution/task ID
+- `ASTRO_PROJECT_ID`: Current project ID (used as default for tools)
+- `ASTRO_SERVER_URL`: Astro API server URL (default: http://localhost:3001)
+- `ASTRO_AUTH_TOKEN`: Authentication token for API requests
 
 Most tools use these automatically, so you don't need to specify `projectId` in most cases.
 
@@ -714,7 +714,7 @@ All tools return errors in a consistent format:
   "content": [
     {
       "type": "text",
-      "text": "Error: No project ID available. Specify projectId or ensure NEXUS_PROJECT_ID is set."
+      "text": "Error: No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set."
     }
   ],
   "isError": true

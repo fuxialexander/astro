@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Nexus MCP Tools Server
+ * Astro MCP Tools Server
  *
- * Provides comprehensive tools for Claude Agent SDK to interact with Nexus platform:
+ * Provides comprehensive tools for Claude Agent SDK to interact with Astro platform:
  * - Plan management (create/update tasks, dependencies, query)
  * - Project management (create/update/query projects)
  * - Initiative management (create/update/query initiatives)
@@ -15,16 +15,16 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 // ────────────────────────────────────────────────────────────────────────────
-// HTTP Client for Nexus API
+// HTTP Client for Astro API
 // ────────────────────────────────────────────────────────────────────────────
 
-const serverUrl = process.env.NEXUS_SERVER_URL || 'http://localhost:3001'
-const authToken = process.env.NEXUS_AUTH_TOKEN || ''
-const executionId = process.env.NEXUS_EXECUTION_ID || ''
-const projectId = process.env.NEXUS_PROJECT_ID || ''
+const serverUrl = process.env.ASTRO_SERVER_URL || 'http://localhost:3001'
+const authToken = process.env.ASTRO_AUTH_TOKEN || ''
+const executionId = process.env.ASTRO_EXECUTION_ID || ''
+const projectId = process.env.ASTRO_PROJECT_ID || ''
 
 /**
- * Make authenticated HTTP request to Nexus API
+ * Make authenticated HTTP request to Astro API
  */
 async function apiRequest<T>(
   method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
@@ -59,7 +59,7 @@ async function apiRequest<T>(
 
 const server = new Server(
   {
-    name: 'nexus-tools',
+    name: 'astro-tools',
     version: '2.0.0',
   },
   {
@@ -577,7 +577,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (toolName === 'query_plan') {
       const targetProjectId = (args.projectId as string) || projectId
       if (!targetProjectId) {
-        throw new Error('No project ID available. Specify projectId or ensure NEXUS_PROJECT_ID is set.')
+        throw new Error('No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set.')
       }
 
       const plan = await apiRequest<{ nodes: unknown[]; edges: unknown[] }>(
@@ -598,7 +598,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (toolName === 'create_task') {
       const targetProjectId = (args.projectId as string) || projectId
       if (!targetProjectId) {
-        throw new Error('No project ID available. Specify projectId or ensure NEXUS_PROJECT_ID is set.')
+        throw new Error('No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set.')
       }
 
       const nodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -669,7 +669,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (toolName === 'create_dependency') {
       const targetProjectId = (args.projectId as string) || projectId
       if (!targetProjectId) {
-        throw new Error('No project ID available. Specify projectId or ensure NEXUS_PROJECT_ID is set.')
+        throw new Error('No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set.')
       }
 
       const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -728,7 +728,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (toolName === 'get_project') {
       const targetProjectId = (args.projectId as string) || projectId
       if (!targetProjectId) {
-        throw new Error('No project ID available. Specify projectId or ensure NEXUS_PROJECT_ID is set.')
+        throw new Error('No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set.')
       }
 
       const project = await apiRequest<unknown>('GET', `/api/data/projects/${targetProjectId}`)
@@ -774,7 +774,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (toolName === 'update_project') {
       const targetProjectId = (args.projectId as string) || projectId
       if (!targetProjectId) {
-        throw new Error('No project ID available. Specify projectId or ensure NEXUS_PROJECT_ID is set.')
+        throw new Error('No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set.')
       }
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -902,7 +902,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport()
   await server.connect(transport)
-  console.error('Nexus MCP Tools Server v2.0 running on stdio')
+  console.error('Astro MCP Tools Server v2.0 running on stdio')
   console.error(`  Server URL: ${serverUrl}`)
   console.error(`  Auth: ${authToken ? 'Configured' : 'Not configured'}`)
   console.error(`  Execution ID: ${executionId || 'Not set'}`)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Parallel Test Runner for Nexus
+# Parallel Test Runner for Astro
 # Runs independent unit tests in parallel for faster feedback
 
 set -e
@@ -14,7 +14,7 @@ NC='\033[0m'
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_DIR="$SCRIPT_DIR/tests"
-RESULTS_DIR="/tmp/nexus-test-results-$(date +%s)"
+RESULTS_DIR="/tmp/astro-test-results-$(date +%s)"
 mkdir -p "$RESULTS_DIR"
 
 # Test suites
@@ -166,7 +166,7 @@ usage() {
     cat <<EOF
 Usage: $0 [OPTIONS]
 
-Run Nexus test suites
+Run Astro test suites
 
 OPTIONS:
     -u, --unit          Run unit tests only (parallel)
@@ -229,7 +229,7 @@ main() {
         esac
     done
 
-    log_info "Nexus Test Runner"
+    log_info "Astro Test Runner"
     log_info "Mode: $mode | Parallel: $parallel_mode"
     log_info "Results dir: $RESULTS_DIR"
     echo ""

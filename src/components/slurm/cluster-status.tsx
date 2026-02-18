@@ -125,7 +125,7 @@ export function ClusterStatus({ compact = false, showPartitions = false }: Clust
           <Server className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
           <p className="text-sm font-medium">No HPC Clusters</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Connect a cluster by running the Nexus CLI on a login node
+            Connect a cluster by running the Astro CLI on a login node
           </p>
         </div>
       ) : (

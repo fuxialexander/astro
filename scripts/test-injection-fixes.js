@@ -61,17 +61,17 @@ const maliciousPaths = [
   '/etc/passwd',
   '/tmp/malicious',
   '../../../etc/passwd',
-  join(homedir(), '.nexus', '..', 'dangerous'),
-  join(homedir(), 'outside-nexus'),
+  join(homedir(), '.astro', '..', 'dangerous'),
+  join(homedir(), 'outside-astro'),
 ];
 
 const validPaths = [
-  join(homedir(), '.nexus', 'projects', 'test-project'),
-  join(homedir(), '.nexus', 'repos', 'my-repo'),
+  join(homedir(), '.astro', 'projects', 'test-project'),
+  join(homedir(), '.astro', 'repos', 'my-repo'),
 ];
 
 console.log('\nMalicious paths (should be blocked):');
-const allowedBase = resolve(homedir(), '.nexus');
+const allowedBase = resolve(homedir(), '.astro');
 
 maliciousPaths.forEach((path, i) => {
   const requestedPath = resolve(path);

@@ -1,6 +1,6 @@
-# Nexus Testing Guide
+# Astro Testing Guide
 
-Comprehensive testing documentation for the Nexus platform.
+Comprehensive testing documentation for the Astro platform.
 
 ## Test Structure
 

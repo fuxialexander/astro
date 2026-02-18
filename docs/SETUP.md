@@ -1,4 +1,4 @@
-# Nexus Setup Guide
+# Astro Setup Guide
 
 ## Prerequisites
 
@@ -15,8 +15,8 @@
 ## Quick Start
 
 ```bash
-git clone git@github.com:fuxialexander/nexus.git
-cd nexus
+git clone git@github.com:fuxialexander/astro.git
+cd astro
 nvm use
 npm install
 cp .env.example .env
@@ -91,12 +91,12 @@ Browser --> Cloudflare Tunnel (HTTPS) --> Vite (HTTP :5173) --> proxy /api --> B
    npm run dev:tunnel
    ```
 
-This starts the dev servers, waits for readiness, pre-warms Vite, then starts the tunnel. Your app is available at `https://nexus.yourdomain.com`.
+This starts the dev servers, waits for readiness, pre-warms Vite, then starts the tunnel. Your app is available at `https://astro.yourdomain.com`.
 
 ### What the tunnel script does
 
-- Creates/reuses a tunnel named `nexus`
-- Sets up DNS routes: `nexus.`, `nexus-api.`, `nexus-relay.`, `nexus-supabase.` subdomains
+- Creates/reuses a tunnel named `astro`
+- Sets up DNS routes: `astro.`, `astro-api.`, `astro-relay.`, `astro-supabase.` subdomains
 - Writes tunnel-compatible env vars to `.env.local` (ALLOWED_HOSTS, HMR config, WebAuthn RP ID)
 - Auto-detects whether Supabase is running and includes/skips that route
 
@@ -128,7 +128,7 @@ This:
 SSH into the remote machine, install the agent runner, and run:
 
 ```bash
-~/.local/bin/nexus-agent start --foreground
+~/.local/bin/astro-agent start --foreground
 ```
 
 Approve the device in the browser. The machine appears in the Environments page.
@@ -147,9 +147,9 @@ Database:  Supabase Cloud (PostgreSQL + Auth)
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `VITE_API_BASE_URL` | `https://nexus-backend.fly.dev` | SSE goes direct to Fly.io (bypasses Cloudflare) |
-| `WEBAUTHN_RP_ID` | `nexus.yourdomain.com` | Passkey domain binding |
-| `WEBAUTHN_ORIGIN` | `https://nexus.yourdomain.com` | WebAuthn origin check |
+| `VITE_API_BASE_URL` | `https://astro-backend.fly.dev` | SSE goes direct to Fly.io (bypasses Cloudflare) |
+| `WEBAUTHN_RP_ID` | `astro.yourdomain.com` | Passkey domain binding |
+| `WEBAUTHN_ORIGIN` | `https://astro.yourdomain.com` | WebAuthn origin check |
 | `SUPABASE_URL` | `https://xxx.supabase.co` | Backend Supabase access |
 | `VITE_SUPABASE_URL` | `https://xxx.supabase.co` | Frontend Supabase access |
 
@@ -201,7 +201,7 @@ bash scripts/agent-setup.sh yourdomain.com
 
 ### Touch ID shows QR code instead
 
-Passkeys are bound to the RP ID (domain). If you registered on `localhost`, those passkeys won't work on `nexus.yourdomain.com`. Reset the database (`supabase db reset`) and re-register on the correct domain.
+Passkeys are bound to the RP ID (domain). If you registered on `localhost`, those passkeys won't work on `astro.yourdomain.com`. Reset the database (`supabase db reset`) and re-register on the correct domain.
 
 ### Full clean start
 

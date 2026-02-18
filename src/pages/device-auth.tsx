@@ -219,7 +219,7 @@ export function DeviceAuth() {
         <div className="w-full max-w-md">
         {/* Logo/Brand */}
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold">Nexus</h1>
+          <h1 className="text-2xl font-bold">Astro</h1>
           <p className="text-sm text-muted-foreground">Device Authentication</p>
         </div>
 
@@ -329,7 +329,7 @@ export function DeviceAuth() {
             {(status === "pending" || status === "loading") && deviceInfo && (
               <div className="flex flex-col gap-6">
                 <p className="text-center text-sm text-muted-foreground">
-                  A device is requesting access to your Nexus workspace.
+                  A device is requesting access to your Astro workspace.
                 </p>
 
                 {/* Device Info */}
@@ -401,7 +401,7 @@ export function DeviceAuth() {
 
           {/* Footer */}
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            Having trouble? Run <code className="rounded bg-muted px-1 py-0.5">npx @nexus/agent setup</code> to
+            Having trouble? Run <code className="rounded bg-muted px-1 py-0.5">npx @astro/agent setup</code> to
             start the device authentication process.
           </p>
         </div>

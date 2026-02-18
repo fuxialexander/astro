@@ -217,8 +217,8 @@ export async function pushAndCreatePR(
   }
 
   const body = options.taskDescription
-    ? `## Task\n\n${options.taskDescription}\n\n---\n*Created by Nexus task automation*`
-    : '*Created by Nexus task automation*';
+    ? `## Task\n\n${options.taskDescription}\n\n---\n*Created by Astro task automation*`
+    : '*Created by Astro task automation*';
 
   const pr = await createPullRequest(worktreePath, {
     branchName: options.branchName,

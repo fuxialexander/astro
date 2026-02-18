@@ -29,8 +29,8 @@ import { ContextAssembler, createContextAssembler } from './context-assembler.js
 import { ResultRouter, createResultRouter } from './result-router.js'
 import { errorMessage } from '../error-utils.js'
 import { BranchManager, createBranchManager } from './branch-manager.js'
-import { nexusEventTransport } from '../events/nexus-event-transport.js'
-import type { TaskStartedEvent, TaskCompletedEvent as NexusTaskCompletedEvent } from '../events/types.js'
+import { astroEventTransport } from '../events/astro-event-transport.js'
+import type { TaskStartedEvent, TaskCompletedEvent as AstroTaskCompletedEvent } from '../events/types.js'
 import type { SubroutineDefinition } from './procedure-types.js'
 import {
   interpolatePrompt,
@@ -443,7 +443,7 @@ export class DispatchEngine extends EventEmitter {
       })
 
       // Emit task.started event to event transport
-      await nexusEventTransport.emitEvent({
+      await astroEventTransport.emitEvent({
         type: 'task.started',
         taskId: executionId,
         nodeId: queueEntry.nodeId,
@@ -527,7 +527,7 @@ export class DispatchEngine extends EventEmitter {
         this.emit('task:cancelled', queueEntry.nodeId, queueEntry.projectId)
 
         // Emit to event transport
-        await nexusEventTransport.emitEvent({
+        await astroEventTransport.emitEvent({
           type: 'task.cancelled',
           taskId: executionId,
           nodeId: queueEntry.nodeId,
@@ -572,7 +572,7 @@ export class DispatchEngine extends EventEmitter {
           this.emit('task:failed', failedEvent)
 
           // Emit to event transport
-          await nexusEventTransport.emitEvent({
+          await astroEventTransport.emitEvent({
             type: 'task.failed',
             taskId: executionId,
             nodeId: queueEntry.nodeId,
@@ -637,7 +637,7 @@ export class DispatchEngine extends EventEmitter {
     this.emit('task:completed', completedEvent)
 
     // Emit to event transport for hooks
-    await nexusEventTransport.emitEvent({
+    await astroEventTransport.emitEvent({
       type: 'task.completed',
       taskId: result.taskId,
       nodeId: node.id,
@@ -646,7 +646,7 @@ export class DispatchEngine extends EventEmitter {
       result,
       node,
       timestamp: new Date(),
-    } satisfies NexusTaskCompletedEvent)
+    } satisfies AstroTaskCompletedEvent)
 
     // Trigger downstream dispatch if applicable
     if (routing.triggerDownstream && this.config.autoDispatch && routing.downstreamNodes) {
@@ -889,7 +889,7 @@ export class DispatchEngine extends EventEmitter {
     console.log(`[dispatch] Requesting approval for ${subroutine.name}: ${subroutine.approvalMessage}`)
 
     // Emit approval request event
-    await nexusEventTransport.emitEvent({
+    await astroEventTransport.emitEvent({
       type: 'approval.requested',
       approvalId,
       nodeId: node.id,
@@ -943,7 +943,7 @@ export class DispatchEngine extends EventEmitter {
     }
 
     // Emit approval responded event
-    await nexusEventTransport.emitEvent({
+    await astroEventTransport.emitEvent({
       type: 'approval.responded',
       approvalId,
       nodeId: pending.nodeId,
@@ -995,7 +995,7 @@ export class DispatchEngine extends EventEmitter {
     console.log(`[dispatch] Dynamic approval requested via tool: ${question}`)
 
     // Emit approval request event
-    await nexusEventTransport.emitEvent({
+    await astroEventTransport.emitEvent({
       type: 'approval.requested',
       approvalId,
       nodeId,

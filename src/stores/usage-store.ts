@@ -3,7 +3,7 @@ import type { UsageMetrics } from "@/types"
 import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 
-const STORAGE_KEY = "nexus-usage-metrics"
+const STORAGE_KEY = "astro-usage-metrics"
 
 export interface SessionMetrics {
   totalCostUsd: number

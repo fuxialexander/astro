@@ -2,7 +2,7 @@
 
 ## Overview
 
-Nexus now has a user approval system similar to Cyrus, allowing agents to pause execution and present choices to users. This document explains how it works and how to use it.
+Astro now has a user approval system similar to Cyrus, allowing agents to pause execution and present choices to users. This document explains how it works and how to use it.
 
 ## Architecture
 
@@ -33,7 +33,7 @@ ask_user_question({
 ```
 
 **Implementation:**
-- Custom MCP server: `server/lib/mcp/nexus-tools-server.ts`
+- Custom MCP server: `server/lib/mcp/astro-tools-server.ts`
 - Auto-loaded by Claude Code provider
 - Communicates with dispatch engine via HTTP
 - Same approval UI as procedure-level approvals
@@ -120,7 +120,7 @@ When viewing a task with pending approval:
 
 2. **Request emits approval event**
    ```typescript
-   await nexusEventTransport.emitEvent({
+   await astroEventTransport.emitEvent({
      type: 'approval.requested',
      approvalId: 'approval-node123-1234567890',
      nodeId: 'node123',
@@ -145,7 +145,7 @@ When viewing a task with pending approval:
    ```
 
 5. **SSE event forwarded to browser**
-   - `server/routes/events.ts` listens to nexusEventTransport
+   - `server/routes/events.ts` listens to astroEventTransport
    - Forwards `approval:requested` event via SSE
    - Browser receives and updates UI
 
@@ -166,7 +166,7 @@ When viewing a task with pending approval:
 
 8. **Response emitted and promise resolved**
    ```typescript
-   await nexusEventTransport.emitEvent({
+   await astroEventTransport.emitEvent({
      type: 'approval.responded',
      approvalId,
      approved: true,
@@ -205,7 +205,7 @@ When viewing a task with pending approval:
   - `POST /api/dispatch/approve` - endpoint for user responses
 
 - **SSE Bridge**: `server/routes/events.ts`
-  - Forwards approval events from nexusEventTransport to browser
+  - Forwards approval events from astroEventTransport to browser
   - Events: `approval:requested`, `approval:responded`
 
 - **Procedure Types**: `server/lib/dispatch/procedure-types.ts`
@@ -233,7 +233,7 @@ When viewing a task with pending approval:
 
 ## Comparison to Cyrus
 
-| Feature | Cyrus | Nexus |
+| Feature | Cyrus | Astro |
 |---------|-------|-------|
 | **Approval UI** | Linear select signal | ApprovalCard component |
 | **Integration** | Linear issue timeline | Dashboard + Task Detail |
@@ -253,7 +253,7 @@ When viewing a task with pending approval:
 The `ask_user_question` tool is provided via a custom MCP server that runs alongside the agent:
 
 ```
-Agent → Claude SDK → MCP Server (nexus-tools) → HTTP POST /api/dispatch/request-dynamic-approval
+Agent → Claude SDK → MCP Server (astro-tools) → HTTP POST /api/dispatch/request-dynamic-approval
                                                       ↓
                                                Dispatch Engine
                                                       ↓
@@ -273,7 +273,7 @@ Agent → Claude SDK → MCP Server (nexus-tools) → HTTP POST /api/dispatch/re
 ```
 
 **Key Files:**
-- `server/lib/mcp/nexus-tools-server.ts` - MCP server providing the tool
+- `server/lib/mcp/astro-tools-server.ts` - MCP server providing the tool
 - `server/lib/providers/adapters/claude-code.ts` - Auto-loads MCP server
 - `server/routes/dispatch.ts` - `/api/dispatch/request-dynamic-approval` endpoint
 - `server/lib/dispatch/dispatch-engine.ts` - `requestDynamicApproval()` method

@@ -191,7 +191,7 @@ async function detectCodex(): Promise<ProviderInfo | null> {
  * Check for custom provider configuration
  */
 async function detectCustomProviders(): Promise<ProviderInfo[]> {
-  const configPath = join(homedir(), '.nexus', 'providers.json');
+  const configPath = join(homedir(), '.astro', 'providers.json');
 
   try {
     const content = await readFile(configPath, 'utf-8');

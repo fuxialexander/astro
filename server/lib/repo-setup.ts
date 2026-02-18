@@ -61,8 +61,8 @@ export interface DataMapEntry {
 /**
  * Main setup orchestrator.
  *
- * 1. No dir + no repo → create ~/.nexus/projects/{projectId}/ + git init
- * 2. Repo URL → clone to ~/.nexus/repos/{projectId}/
+ * 1. No dir + no repo → create ~/.astro/projects/{projectId}/ + git init
+ * 2. Repo URL → clone to ~/.astro/repos/{projectId}/
  * 3. Local dir (git) → proceed
  * 4. Local dir (not git) → return { needsGitInit: true }
  *
@@ -73,7 +73,7 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
 
   // Case 1: No directory and no repository — create a fresh project dir
   if (!workingDirectory && !repository) {
-    const dir = join(homedir(), '.nexus', 'projects', projectId)
+    const dir = join(homedir(), '.astro', 'projects', projectId)
     mkdirSync(dir, { recursive: true })
     gitInit(dir)
     const gitignoreCreated = generateGitignoreIfMissing(dir)
@@ -203,7 +203,7 @@ function gitInit(dir: string): void {
  * command injection via malicious git URLs.
  */
 function cloneRepo(url: string, projectId: string): string {
-  const repoDir = join(homedir(), '.nexus', 'repos', projectId)
+  const repoDir = join(homedir(), '.astro', 'repos', projectId)
   if (existsSync(join(repoDir, '.git'))) {
     // Already cloned — fetch latest
     try {
@@ -216,7 +216,7 @@ function cloneRepo(url: string, projectId: string): string {
       // Non-fatal
     }
   } else {
-    mkdirSync(join(homedir(), '.nexus', 'repos'), { recursive: true })
+    mkdirSync(join(homedir(), '.astro', 'repos'), { recursive: true })
     // Use execFileSync to prevent command injection (CRITICAL-005)
     execFileSync('git', ['clone', url, repoDir], {
       stdio: 'ignore',

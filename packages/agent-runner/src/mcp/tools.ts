@@ -1,11 +1,11 @@
 /**
- * MCP Tools for Nexus Session Bridge
+ * MCP Tools for Astro Session Bridge
  *
  * Provides tools that Claude Code can use to:
- * - nexus_attach: Attach the current session to a Nexus task
- * - nexus_detach: Detach from the current task
- * - nexus_status: Check the current attachment status
- * - nexus_send: Send a message/event to Nexus
+ * - astro_attach: Attach the current session to an Astro task
+ * - astro_detach: Detach from the current task
+ * - astro_status: Check the current attachment status
+ * - astro_send: Send a message/event to Astro
  */
 
 import { z } from 'zod';
@@ -23,20 +23,20 @@ import type {
 // Tool Schemas
 // ============================================================================
 
-/** Schema for nexus_attach tool input */
+/** Schema for astro_attach tool input */
 export const attachSchema = z.object({
   taskId: z.string().describe('Task identifier to attach to (e.g., "RES-13", "PROJ-42")'),
 });
 
-/** Schema for nexus_detach tool input */
+/** Schema for astro_detach tool input */
 export const detachSchema = z.object({});
 
-/** Schema for nexus_status tool input */
+/** Schema for astro_status tool input */
 export const statusSchema = z.object({});
 
-/** Schema for nexus_send tool input */
+/** Schema for astro_send tool input */
 export const sendSchema = z.object({
-  message: z.string().describe('Message or event content to send to Nexus'),
+  message: z.string().describe('Message or event content to send to Astro'),
   eventType: z
     .enum(['tool_call', 'tool_result', 'file_change', 'message', 'error'])
     .optional()
@@ -59,11 +59,11 @@ export interface ToolDefinition {
 
 export const toolDefinitions: ToolDefinition[] = [
   {
-    name: 'nexus_attach',
+    name: 'astro_attach',
     description:
-      'Attach this Claude Code session to a Nexus task. Once attached, your activity ' +
-      '(tool calls, file changes, messages) will be streamed to Nexus for monitoring. ' +
-      'The task must already exist in Nexus. Example: nexus_attach("RES-13")',
+      'Attach this Claude Code session to an Astro task. Once attached, your activity ' +
+      '(tool calls, file changes, messages) will be streamed to Astro for monitoring. ' +
+      'The task must already exist in Astro. Example: astro_attach("RES-13")',
     inputSchema: {
       type: 'object',
       properties: {
@@ -76,19 +76,19 @@ export const toolDefinitions: ToolDefinition[] = [
     },
   },
   {
-    name: 'nexus_detach',
+    name: 'astro_detach',
     description:
-      'Detach from the currently attached Nexus task. ' +
-      'After detaching, session activity will no longer be streamed to Nexus.',
+      'Detach from the currently attached Astro task. ' +
+      'After detaching, session activity will no longer be streamed to Astro.',
     inputSchema: {
       type: 'object',
       properties: {},
     },
   },
   {
-    name: 'nexus_status',
+    name: 'astro_status',
     description:
-      'Check the current Nexus attachment status. ' +
+      'Check the current Astro attachment status. ' +
       'Returns whether a session is attached, which task it is attached to, ' +
       'and how many events have been sent.',
     inputSchema: {
@@ -97,9 +97,9 @@ export const toolDefinitions: ToolDefinition[] = [
     },
   },
   {
-    name: 'nexus_send',
+    name: 'astro_send',
     description:
-      'Send a message or event to the attached Nexus task. ' +
+      'Send a message or event to the attached Astro task. ' +
       'This can be used to send progress updates, status messages, or custom events. ' +
       'Requires an active attachment.',
     inputSchema: {
@@ -107,7 +107,7 @@ export const toolDefinitions: ToolDefinition[] = [
       properties: {
         message: {
           type: 'string',
-          description: 'Message or event content to send to Nexus',
+          description: 'Message or event content to send to Astro',
         },
         eventType: {
           type: 'string',
@@ -128,7 +128,7 @@ export class ToolHandlers {
   constructor(private bridge: SessionBridge) {}
 
   /**
-   * Handle nexus_attach tool call
+   * Handle astro_attach tool call
    */
   async attach(input: z.infer<typeof attachSchema>): Promise<AttachResponse> {
     try {
@@ -157,7 +157,7 @@ export class ToolHandlers {
   }
 
   /**
-   * Handle nexus_detach tool call
+   * Handle astro_detach tool call
    */
   async detach(): Promise<DetachResponse> {
     try {
@@ -168,7 +168,7 @@ export class ToolHandlers {
 
       return {
         success: true,
-        message: 'Successfully detached from Nexus task',
+        message: 'Successfully detached from Astro task',
         eventsSent: eventCount,
       };
     } catch (error) {
@@ -180,7 +180,7 @@ export class ToolHandlers {
   }
 
   /**
-   * Handle nexus_status tool call
+   * Handle astro_status tool call
    */
   status(): StatusResponse {
     const bridgeStatus = this.bridge.getStatus();
@@ -202,13 +202,13 @@ export class ToolHandlers {
   }
 
   /**
-   * Handle nexus_send tool call
+   * Handle astro_send tool call
    */
   send(input: z.infer<typeof sendSchema>): SendResponse {
     if (!this.bridge.isAttached()) {
       return {
         success: false,
-        message: 'Not attached to any task. Use nexus_attach first.',
+        message: 'Not attached to any task. Use astro_attach first.',
       };
     }
 
@@ -244,7 +244,7 @@ export class ToolHandlers {
     if (sent) {
       return {
         success: true,
-        message: 'Event sent to Nexus',
+        message: 'Event sent to Astro',
         eventId: `evt-${Date.now()}`,
       };
     } else {
@@ -263,13 +263,13 @@ export class ToolHandlers {
     args: Record<string, unknown>
   ): Promise<AttachResponse | DetachResponse | StatusResponse | SendResponse> {
     switch (name) {
-      case 'nexus_attach':
+      case 'astro_attach':
         return this.attach(attachSchema.parse(args));
-      case 'nexus_detach':
+      case 'astro_detach':
         return this.detach();
-      case 'nexus_status':
+      case 'astro_status':
         return this.status();
-      case 'nexus_send':
+      case 'astro_send':
         return this.send(sendSchema.parse(args));
       default:
         throw new Error(`Unknown tool: ${name}`);

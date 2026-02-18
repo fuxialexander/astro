@@ -7,7 +7,7 @@
 import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 
-const NEXUS_SERVER_URL = process.env.NEXUS_SERVER_URL || 'http://localhost:3001'
+const ASTRO_SERVER_URL = process.env.ASTRO_SERVER_URL || 'http://localhost:3001'
 const COLORS = {
   reset: '\x1b[0m',
   green: '\x1b[32m',
@@ -30,7 +30,7 @@ function info(message: string) {
 async function testMcpServerToolListing(): Promise<boolean> {
   info('Test 1: MCP Server Tool Listing')
 
-  const mcpServerPath = new URL('../server/lib/mcp/nexus-tools-server.ts', import.meta.url)
+  const mcpServerPath = new URL('../server/lib/mcp/astro-tools-server.ts', import.meta.url)
     .pathname
 
   return new Promise((resolve) => {
@@ -38,8 +38,8 @@ async function testMcpServerToolListing(): Promise<boolean> {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        NEXUS_EXECUTION_ID: 'test-exec-123',
-        NEXUS_SERVER_URL,
+        ASTRO_EXECUTION_ID: 'test-exec-123',
+        ASTRO_SERVER_URL,
       },
     })
 
@@ -48,7 +48,7 @@ async function testMcpServerToolListing(): Promise<boolean> {
 
     mcp.stderr.on('data', (data) => {
       const msg = data.toString()
-      if (msg.includes('Nexus MCP Tools Server running')) {
+      if (msg.includes('Astro MCP Tools Server running')) {
         hasStarted = true
         // Send tools/list request
         const request = {
@@ -106,16 +106,16 @@ async function testHttpEndpoint(): Promise<boolean> {
   info('Test 2: HTTP Endpoint for Dynamic Approvals')
 
   try {
-    const healthRes = await fetch(`${NEXUS_SERVER_URL}/api/health`)
+    const healthRes = await fetch(`${ASTRO_SERVER_URL}/api/health`)
     if (!healthRes.ok) {
-      error('Nexus server is not running')
+      error('Astro server is not running')
       return false
     }
-    success('Nexus server is running')
+    success('Astro server is running')
 
     // Test endpoint with invalid execution ID (should return error quickly)
     const approvalRes = await fetch(
-      `${NEXUS_SERVER_URL}/api/dispatch/request-dynamic-approval`,
+      `${ASTRO_SERVER_URL}/api/dispatch/request-dynamic-approval`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -147,7 +147,7 @@ async function testHttpEndpoint(): Promise<boolean> {
 async function testMcpToolCallFormat(): Promise<boolean> {
   info('Test 3: MCP Tool Call Format')
 
-  const mcpServerPath = new URL('../server/lib/mcp/nexus-tools-server.ts', import.meta.url)
+  const mcpServerPath = new URL('../server/lib/mcp/astro-tools-server.ts', import.meta.url)
     .pathname
 
   return new Promise((resolve) => {
@@ -155,8 +155,8 @@ async function testMcpToolCallFormat(): Promise<boolean> {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        NEXUS_EXECUTION_ID: 'test-exec-456',
-        NEXUS_SERVER_URL,
+        ASTRO_EXECUTION_ID: 'test-exec-456',
+        ASTRO_SERVER_URL,
       },
     })
 
@@ -164,7 +164,7 @@ async function testMcpToolCallFormat(): Promise<boolean> {
 
     mcp.stderr.on('data', (data) => {
       const msg = data.toString()
-      if (msg.includes('Nexus MCP Tools Server running')) {
+      if (msg.includes('Astro MCP Tools Server running')) {
         hasStarted = true
 
         // Send tool call with invalid format (missing required params)

@@ -72,7 +72,7 @@ When a RISKY operation is detected:
 - All changes will be version controlled
 
 ### Option 3: Sandbox Mode
-- Copies directory to `~/.nexus/sandbox/<taskId>/`
+- Copies directory to `~/.astro/sandbox/<taskId>/`
 - Executes task in isolated copy
 - Skips large directories (node_modules, .git, venv, etc.)
 - After completion: user reviews changes before applying back
@@ -88,7 +88,7 @@ When a RISKY operation is detected:
 Skip the safety prompt for non-git directories. Useful for automation or when you trust the workload.
 
 ```bash
-npx @nexus/agent start --allow-non-git
+npx @astro/agent start --allow-non-git
 ```
 
 **⚠️ Warning**: This bypasses user confirmation. Only use if you understand the risks.
@@ -97,7 +97,7 @@ npx @nexus/agent start --allow-non-git
 Always execute in sandbox mode, regardless of git status.
 
 ```bash
-npx @nexus/agent start --sandbox
+npx @astro/agent start --sandbox
 ```
 
 **Benefits**:
@@ -113,7 +113,7 @@ npx @nexus/agent start --sandbox
 Set maximum directory size for sandbox mode (default: 100MB).
 
 ```bash
-npx @nexus/agent start --sandbox --max-sandbox-size 200
+npx @astro/agent start --sandbox --max-sandbox-size 200
 ```
 
 Directories larger than this limit cannot use sandbox mode.
@@ -187,7 +187,7 @@ untrackTaskDirectory(task: Task): void {
 
 1. **Check size**: `getDirectorySize(workdir)` excludes large folders
 2. **Create copy**: `cp` with filter (skip node_modules, .git, etc.)
-3. **Execute**: Agent works in `~/.nexus/sandbox/<taskId>/`
+3. **Execute**: Agent works in `~/.astro/sandbox/<taskId>/`
 4. **Cleanup**: `sandbox.cleanup()` removes temporary files
 5. **Optional**: `sandbox.copyBack()` applies changes to original
 
@@ -294,7 +294,7 @@ cd /tmp/no-git
 
 ### Test sandbox mode
 ```bash
-npx @nexus/agent start --sandbox
+npx @astro/agent start --sandbox
 # All tasks execute in sandbox, original files untouched
 ```
 
@@ -302,7 +302,7 @@ npx @nexus/agent start --sandbox
 
 - [ ] File change diff preview before sandbox.copyBack()
 - [ ] Automatic git stash before execution
-- [ ] Per-project safety preferences (stored in .nexus/config)
+- [ ] Per-project safety preferences (stored in .astro/config)
 - [ ] Sandbox size estimation before execution
 - [ ] Rollback button for completed tasks
 - [ ] Safety audit log (all decisions tracked)
@@ -319,7 +319,7 @@ apt install git   # Ubuntu/Debian
 ### "Directory too large for sandbox"
 ```bash
 # Increase limit or exclude directories
-npx @nexus/agent start --sandbox --max-sandbox-size 500
+npx @astro/agent start --sandbox --max-sandbox-size 500
 ```
 
 ### "Parallel execution blocked"

@@ -10,7 +10,7 @@ echo ""
 echo "Searching for approval request in agent logs..."
 
 # Try to find from running agent
-APPROVAL_LINE=$(tail -100 ~/.nexus/logs/*.log 2>/dev/null | grep "Sent approval request" | tail -1)
+APPROVAL_LINE=$(tail -100 ~/.astro/logs/*.log 2>/dev/null | grep "Sent approval request" | tail -1)
 
 if [ -z "$APPROVAL_LINE" ]; then
     echo "No recent approval request found in logs."
@@ -35,7 +35,7 @@ echo "  Task ID: $TASK_ID"
 echo "  Request ID: $REQUEST_ID"
 
 # Find machine ID from agent logs
-MACHINE_ID=$(grep -h "machineId" ~/.nexus/logs/*.log 2>/dev/null | grep -o '"machineId":"[^"]*"' | head -1 | cut -d'"' -f4)
+MACHINE_ID=$(grep -h "machineId" ~/.astro/logs/*.log 2>/dev/null | grep -o '"machineId":"[^"]*"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$MACHINE_ID" ]; then
     echo "  Machine ID: (not found, using 'local')"
@@ -68,13 +68,13 @@ echo "=== Checking Agent Logs for Response ==="
 echo "Waiting 3 seconds for agent to process..."
 sleep 3
 
-if grep -h "Received approval response for $REQUEST_ID" ~/.nexus/logs/*.log 2>/dev/null; then
+if grep -h "Received approval response for $REQUEST_ID" ~/.astro/logs/*.log 2>/dev/null; then
     echo "✅ Agent received the response!"
 else
     echo "⚠️  No confirmation found in logs yet"
     echo ""
     echo "Recent agent logs:"
-    tail -20 ~/.nexus/logs/*.log 2>/dev/null | grep -i "approval\|response"
+    tail -20 ~/.astro/logs/*.log 2>/dev/null | grep -i "approval\|response"
 fi
 
 echo ""

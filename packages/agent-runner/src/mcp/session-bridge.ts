@@ -1,10 +1,10 @@
 /**
- * Session Bridge - WebSocket client for bridging Claude Code sessions to Nexus
+ * Session Bridge - WebSocket client for bridging Claude Code sessions to Astro
  *
  * Handles:
- * - Connection to Nexus relay server
+ * - Connection to Astro relay server
  * - Session attachment/detachment
- * - Streaming session events to Nexus
+ * - Streaming session events to Astro
  * - Automatic reconnection
  */
 
@@ -138,7 +138,7 @@ export class SessionBridge {
   }
 
   /**
-   * Attach the current session to a Nexus task
+   * Attach the current session to an Astro task
    */
   async attach(taskId: string): Promise<boolean> {
     if (!this.isConnected()) {
@@ -214,7 +214,7 @@ export class SessionBridge {
   }
 
   /**
-   * Send a session event to Nexus
+   * Send a session event to Astro
    */
   sendEvent(event: SessionEventInput): boolean {
     if (!this.attachment || this.attachment.state !== 'attached') {

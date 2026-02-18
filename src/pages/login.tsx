@@ -268,7 +268,7 @@ export function Login() {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
             <span className="text-xl font-bold text-primary-foreground">N</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Nexus</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Astro</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {step === "email" && "Enter your email to continue"}
             {step === "name" && "Welcome! Let's create your account"}

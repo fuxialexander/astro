@@ -2,7 +2,7 @@
 
 ## Overview
 
-The relay system is a WebSocket hub that brokers communication between the Nexus platform (browser + backend) and agent runners on user machines. It enables multi-environment task dispatch across local machines, HPC clusters, and cloud instances.
+The relay system is a WebSocket hub that brokers communication between the Astro platform (browser + backend) and agent runners on user machines. It enables multi-environment task dispatch across local machines, HPC clusters, and cloud instances.
 
 ## Components
 

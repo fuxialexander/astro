@@ -31,7 +31,7 @@ interface SetupOptions {
 }
 
 export async function setupCommand(options: SetupOptions = {}): Promise<void> {
-  console.log(chalk.bold('\n🚀 Nexus Agent Runner Setup\n'));
+  console.log(chalk.bold('\n🚀 Astro Agent Runner Setup\n'));
 
   // Step 0: Initialize hardware-based machine ID
   console.log(chalk.dim('Generating stable machine identifier...'));
@@ -118,7 +118,7 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
 
     if (hasTokens && existingMachineId) {
       console.log(chalk.green(`✓ Already authenticated (Machine: ${existingMachineId})`));
-      console.log(chalk.dim('  To re-authenticate, run: npx @nexus/agent config --reset'));
+      console.log(chalk.dim('  To re-authenticate, run: npx @astro/agent config --reset'));
       console.log();
     } else if (!options.nonInteractive) {
       const { authenticate } = await inquirer.prompt<{ authenticate: boolean }>([
@@ -268,17 +268,17 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
   console.log();
   console.log(chalk.bold('Next steps:'));
   console.log('  1. Start the agent runner:');
-  console.log(chalk.cyan('     npx @nexus/agent start'));
+  console.log(chalk.cyan('     npx @astro/agent start'));
   console.log();
   console.log('  2. Or run in the foreground for testing:');
-  console.log(chalk.cyan('     npx @nexus/agent start --foreground'));
+  console.log(chalk.cyan('     npx @astro/agent start --foreground'));
   console.log();
 
   if (mcpConfigured) {
-    console.log('  3. In Claude Code, use these tools to connect to Nexus:');
-    console.log(chalk.cyan('     nexus_attach("TASK-ID")  # Attach to a task'));
-    console.log(chalk.cyan('     nexus_status()           # Check connection status'));
-    console.log(chalk.cyan('     nexus_detach()           # Detach from task'));
+    console.log('  3. In Claude Code, use these tools to connect to Astro:');
+    console.log(chalk.cyan('     astro_attach("TASK-ID")  # Attach to a task'));
+    console.log(chalk.cyan('     astro_status()           # Check connection status'));
+    console.log(chalk.cyan('     astro_detach()           # Detach from task'));
     console.log();
   }
 }
@@ -640,7 +640,7 @@ async function configureMcpForClaudeCode(): Promise<boolean> {
 
     spinner.succeed('Claude Code MCP integration configured');
     console.log(chalk.dim(`  Config: ${configPath}`));
-    console.log(chalk.dim('  Server: nexus (npx @nexus/agent mcp)'));
+    console.log(chalk.dim('  Server: astro (npx @astro/agent mcp)'));
     console.log();
 
     return true;

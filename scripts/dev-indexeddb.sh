@@ -1,7 +1,7 @@
 #!/bin/bash
-# Start Nexus in IndexedDB-only mode (no Supabase required)
+# Start Astro in IndexedDB-only mode (no Supabase required)
 
-echo "🚀 Starting Nexus in IndexedDB-only mode..."
+echo "🚀 Starting Astro in IndexedDB-only mode..."
 echo "   - No authentication required"
 echo "   - All data stored in browser IndexedDB"
 echo "   - Backend: localhost:3001"

@@ -219,7 +219,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
 
     // Enable SDK debug logging to diagnose MCP connection issues
     process.env.DEBUG_SDK = '1';
-    process.env.CLAUDE_CODE_DEBUG_LOGS_DIR = join(homedir(), '.nexus', 'logs', 'sdk-debug');
+    process.env.CLAUDE_CODE_DEBUG_LOGS_DIR = join(homedir(), '.astro', 'logs', 'sdk-debug');
 
     // Save original cwd to restore later
     const originalCwd = process.cwd();
@@ -355,7 +355,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
           ...server,
           env: {
             ...server.env,
-            NEXUS_EXECUTION_ID: task.id, // Inject current task ID for approval routing
+            ASTRO_EXECUTION_ID: task.id, // Inject current task ID for approval routing
           },
         };
       }

@@ -71,10 +71,10 @@ export const useMachinesStore = create<MachinesState>((set) => ({
       const machines = data.machines || []
       set({ machines, loading: false })
       // Update IndexedDB cache for offline fallback
-      saveState('nexus-machines', machines)
+      saveState('astro-machines', machines)
     } catch (err) {
       // API unavailable — fall back to IndexedDB cache
-      const cached = await loadState<RegisteredMachine[]>('nexus-machines')
+      const cached = await loadState<RegisteredMachine[]>('astro-machines')
       if (cached) {
         set({
           machines: cached.map((m) => ({
@@ -124,7 +124,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
       set((state) => {
         const nextMachines = state.machines.filter((m) => m.id !== machineId)
         // Update IndexedDB cache
-        saveState('nexus-machines', nextMachines)
+        saveState('astro-machines', nextMachines)
         return { machines: nextMachines }
       })
       return true
@@ -172,7 +172,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
           m.id === machineId ? { ...m, name } : m
         )
         // Update IndexedDB cache
-        saveState('nexus-machines', nextMachines)
+        saveState('astro-machines', nextMachines)
         return { machines: nextMachines }
       })
       return true
@@ -193,7 +193,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
           : m
       )
       // Update IndexedDB cache
-      saveState('nexus-machines', nextMachines)
+      saveState('astro-machines', nextMachines)
       return { machines: nextMachines }
     })
   },

@@ -1,5 +1,5 @@
 /**
- * Core types for the Nexus Agent Runner CLI
+ * Core types for the Astro Agent Runner CLI
  */
 
 // ============================================================================

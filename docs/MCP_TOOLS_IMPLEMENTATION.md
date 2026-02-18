@@ -2,11 +2,11 @@
 
 ## Overview
 
-Implemented comprehensive MCP (Model Context Protocol) tools to expose the Nexus API to agents running during task execution. This enables agents to be **self-directed** and autonomously manage the planning layer, projects, and initiatives during execution.
+Implemented comprehensive MCP (Model Context Protocol) tools to expose the Astro API to agents running during task execution. This enables agents to be **self-directed** and autonomously manage the planning layer, projects, and initiatives during execution.
 
 ## What Was Implemented
 
-### 1. MCP Server Overhaul (`server/lib/mcp/nexus-tools-server.ts`)
+### 1. MCP Server Overhaul (`server/lib/mcp/astro-tools-server.ts`)
 
 **Previous state:** Only 1 tool (`ask_user_question`)
 
@@ -46,18 +46,18 @@ Implemented comprehensive MCP (Model Context Protocol) tools to expose the Nexus
 - Supports all HTTP methods (GET, POST, PATCH, PUT, DELETE)
 
 **Environment Variables:**
-- `NEXUS_SERVER_URL` - Nexus API server URL (default: http://localhost:3001)
-- `NEXUS_AUTH_TOKEN` - Authentication token for API requests
-- `NEXUS_EXECUTION_ID` - Current execution/task ID
-- `NEXUS_PROJECT_ID` - Current project ID (used as default for all tools)
+- `ASTRO_SERVER_URL` - Astro API server URL (default: http://localhost:3001)
+- `ASTRO_AUTH_TOKEN` - Authentication token for API requests
+- `ASTRO_EXECUTION_ID` - Current execution/task ID
+- `ASTRO_PROJECT_ID` - Current project ID (used as default for all tools)
 
 ### 3. Provider Integration (`server/lib/providers/adapters/claude-code.ts`)
 
 **Updated Claude Code provider** to pass context to MCP server:
-- ✅ Set `NEXUS_EXECUTION_ID` (task ID)
-- ✅ Set `NEXUS_PROJECT_ID` (project ID from task context)
-- ✅ Set `NEXUS_AUTH_TOKEN` (auth token from task context)
-- ✅ Set `NEXUS_SERVER_URL` (server URL)
+- ✅ Set `ASTRO_EXECUTION_ID` (task ID)
+- ✅ Set `ASTRO_PROJECT_ID` (project ID from task context)
+- ✅ Set `ASTRO_AUTH_TOKEN` (auth token from task context)
+- ✅ Set `ASTRO_SERVER_URL` (server URL)
 
 ### 4. Type System Updates (`server/lib/providers/types.ts`)
 
@@ -78,7 +78,7 @@ Implemented comprehensive MCP (Model Context Protocol) tools to expose the Nexus
 ### 1. **Automatic Context Propagation**
 
 Agents don't need to manually specify common parameters:
-- `projectId` defaults to current project from `NEXUS_PROJECT_ID`
+- `projectId` defaults to current project from `ASTRO_PROJECT_ID`
 - `authToken` automatically included in all API requests
 - `executionId` available for approvals and context
 
@@ -256,14 +256,14 @@ Agents can now:
            │ MCP Protocol
            │
 ┌──────────▼───────────┐
-│   Nexus MCP Server   │
+│   Astro MCP Server   │
 │  (18 tools exposed)  │
 └──────────┬───────────┘
            │
            │ HTTP + Auth
            │
 ┌──────────▼───────────┐
-│   Nexus HTTP API     │
+│   Astro HTTP API     │
 │   (/api/data/*)      │
 └──────────────────────┘
 ```
@@ -271,7 +271,7 @@ Agents can now:
 ### Authentication Flow
 
 1. Task dispatch includes user's auth token in `context.authToken`
-2. Provider passes token to MCP server via `NEXUS_AUTH_TOKEN` env var
+2. Provider passes token to MCP server via `ASTRO_AUTH_TOKEN` env var
 3. MCP server includes token in all HTTP API requests
 4. API validates token and returns user-scoped data
 
@@ -283,7 +283,7 @@ All tools use consistent error format:
   "content": [
     {
       "type": "text",
-      "text": "Error: No project ID available. Specify projectId or ensure NEXUS_PROJECT_ID is set."
+      "text": "Error: No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set."
     }
   ],
   "isError": true
@@ -383,7 +383,7 @@ Use the full suite of 18 tools to:
 
 ### API Request Volume
 
-Each tool call = 1 HTTP request to Nexus API. For heavy usage:
+Each tool call = 1 HTTP request to Astro API. For heavy usage:
 - Consider caching `query_plan` results within same execution
 - Batch related updates when possible
 - Use `query_plan` once at start rather than repeatedly

@@ -7,15 +7,15 @@ echo "=== Approval Response Test ==="
 echo ""
 
 # Kill any existing processes
-pkill -f "nexus-agent" 2>/dev/null || true
+pkill -f "astro-agent" 2>/dev/null || true
 sleep 2
 
 # Clean up
-rm -rf ~/.nexus/logs /tmp/agent-approval.log
+rm -rf ~/.astro/logs /tmp/agent-approval.log
 
 echo "Starting agent runner..."
 cd /Users/xf2217/Repos/nexus/packages/agent-runner
-NEXUS_LOG_LEVEL=debug npx tsx src/index.ts start > /tmp/agent-approval.log 2>&1 &
+ASTRO_LOG_LEVEL=debug npx tsx src/index.ts start > /tmp/agent-approval.log 2>&1 &
 AGENT_PID=$!
 echo "Agent PID: $AGENT_PID"
 sleep 8

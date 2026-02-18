@@ -66,9 +66,9 @@ The backend runs as a single Fly.io app with two services:
 1. Create Upstash Redis instance
 2. Set `REDIS_URL` in Fly.io secrets
 3. Redis pub/sub channels:
-   - `nexus:machines` - Machine state changes
-   - `nexus:tasks` - Task state changes
-   - `nexus:dispatch` - Cross-instance task dispatch
+   - `astro:machines` - Machine state changes
+   - `astro:tasks` - Task state changes
+   - `astro:dispatch` - Cross-instance task dispatch
 
 ## SSL/TLS
 

@@ -7,6 +7,6 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'sqlite',
   dbCredentials: {
-    url: join(homedir(), '.nexus', 'nexus.db'),
+    url: join(homedir(), '.astro', 'astro.db'),
   },
 })

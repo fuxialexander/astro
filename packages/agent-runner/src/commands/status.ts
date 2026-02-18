@@ -8,7 +8,7 @@ import { detectProviders, formatProvidersSummary } from '../lib/providers.js';
 import { getMachineResources, formatResourceSummary } from '../lib/resources.js';
 
 export async function statusCommand(): Promise<void> {
-  console.log(chalk.bold('\n📊 Nexus Agent Runner Status\n'));
+  console.log(chalk.bold('\n📊 Astro Agent Runner Status\n'));
 
   // Configuration status
   console.log(chalk.bold('Configuration:'));
@@ -16,7 +16,7 @@ export async function statusCommand(): Promise<void> {
     console.log(chalk.green('  ✓ Setup complete'));
   } else {
     console.log(chalk.yellow('  ✗ Setup not complete'));
-    console.log(chalk.dim('    Run: npx @nexus/agent setup'));
+    console.log(chalk.dim('    Run: npx @astro/agent setup'));
   }
 
   console.log(`  Runner ID: ${chalk.cyan(config.getRunnerId())}`);
@@ -62,6 +62,6 @@ export async function statusCommand(): Promise<void> {
   // Connection status (would need IPC to check actual running process)
   console.log(chalk.bold('Connection:'));
   console.log(chalk.dim('  Status check requires running agent'));
-  console.log(chalk.dim('  Run: npx @nexus/agent start --foreground'));
+  console.log(chalk.dim('  Run: npx @astro/agent start --foreground'));
   console.log();
 }

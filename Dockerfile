@@ -1,4 +1,4 @@
-# Dockerfile for Nexus Application
+# Dockerfile for Astro Application
 # Multi-stage build for optimized production image
 
 # Stage 1: Build
@@ -33,14 +33,14 @@ WORKDIR /app
 RUN apk add --no-cache dumb-init
 
 # Create non-root user
-RUN addgroup -g 1001 nexus && \
-    adduser -D -u 1001 -G nexus nexus
+RUN addgroup -g 1001 astro && \
+    adduser -D -u 1001 -G astro astro
 
 # Copy built artifacts and dependencies
-COPY --from=builder --chown=nexus:nexus /app/dist ./dist
-COPY --from=builder --chown=nexus:nexus /app/node_modules ./node_modules
-COPY --from=builder --chown=nexus:nexus /app/package*.json ./
-COPY --from=builder --chown=nexus:nexus /app/server ./server
+COPY --from=builder --chown=astro:astro /app/dist ./dist
+COPY --from=builder --chown=astro:astro /app/node_modules ./node_modules
+COPY --from=builder --chown=astro:astro /app/package*.json ./
+COPY --from=builder --chown=astro:astro /app/server ./server
 
 # Set environment variables
 ENV NODE_ENV=production \
@@ -51,7 +51,7 @@ ENV NODE_ENV=production \
 EXPOSE 3001 3002
 
 # Switch to non-root user
-USER nexus
+USER astro
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

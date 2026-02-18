@@ -11,7 +11,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 // Read config
-const configPath = join(homedir(), 'Library/Preferences/nexus-agent-nodejs/config.json');
+const configPath = join(homedir(), 'Library/Preferences/astro-agent-nodejs/config.json');
 let config;
 
 try {

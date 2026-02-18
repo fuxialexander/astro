@@ -667,7 +667,7 @@ export class TaskExecutor {
 
 /**
  * Resolve a working directory value.
- * - Git URL (http/https/git@) → clone to ~/.nexus/repos/{projectId}/ and return local path
+ * - Git URL (http/https/git@) → clone to ~/.astro/repos/{projectId}/ and return local path
  * - Empty/missing → process.cwd()
  * - Otherwise → return as-is
  */
@@ -677,7 +677,7 @@ function resolveWorkingDirectory(value: string | undefined, projectId: string): 
   const isGitUrl = value.startsWith('http://') || value.startsWith('https://') || value.startsWith('git@');
   if (!isGitUrl) return value;
 
-  const repoDir = join(homedir(), '.nexus', 'repos', projectId);
+  const repoDir = join(homedir(), '.astro', 'repos', projectId);
   const execOpts: ExecFileSyncOptions = { stdio: 'ignore', timeout: 120_000 };
 
   if (existsSync(join(repoDir, '.git'))) {

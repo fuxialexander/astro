@@ -11,7 +11,7 @@ The GitHub OAuth integration allows users to connect their GitHub account to bro
 1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
 2. Click "New OAuth App"
 3. Fill in the details:
-   - **Application name**: `Nexus Local Dev` (or any name you prefer)
+   - **Application name**: `Astro Local Dev` (or any name you prefer)
    - **Homepage URL**: `http://localhost:5173`
    - **Authorization callback URL**: `http://localhost:3001/api/github/callback`
    - **Description**: (optional) Local development OAuth app
@@ -81,7 +81,7 @@ If the callback fails:
 
 ## Production vs Development
 
-- **Production** uses: `https://nexus-api.fuxialexander.work/api/github/callback`
+- **Production** uses: `https://astro-api.fuxialexander.work/api/github/callback`
 - **Local Dev** uses: `http://localhost:3001/api/github/callback`
 
 You need separate GitHub OAuth Apps for each environment.

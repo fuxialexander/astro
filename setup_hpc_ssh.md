@@ -1,6 +1,6 @@
 # HPC & SSH Remote Environment Setup Guide
 
-Connect remote machines (HPC clusters, SSH servers, local workstations) to Nexus for task execution — no Supabase auth required for local development.
+Connect remote machines (HPC clusters, SSH servers, local workstations) to Astro for task execution — no Supabase auth required for local development.
 
 ## Architecture
 
@@ -21,11 +21,11 @@ Task execution (Claude Code, Slurm sbatch, etc.)
 ## 1. Start the Backend
 
 ```bash
-cd /path/to/nexus
+cd /path/to/astro
 
 # Optional env vars (defaults work for local dev)
 export RELAY_PORT=3002                          # WebSocket port (default: 3002)
-export NEXUS_BASE_URL=http://localhost:5173      # Frontend URL for device auth page
+export ASTRO_BASE_URL=http://localhost:5173      # Frontend URL for device auth page
 
 npm run dev
 ```
@@ -50,9 +50,9 @@ curl http://localhost:3001/api/relay/health
 On the machine that will execute tasks:
 
 ```bash
-npm install -g @nexus/agent
+npm install -g @astro/agent
 # or use npx (no install needed)
-npx @nexus/agent status
+npx @astro/agent status
 ```
 
 On HPC clusters, you may need to load Node.js first:
@@ -69,7 +69,7 @@ module load nodejs   # varies by cluster: node, nodejs, node/20, etc.
 No auth needed — just point at the relay:
 
 ```bash
-nexus-agent connect \
+astro-agent connect \
   --url ws://localhost:3002 \
   --name "My Laptop"
 ```
@@ -79,7 +79,7 @@ For an HPC login node (SSH in first):
 ssh user@sherlock.stanford.edu
 
 module load nodejs
-nexus-agent connect \
+astro-agent connect \
   --url ws://your-local-ip:3002 \
   --name "Sherlock HPC" \
   --dir /home/user/projects/myproject
@@ -96,7 +96,7 @@ If the HPC can't reach your machine directly, use an SSH tunnel:
 ssh -R 3002:localhost:3002 user@sherlock.stanford.edu
 
 # Terminal 2: On the HPC (through the tunnel)
-nexus-agent connect \
+astro-agent connect \
   --url ws://localhost:3002 \
   --name "Sherlock HPC"
 ```
@@ -109,7 +109,7 @@ For a more formal registration:
 
 ```bash
 # 1. Request a device code
-nexus-agent setup --url ws://localhost:3002
+astro-agent setup --url ws://localhost:3002
 
 # 2. It prints a code like: USER-XYZ789
 #    Open http://localhost:5173/device in your browser
@@ -124,22 +124,22 @@ nexus-agent setup --url ws://localhost:3002
 
 ```bash
 # Check system capabilities (Slurm, Claude SDK, hardware)
-nexus-agent status
+astro-agent status
 
 # Connect to relay
-nexus-agent connect --url ws://localhost:3002 --name "My Machine"
+astro-agent connect --url ws://localhost:3002 --name "My Machine"
 
 # Connect with options
-nexus-agent connect \
+astro-agent connect \
   --url ws://localhost:3002 \
   --name "Sherlock HPC" \
   --dir /scratch/user/project \       # Working directory for tasks
   --no-worktree                        # Disable git worktree isolation
 
 # View/update config
-nexus-agent config --show
-nexus-agent config --url ws://new-host:3002
-nexus-agent config --name "New Name"
+astro-agent config --show
+astro-agent config --url ws://new-host:3002
+astro-agent config --name "New Name"
 ```
 
 ### Environment Variables
@@ -147,12 +147,12 @@ nexus-agent config --name "New Name"
 These override config file values:
 
 ```bash
-export NEXUS_RELAY_URL=ws://localhost:3002
-export NEXUS_MACHINE_NAME="My HPC Cluster"
-export NEXUS_AUTH_TOKEN=<optional_token>
+export ASTRO_RELAY_URL=ws://localhost:3002
+export ASTRO_MACHINE_NAME="My HPC Cluster"
+export ASTRO_AUTH_TOKEN=<optional_token>
 ```
 
-Config file location: `~/.nexus/agent.json`
+Config file location: `~/.astro/agent.json`
 
 ---
 
@@ -164,7 +164,7 @@ If the agent runner detects Slurm on the system (`sinfo` available), it automati
 
 1. Agent runner detects Slurm version, cluster name, partitions
 2. Reports `slurm` provider to the relay alongside `claude-code`
-3. When a task is dispatched with `environment: "hpc"`, Nexus generates an SBATCH script
+3. When a task is dispatched with `environment: "hpc"`, Astro generates an SBATCH script
 4. The agent runner submits via `sbatch`, monitors via `squeue`/`sacct`
 5. Output streams back to the dashboard in real-time
 
@@ -172,15 +172,15 @@ If the agent runner detects Slurm on the system (`sinfo` available), it automati
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=nexus-task-abc123
+#SBATCH --job-name=astro-task-abc123
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=01:00:00
 #SBATCH --gres=gpu:a100:1
-#SBATCH --output=nexus-task-abc123_%j.out
-#SBATCH --error=nexus-task-abc123_%j.err
+#SBATCH --output=astro-task-abc123_%j.out
+#SBATCH --error=astro-task-abc123_%j.err
 
 set -e
 echo "Job ID: $SLURM_JOB_ID"
@@ -195,7 +195,7 @@ python train.py --gpu
 
 ### Configuring Slurm Parameters
 
-When creating a task in the Nexus UI, set HPC parameters in the task metadata:
+When creating a task in the Astro UI, set HPC parameters in the task metadata:
 
 | Parameter | Example | Description |
 |-----------|---------|-------------|
@@ -212,7 +212,7 @@ When creating a task in the Nexus UI, set HPC parameters in the task metadata:
 ### Verify Slurm Detection
 
 ```bash
-nexus-agent status
+astro-agent status
 ```
 
 Expected output:
@@ -229,7 +229,7 @@ Slurm Status:
 
 ## 6. Dashboard Updates
 
-Once machines are connected, the Nexus dashboard updates automatically:
+Once machines are connected, the Astro dashboard updates automatically:
 
 - **Environments page** (`/environments`): Shows connected machines, providers, load
 - **Dashboard** (`/`): System health reflects connected machine count and active tasks
@@ -296,9 +296,9 @@ Persistent connection on HPC:
 ```bash
 # Use tmux to keep the session alive
 ssh user@sherlock.stanford.edu
-tmux new -s nexus-agent
-nexus-agent connect --url ws://localhost:3002 --name "Sherlock HPC"
-# Ctrl+B, D to detach — reconnect later with: tmux attach -t nexus-agent
+tmux new -s astro-agent
+astro-agent connect --url ws://localhost:3002 --name "Sherlock HPC"
+# Ctrl+B, D to detach — reconnect later with: tmux attach -t astro-agent
 ```
 
 ### Slurm Jobs Not Submitting
@@ -310,7 +310,7 @@ squeue -u $USER
 sbatch --wrap="echo hello" --partition=normal
 
 # Check agent runner output for Slurm errors
-nexus-agent connect --url ws://localhost:3002 --name "HPC" 2>&1 | grep -i slurm
+astro-agent connect --url ws://localhost:3002 --name "HPC" 2>&1 | grep -i slurm
 ```
 
 ### Port Conflicts
@@ -321,7 +321,7 @@ lsof -i :3002
 
 # Use a different port
 RELAY_PORT=3003 npm run dev:backend
-nexus-agent connect --url ws://localhost:3003 --name "My Machine"
+astro-agent connect --url ws://localhost:3003 --name "My Machine"
 ```
 
 ---
@@ -338,7 +338,7 @@ RELAY_JWT_SECRET=<strong-random-secret>
 RELAY_WS_URL=wss://your-domain.fly.dev:3002
 
 # Frontend URL
-NEXUS_BASE_URL=https://your-domain.pages.dev
+ASTRO_BASE_URL=https://your-domain.pages.dev
 
 # Optional: Redis for multi-instance relay
 REDIS_URL=redis://redis-host:6379

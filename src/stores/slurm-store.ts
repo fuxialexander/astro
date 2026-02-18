@@ -160,10 +160,10 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
         lastFetched: new Date(),
       })
       // Save to IndexedDB for offline fallback
-      saveState('nexus-slurm-clusters', clusters)
+      saveState('astro-slurm-clusters', clusters)
     } catch (error) {
       // API unavailable — fall back to IndexedDB cache
-      const cached = await loadState<Array<Omit<SlurmCluster, 'lastHeartbeat'> & { lastHeartbeat: string }>>('nexus-slurm-clusters')
+      const cached = await loadState<Array<Omit<SlurmCluster, 'lastHeartbeat'> & { lastHeartbeat: string }>>('astro-slurm-clusters')
       if (cached) {
         set({
           clusters: cached.map((c) => ({
@@ -201,10 +201,10 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
         loading: false,
       })
       // Save to IndexedDB for offline fallback
-      saveState('nexus-slurm-jobs', jobs)
+      saveState('astro-slurm-jobs', jobs)
     } catch (error) {
       // API unavailable — fall back to IndexedDB cache
-      const cached = await loadState<Array<Omit<SlurmJob, 'submitTime' | 'startTime' | 'endTime'> & { submitTime?: string; startTime?: string; endTime?: string }>>('nexus-slurm-jobs')
+      const cached = await loadState<Array<Omit<SlurmJob, 'submitTime' | 'startTime' | 'endTime'> & { submitTime?: string; startTime?: string; endTime?: string }>>('astro-slurm-jobs')
       if (cached) {
         set({
           jobs: cached.map((j) => ({
@@ -228,7 +228,7 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
   addCluster: (cluster) => {
     const next = [...get().clusters.filter(c => c.machineId !== cluster.machineId), cluster]
     set({ clusters: next })
-    saveState('nexus-slurm-clusters', next)
+    saveState('astro-slurm-clusters', next)
   },
 
   updateCluster: (machineId, updates) => {
@@ -236,19 +236,19 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
       c.machineId === machineId ? { ...c, ...updates } : c
     )
     set({ clusters: next })
-    saveState('nexus-slurm-clusters', next)
+    saveState('astro-slurm-clusters', next)
   },
 
   removeCluster: (machineId) => {
     const next = get().clusters.filter(c => c.machineId !== machineId)
     set({ clusters: next })
-    saveState('nexus-slurm-clusters', next)
+    saveState('astro-slurm-clusters', next)
   },
 
   addJob: (job) => {
     const next = [...get().jobs.filter(j => j.taskId !== job.taskId), job]
     set({ jobs: next })
-    saveState('nexus-slurm-jobs', next)
+    saveState('astro-slurm-jobs', next)
   },
 
   updateJob: (taskId, updates) => {
@@ -256,13 +256,13 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
       j.taskId === taskId ? { ...j, ...updates } : j
     )
     set({ jobs: next })
-    saveState('nexus-slurm-jobs', next)
+    saveState('astro-slurm-jobs', next)
   },
 
   removeJob: (taskId) => {
     const next = get().jobs.filter(j => j.taskId !== taskId)
     set({ jobs: next })
-    saveState('nexus-slurm-jobs', next)
+    saveState('astro-slurm-jobs', next)
   },
 
   getClusterById: (machineId) => {

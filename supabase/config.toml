@@ -2,7 +2,7 @@
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
-project_id = "nexus"
+project_id = "astro"
 
 [api]
 enabled = true
@@ -147,13 +147,13 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "https://nexus.fuxialexander.work"
+site_url = "https://astro.fuxialexander.work"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://localhost:5173", "nexus://auth/callback"]
+additional_redirect_urls = ["http://localhost:5173", "astro://auth/callback"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. Use the tunneled HTTPS URL for passkey support
-jwt_issuer = "https://nexus-supabase.fuxialexander.work/auth/v1"
+jwt_issuer = "https://astro-supabase.fuxialexander.work/auth/v1"
 # Path to JWT signing key. DO NOT commit your signing keys file to git.
 # signing_keys_path = "./signing_keys.json"
 # If disabled, the refresh token will never expire.

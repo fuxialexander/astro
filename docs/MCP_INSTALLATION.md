@@ -2,20 +2,20 @@
 
 ## Overview
 
-The Nexus MCP server provides tools for AI agents to interact with the Nexus platform during task execution. The MCP SDK (`@modelcontextprotocol/sdk`) is automatically installed as a dependency—no manual installation needed.
+The Astro MCP server provides tools for AI agents to interact with the Astro platform during task execution. The MCP SDK (`@modelcontextprotocol/sdk`) is automatically installed as a dependency—no manual installation needed.
 
 ## Installation Methods
 
 ### Method 1: NPM Package (Recommended for Production)
 
-Once `@nexus/agent` is published to npm:
+Once `@astro/agent` is published to npm:
 
 ```bash
 # Install globally
-npm install -g @nexus/agent
+npm install -g @astro/agent
 
 # Or use npx (no installation needed)
-npx @nexus/agent setup
+npx @astro/agent setup
 ```
 
 The MCP SDK will be installed automatically as a dependency.
@@ -25,7 +25,7 @@ The MCP SDK will be installed automatically as a dependency.
 For local development before npm publication:
 
 ```bash
-# From the nexus repository root
+# From the astro repository root
 cd packages/agent-runner
 
 # Build the package
@@ -35,7 +35,7 @@ npm run build
 npm link
 
 # Now you can use it like the published package
-nexus-agent setup
+astro-agent setup
 ```
 
 ### Method 3: Direct Execution (Alternative)
@@ -46,7 +46,7 @@ If you can't publish or link, modify the MCP config to use a local path:
 # Edit ~/.claude/mcp_servers.json manually
 {
   "mcpServers": {
-    "nexus": {
+    "astro": {
       "command": "node",
       "args": [
         "/absolute/path/to/nexus/packages/agent-runner/dist/cli.js",
@@ -68,9 +68,9 @@ cat ~/.claude/mcp_servers.json
 # Should show:
 {
   "mcpServers": {
-    "nexus": {
+    "astro": {
       "command": "npx",
-      "args": ["@nexus/agent", "mcp"]
+      "args": ["@astro/agent", "mcp"]
     }
   }
 }
@@ -78,7 +78,7 @@ cat ~/.claude/mcp_servers.json
 
 ## MCP Server Tools
 
-The Nexus MCP server provides 18 tools across 5 categories:
+The Astro MCP server provides 18 tools across 5 categories:
 
 ### User Interaction (1 tool)
 - `ask_user_question` - Ask user for decisions
@@ -125,7 +125,7 @@ npm install
 npx clear-npx-cache
 ```
 
-### Error: "Command not found: nexus-agent"
+### Error: "Command not found: astro-agent"
 
 **Cause**: Package not published to npm yet, or not linked locally
 
@@ -148,7 +148,7 @@ npm link
 cat ~/.claude/mcp_servers.json
 
 # If missing or invalid, run setup again
-nexus-agent setup
+astro-agent setup
 # Or manually create with Method 3 format above
 ```
 
@@ -156,7 +156,7 @@ nexus-agent setup
 
 ### Publishing to NPM
 
-To make the package available via `npx @nexus/agent`:
+To make the package available via `npx @astro/agent`:
 
 ```bash
 # From packages/agent-runner directory
@@ -170,7 +170,7 @@ The `publishConfig` in `package.json` is already set to `public` access.
 
 When developing MCP tools:
 
-1. Make changes to `server/lib/mcp/nexus-tools-server.ts`
+1. Make changes to `server/lib/mcp/astro-tools-server.ts`
 2. Rebuild the agent-runner: `cd packages/agent-runner && npm run build`
 3. Test with: `node dist/cli.js mcp` (runs the MCP server directly)
 4. Or test end-to-end via Claude Code if linked
@@ -194,7 +194,7 @@ Update this if you need newer MCP SDK features.
 
 ✅ **No manual MCP installation needed** - The MCP SDK is a declared dependency and installs automatically
 
-✅ **Setup command handles configuration** - `nexus-agent setup` configures Claude Code automatically
+✅ **Setup command handles configuration** - `astro-agent setup` configures Claude Code automatically
 
 ⚠️ **Local development caveat** - Use `npm link` or direct path until package is published to npm
 

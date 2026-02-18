@@ -1,5 +1,5 @@
 /**
- * Nexus Event Transport
+ * Astro Event Transport
  *
  * Platform-agnostic event bus for task execution lifecycle.
  * Emits events that hooks can subscribe to for post-execution actions.
@@ -8,15 +8,15 @@
  */
 
 import { EventEmitter } from 'events'
-import type { NexusEvent, NexusEventTransportEvents, EventHook } from './types.js'
+import type { AstroEvent, AstroEventTransportEvents, EventHook } from './types.js'
 
 /**
- * Nexus Event Transport
+ * Astro Event Transport
  *
  * Decouples task execution from post-execution actions via event-driven hooks.
  * Hooks run asynchronously without blocking the main execution flow.
  */
-export class NexusEventTransport extends EventEmitter {
+export class AstroEventTransport extends EventEmitter {
   private hooks = new Map<string, EventHook>()
   private enabled = true
 
@@ -63,7 +63,7 @@ export class NexusEventTransport extends EventEmitter {
    * Emit an event to all listeners and hooks
    * @param event - The event to emit
    */
-  async emitEvent(event: NexusEvent): Promise<void> {
+  async emitEvent(event: AstroEvent): Promise<void> {
     if (!this.enabled) {
       console.warn('[event-transport] Transport disabled, skipping event emission')
       return
@@ -107,9 +107,9 @@ export class NexusEventTransport extends EventEmitter {
   /**
    * Type-safe event listener
    */
-  on<K extends keyof NexusEventTransportEvents>(
+  on<K extends keyof AstroEventTransportEvents>(
     event: K,
-    listener: NexusEventTransportEvents[K]
+    listener: AstroEventTransportEvents[K]
   ): this {
     return super.on(event, listener)
   }
@@ -131,4 +131,4 @@ export class NexusEventTransport extends EventEmitter {
 }
 
 // Singleton instance
-export const nexusEventTransport = new NexusEventTransport()
+export const astroEventTransport = new AstroEventTransport()

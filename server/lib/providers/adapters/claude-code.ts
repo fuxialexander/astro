@@ -2,7 +2,7 @@
  * Claude Code Provider Adapter
  *
  * Implements the AgentProvider interface for Claude Code (via @anthropic-ai/claude-agent-sdk).
- * This adapter translates Nexus task dispatches into Claude SDK invocations.
+ * This adapter translates Astro task dispatches into Claude SDK invocations.
  */
 
 import { query, type Query } from '@anthropic-ai/claude-agent-sdk'
@@ -36,7 +36,7 @@ const activeQueries = new Map<string, { query: Query; sessionId: string }>()
 
 /**
  * Claude Code provider adapter.
- * Wraps the @anthropic-ai/claude-agent-sdk for use with the Nexus provider abstraction.
+ * Wraps the @anthropic-ai/claude-agent-sdk for use with the Astro provider abstraction.
  */
 export class ClaudeCodeProvider implements AgentProvider {
   readonly id = 'claude-code'
@@ -194,22 +194,22 @@ export class ClaudeCodeProvider implements AgentProvider {
         mcpServers = loadMcpConfig(task.context.workingDirectory)
       }
 
-      // Add Nexus built-in MCP server for custom tools (plan/project management, user questions)
-      const nexusMcpPath = new URL('../mcp/nexus-tools-server.ts', import.meta.url).pathname
-      const nexusMcpServer = {
+      // Add Astro built-in MCP server for custom tools (plan/project management, user questions)
+      const astroMcpPath = new URL('../mcp/astro-tools-server.ts', import.meta.url).pathname
+      const astroMcpServer = {
         command: 'node',
-        args: ['--import=tsx/esm', nexusMcpPath],
+        args: ['--import=tsx/esm', astroMcpPath],
         env: {
-          NEXUS_EXECUTION_ID: task.taskId,
-          NEXUS_PROJECT_ID: task.context.projectId || '',
-          NEXUS_SERVER_URL: process.env.NEXUS_SERVER_URL || 'http://localhost:3001',
-          NEXUS_AUTH_TOKEN: task.context.authToken || '',
+          ASTRO_EXECUTION_ID: task.taskId,
+          ASTRO_PROJECT_ID: task.context.projectId || '',
+          ASTRO_SERVER_URL: process.env.ASTRO_SERVER_URL || 'http://localhost:3001',
+          ASTRO_AUTH_TOKEN: task.context.authToken || '',
         },
       }
 
       mcpServers = {
         ...mcpServers,
-        'nexus-tools': nexusMcpServer,
+        'astro-tools': astroMcpServer,
       }
 
       // Process tool access control (Cyrus pattern)
@@ -417,22 +417,22 @@ export class ClaudeCodeProvider implements AgentProvider {
         mcpServers = loadMcpConfig(task.context.workingDirectory)
       }
 
-      // Add Nexus built-in MCP server for custom tools (plan/project management, user questions)
-      const nexusMcpPath = new URL('../mcp/nexus-tools-server.ts', import.meta.url).pathname
-      const nexusMcpServer = {
+      // Add Astro built-in MCP server for custom tools (plan/project management, user questions)
+      const astroMcpPath = new URL('../mcp/astro-tools-server.ts', import.meta.url).pathname
+      const astroMcpServer = {
         command: 'node',
-        args: ['--import=tsx/esm', nexusMcpPath],
+        args: ['--import=tsx/esm', astroMcpPath],
         env: {
-          NEXUS_EXECUTION_ID: task.taskId,
-          NEXUS_PROJECT_ID: task.context.projectId || '',
-          NEXUS_SERVER_URL: process.env.NEXUS_SERVER_URL || 'http://localhost:3001',
-          NEXUS_AUTH_TOKEN: task.context.authToken || '',
+          ASTRO_EXECUTION_ID: task.taskId,
+          ASTRO_PROJECT_ID: task.context.projectId || '',
+          ASTRO_SERVER_URL: process.env.ASTRO_SERVER_URL || 'http://localhost:3001',
+          ASTRO_AUTH_TOKEN: task.context.authToken || '',
         },
       }
 
       mcpServers = {
         ...mcpServers,
-        'nexus-tools': nexusMcpServer,
+        'astro-tools': astroMcpServer,
       }
 
       // Process tool access control (Cyrus pattern)

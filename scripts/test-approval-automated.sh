@@ -10,15 +10,15 @@ echo ""
 
 # Cleanup
 echo "Step 1: Cleanup..."
-rm -rf ~/.nexus/logs ~/.Library/Preferences/nexus-agent-nodejs /tmp/nexus-*.log
+rm -rf ~/.astro/logs ~/.Library/Preferences/astro-agent-nodejs /tmp/astro-*.log
 pkill -f "npm run dev:backend" 2>/dev/null || true
-pkill -f "nexus-agent" 2>/dev/null || true
+pkill -f "astro-agent" 2>/dev/null || true
 sleep 2
 
 # Start server
 echo "Step 2: Starting backend server..."
 cd /Users/xf2217/Repos/nexus
-npm run dev:backend > /tmp/nexus-server.log 2>&1 &
+npm run dev:backend > /tmp/astro-server.log 2>&1 &
 SERVER_PID=$!
 echo "  Server PID: $SERVER_PID"
 sleep 5
@@ -26,15 +26,15 @@ sleep 5
 # Check if server is running
 if ! curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
     echo "ERROR: Server failed to start"
-    cat /tmp/nexus-server.log
+    cat /tmp/astro-server.log
     exit 1
 fi
 echo "  ✓ Server running on http://localhost:3001"
 
 # Configure agent runner
 echo "Step 3: Configuring agent runner..."
-mkdir -p ~/.nexus
-cat > ~/.nexus/config.json <<'EOF'
+mkdir -p ~/.astro
+cat > ~/.astro/config.json <<'EOF'
 {
   "runnerId": "test-runner",
   "machineId": "test-machine",
@@ -44,7 +44,7 @@ cat > ~/.nexus/config.json <<'EOF'
   "logLevel": "debug"
 }
 EOF
-echo "  ✓ Config written to ~/.nexus/config.json"
+echo "  ✓ Config written to ~/.astro/config.json"
 
 # Build agent runner
 echo "Step 4: Building agent runner..."
@@ -54,13 +54,13 @@ echo "  ✓ Agent runner built"
 
 # Start agent runner
 echo "Step 5: Starting agent runner..."
-NEXUS_LOG_LEVEL=debug npx tsx src/index.ts start > /tmp/nexus-agent.log 2>&1 &
+ASTRO_LOG_LEVEL=debug npx tsx src/index.ts start > /tmp/astro-agent.log 2>&1 &
 AGENT_PID=$!
 echo "  Agent PID: $AGENT_PID"
 sleep 8
 
 # Check agent runner logs for connection
-if grep -q "Connected to relay server" /tmp/nexus-agent.log; then
+if grep -q "Connected to relay server" /tmp/astro-agent.log; then
     echo "  ✓ Agent runner connected to relay"
 else
     echo "  WARNING: Agent runner may not be connected"
@@ -107,42 +107,42 @@ echo ""
 
 # Check agent runner logs
 echo "Agent Runner Logs:"
-if grep -q "Intercepted AskUserQuestion" /tmp/nexus-agent.log; then
+if grep -q "Intercepted AskUserQuestion" /tmp/astro-agent.log; then
     echo "  ✓ AskUserQuestion intercepted"
 else
     echo "  ✗ AskUserQuestion NOT intercepted"
 fi
 
-if grep -q "Sent approval request" /tmp/nexus-agent.log; then
+if grep -q "Sent approval request" /tmp/astro-agent.log; then
     echo "  ✓ Approval request sent to relay"
 else
     echo "  ✗ Approval request NOT sent"
 fi
 
-if grep -q "task_approval_request" /tmp/nexus-agent.log; then
+if grep -q "task_approval_request" /tmp/astro-agent.log; then
     echo "  ✓ WebSocket message type correct"
 fi
 
 echo ""
 echo "Relay Server Logs:"
-if grep -q "Approval request from task" /tmp/nexus-server.log; then
+if grep -q "Approval request from task" /tmp/astro-server.log; then
     echo "  ✓ Relay received approval request"
-    grep "Approval request from task" /tmp/nexus-server.log | tail -1
+    grep "Approval request from task" /tmp/astro-server.log | tail -1
 else
     echo "  ✗ Relay did NOT receive approval request"
 fi
 
-if grep -q "task:approval_request" /tmp/nexus-server.log; then
+if grep -q "task:approval_request" /tmp/astro-server.log; then
     echo "  ✓ Event emitted to SSE"
 fi
 
 echo ""
 echo "=== Full Agent Runner Log (last 50 lines) ==="
-tail -50 /tmp/nexus-agent.log | grep -E "approval|AskUserQuestion|Intercepted|canUseTool" || echo "No approval-related messages"
+tail -50 /tmp/astro-agent.log | grep -E "approval|AskUserQuestion|Intercepted|canUseTool" || echo "No approval-related messages"
 
 echo ""
 echo "=== Full Server Log (approval-related) ==="
-grep -i "approval" /tmp/nexus-server.log | tail -20 || echo "No approval-related messages"
+grep -i "approval" /tmp/astro-server.log | tail -20 || echo "No approval-related messages"
 
 # Cleanup
 echo ""
@@ -153,5 +153,5 @@ kill $AGENT_PID 2>/dev/null || true
 echo ""
 echo "=== Test Complete ==="
 echo "Logs saved to:"
-echo "  - /tmp/nexus-server.log"
-echo "  - /tmp/nexus-agent.log"
+echo "  - /tmp/astro-server.log"
+echo "  - /tmp/astro-agent.log"

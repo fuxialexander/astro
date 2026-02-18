@@ -64,7 +64,7 @@ cd packages/agent-runner && node dist/cli.js connect
 
 ```bash
 # E2E test logs saved to:
-/tmp/nexus-e2e-logs-<timestamp>/
+/tmp/astro-e2e-logs-<timestamp>/
 
 # Key files:
 - test-report.txt        # Summary

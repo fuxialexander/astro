@@ -320,7 +320,7 @@ async function executeTask(node: PlanNode, plan: PlanResult) {
 
 async function main() {
   console.log('╔══════════════════════════════════════════════════════════╗')
-  console.log('║  Nexus Local Execution Integration Test                 ║')
+  console.log('║  Astro Local Execution Integration Test                 ║')
   console.log('╚══════════════════════════════════════════════════════════╝')
   console.log()
 

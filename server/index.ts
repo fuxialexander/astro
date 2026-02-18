@@ -30,7 +30,7 @@ import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus, ensureMachineRegistered } from './lib/registered-machines-store.js'
 import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isIndexedDBMode } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
-import { nexusEventTransport } from './lib/events/nexus-event-transport.js'
+import { astroEventTransport } from './lib/events/astro-event-transport.js'
 import { sseNotificationHook } from './lib/events/hooks/sse-notification-hook.js'
 import { auditLogHook } from './lib/events/hooks/audit-log-hook.js'
 import { usageMetricsHook } from './lib/events/hooks/usage-metrics-hook.js'
@@ -64,8 +64,8 @@ app.use('/*', secureHeaders({
 // Explicit allowed origins list
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
-  'https://nexus.fuxialexander.work',
-  process.env.CORS_ORIGIN || 'https://nexus.pages.dev',
+  'https://astro.fuxialexander.work',
+  process.env.CORS_ORIGIN || 'https://astro.pages.dev',
 ].filter(Boolean)
 
 app.use('/*', cors({
@@ -202,14 +202,14 @@ async function start() {
   // Register event transport hooks (skip in test mode to avoid side effects)
   if (!isTest()) {
     console.log('[event-transport] Registering hooks...')
-    nexusEventTransport.registerHook('sse-notification', sseNotificationHook)
-    nexusEventTransport.registerHook('audit-log', auditLogHook)
-    nexusEventTransport.registerHook('usage-metrics', usageMetricsHook)
-    nexusEventTransport.registerHook('pr-creation', prCreationHook)
-    console.log('[event-transport] Registered 4 hooks:', nexusEventTransport.listHooks().join(', '))
+    astroEventTransport.registerHook('sse-notification', sseNotificationHook)
+    astroEventTransport.registerHook('audit-log', auditLogHook)
+    astroEventTransport.registerHook('usage-metrics', usageMetricsHook)
+    astroEventTransport.registerHook('pr-creation', prCreationHook)
+    console.log('[event-transport] Registered 4 hooks:', astroEventTransport.listHooks().join(', '))
   } else {
     console.log('[event-transport] Test mode detected - hooks disabled')
-    nexusEventTransport.setEnabled(false)
+    astroEventTransport.setEnabled(false)
   }
 
   // Initialize relay server

@@ -1,6 +1,6 @@
-# Nexus UI Screens List
+# Astro UI Screens List
 
-This document defines the complete set of UI screens for Nexus, a planning-first platform for builders and scientists. The screens are organized by functional area and informed by both the product vision and Linear's established UI patterns.
+This document defines the complete set of UI screens for Astro, a planning-first platform for builders and scientists. The screens are organized by functional area and informed by both the product vision and Linear's established UI patterns.
 
 ---
 
@@ -197,7 +197,7 @@ The following screens from the original design are **not yet built**:
 4. **Health indicators** - Visual status for projects (on track/at risk/off track)
 5. **Display settings** - Per-view groupBy/orderBy/properties via `DisplayPopover`
 
-### Nexus-Specific
+### Astro-Specific
 1. **Graph-first planning** - Directed graph as primary plan view (not flat lists)
 2. **Tiered verification** - Auto-close for verifiable tasks, human judgment for strategic decisions
 3. **Vision document** - Persistent context document injected into every agent session

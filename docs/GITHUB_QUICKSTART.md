@@ -7,7 +7,7 @@ Get GitHub integration running in 5 minutes.
 1. Go to https://github.com/settings/developers
 2. Click **"New OAuth App"**
 3. Fill in:
-   - **Application name**: `Nexus Local Dev`
+   - **Application name**: `Astro Local Dev`
    - **Homepage URL**: `http://localhost:5173`
    - **Callback URL**: `http://localhost:5173/settings/github/callback`
 4. Click **"Register application"**

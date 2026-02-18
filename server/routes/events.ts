@@ -25,7 +25,7 @@ import type {
 } from '../types/relay.js'
 import { requireAuth } from '../middleware/auth.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
-import { nexusEventTransport } from '../lib/events/nexus-event-transport.js'
+import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import type { ApprovalRequestedEvent, ApprovalRespondedEvent } from '../lib/events/types.js'
 
 const eventsRoute = new Hono()
@@ -289,8 +289,8 @@ eventsRoute.get('/stream', async (c) => {
     executionEventBus.on('task:session_init', onTaskSessionInit)
     executionEventBus.on('task:steer_ack', onTaskSteerAck)
 
-    // Subscribe to approval events from nexusEventTransport
-    const nexusEventHandler = (event: { type: string; [key: string]: unknown }) => {
+    // Subscribe to approval events from astroEventTransport
+    const astroEventHandler = (event: { type: string; [key: string]: unknown }) => {
       if (!alive) return
       if (event.type === 'approval.requested') {
         onApprovalRequested(event as ApprovalRequestedEvent)
@@ -298,7 +298,7 @@ eventsRoute.get('/stream', async (c) => {
         onApprovalResponded(event as ApprovalRespondedEvent)
       }
     }
-    nexusEventTransport.on('event', nexusEventHandler)
+    astroEventTransport.on('event', astroEventHandler)
 
     // Keepalive heartbeat (15s)
     const heartbeat = setInterval(() => {
@@ -344,8 +344,8 @@ eventsRoute.get('/stream', async (c) => {
       executionEventBus.off('task:session_init', onTaskSessionInit)
       executionEventBus.off('task:steer_ack', onTaskSteerAck)
 
-      // Cleanup nexusEventTransport listeners
-      nexusEventTransport.off('event', nexusEventHandler)
+      // Cleanup astroEventTransport listeners
+      astroEventTransport.off('event', astroEventHandler)
     })
 
     // Keep the stream open until aborted

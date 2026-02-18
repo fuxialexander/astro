@@ -90,7 +90,7 @@ interface DisplaySettingsState {
   reset: (view: ViewKey) => void
 }
 
-const DB_KEY = "nexus-display-settings"
+const DB_KEY = "astro-display-settings"
 
 export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) => ({
   settings: { ...DEFAULTS },

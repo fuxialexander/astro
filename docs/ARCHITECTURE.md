@@ -1,6 +1,6 @@
-# Nexus Architecture
+# Astro Architecture
 
-This document provides a comprehensive overview of the Nexus system architecture, the persistence migration plan (IndexedDB → Drizzle+SQLite → Supabase), and the native iOS client design.
+This document provides a comprehensive overview of the Astro system architecture, the persistence migration plan (IndexedDB → Drizzle+SQLite → Supabase), and the native iOS client design.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ This document provides a comprehensive overview of the Nexus system architecture
 
 ## System Overview
 
-Nexus is a planning-first platform for builders (software developers) and scientists (researchers). It provides an AI-assisted planning layer that sits above execution tools (coding agents, analysis tools) to help users decompose complex goals, manage dependencies across environments, and focus human attention on strategic decisions.
+Astro is a planning-first platform for builders (software developers) and scientists (researchers). It provides an AI-assisted planning layer that sits above execution tools (coding agents, analysis tools) to help users decompose complex goals, manage dependencies across environments, and focus human attention on strategic decisions.
 
 ### Key Capabilities
 
@@ -380,7 +380,7 @@ import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import * as schema from './schema.js'
 
-const sqlite = new Database('.nexus/nexus.db')
+const sqlite = new Database('.astro/astro.db')
 sqlite.pragma('journal_mode = WAL')        // Better concurrent read performance
 export const db = drizzle(sqlite, { schema })
 
@@ -580,24 +580,24 @@ TCA maps well to the existing Zustand store pattern (state + actions + effects).
 ### Swift Package Layout
 
 ```
-NexusApp/
-├── NexusApp/                  # App entry point, WindowGroup
+AstroApp/
+├── AstroApp/                  # App entry point, WindowGroup
 ├── Packages/
-│   ├── NexusCore/             # Domain models (port of src/types/index.ts)
+│   ├── AstroCore/             # Domain models (port of src/types/index.ts)
 │   │   ├── Models/            # Project, PlanNode, PlanEdge, TaskExecution, etc.
 │   │   ├── Graph/             # GraphLayout.swift (port of graph-utils.ts)
 │   │   └── Utilities/
-│   ├── NexusNetworking/       # API client + SSE
+│   ├── AstroNetworking/       # API client + SSE
 │   │   ├── APIClient.swift    # HTTP client for Hono endpoints
 │   │   ├── SSEClient.swift    # Port of readSSE() from api-client.ts
 │   │   ├── RealtimeClient.swift  # SSE for /api/events/stream
 │   │   ├── SupabaseClient.swift  # supabase-swift wrapper
 │   │   ├── AuthClient.swift   # Passkey + Supabase Auth
 │   │   └── Endpoints/         # Per-route endpoint definitions
-│   ├── NexusPersistence/      # SwiftData models + offline sync
+│   ├── AstroPersistence/      # SwiftData models + offline sync
 │   │   ├── SwiftDataModels/   # @Model definitions with syncStatus field
 │   │   └── OfflineSyncEngine.swift
-│   ├── NexusFeatures/         # TCA features (one per screen)
+│   ├── AstroFeatures/         # TCA features (one per screen)
 │   │   ├── App/               # Root reducer, tab nav, auth gate
 │   │   ├── Auth/              # Passkey sign-in/sign-up
 │   │   ├── Dashboard/         # Stats, pending decisions, health
@@ -607,7 +607,7 @@ NexusApp/
 │   │   ├── MyTasks/           # Cross-project task list
 │   │   ├── Environments/      # Machine list, online/offline status
 │   │   └── Settings/
-│   └── NexusUI/               # Design system components
+│   └── AstroUI/               # Design system components
 │       ├── Theme/             # Colors, typography, spacing
 │       ├── Components/        # StatusBadge, ProgressBar, TerminalOutputView
 │       └── Layout/            # Sidebar, header
@@ -648,7 +648,7 @@ NexusApp/
 
 1. Install `better-sqlite3`, `drizzle-orm`, `drizzle-kit`
 2. Create `server/db/schema.ts` with all table definitions
-3. Create `server/db/index.ts` with SQLite connection (`~/.nexus/nexus.db`)
+3. Create `server/db/index.ts` with SQLite connection (`~/.astro/astro.db`)
 4. Auto-run migrations on server start
 5. Create `server/routes/data.ts` with CRUD endpoints
 6. Migrate Zustand stores to API-backed (IndexedDB as offline cache)

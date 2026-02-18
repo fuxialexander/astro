@@ -324,7 +324,7 @@ export function MyTasks() {
   const emptyState = (
     <EmptyState
       icon={CheckSquare}
-      title={hasActiveFilters ? "No matching tasks" : "Welcome to Nexus"}
+      title={hasActiveFilters ? "No matching tasks" : "Welcome to Astro"}
       description={
         hasActiveFilters
           ? "Try adjusting your filters to see more tasks."

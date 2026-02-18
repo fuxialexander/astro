@@ -1,13 +1,13 @@
 version: '3.8'
 
 services:
-  # Nexus Application
-  nexus:
+  # Astro Application
+  astro:
     build:
       context: .
       dockerfile: Dockerfile
       target: production
-    container_name: nexus-app
+    container_name: astro-app
     ports:
       - "3001:3001"
       - "3002:3002"
@@ -24,10 +24,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - nexus-network
+      - astro-network
     volumes:
       # Persist any data that needs to be stored
-      - nexus-data:/app/data
+      - astro-data:/app/data
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"]
       interval: 30s
@@ -38,7 +38,7 @@ services:
   # Redis for session management and event buffering
   redis:
     image: redis:7-alpine
-    container_name: nexus-redis
+    container_name: astro-redis
     ports:
       - "6379:6379"
     volumes:
@@ -46,7 +46,7 @@ services:
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     restart: unless-stopped
     networks:
-      - nexus-network
+      - astro-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -54,13 +54,13 @@ services:
       retries: 5
 
   # Development-only service
-  nexus-dev:
+  astro-dev:
     profiles: ["dev"]
     build:
       context: .
       dockerfile: Dockerfile
       target: builder
-    container_name: nexus-dev
+    container_name: astro-dev
     ports:
       - "5173:5173"
       - "3001:3001"
@@ -77,14 +77,14 @@ services:
       - /app/node_modules
     command: npm run dev
     networks:
-      - nexus-network
+      - astro-network
 
 networks:
-  nexus-network:
+  astro-network:
     driver: bridge
 
 volumes:
   redis-data:
     driver: local
-  nexus-data:
+  astro-data:
     driver: local

@@ -11,7 +11,7 @@ git add .
 git commit -m "Initial commit"
 
 # Start agent
-npx @nexus/agent start
+npx @astro/agent start
 
 # Task executes immediately - no prompt needed ✅
 ```
@@ -24,7 +24,7 @@ cd ~/new-project
 echo "test" > file.txt
 
 # Start agent
-npx @nexus/agent start
+npx @astro/agent start
 
 # Task triggers safety prompt:
 ```
@@ -60,7 +60,7 @@ Choose an option:
 ```bash
 # Terminal 1
 cd ~/no-git-folder
-npx @nexus/agent start
+npx @astro/agent start
 
 # Task 1 starts (user confirms "Continue anyway")
 
@@ -86,7 +86,7 @@ Solutions:
 ### Example 4: Automatic Sandbox Mode
 ```bash
 # Always use sandbox - no prompts
-npx @nexus/agent start --sandbox
+npx @astro/agent start --sandbox
 
 # All tasks execute in isolated copies
 # Original files never touched
@@ -95,7 +95,7 @@ npx @nexus/agent start --sandbox
 ### Example 5: Automation Mode
 ```bash
 # Skip safety prompts (for CI/CD)
-npx @nexus/agent start --allow-non-git
+npx @astro/agent start --allow-non-git
 
 # Warning: This bypasses user confirmation!
 # Only use in automated environments where you control the workload
@@ -104,7 +104,7 @@ npx @nexus/agent start --allow-non-git
 ### Example 6: Large Directory Warning
 ```bash
 # Directory with 500MB of files
-npx @nexus/agent start --sandbox
+npx @astro/agent start --sandbox
 
 # Error:
 ```
@@ -116,7 +116,7 @@ Use --max-sandbox-size to increase or exclude large directories.
 
 ```bash
 # Solution: Increase limit
-npx @nexus/agent start --sandbox --max-sandbox-size 600
+npx @astro/agent start --sandbox --max-sandbox-size 600
 ```
 
 ## Real-World Scenarios
@@ -126,7 +126,7 @@ npx @nexus/agent start --sandbox --max-sandbox-size 600
 # Safe approach - work on a branch
 cd ~/project
 git checkout -b ai-review
-npx @nexus/agent start
+npx @astro/agent start
 
 # Agent makes changes on the branch
 # Review changes: git diff main
@@ -136,10 +136,10 @@ npx @nexus/agent start
 ### Scenario 2: Exploratory Refactoring
 ```bash
 # Use sandbox to experiment safely
-npx @nexus/agent start --sandbox
+npx @astro/agent start --sandbox
 
 # Agent refactors code in sandbox
-# Review changes in ~/.nexus/sandbox/<task-id>/
+# Review changes in ~/.astro/sandbox/<task-id>/
 # If good, agent can copy back (or user can manually apply)
 ```
 
@@ -148,7 +148,7 @@ npx @nexus/agent start --sandbox
 # Working on production code - want extra safety
 cd ~/production-app
 git status  # Ensure clean state
-npx @nexus/agent start
+npx @astro/agent start
 
 # Safety tier: SAFE ✅
 # Task executes with full git protection
@@ -159,7 +159,7 @@ npx @nexus/agent start
 ```bash
 # Notebooks directory without git
 cd ~/notebooks
-npx @nexus/agent start
+npx @astro/agent start
 
 # Safety prompt appears
 # Option 2: Initialize git
@@ -171,7 +171,7 @@ npx @nexus/agent start
 ```bash
 # Large data folder (200MB)
 cd ~/data-analysis
-npx @nexus/agent start --sandbox --max-sandbox-size 250
+npx @astro/agent start --sandbox --max-sandbox-size 250
 
 # Sandbox mode copies only code files
 # Excludes: data/, .git/, venv/, __pycache__/
@@ -183,28 +183,28 @@ npx @nexus/agent start --sandbox --max-sandbox-size 250
 ### Development Mode
 ```bash
 # Paranoid mode - sandbox everything
-npx @nexus/agent start --sandbox --max-sandbox-size 500
+npx @astro/agent start --sandbox --max-sandbox-size 500
 ```
 
 ### Production Mode
 ```bash
 # Strict mode - require git, no unsafe operations
-npx @nexus/agent start
+npx @astro/agent start
 # Default settings ensure safety
 ```
 
 ### CI/CD Mode
 ```bash
 # Automated mode - skip prompts, trust workload
-npx @nexus/agent start --allow-non-git
+npx @astro/agent start --allow-non-git
 ```
 
 ### Debug Mode
 ```bash
 # Preserve worktrees and sandboxes for inspection
-npx @nexus/agent start --preserve-worktrees --sandbox
-# Worktrees: ~/.nexus/worktrees/<repo>/<task-id>/
-# Sandboxes: ~/.nexus/sandbox/<task-id>/
+npx @astro/agent start --preserve-worktrees --sandbox
+# Worktrees: ~/.astro/worktrees/<repo>/<task-id>/
+# Sandboxes: ~/.astro/sandbox/<task-id>/
 ```
 
 ## Advanced Patterns
@@ -221,7 +221,7 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
   git commit -m "Initial commit (automated)"
 fi
 
-npx @nexus/agent start
+npx @astro/agent start
 ```
 
 ### Pattern 2: Sandbox Review Workflow
@@ -230,23 +230,23 @@ npx @nexus/agent start
 # sandbox-review.sh
 
 # Start agent in sandbox
-npx @nexus/agent start --sandbox &
+npx @astro/agent start --sandbox &
 AGENT_PID=$!
 
 # Wait for task completion
 wait $AGENT_PID
 
 # Find sandbox directory
-SANDBOX_DIR=$(ls -t ~/.nexus/sandbox | head -1)
+SANDBOX_DIR=$(ls -t ~/.astro/sandbox | head -1)
 
 # Review changes
 echo "Reviewing changes in: $SANDBOX_DIR"
-diff -r . ~/.nexus/sandbox/$SANDBOX_DIR
+diff -r . ~/.astro/sandbox/$SANDBOX_DIR
 
 # Prompt user
 read -p "Apply changes? (y/n) " -n 1 -r
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-  rsync -av --exclude='.git' ~/.nexus/sandbox/$SANDBOX_DIR/ .
+  rsync -av --exclude='.git' ~/.astro/sandbox/$SANDBOX_DIR/ .
   echo "Changes applied!"
 fi
 ```
@@ -267,7 +267,7 @@ for PROJ in "${PROJECTS[@]}"; do
   fi
 
   # Start agent
-  npx @nexus/agent start --foreground
+  npx @astro/agent start --foreground
 done
 ```
 
@@ -280,7 +280,7 @@ du -sh .
 # 350M
 
 # Solution 1: Increase limit
-npx @nexus/agent start --sandbox --max-sandbox-size 400
+npx @astro/agent start --sandbox --max-sandbox-size 400
 
 # Solution 2: Clean up large folders first
 rm -rf node_modules dist build
@@ -290,7 +290,7 @@ npm install  # Reinstall after if needed
 ### Problem: "Parallel execution blocked"
 ```bash
 # Check active tasks
-ps aux | grep nexus-agent
+ps aux | grep astro-agent
 
 # Solution 1: Wait
 # Let current task finish
@@ -346,12 +346,12 @@ git --version
 3. **Use branches for experimental changes**
    ```bash
    git checkout -b ai-experiment
-   npx @nexus/agent start
+   npx @astro/agent start
    ```
 
 4. **Use sandbox for untrusted tasks**
    ```bash
-   npx @nexus/agent start --sandbox
+   npx @astro/agent start --sandbox
    ```
 
 5. **Review changes before committing**
@@ -368,10 +368,10 @@ git --version
 git init && git add . && git commit -m "Initial"
 
 # 2. Run in sandbox
-npx @nexus/agent start --sandbox
+npx @astro/agent start --sandbox
 
 # 3. Review sandbox changes
-diff -r . ~/.nexus/sandbox/<task-id>
+diff -r . ~/.astro/sandbox/<task-id>
 
 # 4. Apply and commit
 # (manual copy or agent copyBack)

@@ -195,7 +195,7 @@ function PreferencesContent() {
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
             label="Default home view"
-            description="Select which view to display when launching Nexus"
+            description="Select which view to display when launching Astro"
           >
             <SelectDropdown
               value={homeView}

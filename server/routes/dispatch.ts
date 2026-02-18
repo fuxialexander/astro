@@ -127,7 +127,7 @@ dispatchRoute.post('/task', async (c) => {
   // Validate working directory path (prevent path traversal)
   if (!workingDirectory.startsWith('http://') && !workingDirectory.startsWith('https://') && !workingDirectory.startsWith('git@')) {
     // Local path validation: check for ".." and ensure it's within an allowed base
-    const allowedBase = resolve(homedir(), '.nexus')
+    const allowedBase = resolve(homedir(), '.astro')
     const requestedPath = resolve(workingDirectory)
     const rel = relative(allowedBase, requestedPath)
 
@@ -235,7 +235,7 @@ dispatchRoute.post('/task', async (c) => {
 
 /**
  * Resolve a working directory value. If it looks like a git URL, clone to
- * ~/.nexus/repos/{projectId}/ and return the local path. Otherwise return as-is.
+ * ~/.astro/repos/{projectId}/ and return the local path. Otherwise return as-is.
  *
  * SECURITY: Uses execFileSync to prevent command injection in git operations.
  */
@@ -248,7 +248,7 @@ function resolveWorkingDirectory(value: string, projectId: string): string {
     throw new Error('Invalid projectId format')
   }
 
-  const repoDir = join(homedir(), '.nexus', 'repos', projectId)
+  const repoDir = join(homedir(), '.astro', 'repos', projectId)
   if (existsSync(join(repoDir, '.git'))) {
     // Already cloned — fetch latest (HIGH-004: use execFileSync + disable hooks)
     try {
@@ -550,7 +550,7 @@ The user can review your reasoning in the task output and provide guidance if th
                     branchName: worktreeSetup.branchName,
                     baseBranch,
                     title,
-                    body: `## Task\n\n${description}\n\n---\n*Created by Nexus task automation*`,
+                    body: `## Task\n\n${description}\n\n---\n*Created by Astro task automation*`,
                   })
                   branchName = prResult.branchName
                   prUrl = prResult.prUrl
@@ -1046,7 +1046,7 @@ dispatchRoute.post('/approve', async (c) => {
  *
  * POST /api/dispatch/request-dynamic-approval
  *
- * This endpoint is called by the Nexus MCP server when the agent uses
+ * This endpoint is called by the Astro MCP server when the agent uses
  * the ask_user_question tool. It blocks until the user responds.
  */
 dispatchRoute.post('/request-dynamic-approval', async (c) => {

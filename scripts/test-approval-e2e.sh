@@ -12,13 +12,13 @@ echo ""
 
 # Clean up previous test artifacts
 echo "Cleaning up..."
-rm -rf ~/.nexus/logs/test-approval-*.log
-rm -rf ~/.Library/Preferences/nexus-agent-nodejs
+rm -rf ~/.astro/logs/test-approval-*.log
+rm -rf ~/.Library/Preferences/astro-agent-nodejs
 
 # Start the backend server
 echo "Starting backend server..."
 cd "$REPO_ROOT"
-npm run dev:backend > /tmp/nexus-server.log 2>&1 &
+npm run dev:backend > /tmp/astro-server.log 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
@@ -32,8 +32,8 @@ cd "$REPO_ROOT/packages/agent-runner"
 npm run build > /dev/null 2>&1
 
 # Create a test config with MCP tools
-mkdir -p ~/.nexus
-cat > ~/.nexus/config.json <<EOF
+mkdir -p ~/.astro
+cat > ~/.astro/config.json <<EOF
 {
   "runnerId": "test-runner-$(date +%s)",
   "machineId": "test-machine",
@@ -52,7 +52,7 @@ cat > ~/.nexus/config.json <<EOF
 EOF
 
 # Start agent runner with verbose logging
-NEXUS_LOG_LEVEL=debug npx tsx src/index.ts start > /tmp/nexus-agent.log 2>&1 &
+ASTRO_LOG_LEVEL=debug npx tsx src/index.ts start > /tmp/astro-agent.log 2>&1 &
 AGENT_PID=$!
 echo "Agent runner PID: $AGENT_PID"
 
@@ -93,12 +93,12 @@ sleep 30
 # Check agent runner logs for approval flow
 echo ""
 echo "=== Agent Runner Logs ==="
-grep -i "approval\|AskUserQuestion" /tmp/nexus-agent.log || echo "No approval messages found in agent logs"
+grep -i "approval\|AskUserQuestion" /tmp/astro-agent.log || echo "No approval messages found in agent logs"
 
 # Check server logs for approval flow
 echo ""
 echo "=== Server Logs ==="
-grep -i "approval" /tmp/nexus-server.log || echo "No approval messages found in server logs"
+grep -i "approval" /tmp/astro-server.log || echo "No approval messages found in server logs"
 
 # Cleanup
 echo ""

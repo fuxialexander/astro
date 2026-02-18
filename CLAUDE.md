@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Nexus** is a planning-first platform for builders (software developers) and scientists (researchers). It provides an AI-assisted planning layer that sits above execution tools (coding agents, analysis tools) to help users decompose complex goals, manage dependencies across environments, and focus human attention on strategic decisions.
+**Astro** is a planning-first platform for builders (software developers) and scientists (researchers). It provides an AI-assisted planning layer that sits above execution tools (coding agents, analysis tools) to help users decompose complex goals, manage dependencies across environments, and focus human attention on strategic decisions.
 
 The product vision is documented in `vision.md`. The UI design is in `UI.pen` (read via Pencil MCP tools only, not with `Read` or `Grep`).
 
@@ -29,7 +29,7 @@ npm run deploy           # Build + deploy to Cloudflare Pages
 
 ### Database Modes
 
-Nexus supports two database modes:
+Astro supports two database modes:
 
 **IndexedDB Mode** (default for local dev):
 - No authentication required
@@ -73,7 +73,8 @@ Everything runs locally — no Fly.io, Redis, or external services needed for de
 - **Command Palette**: cmdk
 - **Backend**: Hono.js on Node.js (port 3001), proxied via Vite `/api` → localhost:3001
 - **AI**: @anthropic-ai/claude-agent-sdk for plan generation + chat
-- **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend + relay, production only)
+- **Deployment**: Cloudflare Tunnel (dev) + Fly.io (backend, production) + Cloudflare Pages (frontend, production)
+- **Landing Page**: Static HTML in `public/landing/` (served at `/landing/`)
 
 ## Architecture
 
@@ -82,6 +83,11 @@ Everything runs locally — no Fly.io, Redis, or external services needed for de
 
 ### Project Structure
 ```
+public/
+├── landing/
+│   ├── index.html                # Landing page (astro-landing.html)
+│   └── about.html                # "Why Astro?" page (astro-about.html)
+
 src/
 ├── app.tsx                       # Root: BrowserRouter, DataLoader, routes
 ├── main.tsx                      # React DOM entry point
@@ -185,6 +191,8 @@ server/
 │   ├── device-code-store.ts      # Device code state management
 │   ├── token-manager.ts          # JWT token lifecycle (create, verify, refresh, revoke)
 │   ├── registered-machines-store.ts # Machine registration persistence
+│   ├── events/
+│   │   └── astro-event-transport.ts # Singleton event transport (SSE, audit log, usage metrics hooks)
 │   ├── providers/                # Pluggable agent provider system
 │   │   ├── types.ts              # AgentProvider, TaskDispatch, TaskResult, StreamEvent interfaces
 │   │   ├── registry.ts           # Provider registry management
@@ -205,7 +213,7 @@ server/
 │   │   ├── script-generator.ts   # Generates SBATCH scripts
 │   │   └── parser.ts             # Parses SLURM output
 │   └── mcp/                      # MCP server integration
-│       └── nexus-tools-server.ts # Custom MCP server (ask_user_question tool)
+│       └── astro-tools-server.ts # Custom MCP server (ask_user_question tool)
 ├── types/
 │   └── relay.ts                  # WebSocket protocol types for relay communication
 └── test/
@@ -215,7 +223,7 @@ packages/
 └── agent-runner/                 # Compiled agent runner distribution
 
 cli/
-└── nexus-agent/                  # CLI tools for agent runner
+└── astro-agent/                  # CLI tools for agent runner
 
 docs/
 └── ...                           # Architecture documentation
@@ -238,6 +246,8 @@ docs/
 | `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
 | `/welcome` | Welcome | Implemented (simplified 2-option onboarding: empty project or repo-based project) |
 | `/login` | Login | Implemented (WebAuthn/passkey authentication) |
+| `/landing/` | Landing Page | Implemented (static HTML, public marketing page) |
+| `/landing/about` | Why Astro? | Implemented (static HTML, philosophy/naming page) |
 | `/issues` | Issues List | **Not implemented** (designed in UI.pen, no code) |
 | `/issues/board` | Issues Board | **Not implemented** (designed in UI.pen, no code) |
 
@@ -269,7 +279,7 @@ docs/
 - **Activity Feed**: Real-time activity tracking system with IndexedDB persistence, captures all project/task events
 - **Approval System**: Dynamic tool-based approvals (`ask_user_question`) + procedure-level approvals with SSE notifications
 - **Realtime Sync**: Multi-device collaboration via Supabase Realtime with optimistic updates and conflict resolution
-- **MCP Integration**: Custom MCP server (`nexus-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
+- **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
 
 ## Target Users
 
@@ -368,6 +378,45 @@ npm run dev:backend
 npx tsx server/test/relay-server.test.ts
 ```
 
+## Deployment & Infrastructure
+
+### Domains
+| Service | URL | Target |
+|---------|-----|--------|
+| Frontend | `https://astro.fuxialexander.work` | Vite dev (tunnel) or Cloudflare Pages (prod) |
+| Backend API | `https://astro-api.fuxialexander.work` | Hono server (port 3001) |
+| WebSocket Relay | `https://astro-relay.fuxialexander.work` | Relay server (port 3002) |
+| Supabase | `https://astro-supabase.fuxialexander.work` | Local Supabase (port 54321) |
+| Landing Page | `https://astro.fuxialexander.work/landing/` | Static HTML in `public/landing/` |
+
+### Cloudflare Tunnel (Development)
+- Tunnel name: `astro`
+- Script: `scripts/start-tunnel.sh` — creates tunnel, DNS routes, writes `~/.cloudflared/config.yml`, updates `.env.local`
+- Routes all `astro.*` subdomains to local ports
+- Run `npm run dev` first, then `bash scripts/start-tunnel.sh` in another terminal
+
+### Production Deployment
+- **Frontend**: `npm run deploy:frontend` → Cloudflare Pages project `astro-app`
+- **Backend**: `npm run deploy:backend` → Fly.io app `astro-backend`
+- SSE connections bypass Cloudflare (direct Fly.io) to avoid timeout issues
+
+### Environment Variables (ASTRO_* prefix)
+Agent-runner and MCP tools use `ASTRO_*` prefixed env vars:
+- `ASTRO_SERVER_URL`, `ASTRO_AUTH_TOKEN`, `ASTRO_EXECUTION_ID`
+- `ASTRO_PROJECT_ID`, `ASTRO_BASE_URL`, `ASTRO_RELAY_URL`
+- `ASTRO_MACHINE_NAME`, `ASTRO_LOG_LEVEL`, `ASTRO_TASK_ID`, `ASTRO_NODE_ID`
+
+### Data Directory
+Agent runners store data in `~/.astro/`:
+- `~/.astro/astro.db` — SQLite database (drizzle)
+- `~/.astro/logs/` — Audit logs (JSONL)
+- `~/.astro/config.json` — Agent runner config
+
+### Package Names
+- Root: `astro` (package.json)
+- Agent runner: `@astro/agent` (packages/agent-runner)
+- CLI binary: `astro-agent`
+
 ## File Reference
 
 ### Core Documentation
@@ -394,7 +443,7 @@ npx tsx server/test/relay-server.test.ts
 
 ## MCP Tools for Agents
 
-Agents running inside Nexus tasks have access to **18 MCP tools** for self-directed work:
+Agents running inside Astro tasks have access to **18 MCP tools** for self-directed work:
 
 ### Plan Management (5 tools)
 - `query_plan` - Get plan graph (nodes + edges)
@@ -420,5 +469,11 @@ Agents running inside Nexus tasks have access to **18 MCP tools** for self-direc
 
 ### User Interaction (1 tool)
 - `ask_user_question` - Ask user for decisions
+
+### Session Bridge (4 tools, `astro_*` prefix)
+- `astro_attach` - Attach session to a task
+- `astro_detach` - Detach from current task
+- `astro_status` - Check attachment status
+- `astro_send` - Send message/event to task
 
 See `docs/MCP_TOOLS_REFERENCE.md` for complete documentation with examples.

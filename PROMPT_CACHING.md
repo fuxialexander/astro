@@ -1,10 +1,10 @@
 # Prompt Caching Implementation
 
-This document explains Nexus's prompt caching strategy, optimized for cost efficiency and performance.
+This document explains Astro's prompt caching strategy, optimized for cost efficiency and performance.
 
 ## Overview
 
-Nexus uses **Claude's Prompt Caching** feature to reduce API costs by up to 90% for repeated context. The implementation is designed for git-worktree scenarios where multiple tasks share the same initial codebase state.
+Astro uses **Claude's Prompt Caching** feature to reduce API costs by up to 90% for repeated context. The implementation is designed for git-worktree scenarios where multiple tasks share the same initial codebase state.
 
 ## Cache Strategy
 

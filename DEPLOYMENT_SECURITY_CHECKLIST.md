@@ -143,7 +143,7 @@ export DEVICE_AUTH_REFRESH_SECRET=<previous-refresh-secret>
 npm run deploy
 
 # 4. Verify
-curl https://api.nexus.example.com/api/health
+curl https://api.astro.example.com/api/health
 ```
 
 ## Contact Information

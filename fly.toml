@@ -1,7 +1,7 @@
-# Fly.io configuration for Nexus backend + relay server
+# Fly.io configuration for Astro backend + relay server
 # Deploy with: fly deploy
 
-app = "nexus-backend"
+app = "astro-backend"
 primary_region = "sjc"
 
 [build]

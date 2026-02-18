@@ -1,6 +1,6 @@
 # GitHub Integration Setup
 
-This guide explains how to set up GitHub OAuth integration in Nexus to allow users to browse and select their repositories.
+This guide explains how to set up GitHub OAuth integration in Astro to allow users to browse and select their repositories.
 
 ## Features
 
@@ -17,7 +17,7 @@ This guide explains how to set up GitHub OAuth integration in Nexus to allow use
 1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
 2. Click **"New OAuth App"**
 3. Fill in the application details:
-   - **Application name**: `Nexus` (or your preferred name)
+   - **Application name**: `Astro` (or your preferred name)
    - **Homepage URL**: `http://localhost:5173` (dev) or your production URL
    - **Authorization callback URL**: `http://localhost:5173/settings/github/callback`
 4. Click **"Register application"**
@@ -55,7 +55,7 @@ npm run dev:backend
 
 ### Connecting GitHub
 
-1. Open **Settings** in Nexus
+1. Open **Settings** in Astro
 2. Look for the **GitHub Integration** section
 3. Click **"Connect GitHub"**
 4. Authorize the application in the OAuth popup
@@ -115,7 +115,7 @@ The integration requests the following GitHub OAuth scopes:
 
 - **`repo`**: Full access to public and private repositories
   - Required to read repository metadata, branches, and content
-  - Allows Nexus to clone and sync repositories
+  - Allows Astro to clone and sync repositories
 
 ## Security Considerations
 

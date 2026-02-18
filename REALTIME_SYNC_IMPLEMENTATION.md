@@ -165,7 +165,7 @@ signOut: async () => {
 ### Manual Test Plan
 
 1. **Basic Sync**:
-   - Open Nexus in two browser windows
+   - Open Astro in two browser windows
    - Sign in with same user on both
    - Create project on Window A → verify appears on Window B
    - Update task on Window B → verify updates on Window A

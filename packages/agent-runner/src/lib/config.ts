@@ -38,7 +38,7 @@ class ConfigManager {
 
   constructor() {
     this.conf = new Conf<ConfigSchema>({
-      projectName: 'nexus-agent',
+      projectName: 'astro-agent',
       projectVersion: '0.1.0',
       defaults: {
         runnerId: '',

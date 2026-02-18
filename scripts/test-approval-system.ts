@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import readline from 'node:readline'
 
-const NEXUS_SERVER_URL = process.env.NEXUS_SERVER_URL || 'http://localhost:3001'
+const ASTRO_SERVER_URL = process.env.ASTRO_SERVER_URL || 'http://localhost:3001'
 const COLORS = {
   reset: '\x1b[0m',
   green: '\x1b[32m',
@@ -53,15 +53,15 @@ function warn(message: string) {
 async function testMcpServerToolListing(): Promise<boolean> {
   info('Test 1: MCP Server Tool Listing')
 
-  const mcpServerPath = new URL('../server/lib/mcp/nexus-tools-server.ts', import.meta.url).pathname
+  const mcpServerPath = new URL('../server/lib/mcp/astro-tools-server.ts', import.meta.url).pathname
 
   return new Promise((resolve) => {
     const mcp = spawn('node', ['--import=tsx/esm', mcpServerPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        NEXUS_EXECUTION_ID: 'test-exec-123',
-        NEXUS_SERVER_URL,
+        ASTRO_EXECUTION_ID: 'test-exec-123',
+        ASTRO_SERVER_URL,
       },
     })
 
@@ -70,7 +70,7 @@ async function testMcpServerToolListing(): Promise<boolean> {
 
     mcp.stderr.on('data', (data) => {
       const msg = data.toString()
-      if (msg.includes('Nexus MCP Tools Server running')) {
+      if (msg.includes('Astro MCP Tools Server running')) {
         hasStarted = true
         // Send tools/list request
         const request = {
@@ -132,18 +132,18 @@ async function testDynamicApprovalEndpoint(): Promise<boolean> {
 
   try {
     // Check if server is running
-    const healthRes = await fetch(`${NEXUS_SERVER_URL}/api/health`)
+    const healthRes = await fetch(`${ASTRO_SERVER_URL}/api/health`)
     if (!healthRes.ok) {
-      error('Nexus server is not running. Start it with: npm run dev:backend')
+      error('Astro server is not running. Start it with: npm run dev:backend')
       return false
     }
-    success('Nexus server is running')
+    success('Astro server is running')
 
     // Test the endpoint (this will timeout since we won't respond, but we can verify it accepts the request)
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 2000)
 
-    const approvalPromise = fetch(`${NEXUS_SERVER_URL}/api/dispatch/request-dynamic-approval`, {
+    const approvalPromise = fetch(`${ASTRO_SERVER_URL}/api/dispatch/request-dynamic-approval`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -231,15 +231,15 @@ async function testInteractiveApprovalFlow(): Promise<boolean> {
 async function testEndToEndMcpCall(): Promise<boolean> {
   info('Test 4: End-to-End MCP Tool Call (simulated)')
 
-  const mcpServerPath = new URL('../server/lib/mcp/nexus-tools-server.ts', import.meta.url).pathname
+  const mcpServerPath = new URL('../server/lib/mcp/astro-tools-server.ts', import.meta.url).pathname
 
   return new Promise((resolve) => {
     const mcp = spawn('node', ['--import=tsx/esm', mcpServerPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        NEXUS_EXECUTION_ID: 'test-exec-789',
-        NEXUS_SERVER_URL,
+        ASTRO_EXECUTION_ID: 'test-exec-789',
+        ASTRO_SERVER_URL,
       },
     })
 
@@ -247,7 +247,7 @@ async function testEndToEndMcpCall(): Promise<boolean> {
 
     mcp.stderr.on('data', (data) => {
       const msg = data.toString()
-      if (msg.includes('Nexus MCP Tools Server running')) {
+      if (msg.includes('Astro MCP Tools Server running')) {
         hasStarted = true
 
         // Send tool call request
@@ -303,7 +303,7 @@ async function testEndToEndMcpCall(): Promise<boolean> {
  */
 async function main() {
   console.log('\n' + COLORS.blue + '═'.repeat(60) + COLORS.reset)
-  console.log(COLORS.blue + '  Nexus Approval System - CLI Test Suite' + COLORS.reset)
+  console.log(COLORS.blue + '  Astro Approval System - CLI Test Suite' + COLORS.reset)
   console.log(COLORS.blue + '═'.repeat(60) + COLORS.reset + '\n')
 
   const results: boolean[] = []

@@ -2,7 +2,7 @@
  * Audit Log Hook
  *
  * Logs all task execution events for debugging and compliance.
- * Creates structured JSONL logs in ~/.nexus/logs/
+ * Creates structured JSONL logs in ~/.astro/logs/
  */
 
 import { mkdirSync, existsSync, appendFileSync } from 'fs'
@@ -10,7 +10,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import type { EventHook } from '../types.js'
 
-const LOGS_DIR = join(homedir(), '.nexus', 'logs')
+const LOGS_DIR = join(homedir(), '.astro', 'logs')
 
 // Ensure logs directory exists
 if (!existsSync(LOGS_DIR)) {

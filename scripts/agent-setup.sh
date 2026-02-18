@@ -54,8 +54,8 @@ if [[ -z "$MACHINE_NAME" ]]; then
   echo "Auto-detected machine hostname: $MACHINE_NAME"
 fi
 
-API_URL="https://nexus.$DOMAIN"
-RELAY_URL="wss://nexus-relay.$DOMAIN"
+API_URL="https://astro.$DOMAIN"
+RELAY_URL="wss://astro-relay.$DOMAIN"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

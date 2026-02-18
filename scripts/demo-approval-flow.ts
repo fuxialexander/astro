@@ -34,7 +34,7 @@ async function sleep(ms: number) {
 async function demo() {
   console.log('\n' + COLORS.cyan + '═'.repeat(70) + COLORS.reset)
   console.log(
-    COLORS.cyan + COLORS.bold + '  Nexus Approval System - How It Works' + COLORS.reset
+    COLORS.cyan + COLORS.bold + '  Astro Approval System - How It Works' + COLORS.reset
   )
   console.log(COLORS.cyan + '═'.repeat(70) + COLORS.reset + '\n')
 
@@ -189,7 +189,7 @@ async function demo() {
 
   // Files involved
   console.log(COLORS.cyan + 'Files Involved:' + COLORS.reset)
-  console.log('  • server/lib/mcp/nexus-tools-server.ts - MCP server')
+  console.log('  • server/lib/mcp/astro-tools-server.ts - MCP server')
   console.log('  • server/lib/dispatch/dispatch-engine.ts - Approval logic')
   console.log('  • server/routes/dispatch.ts - HTTP endpoints')
   console.log('  • server/routes/events.ts - SSE event streaming')

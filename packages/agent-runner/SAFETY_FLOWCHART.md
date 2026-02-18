@@ -222,13 +222,13 @@
          ┌──────────┐       │      process.cwd()
          │  Clone   │       │           │
          │   to     │       │           │
-         │ ~/.nexus/│       │           │
+         │ ~/.astro/│       │           │
          │   repos/ │       │           │
          │ projectId│       │           │
          └────┬─────┘       │           │
               │             │           │
               ▼             ▼           ▼
-         ~/.nexus/     As specified    Current
+         ~/.astro/     As specified    Current
          repos/        /path/to/dir    working
          proj-123/                     directory
               │             │           │
@@ -267,7 +267,7 @@
 │  Copy Directory  │         ▼
 │                  │       Exit
 │  From: workdir   │
-│  To: ~/.nexus/   │
+│  To: ~/.astro/   │
 │      sandbox/    │
 │      taskId/     │
 │                  │
@@ -286,7 +286,7 @@
 │  in Sandbox      │
 │                  │
 │  workdir =       │
-│  ~/.nexus/       │
+│  ~/.astro/       │
 │  sandbox/taskId/ │
 └────────┬─────────┘
          │
@@ -421,7 +421,7 @@ Flow:
   4. activeTasksInDir → 0 ✅
   5. tier = SAFE
   6. trackTaskDirectory()
-  7. createWorktree() → ~/.nexus/worktrees/my-app/task-123/
+  7. createWorktree() → ~/.astro/worktrees/my-app/task-123/
   8. Execute in worktree
   9. Cleanup
   10. untrackTaskDirectory()

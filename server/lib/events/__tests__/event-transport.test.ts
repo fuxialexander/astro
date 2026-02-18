@@ -4,14 +4,14 @@
  * Basic verification that the event transport and hooks work correctly.
  */
 
-import { NexusEventTransport } from '../nexus-event-transport.js'
-import type { NexusEvent, EventHook } from '../types.js'
+import { AstroEventTransport } from '../astro-event-transport.js'
+import type { AstroEvent, EventHook } from '../types.js'
 
-describe('NexusEventTransport', () => {
-  let transport: NexusEventTransport
+describe('AstroEventTransport', () => {
+  let transport: AstroEventTransport
 
   beforeEach(() => {
-    transport = new NexusEventTransport()
+    transport = new AstroEventTransport()
   })
 
   afterEach(() => {
@@ -48,7 +48,7 @@ describe('NexusEventTransport', () => {
 
     transport.registerHook('test-hook', mockHook)
 
-    const event: NexusEvent = {
+    const event: AstroEvent = {
       type: 'task.started',
       taskId: 'test-task',
       nodeId: 'test-node',
@@ -82,7 +82,7 @@ describe('NexusEventTransport', () => {
     transport.registerHook('error-hook', errorHook)
     transport.registerHook('normal-hook', normalHook)
 
-    const event: NexusEvent = {
+    const event: AstroEvent = {
       type: 'task.started',
       taskId: 'test-task',
       nodeId: 'test-node',
@@ -113,7 +113,7 @@ describe('NexusEventTransport', () => {
     transport.registerHook('test-hook', mockHook)
     transport.setEnabled(false)
 
-    const event: NexusEvent = {
+    const event: AstroEvent = {
       type: 'task.started',
       taskId: 'test-task',
       nodeId: 'test-node',

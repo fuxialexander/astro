@@ -25,13 +25,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const settings = await dataClient.getSettings()
       if (settings.model) {
         set({ model: settings.model, loaded: true })
-        saveState("nexus-settings", { model: settings.model })
+        saveState("astro-settings", { model: settings.model })
       } else {
         set({ loaded: true })
       }
     } catch {
       // API unavailable — fall back to IndexedDB
-      const saved = await loadState<{ model: string; defaultProvider?: string }>("nexus-settings")
+      const saved = await loadState<{ model: string; defaultProvider?: string }>("astro-settings")
       if (saved) {
         set({ model: saved.model, defaultProvider: saved.defaultProvider || "", loaded: true })
       } else {
@@ -56,12 +56,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setModel: (model) => {
     set({ model })
-    saveState("nexus-settings", { model, defaultProvider: get().defaultProvider })
+    saveState("astro-settings", { model, defaultProvider: get().defaultProvider })
     dataClient.updateSettings({ model }).catch(() => {})
   },
 
   setDefaultProvider: (defaultProvider) => {
     set({ defaultProvider })
-    saveState("nexus-settings", { model: get().model, defaultProvider })
+    saveState("astro-settings", { model: get().model, defaultProvider })
   },
 }))

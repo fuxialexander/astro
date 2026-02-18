@@ -89,14 +89,14 @@ sleep 30
 
 # Check for worktrees
 echo -e "\nStep 7: Checking for preserved worktrees..."
-if [ -d "$HOME/.nexus/worktrees" ]; then
+if [ -d "$HOME/.astro/worktrees" ]; then
   echo -e "${GREEN}✓ Worktrees directory exists!${NC}"
   echo ""
-  find "$HOME/.nexus/worktrees" -type d -maxdepth 3
+  find "$HOME/.astro/worktrees" -type d -maxdepth 3
   echo ""
 
   # Find any worktree for this project
-  WORKTREE=$(find "$HOME/.nexus/worktrees" -type d -name "exec-*" | head -1)
+  WORKTREE=$(find "$HOME/.astro/worktrees" -type d -name "exec-*" | head -1)
   if [ -n "$WORKTREE" ]; then
     echo -e "${GREEN}✓ Found preserved worktree: $WORKTREE${NC}"
     echo ""

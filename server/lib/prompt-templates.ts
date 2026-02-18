@@ -222,7 +222,7 @@ export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNo
     planSection = `\n\n## Current Plan Nodes\n${nodeList}\n${milestoneSection}${edgeSection}`
   }
 
-  return `You are a project planning assistant for Nexus. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
+  return `You are a project planning assistant for Astro. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
 
 IMPORTANT: This is a conversational chat. Do NOT use any tools (bash, shell, file read/write, grep, ls, etc.). Do NOT attempt to run commands or access the filesystem. You have all the information you need in this prompt. Respond with plain text only.
 
@@ -237,9 +237,9 @@ When the user asks to update, modify, or change anything in the plan, you MUST:
 
 ### Updating Node Properties
 
-Use a fenced code block with language \`nexus-updates\` containing a JSON array:
+Use a fenced code block with language \`astro-updates\` containing a JSON array:
 
-\`\`\`nexus-updates
+\`\`\`astro-updates
 [
   { "nodeId": "n1", "title": "New title", "priority": "high" }
 ]
@@ -262,9 +262,9 @@ Each object must have "nodeId" (required) plus any fields to change:
 
 ### Adding or Removing Edges
 
-Use a fenced code block with language \`nexus-edges\` containing a JSON array:
+Use a fenced code block with language \`astro-edges\` containing a JSON array:
 
-\`\`\`nexus-edges
+\`\`\`astro-edges
 [
   { "action": "add", "source": "n1", "target": "n3", "type": "dependency" },
   { "action": "remove", "source": "n2", "target": "n3" }
@@ -279,9 +279,9 @@ Edge fields:
 
 ### Decomposing / Exploding a Task into Sub-tasks
 
-When the user asks to decompose, explode, or break down a task, use a fenced code block with language \`nexus-add-nodes\`:
+When the user asks to decompose, explode, or break down a task, use a fenced code block with language \`astro-add-nodes\`:
 
-\`\`\`nexus-add-nodes
+\`\`\`astro-add-nodes
 [
   { "id": "sub1", "title": "Sub-task 1", "description": "...", "milestoneId": "m1", "dependencies": ["parent_id"], "priority": "medium", "estimate": "S" },
   { "id": "sub2", "title": "Sub-task 2", "description": "...", "milestoneId": "m1", "dependencies": ["sub1"], "priority": "medium", "estimate": "S" }
@@ -297,7 +297,7 @@ Fields:
 - "dependencies" (string[]) — can reference other new node IDs from the same block, or existing node IDs
 - "priority", "estimate", "environment", "verification" — same as node properties
 
-When decomposing, also use \`nexus-updates\` to mark the original task as "completed" or "pruned" (since it's been replaced by sub-tasks), and use \`nexus-edges\` if the sub-tasks need to connect to other existing nodes.
+When decomposing, also use \`astro-updates\` to mark the original task as "completed" or "pruned" (since it's been replaced by sub-tasks), and use \`astro-edges\` if the sub-tasks need to connect to other existing nodes.
 
 Decomposition rules:
 - Prioritize orthogonal sub-tasks that can be independently verified — each sub-task should touch a distinct area of the codebase or concern so that one failing does not block or invalidate the others.
@@ -307,10 +307,10 @@ Decomposition rules:
 
 ### Rules
 - Only include fields that should change. Omit unchanged fields.
-- You can combine \`nexus-updates\`, \`nexus-edges\`, and \`nexus-add-nodes\` in the same response.
+- You can combine \`astro-updates\`, \`astro-edges\`, and \`astro-add-nodes\` in the same response.
 - Do NOT include update blocks if no changes are needed.
 - ALWAYS include update blocks when the user asks to change something — never just describe what to do manually.
-- When modifying dependencies via "dependencies" in nexus-updates, edges are automatically synchronized. Alternatively use nexus-edges for individual add/remove.`
+- When modifying dependencies via "dependencies" in astro-updates, edges are automatically synchronized. Alternatively use astro-edges for individual add/remove.`
 }
 
 export interface TaskExecutionContext {
@@ -338,7 +338,7 @@ export interface TaskChatContext {
 export function buildTaskChatSystemPrompt(context: TaskChatContext): string {
   const parts: string[] = []
 
-  parts.push(`You are a task-focused AI assistant for Nexus. You help users understand, analyze, and refine individual tasks within their project plan.
+  parts.push(`You are a task-focused AI assistant for Astro. You help users understand, analyze, and refine individual tasks within their project plan.
 
 You have context about the current task and can help with:
 - Explaining agent reasoning and approach

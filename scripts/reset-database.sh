@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🧹 Nexus Database Reset"
+echo "🧹 Astro Database Reset"
 echo "======================"
 echo ""
 
@@ -109,7 +109,7 @@ if [[ "$RESET_INDEXEDDB" == "true" ]]; then
   echo "3. Go to the Application tab (Chrome/Edge) or Storage tab (Firefox)"
   echo "4. In the left sidebar:"
   echo "   • Expand 'IndexedDB'"
-  echo "   • Right-click on the Nexus database"
+  echo "   • Right-click on the Astro database"
   echo "   • Click 'Delete database'"
   echo ""
   echo "5. Expand 'Local Storage' → http://localhost:5173"

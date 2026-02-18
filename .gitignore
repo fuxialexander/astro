@@ -164,7 +164,7 @@ credentials.json
 dump.rdb
 
 # Project specific
-.nexus-worktrees/
+.astro-worktrees/
 .plan.md
 UI.pen
 

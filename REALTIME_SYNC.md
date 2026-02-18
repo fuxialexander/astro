@@ -261,7 +261,7 @@ Possible statuses:
 
 ### Manual Testing
 
-1. Open Nexus in two different browser windows (or devices)
+1. Open Astro in two different browser windows (or devices)
 2. Sign in with the same user account on both
 3. Create a project on Device A → verify it appears on Device B
 4. Update a task status on Device B → verify it updates on Device A

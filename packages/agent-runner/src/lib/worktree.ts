@@ -55,10 +55,10 @@ export async function createWorktree(
   }
 
   const repoName = sanitize(basename(gitRoot));
-  const baseRoot = rootOverride ?? join(homedir(), '.nexus', 'worktrees', repoName);
+  const baseRoot = rootOverride ?? join(homedir(), '.astro', 'worktrees', repoName);
   await mkdir(baseRoot, { recursive: true });
 
-  const branchName = `nexus/${sanitize(taskId)}`;
+  const branchName = `astro/${sanitize(taskId)}`;
   const worktreePath = join(baseRoot, sanitize(taskId));
   await rm(worktreePath, { recursive: true, force: true });
   await pruneWorktrees(gitRoot);

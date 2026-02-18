@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "=================================================="
-echo "  Nexus: Multi-User Setup Verification"
+echo "  Astro: Multi-User Setup Verification"
 echo "=================================================="
 echo ""
 

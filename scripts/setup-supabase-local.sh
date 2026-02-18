@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "=================================================="
-echo "  Nexus: Self-Hosted Supabase Setup"
+echo "  Astro: Self-Hosted Supabase Setup"
 echo "=================================================="
 echo ""
 
@@ -109,7 +109,7 @@ update_env_var "SUPABASE_ANON_KEY" "$ANON_KEY"
 update_env_var "SUPABASE_SERVICE_ROLE_KEY" "$SERVICE_ROLE_KEY"
 
 # WebAuthn config (localhost for now)
-update_env_var "WEBAUTHN_RP_NAME" "Nexus"
+update_env_var "WEBAUTHN_RP_NAME" "Astro"
 update_env_var "WEBAUTHN_RP_ID" "localhost"
 update_env_var "WEBAUTHN_ORIGIN" "http://localhost:5173"
 
@@ -128,7 +128,7 @@ echo "  Setup Complete!"
 echo "=================================================="
 echo ""
 echo "Next steps:"
-echo "1. Run 'npm run dev' to start Nexus"
+echo "1. Run 'npm run dev' to start Astro"
 echo "2. Visit http://localhost:5173"
 echo "3. You'll be redirected to /login - create your first user!"
 echo ""

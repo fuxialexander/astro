@@ -1,5 +1,5 @@
 /**
- * Nexus Event Transport - Type Definitions
+ * Astro Event Transport - Type Definitions
  *
  * Events emitted by task execution lifecycle for post-execution hooks.
  */
@@ -11,7 +11,7 @@ import type { SubroutineDefinition } from '../dispatch/procedure-types.js'
 /**
  * Events emitted by task execution lifecycle
  */
-export type NexusEvent =
+export type AstroEvent =
   | TaskStartedEvent
   | TaskProgressEvent
   | TaskCompletedEvent
@@ -111,14 +111,14 @@ export interface ApprovalRespondedEvent {
 }
 
 /**
- * EventEmitter interface for NexusEventTransport
+ * EventEmitter interface for AstroEventTransport
  */
-export interface NexusEventTransportEvents {
-  event: (event: NexusEvent) => void
+export interface AstroEventTransportEvents {
+  event: (event: AstroEvent) => void
   error: (error: Error) => void
 }
 
 /**
  * Hook handler signature for post-execution actions
  */
-export type EventHook = (event: NexusEvent) => Promise<void> | void
+export type EventHook = (event: AstroEvent) => Promise<void> | void

@@ -36,7 +36,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbG...your-service-role-key
 
 **WebAuthn** (for passkeys):
 ```
-WEBAUTHN_RP_NAME=Nexus
+WEBAUTHN_RP_NAME=Astro
 WEBAUTHN_RP_ID=localhost
 WEBAUTHN_ORIGIN=http://localhost:5173
 ```

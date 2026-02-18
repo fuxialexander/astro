@@ -168,13 +168,13 @@ Let users test the actual interface.
 **"MCP server failed to start"**
 - Check Node.js version: `node --version` (need 18+)
 - Check TypeScript compilation: `npm run build`
-- Check MCP server directly: `node --import=tsx/esm server/lib/mcp/nexus-tools-server.ts`
+- Check MCP server directly: `node --import=tsx/esm server/lib/mcp/astro-tools-server.ts`
 
 ### E2E Test Fails
 
 **"No approval request detected"**
-- Check agent runner logs: `tail -f /tmp/nexus-e2e-logs-*/agent-runner.log`
-- Verify MCP server is loaded: grep for "Nexus MCP Tools Server" in logs
+- Check agent runner logs: `tail -f /tmp/astro-e2e-logs-*/agent-runner.log`
+- Verify MCP server is loaded: grep for "Astro MCP Tools Server" in logs
 - Check agent has access to tool: Look for tool listing in logs
 
 **"Approval response failed"**
@@ -297,7 +297,7 @@ npm run test:approval:quick
 
 After running tests, you should:
 
-1. ✅ Review test reports in `/tmp/nexus-e2e-logs-*/`
+1. ✅ Review test reports in `/tmp/astro-e2e-logs-*/`
 2. ✅ Check approval events log for SSE flow
 3. ✅ Examine worktree snapshot to see generated files
 4. ✅ Review agent logs for tool calls

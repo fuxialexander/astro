@@ -6,7 +6,24 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
   return {
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    {
+      name: 'landing-page-rewrite',
+      configureServer(server) {
+        // Rewrite /landing/ to /landing/index.html before Vite's SPA fallback intercepts it
+        server.middlewares.use((req, _res, next) => {
+          if (req.url === '/landing' || req.url === '/landing/') {
+            req.url = '/landing/index.html'
+          } else if (req.url === '/landing/about' || req.url === '/landing/about/') {
+            req.url = '/landing/about.html'
+          }
+          next()
+        })
+      },
+    },
+    react(),
+    tailwindcss(),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

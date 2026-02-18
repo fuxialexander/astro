@@ -5,7 +5,7 @@ set -euo pipefail
 # - Stops processes, cleans caches, reinstalls deps, rebuilds, resets DB schema
 # - For just clearing user data without full reinstall, use: npm run clear-data
 
-echo "🧹 Starting clean setup for Nexus..."
+echo "🧹 Starting clean setup for Astro..."
 echo ""
 
 # 1. Stop any running processes
@@ -13,20 +13,20 @@ echo "1️⃣  Stopping any running processes..."
 pkill -f "npm run dev" || true
 pkill -f "vite" || true
 pkill -f "tsx.*server/index" || true
-pkill -f "nexus-agent" || true
+pkill -f "astro-agent" || true
 sleep 2
 
 # 2. Clean agent runner cache and config
 echo "2️⃣  Cleaning agent runner cache and config..."
-rm -rf ~/.nexus-agent
-echo "   ✓ Removed ~/.nexus-agent"
+rm -rf ~/.astro-agent
+echo "   ✓ Removed ~/.astro-agent"
 
 # Reset agent config (removes config.json across all platforms)
-if command -v nexus-agent &>/dev/null || [ -f ./packages/agent-runner/dist/cli.js ]; then
+if command -v astro-agent &>/dev/null || [ -f ./packages/agent-runner/dist/cli.js ]; then
   if [ -f ./packages/agent-runner/dist/cli.js ]; then
     node ./packages/agent-runner/dist/cli.js config --reset
   else
-    nexus-agent config --reset
+    astro-agent config --reset
   fi
   echo "   ✓ Reset agent configuration"
 fi

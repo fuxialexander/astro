@@ -143,10 +143,10 @@ setInterval(() => {
 
 // Base URL for device verification (configurable via env)
 // Derives from CLOUDFLARED_DOMAIN if not explicitly set
-const BASE_URL = process.env.NEXUS_BASE_URL
-  || (process.env.CLOUDFLARED_DOMAIN ? `https://nexus.${process.env.CLOUDFLARED_DOMAIN}` : 'http://localhost:5173');
+const BASE_URL = process.env.ASTRO_BASE_URL
+  || (process.env.CLOUDFLARED_DOMAIN ? `https://astro.${process.env.CLOUDFLARED_DOMAIN}` : 'http://localhost:5173');
 const RELAY_URL = process.env.RELAY_WS_URL
-  || (process.env.CLOUDFLARED_DOMAIN ? `wss://nexus-relay.${process.env.CLOUDFLARED_DOMAIN}` : 'ws://localhost:3002');
+  || (process.env.CLOUDFLARED_DOMAIN ? `wss://astro-relay.${process.env.CLOUDFLARED_DOMAIN}` : 'ws://localhost:3002');
 
 // ============================================================================
 // Device Authorization Flow

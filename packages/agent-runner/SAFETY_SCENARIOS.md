@@ -16,7 +16,7 @@ Task Received
     ↓
 Resolve Working Directory
     ↓
-    ├─ Git URL provided? → Clone to ~/.nexus/repos/<projectId>/
+    ├─ Git URL provided? → Clone to ~/.astro/repos/<projectId>/
     ├─ Path provided? → Use as-is
     └─ Nothing provided? → Use process.cwd()
     ↓
@@ -86,7 +86,7 @@ Flow:
 
   4. executeTask(sandbox=false)
      → createWorktree()
-       → git worktree add ~/.nexus/worktrees/my-project/taskId
+       → git worktree add ~/.astro/worktrees/my-project/taskId
      → Execute in worktree
      → Commit changes to branch
      → Attempt PR creation
@@ -308,11 +308,11 @@ Flow:
        → User must increase --max-sandbox-size
 
      → Copy to sandbox:
-       cp -r /Users/alice/any-folder ~/.nexus/sandbox/taskId
+       cp -r /Users/alice/any-folder ~/.astro/sandbox/taskId
        → Excludes: node_modules, .git, venv, __pycache__
 
   4. executeTask(sandbox=true):
-     workingDirectory = "~/.nexus/sandbox/taskId"
+     workingDirectory = "~/.astro/sandbox/taskId"
 
      → Execute in sandbox
      → All changes confined to sandbox
@@ -346,16 +346,16 @@ Checks:
 Flow:
   1. resolveWorkingDirectory("https://github.com/user/repo.git", "proj-123")
      → Detects git URL (starts with https://, http://, or git@)
-     → Clone location: ~/.nexus/repos/proj-123/
+     → Clone location: ~/.astro/repos/proj-123/
 
      → If already cloned:
        git fetch --all  # Update
      → Else:
-       git clone https://github.com/user/repo.git ~/.nexus/repos/proj-123/
+       git clone https://github.com/user/repo.git ~/.astro/repos/proj-123/
 
-     → returns "~/.nexus/repos/proj-123/"
+     → returns "~/.astro/repos/proj-123/"
 
-  2. performSafetyCheck("~/.nexus/repos/proj-123/")
+  2. performSafetyCheck("~/.astro/repos/proj-123/")
      → isGitRepo = true  # Always true after clone
      → hasUncommittedChanges = false  # Fresh clone
      → activeTasksInDir = 0
@@ -389,18 +389,18 @@ Checks:
 Flow:
   1. resolveWorkingDirectory(undefined, "proj-123")
      → No value provided
-     → returns process.cwd()  # Usually ~/.nexus/ or current dir
+     → returns process.cwd()  # Usually ~/.astro/ or current dir
 
   2. localRepoSetup() on server creates:
-     mkdir ~/.nexus/projects/proj-123/
+     mkdir ~/.astro/projects/proj-123/
      git init
-     git config user.name "Nexus Agent"
-     git config user.email "agent@nexus.local"
+     git config user.name "Astro Agent"
+     git config user.email "agent@astro.local"
 
   3. Task dispatched with:
-     workingDirectory: "~/.nexus/projects/proj-123/"
+     workingDirectory: "~/.astro/projects/proj-123/"
 
-  4. performSafetyCheck("~/.nexus/projects/proj-123/")
+  4. performSafetyCheck("~/.astro/projects/proj-123/")
      → isGitRepo = true  # Created with git init
      → hasUncommittedChanges = false  # Fresh repo
      → activeTasksInDir = 0
@@ -428,7 +428,7 @@ Flow:
 
 ### Default Mode (No Flags)
 ```bash
-npx @nexus/agent start
+npx @astro/agent start
 ```
 - All safety checks active
 - Prompts for RISKY operations
@@ -437,7 +437,7 @@ npx @nexus/agent start
 
 ### --allow-non-git Flag
 ```bash
-npx @nexus/agent start --allow-non-git
+npx @astro/agent start --allow-non-git
 ```
 - Skips RISKY prompts
 - Still tracks parallel tasks
@@ -446,7 +446,7 @@ npx @nexus/agent start --allow-non-git
 
 ### --sandbox Flag
 ```bash
-npx @nexus/agent start --sandbox
+npx @astro/agent start --sandbox
 ```
 - Forces sandbox mode for ALL tasks
 - Ignores safety tier (always safe)
@@ -455,7 +455,7 @@ npx @nexus/agent start --sandbox
 
 ### --max-sandbox-size Flag
 ```bash
-npx @nexus/agent start --sandbox --max-sandbox-size 500
+npx @astro/agent start --sandbox --max-sandbox-size 500
 ```
 - Increases sandbox size limit to 500MB
 - Only applies when --sandbox is set
@@ -463,7 +463,7 @@ npx @nexus/agent start --sandbox --max-sandbox-size 500
 
 ### Combined Flags
 ```bash
-npx @nexus/agent start --sandbox --max-sandbox-size 500 --preserve-worktrees
+npx @astro/agent start --sandbox --max-sandbox-size 500 --preserve-worktrees
 ```
 - Sandbox mode (isolated execution)
 - 500MB size limit
@@ -513,8 +513,8 @@ Input:
   useSandbox: true
 
 Flow:
-  1. Clone to ~/.nexus/repos/proj-123/
-  2. Copy to ~/.nexus/sandbox/taskId/ (excluding .git)
+  1. Clone to ~/.astro/repos/proj-123/
+  2. Copy to ~/.astro/sandbox/taskId/ (excluding .git)
   3. Execute in sandbox
 
 Result:
@@ -542,11 +542,11 @@ Result: Both allowed (different directories)
 ```yaml
 Task 1:
   workingDirectory: /Users/alice/git-project
-  → Creates worktree: ~/.nexus/worktrees/git-project/task1/
+  → Creates worktree: ~/.astro/worktrees/git-project/task1/
 
 Task 2:
   workingDirectory: /Users/alice/git-project
-  → Creates worktree: ~/.nexus/worktrees/git-project/task2/
+  → Creates worktree: ~/.astro/worktrees/git-project/task2/
 
 Result:
   Both allowed (git handles conflicts via separate worktrees)

@@ -1,6 +1,6 @@
-# Nexus Scripts
+# Astro Scripts
 
-This directory contains utility and test scripts for the Nexus platform.
+This directory contains utility and test scripts for the Astro platform.
 
 ## Testing Scripts
 
@@ -163,11 +163,11 @@ To test the full approval flow with the UI:
 ```
 Agent (Claude SDK)
     ↓ calls ask_user_question tool
-MCP Server (nexus-tools-server.ts)
+MCP Server (astro-tools-server.ts)
     ↓ HTTP POST /api/dispatch/request-dynamic-approval
 Dispatch Engine (dispatch-engine.ts)
     ↓ emits approval.requested event
-Event System (nexusEventTransport)
+Event System (astroEventTransport)
     ↓ SSE bridge
 Browser (EventSource)
     ↓ updates UI
@@ -186,7 +186,7 @@ Agent continues with user's choice
 
 ### Test failures
 
-**"Nexus server is not running"**
+**"Astro server is not running"**
 - Solution: Start backend with `npm run dev:backend`
 
 **"MCP server did not start"**
@@ -206,8 +206,8 @@ Agent continues with user's choice
 
 **MCP tool not available to agent**
 - Verify Claude Code provider auto-loads MCP server
-- Check `server/lib/providers/adapters/claude-code.ts` includes nexus-tools config
-- Look for "Nexus MCP Tools Server running" in agent logs
+- Check `server/lib/providers/adapters/claude-code.ts` includes astro-tools config
+- Look for "Astro MCP Tools Server running" in agent logs
 
 ## Related Documentation
 

@@ -18,7 +18,7 @@ interface UIState {
   clearCommandSelection: () => void
 }
 
-const COMMAND_HISTORY_KEY = "nexus:command-history"
+const COMMAND_HISTORY_KEY = "astro:command-history"
 
 export const useUIStore = create<UIState>((set, get) => ({
   sidebarCollapsed: false,

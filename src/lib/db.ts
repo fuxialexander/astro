@@ -19,7 +19,7 @@ import { get, set, clear } from "idb-keyval"
 let currentUserId: string | null = null
 
 // Key for storing the persistent browser user ID
-const BROWSER_USER_ID_KEY = 'nexus-browser-user-id'
+const BROWSER_USER_ID_KEY = 'astro-browser-user-id'
 
 /**
  * Set the current user ID for IndexedDB operations

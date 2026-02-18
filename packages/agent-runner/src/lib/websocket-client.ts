@@ -44,7 +44,7 @@ import { getMachineResources } from './resources.js';
 import { config as configManager } from './config.js';
 
 const DEFAULT_CONFIG: RunnerConfig = {
-  relayUrl: 'wss://relay.nexus.dev',
+  relayUrl: 'wss://relay.astro.dev',
   maxConcurrentTasks: 4,
   heartbeatInterval: 30000, // 30 seconds
   reconnectMaxRetries: -1, // Infinite retries

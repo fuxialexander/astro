@@ -54,15 +54,15 @@ async function testApprovalIntegration(): Promise<boolean> {
 
     // Step 2: Start MCP server
     step('Step 2: Starting MCP Server')
-    const mcpPath = new URL('../server/lib/mcp/nexus-tools-server.ts', import.meta.url)
+    const mcpPath = new URL('../server/lib/mcp/astro-tools-server.ts', import.meta.url)
       .pathname
 
     mcpServer = spawn('node', ['--import=tsx/esm', mcpPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        NEXUS_EXECUTION_ID: 'integration-test-exec',
-        NEXUS_SERVER_URL: API_BASE,
+        ASTRO_EXECUTION_ID: 'integration-test-exec',
+        ASTRO_SERVER_URL: API_BASE,
       },
     })
 
@@ -71,7 +71,7 @@ async function testApprovalIntegration(): Promise<boolean> {
       const timeout = setTimeout(() => reject(new Error('MCP server timeout')), 5000)
 
       mcpServer!.stderr.on('data', (data) => {
-        if (data.toString().includes('Nexus MCP Tools Server running')) {
+        if (data.toString().includes('Astro MCP Tools Server running')) {
           clearTimeout(timeout)
           resolve()
         }

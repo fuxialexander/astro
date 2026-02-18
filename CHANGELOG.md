@@ -31,7 +31,7 @@
 - **HIGH-012**: Implemented APNs authentication - JWT signing with ES256 algorithm
 
 ### 🔒 Security - Medium Priority Fixes (7)
-- **MEDIUM-001**: Fixed path traversal - validate working directories within ~/.nexus/
+- **MEDIUM-001**: Fixed path traversal - validate working directories within ~/.astro/
 - **MEDIUM-002**: Mitigated prompt injection - XML delimiters around user content
 - **MEDIUM-003**: Fixed vulnerable dependencies - drizzle-kit updated, esbuild overridden
 - **MEDIUM-004**: Added key rotation policy - 90-day rotation schedule documented
@@ -132,7 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added regex validation for projectId (alphanumeric, hyphens, underscores only)
   - Disabled git hooks during fetch operations (`-c core.hooksPath=/dev/null`)
 - **MEDIUM**: Fixed working directory path traversal vulnerability (MEDIUM-001)
-  - Added path validation to ensure working directories are within `~/.nexus/` base
+  - Added path validation to ensure working directories are within `~/.astro/` base
   - Reject paths containing ".." or resolving outside allowed base directory
   - Validated via `path.resolve()` and `path.relative()` checks
 - **MEDIUM**: Mitigated prompt injection vulnerabilities (MEDIUM-002)
@@ -155,5 +155,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pull request template
 - Setup verification script
 
-[Unreleased]: https://github.com/fuxialexander/nexus/compare/v0.0.1...HEAD
-[0.0.1]: https://github.com/fuxialexander/nexus/releases/tag/v0.0.1
+[Unreleased]: https://github.com/fuxialexander/astro/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/fuxialexander/astro/releases/tag/v0.0.1

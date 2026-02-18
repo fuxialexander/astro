@@ -45,7 +45,7 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   // Check if setup is complete
   if (!config.isSetupComplete()) {
     console.log(chalk.yellow('Setup has not been completed.'));
-    console.log(chalk.dim('Run: npx @nexus/agent setup'));
+    console.log(chalk.dim('Run: npx @astro/agent setup'));
     process.exit(1);
   }
 
@@ -61,7 +61,7 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
 
   // Background mode: spawn detached process
   if (!options.foreground) {
-    console.log(chalk.bold('Starting Nexus Agent Runner in background...\n'));
+    console.log(chalk.bold('Starting Astro Agent Runner in background...\n'));
 
     const scriptPath = process.argv[1];
     const args = ['start', '--foreground'];
@@ -83,16 +83,16 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     console.log(chalk.dim(`  Runner ID: ${runnerId}`));
     console.log();
     console.log('To view logs:');
-    console.log(chalk.cyan('  npx @nexus/agent logs'));
+    console.log(chalk.cyan('  npx @astro/agent logs'));
     console.log();
     console.log('To stop:');
-    console.log(chalk.cyan('  npx @nexus/agent stop'));
+    console.log(chalk.cyan('  npx @astro/agent stop'));
 
     return;
   }
 
   // Foreground mode: run directly
-  console.log(chalk.bold('\n🤖 Nexus Agent Runner\n'));
+  console.log(chalk.bold('\n🤖 Astro Agent Runner\n'));
 
   const version = await getVersion();
   console.log(chalk.dim(`Version: ${version}`));

@@ -1,15 +1,15 @@
 /**
- * Nexus MCP Server
+ * Astro MCP Server
  *
- * This MCP server allows existing Claude Code sessions to connect to Nexus
+ * This MCP server allows existing Claude Code sessions to connect to Astro
  * and link their activity to specific tasks. It uses the stdio transport
  * to communicate with Claude Code.
  *
  * Tools provided:
- * - nexus_attach: Attach session to a Nexus task
- * - nexus_detach: Detach from the current task
- * - nexus_status: Check attachment status
- * - nexus_send: Send a message/event to Nexus
+ * - astro_attach: Attach session to an Astro task
+ * - astro_detach: Detach from the current task
+ * - astro_status: Check attachment status
+ * - astro_send: Send a message/event to Astro
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -36,7 +36,7 @@ export interface McpServerOptions {
 }
 
 /**
- * Create and run the Nexus MCP server
+ * Create and run the Astro MCP server
  */
 export async function runMcpServer(options: McpServerOptions = {}): Promise<void> {
   const logLevel = options.logLevel ?? 'info';
@@ -44,7 +44,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
   const log = (level: 'debug' | 'info' | 'warn' | 'error', ...args: unknown[]) => {
     const levels = { debug: 0, info: 1, warn: 2, error: 3 };
     if (levels[level] >= levels[logLevel]) {
-      console.error(`[nexus-mcp] [${level}]`, ...args);
+      console.error(`[astro-mcp] [${level}]`, ...args);
     }
   };
 
@@ -56,7 +56,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     autoReconnect: true,
   };
 
-  log('info', 'Starting Nexus MCP server...');
+  log('info', 'Starting Astro MCP server...');
   log('debug', 'Config:', {
     relayUrl: bridgeConfig.relayUrl,
     machineId: bridgeConfig.machineId,
@@ -70,10 +70,10 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
   bridge.onEvent((event) => {
     switch (event.type) {
       case 'connected':
-        log('info', 'Connected to Nexus relay');
+        log('info', 'Connected to Astro relay');
         break;
       case 'disconnected':
-        log('info', 'Disconnected from Nexus relay:', event.data);
+        log('info', 'Disconnected from Astro relay:', event.data);
         break;
       case 'attached':
         log('info', 'Attached to task:', event.data);
@@ -96,7 +96,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
   // Create MCP server
   const server = new Server(
     {
-      name: 'nexus-mcp-bridge',
+      name: 'astro-mcp-bridge',
       version: '0.1.0',
     },
     {
@@ -162,7 +162,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  log('info', 'Nexus MCP server started on stdio');
+  log('info', 'Astro MCP server started on stdio');
 }
 
 /**
@@ -170,7 +170,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
  */
 export function getClaudeCodeMcpConfig(options: { execPath?: string } = {}): {
   mcpServers: {
-    nexus: {
+    astro: {
       command: string;
       args: string[];
     };
@@ -178,11 +178,11 @@ export function getClaudeCodeMcpConfig(options: { execPath?: string } = {}): {
 } {
   // Default to using npx to run the CLI
   const command = options.execPath ?? 'npx';
-  const args = options.execPath ? ['mcp'] : ['@nexus/agent', 'mcp'];
+  const args = options.execPath ? ['mcp'] : ['@astro/agent', 'mcp'];
 
   return {
     mcpServers: {
-      nexus: {
+      astro: {
         command,
         args,
       },

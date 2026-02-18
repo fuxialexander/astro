@@ -1,7 +1,7 @@
 /**
  * HPC Context Builder
  *
- * Loads HPC configuration from ~/.nexus/hpc/config.json, merges with
+ * Loads HPC configuration from ~/.astro/hpc/config.json, merges with
  * auto-detected Slurm cluster info, and builds a prompt prefix that
  * makes the Claude Code agent HPC-aware.
  */
@@ -12,7 +12,7 @@ import { homedir } from 'node:os';
 import { detectSlurm } from './slurm-detect.js';
 import type { SlurmInfo } from '../types.js';
 
-/** User-provided HPC overrides (~/.nexus/hpc/config.json) */
+/** User-provided HPC overrides (~/.astro/hpc/config.json) */
 export interface HpcConfig {
   defaultPartition?: string;
   defaultAccount?: string;
@@ -36,12 +36,12 @@ export interface HpcContext {
 }
 
 /**
- * Load user HPC config from ~/.nexus/hpc/config.json.
+ * Load user HPC config from ~/.astro/hpc/config.json.
  * Returns undefined if the file doesn't exist or is invalid.
  */
 async function loadHpcConfig(): Promise<HpcConfig | undefined> {
   try {
-    const configPath = join(homedir(), '.nexus', 'hpc', 'config.json');
+    const configPath = join(homedir(), '.astro', 'hpc', 'config.json');
     const content = await readFile(configPath, 'utf-8');
     return JSON.parse(content) as HpcConfig;
   } catch {
@@ -163,7 +163,7 @@ function generateHpcPrompt(slurm: SlurmInfo, config?: HpcConfig): string {
   sections.push(`#SBATCH --time=${time}`);
   sections.push(`#SBATCH --mem=${mem}`);
   sections.push(`#SBATCH --cpus-per-task=${cpus}`);
-  sections.push('#SBATCH --job-name=nexus-task');
+  sections.push('#SBATCH --job-name=astro-task');
   sections.push('#SBATCH --output=slurm-%j.out');
   sections.push('#SBATCH --error=slurm-%j.err');
   sections.push('');

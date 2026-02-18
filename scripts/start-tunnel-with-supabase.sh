@@ -32,11 +32,11 @@ if ! nc -z 127.0.0.1 54321 &>/dev/null; then
   exit 1
 fi
 
-TUNNEL_NAME="nexus"
-APP_SUBDOMAIN="nexus.$DOMAIN"          # Frontend (user-facing app)
-API_SUBDOMAIN="nexus-api.$DOMAIN"      # Backend API
-RELAY_SUBDOMAIN="nexus-relay.$DOMAIN"  # WebSocket relay
-SUPABASE_SUBDOMAIN="nexus-supabase.$DOMAIN"  # Supabase API
+TUNNEL_NAME="astro"
+APP_SUBDOMAIN="astro.$DOMAIN"          # Frontend (user-facing app)
+API_SUBDOMAIN="astro-api.$DOMAIN"      # Backend API
+RELAY_SUBDOMAIN="astro-relay.$DOMAIN"  # WebSocket relay
+SUPABASE_SUBDOMAIN="astro-supabase.$DOMAIN"  # Supabase API
 
 # Get tunnel ID (create if it doesn't exist)
 TUNNEL_ID=$(cloudflared tunnel list --output json | python3 -c "
@@ -129,9 +129,9 @@ if [[ -f "$ENV_FILE" ]]; then
   update_env_var "SUPABASE_URL" "https://$SUPABASE_SUBDOMAIN"
   update_env_var "WEBAUTHN_RP_ID" "$APP_SUBDOMAIN"
   update_env_var "WEBAUTHN_ORIGIN" "https://$APP_SUBDOMAIN"
-  update_env_var "ALLOWED_HOSTS" "nexus.$DOMAIN,$DOMAIN,localhost"
+  update_env_var "ALLOWED_HOSTS" "astro.$DOMAIN,$DOMAIN,localhost"
   update_env_var "VITE_HMR_PROTOCOL" "wss"
-  update_env_var "VITE_HMR_HOST" "nexus.$DOMAIN"
+  update_env_var "VITE_HMR_HOST" "astro.$DOMAIN"
   update_env_var "VITE_HMR_PORT" "443"
   update_env_var "VITE_API_BASE_URL" ""
   echo "✓ Updated environment variables for external access"

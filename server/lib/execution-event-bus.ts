@@ -21,7 +21,7 @@ class ExecutionEventBus extends EventEmitter {
 }
 
 // Use globalThis to guarantee singleton across module reloads (tsx watch)
-const globalKey = '__nexus_execution_event_bus__'
+const globalKey = '__astro_execution_event_bus__'
 const g = globalThis as unknown as Record<string, ExecutionEventBus>
 
 if (!g[globalKey]) {

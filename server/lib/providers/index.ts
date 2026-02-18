@@ -1,7 +1,7 @@
 /**
  * Provider Abstraction Layer
  *
- * This module exports the complete provider abstraction layer for Nexus.
+ * This module exports the complete provider abstraction layer for Astro.
  * It defines the contract between the agent runner and individual providers,
  * including the AgentProvider interface, TaskResult format, and ProviderRegistry.
  */
