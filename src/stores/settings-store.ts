@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { loadState, saveState } from "@/lib/db"
+import { apiUrl } from "@/lib/api-url"
 import { dataClient } from "@/lib/data-client"
 
 interface SettingsState {
@@ -44,7 +45,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   checkConnection: async () => {
     set({ connectionStatus: "checking" })
     try {
-      const res = await fetch("/api/health")
+      const res = await fetch(apiUrl("/api/health"))
       if (!res.ok) throw new Error("Backend unreachable")
       const data = await res.json()
       set({ connectionStatus: data.authenticated ? "connected" : "disconnected" })

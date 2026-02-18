@@ -64,6 +64,9 @@ function mapSupabaseToMachine(row: Record<string, unknown>): RegisteredMachine {
 
 /**
  * Register a new machine
+ *
+ * Checks if a machine with the same hostname+platform+user already exists.
+ * If it does, updates and returns the existing machine instead of creating a duplicate.
  */
 export async function registerMachine(params: {
   name: string
@@ -76,8 +79,67 @@ export async function registerMachine(params: {
   refreshTokenHash: string
   metadata?: Record<string, string>
 }): Promise<RegisteredMachine> {
-  const id = generateMachineId(params.hostname)
   const now = new Date()
+
+  // Check for existing machine with same hostname+platform+user
+  const existingMachines = await getUserMachines(params.userId)
+  const existingMachine = existingMachines.find(
+    m => m.hostname === params.hostname &&
+         m.platform === params.platform &&
+         !m.isRevoked
+  )
+
+  if (existingMachine) {
+    console.log(`[machines-store] 🔄 Machine already registered: ${existingMachine.id}, updating...`)
+
+    // Update the existing machine instead of creating a new one
+    const updated: RegisteredMachine = {
+      ...existingMachine,
+      name: params.name,
+      environmentType: params.environmentType,
+      providers: params.providers,
+      lastSeenAt: now,
+      refreshTokenHash: params.refreshTokenHash,
+      metadata: params.metadata,
+    }
+
+    if (shouldUseSupabase()) {
+      const supabase = getServiceClient()
+      const { error } = await supabase
+        .from('registered_machines')
+        .update({
+          name: updated.name,
+          environment_type: updated.environmentType,
+          providers: updated.providers,
+          last_seen_at: now.toISOString(),
+          refresh_token_hash: updated.refreshTokenHash,
+          metadata: updated.metadata,
+        })
+        .eq('id', existingMachine.id)
+
+      if (error) {
+        console.error(`[machines-store] ❌ Failed to update machine ${existingMachine.id}:`, error)
+        throw new Error(`Failed to update machine: ${error.message}`)
+      }
+    } else {
+      db.update(registeredMachines)
+        .set({
+          name: updated.name,
+          environmentType: updated.environmentType,
+          providers: updated.providers as string[],
+          lastSeenAt: now,
+          refreshTokenHash: updated.refreshTokenHash,
+          metadata: updated.metadata,
+        })
+        .where(eq(registeredMachines.id, existingMachine.id))
+        .run()
+    }
+
+    return updated
+  }
+
+  // No existing machine found, create a new one
+  const id = generateMachineId(params.hostname)
 
   const machine: RegisteredMachine = {
     id,
@@ -305,13 +367,12 @@ export async function getUserMachines(userId: string): Promise<RegisteredMachine
     return (data || []).map(mapSupabaseToMachine)
   }
 
-  const rows = db.select().from(registeredMachines)
+  const rows = await db.select().from(registeredMachines)
     .where(and(
       eq(registeredMachines.userId, userId),
       eq(registeredMachines.isRevoked, false),
     ))
     .orderBy(desc(registeredMachines.registeredAt))
-    .all()
 
   return rows.map(mapRowToMachine)
 }
@@ -462,9 +523,8 @@ export async function getAllMachines(): Promise<RegisteredMachine[]> {
     return (data || []).map(mapSupabaseToMachine)
   }
 
-  const rows = db.select().from(registeredMachines)
+  const rows = await db.select().from(registeredMachines)
     .orderBy(desc(registeredMachines.registeredAt))
-    .all()
   return rows.map(mapRowToMachine)
 }
 
@@ -482,11 +542,10 @@ export async function getConnectedMachinesCount(): Promise<number> {
     return count || 0
   }
 
-  const rows = db.select().from(registeredMachines)
+  const rows = await db.select().from(registeredMachines)
     .where(and(
       eq(registeredMachines.isConnected, true),
       eq(registeredMachines.isRevoked, false),
     ))
-    .all()
   return rows.length
 }

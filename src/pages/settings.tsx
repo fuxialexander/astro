@@ -28,6 +28,8 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useGitHubStore } from "@/stores/github-store"
+import { clearAllData } from "@/lib/db"
+import { shouldUseSupabase, getSupabase } from "@/lib/supabase-client"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -367,6 +369,7 @@ function ProfileContent() {
   const [newKeyValue, setNewKeyValue] = useState("")
   const [showAddKey, setShowAddKey] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false)
 
   const handleAddApiKey = () => {
     if (newKeyProvider && newKeyName && newKeyValue) {
@@ -380,6 +383,50 @@ function ProfileContent() {
       setNewKeyName("")
       setNewKeyValue("")
       setShowAddKey(false)
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    setIsDeletingAccount(true)
+    try {
+      if (shouldUseSupabase()) {
+        // Supabase mode: Call backend to delete account
+        const supabase = getSupabase()
+        if (!supabase) {
+          throw new Error('Supabase not configured')
+        }
+
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) {
+          throw new Error('Not authenticated')
+        }
+
+        const response = await fetch('/api/auth/delete-account', {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        })
+
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || 'Failed to delete account')
+        }
+
+        // Sign out from Supabase
+        await supabase.auth.signOut()
+      }
+
+      // Clear all local data (works for both modes)
+      await clearAllData()
+
+      // Force a full page reload to clear all state and redirect to welcome
+      window.location.href = '/welcome'
+    } catch (error) {
+      console.error('[settings] Failed to delete account:', error)
+      alert(`Failed to delete account: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      setIsDeletingAccount(false)
+      setShowDeleteConfirm(false)
     }
   }
 
@@ -712,11 +759,28 @@ function ProfileContent() {
                   </span>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(false)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={isDeletingAccount}
+                  >
                     Cancel
                   </Button>
-                  <Button variant="destructive" size="sm">
-                    Yes, delete my account
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleDeleteAccount}
+                    disabled={isDeletingAccount}
+                  >
+                    {isDeletingAccount ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Deleting...
+                      </>
+                    ) : (
+                      "Yes, delete my account"
+                    )}
                   </Button>
                 </div>
               </div>

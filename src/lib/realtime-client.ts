@@ -6,6 +6,7 @@
  */
 
 import { getAccessToken } from './supabase-client'
+import { apiUrl } from './api-url'
 
 export type RealtimeEventType =
   | 'machines:snapshot'
@@ -43,7 +44,7 @@ export class RealtimeClient {
   private url: string
 
   constructor(baseUrl = '/api/events/stream') {
-    this.url = baseUrl
+    this.url = apiUrl(baseUrl)
   }
 
   get connected(): boolean {

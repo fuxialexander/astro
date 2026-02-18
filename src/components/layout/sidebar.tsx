@@ -67,6 +67,9 @@ export function Sidebar() {
     return () => unsubscribe()
   }, [subscribeToChanges])
 
+  // Removed: syncWithProjectCount was hiding Tasks when < 2 projects
+  // Tasks is always visible as the home route
+
   const handleLongPressStart = () => {
     longPressTimer.current = window.setTimeout(() => {
       setEditing(true)

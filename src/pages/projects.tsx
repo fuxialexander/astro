@@ -1,10 +1,11 @@
 import { useMemo, useState, useCallback } from "react"
-import { Link, useNavigate, useSearchParams } from "react-router"
+import { Link, useNavigate } from "react-router"
 import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
+import { FilterSelect } from "@/components/views/filter-select"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { ColorIconBadge } from "@/components/color-icon-picker"
@@ -166,12 +167,12 @@ export function Projects() {
   const allNodes = usePlanStore((s) => s.nodes)
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const statusFilter = searchParams.get("status")
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const [viewTab, setViewTab] = useState<ViewTab>("all")
-  const [showFilter, setShowFilter] = useState(!!statusFilter)
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [healthFilter, setHealthFilter] = useState("all")
+  const [initiativeFilter, setInitiativeFilter] = useState("all")
 
   // Helper to get initiative name from ID
   const getInitiativeName = useCallback((initiativeId?: string) => {
@@ -208,8 +209,14 @@ export function Projects() {
     let filtered = displaySettings.showCompleted
       ? projects
       : projects.filter((p) => (p.progress ?? 0) < 100)
-    if (statusFilter) {
+    if (statusFilter !== "all") {
       filtered = filtered.filter((p) => p.status === statusFilter)
+    }
+    if (healthFilter !== "all") {
+      filtered = filtered.filter((p) => p.health === healthFilter)
+    }
+    if (initiativeFilter !== "all") {
+      filtered = filtered.filter((p) => p.initiativeId === initiativeFilter)
     }
     const sorted = [...filtered]
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
@@ -233,7 +240,7 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter])
+  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter])
 
   // Group projects for list view
   const listGroups = useMemo((): ListGroup<Project>[] => {
@@ -412,10 +419,10 @@ export function Projects() {
                   key={tab.id}
                   onClick={() => setViewTab(tab.id)}
                   className={cn(
-                    "rounded-lg px-3 py-1.5 text-sm transition-colors cursor-pointer",
+                    "px-3 py-1.5 text-sm transition-colors cursor-pointer border-b-2",
                     viewTab === tab.id
-                      ? "bg-accent font-semibold text-accent-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      ? "text-accent-foreground border-accent"
+                      : "text-muted-foreground hover:text-foreground border-transparent"
                   )}
                 >
                   {tab.label}
@@ -436,21 +443,42 @@ export function Projects() {
         </div>
 
         {/* Filter Bar */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-2 shrink-0">
+        <div className="flex items-center gap-3 border-b border-border px-6 py-3 shrink-0">
           <div className="flex items-center gap-2">
-            <button
-              className="flex items-center gap-3 hover:bg-muted/30 rounded-md px-2 py-1 transition-colors cursor-pointer"
-              onClick={() => setShowFilter(!showFilter)}
-            >
-              <ListFilter className={cn("h-4 w-4", showFilter ? "text-primary" : "text-muted-foreground")} />
-              <span className={cn("text-sm", showFilter ? "text-foreground" : "text-muted-foreground")}>Filter</span>
-            </button>
-            {statusFilter && (
-              <Badge variant="secondary" className="gap-1 text-xs cursor-pointer" onClick={() => setSearchParams({})}>
-                Status: {statusFilter}
-                <span className="ml-0.5">&times;</span>
-              </Badge>
-            )}
+            <ListFilter className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-muted-foreground">Filter</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <FilterSelect
+              label="Status"
+              value={statusFilter}
+              options={[
+                { value: "all", label: "All statuses" },
+                { value: "active", label: "Active" },
+                { value: "archived", label: "Archived" },
+              ]}
+              onChange={setStatusFilter}
+            />
+            <FilterSelect
+              label="Health"
+              value={healthFilter}
+              options={[
+                { value: "all", label: "All health" },
+                { value: "on_track", label: "On track" },
+                { value: "at_risk", label: "At risk" },
+                { value: "off_track", label: "Off track" },
+              ]}
+              onChange={setHealthFilter}
+            />
+            <FilterSelect
+              label="Initiative"
+              value={initiativeFilter}
+              options={[
+                { value: "all", label: "All initiatives" },
+                ...initiatives.map((i) => ({ value: i.id, label: i.name })),
+              ]}
+              onChange={setInitiativeFilter}
+            />
           </div>
         </div>
 

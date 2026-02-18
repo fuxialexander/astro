@@ -1,6 +1,7 @@
 import type { PlanNode, PlanEdge } from "@/types"
 import { getAccessToken } from "@/lib/supabase-client"
 import { parseChatSSE, parseExecutionSSE } from "@/lib/sse-parser"
+import { apiUrl } from "@/lib/api-url"
 
 /**
  * Build headers for authenticated API calls.
@@ -55,7 +56,7 @@ export async function generatePlan(
 ): Promise<void> {
   console.log(`[plan-gen] POST /api/agent/generate-plan projectId=${params.projectId}`)
 
-  const res = await fetch("/api/agent/generate-plan", {
+  const res = await fetch(apiUrl("/api/agent/generate-plan"), {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(params),
@@ -120,7 +121,7 @@ export async function chatWithAgent(
   },
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch("/api/agent/chat", {
+  const res = await fetch(apiUrl("/api/agent/chat"), {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(params),
@@ -140,7 +141,7 @@ export async function chatWithAgent(
 }
 
 export async function abortAgent(sessionId: string): Promise<void> {
-  await fetch("/api/agent/abort", {
+  await fetch(apiUrl("/api/agent/abort"), {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify({ sessionId }),
@@ -169,7 +170,7 @@ export async function chatWithTask(
   },
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch("/api/agent/task-chat", {
+  const res = await fetch(apiUrl("/api/agent/task-chat"), {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(params),
@@ -204,7 +205,7 @@ export interface ProviderStatusResult {
 }
 
 export async function getProviders(): Promise<ProviderStatusResult> {
-  const response = await fetch("/api/agent/providers", {
+  const response = await fetch(apiUrl("/api/agent/providers"), {
     headers: await authHeaders(),
   })
   if (!response.ok) {
@@ -214,7 +215,7 @@ export async function getProviders(): Promise<ProviderStatusResult> {
 }
 
 export async function redetectProviders(): Promise<ProviderStatusResult> {
-  const response = await fetch("/api/agent/providers/detect", {
+  const response = await fetch(apiUrl("/api/agent/providers/detect"), {
     method: "POST",
     headers: await authHeaders(),
   })
@@ -262,7 +263,7 @@ export async function dispatchTask(
   callbacks: DispatchCallbacks,
   signal?: AbortSignal
 ): Promise<void> {
-  const response = await fetch("/api/agent/dispatch", {
+  const response = await fetch(apiUrl("/api/agent/dispatch"), {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(params),

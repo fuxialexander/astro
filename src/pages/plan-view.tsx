@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, useEffect } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
-import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, ListPlus } from "lucide-react"
+import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles } from "lucide-react"
 
 // Media query hook for responsive rendering
 function useMediaQuery(query: string) {
@@ -20,7 +20,6 @@ function useMediaQuery(query: string) {
 
   return matches
 }
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -38,7 +37,7 @@ import { ItemTimelineView, TimelineAddTaskFooter, type TimelineRow } from "@/com
 import { PropertyPicker } from "@/components/property-picker"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
-import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { useDisplaySettingsStore, type DisplaySettings } from "@/stores/display-settings-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { formatDueDateShort } from "@/lib/date-utils"
@@ -310,56 +309,197 @@ function makePlanColumns(
   ]
 }
 
-// --- Plan Empty State (used in all views) ---
-function PlanEmptyState({ projectId, onAddTask }: { projectId: string; onAddTask: () => void }) {
+
+// --- Inline List Creation Row (reusable) ---
+// Renders with the same visual style as a real task row (PropertyPicker, Badge, etc.)
+function InlineListCreationRow({
+  projectId,
+  columns,
+  displaySettings,
+  defaultMilestoneId,
+  onCreated,
+}: {
+  projectId: string
+  columns: ListColumn<PlanNode>[]
+  displaySettings: DisplaySettings
+  defaultMilestoneId?: string
+  onCreated?: () => void
+}) {
+  const addNode = usePlanStore((s) => s.addNode)
+  const [taskName, setTaskName] = useState("")
+  const [priority, setPriority] = useState<Priority>("medium")
+  const [status, setStatus] = useState<PlanNode["status"]>("planned")
+  const [dueDate, setDueDate] = useState("")
+  const [estimate, setEstimate] = useState<PlanNode["estimate"]>(undefined)
+  const dateInputRef = useRef<HTMLInputElement>(null)
+
+  const handleCreate = () => {
+    if (!taskName.trim()) return
+
+    addNode({
+      id: crypto.randomUUID(),
+      projectId,
+      type: "task",
+      title: taskName.trim(),
+      description: "",
+      status,
+      parentId: null,
+      dependencies: [],
+      verification: "auto",
+      position: { x: 0, y: 0 },
+      priority,
+      dueDate: dueDate || undefined,
+      estimate,
+      milestoneId: defaultMilestoneId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    // Reset form
+    setTaskName("")
+    setPriority("medium")
+    setStatus("planned")
+    setDueDate("")
+    setEstimate(undefined)
+    onCreated?.()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && taskName.trim()) {
+      e.preventDefault()
+      handleCreate()
+    }
+  }
+
+  // Match ItemListView column filtering: name always visible, others by displaySettings
+  const nameCol = columns.find((c) => c.id === "name")
+  const otherCols = columns.filter((c) =>
+    c.id !== "name" &&
+    (displaySettings.visibleProperties?.includes(c.id) ?? true)
+  )
+
+  const { text: dueDateText, className: dueDateClass } = formatDueDateShort(dueDate || undefined)
+
+  return (
+    <div className="flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-colors">
+      {/* Name column */}
+      <div className={cn("min-w-0", nameCol?.width ?? "flex-1")}>
+        <input
+          type="text"
+          value={taskName}
+          onChange={(e) => setTaskName(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Task name..."
+          autoFocus
+          className="w-full bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground"
+        />
+      </div>
+
+      {/* Other visible columns — same visual style as real task rows */}
+      {otherCols.map((col) => (
+        <div key={col.id} className={cn(col.width)}>
+          {col.id === "priority" ? (() => {
+            const config = PRIORITY_CONFIG[priority]
+            const PIcon = config.icon
+            return (
+              <PropertyPicker
+                value={priority}
+                options={PRIORITY_OPTIONS}
+                title="Set priority"
+                onSelect={(id) => setPriority(id as Priority)}
+              >
+                <PIcon className={cn("h-3.5 w-3.5", config.color)} />
+              </PropertyPicker>
+            )
+          })() : col.id === "status" ? (
+            <PropertyPicker
+              value={status}
+              options={STATUS_OPTIONS}
+              title="Set status"
+              onSelect={(id) => setStatus(id as PlanNode["status"])}
+            >
+              <Badge variant={statusVariant[status] ?? "secondary"} className="text-[10px]">
+                {status.replace(/_/g, " ")}
+              </Badge>
+            </PropertyPicker>
+          ) : col.id === "dueDate" ? (
+            <div className="relative inline-flex items-center rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors">
+              <span className={cn("text-xs", dueDateClass)}>{dueDateText}</span>
+              <input
+                ref={dateInputRef}
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                tabIndex={-1}
+              />
+            </div>
+          ) : col.id === "estimate" ? (
+            <PropertyPicker
+              value={estimate}
+              options={ESTIMATE_OPTIONS}
+              title="Set estimate"
+              onSelect={(id) => setEstimate(id as PlanNode["estimate"])}
+            >
+              <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {estimate ?? "\u2014"}
+              </span>
+            </PropertyPicker>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// --- Inline Empty State for List View ---
+function ListEmptyState({ projectId, columns }: { projectId: string; columns: ListColumn<PlanNode>[] }) {
   const [visionOpen, setVisionOpen] = useState(false)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
+
+  // Filter visible columns (but always show name for creation)
+  const visibleColumns = columns.filter((col) =>
+    col.id === "name" || // Always show name field for task creation
+    !displaySettings.visibleProperties ||
+    displaySettings.visibleProperties.includes(col.id)
+  )
 
   return (
     <>
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project!} />
-      <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
-        <div className="flex flex-col gap-4 w-full max-w-lg">
-          <div className="text-center mb-2">
-            <h3 className="text-sm font-medium text-muted-foreground">Choose how to plan:</h3>
-          </div>
+      <div className="flex flex-col h-full">
+        {/* Header row */}
+        <div className="flex items-center gap-3 border-b border-border px-6 py-2 bg-muted/30">
+          {visibleColumns.map((col) => (
+            <div
+              key={col.id}
+              className={cn(
+                "text-xs font-medium text-muted-foreground uppercase tracking-wide",
+                col.width
+              )}
+            >
+              {col.label}
+            </div>
+          ))}
+        </div>
 
-          {/* Option 1: AI Generate Plan */}
+        {/* Inline creation row */}
+        <InlineListCreationRow
+          projectId={projectId}
+          columns={columns}
+          displaySettings={displaySettings}
+        />
+
+        {/* AI generation option */}
+        <div className="flex items-center justify-center gap-2 py-4">
+          <span className="text-sm text-muted-foreground">or</span>
           <button
             onClick={() => setVisionOpen(true)}
-            className={cn(
-              "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all cursor-pointer",
-              "border-primary/20 bg-primary/[0.03] hover:bg-primary/[0.05] hover:border-primary/30"
-            )}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-md transition-colors"
           >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                <Sparkles className="h-5 w-5 text-primary" />
-              </div>
-              <div className="flex-1">
-                <div className="text-base font-semibold text-foreground">Generate plan with AI</div>
-                <div className="text-xs text-muted-foreground mt-0.5">Let AI generate a structured plan with tasks and dependencies</div>
-              </div>
-            </div>
-          </button>
-
-          {/* Option 2: Manual Add Task */}
-          <button
-            onClick={onAddTask}
-            className={cn(
-              "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all cursor-pointer",
-              "border-border bg-card hover:border-foreground/20"
-            )}
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-                <ListPlus className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div className="flex-1">
-                <div className="text-base font-semibold text-foreground">Add your first task</div>
-                <div className="text-xs text-muted-foreground mt-0.5">Start planning manually with individual tasks</div>
-              </div>
-            </div>
+            <Sparkles className="h-3.5 w-3.5" />
+            Generate plan with AI
           </button>
         </div>
       </div>
@@ -368,7 +508,15 @@ function PlanEmptyState({ projectId, onAddTask }: { projectId: string; onAddTask
 }
 
 // --- List View ---
-export function PlanListView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
+export function PlanListView({
+  projectId,
+  nodes,
+  onNodeSelect
+}: {
+  projectId: string
+  nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
+  onNodeSelect: (node: PlanNode | null) => void
+}) {
   const planNodes = usePlanStore((s) => s.nodes)
   const updateNode = usePlanStore((s) => s.updateNode)
   const removeNodes = usePlanStore((s) => s.removeNodes)
@@ -392,8 +540,11 @@ export function PlanListView({ projectId, onNodeSelect }: { projectId: string; o
   ], [removeNodes])
 
   const allProjectNodes = useMemo(() => {
+    // If nodes provided (cross-project mode), use those
+    if (nodes) return nodes
+    // Otherwise filter by projectId (single-project mode)
     return planNodes.filter((n) => n.projectId === projectId)
-  }, [planNodes, projectId])
+  }, [planNodes, projectId, nodes])
 
   const milestones = useMemo(() => allProjectNodes.filter((n) => n.type === "milestone"), [allProjectNodes])
 
@@ -473,12 +624,12 @@ export function PlanListView({ projectId, onNodeSelect }: { projectId: string; o
     const defaultMilestoneId = groupKey.startsWith("milestone-") ? groupKey.replace("milestone-", "") : undefined
     if (creatingInGroup === groupKey) {
       return (
-        <TaskCreationForm
-          mode="inline"
+        <InlineListCreationRow
           projectId={projectId}
+          columns={columns}
+          displaySettings={displaySettings}
           defaultMilestoneId={defaultMilestoneId}
           onCreated={() => setCreatingInGroup(null)}
-          onCancel={() => setCreatingInGroup(null)}
         />
       )
     }
@@ -504,14 +655,21 @@ export function PlanListView({ projectId, onNodeSelect }: { projectId: string; o
     }
   }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
 
-  // Don't show empty state if we're currently creating a task
-  const showEmptyState = tasks.length === 0 && !creatingInGroup
+  // Show empty state if no tasks (with column headers)
+  if (tasks.length === 0) {
+    return <ListEmptyState projectId={projectId} columns={columns} />
+  }
+
+  // Ensure name column is always visible
+  const visibleColumnsWithName = displaySettings.visibleProperties?.includes("name")
+    ? displaySettings.visibleProperties
+    : ["name", ...(displaySettings.visibleProperties || [])]
 
   return (
     <ItemListView
       columns={columns}
       groups={groups}
-      visibleColumns={displaySettings.visibleProperties}
+      visibleColumns={visibleColumnsWithName}
       onItemClick={(node) => onNodeSelect(node)}
       getItemId={(n) => n.id}
       getItemClass={(n) => cn(n.status === "pruned" && "opacity-50")}
@@ -520,13 +678,20 @@ export function PlanListView({ projectId, onNodeSelect }: { projectId: string; o
       sortColumn={displaySettings.orderBy}
       sortDirection={displaySettings.orderDirection}
       onSort={handleSort}
-      emptyState={showEmptyState ? <PlanEmptyState projectId={projectId} onAddTask={() => setCreatingInGroup("all")} /> : undefined}
     />
   )
 }
 
 // --- Timeline View ---
-export function PlanTimelineView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
+export function PlanTimelineView({
+  projectId,
+  nodes,
+  onNodeSelect
+}: {
+  projectId: string
+  nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
+  onNodeSelect: (node: PlanNode | null) => void
+}) {
   const planNodes = usePlanStore((s) => s.nodes)
   const planEdges = usePlanStore((s) => s.edges)
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -534,8 +699,11 @@ export function PlanTimelineView({ projectId, onNodeSelect }: { projectId: strin
   const [isCreating, setIsCreating] = useState(false)
 
   const allProjectNodes = useMemo(() => {
+    // If nodes provided (cross-project mode), use those
+    if (nodes) return nodes
+    // Otherwise filter by projectId (single-project mode)
     return planNodes.filter((n) => n.projectId === projectId)
-  }, [planNodes, projectId])
+  }, [planNodes, projectId, nodes])
 
   const milestones = useMemo(() => allProjectNodes.filter((n) => n.type === "milestone"), [allProjectNodes])
 
@@ -654,15 +822,26 @@ export function PlanTimelineView({ projectId, onNodeSelect }: { projectId: strin
 }
 
 // --- Board View Wrapper ---
-export function PlanBoardView({ projectId, onNodeSelect }: { projectId: string; onNodeSelect: (node: PlanNode | null) => void }) {
+export function PlanBoardView({
+  projectId,
+  nodes: providedNodes,
+  onNodeSelect
+}: {
+  projectId: string
+  nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
+  onNodeSelect: (node: PlanNode | null) => void
+}) {
   const planNodes = usePlanStore((s) => s.nodes)
   const updateNode = usePlanStore((s) => s.updateNode)
   const boardSettings = useDisplaySettingsStore((s) => s.get("plan-board"))
   const [creatingInColumn, setCreatingInColumn] = useState<string | null>(null)
 
   const nodes = useMemo(() => {
+    // If nodes provided (cross-project mode), use those
+    if (providedNodes) return providedNodes
+    // Otherwise filter by projectId (single-project mode)
     return planNodes.filter((n) => n.projectId === projectId)
-  }, [planNodes, projectId])
+  }, [planNodes, projectId, providedNodes])
 
   const milestones = useMemo(() => {
     return nodes.filter((n) => n.type === "milestone")
@@ -717,9 +896,13 @@ export function PlanView() {
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [viewMode, setViewMode] = useState<ViewMode>(initialView && VALID_VIEWS.has(initialView) ? initialView : "graph")
-  const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [visionOpen, setVisionOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
+
+  // Close detail panel when switching view modes
+  useEffect(() => {
+    setSelectedNode(null)
+  }, [viewMode])
 
   // Handle decompose: open chat with pre-filled message
   const handleDecomposeNode = useCallback((nodeId: string) => {
@@ -953,8 +1136,8 @@ export function PlanView() {
                 className={cn(
                   "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
                   viewMode === mode
-                    ? "bg-accent text-accent-foreground"
-                    : "text-slate-700 dark:text-slate-300 hover:text-foreground hover:bg-muted/50"
+                    ? "text-accent-foreground border-b-2 border-accent"
+                    : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 {mode}
@@ -974,10 +1157,7 @@ export function PlanView() {
             <FileText className="h-3.5 w-3.5" />
             Vision
           </Button>
-          <Button size="sm" onClick={() => setCreateDialogOpen(true)} className="hidden md:flex">
-            <Plus className="h-3.5 w-3.5" />
-            Add Task
-          </Button>
+          {/* No Add Task button needed - each view has inline creation */}
           <Button
             variant={chatOpen ? "default" : "outline"}
             size="sm"
@@ -1011,14 +1191,7 @@ export function PlanView() {
           </div>
         )}
 
-        {/* Floating add button (mobile only) */}
-        <button
-          onClick={() => setCreateDialogOpen(true)}
-          className="md:hidden fixed bottom-24 right-4 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:scale-105 transition-transform z-30"
-          aria-label="Add task"
-        >
-          <Plus className="h-6 w-6" />
-        </button>
+        {/* No floating button needed - each view has inline creation */}
 
         {/* Chat panel — bottom sheet on mobile, right sidebar on desktop */}
         {chatOpen && (
@@ -1104,21 +1277,6 @@ export function PlanView() {
           </>
         )}
       </div>
-
-      {/* Create Task Dialog */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Task</DialogTitle>
-          </DialogHeader>
-          <TaskCreationForm
-            mode="dialog"
-            projectId={project.id}
-            onCreated={() => setCreateDialogOpen(false)}
-            onCancel={() => setCreateDialogOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
 
       {/* Vision Document Dialog */}
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />

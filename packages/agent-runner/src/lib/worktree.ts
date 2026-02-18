@@ -37,6 +37,9 @@ export async function createWorktree(
     stderr,
   } = options;
 
+  // Validate taskId format to prevent command injection
+  validateTaskId(taskId);
+
   const resolvedWorkingDirectory = resolve(workingDirectory);
   const gitRoot = await getGitRoot(resolvedWorkingDirectory);
 
@@ -193,6 +196,17 @@ async function hasCommits(gitRoot: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Validate that taskId is a valid UUID format before using in paths
+ * Prevents command injection via malicious taskIds
+ */
+function validateTaskId(taskId: string): void {
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidPattern.test(taskId)) {
+    throw new Error(`Invalid taskId format: ${taskId}. Expected UUID.`);
   }
 }
 

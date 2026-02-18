@@ -28,7 +28,7 @@ import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
 import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus, ensureMachineRegistered } from './lib/registered-machines-store.js'
-import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest } from './lib/environment.js'
+import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isIndexedDBMode } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
 import { nexusEventTransport } from './lib/events/nexus-event-transport.js'
 import { sseNotificationHook } from './lib/events/hooks/sse-notification-hook.js'
@@ -297,8 +297,8 @@ async function start() {
   dispatchEngine.start()
   console.log('[dispatch] Dispatch engine started')
 
-  // Start cleanup scheduler (disabled in test mode)
-  if (!isTest()) {
+  // Start cleanup scheduler (disabled in test mode and IndexedDB mode)
+  if (!isTest() && !isIndexedDBMode()) {
     startCleanupScheduler({
       enabled: true,
       intervalMs: 24 * 60 * 60 * 1000, // 24 hours

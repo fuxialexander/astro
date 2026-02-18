@@ -8,6 +8,7 @@ import { getAccessToken, shouldUseSupabase } from "@/lib/supabase-client"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
+import { apiUrl } from "@/lib/api-url"
 
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -408,7 +409,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     try {
       // Use the dispatch/task endpoint for full environment support
       const headers = await getAuthHeaders()
-      const response = await fetch("/api/dispatch/task", {
+      const response = await fetch(apiUrl("/api/dispatch/task"), {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -486,7 +487,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     if (execution?.executionId) {
       try {
         const headers = await getAuthHeaders()
-        await fetch("/api/dispatch/cancel", {
+        await fetch(apiUrl("/api/dispatch/cancel"), {
           method: "POST",
           headers,
           body: JSON.stringify({
@@ -514,7 +515,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
     try {
       const headers = await getAuthHeaders()
-      const response = await fetch("/api/dispatch/steer", {
+      const response = await fetch(apiUrl("/api/dispatch/steer"), {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -614,7 +615,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   loadProviders: async () => {
     try {
       const headers = await getAuthHeaders()
-      const response = await fetch("/api/agent/providers", { headers })
+      const response = await fetch(apiUrl("/api/agent/providers"), { headers })
       if (response.ok) {
         const data = await response.json()
         const providers: ProviderStatus[] = (data.providers || []).map((p: Record<string, unknown>) => ({
@@ -638,7 +639,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   redetectProviders: async () => {
     try {
       const headers = await getAuthHeaders()
-      const response = await fetch("/api/agent/providers/detect", {
+      const response = await fetch(apiUrl("/api/agent/providers/detect"), {
         method: "POST",
         headers,
       })
@@ -662,7 +663,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   loadMachines: async () => {
     try {
       const headers = await getAuthHeaders()
-      const response = await fetch("/api/relay/machines", { headers })
+      const response = await fetch(apiUrl("/api/relay/machines"), { headers })
       if (response.ok) {
         const data = await response.json()
         // Map API shape (connectionStatus) to frontend shape (status)
@@ -1232,7 +1233,7 @@ async function requestExecutionSummary(
   if (!node || !execution.streamText) return
   try {
     const headers = await getAuthHeaders()
-    const response = await fetch("/api/agent/summarize", {
+    const response = await fetch(apiUrl("/api/agent/summarize"), {
       method: "POST",
       headers,
       body: JSON.stringify({

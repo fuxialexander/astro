@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useCallback } from "react"
-import { useParams, useSearchParams } from "react-router"
+import { useState, useMemo, useEffect } from "react"
+import { useParams, useNavigate } from "react-router"
 import {
   Rocket,
   Star,
@@ -13,12 +13,7 @@ import {
   FolderGit2,
   Diamond,
   ExternalLink,
-  LayoutGrid,
-  List,
-  Calendar,
   Network,
-  Maximize2,
-  X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -28,10 +23,6 @@ import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { MilestoneDialog } from "@/components/milestone-dialog"
 import { ActivityDialog } from "@/components/activity-dialog"
 import { ColorIconBadge } from "@/components/color-icon-picker"
-import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
-import { ChatPanel } from "@/components/agent/chat-panel"
-import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
-import { PlanListView, PlanBoardView, PlanTimelineView } from "@/pages/plan-view"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
@@ -52,116 +43,15 @@ const healthColors: Record<string, string> = {
   off_track: "bg-red-500",
 }
 
-type ViewMode = "graph" | "list" | "timeline" | "board"
-
-const VALID_VIEWS = new Set<ViewMode>(["graph", "list", "timeline", "board"])
 const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
-
-const planGraphDisplayConfig: DisplayPopoverConfig = {
-  viewKey: "plan-graph",
-  groupByLabel: "Highlight by",
-  groupByOptions: [
-    { value: "status", label: "Status" },
-    { value: "priority", label: "Priority" },
-    { value: "none", label: "None" },
-  ],
-  orderByOptions: [],
-  propertyOptions: [],
-}
-
-const planListDisplayConfig: DisplayPopoverConfig = {
-  viewKey: "plan-list",
-  groupByOptions: [
-    { value: "none", label: "No grouping" },
-    { value: "milestone", label: "Milestone" },
-    { value: "status", label: "Status" },
-    { value: "priority", label: "Priority" },
-  ],
-  orderByOptions: [
-    { value: "name", label: "Name" },
-    { value: "status", label: "Status" },
-    { value: "priority", label: "Priority" },
-    { value: "dueDate", label: "Due date" },
-  ],
-  propertyOptions: [
-    { value: "priority", label: "Priority" },
-    { value: "status", label: "Status" },
-    { value: "dueDate", label: "Due date" },
-    { value: "estimate", label: "Estimate" },
-    { value: "milestone", label: "Milestone" },
-    { value: "labels", label: "Labels" },
-    { value: "pr", label: "PR" },
-  ],
-}
-
-const planTimelineDisplayConfig: DisplayPopoverConfig = {
-  viewKey: "plan-list",
-  groupByOptions: [
-    { value: "none", label: "No grouping" },
-    { value: "milestone", label: "Milestone" },
-    { value: "status", label: "Status" },
-    { value: "priority", label: "Priority" },
-  ],
-  orderByOptions: [
-    { value: "name", label: "Name" },
-    { value: "status", label: "Status" },
-    { value: "priority", label: "Priority" },
-    { value: "dueDate", label: "Due date" },
-  ],
-  propertyOptions: [
-    { value: "priority", label: "Priority" },
-    { value: "status", label: "Status" },
-    { value: "dueDate", label: "Due date" },
-    { value: "estimate", label: "Estimate" },
-    { value: "labels", label: "Labels" },
-    { value: "pr", label: "PR" },
-  ],
-  showZoom: true,
-}
-
-const planBoardDisplayConfig: DisplayPopoverConfig = {
-  viewKey: "plan-board",
-  columnByOptions: [
-    { value: "status", label: "Status" },
-    { value: "priority", label: "Priority" },
-    { value: "milestone", label: "Milestone" },
-  ],
-  groupByOptions: [
-    { value: "none", label: "No grouping" },
-  ],
-  orderByOptions: [
-    { value: "priority", label: "Priority" },
-    { value: "name", label: "Name" },
-    { value: "dueDate", label: "Due date" },
-  ],
-  propertyOptions: [
-    { value: "priority", label: "Priority" },
-    { value: "estimate", label: "Estimate" },
-    { value: "dueDate", label: "Due date" },
-    { value: "labels", label: "Labels" },
-    { value: "pr", label: "PR" },
-  ],
-}
 
 import { formatDate, formatRelativeTime } from "@/lib/date-utils"
 
 // --- Overview Tab Content ---
 function OverviewTab({
   project,
-  viewMode,
-  setViewMode,
-  chatOpen,
-  setChatOpen,
-  isEnlarged,
-  setIsEnlarged,
 }: {
   project: Project
-  viewMode: ViewMode
-  setViewMode: (mode: ViewMode) => void
-  chatOpen: boolean
-  setChatOpen: (open: boolean) => void
-  isEnlarged: boolean
-  setIsEnlarged: (enlarged: boolean) => void
 }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const addNode = usePlanStore((s) => s.addNode)
@@ -194,18 +84,8 @@ function OverviewTab({
   const [editingStartDate, setEditingStartDate] = useState(false)
   const [editingTargetDate, setEditingTargetDate] = useState(false)
   const [editingInitiative, setEditingInitiative] = useState(false)
-  const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
   const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
-
-  // Handle decompose: open chat with pre-filled message
-  const handleDecomposeNode = useCallback((nodeId: string) => {
-    const node = planNodes.find((n) => n.id === nodeId)
-    if (!node) return
-    const message = `Decompose @${node.title} into smaller sub-tasks with minimal overlap. Each sub-task should be agent-solvable in one session.`
-    setChatInitialMessage(message)
-    setChatOpen(true)
-  }, [planNodes, setChatOpen])
 
   // Calculate real progress based on task completion
   const progress = useMemo(() => {
@@ -333,124 +213,7 @@ function OverviewTab({
     return fallbackUrl
   }, [project.workingDirectory, project.defaultMachineId, useLocalUrls, useVSCode, machines])
 
-  // Enlarged Plan View (Full Screen)
-  if (isEnlarged) {
-    return (
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
-        {/* Header with close button */}
-        <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
-          <h3 className="text-lg font-semibold">Plan</h3>
-          <div className="flex items-center gap-2">
-            {/* View mode selector */}
-            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-              <button
-                onClick={() => setViewMode("graph")}
-                className={cn(
-                  "p-1.5 rounded transition-colors",
-                  viewMode === "graph" ? "bg-background shadow-sm" : "hover:bg-background/50"
-                )}
-                title="Graph view"
-              >
-                <Network className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => setViewMode("list")}
-                className={cn(
-                  "p-1.5 rounded transition-colors",
-                  viewMode === "list" ? "bg-background shadow-sm" : "hover:bg-background/50"
-                )}
-                title="List view"
-              >
-                <List className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => setViewMode("timeline")}
-                className={cn(
-                  "p-1.5 rounded transition-colors",
-                  viewMode === "timeline" ? "bg-background shadow-sm" : "hover:bg-background/50"
-                )}
-                title="Timeline view"
-              >
-                <Calendar className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => setViewMode("board")}
-                className={cn(
-                  "p-1.5 rounded transition-colors",
-                  viewMode === "board" ? "bg-background shadow-sm" : "hover:bg-background/50"
-                )}
-                title="Board view"
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
-            {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
-            {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
-            {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
-            <Button
-              variant={chatOpen ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setChatOpen(!chatOpen)
-                if (chatOpen) setChatInitialMessage(undefined)
-              }}
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEnlarged(false)}
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-        {/* Full screen plan view */}
-        <div className="flex-1 overflow-hidden relative">
-          {viewMode === "graph" ? (
-            <div className="absolute inset-0 touch-pan-x touch-pan-y">
-              <PlanCanvas projectId={project.id} onNodeSelect={() => {}} onDecomposeNode={handleDecomposeNode} />
-            </div>
-          ) : viewMode === "list" ? (
-            <div className="absolute inset-0 overflow-hidden">
-              <PlanListView projectId={project.id} onNodeSelect={() => {}} />
-            </div>
-          ) : viewMode === "board" ? (
-            <div className="absolute inset-0 overflow-hidden">
-              <PlanBoardView projectId={project.id} onNodeSelect={() => {}} />
-            </div>
-          ) : (
-            <div className="absolute inset-0 overflow-hidden">
-              <PlanTimelineView projectId={project.id} onNodeSelect={() => {}} />
-            </div>
-          )}
-        </div>
-        {/* Chat panel (if open) */}
-        {chatOpen && (
-          <div className="flex w-[400px] shrink-0 flex-col border-l border-border bg-card absolute right-0 top-14 bottom-0">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="text-sm font-semibold">Plan Chat</h3>
-              <button
-                onClick={() => {
-                  setChatOpen(false)
-                  setChatInitialMessage(undefined)
-                }}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
+  const navigate = useNavigate()
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -475,98 +238,15 @@ function OverviewTab({
           <p className="text-sm leading-relaxed">
             {project.description}
           </p>
-        </div>
-
-        {/* Plan View Section */}
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Plan</h3>
-            <div className="flex items-center gap-2">
-              {/* View mode selector */}
-              <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-                <button
-                  onClick={() => setViewMode("graph")}
-                  className={cn(
-                    "p-1.5 rounded transition-colors",
-                    viewMode === "graph" ? "bg-background shadow-sm" : "hover:bg-background/50"
-                  )}
-                  title="Graph view"
-                >
-                  <Network className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={() => setViewMode("list")}
-                  className={cn(
-                    "p-1.5 rounded transition-colors",
-                    viewMode === "list" ? "bg-background shadow-sm" : "hover:bg-background/50"
-                  )}
-                  title="List view"
-                >
-                  <List className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={() => setViewMode("timeline")}
-                  className={cn(
-                    "p-1.5 rounded transition-colors",
-                    viewMode === "timeline" ? "bg-background shadow-sm" : "hover:bg-background/50"
-                  )}
-                  title="Timeline view"
-                >
-                  <Calendar className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={() => setViewMode("board")}
-                  className={cn(
-                    "p-1.5 rounded transition-colors",
-                    viewMode === "board" ? "bg-background shadow-sm" : "hover:bg-background/50"
-                  )}
-                  title="Board view"
-                >
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
-              {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
-              {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
-              {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
-              <Button
-                variant={chatOpen ? "default" : "outline"}
-                size="sm"
-                onClick={() => {
-                  setChatOpen(!chatOpen)
-                  if (chatOpen) setChatInitialMessage(undefined)
-                }}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsEnlarged(true)}
-              >
-                <Maximize2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-          {/* Plan canvas/view */}
-          <div className="relative h-[400px] rounded-lg border border-border overflow-hidden bg-card">
-            {viewMode === "graph" ? (
-              <div className="absolute inset-0 touch-pan-x touch-pan-y">
-                <PlanCanvas projectId={project.id} onNodeSelect={() => {}} onDecomposeNode={handleDecomposeNode} />
-              </div>
-            ) : viewMode === "list" ? (
-              <div className="absolute inset-0 overflow-hidden">
-                <PlanListView projectId={project.id} onNodeSelect={() => {}} />
-              </div>
-            ) : viewMode === "board" ? (
-              <div className="absolute inset-0 overflow-hidden">
-                <PlanBoardView projectId={project.id} onNodeSelect={() => {}} />
-              </div>
-            ) : (
-              <div className="absolute inset-0 overflow-hidden">
-                <PlanTimelineView projectId={project.id} onNodeSelect={() => {}} />
-              </div>
-            )}
+          <div className="flex items-center gap-2 mt-2">
+            <Button
+              onClick={() => navigate(`/project/${project.id}/plan?view=list`)}
+              variant="outline"
+              size="sm"
+            >
+              <Network className="h-4 w-4" />
+              View Full Plan
+            </Button>
           </div>
         </div>
 
@@ -733,31 +413,10 @@ function OverviewTab({
         </div>
       </div>
 
-      {/* Right Panel — Properties + Activity OR Chat */}
+      {/* Right Panel — Properties + Activity */}
       <div className="flex w-[320px] shrink-0 flex-col border-l border-border bg-card">
-        {chatOpen ? (
-          /* Chat Panel */
-          <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="text-sm font-semibold">Plan Chat</h3>
-              <button
-                onClick={() => {
-                  setChatOpen(false)
-                  setChatInitialMessage(undefined)
-                }}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <MessageSquare className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Properties */}
-            <div className="flex flex-col gap-4 p-5">
+        {/* Properties */}
+        <div className="flex flex-col gap-4 p-5">
           <h3 className="text-sm font-semibold">Properties</h3>
 
           <div className="flex items-center justify-between">
@@ -996,8 +655,6 @@ function OverviewTab({
             </div>
           </div>
         </div>
-          </>
-        )}
       </div>
     </div>
   )
@@ -1006,14 +663,9 @@ function OverviewTab({
 // --- Main Project Overview Page ---
 export function ProjectOverview() {
   const { id } = useParams()
-  const [searchParams] = useSearchParams()
-  const initialView = searchParams.get("view") as ViewMode | null
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const updateProject = useProjectStore((s) => s.updateProject)
-  const [viewMode, setViewMode] = useState<ViewMode>(initialView && VALID_VIEWS.has(initialView) ? initialView : "list")
-  const [chatOpen, setChatOpen] = useState(false)
-  const [isEnlarged, setIsEnlarged] = useState(false)
 
   // Refresh file tree cache if stale, missing, or from a different machine
   useEffect(() => {
@@ -1074,12 +726,6 @@ export function ProjectOverview() {
       <div className="flex flex-1 overflow-hidden relative">
         <OverviewTab
           project={project}
-          viewMode={viewMode}
-          setViewMode={setViewMode}
-          chatOpen={chatOpen}
-          setChatOpen={setChatOpen}
-          isEnlarged={isEnlarged}
-          setIsEnlarged={setIsEnlarged}
         />
       </div>
     </div>

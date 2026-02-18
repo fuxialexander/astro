@@ -46,9 +46,28 @@ const authLimiter = rateLimiter({
 
 // In-memory challenge store (short-lived, per-request)
 // In production, use Redis or a database with TTL
+const MAX_CHALLENGE_STORE_SIZE = 1000
 const challengeStore = new Map<string, { challenge: string; expiresAt: number }>()
 
 function storeChallenge(key: string, challenge: string) {
+  // Prevent DoS: enforce size limit on challenge store
+  if (challengeStore.size >= MAX_CHALLENGE_STORE_SIZE) {
+    // Emit warning in production
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[auth] Challenge store size limit reached. Cleaning expired entries.')
+    }
+    // Clean expired entries before rejecting
+    const now = Date.now()
+    for (const [k, entry] of challengeStore) {
+      if (now > entry.expiresAt) challengeStore.delete(k)
+    }
+    // If still at limit after cleanup, reject oldest entries (FIFO)
+    if (challengeStore.size >= MAX_CHALLENGE_STORE_SIZE) {
+      const oldestKey = challengeStore.keys().next().value
+      if (oldestKey) challengeStore.delete(oldestKey)
+    }
+  }
+
   challengeStore.set(key, {
     challenge,
     expiresAt: Date.now() + CHALLENGE_TTL_MS,
@@ -239,18 +258,28 @@ authRoute.post('/webauthn/register-verify', async (c) => {
 
       // Note: User profile is auto-created by Postgres trigger (handle_new_user)
       // from supabase/migrations/20260209000000_initial_schema.sql
-      // Wait briefly for trigger to complete
-      await new Promise(resolve => setTimeout(resolve, SESSION_VERIFY_DELAY_MS))
+      // Wait with exponential backoff for trigger to complete
+      let profile = null
+      let profileError = null
+      const maxRetries = 3
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const delay = SESSION_VERIFY_DELAY_MS * Math.pow(2, attempt) // 100ms, 200ms, 400ms
+        await new Promise(resolve => setTimeout(resolve, delay))
 
-      // Verify profile was created successfully
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('id')
-        .eq('id', userId)
-        .single()
+        const result = await supabase
+          .from('user_profiles')
+          .select('id')
+          .eq('id', userId)
+          .single()
+
+        profile = result.data
+        profileError = result.error
+
+        if (profile && !profileError) break
+      }
 
       if (profileError || !profile) {
-        console.error('[auth] User profile creation failed:', profileError)
+        console.error('[auth] User profile creation failed after retries:', profileError)
         // Clean up auth user if profile creation failed
         await supabase.auth.admin.deleteUser(userId)
         return c.json({ error: 'Failed to create user profile' }, 500)
@@ -496,8 +525,10 @@ authRoute.get('/session', async (c) => {
 
   const token = authHeader.slice(7)
 
-  // Test token bypass for e2e testing (only in development)
-  if (process.env.NODE_ENV !== 'production' && token === 'test-e2e-token') {
+  // Test token bypass for e2e testing (requires explicit flag AND non-production env)
+  if (process.env.NODE_ENV !== 'production' &&
+      process.env.ENABLE_E2E_BYPASS === 'true' &&
+      token === 'test-e2e-token') {
     return c.json({
       authenticated: true,
       user: { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' },
@@ -523,6 +554,98 @@ authRoute.get('/session', async (c) => {
   } catch (err) {
     console.error('[auth] Session check error:', err)
     return c.json({ authenticated: false, error: 'Authentication failed' }, 401)
+  }
+})
+
+/**
+ * DELETE /api/auth/delete-account
+ *
+ * Permanently delete user account and all associated data.
+ * Handles both IndexedDB mode (no-op) and Supabase mode (full deletion).
+ */
+authRoute.delete('/delete-account', async (c) => {
+  try {
+    if (!shouldUseSupabase()) {
+      // IndexedDB mode: Return success (client will clear local data)
+      return c.json({
+        success: true,
+        message: 'IndexedDB mode - clear local data on client'
+      })
+    }
+
+    // Supabase mode: Delete all user data
+    const authHeader = c.req.header('Authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return c.json({ error: 'Missing or invalid authorization header' }, 401)
+    }
+
+    const token = authHeader.substring(7)
+    const supabase = getServiceClient()
+
+    // Get user from token
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token)
+    if (userError || !user) {
+      return c.json({ error: 'Invalid token' }, 401)
+    }
+
+    const userId = user.id
+
+    console.log(`[auth] Deleting account for user ${userId}`)
+
+    // 1. Revoke all machine tokens for this user
+    const { error: machineError } = await supabase
+      .from('registered_machines')
+      .update({ is_revoked: true })
+      .eq('user_id', userId)
+
+    if (machineError) {
+      console.error('[auth] Failed to revoke machines:', machineError)
+    }
+
+    // 2. Delete all user data (cascading deletes should handle related data)
+    // Note: Database should have ON DELETE CASCADE for related tables
+    const tables = [
+      'projects',
+      'plan_nodes',
+      'plan_edges',
+      'executions',
+      'approvals',
+      'activity_log',
+      'user_profiles',
+      'registered_machines',
+    ]
+
+    for (const table of tables) {
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .eq('user_id', userId)
+
+      if (error) {
+        console.error(`[auth] Failed to delete from ${table}:`, error)
+      }
+    }
+
+    // 3. Delete auth user (this will also delete the session)
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(userId)
+
+    if (deleteError) {
+      console.error('[auth] Failed to delete auth user:', deleteError)
+      return c.json({ error: 'Failed to delete account' }, 500)
+    }
+
+    console.log(`[auth] Successfully deleted account for user ${userId}`)
+
+    return c.json({
+      success: true,
+      message: 'Account and all data permanently deleted'
+    })
+  } catch (err) {
+    console.error('[auth] Delete account error:', err)
+    return c.json({
+      error: 'Failed to delete account',
+      details: err instanceof Error ? err.message : String(err)
+    }, 500)
   }
 })
 

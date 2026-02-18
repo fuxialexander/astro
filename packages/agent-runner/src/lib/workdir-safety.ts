@@ -258,8 +258,18 @@ export async function createSandbox(options: SandboxOptions): Promise<SandboxSet
       await rm(sandboxPath, { recursive: true, force: true });
     },
     copyBack: async () => {
-      // Copy modified files back to original location
+      // WARNING: Copy modified files back to original location
+      // This operation can overwrite existing work. Consider requiring explicit approval.
       // Skip .git directory to avoid corrupting git state
+      console.warn('[sandbox] Copying back from sandbox to original directory. This may overwrite files.');
+
+      // Verify sandbox still exists before copying
+      try {
+        await stat(sandboxPath);
+      } catch {
+        throw new Error(`Sandbox path no longer exists: ${sandboxPath}`);
+      }
+
       await cp(sandboxPath, workdir, {
         recursive: true,
         force: true,

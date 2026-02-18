@@ -9,6 +9,7 @@ import { create } from 'zustand'
 import { realtimeClient, type RealtimeEvent } from '@/lib/realtime-client'
 import { usePlanStore } from './plan-store'
 import { useExecutionStore } from './execution-store'
+import { useMachinesStore } from './machines-store'
 import type { TaskActivityEvent } from '@/types'
 
 export interface HpcCapability {
@@ -322,6 +323,8 @@ function handleRealtimeEvent(
       addActivity(set, 'machine', `Machine "${entry.name || entry.machineId}" connected`, {
         machineId: entry.machineId,
       })
+      // Update registered machines store with connection status
+      useMachinesStore.getState().updateMachineStatus(entry.machineId, true)
       break
     }
 
@@ -335,6 +338,8 @@ function handleRealtimeEvent(
       addActivity(set, 'machine', `Machine "${machineId}" disconnected`, {
         machineId,
       })
+      // Update registered machines store with connection status
+      useMachinesStore.getState().updateMachineStatus(machineId, false)
       break
     }
 

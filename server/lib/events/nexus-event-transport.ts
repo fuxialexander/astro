@@ -20,6 +20,13 @@ export class NexusEventTransport extends EventEmitter {
   private hooks = new Map<string, EventHook>()
   private enabled = true
 
+  constructor() {
+    super();
+    // Support multiple concurrent SSE connections
+    // Each SSE client registers 1 listener, allow plenty of headroom
+    this.setMaxListeners(100);
+  }
+
   /**
    * Register a hook for events
    * @param name - Unique hook identifier

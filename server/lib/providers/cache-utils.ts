@@ -184,16 +184,30 @@ export function calculateCacheStats(usage: {
 }
 
 /**
- * Extract the source repo path from a worktree path.
+ * Extract the source repo path from a worktree path using git command.
  *
- * Worktree paths typically follow: /path/to/repo/.git/worktrees/task-xyz/
- * This extracts: /path/to/repo
+ * More robust than regex parsing, works across all platforms.
  *
  * @param worktreePath - Path to a git worktree
- * @returns Source repo path, or the original path if not a worktree
+ * @returns Source repo path, or the original path if not a worktree or git is unavailable
  */
-export function extractSourceRepoPath(worktreePath: string): string {
-  const worktreePattern = /^(.+?)\/\.git\/worktrees\/[^/]+\/?$/
-  const match = worktreePath.match(worktreePattern)
-  return match ? match[1] : worktreePath
+export async function extractSourceRepoPath(worktreePath: string): Promise<string> {
+  try {
+    const { execFile } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const execFileAsync = promisify(execFile)
+
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'rev-parse', '--show-toplevel'],
+      { timeout: 5_000 }
+    )
+    const root = stdout.trim()
+    return root || worktreePath
+  } catch {
+    // Fallback: if git command fails, try regex pattern (less reliable but better than nothing)
+    const worktreePattern = /^(.+?)\/\.git\/worktrees\/[^/]+\/?$/
+    const match = worktreePath.match(worktreePattern)
+    return match ? match[1] : worktreePath
+  }
 }

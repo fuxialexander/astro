@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Send, Loader2, CheckCircle2, XCircle } from "lucide-react"
+import { apiUrl } from "@/lib/api-url"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
@@ -67,7 +68,7 @@ export function SteerChat({ taskId, machineId, projectId, steerSession }: SteerC
     }
 
     try {
-      const response = await fetch("/api/dispatch/steer", {
+      const response = await fetch(apiUrl("/api/dispatch/steer"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

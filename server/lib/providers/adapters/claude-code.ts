@@ -745,7 +745,7 @@ export class ClaudeCodeProvider implements AgentProvider {
     // This enables cache hits across all worktrees from the same repo
     let repoContext
     if (context.workingDirectory) {
-      const sourceRepoPath = extractSourceRepoPath(context.workingDirectory)
+      const sourceRepoPath = await extractSourceRepoPath(context.workingDirectory)
       repoContext = readRepoContext(sourceRepoPath)
 
       // Log if we're using a worktree (different from source)

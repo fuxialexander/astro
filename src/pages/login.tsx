@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate, useLocation, useSearchParams } from "react-router"
 import { startRegistration, startAuthentication, browserSupportsWebAuthn, platformAuthenticatorIsAvailable } from "@simplewebauthn/browser"
+import { apiUrl } from "@/lib/api-url"
 import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -47,7 +48,7 @@ export function Login() {
   // Authenticate existing user (called from handleEmailSubmit)
   // NOTE: Does NOT manage loading state - caller manages it
   const authenticateUser = useCallback(async () => {
-    const optionsRes = await fetch("/api/auth/webauthn/login-options", {
+    const optionsRes = await fetch(apiUrl("/api/auth/webauthn/login-options"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
@@ -64,7 +65,7 @@ export function Login() {
       useBrowserAutofill: false, // Disable autofill which might show QR codes
     })
 
-    const verifyRes = await fetch("/api/auth/webauthn/login-verify", {
+    const verifyRes = await fetch(apiUrl("/api/auth/webauthn/login-verify"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ credential, challengeKey }),
@@ -100,7 +101,7 @@ export function Login() {
 
     try {
       // Check if user exists
-      const checkRes = await fetch("/api/auth/webauthn/check-user", {
+      const checkRes = await fetch(apiUrl("/api/auth/webauthn/check-user"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -150,7 +151,7 @@ export function Login() {
     setStep("registering")
 
     try {
-      const optionsRes = await fetch("/api/auth/webauthn/register-options", {
+      const optionsRes = await fetch(apiUrl("/api/auth/webauthn/register-options"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, name }),
@@ -170,7 +171,7 @@ export function Login() {
         useAutoRegister: false, // Disable auto-register which might trigger QR codes
       })
 
-      const verifyRes = await fetch("/api/auth/webauthn/register-verify", {
+      const verifyRes = await fetch(apiUrl("/api/auth/webauthn/register-verify"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, name, credential }),

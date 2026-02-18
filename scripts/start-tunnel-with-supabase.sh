@@ -129,6 +129,11 @@ if [[ -f "$ENV_FILE" ]]; then
   update_env_var "SUPABASE_URL" "https://$SUPABASE_SUBDOMAIN"
   update_env_var "WEBAUTHN_RP_ID" "$APP_SUBDOMAIN"
   update_env_var "WEBAUTHN_ORIGIN" "https://$APP_SUBDOMAIN"
+  update_env_var "ALLOWED_HOSTS" "nexus.$DOMAIN,$DOMAIN,localhost"
+  update_env_var "VITE_HMR_PROTOCOL" "wss"
+  update_env_var "VITE_HMR_HOST" "nexus.$DOMAIN"
+  update_env_var "VITE_HMR_PORT" "443"
+  update_env_var "VITE_API_BASE_URL" ""
   echo "✓ Updated environment variables for external access"
 fi
 

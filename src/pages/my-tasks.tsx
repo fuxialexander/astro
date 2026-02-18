@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from "react"
-import { useSearchParams } from "react-router"
+import { useSearchParams, useNavigate } from "react-router"
 import {
   CheckSquare,
   ListFilter,
@@ -14,6 +14,7 @@ import { BoardView } from "@/components/board/board-view"
 import { type ListGroup } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { FilterSelect } from "@/components/views/filter-select"
+import { PlanListView, PlanTimelineView, PlanBoardView } from "@/pages/plan-view"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
@@ -22,6 +23,25 @@ import { STATUS_CONFIG, statusBarColors, statusProgressColors } from "@/lib/stat
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
+
+// Media query hook for responsive rendering
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.matchMedia(query).matches
+    }
+    return false
+  })
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query)
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches)
+    mediaQuery.addEventListener("change", handler)
+    return () => mediaQuery.removeEventListener("change", handler)
+  }, [query])
+
+  return matches
+}
 
 // --- Filter types ---
 
@@ -116,6 +136,8 @@ export function MyTasks() {
   const displaySettings = useDisplaySettingsStore((s) => s.get("my-tasks"))
   const boardSettings = useDisplaySettingsStore((s) => s.get("my-tasks-board"))
   const updateNode = usePlanStore((s) => s.updateNode)
+  const navigate = useNavigate()
+  const isDesktop = useMediaQuery("(min-width: 1024px)")
 
   const [searchParams, setSearchParams] = useSearchParams()
   const [viewMode, setViewMode] = useState<MyTasksViewMode>("list")
@@ -126,7 +148,6 @@ export function MyTasks() {
   })
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all")
   const [projectFilter, setProjectFilter] = useState<string>("all")
-  const [showFilters, setShowFilters] = useState(() => !!searchParams.get("status"))
 
   // Clear URL search params after initializing filters
   useEffect(() => {
@@ -348,8 +369,10 @@ export function MyTasks() {
                   key={mode}
                   onClick={() => setViewMode(mode)}
                   className={cn(
-                    "rounded-lg px-3 py-1.5 text-sm transition-all cursor-pointer capitalize",
-                    viewMode === mode ? "bg-accent font-semibold text-accent-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    "px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
+                    viewMode === mode
+                      ? "text-accent-foreground border-b-2 border-accent"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
                 >
                   {mode}
@@ -365,141 +388,180 @@ export function MyTasks() {
 
       {/* Filter Bar */}
       <div className="flex items-center gap-3 border-b border-border px-6 py-3 shrink-0">
-        <button
-          className="flex items-center gap-2 hover:bg-muted/30 rounded-lg px-3 py-1.5 transition-colors cursor-pointer"
-          onClick={() => setShowFilters(!showFilters)}
-        >
-          <ListFilter className={cn("h-4 w-4", showFilters ? "text-primary" : "text-muted-foreground")} />
-          <span className={cn("text-sm font-medium", showFilters ? "text-foreground" : "text-muted-foreground")}>Filter</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <ListFilter className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-muted-foreground">Filter</span>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <FilterSelect
+            label="Status"
+            value={statusFilter}
+            options={[
+              { value: "all", label: "All statuses" },
+              { value: "planned", label: "Planned" },
+              { value: "dispatched", label: "Dispatched" },
+              { value: "in_progress", label: "In Progress" },
+              { value: "awaiting_judgment", label: "Needs Review" },
+              { value: "completed", label: "Completed" },
+              { value: "pruned", label: "Pruned" },
+            ]}
+            onChange={(v) => setStatusFilter(v as StatusFilter)}
+          />
+          <FilterSelect
+            label="Priority"
+            value={priorityFilter}
+            options={[
+              { value: "all", label: "All priorities" },
+              { value: "urgent", label: "Urgent" },
+              { value: "high", label: "High" },
+              { value: "medium", label: "Medium" },
+              { value: "low", label: "Low" },
+              { value: "none", label: "None" },
+            ]}
+            onChange={(v) => setPriorityFilter(v as PriorityFilter)}
+          />
+          <FilterSelect
+            label="Project"
+            value={projectFilter}
+            options={[
+              { value: "all", label: "All projects" },
+              ...projects.map((p) => ({ value: p.id, label: p.name })),
+            ]}
+            onChange={setProjectFilter}
+          />
+        </div>
 
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
-            className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer ml-auto"
           >
             <X className="h-3.5 w-3.5" />
             Clear filters
           </button>
         )}
-
-        {showFilters && (
-          <div className="flex items-center gap-3 ml-2">
-            <FilterSelect
-              label="Status"
-              value={statusFilter}
-              options={[
-                { value: "all", label: "All statuses" },
-                { value: "planned", label: "Planned" },
-                { value: "dispatched", label: "Dispatched" },
-                { value: "in_progress", label: "In Progress" },
-                { value: "awaiting_judgment", label: "Needs Review" },
-                { value: "completed", label: "Completed" },
-                { value: "pruned", label: "Pruned" },
-              ]}
-              onChange={(v) => setStatusFilter(v as StatusFilter)}
-            />
-            <FilterSelect
-              label="Priority"
-              value={priorityFilter}
-              options={[
-                { value: "all", label: "All priorities" },
-                { value: "urgent", label: "Urgent" },
-                { value: "high", label: "High" },
-                { value: "medium", label: "Medium" },
-                { value: "low", label: "Low" },
-                { value: "none", label: "None" },
-              ]}
-              onChange={(v) => setPriorityFilter(v as PriorityFilter)}
-            />
-            <FilterSelect
-              label="Project"
-              value={projectFilter}
-              options={[
-                { value: "all", label: "All projects" },
-                ...projects.map((p) => ({ value: p.id, label: p.name })),
-              ]}
-              onChange={setProjectFilter}
-            />
-          </div>
-        )}
       </div>
 
-      {viewMode === "board" ? (
-        <div className="flex-1 overflow-hidden">
-          {sortedTasks.length === 0 ? (
+      {isDesktop ? (
+        // Desktop: Use Plan View components
+        viewMode === "board" ? (
+          <div className="flex-1 overflow-hidden">
+            {sortedTasks.length === 0 ? (
+              emptyState
+            ) : (
+              <PlanBoardView
+                projectId="cross-project-mode"
+                nodes={sortedTasks}
+                onNodeSelect={(node) => {
+                  if (node) navigate(`/project/${node.projectId}/plan`)
+                }}
+              />
+            )}
+          </div>
+        ) : viewMode === "timeline" ? (
+          sortedTasks.length === 0 ? (
             emptyState
           ) : (
-            <BoardView
+            <PlanTimelineView
+              projectId="cross-project-mode"
               nodes={sortedTasks}
-              columnBy={(boardSettings.columnBy ?? "status") as "status" | "priority" | "milestone"}
-              visibleProperties={boardSettings.visibleProperties}
-              showCompleted={boardSettings.showCompleted}
-              orderBy={boardSettings.orderBy}
-              orderDirection={boardSettings.orderDirection}
-              projectName={getProjectName}
-              onNodeSelect={handleBoardNodeSelect}
-              onNodeUpdate={handleBoardNodeUpdate}
+              onNodeSelect={(node) => {
+                if (node) navigate(`/project/${node.projectId}/plan`)
+              }}
             />
-          )}
-        </div>
-      ) : viewMode === "timeline" ? (
-        sortedTasks.length === 0 ? (
-          emptyState
+          )
         ) : (
-          <ItemTimelineView
-            rows={timelineRows}
-            viewKey="my-tasks-timeline"
-            renderLeftCell={(node) => (
-              <div className="flex items-center gap-2 min-w-0 w-full">
-                {(() => {
-                  const status = STATUS_CONFIG[node.status]
-                  const StatusIcon = status.icon
-                  return <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", status.color)} />
-                })()}
-                <span className="text-sm truncate">{node.title}</span>
-              </div>
-            )}
-            onItemClick={(node) => { window.location.href = `/project/${node.projectId}/plan` }}
-            onDateChange={(nodeId, startDate, endDate) => updateNode(nodeId, { startDate, endDate })}
-          />
+          sortedTasks.length === 0 ? (
+            <div className="flex-1 overflow-auto">{emptyState}</div>
+          ) : (
+            <PlanListView
+              projectId="cross-project-mode"
+              nodes={sortedTasks}
+              onNodeSelect={(node) => {
+                if (node) navigate(`/project/${node.projectId}/plan`)
+              }}
+            />
+          )
         )
       ) : (
-        sortedTasks.length === 0 ? (
-          <div className="flex-1 overflow-auto">{emptyState}</div>
-        ) : (
-          <div className="flex-1 overflow-auto px-6 py-6">
-            <div className="flex flex-col gap-6">
-              {listGroups.map((group) => (
-                <div key={group.key} className="flex flex-col gap-4">
-                  {/* Group Header */}
-                  {displaySettings.groupBy !== "none" && (
-                    <div className="flex items-center gap-2 px-2">
-                      {group.icon}
-                      <h2 className="text-sm font-semibold text-foreground">
-                        {group.label}
-                      </h2>
-                      <span className="text-xs text-foreground/60">
-                        ({group.items.length})
-                      </span>
-                    </div>
-                  )}
-                  {/* Task List */}
-                  <div className="flex flex-col gap-4">
-                    {group.items.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        projectName={projectMap.get(task.projectId)}
-                        showProject={displaySettings.groupBy !== "project"}
-                        onClick={() => { window.location.href = `/project/${task.projectId}/plan` }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+        // Mobile/Tablet: Existing UI (TaskRow-based) - unchanged
+        viewMode === "board" ? (
+          <div className="flex-1 overflow-hidden">
+            {sortedTasks.length === 0 ? (
+              emptyState
+            ) : (
+              <BoardView
+                nodes={sortedTasks}
+                columnBy={(boardSettings.columnBy ?? "status") as "status" | "priority" | "milestone"}
+                visibleProperties={boardSettings.visibleProperties}
+                showCompleted={boardSettings.showCompleted}
+                orderBy={boardSettings.orderBy}
+                orderDirection={boardSettings.orderDirection}
+                projectName={getProjectName}
+                onNodeSelect={handleBoardNodeSelect}
+                onNodeUpdate={handleBoardNodeUpdate}
+              />
+            )}
           </div>
+        ) : viewMode === "timeline" ? (
+          sortedTasks.length === 0 ? (
+            emptyState
+          ) : (
+            <ItemTimelineView
+              rows={timelineRows}
+              viewKey="my-tasks-timeline"
+              renderLeftCell={(node) => (
+                <div className="flex items-center gap-2 min-w-0 w-full">
+                  {(() => {
+                    const status = STATUS_CONFIG[node.status]
+                    const StatusIcon = status.icon
+                    return <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", status.color)} />
+                  })()}
+                  <span className="text-sm truncate">{node.title}</span>
+                </div>
+              )}
+              onItemClick={(node) => { window.location.href = `/project/${node.projectId}/plan` }}
+              onDateChange={(nodeId, startDate, endDate) => updateNode(nodeId, { startDate, endDate })}
+            />
+          )
+        ) : (
+          sortedTasks.length === 0 ? (
+            <div className="flex-1 overflow-auto">{emptyState}</div>
+          ) : (
+            <div className="flex-1 overflow-auto px-6 py-6">
+              <div className="flex flex-col gap-6">
+                {listGroups.map((group) => (
+                  <div key={group.key} className="flex flex-col gap-4">
+                    {/* Group Header */}
+                    {displaySettings.groupBy !== "none" && (
+                      <div className="flex items-center gap-2 px-2">
+                        {group.icon}
+                        <h2 className="text-sm font-semibold text-foreground">
+                          {group.label}
+                        </h2>
+                        <span className="text-xs text-foreground/60">
+                          ({group.items.length})
+                        </span>
+                      </div>
+                    )}
+                    {/* Task List */}
+                    <div className="flex flex-col gap-4">
+                      {group.items.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          projectName={projectMap.get(task.projectId)}
+                          showProject={displaySettings.groupBy !== "project"}
+                          onClick={() => { window.location.href = `/project/${task.projectId}/plan` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
         )
       )}
     </div>

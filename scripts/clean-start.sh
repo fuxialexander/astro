@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Clean Start Script
+# - Stops processes, cleans caches, reinstalls deps, rebuilds, resets DB schema
+# - For just clearing user data without full reinstall, use: npm run clear-data
+
 echo "🧹 Starting clean setup for Nexus..."
 echo ""
 
@@ -12,10 +16,20 @@ pkill -f "tsx.*server/index" || true
 pkill -f "nexus-agent" || true
 sleep 2
 
-# 2. Clean agent runner cache
-echo "2️⃣  Cleaning agent runner cache..."
+# 2. Clean agent runner cache and config
+echo "2️⃣  Cleaning agent runner cache and config..."
 rm -rf ~/.nexus-agent
 echo "   ✓ Removed ~/.nexus-agent"
+
+# Reset agent config (removes config.json across all platforms)
+if command -v nexus-agent &>/dev/null || [ -f ./packages/agent-runner/dist/cli.js ]; then
+  if [ -f ./packages/agent-runner/dist/cli.js ]; then
+    node ./packages/agent-runner/dist/cli.js config --reset
+  else
+    nexus-agent config --reset
+  fi
+  echo "   ✓ Reset agent configuration"
+fi
 
 # 3. Clean node modules and reinstall
 echo "3️⃣  Cleaning and reinstalling dependencies..."

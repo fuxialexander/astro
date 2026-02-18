@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Load CLOUDFLARED_DOMAIN from .env
+# Canonical Cloudflare tunnel script with all routes (frontend, API, relay, Supabase)
+# Usage: bash scripts/start-tunnel.sh
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Load CLOUDFLARED_DOMAIN from .env
 DOMAIN=""
 if [[ -f "$REPO_ROOT/.env" ]]; then
   DOMAIN=$(grep -E '^CLOUDFLARED_DOMAIN=' "$REPO_ROOT/.env" | cut -d= -f2- || true)
@@ -23,9 +26,10 @@ if ! command -v cloudflared &>/dev/null; then
 fi
 
 TUNNEL_NAME="nexus"
-APP_SUBDOMAIN="nexus.$DOMAIN"          # Frontend (user-facing app)
-API_SUBDOMAIN="nexus-api.$DOMAIN"      # Backend API
-RELAY_SUBDOMAIN="nexus-relay.$DOMAIN"  # WebSocket relay
+APP_SUBDOMAIN="nexus.$DOMAIN"
+API_SUBDOMAIN="nexus-api.$DOMAIN"
+RELAY_SUBDOMAIN="nexus-relay.$DOMAIN"
+SUPABASE_SUBDOMAIN="nexus-supabase.$DOMAIN"
 
 # Get tunnel ID (create if it doesn't exist)
 TUNNEL_ID=$(cloudflared tunnel list --output json | python3 -c "
@@ -59,8 +63,8 @@ fi
 
 echo "Tunnel ID: $TUNNEL_ID"
 
-# Add DNS routes (idempotent — skips if already set)
-for subdomain in "$APP_SUBDOMAIN" "$API_SUBDOMAIN" "$RELAY_SUBDOMAIN"; do
+# Add DNS routes (idempotent)
+for subdomain in "$APP_SUBDOMAIN" "$API_SUBDOMAIN" "$RELAY_SUBDOMAIN" "$SUPABASE_SUBDOMAIN"; do
   if cloudflared tunnel route dns "$TUNNEL_NAME" "$subdomain" 2>&1 | grep -q "already exists"; then
     echo "DNS route $subdomain already exists, skipping"
   else
@@ -71,6 +75,14 @@ done
 # Write cloudflared config
 CONFIG_DIR="$HOME/.cloudflared"
 mkdir -p "$CONFIG_DIR"
+
+# Check if Supabase is running to decide whether to include that route
+SUPABASE_INGRESS=""
+if nc -z 127.0.0.1 54321 &>/dev/null; then
+  SUPABASE_INGRESS="  - hostname: $SUPABASE_SUBDOMAIN
+    service: http://localhost:54321"
+fi
+
 cat > "$CONFIG_DIR/config.yml" <<EOF
 tunnel: $TUNNEL_ID
 credentials-file: $CONFIG_DIR/$TUNNEL_ID.json
@@ -80,53 +92,94 @@ ingress:
     service: http://localhost:5173
     originRequest:
       noTLSVerify: true
+      http2Origin: false
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
   - hostname: $API_SUBDOMAIN
     service: http://localhost:3001
   - hostname: $RELAY_SUBDOMAIN
     service: http://localhost:3002
+EOF
+
+if [[ -n "$SUPABASE_INGRESS" ]]; then
+  cat >> "$CONFIG_DIR/config.yml" <<EOF
+$SUPABASE_INGRESS
+EOF
+fi
+
+cat >> "$CONFIG_DIR/config.yml" <<EOF
   - service: http_status:404
 EOF
 
 echo "Wrote $CONFIG_DIR/config.yml"
 
-# Update .env.local with external URLs
+# Update .env.local with tunnel-compatible env vars
 ENV_FILE="$REPO_ROOT/.env.local"
-if [[ -f "$ENV_FILE" ]]; then
-  update_env_var() {
-    local key=$1
-    local value=$2
-    if grep -q "^$key=" "$ENV_FILE" 2>/dev/null; then
-      if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|^$key=.*|$key=$value|" "$ENV_FILE"
-      else
-        sed -i "s|^$key=.*|$key=$value|" "$ENV_FILE"
-      fi
+touch "$ENV_FILE"
+
+update_env_var() {
+  local key=$1
+  local value=$2
+  if grep -q "^$key=" "$ENV_FILE" 2>/dev/null; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s|^$key=.*|$key=$value|" "$ENV_FILE"
     else
-      echo "$key=$value" >> "$ENV_FILE"
+      sed -i "s|^$key=.*|$key=$value|" "$ENV_FILE"
     fi
-  }
+  else
+    echo "$key=$value" >> "$ENV_FILE"
+  fi
+}
 
-  echo "Updating .env.local with external URLs..."
-  update_env_var "WEBAUTHN_RP_ID" "$APP_SUBDOMAIN"
-  update_env_var "WEBAUTHN_ORIGIN" "https://$APP_SUBDOMAIN"
-  echo "✓ Updated environment variables for external access"
+echo "Updating .env.local with tunnel env vars..."
+update_env_var "WEBAUTHN_RP_ID" "$APP_SUBDOMAIN"
+update_env_var "WEBAUTHN_ORIGIN" "https://$APP_SUBDOMAIN"
+update_env_var "ALLOWED_HOSTS" "nexus.$DOMAIN,$DOMAIN,localhost"
+update_env_var "VITE_HMR_PROTOCOL" "wss"
+update_env_var "VITE_HMR_HOST" "nexus.$DOMAIN"
+update_env_var "VITE_HMR_PORT" "443"
+update_env_var "VITE_API_BASE_URL" ""
+
+if [[ -n "$SUPABASE_INGRESS" ]]; then
+  update_env_var "VITE_SUPABASE_URL" "https://$SUPABASE_SUBDOMAIN"
+  update_env_var "SUPABASE_URL" "https://$SUPABASE_SUBDOMAIN"
 fi
 
-# Warn if backend isn't running
-if ! curl -sf http://localhost:3001/api/health &>/dev/null; then
-  echo "WARNING: Backend not running on localhost:3001"
-  echo "Run 'npm run dev:backend' in another terminal first."
+echo "Updated .env.local"
+
+# Service readiness warnings
+if ! nc -z localhost 3001 &>/dev/null; then
   echo ""
+  echo "WARNING: Backend not running on localhost:3001"
+  echo "  Start with: npm run dev:backend"
 fi
 
+if ! nc -z localhost 5173 &>/dev/null; then
+  echo ""
+  echo "WARNING: Frontend not running on localhost:5173"
+  echo "  Start with: npm run dev:frontend"
+fi
+
+if [[ -z "$SUPABASE_INGRESS" ]]; then
+  echo ""
+  echo "NOTE: Supabase not detected on localhost:54321 (route skipped)"
+  echo "  Start with: supabase start"
+fi
+
+echo ""
 echo "Starting tunnel..."
-echo "  App:   https://$APP_SUBDOMAIN -> localhost:5173 (Frontend)"
-echo "  API:   https://$API_SUBDOMAIN -> localhost:3001 (Backend)"
-echo "  Relay: https://$RELAY_SUBDOMAIN -> localhost:3002 (WebSocket)"
+echo "  App:      https://$APP_SUBDOMAIN -> localhost:5173 (Frontend)"
+echo "  API:      https://$API_SUBDOMAIN -> localhost:3001 (Backend)"
+echo "  Relay:    https://$RELAY_SUBDOMAIN -> localhost:3002 (WebSocket)"
+if [[ -n "$SUPABASE_INGRESS" ]]; then
+  echo "  Supabase: https://$SUPABASE_SUBDOMAIN -> localhost:54321 (Database)"
+fi
 echo ""
 echo "=================================================="
 echo "  Access your app at:"
-echo "  👉 https://$APP_SUBDOMAIN"
+echo "  https://$APP_SUBDOMAIN"
 echo "=================================================="
 echo ""
 cloudflared tunnel run "$TUNNEL_NAME"

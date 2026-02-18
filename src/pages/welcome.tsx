@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router"
+import { useNavigate, useSearchParams } from "react-router"
 import {
   Compass,
   GitBranch,
@@ -63,12 +63,14 @@ export function Welcome() {
   const [showWorkDirDialog, setShowWorkDirDialog] = useState(false)
   const [workingDirectory, setWorkingDirectory] = useState("")
   const [pathError, setPathError] = useState<string | null>(null)
+  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false)
 
   const navigate = useNavigate()
   const { theme, setTheme } = useTheme()
   const addProject = useProjectStore((s) => s.addProject)
   const addNode = usePlanStore((s) => s.addNode)
   const { setupRepo } = useRepoSetup()
+  const [searchParams] = useSearchParams()
 
   // Check if we're in multi-tenant mode (production)
   const isMultiTenant = shouldUseSupabase()
@@ -88,26 +90,60 @@ export function Welcome() {
   }, [machinesLoaded, loadMachines])
 
   // Fetch registered machines for multi-tenant mode
+  // Re-fetch on mount and when navigating back from device auth
   useEffect(() => {
     if (isMultiTenant) {
       fetchRegisteredMachines()
     }
   }, [isMultiTenant, fetchRegisteredMachines])
 
-  // Auto-select first machine in multi-tenant mode
+  // Also fetch machines when page becomes visible (handles device auth redirect)
   useEffect(() => {
-    if (isMultiTenant && registeredMachines.length > 0 && !selectedMachineId) {
-      setSelectedMachineId(registeredMachines[0].id)
-    }
-  }, [isMultiTenant, registeredMachines, selectedMachineId])
+    if (!isMultiTenant) return
 
-  // Auto-select first machine in single-user mode (from live machines)
-  useEffect(() => {
-    if (!isMultiTenant && liveMachines.size > 0 && !selectedMachineId) {
-      const firstMachine = Array.from(liveMachines.values())[0]
-      setSelectedMachineId(firstMachine.machineId)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchRegisteredMachines()
+      }
     }
-  }, [isMultiTenant, liveMachines, selectedMachineId])
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [isMultiTenant, fetchRegisteredMachines])
+
+  // Auto-refresh machines after device auth redirect
+  useEffect(() => {
+    if (!isMultiTenant) return
+
+    const registered = searchParams.get('registered')
+    if (registered === 'true') {
+      // Clear the parameter from URL
+      navigate('/welcome', { replace: true })
+
+      // Wait for machine to connect to relay, then refresh
+      const timer = setTimeout(async () => {
+        setIsAutoRefreshing(true)
+        console.log('[welcome] Auto-refreshing machines after device registration')
+        await fetchRegisteredMachines()
+        setIsAutoRefreshing(false)
+      }, 3000) // Increased to 3s for better machine connection time
+
+      return () => {
+        clearTimeout(timer)
+        setIsAutoRefreshing(false)
+      }
+    }
+  }, [isMultiTenant, searchParams, navigate, fetchRegisteredMachines])
+
+  // Compute default machine ID from available machines
+  const defaultMachineId = isMultiTenant && registeredMachines.length > 0
+    ? registeredMachines[0].id
+    : !isMultiTenant && liveMachines.size > 0
+    ? Array.from(liveMachines.values())[0]?.machineId
+    : undefined
+
+  // Use the selected machine or fallback to default
+  const effectiveMachineId = selectedMachineId || defaultMachineId
 
   // Check if user can create projects (has machines in multi-tenant, or in single-user mode)
   const canCreateProjects = !isMultiTenant || registeredMachines.length > 0
@@ -165,7 +201,7 @@ export function Welcome() {
         projectName: "Quick Start",
         projectDescription: "Your first project - start adding tasks below",
         workingDirectory: workingDirectory.trim() || undefined,
-        targetMachineId: isMultiTenant ? selectedMachineId : undefined,
+        targetMachineId: isMultiTenant ? effectiveMachineId : undefined,
       })
 
       // Create project with resolved working directory from backend
@@ -175,7 +211,7 @@ export function Welcome() {
         description: "Your first project - start adding tasks below",
         visionDoc: "",
         status: "active",
-        defaultMachineId: selectedMachineId, // Save selected machine in both modes
+        defaultMachineId: effectiveMachineId, // Save selected machine in both modes
         workingDirectory: result?.workingDirectory,
         color: '#06b6d4', // cyan blue
         icon: 'FaStar',
@@ -186,7 +222,7 @@ export function Welcome() {
       setShowWorkDirDialog(false)
       setWorkingDirectory("")
       setIsSubmitting(false)
-      navigate(`/tasks`)
+      navigate(`/project/${id}/plan?view=list`)
     } catch (error) {
       console.error('[welcome] Repo setup failed:', error)
       setIsSubmitting(false)
@@ -208,7 +244,7 @@ export function Welcome() {
         projectName,
         projectDescription: firstTask.trim(),
         repository: repoUrl.trim(),
-        targetMachineId: isMultiTenant ? selectedMachineId : undefined,
+        targetMachineId: isMultiTenant ? effectiveMachineId : undefined,
       })
 
       // Create project with resolved working directory from backend
@@ -219,7 +255,7 @@ export function Welcome() {
         visionDoc: "",
         status: "active",
         repository: repoUrl.trim(),
-        defaultMachineId: selectedMachineId, // Save selected machine in both modes
+        defaultMachineId: effectiveMachineId, // Save selected machine in both modes
         workingDirectory: result?.workingDirectory,
         color: '#06b6d4', // cyan blue
         icon: 'FaStar',
@@ -248,7 +284,7 @@ export function Welcome() {
       })
 
       setIsSubmitting(false)
-      navigate(`/tasks`)
+      navigate(`/project/${id}/plan?view=list`)
     } catch (error) {
       console.error('[welcome] Repo setup failed:', error)
       setIsSubmitting(false)
@@ -270,7 +306,7 @@ export function Welcome() {
         projectName,
         projectDescription: firstTask.trim() || `Work on ${projectName}`,
         repository: repoUrl.trim(),
-        targetMachineId: isMultiTenant ? selectedMachineId : undefined,
+        targetMachineId: isMultiTenant ? effectiveMachineId : undefined,
       })
 
       // Create project with resolved working directory from backend
@@ -281,7 +317,7 @@ export function Welcome() {
         visionDoc: "",
         status: "active",
         repository: repoUrl.trim(),
-        defaultMachineId: selectedMachineId, // Save selected machine in both modes
+        defaultMachineId: effectiveMachineId, // Save selected machine in both modes
         workingDirectory: result?.workingDirectory,
         color: '#06b6d4', // cyan blue
         icon: 'FaStar',
@@ -290,7 +326,7 @@ export function Welcome() {
       })
 
       setIsSubmitting(false)
-      navigate(`/tasks`)
+      navigate(`/project/${id}/plan?view=list`)
     } catch (error) {
       console.error('[welcome] Repo setup failed:', error)
       setIsSubmitting(false)
@@ -301,7 +337,11 @@ export function Welcome() {
   async function handleRefreshMachines() {
     setIsRefreshingMachines(true)
     try {
-      await loadMachines()
+      if (isMultiTenant) {
+        await fetchRegisteredMachines()
+      } else {
+        await loadMachines()
+      }
     } catch (error) {
       console.error('[welcome] Failed to refresh machines:', error)
     }
@@ -366,6 +406,12 @@ export function Welcome() {
                       To create projects, you need to register at least one machine where tasks will run.
                       Click below to get started.
                     </p>
+                    {isAutoRefreshing && (
+                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Waiting for machine to connect...
+                      </p>
+                    )}
                   </div>
                   <Button onClick={() => setShowAddEnvironment(true)} size="lg" className="gap-2">
                     <Plus className="h-4 w-4" />
@@ -412,9 +458,17 @@ export function Welcome() {
               {/* Available Environments */}
               <div className="w-full flex flex-col gap-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium text-muted-foreground">
-                    {isMultiTenant ? "Select target machine" : "Available execution environments"}
-                  </h3>
+                  <div className="flex flex-col gap-0.5">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      {isMultiTenant ? "Select target machine" : "Available execution environments"}
+                    </h3>
+                    {isMultiTenant && isAutoRefreshing && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Auto-refreshing in a moment...
+                      </p>
+                    )}
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -453,7 +507,7 @@ export function Welcome() {
                     <MachineCard
                       key={machine.id}
                       machine={machine}
-                      isSelected={selectedMachineId === machine.id}
+                      isSelected={effectiveMachineId === machine.id}
                       onClick={() => setSelectedMachineId(machine.id)}
                     />
                   ))}

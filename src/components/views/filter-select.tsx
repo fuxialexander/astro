@@ -19,10 +19,10 @@ export function FilterSelect({ label, value, options, onChange }: FilterSelectPr
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs transition-colors cursor-pointer",
+          "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer",
           isActive
-            ? "bg-primary/10 text-primary"
-            : "bg-secondary text-muted-foreground hover:text-foreground"
+            ? "bg-accent text-accent-foreground"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
         )}
       >
         {isActive ? selected?.label : label}

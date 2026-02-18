@@ -2,262 +2,209 @@
 
 ## Prerequisites
 
-### Required
-
-- **Node.js**: v25.6.0 or higher
-  - Recommended: Use [nvm](https://github.com/nvm-sh/nvm) for version management
-  - The project includes `.nvmrc` for automatic version switching
-- **npm**: v11.8.0 or higher (comes with Node.js)
-- **Git**: Latest stable version
-- **Claude CLI**: Authenticated via `claude login` (credentials are stored in `~/.claude/` and used automatically by the SDK)
+- **Node.js** 25.6.0+ (use [nvm](https://github.com/nvm-sh/nvm) with included `.nvmrc`)
+- **npm** 11.8.0+
+- **Git**
+- **Claude CLI** authenticated via `claude login` (credentials in `~/.claude/`)
 
 ### Optional
 
-- **Redis**: For horizontal scaling across multiple relay instances (not needed for local dev)
-- **Docker**: For containerized deployment
-- **cloudflared**: For exposing your local server to remote agent runners
+- **Supabase CLI + Docker**: For multi-user mode with authentication
+- **cloudflared**: For Cloudflare Tunnel (external access / Touch ID on custom domain)
 
 ## Quick Start
 
 ```bash
-# Clone the repository
 git clone git@github.com:fuxialexander/nexus.git
 cd nexus
-
-# Use correct Node.js version (if using nvm)
 nvm use
-
-# Install dependencies
 npm install
-
-# Copy environment template (optional — no API keys needed)
 cp .env.example .env
-
-# Run verification
-npm run verify
-
-# Start development server
 npm run dev
 ```
 
-Your application should now be running:
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:3001
-- **WebSocket Relay**: ws://localhost:3002
+Visit http://localhost:5173. Backend runs on http://localhost:3001, relay on ws://localhost:3002.
 
-The SQLite database (`.nexus/nexus.db`) is created automatically on first server start.
+## Database Modes
 
-## Detailed Setup
+### IndexedDB Mode (Default)
 
-### 1. Clone the Repository
+No auth, no setup, all data in browser. Perfect for local dev.
 
 ```bash
-git clone git@github.com:fuxialexander/nexus.git
-cd nexus
+npm run dev              # Auto-detected if no Supabase env vars
+npm run dev:indexeddb    # Explicit override
 ```
 
-### 2. Node.js Version Setup
+### Supabase Mode (Multi-user)
 
-The project uses Node.js v25.6.0. If you're using nvm:
+WebAuthn passkey auth, PostgreSQL, user isolation via RLS.
 
 ```bash
-# Install the correct version
-nvm install 25.6.0
-
-# Use it for this project
-nvm use
-
-# Optional: Set as default
-nvm alias default 25.6.0
+supabase start                        # Start local Supabase (Docker)
+bash ./scripts/setup-supabase-local.sh  # Write env vars to .env.local
+npm run dev                            # Auto-detects Supabase
 ```
 
-Verify your Node.js version:
+Or: `npm run dev:supabase` (runs both steps).
 
-```bash
-node --version  # Should output: v25.6.0
-npm --version   # Should output: 11.8.0 or higher
+**Mode detection priority:**
+1. `USE_INDEXEDDB_ONLY=true` -> IndexedDB (explicit override)
+2. No Supabase env vars -> IndexedDB (auto-detected)
+3. Supabase env vars set -> Supabase mode
+
+## Development Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Full stack: Vite (5173) + Hono (3001) + Relay (3002) |
+| `npm run dev:frontend` | Vite only |
+| `npm run dev:backend` | Hono + Relay only |
+| `npm run dev:tunnel` | Full stack + Cloudflare Tunnel |
+| `npm run build` | TypeScript check + Vite production build |
+| `npm run lint` | ESLint |
+
+## Cloudflare Tunnel (External Access)
+
+The tunnel provides HTTPS for your local dev server, enabling Touch ID/Face ID on a custom domain and external access.
+
+### Architecture
+
+```
+Browser --> Cloudflare Tunnel (HTTPS) --> Vite (HTTP :5173) --> proxy /api --> Backend (HTTP :3001)
 ```
 
-### 3. Install Dependencies
+- Vite serves HTTP locally; the tunnel provides HTTPS externally
+- SSE goes through Vite's proxy (no Cloudflare buffering issues)
+- HMR works via WebSocket through the tunnel
+
+### Setup
+
+1. Install cloudflared: `brew install cloudflared`
+2. Login: `cloudflared tunnel login`
+3. Set domain in `.env`:
+   ```
+   CLOUDFLARED_DOMAIN=yourdomain.com
+   ```
+4. Start everything:
+   ```bash
+   npm run dev:tunnel
+   ```
+
+This starts the dev servers, waits for readiness, pre-warms Vite, then starts the tunnel. Your app is available at `https://nexus.yourdomain.com`.
+
+### What the tunnel script does
+
+- Creates/reuses a tunnel named `nexus`
+- Sets up DNS routes: `nexus.`, `nexus-api.`, `nexus-relay.`, `nexus-supabase.` subdomains
+- Writes tunnel-compatible env vars to `.env.local` (ALLOWED_HOSTS, HMR config, WebAuthn RP ID)
+- Auto-detects whether Supabase is running and includes/skips that route
+
+### Scripts
+
+| Script | Use case |
+|--------|----------|
+| `npm run dev:tunnel` | Start full stack + tunnel (recommended) |
+| `bash scripts/start-tunnel.sh` | Start tunnel only (servers already running) |
+| `bash scripts/start-tunnel-with-supabase.sh` | Tunnel only, requires Supabase running |
+
+## Agent Runner Setup
+
+Connect your machine (or remote machines) as execution environments.
 
 ```bash
-npm install
+bash scripts/agent-setup.sh yourdomain.com
 ```
 
-This will install all required dependencies and set up Husky git hooks.
+This:
+1. Builds the agent runner
+2. Detects providers (Claude Code, Codex)
+3. Runs device auth flow (approve in browser)
+4. Configures MCP bridge for Claude Code
+5. Starts the agent runner
 
-### 4. Environment Configuration
+### Remote Machines
 
-Copy the example environment file (optional — no API keys needed):
+SSH into the remote machine, install the agent runner, and run:
 
 ```bash
-cp .env.example .env
+~/.local/bin/nexus-agent start --foreground
 ```
 
-The Claude Agent SDK authenticates via `~/.claude/` credentials (from `claude login`). No API key environment variable is required. All other variables have sensible defaults for local development. See the full reference below.
+Approve the device in the browser. The machine appears in the Environments page.
 
-### 5. Database
+## Production Deployment
 
-Nexus uses **Drizzle ORM + SQLite** for local persistence. The database file is created automatically at `.nexus/nexus.db` when the server starts. No manual setup required.
+### Architecture
 
-Migrations run automatically on server start. Migration files are in the `drizzle/` directory.
-
-### 6. Verify Setup
-
-Run the verification script to check your setup:
-
-```bash
-npm run verify
+```
+Frontend:  Cloudflare Pages (static, free)
+Backend:   Fly.io (Hono API + SSE + WebSocket relay)
+Database:  Supabase Cloud (PostgreSQL + Auth)
 ```
 
-This checks:
-- Node.js and npm versions
-- Required files and directories
-- Dependencies installation
-- Port availability
-- Configuration files
+### Key Environment Variables (Production)
 
-### 7. Start Development Server
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `VITE_API_BASE_URL` | `https://nexus-backend.fly.dev` | SSE goes direct to Fly.io (bypasses Cloudflare) |
+| `WEBAUTHN_RP_ID` | `nexus.yourdomain.com` | Passkey domain binding |
+| `WEBAUTHN_ORIGIN` | `https://nexus.yourdomain.com` | WebAuthn origin check |
+| `SUPABASE_URL` | `https://xxx.supabase.co` | Backend Supabase access |
+| `VITE_SUPABASE_URL` | `https://xxx.supabase.co` | Frontend Supabase access |
+
+### Why SSE goes direct to Fly.io
+
+Cloudflare's proxy buffers SSE responses, causing timeouts. The frontend connects to the Fly.io backend directly for SSE (`VITE_API_BASE_URL`). Regular page loads still go through Cloudflare Pages.
+
+### Deploy
 
 ```bash
-# Start both frontend and backend
-npm run dev
-
-# Or start them separately
-npm run dev:frontend  # Frontend only (port 5173)
-npm run dev:backend   # Backend only (port 3001 + relay on 3002)
+npm run deploy           # Deploy both backend + frontend
+npm run deploy:backend   # Fly.io only
+npm run deploy:frontend  # Cloudflare Pages only
 ```
 
-Vite proxies `/api` requests to `localhost:3001` automatically — no CORS issues in development.
+### Cost Estimate
 
-## Environment Variables
+| Service | Tier | Monthly |
+|---------|------|---------|
+| Cloudflare Pages | Free | $0 |
+| Fly.io Backend | 1x shared-cpu, 256MB | ~$5 |
+| Supabase | Free tier (500MB) | $0 |
+| **Total** | | **~$5** |
 
-### Complete Reference
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `NODE_ENV` | Environment mode | `development` | No |
-| `PORT` | Backend server port | `3001` | No |
-| `RELAY_PORT` | WebSocket relay port | `3002` | No |
-| `NEXUS_BASE_URL` | Frontend base URL | `http://localhost:5173` | No |
-| `API_BASE_URL` | Backend API base URL | `http://localhost:3001` | No |
-| `RELAY_WS_URL` | WebSocket URL | `ws://localhost:3002` | No |
-| `CORS_ORIGIN` | CORS allowed origin | `http://localhost:5173` | No |
-| `AUTH_JWT_SECRET` | JWT signing secret | Auto-generated in dev | No (dev) |
-| `AUTH_REFRESH_SECRET` | Refresh token secret | Auto-generated in dev | No (dev) |
-| `DEVICE_AUTH_JWT_SECRET` | Device JWT secret | Auto-generated in dev | No (dev) |
-| `DEVICE_AUTH_REFRESH_SECRET` | Device refresh secret | Auto-generated in dev | No (dev) |
-| `REDIS_URL` | Redis connection URL | - | No |
-| `CLOUDFLARED_DOMAIN` | Domain for Cloudflare tunnel | - | No |
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID | - | No |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth secret | - | No |
-| `GITHUB_CLIENT_ID` | GitHub OAuth client ID | - | No |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth secret | - | No |
-
-### Generate Secure JWT Secrets (Production)
-
-For production, generate secure random strings:
+## Database Management
 
 ```bash
-node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
-# or
-openssl rand -hex 64
-```
-
-## Docker Setup
-
-### Development with Docker Compose
-
-```bash
-docker-compose up -d        # Build and start services
-docker-compose logs -f nexus  # View logs
-docker-compose down          # Stop services
-```
-
-### Production Docker Build
-
-```bash
-docker build -t nexus:latest .
-
-docker run -d \
-  -p 3001:3001 \
-  -p 3002:3002 \
-  --env-file .env \
-  --name nexus \
-  nexus:latest
-```
-
-## Redis Setup (Optional)
-
-Redis is only needed for production deployments with multiple relay instances. Local development works without it.
-
-```bash
-# macOS (using Homebrew)
-brew install redis
-brew services start redis
-
-# Ubuntu/Debian
-sudo apt-get install redis-server
-sudo systemctl start redis
-
-# Docker
-docker run -d -p 6379:6379 redis:7-alpine
-```
-
-Add to `.env`:
-
-```bash
-REDIS_URL=redis://localhost:6379
+supabase db reset          # Drop and recreate all tables (including auth users)
+npm run clear-data         # Clear user data only (preserves schema)
+npm run clear-data:force   # Clear without confirmation
+npm run db:reset           # Reset everything
 ```
 
 ## Troubleshooting
 
-### Port Already in Use
+### Port in use
 
 ```bash
-# Find and kill process on port 5173
 lsof -ti:5173 | xargs kill -9
-
-# Find and kill process on port 3001
 lsof -ti:3001 | xargs kill -9
 ```
 
-### Node Version Mismatch
+### Stale tokens after DB reset
 
 ```bash
-rm -rf node_modules package-lock.json
-nvm use
-npm install
+node ./packages/agent-runner/dist/cli.js config --reset
+bash scripts/agent-setup.sh yourdomain.com
 ```
 
-### Build Errors
+### Touch ID shows QR code instead
+
+Passkeys are bound to the RP ID (domain). If you registered on `localhost`, those passkeys won't work on `nexus.yourdomain.com`. Reset the database (`supabase db reset`) and re-register on the correct domain.
+
+### Full clean start
 
 ```bash
-rm -rf dist/
-npm run build
+bash scripts/clean-start.sh  # Nuclear: reinstall deps, rebuild, reset DB
 ```
-
-### Database Issues
-
-The SQLite database is stored at `.nexus/nexus.db`. To reset:
-
-```bash
-rm .nexus/nexus.db
-npm run dev:backend  # Recreates with fresh migrations
-```
-
-### Husky Git Hooks Not Working
-
-```bash
-npm run prepare
-chmod +x .husky/*
-```
-
-## Next Steps
-
-After setup is complete:
-
-1. Read the [CONTRIBUTING.md](../CONTRIBUTING.md) guide
-2. Review the [Architecture documentation](./ARCHITECTURE.md)
-3. Check the [Relay System docs](./architecture/relay-system.md)
-4. Read the [Agent Runner Protocol](./guides/agent-runner-protocol.md)

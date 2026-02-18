@@ -30,6 +30,7 @@ interface MachinesState {
   fetchMachines: () => Promise<void>
   revokeMachine: (machineId: string) => Promise<boolean>
   renameMachine: (machineId: string, name: string) => Promise<boolean>
+  updateMachineStatus: (machineId: string, isConnected: boolean) => void
 }
 
 export const useMachinesStore = create<MachinesState>((set) => ({
@@ -179,5 +180,21 @@ export const useMachinesStore = create<MachinesState>((set) => ({
       set({ error: err instanceof Error ? err.message : 'Unknown error' })
       return false
     }
+  },
+
+  updateMachineStatus: (machineId: string, isConnected: boolean) => {
+    set((state) => {
+      const machine = state.machines.find((m) => m.id === machineId)
+      if (!machine) return state
+
+      const nextMachines = state.machines.map((m) =>
+        m.id === machineId
+          ? { ...m, isConnected, lastSeenAt: new Date().toISOString() }
+          : m
+      )
+      // Update IndexedDB cache
+      saveState('nexus-machines', nextMachines)
+      return { machines: nextMachines }
+    })
   },
 }))

@@ -1,9 +1,11 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
 
-export default defineConfig({
+  return {
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -11,13 +13,13 @@ export default defineConfig({
     },
   },
   server: {
-    host: true, // Allow external access via cloudflared tunnel
-    allowedHosts: ['nexus.fuxialexander.work', '.fuxialexander.work'],
-    hmr: {
-      protocol: 'wss',
-      host: 'nexus.fuxialexander.work',
-      clientPort: 443,
-    },
+    host: true,
+    allowedHosts: env.ALLOWED_HOSTS?.split(',') || ['localhost', '.fuxialexander.work'],
+    hmr: env.VITE_HMR_PROTOCOL ? {
+      protocol: env.VITE_HMR_PROTOCOL as 'ws' | 'wss',
+      host: env.VITE_HMR_HOST || 'localhost',
+      clientPort: env.VITE_HMR_PORT ? parseInt(env.VITE_HMR_PORT) : undefined,
+    } : undefined,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
@@ -25,9 +27,31 @@ export default defineConfig({
       },
     },
     cors: true,
+    warmup: {
+      clientFiles: [
+        './src/main.tsx',
+        './src/app.tsx',
+        './src/globals.css',
+        './src/pages/login.tsx',
+        './src/pages/dashboard.tsx',
+        './src/pages/projects.tsx',
+        './src/pages/plan-view.tsx',
+        './src/pages/my-tasks.tsx',
+        './src/pages/project-overview.tsx',
+        './src/pages/task-detail.tsx',
+        './src/pages/environments.tsx',
+        './src/components/layout/sidebar.tsx',
+        './src/components/layout/app-layout.tsx',
+        './src/components/plan-graph/plan-canvas.tsx',
+      ],
+    },
   },
   optimizeDeps: {
-    // Pre-bundle all dependencies to reduce concurrent requests
-    include: ['react', 'react-dom', 'react-router', 'zustand', '@simplewebauthn/browser'],
+    include: [
+      'react', 'react-dom', 'react-router', 'zustand',
+      '@simplewebauthn/browser', 'lucide-react', '@xyflow/react',
+      'idb-keyval', 'cmdk', '@supabase/supabase-js',
+    ],
   },
+  }
 })

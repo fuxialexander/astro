@@ -4,20 +4,6 @@
 
 Nexus sits above execution tools (coding agents, analysis tools) to help users decompose complex goals into dependency graphs, dispatch tasks across environments (local, HPC, cloud), and focus human attention on strategic decisions.
 
-## 🚀 Multi-User Setup (New!)
-
-Want to deploy Nexus for your team with proper authentication and user isolation?
-
-**→ [Quick Start Guide (5 minutes)](QUICKSTART_MULTIUSER.md)**
-**→ [Full Setup Guide with Supabase](SETUP_MULTI_USER.md)**
-
-Features:
-- ✅ Self-hosted Supabase (free, runs on your machine)
-- ✅ WebAuthn passkey authentication (no passwords!)
-- ✅ Complete user isolation (RLS policies)
-- ✅ External access via Cloudflare Tunnel
-- ✅ $0 cost for unlimited users
-
 ## Features
 
 - **Smart Task Planning**: AI-powered task decomposition with dependency graphs
@@ -39,7 +25,7 @@ Features:
                      │ HTTP / SSE
 ┌────────────────────┴────────────────────────────┐
 │           Backend (Hono + Node.js)               │
-│   Drizzle ORM + SQLite (local persistence)       │
+│   Supabase (PostgreSQL + Auth)                    │
 │   Claude Agent SDK (AI plan generation)          │
 │   Dispatch Engine → Provider Adapters            │
 │   WebSocket Relay (port 3002)                    │
@@ -71,23 +57,12 @@ Redis is **not required** for local development. It's only needed for horizontal
 
 ### For End Users
 
-**Important**: Nexus is currently a **single-user application** designed to run locally on your machine. There is no hosted service or multi-user support yet.
-
-**Quick Start**:
 1. Clone and install the repository (see Developer Setup below)
 2. Run `npm run dev` to start the local server
 3. Visit http://localhost:5173 in your browser
 4. Complete the onboarding flow to create your first project
 
-**Accessing from Remote Machines**:
-If you want to dispatch tasks to remote machines (e.g., HPC clusters), you can expose your local server via a Cloudflare Tunnel:
-1. Set `CLOUDFLARED_DOMAIN` in your `.env` file
-2. Run `bash ./scripts/start-tunnel.sh` to expose your server
-3. Run `bash ./scripts/agent-setup.sh` on remote machines to connect them
-
-⚠️ **Multi-User Limitations**: The default setup uses a local SQLite database with no authentication. If you expose your local server via cloudflared, other users who access your domain will see all your data with no separation.
-
-**For Multi-User Deployment**: Nexus includes a complete Supabase + authentication implementation with user isolation, passkey login, and Row Level Security. See [`setup_auth.md`](setup_auth.md) for instructions.
+**External Access / Multi-User**: Use Cloudflare Tunnel for HTTPS + Touch ID on a custom domain. See [Setup Guide](docs/SETUP.md) for details.
 
 ### For Developers
 
@@ -107,7 +82,7 @@ npm install
 cp env.example .env
 ```
 
-The SQLite database is created automatically on first server start (stored as `.nexus/nexus.db`).
+The database is created automatically on first server start.
 
 ### Running the Dev Server
 
@@ -254,12 +229,9 @@ npm run dev:supabase
 
 **WebAuthn/Touch ID Requirements:**
 - ⚠️ Touch ID/Face ID only works with HTTPS or registered localhost
-- For external access: Use `bash ./scripts/start-tunnel-with-supabase.sh`
-- This sets `WEBAUTHN_RP_ID` to your tunnel domain (e.g., `abc123.ngrok.io`)
+- For external access: Use `npm run dev:tunnel` (sets `WEBAUTHN_RP_ID` to your tunnel domain)
 
-**Deployment Guides:**
-- [Quick Start (5 minutes)](QUICKSTART_MULTIUSER.md)
-- [Full Setup Guide](SETUP_MULTI_USER.md)
+See [Setup Guide](docs/SETUP.md) for full details.
 
 ### Mode Switching
 
@@ -286,27 +258,11 @@ The system automatically detects which mode to use:
 
 ### Database Reset & Cleanup
 
-Need to start with a clean database? See **[DATABASE_RESET.md](DATABASE_RESET.md)** for comprehensive reset instructions.
-
-**Quick Commands:**
-
 ```bash
-# Reset everything (Supabase + IndexedDB instructions)
-npm run db:reset
-
-# Reset Supabase database only
-npm run db:reset:supabase
-
-# Show IndexedDB reset instructions
-npm run db:reset:indexeddb
+supabase db reset          # Drop and recreate all tables
+npm run clear-data:force   # Clear user data only (preserves schema)
+npm run db:reset           # Reset everything
 ```
-
-**Browser-based reset (IndexedDB only):**
-1. Visit http://localhost:5173/reset-indexeddb.html
-2. Click "Reset Everything"
-3. Done!
-
-For detailed instructions, troubleshooting, and recovery options, see [DATABASE_RESET.md](DATABASE_RESET.md).
 
 
 ## Project Structure
@@ -327,7 +283,7 @@ nexus/
 ├── server/                       # Backend Hono application
 │   ├── routes/                   # API routes (agent, dispatch, events, data, device-auth)
 │   └── lib/
-│       ├── db/                   # Drizzle ORM + SQLite schema and connection
+│       ├── db/                   # Database migrations and connection
 │       ├── providers/            # Execution provider adapters (Claude Code, Codex, SLURM)
 │       ├── dispatch/             # Task dispatch engine, queue, context assembler
 │       └── slurm/                # HPC job management, SBATCH generation
@@ -384,7 +340,7 @@ nexus/
 
 - **Frontend**: React 19, Vite 7, TypeScript (strict), Tailwind CSS v4, React Router v7, Zustand 5, @xyflow/react
 - **UI**: shadcn/ui pattern (Radix primitives), lucide-react icons, cmdk command palette
-- **Backend**: Hono.js, Drizzle ORM + SQLite, @anthropic-ai/claude-agent-sdk
+- **Backend**: Hono.js, Supabase (PostgreSQL + Auth), @anthropic-ai/claude-agent-sdk
 - **Relay**: WebSocket server for agent runner communication
 - **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend, production)
 
@@ -427,62 +383,7 @@ npm run lint      # ESLint
 
 ### Deployment Considerations
 
-**Default Mode**: Nexus runs as a **single-user application** with local SQLite storage. This is perfect for personal use and development.
-
-**Multi-User Mode**: Nexus includes a complete **Supabase + authentication implementation** for multi-tenant deployment:
-
-✅ **Already Implemented**:
-1. **PostgreSQL Schema** (`supabase/migrations/20260209000000_initial_schema.sql`)
-   - Full migration from SQLite to PostgreSQL
-   - Row Level Security (RLS) policies for user isolation
-   - WebAuthn passkey authentication (passwordless)
-   - Project access control (owner/editor/viewer roles)
-   - Realtime subscriptions for live updates
-
-2. **Authentication System**
-   - Passkey-based sign-up/sign-in (WebAuthn)
-   - Session management via Supabase Auth
-   - Protected API routes with user context
-   - Auth guard for frontend routes
-
-3. **Multi-Tenancy**
-   - All data scoped by `user_id = auth.uid()`
-   - Projects, machines, tasks properly isolated
-   - Shared project access via member roles
-
-**To Enable Multi-User Mode**:
-
-See [`setup_auth.md`](setup_auth.md) for complete setup instructions. Quick summary:
-
-```bash
-# Option 1: Supabase Cloud (recommended)
-# 1. Create project at supabase.com
-# 2. Run migration in SQL editor
-# 3. Set environment variables:
-VITE_SUPABASE_URL=https://xxx.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbG...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbG...  # backend only
-
-# Option 2: Local Supabase (Docker)
-npx supabase init
-npx supabase start  # Local at http://127.0.0.1:54321
-```
-
-**Production Stack**:
-- **Frontend**: Cloudflare Pages
-- **Backend**: Fly.io (Hono + WebSocket relay)
-- **Database**: Supabase PostgreSQL (cloud or self-hosted)
-- **Auth**: Supabase Auth (WebAuthn passkeys)
-- **Redis**: Upstash Redis (optional, for horizontal scaling)
-
-**Cost Estimate** (using Supabase cloud):
-| Service | Tier | Monthly |
-|---------|------|---------|
-| Cloudflare Pages | Free | $0 |
-| Fly.io Backend | 1x shared-cpu, 256MB | ~$5 |
-| Supabase | Free tier | $0 (up to 500MB DB) |
-| Upstash Redis (optional) | Pay-per-request | ~$1-5 |
-| **Total** | | **~$5-10** |
+See [Setup Guide](docs/SETUP.md) for complete dev, tunnel, and production deployment instructions.
 
 ## Known Issues
 

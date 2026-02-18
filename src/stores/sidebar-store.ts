@@ -22,6 +22,7 @@ interface SidebarStore {
   reorderItems: (startIndex: number, endIndex: number) => void
   resetToDefault: () => void
   subscribeToChanges: () => () => void
+  syncWithProjectCount: (projectCount: number) => void
 }
 
 const defaultItems: SidebarItem[] = [
@@ -68,7 +69,14 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
         // Merge stored items with defaults (in case new items were added)
         const merged = defaultItems.map((defaultItem) => {
           const storedItem = stored!.find((s) => s.id === defaultItem.id)
-          return storedItem || defaultItem
+          if (storedItem) {
+            // Protected items (like Tasks) must always be visible
+            if (defaultItem.protected) {
+              return { ...storedItem, visible: true }
+            }
+            return storedItem
+          }
+          return defaultItem
         })
         set({ items: merged, loaded: true })
       } else {
@@ -175,5 +183,9 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
     return () => {
       supabase.removeChannel(channel)
     }
+  },
+
+  syncWithProjectCount: (_projectCount: number) => {
+    // Tasks is always visible (it's the home route)
   },
 }))

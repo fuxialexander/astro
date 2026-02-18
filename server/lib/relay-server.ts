@@ -356,6 +356,9 @@ export class RelayServer extends EventEmitter {
   constructor(config: Partial<RelayServerConfig> = {}) {
     super();
     this.config = { ...DEFAULT_RELAY_CONFIG, ...config };
+    // Support multiple concurrent SSE connections (default 10 is too low)
+    // Each SSE client registers ~14 event listeners, so allow 50 concurrent connections
+    this.setMaxListeners(700);
   }
 
   /**

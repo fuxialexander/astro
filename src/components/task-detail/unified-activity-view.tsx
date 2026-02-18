@@ -15,6 +15,7 @@ import {
   Minus,
   Zap,
 } from "lucide-react"
+import { apiUrl } from "@/lib/api-url"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
@@ -456,7 +457,7 @@ export function UnifiedActivityView({
     }, 15000)
 
     try {
-      const response = await fetch("/api/dispatch/steer", {
+      const response = await fetch(apiUrl("/api/dispatch/steer"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
