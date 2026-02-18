@@ -2,7 +2,7 @@
 # Multi-stage build for optimized production image
 
 # Stage 1: Build
-FROM node:25.6.0-alpine AS builder
+FROM node:25.6.1-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -24,7 +24,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production
-FROM node:25.6.0-alpine AS production
+FROM node:25.6.1-alpine AS production
 
 # Set working directory
 WORKDIR /app
