@@ -416,7 +416,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           nodeId,
           projectId,
           title: node.title,
-          description: node.description,
+          description: node.description || node.title,
           dependencies: node.dependencies,
           environment,
           verification: node.verification,
@@ -432,7 +432,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       })
 
       if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`)
+        const errorBody = await response.json().catch(() => null)
+        const detail = errorBody?.error || errorBody?.details?.[0]?.message || ''
+        throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
       }
 
       // Process SSE stream

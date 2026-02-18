@@ -928,27 +928,81 @@ app.get('/executions', async (c) => {
   const executions = await db.select().from(taskExecutions)
   const filtered = executions.filter(e => projectIds.has(e.projectId))
 
-  // Convert to map keyed by nodeId
+  // Convert to map keyed by nodeClientId
   const result: Record<string, unknown> = {}
   for (const exec of filtered) {
-    result[exec.nodeId] = {
-      executionId: exec.id,
-      nodeId: exec.nodeId,
+    result[exec.nodeClientId] = {
+      executionId: exec.executionId,
+      nodeId: exec.nodeClientId,
       projectId: exec.projectId,
       status: exec.status,
-      output: exec.output,
+      streamText: exec.streamText,
       error: exec.error,
-      toolTraces: exec.toolTraces || [],
-      fileChanges: exec.fileChanges || [],
+      toolTraces: [],
+      fileChanges: [],
       machineId: exec.machineId,
-      provider: exec.provider,
+      providerId: exec.providerId,
+      providerName: exec.providerName,
       startedAt: exec.startedAt,
       completedAt: exec.completedAt,
-      duration: exec.duration,
+      durationMs: exec.durationMs,
     }
   }
 
   return c.json(result)
+})
+
+app.post('/executions', async (c) => {
+  const userId = c.get('user')!.id
+  const body = await c.req.json()
+
+  // Verify the project belongs to the user
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, body.projectId), eq(projects.ownerId, userId))
+  )
+  if (!project) {
+    return c.json({ error: 'Project not found or not authorized' }, 404)
+  }
+
+  // Upsert execution
+  await db.insert(taskExecutions).values({
+    executionId: body.executionId,
+    nodeClientId: body.nodeId,
+    projectId: body.projectId,
+    status: body.status || 'pending',
+    streamText: body.streamText || '',
+    error: body.error || null,
+    startedAt: body.startedAt ? new Date(body.startedAt) : new Date(),
+    completedAt: body.completedAt ? new Date(body.completedAt) : null,
+    sessionId: body.sessionId || null,
+    machineId: body.machineId || null,
+    providerId: body.providerId || null,
+    providerName: body.providerName || null,
+    durationMs: body.metrics?.durationMs || null,
+    inputTokens: body.metrics?.inputTokens || null,
+    outputTokens: body.metrics?.outputTokens || null,
+    tokensUsed: body.metrics?.totalTokens || null,
+    estimatedCostUsd: body.metrics?.estimatedCostUsd || null,
+    model: body.metrics?.model || null,
+    turnsUsed: body.metrics?.turnsUsed || null,
+  }).onConflictDoUpdate({
+    target: taskExecutions.executionId,
+    set: {
+      status: body.status,
+      streamText: body.streamText || '',
+      error: body.error || null,
+      completedAt: body.completedAt ? new Date(body.completedAt) : null,
+      durationMs: body.metrics?.durationMs || null,
+      inputTokens: body.metrics?.inputTokens || null,
+      outputTokens: body.metrics?.outputTokens || null,
+      tokensUsed: body.metrics?.totalTokens || null,
+      estimatedCostUsd: body.metrics?.estimatedCostUsd || null,
+      model: body.metrics?.model || null,
+      turnsUsed: body.metrics?.turnsUsed || null,
+    },
+  })
+
+  return c.json({ ok: true })
 })
 
 // ── Data Export (GDPR compliance) ────────────────────────────────────
