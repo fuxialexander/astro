@@ -59,10 +59,10 @@ echo "  Supabase is running!"
 echo "=================================================="
 echo ""
 
-ANON_KEY=$(supabase status --output json | jq -r '.anon_key')
-SERVICE_ROLE_KEY=$(supabase status --output json | jq -r '.service_role_key')
-STUDIO_URL=$(supabase status --output json | jq -r '.studio_url')
-API_URL=$(supabase status --output json | jq -r '.api_url')
+ANON_KEY=$(supabase status --output json | jq -r '.PUBLISHABLE_KEY')
+SERVICE_ROLE_KEY=$(supabase status --output json | jq -r '.SECRET_KEY')
+STUDIO_URL=$(supabase status --output json | jq -r '.STUDIO_URL')
+API_URL=$(supabase status --output json | jq -r '.API_URL')
 
 echo "Studio (Dashboard): $STUDIO_URL"
 echo "API URL: $API_URL"
@@ -102,16 +102,21 @@ update_env_var() {
 }
 
 touch "$ENV_FILE"
-update_env_var "VITE_SUPABASE_URL" "$API_URL"
+# Only update Supabase URL if not already configured (e.g. by tunnel script)
+if ! grep -q "^SUPABASE_URL=" "$ENV_FILE" 2>/dev/null; then
+  update_env_var "VITE_SUPABASE_URL" "$API_URL"
+  update_env_var "SUPABASE_URL" "$API_URL"
+fi
 update_env_var "VITE_SUPABASE_ANON_KEY" "$ANON_KEY"
-update_env_var "SUPABASE_URL" "$API_URL"
 update_env_var "SUPABASE_ANON_KEY" "$ANON_KEY"
 update_env_var "SUPABASE_SERVICE_ROLE_KEY" "$SERVICE_ROLE_KEY"
 
-# WebAuthn config (localhost for now)
-update_env_var "WEBAUTHN_RP_NAME" "Astro"
-update_env_var "WEBAUTHN_RP_ID" "localhost"
-update_env_var "WEBAUTHN_ORIGIN" "http://localhost:5173"
+# WebAuthn config (only set if not already configured, e.g. by tunnel script)
+if ! grep -q "^WEBAUTHN_RP_ID=" "$ENV_FILE" 2>/dev/null; then
+  update_env_var "WEBAUTHN_RP_NAME" "Astro"
+  update_env_var "WEBAUTHN_RP_ID" "localhost"
+  update_env_var "WEBAUTHN_ORIGIN" "http://localhost:5173"
+fi
 
 echo "✓ Environment variables updated in .env.local"
 echo ""
