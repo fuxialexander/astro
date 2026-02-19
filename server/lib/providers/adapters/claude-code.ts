@@ -31,8 +31,14 @@ import {
 // Map of active tasks for cancellation
 const activeTasks = new Map<string, AbortController>()
 
-// Map of active queries for steering (message injection)
-const activeQueries = new Map<string, { query: Query; sessionId: string }>()
+// Map of active queries for steering (message injection).
+// After execution completes, query is set to null but sessionId and workingDirectory
+// are preserved so the session can be resumed for post-execution steering.
+const activeQueries = new Map<string, {
+  query: Query | null
+  sessionId: string
+  workingDirectory?: string
+}>()
 
 /**
  * Claude Code provider adapter.
@@ -383,7 +389,11 @@ export class ClaudeCodeProvider implements AgentProvider {
       }
     } finally {
       activeTasks.delete(task.taskId)
-      activeQueries.delete(task.taskId)
+      // Preserve session context for post-execution steering (resume)
+      const existing = activeQueries.get(task.taskId)
+      if (existing) {
+        existing.query = null
+      }
     }
   }
 
@@ -504,7 +514,11 @@ export class ClaudeCodeProvider implements AgentProvider {
         if (msg.type === 'system' && msg.subtype === 'init') {
           model = msg.model
           sessionId = msg.sessionId
-          activeQueries.set(task.taskId, { query: gen, sessionId: msg.sessionId })
+          activeQueries.set(task.taskId, {
+            query: gen,
+            sessionId: msg.sessionId,
+            workingDirectory: task.context.workingDirectory,
+          })
 
           yield {
             type: 'init',
@@ -714,7 +728,11 @@ export class ClaudeCodeProvider implements AgentProvider {
       return result
     } finally {
       activeTasks.delete(task.taskId)
-      activeQueries.delete(task.taskId)
+      // Preserve session context for post-execution steering (resume)
+      const existing = activeQueries.get(task.taskId)
+      if (existing) {
+        existing.query = null
+      }
     }
   }
 
@@ -787,10 +805,17 @@ export const claudeCodeProvider = new ClaudeCodeProvider()
  * Uses Query.streamInput() to feed a new user message into the running query.
  * When interrupt=true, calls Query.interrupt() first to stop the current turn
  * before injecting the message.
+ *
+ * Returns 'injected' if message was injected into active session,
+ * 'no_active_query' if no query exists (task unknown),
+ * 'completed' if execution finished but context is preserved (needs resume).
  */
-export async function steerLocalTask(taskId: string, message: string, interrupt = false): Promise<boolean> {
+export async function steerLocalTask(taskId: string, message: string, interrupt = false): Promise<'injected' | 'no_active_query' | 'completed'> {
   const active = activeQueries.get(taskId)
-  if (!active) return false
+  if (!active) return 'no_active_query'
+
+  // If query is null, execution completed but context is preserved
+  if (!active.query) return 'completed'
 
   if (interrupt) {
     // Fire interrupt without awaiting — interrupt() may block until the
@@ -822,5 +847,193 @@ export async function steerLocalTask(taskId: string, message: string, interrupt 
     console.error(`[claude-code] Failed to inject steer for ${taskId}:`, err.message)
   })
 
-  return true
+  return 'injected'
+}
+
+/**
+ * Resume a completed local task session in its worktree.
+ * Creates a new query() call with resume: sessionId so the agent
+ * continues in the same conversation context.
+ *
+ * Returns an AsyncGenerator<StreamEvent> for streaming back to the client.
+ */
+export async function* resumeLocalTask(
+  taskId: string,
+  message: string,
+  workingDirectory: string,
+  sessionId: string,
+): AsyncGenerator<StreamEvent, void, undefined> {
+  const abortController = new AbortController()
+  activeTasks.set(taskId, abortController)
+
+  try {
+    // Load MCP config from working directory
+    const { loadMcpConfig } = await import('../mcp-loader.js')
+    let mcpServers: Record<string, unknown> | undefined = loadMcpConfig(workingDirectory)
+
+    // Add Astro built-in MCP server
+    const astroMcpPath = new URL('../mcp/astro-tools-server.ts', import.meta.url).pathname
+    mcpServers = {
+      ...mcpServers,
+      'astro-tools': {
+        command: 'node',
+        args: ['--import=tsx/esm', astroMcpPath],
+        env: {
+          ASTRO_EXECUTION_ID: taskId,
+          ASTRO_PROJECT_ID: '',
+          ASTRO_SERVER_URL: process.env.ASTRO_SERVER_URL || 'http://localhost:3001',
+          ASTRO_AUTH_TOKEN: '',
+        },
+      },
+    }
+
+    const options: Parameters<typeof query>[0]['options'] = {
+      abortController,
+      model: 'claude-sonnet-4-5-20250929',
+      maxTurns: 50,
+      permissionMode: 'bypassPermissions' as const,
+      cwd: workingDirectory,
+      ...(mcpServers ? { mcpServers } : {}),
+    }
+
+    // Resume from previous session
+    ;(options as Record<string, unknown>).resume = sessionId
+
+    const gen = query({ prompt: message, options })
+
+    let newSessionId = sessionId
+
+    for await (const msg of gen) {
+      if (msg.type === 'system' && msg.subtype === 'init') {
+        newSessionId = msg.sessionId
+        // Update activeQueries with the new live query
+        activeQueries.set(taskId, {
+          query: gen,
+          sessionId: newSessionId,
+          workingDirectory,
+        })
+
+        yield {
+          type: 'init',
+          taskId,
+          model: msg.model,
+          sessionId: newSessionId,
+          timestamp: new Date(),
+        }
+      } else if (msg.type === 'assistant') {
+        for (const block of msg.message.content) {
+          if (block.type === 'text') {
+            yield { type: 'text', taskId, text: block.text, timestamp: new Date() }
+          } else if (block.type === 'tool_use') {
+            yield { type: 'tool_use', taskId, toolName: block.name, toolInput: block.input, timestamp: new Date() }
+          }
+        }
+      } else if (msg.type === 'user') {
+        const content = Array.isArray(msg.message?.content) ? msg.message.content : []
+        for (const block of content) {
+          if ((block as Record<string, unknown>).type === 'tool_result') {
+            const toolResult = block as Record<string, unknown>
+            yield {
+              type: 'tool_result',
+              taskId,
+              toolName: (toolResult.tool_use_id as string) ?? 'unknown',
+              success: !toolResult.is_error,
+              result: typeof toolResult.content === 'string'
+                ? toolResult.content.slice(0, 100000)
+                : JSON.stringify(toolResult.content).slice(0, 100000),
+              timestamp: new Date(),
+            }
+          }
+        }
+      } else if (msg.type === 'result') {
+        newSessionId = msg.sessionId
+
+        const msgAny = msg as Record<string, unknown>
+        const usage = msgAny.usage as Record<string, number> | undefined
+        const metrics: Partial<TaskMetrics> = {}
+        if (usage) {
+          metrics.inputTokens = usage.input_tokens
+          metrics.outputTokens = usage.output_tokens
+          metrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
+        }
+        if (typeof msgAny.total_cost_usd === 'number') {
+          metrics.estimatedCostUsd = msgAny.total_cost_usd
+        }
+        if (typeof msgAny.num_turns === 'number') {
+          metrics.turnsUsed = msgAny.num_turns
+        }
+        if (typeof msgAny.duration_ms === 'number') {
+          metrics.durationMs = msgAny.duration_ms
+        }
+
+        yield {
+          type: 'result',
+          taskId,
+          result: {
+            taskId,
+            sessionId: newSessionId,
+            status: msg.subtype === 'success' ? 'success' : 'error',
+            metrics: {
+              durationMs: metrics.durationMs ?? 0,
+              model: 'claude-sonnet-4-5-20250929',
+              turnsUsed: metrics.turnsUsed,
+              inputTokens: metrics.inputTokens,
+              outputTokens: metrics.outputTokens,
+              tokensUsed: metrics.tokensUsed,
+              estimatedCostUsd: metrics.estimatedCostUsd,
+            },
+            providerId: 'claude-code',
+            completedAt: new Date(),
+          },
+          timestamp: new Date(),
+        }
+        break
+      }
+    }
+
+    // After resume completes, preserve context again
+    activeQueries.set(taskId, {
+      query: null,
+      sessionId: newSessionId,
+      workingDirectory,
+    })
+  } catch (error) {
+    const isAbort = error instanceof Error && error.name === 'AbortError'
+    if (isAbort) {
+      yield { type: 'aborted', taskId, reason: 'User cancelled', timestamp: new Date() }
+    } else {
+      yield {
+        type: 'error',
+        taskId,
+        error: errorMessage(error),
+        recoverable: false,
+        timestamp: new Date(),
+      }
+    }
+  } finally {
+    activeTasks.delete(taskId)
+    // Preserve session context for subsequent resumes
+    const existing = activeQueries.get(taskId)
+    if (existing) {
+      existing.query = null
+    }
+  }
+}
+
+/**
+ * Get session context for a completed local task.
+ * Returns sessionId and workingDirectory if available.
+ */
+export function getLocalTaskContext(taskId: string): { sessionId: string; workingDirectory?: string } | null {
+  const active = activeQueries.get(taskId)
+  if (!active) return null
+  return { sessionId: active.sessionId, workingDirectory: active.workingDirectory }
+}
+
+/**
+ * Clean up preserved session context for a task.
+ * Called when a task is explicitly completed or pruned.
+ */
+export function cleanupLocalTaskContext(taskId: string): void {
+  activeQueries.delete(taskId)
 }

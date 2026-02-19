@@ -35,6 +35,7 @@ import {
   hasRemoteOrigin,
   type ServerWorktreeSetup,
 } from '../lib/worktree-manager.js'
+import { worktreeRegistry } from '../lib/worktree-registry.js'
 import { existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join, resolve, relative } from 'node:path'
@@ -312,7 +313,6 @@ async function dispatchLocal(
 
   return streamSSE(c, async (stream) => {
     let worktreeSetup: ServerWorktreeSetup | null = null
-    let keepBranch = false
 
     try {
       // Get provider
@@ -355,6 +355,17 @@ async function dispatchLocal(
           })
           if (worktreeSetup) {
             effectiveWorkDir = worktreeSetup.worktreePath
+            // Register worktree for post-execution persistence
+            worktreeRegistry.register({
+              executionId,
+              nodeId,
+              projectId,
+              worktreePath: worktreeSetup.worktreePath,
+              branchName: worktreeSetup.branchName,
+              repoPath: workingDirectory!,
+              cleanup: worktreeSetup.cleanup,
+              createdAt: new Date(),
+            })
             console.log(`[dispatch] Created worktree for ${executionId}: ${worktreeSetup.worktreePath} (branch: ${worktreeSetup.branchName})`)
           }
         } catch (wtErr) {
@@ -448,6 +459,10 @@ The user can review your reasoning in the task output and provide guidance if th
         switch (event.type) {
           case 'init':
             sessionId = event.sessionId
+            // Update worktree registry with sessionId for future resume
+            if (worktreeSetup && event.sessionId) {
+              worktreeRegistry.updateSessionId(executionId, event.sessionId)
+            }
             await stream.writeSSE({
               event: 'session_init',
               data: JSON.stringify({
@@ -564,7 +579,6 @@ The user can review your reasoning in the task output and provide guidance if th
                   branchName = prResult.branchName
                   prUrl = prResult.prUrl
                   prNumber = prResult.prNumber
-                  keepBranch = true
                   console.log(`[dispatch] PR result for ${executionId}: branch=${branchName}, prUrl=${prUrl || 'none'}`)
                 } else {
                   console.log(`[dispatch] No commits for ${executionId}, skipping PR creation`)
@@ -648,14 +662,10 @@ The user can review your reasoning in the task output and provide guidance if th
       }
     } finally {
       removeSession(executionId)
-      // Clean up worktree
-      if (worktreeSetup) {
-        try {
-          await worktreeSetup.cleanup({ keepBranch })
-        } catch (cleanupErr) {
-          console.warn(`[dispatch] Worktree cleanup failed: ${errorMessage(cleanupErr)}`)
-        }
-      }
+      // Worktree is intentionally NOT cleaned up here.
+      // It persists until the task is explicitly completed/pruned,
+      // enabling post-execution steering (resume sessions).
+      // Cleanup is triggered via POST /api/dispatch/cleanup.
     }
   })
 }
@@ -927,13 +937,110 @@ dispatchRoute.post('/steer', async (c) => {
 
   // Local dispatch steering
   if (machineId === 'local') {
-    const { steerLocalTask } = await import('../lib/providers/adapters/claude-code.js')
-    const injected = await steerLocalTask(taskId, message, interrupt ?? false)
-    if (!injected) {
-      return c.json({ success: false, error: 'No active local query for this task' }, 404)
+    const { steerLocalTask, resumeLocalTask, getLocalTaskContext } = await import('../lib/providers/adapters/claude-code.js')
+    const result = await steerLocalTask(taskId, message, interrupt ?? false)
+
+    if (result === 'injected') {
+      // Active session — message injected inline
+      executionEventBus.emit('task:steer_ack', { taskId, accepted: true, interrupted: interrupt ?? false, message: 'Steering message injected' })
+      return c.json({ success: true, taskId, machineId })
     }
-    executionEventBus.emit('task:steer_ack', { taskId, accepted: true, interrupted: interrupt ?? false, message: 'Steering message injected' })
-    return c.json({ success: true, taskId, machineId })
+
+    if (result === 'completed') {
+      // Execution finished but context preserved — try to resume session
+      const context = getLocalTaskContext(taskId)
+      // Also try worktree registry for workingDirectory
+      const worktreeEntry = worktreeRegistry.get(taskId)
+        ?? worktreeRegistry.getByNodeId(taskId)
+
+      const workingDirectory = context?.workingDirectory
+        ?? worktreeEntry?.worktreePath
+      const sessionId = context?.sessionId
+        ?? worktreeEntry?.sessionId
+
+      if (!workingDirectory || !sessionId) {
+        return c.json({ success: false, error: 'Session context lost — cannot resume' }, 404)
+      }
+
+      // Stream resumed session as SSE
+      return streamSSE(c, async (stream) => {
+        try {
+          await stream.writeSSE({
+            event: 'resumed',
+            data: JSON.stringify({ taskId, sessionId, workingDirectory }),
+          })
+
+          for await (const event of resumeLocalTask(taskId, message, workingDirectory, sessionId)) {
+            switch (event.type) {
+              case 'init':
+                await stream.writeSSE({
+                  event: 'session_init',
+                  data: JSON.stringify({ sessionId: event.sessionId, model: event.model }),
+                })
+                // Update worktree registry with new session ID
+                if (worktreeEntry && event.sessionId) {
+                  worktreeRegistry.updateSessionId(worktreeEntry.executionId, event.sessionId)
+                }
+                break
+              case 'text':
+                await stream.writeSSE({ event: 'text', data: event.text })
+                executionEventBus.emit('task:stdout', {
+                  output: { taskId, data: event.text, stream: 'stdout', timestamp: new Date() },
+                })
+                break
+              case 'tool_use':
+                await stream.writeSSE({
+                  event: 'tool_use',
+                  data: JSON.stringify({ toolName: event.toolName, toolInput: event.toolInput }),
+                })
+                break
+              case 'tool_result':
+                await stream.writeSSE({
+                  event: 'tool_result',
+                  data: JSON.stringify({ toolName: event.toolName, success: event.success, result: event.result }),
+                })
+                break
+              case 'result':
+                await stream.writeSSE({
+                  event: 'result',
+                  data: JSON.stringify({
+                    executionId: taskId,
+                    status: event.result.status,
+                    metrics: event.result.metrics,
+                    sessionId: event.result.sessionId,
+                  }),
+                })
+                break
+              case 'error':
+                await stream.writeSSE({
+                  event: 'error',
+                  data: JSON.stringify({ error: event.error }),
+                })
+                break
+              case 'aborted':
+                await stream.writeSSE({
+                  event: 'aborted',
+                  data: JSON.stringify({ reason: event.reason }),
+                })
+                break
+            }
+          }
+
+          await stream.writeSSE({
+            event: 'done',
+            data: JSON.stringify({ executionId: taskId }),
+          })
+        } catch (e) {
+          await stream.writeSSE({
+            event: 'error',
+            data: JSON.stringify({ error: errorMessage(e) }),
+          })
+        }
+      })
+    }
+
+    // No context at all
+    return c.json({ success: false, error: 'No active local query for this task' }, 404)
   }
 
   const sent = relayServer.steerTask(taskId, machineId, message, action, interrupt)
@@ -1151,6 +1258,45 @@ dispatchRoute.post('/engine/start', async (c) => {
 dispatchRoute.post('/engine/stop', async (c) => {
   dispatchEngine.stop()
   return c.json({ success: true, message: 'Dispatch engine stopped' })
+})
+
+/**
+ * Clean up worktree for a completed/pruned task
+ *
+ * POST /api/dispatch/cleanup
+ *
+ * Called when a task transitions to completed or pruned.
+ * Removes worktree from registry and cleans up on disk.
+ */
+dispatchRoute.post('/cleanup', async (c) => {
+  const { executionId, nodeId } = await c.req.json<{
+    executionId?: string
+    nodeId?: string
+  }>()
+
+  if (!executionId && !nodeId) {
+    return c.json({ success: false, error: 'executionId or nodeId required' }, 400)
+  }
+
+  // Clean up worktree
+  let removed = false
+  if (executionId) {
+    removed = await worktreeRegistry.remove(executionId, true)
+  }
+  if (!removed && nodeId) {
+    const entry = worktreeRegistry.getByNodeId(nodeId)
+    if (entry) {
+      removed = await worktreeRegistry.remove(entry.executionId, true)
+    }
+  }
+
+  // Also clean up preserved session context
+  if (executionId) {
+    const { cleanupLocalTaskContext } = await import('../lib/providers/adapters/claude-code.js')
+    cleanupLocalTaskContext(executionId)
+  }
+
+  return c.json({ success: true, removed })
 })
 
 export { dispatchRoute }

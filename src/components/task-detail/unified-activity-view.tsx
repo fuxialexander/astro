@@ -23,8 +23,10 @@ import { useRealtimeStore, type TaskStream } from "@/stores/realtime-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useExecutionStore } from "@/stores/execution-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { chatWithTask } from "@/lib/api-client"
+import { parseSSEStream } from "@/lib/sse-parser"
 import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent, ExecutionSummary } from "@/types"
 
@@ -442,7 +444,7 @@ export function UnifiedActivityView({
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50)
   }
 
-  // Steer message handler (when running)
+  // Steer message handler (when running OR resuming a completed task)
   async function handleSteer(text: string, interrupt = false) {
     if (!text || sending) return
     setSending(true)
@@ -477,7 +479,101 @@ export function UnifiedActivityView({
           ackMessage: `Failed: ${response.status} ${errText.slice(0, 100)}`,
         })
       } else {
-        // Server responded OK; ack will arrive via SSE; timeout will handle if it doesn't
+        clearTimeout(timeoutId)
+        // Check if the response is an SSE stream (resumed session)
+        const contentType = response.headers.get("content-type") || ""
+        if (contentType.includes("text/event-stream")) {
+          updateSteerMessage(executionId, steerIndex, {
+            accepted: true,
+            ackMessage: "Session resumed",
+          })
+
+          // Mark execution as running during resume
+          const nodeId = node.id
+          useExecutionStore.setState((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              exec.status = "running"
+              exec.completedAt = undefined
+            }
+            return { executions: newExecutions }
+          })
+
+          // Process the SSE stream to update execution state
+          await parseSSEStream(response, {
+            onEvent: ({ event, data }) => {
+              switch (event) {
+                case "text":
+                  useExecutionStore.getState().appendText(nodeId, data)
+                  break
+                case "tool_use":
+                  try {
+                    const parsed = JSON.parse(data)
+                    const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
+                    useExecutionStore.getState().addToolTrace(nodeId, {
+                      id: traceId,
+                      toolName: parsed.toolName,
+                      toolInput: parsed.toolInput,
+                      timestamp: new Date(),
+                    })
+                  } catch { /* ignore */ }
+                  break
+                case "tool_result":
+                  try {
+                    const parsed = JSON.parse(data)
+                    useExecutionStore.getState().updateToolTraceResult(
+                      nodeId, parsed.toolName, parsed.result, parsed.success
+                    )
+                  } catch { /* ignore */ }
+                  break
+                case "file_change":
+                  try {
+                    const parsed = JSON.parse(data)
+                    useExecutionStore.getState().addFileChange(nodeId, {
+                      path: parsed.path,
+                      action: parsed.action || "modify",
+                      linesAdded: parsed.linesAdded,
+                      linesRemoved: parsed.linesRemoved,
+                      diff: parsed.diff,
+                      timestamp: new Date(),
+                    })
+                  } catch { /* ignore */ }
+                  break
+                case "result":
+                  try {
+                    const parsed = JSON.parse(data)
+                    useExecutionStore.setState((state) => {
+                      const newExecutions = new Map(state.executions)
+                      const exec = newExecutions.get(nodeId)
+                      if (exec) {
+                        exec.status = parsed.status === "success" ? "success" : "failure"
+                        exec.completedAt = new Date()
+                        if (parsed.sessionId) exec.sessionId = parsed.sessionId
+                      }
+                      return { executions: newExecutions }
+                    })
+                  } catch { /* ignore */ }
+                  break
+                case "error":
+                  try {
+                    const parsed = JSON.parse(data)
+                    console.error("[steer] Resume error:", parsed.error)
+                  } catch { /* ignore */ }
+                  break
+                case "resumed":
+                case "session_init":
+                case "done":
+                case "heartbeat":
+                case "aborted":
+                  break
+              }
+            },
+          })
+        } else {
+          // JSON response — standard ack for active session injection
+          updateSteerMessage(executionId, steerIndex, { accepted: true })
+        }
       }
     } catch (error) {
       clearTimeout(timeoutId)
@@ -538,12 +634,15 @@ export function UnifiedActivityView({
     }
   }
 
+  // Allow steering on completed local tasks (resume session in worktree)
+  const canSteer = isRunning || (machineId === "local" && execution?.status === "success")
+
   function handleSend(interrupt = false) {
     const text = input.trim()
     if (!text) return
     setInput("")
 
-    if (isRunning) {
+    if (canSteer) {
       handleSteer(text, interrupt)
     } else {
       handleChat(text)
@@ -686,8 +785,10 @@ export function UnifiedActivityView({
               ? "Listening..."
               : isTranscribing
                 ? "Transcribing..."
-                : isRunning
-                  ? "Steer the agent... (type @ to reference files)"
+                : canSteer
+                  ? isRunning
+                    ? "Steer the agent... (type @ to reference files)"
+                    : "Resume session in worktree... (type @ to reference files)"
                   : "Ask about this task... (type @ to reference files)"
           }
           rows={1}

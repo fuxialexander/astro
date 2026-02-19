@@ -3,6 +3,20 @@ import type { PlanNode, PlanEdge } from "@/types"
 import { loadState, saveState } from "@/lib/db"
 import { layoutGraph } from "@/lib/graph-utils"
 import { dataClient } from "@/lib/data-client"
+import { apiUrl } from "@/lib/api-url"
+
+/**
+ * Fire-and-forget worktree cleanup when a task is completed or pruned.
+ */
+function cleanupWorktree(executionId: string, nodeId: string) {
+  fetch(apiUrl("/api/dispatch/cleanup"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ executionId, nodeId }),
+  }).catch((err) => {
+    console.warn("[plan-store] Worktree cleanup failed:", err)
+  })
+}
 
 interface PlanState {
   nodes: PlanNode[]
@@ -130,6 +144,14 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     dataClient.updateNode(id, updates).catch((err) => {
       console.error('[plan-store] Failed to update node in API:', err)
     })
+
+    // Trigger worktree cleanup when task is completed or pruned
+    if (updates.status === 'completed' || updates.status === 'pruned') {
+      const node = get().nodes.find((n) => n.id === id)
+      if (node?.executionId) {
+        cleanupWorktree(node.executionId, id)
+      }
+    }
   },
 
   removeNodes: (ids) => {
