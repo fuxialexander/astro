@@ -9,6 +9,7 @@ import type { ApprovalRequest } from "@/components/approval-card"
 import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 import { apiUrl } from "@/lib/api-url"
+import { useTaskChatStore } from "./task-chat-store"
 
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -523,6 +524,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     } catch {
       // Best effort — continue with local cleanup even if server call fails
     }
+
+    // Clear chat session for this task
+    useTaskChatStore.getState().clearSession(nodeId)
 
     // Clear execution from in-memory store
     set((state) => {

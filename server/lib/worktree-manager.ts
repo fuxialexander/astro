@@ -128,6 +128,16 @@ export async function createServerWorktree(options: {
 
       // Delete branch unless keeping for PR
       if (!opts?.keepBranch) {
+        // Delete remote branch first
+        try {
+          await execFileAsync('git', ['-C', gitRoot, 'push', 'origin', '--delete', branchName], {
+            env: withGitEnv(),
+            timeout: 15_000,
+          })
+        } catch {
+          // Remote branch may not exist
+        }
+        // Delete local branch
         try {
           await execFileAsync('git', ['-C', gitRoot, 'branch', '-D', branchName], {
             env: withGitEnv(),
