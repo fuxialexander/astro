@@ -179,7 +179,9 @@ export function MyTasks() {
   // Filter tasks
   const filteredTasks = useMemo(() => {
     let tasks = nodes.filter((n) => n.type !== "milestone")
-    if (!displaySettings.showCompleted) {
+    // Apply showCompleted filter only if no explicit status filter is set
+    // This allows users to filter for completed tasks even when showCompleted is false
+    if (!displaySettings.showCompleted && statusFilter === "all") {
       tasks = tasks.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
     }
     if (statusFilter !== "all") tasks = tasks.filter((n) => n.status === statusFilter)
