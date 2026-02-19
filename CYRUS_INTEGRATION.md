@@ -44,6 +44,16 @@ This document summarizes the integration of Cyrus's battle-tested architecture p
    - Emits `usage:metrics` events for storage
    - In-memory stats with `getUsageStats()` and `resetUsageStats()` helpers
 
+4. `server/lib/events/hooks/pr-creation-hook.ts`
+   - Automatically creates GitHub pull requests when tasks complete successfully
+   - Requires GITHUB_TOKEN environment variable
+   - Creates PRs via GitHub API when task result includes PR metadata
+
+5. `server/lib/events/hooks/git-pull-hook.ts`
+   - Automatically performs git pull in the main project repository after task completion
+   - Ensures main repo is up-to-date with changes pushed from worktree execution
+   - Non-blocking, best-effort operation that logs but doesn't fail on errors
+
 **Integration Points**:
 - Modified `server/lib/dispatch/dispatch-engine.ts`:
   - Imports `astroEventTransport` and event types
@@ -53,11 +63,13 @@ This document summarizes the integration of Cyrus's battle-tested architecture p
   - Emits `task.failed` event on max retries exceeded (line ~546)
 
 - Modified `server/index.ts`:
-  - Imports hooks and event transport (lines 28-31)
-  - Registers 3 hooks at startup (lines 165-169):
+  - Imports hooks and event transport (lines 28-38)
+  - Registers 5 hooks at startup (lines 204-210):
     - `sse-notification` - Real-time UI updates
     - `audit-log` - JSONL logging
     - `usage-metrics` - Cost/token aggregation
+    - `pr-creation` - Automatic GitHub PR creation
+    - `git-pull` - Sync main repo after task completion
 
 ### Phase 4: Procedure-Based Workflows ✅ (Types Only)
 
