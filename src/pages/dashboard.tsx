@@ -72,6 +72,7 @@ export function Dashboard() {
   const pendingApprovals = useExecutionStore((s) => s.pendingApprovals)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
   const getExecution = useExecutionStore((s) => s.getExecution)
+  const executionsLoaded = useExecutionStore((s) => s.loaded)
   const navigate = useNavigate()
 
   // Redirect first-time users to welcome screen (dashboard is now secondary)
@@ -197,6 +198,9 @@ export function Dashboard() {
                 const summary = execution?.summary
                 const error = node.executionError || execution?.error
 
+                // Check if we're still loading executions data
+                const isLoadingExecution = !executionsLoaded && !execution
+
                 return (
                   <Card key={node.id} className="rounded-2xl shadow-lg">
                     <CardContent className="flex flex-col gap-0 p-0">
@@ -214,7 +218,12 @@ export function Dashboard() {
                         <p className="text-sm text-muted-foreground line-clamp-2">{node.description}</p>
 
                         {/* Summary or Error or Loading */}
-                        {summary ? (
+                        {isLoadingExecution ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>Loading execution data...</span>
+                          </div>
+                        ) : summary ? (
                           <div className={cn(
                             "rounded-lg border p-3.5",
                             summary.status === 'success' ? "border-green-500/30 bg-green-500/5" :
@@ -247,12 +256,19 @@ export function Dashboard() {
                               <p className="text-sm text-red-600 line-clamp-3">{error}</p>
                             </div>
                           </div>
-                        ) : (
+                        ) : executionsLoaded && execution ? (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span>Generating summary...</span>
                           </div>
-                        )}
+                        ) : executionsLoaded && !execution ? (
+                          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3.5">
+                            <div className="flex items-start gap-2">
+                              <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                              <p className="text-sm text-amber-700">Execution data not found. The task may have completed before execution tracking was enabled.</p>
+                            </div>
+                          </div>
+                        ) : null}
 
                         {/* Plan Mode Data: Todos */}
                         {execution?.planTodos && execution.planTodos.length > 0 && (
