@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { MentionTextarea, type MentionItem } from "@/components/ui/mention-textarea"
+import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { chatWithAgent, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -620,9 +621,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                     : "bg-muted text-foreground"
                 }`}
               >
-                <pre className="whitespace-pre-wrap font-secondary text-sm">
-                  {msg.content || (isStreaming && i === messages.length - 1 ? "..." : "")}
-                </pre>
+                {msg.content ? (
+                  <pre className="whitespace-pre-wrap font-secondary text-sm">
+                    {msg.content}
+                  </pre>
+                ) : isStreaming && i === messages.length - 1 ? (
+                  <TypingIndicator className="text-muted-foreground py-1" />
+                ) : null}
               </div>
               {/* Show applied mutation banners */}
               {msg.appliedMutations && (msg.appliedMutations.nodeUpdates.length > 0 || msg.appliedMutations.edgeOps.length > 0 || msg.appliedMutations.newNodes.length > 0) && (

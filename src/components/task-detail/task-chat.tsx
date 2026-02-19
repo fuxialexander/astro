@@ -3,6 +3,7 @@ import { Send, Loader2, Trash2, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
+import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { chatWithTask } from "@/lib/api-client"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -177,9 +178,13 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
                     : "bg-muted text-foreground"
                 }`}
               >
-                <pre className="whitespace-pre-wrap font-secondary text-sm">
-                  {msg.content || (isStreaming && msg.role === "assistant" ? "..." : "")}
-                </pre>
+                {msg.content ? (
+                  <pre className="whitespace-pre-wrap font-secondary text-sm">
+                    {msg.content}
+                  </pre>
+                ) : isStreaming && msg.role === "assistant" ? (
+                  <TypingIndicator className="text-muted-foreground py-1" />
+                ) : null}
               </div>
             </div>
           ))}
