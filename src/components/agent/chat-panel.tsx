@@ -16,7 +16,7 @@ import { MentionTextarea, type MentionItem } from "@/components/ui/mention-texta
 import { chatWithAgent, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
@@ -184,8 +184,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
   }))
 
   // Plan store — read nodes/edges for context, write updates
-  const planNodes = usePlanStore((s) => s.nodes)
-  const planEdges = usePlanStore((s) => s.edges)
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
+  const rawPlanEdges = usePlanStore((s) => s.edges)
+  const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const updateNode = usePlanStore((s) => s.updateNode)
   const addNode = usePlanStore((s) => s.addNode)
   const addEdge = usePlanStore((s) => s.addEdge)

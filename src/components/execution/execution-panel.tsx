@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useMemo } from "react"
 import { Link } from "react-router"
 import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown, Bot } from "lucide-react"
 // Cloud and Globe used via environmentConfig lookup
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir } from "@/stores/execution-store"
 import { shouldUseSupabase } from "@/lib/supabase-client"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import type { PlanNode, ProviderStatus } from "@/types"
@@ -42,8 +42,10 @@ const environmentConfig = {
 
 export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const outputRef = useRef<HTMLDivElement>(null)
-  const nodes = usePlanStore((s) => s.nodes)
-  const edges = usePlanStore((s) => s.edges)
+  const rawNodes = usePlanStore((s) => s.nodes)
+  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
+  const rawEdges = usePlanStore((s) => s.edges)
+  const edges = useMemo(() => rawEdges.filter(isLive), [rawEdges])
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
   // Execution state

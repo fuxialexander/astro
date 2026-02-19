@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { Link, useNavigate } from "react-router"
 import {
   Plus,
@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useProjectStore } from "@/stores/project-store"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
@@ -59,7 +59,8 @@ function ActivityItem({ event }: { event: ActivityEvent }) {
 export function Dashboard() {
   const projects = useProjectStore((s) => s.projects)
   const projectsLoaded = useProjectStore((s) => s.loaded)
-  const nodes = usePlanStore((s) => s.nodes)
+  const rawNodes = usePlanStore((s) => s.nodes)
+  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
   const updateNode = usePlanStore((s) => s.updateNode)
   const machines = useRealtimeStore((s) => s.machines)
   const activityFeed = useRealtimeStore((s) => s.activityFeed)

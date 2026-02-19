@@ -135,6 +135,9 @@ export interface PlanNode {
   branchName?: string;
   prUrl?: string;
   prNumber?: number;
+  // Soft-delete metadata
+  deletedAt?: Date;
+  deletionActionId?: string;
 }
 
 // Tool trace for execution detail view
@@ -228,6 +231,9 @@ export interface PlanEdge {
   source: string;
   target: string;
   type: EdgeType;
+  // Soft-delete metadata
+  deletedAt?: Date;
+  deletionActionId?: string;
 }
 
 // Domain expertise options for planning personalization

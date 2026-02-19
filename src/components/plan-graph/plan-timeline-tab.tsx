@@ -2,7 +2,7 @@ import { useMemo, useState, useRef, useCallback, useEffect } from "react"
 import { X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useBarDragResize } from "@/hooks/use-bar-drag-resize"
 import { PRIORITIES, ESTIMATES, PRIORITY_CONFIG } from "@/lib/constants"
 import { statusBarColors, statusProgressColors } from "@/lib/status-config"
@@ -22,8 +22,10 @@ interface PlanTimelineTabProps {
 }
 
 export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
-  const nodes = usePlanStore((s) => s.nodes)
-  const edges = usePlanStore((s) => s.edges)
+  const rawNodes = usePlanStore((s) => s.nodes)
+  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
+  const rawEdges = usePlanStore((s) => s.edges)
+  const edges = useMemo(() => rawEdges.filter(isLive), [rawEdges])
   const updateNode = usePlanStore((s) => s.updateNode)
 
   const [editingNode, setEditingNode] = useState<PlanNode | null>(null)

@@ -1,8 +1,9 @@
+import { useMemo } from "react"
 import { Cpu, Activity, Clock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { formatDuration } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
@@ -11,7 +12,8 @@ import { statusBadgeVariants } from "@/lib/status-config"
 export function Agents() {
   const executions = useExecutionStore((s) => s.executions)
   const taskStreams = useRealtimeStore((s) => s.taskStreams)
-  const nodes = usePlanStore((s) => s.nodes)
+  const rawNodes = usePlanStore((s) => s.nodes)
+  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
   const projects = useProjectStore((s) => s.projects)
 
   // Get all nodes that are currently executing

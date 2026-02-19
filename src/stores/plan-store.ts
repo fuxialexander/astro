@@ -5,6 +5,12 @@ import { layoutGraph } from "@/lib/graph-utils"
 import { dataClient } from "@/lib/data-client"
 import { apiUrl } from "@/lib/api-url"
 
+const BULK_DELETE_THRESHOLD = 80
+
+export function isLive<T extends { deletedAt?: Date }>(item: T): boolean {
+  return item.deletedAt == null
+}
+
 /**
  * Fire-and-forget worktree cleanup when a task is completed or pruned.
  */
@@ -41,8 +47,16 @@ async function loadFromIdb(): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] } |
   const savedEdges = await loadState<PlanEdge[]>("astro-plan-edges")
   if (savedNodes && savedEdges) {
     return {
-      nodes: savedNodes.map(n => ({ ...n, createdAt: new Date(n.createdAt), updatedAt: new Date(n.updatedAt) })),
-      edges: savedEdges,
+      nodes: savedNodes.map(n => ({
+        ...n,
+        createdAt: new Date(n.createdAt),
+        updatedAt: new Date(n.updatedAt),
+        deletedAt: n.deletedAt ? new Date(n.deletedAt) : undefined,
+      })),
+      edges: savedEdges.map(e => ({
+        ...e,
+        deletedAt: e.deletedAt ? new Date(e.deletedAt) : undefined,
+      })),
     }
   }
   return null
@@ -156,14 +170,35 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   removeNodes: (ids) => {
     const idSet = new Set(ids)
-    const nextNodes = get().nodes.filter((n) => !idSet.has(n.id))
-    const nextEdges = get().edges.filter((e) => !idSet.has(e.source) && !idSet.has(e.target))
-    set({ nodes: nextNodes, edges: nextEdges })
-    saveToIdb(nextNodes, nextEdges)
-    for (const id of ids) {
-      dataClient.deleteNode(id).catch((err) => {
-        console.error('[plan-store] Failed to delete node from API:', err)
-      })
+
+    if (ids.length > BULK_DELETE_THRESHOLD) {
+      // Hard-delete for bulk operations
+      const nextNodes = get().nodes.filter((n) => !idSet.has(n.id))
+      const nextEdges = get().edges.filter((e) => !idSet.has(e.source) && !idSet.has(e.target))
+      set({ nodes: nextNodes, edges: nextEdges })
+      saveToIdb(nextNodes, nextEdges)
+      for (const id of ids) {
+        dataClient.deleteNode(id).catch((err) => {
+          console.error('[plan-store] Failed to delete node from API:', err)
+        })
+      }
+    } else {
+      // Soft-delete: mark nodes and connected edges as deleted
+      const now = new Date()
+      const actionId = crypto.randomUUID()
+      const nextNodes = get().nodes.map((n) =>
+        idSet.has(n.id) ? { ...n, deletedAt: now, deletionActionId: actionId, updatedAt: now } : n
+      )
+      const nextEdges = get().edges.map((e) =>
+        idSet.has(e.source) || idSet.has(e.target) ? { ...e, deletedAt: now, deletionActionId: actionId } : e
+      )
+      set({ nodes: nextNodes, edges: nextEdges })
+      saveToIdb(nextNodes, nextEdges)
+      for (const id of ids) {
+        dataClient.updateNode(id, { deletedAt: now, deletionActionId: actionId }).catch((err) => {
+          console.error('[plan-store] Failed to soft-delete node in API:', err)
+        })
+      }
     }
   },
 
@@ -224,7 +259,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   reorganizeProject: (projectId) => {
     const allNodes = get().nodes
     const allEdges = get().edges
-    const projectNodes = allNodes.filter((n) => n.projectId === projectId)
+    const projectNodes = allNodes.filter((n) => n.projectId === projectId && isLive(n))
     const nodeIds = new Set(projectNodes.map((n) => n.id))
     const projectEdges = allEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
 

@@ -16,7 +16,6 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Button } from "@/components/ui/button"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { MilestoneDialog } from "@/components/milestone-dialog"
@@ -24,7 +23,7 @@ import { ActivityDialog } from "@/components/activity-dialog"
 import { ColorIconBadge } from "@/components/color-icon-picker"
 import { PlanListView } from "@/pages/plan-view"
 import { useProjectStore } from "@/stores/project-store"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useMachinesStore } from "@/stores/machines-store"
@@ -48,12 +47,13 @@ const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
 import { formatDate, formatRelativeTime } from "@/lib/date-utils"
 
 // --- Overview Tab Content ---
-function OverviewTab({
+export function OverviewTab({
   project,
 }: {
   project: Project
 }) {
-  const planNodes = usePlanStore((s) => s.nodes)
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const addNode = usePlanStore((s) => s.addNode)
   const updateNode = usePlanStore((s) => s.updateNode)
   const removeNodes = usePlanStore((s) => s.removeNodes)
@@ -598,6 +598,8 @@ function OverviewTab({
                   "project.updated": { Icon: Pencil, color: "text-muted-foreground" },
                   "project.created": { Icon: Rocket, color: "text-purple-500" },
                   "task.created": { Icon: Plus, color: "text-blue-500" },
+                  "task.deleted": { Icon: User, color: "text-red-500" },
+                  "task.bulk_deleted": { Icon: User, color: "text-red-500" },
                 }
 
                 const config = iconMap[activity.type] || { Icon: User, color: "text-muted-foreground" }
@@ -631,7 +633,7 @@ export function ProjectOverview() {
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const updateProject = useProjectStore((s) => s.updateProject)
   const [activeView, setActiveView] = useState<"plan" | "overview">("plan") // Default to Plan view
-  const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
+  const [, setSelectedNode] = useState<PlanNode | null>(null)
 
   // Refresh file tree cache if stale, missing, or from a different machine
   useEffect(() => {
@@ -687,13 +689,13 @@ export function ProjectOverview() {
         <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
 
         {/* Plan | Overview Toggle */}
-        <div className="flex items-center gap-1 ml-4 rounded-md bg-muted p-0.5">
+        <div className="flex items-center gap-1 ml-4">
           <button
             onClick={() => setActiveView("plan")}
             className={cn(
-              "px-3 py-1 text-sm font-medium rounded transition-colors",
+              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
               activeView === "plan"
-                ? "bg-background text-foreground shadow-sm"
+                ? "text-accent-foreground border-b-2 border-accent"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -702,9 +704,9 @@ export function ProjectOverview() {
           <button
             onClick={() => setActiveView("overview")}
             className={cn(
-              "px-3 py-1 text-sm font-medium rounded transition-colors",
+              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
               activeView === "overview"
-                ? "bg-background text-foreground shadow-sm"
+                ? "text-accent-foreground border-b-2 border-accent"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -716,11 +718,13 @@ export function ProjectOverview() {
       </div>
 
       {/* Content */}
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 flex-col overflow-hidden relative">
         {activeView === "overview" ? (
           <OverviewTab project={project} />
         ) : (
-          <PlanListView projectId={project.id} onNodeSelect={setSelectedNode} />
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <PlanListView projectId={project.id} onNodeSelect={setSelectedNode} />
+          </div>
         )}
       </div>
     </div>

@@ -20,7 +20,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
+import { useActivityStore } from "@/stores/activity-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -79,8 +80,10 @@ interface AddChildState {
 }
 
 function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanvasProps) {
-  const planNodes = usePlanStore((s) => s.nodes)
-  const planEdges = usePlanStore((s) => s.edges)
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
+  const rawPlanEdges = usePlanStore((s) => s.edges)
+  const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const addEdge = usePlanStore((s) => s.addEdge)
   const removeEdge = usePlanStore((s) => s.removeEdge)
   const removeNodes = usePlanStore((s) => s.removeNodes)
@@ -175,9 +178,22 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     setCheckedIds(new Set())
   }, [])
 
+  const addActivity = useActivityStore((s) => s.addActivity)
+
   const handleDeleteSelected = useCallback(() => {
     if (checkedIds.size === 0) return
-    removeNodes(Array.from(checkedIds))
+    const ids = Array.from(checkedIds)
+    const deletedNodes = projectNodes.filter((n) => checkedIds.has(n.id))
+    removeNodes(ids)
+    // Track activity
+    const titles = deletedNodes.map((n) => n.title)
+    addActivity({
+      projectId,
+      type: ids.length > 1 ? "task.bulk_deleted" : "task.deleted",
+      title: ids.length > 1
+        ? `Deleted ${titles.length} tasks`
+        : `Deleted task: ${titles[0]}`,
+    })
     setCheckedIds(new Set())
     setSelectedId(null)
     onNodeSelect?.(null)
@@ -186,7 +202,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       reorganizeProject(projectId)
       setTimeout(() => rfFitView({ padding: 0.3, duration: 300 }), 50)
     }, 10)
-  }, [checkedIds, removeNodes, onNodeSelect, reorganizeProject, projectId, rfFitView])
+  }, [checkedIds, removeNodes, projectNodes, addActivity, projectId, onNodeSelect, reorganizeProject, rfFitView])
 
   const handleExecuteSelected = useCallback(() => {
     if (checkedIds.size === 0) return

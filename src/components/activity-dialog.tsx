@@ -38,6 +38,8 @@ const activityConfig: Record<
   "task.completed": { icon: CircleCheck, color: "text-green-500", label: "Completed" },
   "task.failed": { icon: XCircle, color: "text-red-500", label: "Failed" },
   "task.cancelled": { icon: PauseCircle, color: "text-orange-500", label: "Cancelled" },
+  "task.deleted": { icon: Trash2, color: "text-red-500", label: "Deleted" },
+  "task.bulk_deleted": { icon: Trash2, color: "text-red-500", label: "Bulk Deleted" },
   "project.created": { icon: Sparkles, color: "text-purple-500", label: "Created" },
   "project.updated": { icon: Pencil, color: "text-muted-foreground", label: "Updated" },
   "milestone.created": { icon: Diamond, color: "text-primary", label: "Created" },

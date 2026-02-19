@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { PRIORITIES, ESTIMATES } from "@/lib/constants"
 import { cn } from "@/lib/utils"
@@ -44,7 +44,8 @@ export function TaskCreationForm({
   const titleRef = useRef<HTMLInputElement>(null)
 
   // Get milestones for the project
-  const allNodes = usePlanStore((s) => s.nodes)
+  const rawAllNodes = usePlanStore((s) => s.nodes)
+  const allNodes = useMemo(() => rawAllNodes.filter(isLive), [rawAllNodes])
   const milestones = useMemo(
     () => allNodes.filter((n) => n.projectId === projectId && n.type === "milestone"),
     [allNodes, projectId]

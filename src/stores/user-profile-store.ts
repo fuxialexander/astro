@@ -54,7 +54,7 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
         return
       }
     } catch (error) {
-      console.error('[user-profile-store] Failed to load from API:', error)
+      console.debug('[user-profile-store] API unavailable, will use IndexedDB:', (error as Error).message)
       // API unavailable - fall back to IndexedDB
     }
 

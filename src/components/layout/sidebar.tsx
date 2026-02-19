@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { NavLink, useNavigate, useParams } from "react-router"
 import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -7,7 +7,7 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { useProjectStore } from "@/stores/project-store"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useUIStore } from "@/stores/ui-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { shouldUseSupabase } from "@/lib/supabase-client"
@@ -41,7 +41,8 @@ export function Sidebar() {
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const profile = useUserProfileStore((s) => s.profile)
   const projects = useProjectStore((s) => s.projects)
-  const planNodes = usePlanStore((s) => s.nodes)
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const signOut = useAuthStore((s) => s.signOut)
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const sidebarItems = useSidebarStore((s) => s.items)
@@ -303,7 +304,7 @@ export function Sidebar() {
               return (
                 <button
                   key={project.id}
-                  onClick={() => navigate(`/project/${project.id}/plan?view=list`)}
+                  onClick={() => navigate(`/project/${project.id}?view=list`)}
                   className={cn(
                     "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 transition-colors text-left",
                     isActive

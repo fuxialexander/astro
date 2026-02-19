@@ -18,7 +18,7 @@ import { ItemTimelineView, type TimelineRow } from "@/components/views/item-time
 import { FilterSelect } from "@/components/views/filter-select"
 import { PlanListView, PlanTimelineView, PlanBoardView } from "@/pages/plan-view"
 import { useProjectStore } from "@/stores/project-store"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { PRIORITY_CONFIG } from "@/lib/constants"
 import { STATUS_CONFIG, statusBarColors, statusProgressColors } from "@/lib/status-config"
@@ -133,8 +133,10 @@ type MyTasksViewMode = "list" | "timeline" | "board"
 
 export function MyTasks() {
   const projects = useProjectStore((s) => s.projects)
-  const nodes = usePlanStore((s) => s.nodes)
-  const edges = usePlanStore((s) => s.edges)
+  const rawNodes = usePlanStore((s) => s.nodes)
+  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
+  const rawEdges = usePlanStore((s) => s.edges)
+  const edges = useMemo(() => rawEdges.filter(isLive), [rawEdges])
   const displaySettings = useDisplaySettingsStore((s) => s.get("my-tasks"))
   const boardSettings = useDisplaySettingsStore((s) => s.get("my-tasks-board"))
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -325,7 +327,7 @@ export function MyTasks() {
 
   const getProjectName = useCallback((node: PlanNode) => projectMap.get(node.projectId), [projectMap])
   const handleBoardNodeSelect = useCallback((node: PlanNode) => {
-    window.location.href = `/project/${node.projectId}/plan`
+    window.location.href = `/project/${node.projectId}`
   }, [])
   const handleBoardNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
     updateNode(id, updates)
@@ -379,7 +381,7 @@ export function MyTasks() {
                   key={mode}
                   onClick={() => setViewMode(mode)}
                   className={cn(
-                    "px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
+                    "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
                     viewMode === mode
                       ? "text-accent-foreground border-b-2 border-accent"
                       : "text-muted-foreground hover:text-foreground"
@@ -464,7 +466,7 @@ export function MyTasks() {
                 projectId="cross-project-mode"
                 nodes={sortedTasks}
                 onNodeSelect={(node) => {
-                  if (node) navigate(`/project/${node.projectId}/plan`)
+                  if (node) navigate(`/project/${node.projectId}`)
                 }}
               />
             )}
@@ -477,7 +479,7 @@ export function MyTasks() {
               projectId="cross-project-mode"
               nodes={sortedTasks}
               onNodeSelect={(node) => {
-                if (node) navigate(`/project/${node.projectId}/plan`)
+                if (node) navigate(`/project/${node.projectId}`)
               }}
             />
           )
@@ -489,7 +491,7 @@ export function MyTasks() {
               projectId="cross-project-mode"
               nodes={sortedTasks}
               onNodeSelect={(node) => {
-                if (node) navigate(`/project/${node.projectId}/plan`)
+                if (node) navigate(`/project/${node.projectId}`)
               }}
               getProjectIdFromGroup={(groupKey) => {
                 // When grouped by project, extract projectId from the group label
@@ -538,7 +540,7 @@ export function MyTasks() {
                   <span className="text-sm truncate">{node.title}</span>
                 </div>
               )}
-              onItemClick={(node) => { window.location.href = `/project/${node.projectId}/plan` }}
+              onItemClick={(node) => { window.location.href = `/project/${node.projectId}` }}
               onDateChange={(nodeId, startDate, endDate) => updateNode(nodeId, { startDate, endDate })}
             />
           )
@@ -576,7 +578,7 @@ export function MyTasks() {
                             task={task}
                             projectName={projectMap.get(task.projectId)}
                             showProject={displaySettings.groupBy !== "project"}
-                            onClick={() => { window.location.href = `/project/${task.projectId}/plan` }}
+                            onClick={() => { window.location.href = `/project/${task.projectId}` }}
                           />
                         ))}
                       </div>

@@ -10,7 +10,7 @@ import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from 
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { ColorIconBadge } from "@/components/color-icon-picker"
 import { useProjectStore } from "@/stores/project-store"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
@@ -164,7 +164,8 @@ export function Projects() {
   const projects = useProjectStore((s) => s.projects)
   const updateProject = useProjectStore((s) => s.updateProject)
   const deleteProject = useProjectStore((s) => s.deleteProject)
-  const allNodes = usePlanStore((s) => s.nodes)
+  const rawAllNodes = usePlanStore((s) => s.nodes)
+  const allNodes = useMemo(() => rawAllNodes.filter(isLive), [rawAllNodes])
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
@@ -419,10 +420,10 @@ export function Projects() {
                   key={tab.id}
                   onClick={() => setViewTab(tab.id)}
                   className={cn(
-                    "px-3 py-1.5 text-sm transition-colors cursor-pointer border-b-2",
+                    "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
                     viewTab === tab.id
-                      ? "text-accent-foreground border-accent"
-                      : "text-muted-foreground hover:text-foreground border-transparent"
+                      ? "text-accent-foreground border-b-2 border-accent"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
                 >
                   {tab.label}

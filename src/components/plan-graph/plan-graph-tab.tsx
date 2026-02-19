@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { CheckCircle2, Clock, Circle, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -6,7 +6,7 @@ import { Separator } from "@/components/ui/separator"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
 import { ExecutionPanel } from "@/components/execution"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { shouldUseSupabase } from "@/lib/supabase-client"
@@ -87,7 +87,8 @@ function MachineSelector({ selectedNode, projectId, onUpdate }: {
 
 export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
   const updateNode = usePlanStore((s) => s.updateNode)
-  const allNodes = usePlanStore((s) => s.nodes)
+  const rawAllNodes = usePlanStore((s) => s.nodes)
+  const allNodes = useMemo(() => rawAllNodes.filter(isLive), [rawAllNodes])
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
   const chatOpen = false // TODO: wire up chat toggle

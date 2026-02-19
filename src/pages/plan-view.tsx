@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
-import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles } from "lucide-react"
+import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, RotateCcw } from "lucide-react"
 
 // Media query hook for responsive rendering
 function useMediaQuery(query: string) {
@@ -35,9 +35,13 @@ import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { ItemTimelineView, TimelineAddTaskFooter, type TimelineRow } from "@/components/views/item-timeline-view"
 import { PropertyPicker } from "@/components/property-picker"
+import { ColorIconBadge } from "@/components/color-icon-picker"
+import { OverviewTab } from "@/pages/project-overview"
 import { useProjectStore } from "@/stores/project-store"
-import { usePlanStore } from "@/stores/plan-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore, type DisplaySettings } from "@/stores/display-settings-store"
+import { useActivityStore } from "@/stores/activity-store"
+import { useExecutionStore } from "@/stores/execution-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { formatDueDateShort } from "@/lib/date-utils"
@@ -523,9 +527,11 @@ export function PlanListView({
   /** Optional: extract projectId from group key for cross-project task creation */
   getProjectIdFromGroup?: (groupKey: string) => string | undefined
 }) {
-  const planNodes = usePlanStore((s) => s.nodes)
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const updateNode = usePlanStore((s) => s.updateNode)
   const removeNodes = usePlanStore((s) => s.removeNodes)
+  const addActivity = useActivityStore((s) => s.addActivity)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
@@ -541,9 +547,28 @@ export function PlanListView({
       label: "Delete",
       icon: <Trash2 className="h-3.5 w-3.5" />,
       variant: "destructive",
-      onAction: (ids) => removeNodes(ids),
+      onAction: (ids) => {
+        const deletedNodes = planNodes.filter((n) => ids.includes(n.id))
+        removeNodes(ids)
+        // Track activity for each deleted node's project
+        const byProject = new Map<string, string[]>()
+        for (const n of deletedNodes) {
+          const list = byProject.get(n.projectId) ?? []
+          list.push(n.title)
+          byProject.set(n.projectId, list)
+        }
+        for (const [pid, titles] of byProject) {
+          addActivity({
+            projectId: pid,
+            type: ids.length > 1 ? "task.bulk_deleted" : "task.deleted",
+            title: ids.length > 1
+              ? `Deleted ${titles.length} tasks`
+              : `Deleted task: ${titles[0]}`,
+          })
+        }
+      },
     },
-  ], [removeNodes])
+  ], [removeNodes, planNodes, addActivity])
 
   const allProjectNodes = useMemo(() => {
     // If nodes provided (cross-project mode), use those
@@ -701,8 +726,10 @@ export function PlanTimelineView({
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
 }) {
-  const planNodes = usePlanStore((s) => s.nodes)
-  const planEdges = usePlanStore((s) => s.edges)
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
+  const rawPlanEdges = usePlanStore((s) => s.edges)
+  const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const updateNode = usePlanStore((s) => s.updateNode)
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
   const [isCreating, setIsCreating] = useState(false)
@@ -840,7 +867,8 @@ export function PlanBoardView({
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
 }) {
-  const planNodes = usePlanStore((s) => s.nodes)
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const updateNode = usePlanStore((s) => s.updateNode)
   const boardSettings = useDisplaySettingsStore((s) => s.get("plan-board"))
   const [creatingInColumn, setCreatingInColumn] = useState<string | null>(null)
@@ -898,13 +926,18 @@ export function PlanView() {
   const [searchParams] = useSearchParams()
   const initialView = searchParams.get("view") as ViewMode | null
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
+  const updateProject = useProjectStore((s) => s.updateProject)
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const updateNode = usePlanStore((s) => s.updateNode)
-  const planNodes = usePlanStore((s) => s.nodes)
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
+  const resetExecution = useExecutionStore((s) => s.resetExecution)
+  const [isResetting, setIsResetting] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [viewMode, setViewMode] = useState<ViewMode>(initialView && VALID_VIEWS.has(initialView) ? initialView : "graph")
+  const [activeTab, setActiveTab] = useState<"plan" | "overview">("plan")
   const [visionOpen, setVisionOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
 
@@ -1079,13 +1112,33 @@ export function PlanView() {
 
       <div className="flex flex-col gap-2.5">
         {selectedNode!.executionId ? (
-          <Link
-            to={`/project/${project.id}/task/${selectedNode!.id}`}
-            className="flex items-center justify-center gap-2 h-10 rounded-[10px] bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
-          >
-            <FileText className="h-4 w-4" />
-            View Execution
-          </Link>
+          <>
+            <Link
+              to={`/project/${project.id}/task/${selectedNode!.id}`}
+              className="flex items-center justify-center gap-2 h-10 rounded-[10px] bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+            >
+              <FileText className="h-4 w-4" />
+              View Execution
+            </Link>
+            <button
+              disabled={isResetting}
+              onClick={async () => {
+                setIsResetting(true)
+                try {
+                  await resetExecution(selectedNode!.id)
+                  // Refresh selectedNode to reflect cleared execution fields
+                  const freshNode = usePlanStore.getState().nodes.find((n) => n.id === selectedNode!.id)
+                  if (freshNode) setSelectedNode(freshNode)
+                } finally {
+                  setIsResetting(false)
+                }
+              }}
+              className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
+            >
+              <RotateCcw className={cn("h-4 w-4", isResetting && "animate-spin")} />
+              {isResetting ? "Resetting..." : "Re-execute"}
+            </button>
+          </>
         ) : (
           <div className="flex flex-col gap-3">
             <ExecutionPanel node={selectedNode!} projectId={project.id} />
@@ -1107,80 +1160,102 @@ export function PlanView() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header: responsive tabs + view mode + actions */}
+      {/* Header: project identity + Plan|Overview toggle + view mode + actions */}
       <header className="flex flex-col md:flex-row md:items-center gap-3 border-b border-border px-4 md:px-6 py-3 md:h-14 md:py-0 shrink-0">
-        {/* Project tabs - wrap on mobile */}
-        <div className="flex items-center gap-1 shrink-0 flex-wrap">
-          <Link
-            to={`/project/${id}`}
+        {/* Project identity */}
+        <div className="flex items-center gap-3 shrink-0">
+          <ColorIconBadge
+            color={project.color}
+            icon={project.icon}
+            type="project"
+            editable
+            onColorChange={(color) => updateProject(project.id, { color })}
+            onIconChange={(icon) => updateProject(project.id, { icon })}
+          />
+          <span className="text-lg font-semibold shrink-0">{project.name}</span>
+          <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
+        </div>
+
+        {/* Plan | Overview Toggle */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => setActiveTab("plan")}
             className={cn(
               "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-              "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              activeTab === "plan"
+                ? "text-accent-foreground border-b-2 border-accent"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Plan
+          </button>
+          <button
+            onClick={() => setActiveTab("overview")}
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+              activeTab === "overview"
+                ? "text-accent-foreground border-b-2 border-accent"
+                : "text-muted-foreground hover:text-foreground"
             )}
           >
             Overview
-          </Link>
-          <Link
-            to={`/project/${id}?tab=updates`}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-              "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-            )}
-          >
-            Updates
-          </Link>
-          <span className="rounded-lg px-3 py-1.5 text-sm font-semibold bg-accent text-accent-foreground cursor-default">
-            Plan
-          </span>
+          </button>
         </div>
-        <Separator orientation="vertical" className="h-5 shrink-0 hidden md:block" />
 
-        {/* View mode toggle - responsive */}
-        <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
-          <div className="flex items-center gap-1">
-            {(["graph", "list", "timeline", "board"] as ViewMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                className={cn(
-                  "px-3 py-1.5 text-sm transition-colors cursor-pointer capitalize border-b-2",
-                  viewMode === mode
-                    ? "text-accent-foreground border-accent"
-                    : "text-muted-foreground hover:text-foreground border-transparent"
-                )}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
-          {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
-          {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
-          {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
-          {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
-        </div>
+        {/* View mode toggle - only visible when Plan is active */}
+        {activeTab === "plan" && (
+          <>
+            <Separator orientation="vertical" className="h-5 shrink-0 hidden md:block" />
+            <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
+              <div className="flex items-center gap-1">
+                {(["graph", "list", "timeline", "board"] as ViewMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
+                      viewMode === mode
+                        ? "text-accent-foreground border-b-2 border-accent"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+              {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
+              {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
+              {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
+              {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
+            </div>
+          </>
+        )}
         <div className="flex-1 min-w-0 hidden md:block" />
 
-        {/* Action buttons - responsive */}
-        <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
-          <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)} className="hidden md:flex">
-            <FileText className="h-3.5 w-3.5" />
-            Vision
-          </Button>
-          {/* No Add Task button needed - each view has inline creation */}
-          <Button
-            variant={chatOpen ? "default" : "outline"}
-            size="sm"
-            onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setSelectedNode(null); if (chatOpen) setChatInitialMessage(undefined) }}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            <span className="hidden md:inline ml-1.5">Chat</span>
-          </Button>
-        </div>
+        {/* Action buttons - only visible when Plan is active */}
+        {activeTab === "plan" && (
+          <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
+            <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)} className="hidden md:flex">
+              <FileText className="h-3.5 w-3.5" />
+              Vision
+            </Button>
+            <Button
+              variant={chatOpen ? "default" : "outline"}
+              size="sm"
+              onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setSelectedNode(null); if (chatOpen) setChatInitialMessage(undefined) }}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span className="hidden md:inline ml-1.5">Chat</span>
+            </Button>
+          </div>
+        )}
       </header>
 
       {/* Canvas/List + Detail/Chat pane */}
       <div className="flex flex-1 overflow-hidden relative">
-        {viewMode === "graph" ? (
+        {activeTab === "overview" ? (
+          <OverviewTab project={project} />
+        ) : viewMode === "graph" ? (
           <div className="flex-1 relative overflow-hidden">
             <div className="absolute inset-0 touch-pan-x touch-pan-y">
               <PlanCanvas projectId={project.id} onNodeSelect={setSelectedNode} onDecomposeNode={handleDecomposeNode} />
