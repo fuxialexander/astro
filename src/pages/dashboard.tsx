@@ -383,7 +383,7 @@ export function Dashboard() {
                       (n.status === "in_progress" || n.status === "dispatched")
                   )
                   return (
-                    <Link key={project.id} to={`/project/${project.id}`}>
+                    <Link key={project.id} to={`/project/${project.id}/graph`}>
                       <Card className="rounded-2xl hover:border-primary/40 transition-colors">
                         <CardContent className="flex items-center justify-between p-4">
                           <div className="flex flex-col gap-0.5">

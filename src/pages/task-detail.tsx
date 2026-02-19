@@ -56,7 +56,7 @@ export function TaskDetail() {
       <div className="flex flex-col items-center justify-center h-full gap-4">
         <p className="text-muted-foreground">Task not found</p>
         <Button variant="outline" asChild>
-          <Link to={`/project/${projectId}`}>Back to Plan</Link>
+          <Link to={`/project/${projectId}/graph`}>Back to Plan</Link>
         </Button>
       </div>
     )

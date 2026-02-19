@@ -127,7 +127,7 @@ export function ProjectNew() {
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    navigate(`/project/${id}`)
+    navigate(`/project/${id}/graph`)
 
     if (connectionStatus !== "connected") {
       setIsSubmitting(false)

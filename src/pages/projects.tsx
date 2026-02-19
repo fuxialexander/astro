@@ -502,7 +502,7 @@ export function Projects() {
               columns={PROJECT_COLUMNS}
               groups={listGroups}
               visibleColumns={displaySettings.visibleProperties}
-              onItemClick={(p) => navigate(`/project/${p.id}`)}
+              onItemClick={(p) => navigate(`/project/${p.id}/graph`)}
               getItemId={(p) => p.id}
               batchActions={projectBatchActions}
               sortColumn={displaySettings.orderBy}
@@ -555,7 +555,7 @@ export function Projects() {
                   </Link>
                 )
               }}
-              onItemClick={(proj) => navigate(`/project/${proj.id}`)}
+              onItemClick={(proj) => navigate(`/project/${proj.id}/graph`)}
               onDateChange={(id, startDate, endDate) => updateProject(id, { startDate, targetDate: endDate })}
             />
           ) : (
