@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project, ExecutionSummary } from "@/types"
 import { parseSSEStream } from "@/lib/sse-parser"
-import { usePlanStore } from "./plan-store"
+import { usePlanStore, isLive } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
 import { getAccessToken, shouldUseSupabase } from "@/lib/supabase-client"
@@ -313,7 +313,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
 
     // Check dependencies are met (use edges as source of truth)
-    const canExecute = canExecuteNode(node, planStore.nodes, planStore.edges)
+    const liveNodes = planStore.nodes.filter(isLive)
+    const liveEdges = planStore.edges.filter(isLive)
+    const canExecute = canExecuteNode(node, liveNodes, liveEdges)
     if (!canExecute.ready) {
       console.error("Dependencies not met:", canExecute.reason)
       return
@@ -384,7 +386,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
 
     // Build dependency outputs from completed dependencies
-    const dependencyOutputs = buildDependencyOutputsArray(node.dependencies, planStore.nodes, projectId)
+    const dependencyOutputs = buildDependencyOutputsArray(node.dependencies, liveNodes, projectId)
 
     // Initialize execution state
     const execution: TaskExecution = {
@@ -609,14 +611,15 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   executeAllProject: (projectId: string, options?: ExecutionOptions) => {
     const planStore = usePlanStore.getState()
     const projectNodes = planStore.nodes.filter(
-      (n) => n.projectId === projectId && n.type !== "milestone"
+      (n) => isLive(n) && n.projectId === projectId && n.type !== "milestone"
     )
-    const projectEdges = planStore.edges
+    const projectEdges = planStore.edges.filter(isLive)
 
     // Find all nodes that are ready to execute (no unmet dependencies, status is "planned")
+    const liveNodes = planStore.nodes.filter(isLive)
     const readyNodes = projectNodes.filter((n) => {
       if (n.status !== "planned") return false
-      return canExecuteNode(n, planStore.nodes, projectEdges).ready
+      return canExecuteNode(n, liveNodes, projectEdges).ready
     })
 
     if (readyNodes.length === 0) return
@@ -1420,14 +1423,16 @@ function dispatchNextBatchWave(projectId: string) {
 
   const planStore = usePlanStore.getState()
   const projectNodes = planStore.nodes.filter(
-    (n) => n.projectId === projectId && n.type !== "milestone"
+    (n) => isLive(n) && n.projectId === projectId && n.type !== "milestone"
   )
 
   // Find nodes that are "planned" and now have all dependencies met
+  const liveNodes = planStore.nodes.filter(isLive)
+  const liveEdges = planStore.edges.filter(isLive)
   const newlyReady = projectNodes.filter((n) => {
     if (n.status !== "planned") return false
     if (batch.dispatchedNodeIds.has(n.id)) return false
-    return canExecuteNode(n, planStore.nodes, planStore.edges).ready
+    return canExecuteNode(n, liveNodes, liveEdges).ready
   })
 
   if (newlyReady.length === 0) {
