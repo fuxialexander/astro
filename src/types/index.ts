@@ -216,6 +216,17 @@ export interface TaskExecution {
     total: number;
     status: 'running' | 'completed' | 'failed';
   };
+  // Plan mode data (todos and questions from Claude Code plan mode)
+  planTodos?: Array<{
+    content: string;
+    status: 'pending' | 'in_progress' | 'completed';
+    activeForm: string;
+  }>;
+  planQuestions?: Array<{
+    question: string;
+    options: string[];
+    answer?: string;
+  }>;
 }
 
 // Provider status for displaying in UI

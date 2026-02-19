@@ -273,6 +273,57 @@ export function TaskDetail() {
                 </div>
               )}
 
+              {/* Plan Mode Data: Todos */}
+              {execution?.planTodos && execution.planTodos.length > 0 && (
+                <div className="mx-4 mb-4 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3.5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText className="h-4 w-4 text-blue-600" />
+                    <span className="text-xs font-semibold text-blue-700">Plan Todos</span>
+                  </div>
+                  <ul className="space-y-1.5">
+                    {execution.planTodos.map((todo, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs">
+                        {todo.status === 'completed' ? (
+                          <Check className="h-3.5 w-3.5 text-green-600 mt-0.5 shrink-0" />
+                        ) : todo.status === 'in_progress' ? (
+                          <Loader2 className="h-3.5 w-3.5 text-blue-600 mt-0.5 shrink-0 animate-spin" />
+                        ) : (
+                          <div className="h-3.5 w-3.5 mt-0.5 shrink-0 rounded-full border border-muted-foreground" />
+                        )}
+                        <span className={cn(
+                          todo.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'
+                        )}>{todo.content}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Plan Mode Data: Questions */}
+              {execution?.planQuestions && execution.planQuestions.length > 0 && (
+                <div className="mx-4 mb-4 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3.5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle className="h-4 w-4 text-purple-600" />
+                    <span className="text-xs font-semibold text-purple-700">Plan Questions</span>
+                  </div>
+                  <ul className="space-y-2">
+                    {execution.planQuestions.map((q, i) => (
+                      <li key={i} className="text-xs">
+                        <p className="font-medium text-foreground mb-1">{q.question}</p>
+                        <ul className="ml-3 space-y-0.5">
+                          {q.options.map((opt, j) => (
+                            <li key={j} className="text-muted-foreground">• {opt}</li>
+                          ))}
+                        </ul>
+                        {q.answer && (
+                          <p className="mt-1 text-purple-700 font-medium">Answer: {q.answer}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Action buttons */}
               <div className="flex items-center gap-2 border-t px-5 py-4">
                 <Button size="sm" onClick={() => nodeId && updateNode(nodeId, { status: "completed" })} className="min-h-9">

@@ -806,6 +806,33 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           toolInput: trace.toolInput,
           timestamp: trace.timestamp,
         }]
+
+        // Extract plan mode data from TodoWrite and AskUserQuestion tools
+        if (trace.toolName === 'TodoWrite') {
+          const input = trace.toolInput as { todos?: Array<{ content: string; status: string; activeForm: string }> }
+          if (input.todos) {
+            exec.planTodos = input.todos.map(t => ({
+              content: t.content,
+              status: t.status as 'pending' | 'in_progress' | 'completed',
+              activeForm: t.activeForm,
+            }))
+          }
+        } else if (trace.toolName === 'AskUserQuestion') {
+          const input = trace.toolInput as { questions?: Array<{ question: string; options: Array<{ label: string }> }> }
+          if (input.questions) {
+            // Initialize planQuestions if not exists
+            if (!exec.planQuestions) {
+              exec.planQuestions = []
+            }
+            // Add each question to the list
+            for (const q of input.questions) {
+              exec.planQuestions.push({
+                question: q.question,
+                options: q.options.map(o => o.label),
+              })
+            }
+          }
+        }
       }
       return { executions: newExecutions }
     })

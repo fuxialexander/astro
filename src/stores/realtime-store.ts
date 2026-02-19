@@ -92,6 +92,16 @@ export interface TaskStream {
   status?: string
   output?: string
   error?: string
+  planTodos?: Array<{
+    content: string
+    status: 'pending' | 'in_progress' | 'completed'
+    activeForm: string
+  }>
+  planQuestions?: Array<{
+    question: string
+    options: string[]
+    answer?: string
+  }>
 }
 
 /** Attached session from MCP bridge */
@@ -477,6 +487,34 @@ function handleRealtimeEvent(
             timestamp: now,
           }] : []),
         ]
+
+        // Extract plan mode data from TodoWrite and AskUserQuestion tools
+        if (data.toolName === 'TodoWrite') {
+          const input = data.toolInput as { todos?: Array<{ content: string; status: string; activeForm: string }> }
+          if (input?.todos) {
+            stream.planTodos = input.todos.map(t => ({
+              content: t.content,
+              status: t.status as 'pending' | 'in_progress' | 'completed',
+              activeForm: t.activeForm,
+            }))
+          }
+        } else if (data.toolName === 'AskUserQuestion') {
+          const input = data.toolInput as { questions?: Array<{ question: string; options: Array<{ label: string }> }> }
+          if (input?.questions) {
+            // Initialize planQuestions if not exists
+            if (!stream.planQuestions) {
+              stream.planQuestions = []
+            }
+            // Add each question to the list
+            for (const q of input.questions) {
+              stream.planQuestions.push({
+                question: q.question,
+                options: q.options.map(o => o.label),
+              })
+            }
+          }
+        }
+
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
