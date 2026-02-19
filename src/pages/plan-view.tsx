@@ -511,17 +511,19 @@ function ListEmptyState({ projectId, columns }: { projectId: string; columns: Li
 export function PlanListView({
   projectId,
   nodes,
-  onNodeSelect
+  onNodeSelect,
+  viewKey = "plan-list"
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
+  viewKey?: string // Optional: custom view key for display settings (default: "plan-list")
 }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const updateNode = usePlanStore((s) => s.updateNode)
   const removeNodes = usePlanStore((s) => s.removeNodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
-  const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
+  const displaySettings = useDisplaySettingsStore((s) => s.get(viewKey))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
 
@@ -647,13 +649,13 @@ export function PlanListView({
 
   const handleSort = useCallback((sortKey: string) => {
     if (displaySettings.orderBy === sortKey) {
-      updateDisplaySettings("plan-list", {
+      updateDisplaySettings(viewKey, {
         orderDirection: displaySettings.orderDirection === "asc" ? "desc" : "asc",
       })
     } else {
-      updateDisplaySettings("plan-list", { orderBy: sortKey, orderDirection: "asc" })
+      updateDisplaySettings(viewKey, { orderBy: sortKey, orderDirection: "asc" })
     }
-  }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
+  }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings, viewKey])
 
   // Show empty state if no tasks (with column headers)
   if (tasks.length === 0) {
@@ -686,16 +688,18 @@ export function PlanListView({
 export function PlanTimelineView({
   projectId,
   nodes,
-  onNodeSelect
+  onNodeSelect,
+  viewKey = "plan-list"
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
+  viewKey?: string // Optional: custom view key for display settings (default: "plan-list")
 }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const planEdges = usePlanStore((s) => s.edges)
   const updateNode = usePlanStore((s) => s.updateNode)
-  const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
+  const displaySettings = useDisplaySettingsStore((s) => s.get(viewKey))
   const [isCreating, setIsCreating] = useState(false)
 
   const allProjectNodes = useMemo(() => {
@@ -794,7 +798,7 @@ export function PlanTimelineView({
   return (
     <ItemTimelineView
       rows={timelineRows}
-      viewKey="plan-list"
+      viewKey={viewKey}
       renderLeftCell={(node) => (
         <span className={cn(
           "text-sm truncate",
@@ -825,15 +829,17 @@ export function PlanTimelineView({
 export function PlanBoardView({
   projectId,
   nodes: providedNodes,
-  onNodeSelect
+  onNodeSelect,
+  viewKey = "plan-board"
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
+  viewKey?: string // Optional: custom view key for display settings (default: "plan-board")
 }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const updateNode = usePlanStore((s) => s.updateNode)
-  const boardSettings = useDisplaySettingsStore((s) => s.get("plan-board"))
+  const boardSettings = useDisplaySettingsStore((s) => s.get(viewKey))
   const [creatingInColumn, setCreatingInColumn] = useState<string | null>(null)
 
   const nodes = useMemo(() => {

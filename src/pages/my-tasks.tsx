@@ -453,6 +453,7 @@ export function MyTasks() {
               <PlanBoardView
                 projectId="cross-project-mode"
                 nodes={sortedTasks}
+                viewKey="my-tasks-board"
                 onNodeSelect={(node) => {
                   if (node) navigate(`/project/${node.projectId}/plan`)
                 }}
@@ -466,6 +467,7 @@ export function MyTasks() {
             <PlanTimelineView
               projectId="cross-project-mode"
               nodes={sortedTasks}
+              viewKey="my-tasks-timeline"
               onNodeSelect={(node) => {
                 if (node) navigate(`/project/${node.projectId}/plan`)
               }}
@@ -478,6 +480,7 @@ export function MyTasks() {
             <PlanListView
               projectId="cross-project-mode"
               nodes={sortedTasks}
+              viewKey="my-tasks"
               onNodeSelect={(node) => {
                 if (node) navigate(`/project/${node.projectId}/plan`)
               }}
