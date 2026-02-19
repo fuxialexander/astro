@@ -188,6 +188,10 @@ function makePlanColumns(
       label: "Priority",
       width: "w-[60px]",
       sortKey: "priority",
+      batchPropertyOptions: onNodeUpdate ? PRIORITY_OPTIONS : undefined,
+      onBatchPropertySet: onNodeUpdate ? (value, selectedIds) => {
+        selectedIds.forEach((id) => onNodeUpdate(id, { priority: value as Priority }))
+      } : undefined,
       render: (node) => {
         const config = PRIORITY_CONFIG[(node.priority ?? "none") as Priority]
         const PIcon = config.icon
@@ -209,6 +213,10 @@ function makePlanColumns(
       label: "Status",
       width: "w-[120px]",
       sortKey: "status",
+      batchPropertyOptions: onNodeUpdate ? STATUS_OPTIONS : undefined,
+      onBatchPropertySet: onNodeUpdate ? (value, selectedIds) => {
+        selectedIds.forEach((id) => onNodeUpdate(id, { status: value as PlanNode["status"] }))
+      } : undefined,
       render: (node) => (
         <PropertyPicker
           value={node.status}
@@ -237,6 +245,10 @@ function makePlanColumns(
       id: "estimate",
       label: "Estimate",
       width: "w-[70px]",
+      batchPropertyOptions: onNodeUpdate ? ESTIMATE_OPTIONS : undefined,
+      onBatchPropertySet: onNodeUpdate ? (value, selectedIds) => {
+        selectedIds.forEach((id) => onNodeUpdate(id, { estimate: value as PlanNode["estimate"] }))
+      } : undefined,
       render: (node) => (
         <PropertyPicker
           value={node.estimate}

@@ -2,6 +2,8 @@ import { useState, useCallback, type ReactNode } from "react"
 import { ChevronRight, ArrowUp, ArrowDown, X } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
+import { PropertyPicker } from "@/components/property-picker"
+import type { PickerOption } from "@/lib/constants"
 import { cn } from "@/lib/utils"
 
 export interface ListColumn<T> {
@@ -12,6 +14,10 @@ export interface ListColumn<T> {
   headerClassName?: string // extra classes for header cell
   /** If set, this column is sortable. The value is passed to onSort when clicked. */
   sortKey?: string
+  /** If set, this column supports batch property setting. Shown when items are selected. */
+  batchPropertyOptions?: PickerOption[]
+  /** Called when batch property is set from column header. */
+  onBatchPropertySet?: (value: string, selectedIds: string[]) => void
 }
 
 export interface ListGroup<T> {
@@ -60,6 +66,8 @@ function ColumnHeader<T>({
   sortDirection,
   onSort,
   isNameColumn,
+  hasSelection,
+  selectedIds,
 }: {
   col?: ListColumn<T>
   fallbackLabel?: string
@@ -67,12 +75,38 @@ function ColumnHeader<T>({
   sortDirection?: "asc" | "desc"
   onSort?: (sortKey: string) => void
   isNameColumn?: boolean
+  hasSelection?: boolean
+  selectedIds?: string[]
 }) {
   const label = col?.label ?? fallbackLabel ?? "Name"
   const width = col?.width ?? "flex-1"
   const sortKey = col?.sortKey
   const isSorted = sortKey != null && sortColumn === sortKey
   const sortable = sortKey != null && onSort != null
+  const batchPropertyOptions = col?.batchPropertyOptions
+  const onBatchPropertySet = col?.onBatchPropertySet
+  const hasBatchProperty = hasSelection && batchPropertyOptions && onBatchPropertySet && selectedIds && selectedIds.length > 0
+
+  // If batch property setting is available and items are selected, show PropertyPicker
+  if (hasBatchProperty) {
+    return (
+      <PropertyPicker
+        value={undefined}
+        options={batchPropertyOptions}
+        title={`Set ${label.toLowerCase()} for ${selectedIds.length} item${selectedIds.length > 1 ? 's' : ''}`}
+        onSelect={(value) => onBatchPropertySet(value, selectedIds)}
+      >
+        <span className={cn(
+          "text-[13px] font-medium text-primary flex items-center gap-1 cursor-pointer",
+          isNameColumn ? "justify-start" : "justify-end text-right shrink-0",
+          width,
+          col?.headerClassName
+        )}>
+          {label}
+        </span>
+      </PropertyPicker>
+    )
+  }
 
   if (!sortable) {
     return (
@@ -234,9 +268,27 @@ export function ItemListView<T>({
             />
           </div>
         )}
-        <ColumnHeader col={nameCol} fallbackLabel="Name" sortColumn={sortColumn} sortDirection={sortDirection} onSort={onSort} isNameColumn />
+        <ColumnHeader
+          col={nameCol}
+          fallbackLabel="Name"
+          sortColumn={sortColumn}
+          sortDirection={sortDirection}
+          onSort={onSort}
+          isNameColumn
+          hasSelection={someSelected}
+          selectedIds={Array.from(selected)}
+        />
         {otherCols.map((col) => (
-          <ColumnHeader key={col.id} col={col} sortColumn={sortColumn} sortDirection={sortDirection} onSort={onSort} isNameColumn={false} />
+          <ColumnHeader
+            key={col.id}
+            col={col}
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            onSort={onSort}
+            isNameColumn={false}
+            hasSelection={someSelected}
+            selectedIds={Array.from(selected)}
+          />
         ))}
       </div>
 
