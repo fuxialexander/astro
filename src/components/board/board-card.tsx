@@ -3,6 +3,8 @@ import {
   Calendar,
   Circle,
   Folder,
+  GitPullRequest,
+  GitPullRequestDraft,
 } from "lucide-react"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { cn } from "@/lib/utils"
@@ -108,6 +110,24 @@ export function BoardCard({ node, visibleProperties, projectName, onNodeSelect, 
               <Folder className="h-3 w-3" />
               <span className="truncate max-w-[100px]">{projectName}</span>
             </span>
+          )}
+
+          {visibleProperties.includes("pr") && node.prUrl && (
+            <a
+              href={node.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-[11px] text-purple-500 hover:text-purple-600 transition-colors"
+              title={node.branchName ?? `PR #${node.prNumber}`}
+            >
+              {node.status === "completed" || node.status === "auto_verified" ? (
+                <GitPullRequest className="h-3.5 w-3.5" />
+              ) : (
+                <GitPullRequestDraft className="h-3.5 w-3.5" />
+              )}
+              {node.prNumber != null && <span>#{node.prNumber}</span>}
+            </a>
           )}
         </div>
       </div>

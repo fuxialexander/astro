@@ -45,7 +45,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderBy: "name",
     orderDirection: "asc",
     showCompleted: true,
-    visibleProperties: ["priority", "status", "dueDate", "estimate", "labels"],
+    visibleProperties: ["priority", "status", "dueDate", "estimate", "labels", "pr"],
     zoom: "month",
   },
   "my-tasks": {
@@ -53,7 +53,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderBy: "updatedAt",
     orderDirection: "desc",
     showCompleted: false,
-    visibleProperties: ["status", "priority", "project", "dueDate", "estimate"],
+    visibleProperties: ["status", "priority", "project", "dueDate", "estimate", "pr"],
   },
   "my-tasks-timeline": {
     groupBy: "none",
@@ -69,7 +69,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderDirection: "asc",
     showCompleted: false,
     columnBy: "status",
-    visibleProperties: ["priority", "estimate", "dueDate"],
+    visibleProperties: ["priority", "estimate", "dueDate", "pr"],
   },
   "my-tasks-board": {
     groupBy: "none",
@@ -77,7 +77,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderDirection: "asc",
     showCompleted: false,
     columnBy: "status",
-    visibleProperties: ["priority", "project", "dueDate"],
+    visibleProperties: ["priority", "project", "dueDate", "pr"],
   },
 }
 
