@@ -537,7 +537,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         connectionLineType={ConnectionLineType.SmoothStep}
-        connectionLineStyle={{ stroke: "hsl(var(--primary))", strokeWidth: 2.5, strokeLinecap: "round" }}
+        connectionLineStyle={{
+          stroke: "hsl(var(--primary))",
+          strokeWidth: 3,
+          strokeLinecap: "round",
+          strokeDasharray: "5,5",
+          opacity: 0.8
+        }}
         connectionRadius={40}
         fitView
         fitViewOptions={{ padding: 0.3 }}
