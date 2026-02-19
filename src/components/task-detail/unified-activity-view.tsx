@@ -29,6 +29,7 @@ import { chatWithTask } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent, ExecutionSummary } from "@/types"
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 
 interface UnifiedActivityViewProps {
   node: PlanNode
@@ -113,14 +114,14 @@ function TextBlock({ events }: { events: TaskActivityEvent[] }) {
   if (!text) return null
 
   return (
-    <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground px-4 py-1">
-      {text}
-    </pre>
+    <div className="px-4 py-1">
+      <MarkdownRenderer content={text} className="text-xs leading-relaxed" />
+    </div>
   )
 }
 
 function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(false) // Collapsed by default
   const toolUse = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
   const toolResult = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
 
@@ -332,7 +333,7 @@ function ChatAssistantBlock({ event }: { event: Extract<TaskActivityEvent, { typ
     <div className="flex flex-col items-start gap-1 px-4 py-1.5">
       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Claude</span>
       <div className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground max-w-[90%]">
-        <pre className="whitespace-pre-wrap font-secondary text-sm leading-relaxed">{event.content}</pre>
+        <MarkdownRenderer content={event.content} className="font-secondary text-sm leading-relaxed" />
       </div>
     </div>
   )
@@ -698,9 +699,10 @@ export function UnifiedActivityView({
                   <div className="flex flex-col items-start gap-1 px-4 py-1.5">
                     <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Claude</span>
                     <div className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground max-w-[90%]">
-                      <pre className="whitespace-pre-wrap font-secondary text-sm leading-relaxed">
-                        {msg.content || (isChatStreaming && msg.role === "assistant" ? "..." : "")}
-                      </pre>
+                      <MarkdownRenderer
+                        content={msg.content || (isChatStreaming && msg.role === "assistant" ? "..." : "")}
+                        className="font-secondary text-sm leading-relaxed"
+                      />
                     </div>
                   </div>
                 )}
