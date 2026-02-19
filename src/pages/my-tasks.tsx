@@ -470,6 +470,7 @@ export function MyTasks() {
                 onNodeSelect={(node) => {
                   if (node) navigate(`/project/${node.projectId}`)
                 }}
+                applyCompletedFilter={false}
               />
             )}
           </div>
@@ -483,6 +484,7 @@ export function MyTasks() {
               onNodeSelect={(node) => {
                 if (node) navigate(`/project/${node.projectId}`)
               }}
+              applyCompletedFilter={false}
             />
           )
         ) : (
@@ -502,6 +504,7 @@ export function MyTasks() {
                 }
                 return undefined
               }}
+              applyCompletedFilter={false}
             />
           )
         )

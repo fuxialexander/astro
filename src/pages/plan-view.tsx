@@ -536,6 +536,7 @@ export function PlanListView({
   onNodeSelect,
   getProjectIdFromGroup,
   isInspectorOpen,
+  applyCompletedFilter = true
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
@@ -544,6 +545,7 @@ export function PlanListView({
   getProjectIdFromGroup?: (groupKey: string) => string | undefined
   /** Whether the inspector panel is open */
   isInspectorOpen?: boolean
+  applyCompletedFilter?: boolean // Whether to apply showCompleted filter (default true)
 }) {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
@@ -629,12 +631,12 @@ export function PlanListView({
 
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
-    if (!displaySettings.showCompleted) {
+    if (applyCompletedFilter && !displaySettings.showCompleted) {
       filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)
-  }, [allProjectNodes, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted])
+  }, [allProjectNodes, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, applyCompletedFilter])
 
   const groups = useMemo((): ListGroup<PlanNode>[] => {
     if (displaySettings.groupBy === "milestone") {
@@ -760,11 +762,13 @@ export function PlanListView({
 export function PlanTimelineView({
   projectId,
   nodes,
-  onNodeSelect
+  onNodeSelect,
+  applyCompletedFilter = true
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
+  applyCompletedFilter?: boolean // Whether to apply showCompleted filter (default true)
 }) {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
@@ -785,12 +789,12 @@ export function PlanTimelineView({
 
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
-    if (!displaySettings.showCompleted) {
+    if (applyCompletedFilter && !displaySettings.showCompleted) {
       filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)
-  }, [allProjectNodes, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted])
+  }, [allProjectNodes, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, applyCompletedFilter])
 
   const edges = useMemo(() => {
     const nodeIds = new Set(tasks.map((n) => n.id))
@@ -901,11 +905,13 @@ export function PlanTimelineView({
 export function PlanBoardView({
   projectId,
   nodes: providedNodes,
-  onNodeSelect
+  onNodeSelect,
+  applyCompletedFilter = true
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
+  applyCompletedFilter?: boolean // Whether to apply showCompleted filter (default true)
 }) {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
@@ -944,7 +950,7 @@ export function PlanBoardView({
         nodes={nodes}
         columnBy={(boardSettings.columnBy ?? "status") as "status" | "priority" | "milestone"}
         visibleProperties={boardSettings.visibleProperties}
-        showCompleted={boardSettings.showCompleted}
+        showCompleted={applyCompletedFilter ? boardSettings.showCompleted : true}
         orderBy={boardSettings.orderBy}
         orderDirection={boardSettings.orderDirection}
         milestones={milestones}
