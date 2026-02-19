@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useParams, Link, useNavigate } from "react-router"
+import { useParams, Link, useNavigate, useSearchParams } from "react-router"
 import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, Layers, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -29,6 +29,7 @@ function deduplicateFileChanges(changes: Array<{ path: string; action: string; l
 export function TaskDetail() {
   const navigate = useNavigate()
   const { id: projectId, nodeId } = useParams<{ id: string; nodeId: string }>()
+  const [searchParams] = useSearchParams()
   const node = usePlanStore((s) => s.nodes.find((n) => n.id === nodeId))
   const updateNode = usePlanStore((s) => s.updateNode)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
@@ -87,7 +88,17 @@ export function TaskDetail() {
 
       {/* Header */}
       <div className="flex items-center gap-3 md:gap-4 border-b border-border px-4 md:px-6 py-3 md:py-4">
-        <Button variant="ghost" size="icon" className="h-8 w-8 md:h-9 md:w-9 shrink-0" onClick={() => navigate(-1)}>
+        <Button variant="ghost" size="icon" className="h-8 w-8 md:h-9 md:w-9 shrink-0" onClick={() => {
+          // Navigate back to the view we came from
+          const returnView = searchParams.get("from")
+          if (returnView && projectId) {
+            navigate(`/project/${projectId}/plan?view=${returnView}`)
+          } else if (projectId) {
+            navigate(`/project/${projectId}/plan`)
+          } else {
+            navigate(-1)
+          }
+        }}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">

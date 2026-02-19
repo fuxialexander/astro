@@ -23,6 +23,7 @@ import type { PlanNode, ProviderStatus } from "@/types"
 interface ExecutionPanelProps {
   node: PlanNode
   projectId: string
+  viewMode?: string // Optional: the view mode to return to when navigating back
 }
 
 const statusConfig = {
@@ -40,7 +41,7 @@ const environmentConfig = {
   cloud: { icon: Cloud, label: "Cloud", description: "Run on cloud instance" },
 }
 
-export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
+export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProps) {
   const outputRef = useRef<HTMLDivElement>(null)
   const rawNodes = usePlanStore((s) => s.nodes)
   const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
@@ -375,7 +376,7 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
       {/* View Details link */}
       {(execution || node.executionOutput) && (
         <Button variant="outline" size="sm" className="gap-1.5" asChild>
-          <Link to={`/project/${projectId}/task/${node.id}`}>
+          <Link to={`/project/${projectId}/task/${node.id}${viewMode ? `?from=${viewMode}` : ''}`}>
             <ExternalLink className="h-3.5 w-3.5" />
             View Details
           </Link>
