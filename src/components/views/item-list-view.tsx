@@ -59,12 +59,14 @@ function ColumnHeader<T>({
   sortColumn,
   sortDirection,
   onSort,
+  isNameColumn,
 }: {
   col?: ListColumn<T>
   fallbackLabel?: string
   sortColumn?: string
   sortDirection?: "asc" | "desc"
   onSort?: (sortKey: string) => void
+  isNameColumn?: boolean
 }) {
   const label = col?.label ?? fallbackLabel ?? "Name"
   const width = col?.width ?? "flex-1"
@@ -74,7 +76,12 @@ function ColumnHeader<T>({
 
   if (!sortable) {
     return (
-      <span className={cn("text-[13px] font-medium text-muted-foreground", width, col?.headerClassName)}>
+      <span className={cn(
+        "text-[13px] font-medium text-muted-foreground flex",
+        isNameColumn ? "justify-start" : "justify-end text-right shrink-0",
+        width,
+        col?.headerClassName
+      )}>
         {label}
       </span>
     )
@@ -86,6 +93,7 @@ function ColumnHeader<T>({
       onClick={() => onSort(sortKey)}
       className={cn(
         "flex items-center gap-1 text-[13px] font-medium transition-colors cursor-pointer select-none",
+        isNameColumn ? "justify-start" : "justify-end text-right shrink-0",
         isSorted ? "text-foreground" : "text-muted-foreground hover:text-foreground",
         width,
         col?.headerClassName,
@@ -226,9 +234,9 @@ export function ItemListView<T>({
             />
           </div>
         )}
-        <ColumnHeader col={nameCol} fallbackLabel="Name" sortColumn={sortColumn} sortDirection={sortDirection} onSort={onSort} />
+        <ColumnHeader col={nameCol} fallbackLabel="Name" sortColumn={sortColumn} sortDirection={sortDirection} onSort={onSort} isNameColumn />
         {otherCols.map((col) => (
-          <ColumnHeader key={col.id} col={col} sortColumn={sortColumn} sortDirection={sortDirection} onSort={onSort} />
+          <ColumnHeader key={col.id} col={col} sortColumn={sortColumn} sortDirection={sortDirection} onSort={onSort} isNameColumn={false} />
         ))}
       </div>
 
@@ -297,13 +305,13 @@ export function ItemListView<T>({
                     )}
 
                     {/* Name column */}
-                    <div className={cn("min-w-0", nameCol?.width ?? "flex-1")}>
+                    <div className={cn("min-w-0 flex items-center", nameCol?.width ?? "flex-1")}>
                       {renderItemName ? renderItemName(item) : nameCol?.render(item)}
                     </div>
 
                     {/* Other visible columns */}
                     {otherCols.map((col) => (
-                      <div key={col.id} className={cn(col.width)}>
+                      <div key={col.id} className={cn("flex items-center justify-end text-right shrink-0", col.width)}>
                         {col.render(item)}
                       </div>
                     ))}
