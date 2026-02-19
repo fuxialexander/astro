@@ -179,7 +179,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
                 }`}
               >
                 {msg.content ? (
-                  <pre className="whitespace-pre-wrap font-secondary text-sm">
+                  <pre className="whitespace-pre-wrap text-sm">
                     {msg.content}
                   </pre>
                 ) : isStreaming && msg.role === "assistant" ? (
