@@ -307,6 +307,8 @@ export interface ToolUseStreamEvent extends BaseStreamEvent {
   type: 'tool_use'
   toolName: string
   toolInput: unknown
+  /** LLM-assigned tool call ID for correlating tool_use → tool_result */
+  toolUseId?: string
 }
 
 /**
@@ -317,6 +319,8 @@ export interface ToolResultStreamEvent extends BaseStreamEvent {
   toolName: string
   result: unknown
   success: boolean
+  /** LLM-assigned tool call ID for correlating tool_use → tool_result */
+  toolUseId?: string
 }
 
 /**

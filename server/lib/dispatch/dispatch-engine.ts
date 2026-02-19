@@ -463,6 +463,13 @@ export class DispatchEngine extends EventEmitter {
         }
 
         switch (event.type) {
+          case 'init':
+            executionEventBus.emit('task:session_init', {
+              taskId: executionId,
+              sessionId: event.sessionId,
+              model: event.model,
+            })
+            break
           case 'text':
             fullOutput += event.text
             executionEventBus.emit('task:stdout', {
@@ -474,6 +481,7 @@ export class DispatchEngine extends EventEmitter {
               taskId: executionId,
               toolName: event.toolName,
               toolInput: event.toolInput,
+              toolUseId: event.toolUseId,
             })
             break
           case 'tool_result':
@@ -484,6 +492,7 @@ export class DispatchEngine extends EventEmitter {
                 ? event.result.slice(0, 100000)
                 : event.result,
               success: event.success,
+              toolUseId: event.toolUseId,
             })
             break
           case 'file_change':

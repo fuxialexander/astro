@@ -12,6 +12,7 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { UnifiedActivityView } from "@/components/task-detail/unified-activity-view"
 import { FileChangesView } from "@/components/task-detail/file-changes-view"
+import { TraceViewer } from "@/components/task-detail/trace-viewer"
 import { ApprovalCard } from "@/components/approval-card"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
@@ -360,6 +361,7 @@ export function TaskDetail() {
       <Tabs defaultValue="activity" className="flex-1 flex flex-col min-h-0">
         <TabsList className="mx-4 md:mx-6 mt-3 md:mt-4 w-fit">
           <TabsTrigger value="activity" className="text-xs md:text-sm">Activity</TabsTrigger>
+          <TabsTrigger value="trace" className="text-xs md:text-sm">Trace</TabsTrigger>
           <TabsTrigger value="files" className="text-xs md:text-sm">
             Files {fileChanges.length > 0 && `(${fileChanges.length})`}
           </TabsTrigger>
@@ -375,6 +377,9 @@ export function TaskDetail() {
             executionId={executionId}
             machineId={machineId}
           />
+        </TabsContent>
+        <TabsContent value="trace" className="flex-1 m-0 min-h-0">
+          <TraceViewer executionId={executionId} isRunning={isRunning} />
         </TabsContent>
         <TabsContent value="files" className="flex-1 m-0 min-h-0">
           <FileChangesView changes={fileChanges} machineId={machineId} />

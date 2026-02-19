@@ -257,6 +257,7 @@ export const taskExecutions = pgTable('task_executions', {
   estimatedCostUsd: real('estimated_cost_usd'),
   model: text('model'),
   turnsUsed: integer('turns_used'),
+  markdownSummary: text('markdown_summary'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
@@ -305,6 +306,29 @@ export const passkeyCredentials = pgTable('passkey_credentials', {
   deviceName: text('device_name'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   lastUsedAt: timestamp('last_used_at'),
+})
+
+// ── Observation Events ───────────────────────────────────────────────
+export const observationEvents = pgTable('observation_events', {
+  id: text('id').primaryKey(),
+  traceId: text('trace_id').notNull(),
+  parentObservationId: text('parent_observation_id'),
+  type: text('type').notNull(),
+  name: text('name').notNull(),
+  startTime: timestamp('start_time').notNull(),
+  endTime: timestamp('end_time'),
+  input: jsonb('input'),
+  output: jsonb('output'),
+  model: text('model'),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  estimatedCostUsd: real('estimated_cost_usd'),
+  level: text('level').notNull().default('default'),
+  metadata: jsonb('metadata'),
+  projectId: uuid('project_id').notNull(),
+  nodeId: text('node_id'),
+  statusMessage: text('status_message'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
 // ── Audit Logs ────────────────────────────────────────────────────────
