@@ -13,6 +13,7 @@ const DEFAULT_API_URL = 'http://localhost:3001';
 interface ConfigSchema {
   runnerId: string;
   machineId: string;
+  machineName?: string;
   environmentType: string;
   deviceToken?: string;
   apiUrl: string;
@@ -133,6 +134,20 @@ class ConfigManager {
       this.conf.set('machineId', machineId);
     }
     return machineId;
+  }
+
+  /**
+   * Get machine display name (e.g., SSH alias like "nebius-2")
+   */
+  getMachineName(): string | undefined {
+    return this.conf.get('machineName');
+  }
+
+  /**
+   * Set machine display name
+   */
+  setMachineName(name: string): void {
+    this.conf.set('machineName', name);
   }
 
   /**

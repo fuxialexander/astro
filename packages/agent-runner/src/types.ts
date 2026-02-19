@@ -8,6 +8,8 @@
 
 export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'slurm' | 'custom';
 
+export type ExecutionStrategyType = 'direct' | 'slurm' | 'docker' | 'k8s-exec' | 'skypilot';
+
 export interface HpcCapability {
   clusterName?: string;
   partitions: string[];
@@ -91,6 +93,7 @@ export interface Task {
   timeout?: number; // ms
   maxTurns?: number; // Override default maxTurns for the agent SDK
   outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> }; // Force structured JSON output
+  executionStrategy?: ExecutionStrategyType;
   createdAt: string;
 }
 
@@ -161,6 +164,15 @@ export interface WSMessage {
 
 // Client -> Server Messages
 
+/** Execution strategy info for registration payload */
+export interface ExecutionStrategyInfo {
+  id: ExecutionStrategyType;
+  name: string;
+  available: boolean;
+  version?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface RegisterMessage extends WSMessage {
   type: 'register';
   payload: {
@@ -168,6 +180,7 @@ export interface RegisterMessage extends WSMessage {
     machineId: string;
     environmentType?: string;
     providers: ProviderInfo[];
+    executionStrategies?: ExecutionStrategyInfo[];
     resources: MachineResources;
     version: string;
   };

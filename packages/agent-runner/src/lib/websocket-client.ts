@@ -34,6 +34,7 @@ import type {
   RepoSetupRequestMessage,
   RepoSetupResponseMessage,
   ProviderInfo,
+  ExecutionStrategyInfo,
   RunnerConfig,
   RunnerEvent,
   RunnerEventHandler,
@@ -59,6 +60,7 @@ export interface WebSocketClientOptions {
   machineId: string;
   environmentType?: string;
   providers: ProviderInfo[];
+  executionStrategies?: ExecutionStrategyInfo[];
   config?: Partial<RunnerConfig>;
   onEvent?: RunnerEventHandler;
   onTaskDispatch?: (task: Task) => void;
@@ -90,6 +92,7 @@ export class WebSocketClient {
   private runnerId: string;
   private machineId: string;
   private providers: ProviderInfo[];
+  private executionStrategies?: ExecutionStrategyInfo[];
   private version: string;
   private environmentType?: string;
   private wsToken?: string;
@@ -114,6 +117,7 @@ export class WebSocketClient {
     this.runnerId = options.runnerId;
     this.machineId = options.machineId;
     this.providers = options.providers;
+    this.executionStrategies = options.executionStrategies;
     this.version = options.version ?? '0.1.0';
     this.environmentType = options.environmentType;
     this.wsToken = options.wsToken;
@@ -185,12 +189,18 @@ export class WebSocketClient {
   }
 
   /**
-   * Ensure we have a valid WebSocket token before connecting
+   * Ensure we have a valid WebSocket token before connecting.
+   * Returns null in dev mode when no token is configured (allows unauthenticated connections).
    */
-  private async ensureValidToken(): Promise<string> {
+  private async ensureValidToken(): Promise<string | null> {
     let token = this.wsToken || configManager.getWsToken();
 
     if (!token) {
+      // In dev mode (non-wss relay), allow connecting without auth
+      if (this.config.relayUrl.startsWith('ws://')) {
+        console.log('[ws-client] No access token configured — connecting without auth (dev mode)');
+        return null;
+      }
       throw new Error('No access token configured. Please run setup to authenticate.');
     }
 
@@ -203,6 +213,11 @@ export class WebSocketClient {
         console.log('[ws-client] ✅ Access token refreshed successfully');
       } catch (error) {
         console.error('[ws-client] ❌ Failed to refresh token:', error instanceof Error ? error.message : String(error));
+        // In dev mode, fall back to unauthenticated
+        if (this.config.relayUrl.startsWith('ws://')) {
+          console.log('[ws-client] Falling back to unauthenticated connection (dev mode)');
+          return null;
+        }
         throw new Error(`Authentication failed: ${error instanceof Error ? error.message : 'Token refresh failed'}. Please run setup again.`);
       }
     }
@@ -221,8 +236,8 @@ export class WebSocketClient {
     this.isConnecting = true;
     this.shouldReconnect = true;
 
-    // Ensure we have a valid token before connecting
-    let token: string;
+    // Ensure we have a valid token before connecting (null = dev mode, no auth)
+    let token: string | null;
     try {
       token = await this.ensureValidToken();
     } catch (error) {
@@ -235,8 +250,10 @@ export class WebSocketClient {
         const headers: Record<string, string> = {
           'X-Runner-Id': this.runnerId,
           'X-Machine-Id': this.machineId,
-          'Authorization': `Bearer ${token}`,
         };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
         this.ws = new WebSocket(this.config.relayUrl, { headers });
 
         this.ws.on('open', async () => {
@@ -534,14 +551,18 @@ export class WebSocketClient {
   private async handleOpen(): Promise<void> {
     // Send registration message
     const resources = await getMachineResources();
+    // Allow config to override the display name (e.g., SSH alias like "nebius-2")
+    const machineName = configManager.getMachineName();
     const registerMsg: RegisterMessage = {
       type: 'register',
       timestamp: new Date().toISOString(),
       payload: {
         runnerId: this.runnerId,
         machineId: this.machineId,
+        ...(machineName ? { name: machineName } : {}),
         environmentType: this.environmentType,
         providers: this.providers,
+        executionStrategies: this.executionStrategies,
         resources,
         version: this.version,
       },

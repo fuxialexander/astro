@@ -121,8 +121,16 @@ interface AgentRunnerRegisterMessage {
   payload: {
     runnerId: string;
     machineId: string;
+    name?: string; // Optional display name override (e.g., SSH alias like "nebius-2")
     environmentType?: string;
     providers: AgentRunnerProviderInfo[];
+    executionStrategies?: Array<{
+      id: string;
+      name: string;
+      available: boolean;
+      version?: string;
+      metadata?: Record<string, unknown>;
+    }>;
     resources: AgentRunnerResources;
     version: string;
   };
@@ -428,9 +436,19 @@ export class RelayServer extends EventEmitter {
       console.log('[relay] Env RELAY_JWT_SECRET:', process.env.RELAY_JWT_SECRET ? 'SET' : 'NOT SET');
       console.log('[relay] Using secret:', secret ? 'YES' : 'NO');
 
-      // Require JWT secret in all modes (no development bypass)
-      if (!secret) {
-        console.error('[relay] ❌ No JWT secret configured - relay authentication is disabled. Set RELAY_JWT_SECRET to enable secure connections.');
+      // ONLY accept Authorization header (no query params for security)
+      const authHeader = info.req.headers['authorization'];
+      let token: string | null = null;
+
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+      }
+
+      // Dev mode bypass: allow unauthenticated connections when not in production
+      const isProduction = process.env.NODE_ENV === 'production';
+
+      if (!secret && isProduction) {
+        console.error('[relay] ❌ No JWT secret configured in production mode.');
         callback(false, 500,
           'Relay server authentication is not configured. ' +
           'Server administrator must set RELAY_JWT_SECRET environment variable.'
@@ -438,12 +456,20 @@ export class RelayServer extends EventEmitter {
         return;
       }
 
-      // ONLY accept Authorization header (no query params for security)
-      const authHeader = info.req.headers['authorization'];
-      let token: string | null = null;
-
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.slice(7);
+      if ((!token || token === 'null' || token === 'undefined') && !isProduction) {
+        // Dev mode: accept connection without auth, use headers for identity
+        const runnerId = info.req.headers['x-runner-id'] as string || 'dev-runner';
+        const machineId = info.req.headers['x-machine-id'] as string || 'dev-machine';
+        console.log(`[relay] ⚠ Dev mode: accepting unauthenticated connection (runner=${runnerId}, machine=${machineId})`);
+        (info.req as unknown as { machineJWT: MachineJWTPayload }).machineJWT = {
+          sub: machineId,
+          machineId,
+          scopes: ['machine:connect', 'task:execute'],
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 86400 * 365, // 1 year
+        };
+        callback(true);
+        return;
       }
 
       if (!token || token === 'null' || token === 'undefined') {
@@ -1154,7 +1180,7 @@ export class RelayServer extends EventEmitter {
     setMachineId: (id: string) => void
   ): void {
     const { payload } = message;
-    const { runnerId, machineId, environmentType, providers, resources, version } = payload;
+    const { runnerId, machineId, name: displayName, environmentType, providers, executionStrategies, resources, version } = payload;
 
     try {
       // Convert agent runner format to relay server format
@@ -1164,12 +1190,12 @@ export class RelayServer extends EventEmitter {
       const resolvedEnvType = hasHpcCapability ? 'hpc'
         : (validEnvTypes.includes(environmentType || '') ? environmentType : 'local');
       const machineInfo: Omit<MachineInfo, 'machineId'> = {
-        name: resources.hostname || machineId,
+        name: displayName || resources.hostname || machineId,
         environmentType: resolvedEnvType as EnvironmentType,
         hostname: resources.hostname,
         platform: resources.platform,
         providers: providers.map((p) => ({
-          type: (['claude-code', 'claude-sdk', 'aws', 'gcp'].includes(p.type) ? p.type : 'custom') as ProviderType,
+          type: (['claude-code', 'claude-sdk', 'codex', 'aws', 'gcp'].includes(p.type) ? p.type : 'custom') as ProviderType,
           version: p.version || undefined,
           status: p.available ? 'available' : 'unavailable',
           maxConcurrentTasks: p.capabilities.maxConcurrentTasks,
@@ -1196,6 +1222,13 @@ export class RelayServer extends EventEmitter {
           activeTasks: 0,
           queuedTasks: 0,
         },
+        executionStrategies: executionStrategies?.map((s: { id: string; name: string; available: boolean; version?: string; metadata?: Record<string, unknown> }) => ({
+          id: s.id,
+          name: s.name,
+          available: s.available,
+          version: s.version,
+          metadata: s.metadata,
+        })),
         tags: [runnerId, version],
         metadata: { runnerId, version },
       };

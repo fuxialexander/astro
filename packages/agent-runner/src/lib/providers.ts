@@ -160,31 +160,88 @@ async function detectClaudeCode(): Promise<ProviderInfo | null> {
 }
 
 /**
+ * Common installation paths for Codex CLI
+ */
+function getCodexPaths(): string[] {
+  const home = homedir();
+  const platform = process.platform;
+
+  const paths: string[] = [];
+
+  // npm global installs (most common for Codex)
+  paths.push(join(home, '.npm', 'bin', 'codex'));
+  paths.push(join(home, '.npm-global', 'bin', 'codex'));
+  paths.push(join(home, '.local', 'bin', 'codex'));
+
+  // npx / pnpm / yarn global locations
+  paths.push(join(home, '.yarn', 'bin', 'codex'));
+  paths.push(join(home, '.pnpm-global', 'bin', 'codex'));
+
+  if (platform === 'darwin') {
+    paths.push('/usr/local/bin/codex');
+    paths.push('/opt/homebrew/bin/codex');
+  } else if (platform === 'win32') {
+    const appData = process.env.APPDATA ?? join(home, 'AppData', 'Roaming');
+    paths.push(join(appData, 'npm', 'codex.cmd'));
+    paths.push(join(appData, 'npm', 'codex'));
+  } else {
+    paths.push('/usr/local/bin/codex');
+    paths.push('/usr/bin/codex');
+  }
+
+  return paths;
+}
+
+/**
  * Detect OpenAI Codex CLI installation
  */
 async function detectCodex(): Promise<ProviderInfo | null> {
-  // Check for 'codex' command
+  // First, check if 'codex' is in PATH
   const exists = await commandExists('codex');
-  if (!exists) {
-    return null;
+  if (exists) {
+    const path = await getCommandPath('codex');
+    const version = await getCommandVersion('codex', '--version');
+
+    return {
+      type: 'codex',
+      name: 'OpenAI Codex',
+      version,
+      path: path ?? 'codex',
+      available: true,
+      capabilities: {
+        streaming: true,
+        tools: true,
+        multiTurn: true,
+        maxConcurrentTasks: 1,
+      },
+    };
   }
 
-  const path = await getCommandPath('codex');
-  const version = await getCommandVersion('codex', '--version');
+  // If not in PATH, check common installation locations
+  const commonPaths = getCodexPaths();
 
-  return {
-    type: 'codex',
-    name: 'OpenAI Codex',
-    version,
-    path: path ?? 'codex',
-    available: true,
-    capabilities: {
-      streaming: true,
-      tools: true,
-      multiTurn: true,
-      maxConcurrentTasks: 1,
-    },
-  };
+  for (const codexPath of commonPaths) {
+    const isExecutable = await fileExecutable(codexPath);
+    if (isExecutable) {
+      const version = await getCommandVersion(codexPath, '--version');
+
+      return {
+        type: 'codex',
+        name: 'OpenAI Codex',
+        version,
+        path: codexPath,
+        available: true,
+        capabilities: {
+          streaming: true,
+          tools: true,
+          multiTurn: true,
+          maxConcurrentTasks: 1,
+        },
+      };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -252,7 +309,7 @@ async function detectHpcCapability(): Promise<HpcCapability | null> {
 }
 
 /**
- * Detect Claude Agent SDK availability (in-process, preferred over CLI)
+ * Detect Claude Agent SDK availability (in-process, uses OAuth from claude CLI login)
  */
 async function detectClaudeSdk(): Promise<ProviderInfo | null> {
   try {
@@ -294,7 +351,7 @@ export async function detectProviders(): Promise<ProviderInfo[]> {
 
   const [claudeSdk, claudeCode, codex, hpcCapability, customProviders] = detectionResults;
 
-  // Add Claude provider (SDK preferred over CLI), annotated with HPC if available
+  // Add Claude provider (SDK preferred over CLI — runs in-process with lower overhead)
   if (claudeSdk) {
     if (hpcCapability) {
       claudeSdk.hpcCapability = hpcCapability;

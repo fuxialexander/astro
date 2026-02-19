@@ -104,9 +104,11 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     signal: AbortSignal
   ): Promise<{ exitCode: number; output: string; error?: string; artifacts?: TaskArtifact[] }> {
     return new Promise((resolve, reject) => {
-      // Build claude command arguments
+      // Claude Code CLI: --print = fully autonomous non-interactive mode
+      // No approval prompts, no terminal interaction.
+      // Code executes locally on the host machine (not on Anthropic's cloud).
       const args = [
-        '--print', // Non-interactive mode, print output
+        '--print', // Fully autonomous — no permission prompts, runs to completion
         '--verbose', // Required for stream-json with --print
         '--output-format', 'stream-json', // JSON streaming output for structured parsing
       ];

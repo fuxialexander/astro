@@ -102,6 +102,15 @@ export function getAllowedEnvironments(project: Project | undefined): {
   return { allowed: ['local', 'remote', 'hpc', 'cloud'] }
 }
 
+// Compute backend info from agent-runner detection
+export interface ComputeBackendInfo {
+  id: string
+  name: string
+  available: boolean
+  version?: string
+  metadata?: Record<string, unknown>
+}
+
 // Available machine info from relay server
 export interface MachineInfo {
   machineId: string
@@ -118,6 +127,7 @@ export interface MachineInfo {
     type: string
     status: string
   }>
+  executionStrategies?: ComputeBackendInfo[]
 }
 
 // Execution options for dispatch
@@ -125,6 +135,8 @@ export interface ExecutionOptions {
   environment?: 'local' | 'remote' | 'hpc' | 'cloud'
   targetMachineId?: string
   preferredProvider?: string
+  /** Selected compute backend (direct, slurm, docker, k8s-exec, skypilot) */
+  computeBackend?: string
   model?: string
   maxTurns?: number
 }
@@ -151,6 +163,10 @@ interface ExecutionState {
   // Available machines from relay
   machines: MachineInfo[]
   machinesLoaded: boolean
+
+  // Local execution backends (detected on server)
+  localBackends: ComputeBackendInfo[]
+  localBackendsLoaded: boolean
 
   // Currently selected execution for detail view
   selectedExecutionId: string | null
@@ -187,6 +203,10 @@ interface ExecutionState {
   // Machine actions
   loadMachines: () => Promise<void>
   getMachinesForEnvironment: (env: 'local' | 'remote' | 'hpc' | 'cloud') => MachineInfo[]
+
+  // Local backend actions
+  loadLocalBackends: () => Promise<void>
+  fetchBackendDetail: (id: string) => Promise<{ backend: ComputeBackendInfo; contextString: string } | null>
 
   // Selection
   selectExecution: (nodeId: string | null) => void
@@ -292,6 +312,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   providersLoaded: false,
   machines: [],
   machinesLoaded: false,
+  localBackends: [],
+  localBackendsLoaded: false,
   selectedExecutionId: null,
   batchExecutions: new Map(),
   pendingApprovals: new Map(),
@@ -729,6 +751,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             : 'online',
           load: m.load,
           providers: m.providers,
+          executionStrategies: m.executionStrategies,
         }))
         set({ machines, machinesLoaded: true })
       }
@@ -739,6 +762,33 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   getMachinesForEnvironment: (env: 'local' | 'remote' | 'hpc' | 'cloud') => {
     return get().machines.filter((m) => m.environmentType === env && m.status !== 'offline')
+  },
+
+  loadLocalBackends: async () => {
+    try {
+      const headers = await getAuthHeaders()
+      const response = await fetch(apiUrl("/api/backends"), { headers })
+      if (response.ok) {
+        const data = await response.json() as { backends?: ComputeBackendInfo[] }
+        set({ localBackends: data.backends ?? [], localBackendsLoaded: true })
+      }
+    } catch {
+      set({ localBackendsLoaded: true })
+    }
+  },
+
+  fetchBackendDetail: async (id: string) => {
+    try {
+      const headers = await getAuthHeaders()
+      const response = await fetch(apiUrl(`/api/backends/${id}`), { headers })
+      if (response.ok) {
+        const data = await response.json() as { backend: ComputeBackendInfo; contextString: string }
+        return data
+      }
+      return null
+    } catch {
+      return null
+    }
   },
 
   selectExecution: (nodeId: string | null) => {

@@ -13,6 +13,7 @@ import { getMachineResources, formatResourceSummary } from '../lib/resources.js'
 import { WebSocketClient } from '../lib/websocket-client.js';
 import { TaskExecutor } from '../lib/task-executor.js';
 import { localRepoSetup } from '../lib/repo-utils.js';
+import { executionStrategyRegistry } from '../execution/index.js';
 import type { RunnerEvent, Task, RepoSetupRequestMessage } from '../types.js';
 
 interface StartOptions {
@@ -140,6 +141,24 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     providers = [];
   }
 
+  // Detect execution strategies
+  const strategySpinner = ora('Detecting execution strategies...').start();
+  let executionStrategies: Awaited<ReturnType<typeof executionStrategyRegistry.detectAll>> = [];
+  try {
+    executionStrategies = await executionStrategyRegistry.detectAll();
+    const available = executionStrategies.filter((s) => s.available);
+    if (available.length > 0) {
+      strategySpinner.succeed(
+        `Found ${available.length} execution strategy(s): ${available.map((s) => s.name).join(', ')}`,
+      );
+    } else {
+      strategySpinner.warn('No execution strategies detected (direct always available)');
+    }
+  } catch {
+    strategySpinner.fail('Failed to detect execution strategies');
+    executionStrategies = [];
+  }
+
   console.log();
 
   // Create WebSocket client
@@ -154,6 +173,7 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     machineId,
     environmentType,
     providers,
+    executionStrategies: executionStrategies.filter((s) => s.available),
     version,
     wsToken: config.getWsToken(),
     config: {

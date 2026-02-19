@@ -14,6 +14,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import { readFileSync } from 'node:fs'
 import { access, constants } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -112,10 +113,24 @@ async function getCodexVersion(codexPath: string): Promise<string | null> {
 }
 
 /**
- * Check if OpenAI authentication is available via environment variable.
+ * Check if OpenAI authentication is available.
+ * Checks environment variable first, then falls back to ~/.codex/auth.json
+ * (where `codex login` stores credentials).
  */
 function checkOpenAIAuth(): 'authenticated' | 'unauthenticated' {
-  return process.env.OPENAI_API_KEY ? 'authenticated' : 'unauthenticated'
+  if (process.env.OPENAI_API_KEY) return 'authenticated'
+
+  // Codex CLI stores auth in ~/.codex/auth.json after `codex login`
+  try {
+    const authPath = join(homedir(), '.codex', 'auth.json')
+    const content = readFileSync(authPath, 'utf-8')
+    const auth = JSON.parse(content)
+    if (auth.tokens || auth.OPENAI_API_KEY) return 'authenticated'
+  } catch {
+    // auth.json not found or invalid
+  }
+
+  return 'unauthenticated'
 }
 
 /**
@@ -147,8 +162,8 @@ export class CodexProvider implements AgentProvider {
           executablePath: pathResult,
           authStatus,
           message: authStatus === 'authenticated'
-            ? 'Codex CLI found in PATH (OPENAI_API_KEY set)'
-            : 'Codex CLI found in PATH but OPENAI_API_KEY is not set',
+            ? 'Codex CLI found in PATH (authenticated)'
+            : 'Codex CLI found in PATH but not authenticated',
           detectedAt: new Date(),
         }
 
@@ -170,8 +185,8 @@ export class CodexProvider implements AgentProvider {
             executablePath: codexPath,
             authStatus,
             message: authStatus === 'authenticated'
-              ? `Codex CLI found at ${codexPath} (OPENAI_API_KEY set)`
-              : `Codex CLI found at ${codexPath} but OPENAI_API_KEY is not set`,
+              ? `Codex CLI found at ${codexPath} (authenticated)`
+              : `Codex CLI found at ${codexPath} but not authenticated`,
             detectedAt: new Date(),
           }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from "react"
 import { Link } from "react-router"
-import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown, Bot } from "lucide-react"
+import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown, Bot, Boxes } from "lucide-react"
 // Cloud and Globe used via environmentConfig lookup
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useExecutionStore, canExecuteNode, getProjectWorkingDir } from "@/stores/execution-store"
+import { useExecutionStore, canExecuteNode, getProjectWorkingDir, type ComputeBackendInfo } from "@/stores/execution-store"
 import { shouldUseSupabase } from "@/lib/supabase-client"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -77,10 +77,16 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(defaultMachineId || null)
   const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider || "")
   const [selectedModel, setSelectedModel] = useState<string>("")
+  const [selectedBackend, setSelectedBackend] = useState<string>("")
 
   // Derive environment from selected machine
   const selectedMachine = selectedMachineId ? machines.find((m) => m.machineId === selectedMachineId) ?? null : null
   const selectedEnvironment: 'local' | 'remote' | 'hpc' | 'cloud' = selectedMachine?.environmentType || 'local'
+
+  // Compute backends available on the selected machine (non-direct strategies)
+  const availableBackends: ComputeBackendInfo[] = selectedMachine?.executionStrategies
+    ? selectedMachine.executionStrategies.filter((s) => s.available && s.id !== 'direct')
+    : []
 
   // Derived: selected provider object
   const selectedProviderObj: ProviderStatus | null = selectedProvider
@@ -146,6 +152,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
       targetMachineId: effectiveMachine?.machineId,
       preferredProvider: selectedProvider || undefined,
       model: selectedModel || undefined,
+      computeBackend: selectedBackend || undefined,
     })
   }
 
@@ -218,6 +225,62 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Compute Backend Selection (when machine has non-direct strategies) */}
+      {availableBackends.length > 0 && (
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Backend</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 max-w-[180px]">
+                <Boxes className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">
+                  {selectedBackend
+                    ? availableBackends.find((b) => b.id === selectedBackend)?.name ?? selectedBackend
+                    : "Direct"}
+                </span>
+                <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Compute Backend</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setSelectedBackend("")}
+                className="gap-2"
+              >
+                <Boxes className="h-4 w-4" />
+                <div className="flex flex-col">
+                  <span>Direct</span>
+                  <span className="text-xs text-muted-foreground">Local process execution</span>
+                </div>
+                {!selectedBackend && (
+                  <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {availableBackends.map((backend) => (
+                <DropdownMenuItem
+                  key={backend.id}
+                  onClick={() => setSelectedBackend(backend.id)}
+                  className="gap-2"
+                >
+                  <Boxes className="h-4 w-4" />
+                  <div className="flex flex-col">
+                    <span>{backend.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {backend.version ? `v${backend.version}` : backend.id}
+                    </span>
+                  </div>
+                  {selectedBackend === backend.id && (
+                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
 
       {/* Working directory warning */}
       {!dirCheck.ok && (

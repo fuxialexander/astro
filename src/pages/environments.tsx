@@ -6,25 +6,24 @@ import {
   Wifi,
   RefreshCw,
   Plus,
-  Cloud,
   Laptop,
-  Zap,
   Globe,
   CheckCircle2,
   XCircle,
   Trash2,
+  Boxes,
+  Container,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useRealtimeStore, type MachineEntry } from "@/stores/realtime-store"
-import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
-import { useExecutionStore } from "@/stores/execution-store"
-import { useAuthStore } from "@/stores/auth-store"
+import { useMachinesStore } from "@/stores/machines-store"
+import { useExecutionStore, type ComputeBackendInfo } from "@/stores/execution-store"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
+import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
 import { shouldUseSupabase } from "@/lib/supabase-client"
-import { formatDate, formatTimeShort } from "@/lib/date-utils"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
   label: string
@@ -48,74 +47,140 @@ function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
   )
 }
 
-function MachineCard({ machine, onRemove }: { machine: MachineEntry; registeredMachine?: RegisteredMachine; onRemove?: () => void }) {
-  const providers = machine.providers.map((p) => p.type).join(" · ")
-  const hpcCapability = machine.providers.find((p) => p.hpcCapability)?.hpcCapability
-  const loadPercent = Math.round(machine.load.cpuPercent)
-  const loadColor = loadPercent > 75 ? "bg-amber-500 dark:bg-amber-500" : "bg-blue-500 dark:bg-blue-500"
+const backendStyleMap: Record<string, { color: string; bg: string }> = {
+  direct: { color: "text-gray-600 dark:text-gray-400", bg: "bg-gray-100 dark:bg-gray-800" },
+  slurm: { color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30" },
+  docker: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30" },
+  "k8s-exec": { color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-100 dark:bg-sky-900/30" },
+  skypilot: { color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-100 dark:bg-orange-900/30" },
+  ssh: { color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30" },
+}
 
+function getBackendStyle(id: string) {
+  if (id.startsWith('ssh:')) return backendStyleMap.ssh!
+  return backendStyleMap[id] ?? backendStyleMap.direct!
+}
+
+const providerDisplayName: Record<string, string> = {
+  "claude-sdk": "Claude Agent SDK",
+  "claude-code": "Claude Code",
+  "codex": "Codex",
+}
+
+function formatResourceSummary(resources?: MachineEntry["resources"]): string | null {
+  if (!resources) return null
+  const parts: string[] = []
+  parts.push(`${resources.cpuCores} CPUs`)
+  const memGb = Math.round(resources.memoryMB / 1024)
+  parts.push(`${memGb}GB RAM`)
+  if (resources.gpuCount && resources.gpuCount > 0) {
+    const gpuMemGb = resources.gpuMemoryMB ? Math.round(resources.gpuMemoryMB / 1024) : null
+    parts.push(`${resources.gpuCount} GPU${resources.gpuCount > 1 ? "s" : ""}${gpuMemGb ? ` (${gpuMemGb}GB)` : ""}`)
+  }
+  return parts.join(" · ")
+}
+
+function ConnectedMachinesCard({ machines, onRemove, onBackendClick }: {
+  machines: MachineEntry[]
+  onRemove?: (machineId: string) => void
+  onBackendClick?: (backend: ComputeBackendInfo) => void
+}) {
   return (
-    <div className="rounded-2xl bg-card dark:bg-card p-4 shadow-[0px_2px_12px_-2px_rgba(0,0,0,0.25)] flex flex-col gap-3.5">
-      {/* Top Row: Status + Name + Time */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="h-2.5 w-2.5 rounded-full bg-green-500 shrink-0" />
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <p className="font-semibold text-base text-foreground truncate">
-              {machine.name || machine.machineId}
-            </p>
-            <p className="text-xs text-muted-foreground truncate">
-              {providers}
+    <Card>
+      <div className="flex items-center justify-between p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10">
+            <Globe className="h-5 w-5 text-green-500" />
+          </div>
+          <div>
+            <p className="font-medium">Connected</p>
+            <p className="text-xs text-muted-foreground">
+              {machines.length} machine{machines.length !== 1 ? "s" : ""} via agent runner relay
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs font-semibold text-green-500">Active now</span>
-          {onRemove && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-destructive md:flex hidden"
-              onClick={onRemove}
+        <Badge className="gap-1.5 bg-success/10 text-success border-0">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" />
+          {machines.length} active
+        </Badge>
+      </div>
+      <div className="flex flex-col gap-2 px-6 pb-6">
+        {machines.map((machine) => {
+          const strategies = machine.executionStrategies?.filter((s) => s.available) ?? []
+          const loadPercent = Math.round(machine.load.cpuPercent)
+          const loadColor = loadPercent > 75 ? "bg-amber-500" : "bg-blue-500"
+          const resourceSummary = formatResourceSummary(machine.resources)
+
+          return (
+            <div
+              key={machine.machineId}
+              className="flex flex-col gap-2.5 rounded-lg bg-muted hover:bg-muted/80 transition-colors p-3"
             >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom Row: Load bar */}
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between text-[11px]">
-          <span className="text-muted-foreground font-medium">Load</span>
-          <span className="text-muted-foreground font-semibold">{loadPercent}%</span>
-        </div>
-        <div className="h-1 w-full rounded-sm bg-muted overflow-hidden">
-          <div
-            className={`h-full rounded-sm ${loadColor} transition-all duration-500`}
-            style={{ width: `${Math.min(loadPercent, 100)}%` }}
-          />
-        </div>
-      </div>
-
-      {/* HPC Info (Desktop only) */}
-      {hpcCapability && (
-        <div className="hidden md:flex flex-col gap-1.5 rounded-lg bg-muted/50 p-3 text-xs border-t border-border">
-          {hpcCapability.partitions.length > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground">Partitions:</span>
-              <span className="font-medium">{hpcCapability.partitions.join(", ")}</span>
+              {/* Name + status row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+                  <div className="flex flex-col gap-0 min-w-0">
+                    <span className="text-sm font-medium truncate">{machine.name || machine.machineId}</span>
+                    {resourceSummary && (
+                      <span className="text-[11px] text-muted-foreground truncate">{resourceSummary}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[11px] text-muted-foreground">{loadPercent}%</span>
+                  <div className="h-1 w-16 rounded-sm bg-background overflow-hidden">
+                    <div
+                      className={`h-full rounded-sm ${loadColor} transition-all duration-500`}
+                      style={{ width: `${Math.min(loadPercent, 100)}%` }}
+                    />
+                  </div>
+                  {onRemove && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-destructive hidden md:flex"
+                      onClick={() => onRemove(machine.machineId)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {/* Badges: providers + backends */}
+              <div className="flex flex-wrap gap-1">
+                {machine.providers.map((p) => (
+                  <span
+                    key={p.type}
+                    className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+                      p.status === "available"
+                        ? "text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30"
+                        : "text-muted-foreground bg-background"
+                    }`}
+                  >
+                    {providerDisplayName[p.type] ?? p.type}
+                  </span>
+                ))}
+                {strategies.filter((s) => s.id !== 'direct').map((s) => {
+                  const style = getBackendStyle(s.id)
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium cursor-pointer hover:opacity-80 transition-opacity ${style.color} ${style.bg}`}
+                      onClick={() => onBackendClick?.(s)}
+                    >
+                      {s.name}
+                      {s.version && <span className="opacity-60">v{s.version}</span>}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          )}
-          {hpcCapability.accounts.length > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground">Accounts:</span>
-              <span className="font-medium">{hpcCapability.accounts.join(", ")}</span>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+          )
+        })}
+      </div>
+    </Card>
   )
 }
 
@@ -186,45 +251,116 @@ function LocalMachineCard() {
   )
 }
 
-function OfflineMachineCard({ machine, onRemove }: { machine: RegisteredMachine; onRemove?: () => void }) {
+function backendSubtitle(b: ComputeBackendInfo): string | null {
+  const meta = b.metadata ?? {}
+
+  // Individual SSH host
+  if (b.id.startsWith('ssh:')) {
+    const user = meta.user as string | undefined
+    const hostname = meta.hostname as string | undefined
+    const proxyJump = meta.proxyJump as string | undefined
+    const parts: string[] = []
+    if (user && hostname) parts.push(`${user}@${hostname}`)
+    else if (hostname && hostname !== b.name) parts.push(hostname)
+    if (proxyJump) parts.push(`via ${proxyJump}`)
+    return parts.length > 0 ? parts.join(' · ') : null
+  }
+
+  switch (b.id) {
+    case 'k8s-exec': {
+      const namespaces = meta.namespaces as string[] | undefined
+      const ctx = meta.context as string | undefined
+      const parts: string[] = []
+      if (ctx) parts.push(ctx)
+      if (namespaces?.length) parts.push(`${namespaces.length} namespaces`)
+      return parts.length > 0 ? parts.join(' · ') : null
+    }
+    case 'docker': {
+      const cpus = meta.cpus as number | undefined
+      const memGb = meta.memoryGb as number | undefined
+      const parts: string[] = []
+      if (cpus) parts.push(`${cpus} CPUs`)
+      if (memGb) parts.push(`${memGb}GB RAM`)
+      return parts.length > 0 ? parts.join(' · ') : null
+    }
+    case 'slurm': {
+      const clusterName = meta.clusterName as string | undefined
+      const partitions = meta.partitions as unknown[] | undefined
+      const parts: string[] = []
+      if (clusterName) parts.push(clusterName)
+      if (partitions?.length) parts.push(`${partitions.length} partitions`)
+      return parts.length > 0 ? parts.join(' · ') : null
+    }
+    default:
+      return null
+  }
+}
+
+function LocalBackendsCard({ backends, onBackendClick }: { backends: ComputeBackendInfo[]; onBackendClick?: (backend: ComputeBackendInfo) => void }) {
   return (
-    <Card className="opacity-60">
-      {/* Header */}
+    <Card>
       <div className="flex items-center justify-between p-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-            <Monitor className="h-5 w-5 text-muted-foreground" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
+            <Boxes className="h-5 w-5 text-purple-500" />
           </div>
           <div>
-            <p className="font-medium">{machine.name}</p>
+            <p className="font-medium">This Machine</p>
             <p className="text-xs text-muted-foreground">
-              {machine.hostname} &middot; {machine.platform}
+              Backends detected on the server
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary">Offline</Badge>
-          {onRemove && (
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onRemove}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          )}
-        </div>
+        <Badge className="gap-1.5 bg-success/10 text-success border-0">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" />
+          Detected
+        </Badge>
       </div>
+      <div className="flex flex-col gap-2 px-6 pb-6">
+        {backends.map((b) => {
+          const style = getBackendStyle(b.id)
+          const subtitle = backendSubtitle(b)
+          const isSSH = b.id.startsWith('ssh:')
+          const reachable = isSSH ? (b.metadata?.reachable as boolean | null) : null
+          const isUnreachable = isSSH && reachable === false
 
-      {/* Content */}
-      {machine.providers.length > 0 && (
-        <div className="flex gap-1.5 px-6 pb-4">
-          {machine.providers.map((p) => (
-            <Badge key={p} variant="outline" className="text-[11px]">{p}</Badge>
-          ))}
-        </div>
-      )}
-
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t px-6 py-3 text-xs text-muted-foreground">
-        <span>Registered {formatDate(machine.registeredAt)}</span>
-        <span>Last seen {formatTimeShort(machine.lastSeenAt)}</span>
+          return (
+            <button
+              key={b.id}
+              type="button"
+              className={`flex items-center justify-between rounded-lg p-3 w-full text-left cursor-pointer transition-colors ${
+                isUnreachable ? "bg-muted/50 opacity-60 hover:opacity-80" : "bg-muted hover:bg-muted/80"
+              }`}
+              onClick={() => onBackendClick?.(b)}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {isUnreachable ? (
+                  <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+                )}
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-medium">{b.name}</span>
+                    {b.version && (
+                      <span className={`text-xs ${style.color}`}>v{b.version}</span>
+                    )}
+                  </div>
+                  {subtitle && (
+                    <span className="text-[11px] text-muted-foreground truncate">{subtitle}</span>
+                  )}
+                </div>
+              </div>
+              {isUnreachable ? (
+                <Badge variant="secondary" className="shrink-0 ml-2">Unreachable</Badge>
+              ) : isSSH ? (
+                <Badge variant="warning" className="shrink-0 ml-2">SSH Only</Badge>
+              ) : (
+                <Badge variant="success" className="shrink-0 ml-2">Available</Badge>
+              )}
+            </button>
+          )
+        })}
       </div>
     </Card>
   )
@@ -232,8 +368,26 @@ function OfflineMachineCard({ machine, onRemove }: { machine: RegisteredMachine;
 
 export function Environments() {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [selectedBackend, setSelectedBackend] = useState<ComputeBackendInfo | null>(null)
+  const [backendContextString, setBackendContextString] = useState("")
+  const [backendDialogOpen, setBackendDialogOpen] = useState(false)
+  const [backendDetailLoading, setBackendDetailLoading] = useState(false)
+  const fetchBackendDetail = useExecutionStore((s) => s.fetchBackendDetail)
 
-  const user = useAuthStore((s) => s.user)
+  const handleBackendClick = (backend: ComputeBackendInfo) => {
+    setSelectedBackend(backend)
+    setBackendContextString("")
+    setBackendDialogOpen(true)
+    setBackendDetailLoading(true)
+    fetchBackendDetail(backend.id).then((result) => {
+      if (result) {
+        setSelectedBackend(result.backend)
+        setBackendContextString(result.contextString)
+      }
+      setBackendDetailLoading(false)
+    })
+  }
+
   const machines = useRealtimeStore((s) => s.machines)
   const realtimeConnected = useRealtimeStore((s) => s.connected)
   const connectRealtime = useRealtimeStore((s) => s.connect)
@@ -241,9 +395,12 @@ export function Environments() {
   // Check if we're in multi-tenant mode (hide "Local" in production)
   const isMultiTenant = shouldUseSupabase()
 
-  const registeredMachines = useMachinesStore((s) => s.machines)
-  const fetchRegistered = useMachinesStore((s) => s.fetchMachines)
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
+
+  // Local backends detected on server
+  const localBackends = useExecutionStore((s) => s.localBackends)
+  const localBackendsLoaded = useExecutionStore((s) => s.localBackendsLoaded)
+  const loadLocalBackends = useExecutionStore((s) => s.loadLocalBackends)
 
   // Connect to real-time events on mount to receive live machine updates
   useEffect(() => {
@@ -252,58 +409,30 @@ export function Environments() {
     }
   }, [realtimeConnected, connectRealtime])
 
-  // Re-fetch registered machines on mount and whenever live machines change.
-  // The server auto-registers relay-connected machines in the persistent store
-  // via ensureMachineRegistered on machine:connected events. A small delay
-  // ensures the server has time to persist before the frontend re-fetches.
-  const liveMachineCount = machines.size
+  // Load local backends on mount
   useEffect(() => {
-    if (!user) return
-
-    fetchRegistered()
-    if (liveMachineCount > 0) {
-      const timer = setTimeout(() => fetchRegistered(), 1000)
-      return () => clearTimeout(timer)
+    if (!localBackendsLoaded) {
+      loadLocalBackends()
     }
-  }, [fetchRegistered, liveMachineCount, user])
+  }, [localBackendsLoaded, loadLocalBackends])
 
   const liveMachines = Array.from(machines.values())
-  const liveMachineIds = new Set(liveMachines.map((m) => m.machineId))
 
-  // Build a lookup from machine ID → registered machine for footer dates
-  const registeredLookup = new Map(registeredMachines.map((m) => [m.id, m]))
-
-  // Derive HPC machines from live machines with hpcCapability
-  const hpcMachineIds = new Set(
-    liveMachines
-      .filter((m) => m.providers.some((p) => p.hpcCapability))
-      .map((m) => m.machineId)
-  )
-  const hpcMachines = liveMachines.filter((m) => hpcMachineIds.has(m.machineId))
-
-  // Remote machines: non-HPC, non-local machines
-  const remoteLiveMachines = liveMachines.filter(
-    (m) => !hpcMachineIds.has(m.machineId) && m.environmentType !== 'local'
-  )
-
-  // Registered machines that are not currently connected live, split by HPC vs non-HPC
-  const offlineNonHpcMachines = registeredMachines.filter(
-    (m) => !m.isRevoked && !m.isConnected && !liveMachineIds.has(m.id) && m.environmentType !== 'hpc'
-  )
-  const offlineHpcMachines = registeredMachines.filter(
-    (m) => !m.isRevoked && !m.isConnected && !liveMachineIds.has(m.id) && m.environmentType === 'hpc'
-  )
+  // Connected: machines with a live relay WebSocket connection
+  const connectedLiveMachines = liveMachines.filter((m) => m.environmentType !== 'local')
 
   // In single-user mode, +1 for the local machine (this server)
-  // In multi-tenant mode, no local machine
   const localMachineCount = isMultiTenant ? 0 : 1
-  const totalMachines = localMachineCount + remoteLiveMachines.length + hpcMachines.length + offlineNonHpcMachines.length + offlineHpcMachines.length
-  const connectedCount = localMachineCount + remoteLiveMachines.length + hpcMachines.length
+  const totalMachines = localMachineCount + connectedLiveMachines.length
+  const connectedCount = localMachineCount + connectedLiveMachines.length
   const activeTasks = liveMachines.reduce((sum, m) => sum + m.load.activeTasks, 0)
-  const hpcClusterCount = hpcMachines.length + offlineHpcMachines.length
+
+  // Compute Backends: locally-detected execution environments only
+  const availableLocalBackends = localBackends.filter((b) => b.available)
+  const computeBackendCount = availableLocalBackends.length
 
   const handleRefresh = () => {
-    if (user) fetchRegistered()
+    loadLocalBackends()
     if (!realtimeConnected) connectRealtime()
   }
 
@@ -359,9 +488,9 @@ export function Environments() {
           iconColor="text-blue-500"
         />
         <StatCard
-          label="SLURM Clusters"
-          value={hpcClusterCount}
-          icon={Server}
+          label="Compute Backends"
+          value={computeBackendCount}
+          icon={Boxes}
           iconBg="bg-purple-500/10"
           iconColor="text-purple-500"
         />
@@ -370,9 +499,14 @@ export function Environments() {
       {/* Local - only show in single-user mode */}
       {!isMultiTenant && (
         <div className="flex flex-col gap-4">
-          <div className="hidden md:flex items-center gap-3">
-            <Laptop className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-lg font-semibold">Local</h2>
+          <div className="hidden md:flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <Laptop className="h-5 w-5 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">Local</h2>
+            </div>
+            <p className="text-xs text-muted-foreground ml-8">
+              AI providers authenticated on this machine. Agents use these credentials to run tasks locally.
+            </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <LocalMachineCard />
@@ -380,119 +514,82 @@ export function Environments() {
         </div>
       )}
 
-      {/* Connected */}
-      <div className="flex flex-col gap-4">
-        <div className="hidden md:flex items-center gap-3">
-          <Globe className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Connected</h2>
-          {remoteLiveMachines.length > 0 && (
-            <Badge variant="success">{remoteLiveMachines.length} connected</Badge>
-          )}
-        </div>
-        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Connected</p>
-        {remoteLiveMachines.length > 0 || offlineNonHpcMachines.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {remoteLiveMachines.map((m) => (
-              <MachineCard
-                key={m.machineId}
-                machine={m}
-                registeredMachine={registeredLookup.get(m.machineId)}
-                onRemove={() => revokeMachine(m.machineId)}
-              />
-            ))}
-            {offlineNonHpcMachines.map((m) => (
-              <OfflineMachineCard key={m.id} machine={m} onRemove={() => revokeMachine(m.id)} />
-            ))}
+      {/* Connected — only show when there are live relay machines */}
+      {connectedLiveMachines.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <div className="hidden md:flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <Globe className="h-5 w-5 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">Connected</h2>
+              <Badge variant="success">{connectedLiveMachines.length} active</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground ml-8">
+              Remote machines running the agent runner with an active relay connection. Tasks can be dispatched to these machines directly.
+            </p>
           </div>
-        ) : (
-          <Card>
-            <CardContent className="p-0">
-              <EmptyState
-                icon={Zap}
-                title="Connect a remote machine"
-                description="Run the agent setup command on a remote machine, or use the device code flow to register it with the platform."
-                action={{
-                  label: "Add Remote Machine",
-                  onClick: () => setDialogOpen(true),
-                }}
-                className="py-8"
-              />
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {/* SLURM Clusters */}
-      <div className="flex flex-col gap-4">
-        <div className="hidden md:flex items-center gap-3">
-          <Server className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">SLURM Clusters</h2>
-          {hpcMachines.length > 0 && (
-            <Badge variant="success">
-              {hpcMachines.length} connected
-            </Badge>
-          )}
-        </div>
-        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">SLURM Clusters</p>
-        {hpcMachines.length > 0 || offlineHpcMachines.length > 0 ? (
+          <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Connected</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {hpcMachines.map((m) => (
-              <MachineCard
-                key={m.machineId}
-                machine={m}
-                registeredMachine={registeredLookup.get(m.machineId)}
-                onRemove={() => revokeMachine(m.machineId)}
-              />
-            ))}
-            {offlineHpcMachines.map((m) => (
-              <OfflineMachineCard key={m.id} machine={m} onRemove={() => revokeMachine(m.id)} />
-            ))}
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="p-0">
-              <EmptyState
-                icon={Server}
-                title="No SLURM clusters connected"
-                description="Connect to an HPC login node with Slurm installed. The agent runner will auto-detect the cluster and inject HPC context into Claude sessions."
-                action={{
-                  label: "Add SLURM Cluster",
-                  onClick: () => setDialogOpen(true),
-                }}
-                className="py-8"
-              />
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {/* Cloud */}
-      <div className="flex flex-col gap-4">
-        <div className="hidden md:flex items-center gap-3">
-          <Cloud className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Cloud</h2>
-        </div>
-        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Cloud</p>
-        <Card>
-          <CardContent className="p-0">
-            <EmptyState
-              icon={Cloud}
-              title="Scale with cloud compute"
-              description="Connect AWS or GCP to automatically scale compute for demanding tasks. Your agents will dispatch work to cloud instances when local resources are insufficient."
-              action={{
-                label: "Add Cloud Provider",
-                onClick: () => setDialogOpen(true),
-              }}
-              className="py-8"
+            <ConnectedMachinesCard
+              machines={connectedLiveMachines}
+              onRemove={(id) => revokeMachine(id)}
+              onBackendClick={handleBackendClick}
             />
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Compute Backends */}
+      <div className="flex flex-col gap-4">
+        <div className="hidden md:flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <Boxes className="h-5 w-5 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">Compute Backends</h2>
+            {availableLocalBackends.length > 0 && (
+              <Badge variant="outline">
+                {availableLocalBackends.length} detected
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground ml-8">
+            Execution environments detected on this server — Docker, Kubernetes, SLURM clusters, and SSH-reachable hosts. Click any backend to see details and the AI context that gets injected into agent sessions.
+          </p>
+        </div>
+        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Compute Backends</p>
+        {availableLocalBackends.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <LocalBackendsCard backends={availableLocalBackends} onBackendClick={handleBackendClick} />
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Container}
+                title="No compute backends detected"
+                description="Connect a machine with SLURM, Docker, Kubernetes, or SkyPilot. The agent runner auto-detects available backends and injects environment context into Claude sessions."
+                action={{
+                  label: "Add Environment",
+                  onClick: () => setDialogOpen(true),
+                }}
+                className="py-8"
+              />
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Add Environment Dialog */}
       <AddEnvironmentDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+      />
+
+      {/* Backend Detail Dialog */}
+      <BackendDetailDialog
+        open={backendDialogOpen}
+        onOpenChange={setBackendDialogOpen}
+        backend={selectedBackend}
+        contextString={backendContextString}
+        loading={backendDetailLoading}
       />
     </div>
   )

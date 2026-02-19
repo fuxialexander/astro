@@ -92,6 +92,7 @@ relayRoute.get('/machines', (c) => {
         currentTasks: p.currentTasks,
         maxConcurrentTasks: p.maxConcurrentTasks,
       })),
+      executionStrategies: m.executionStrategies,
       resources: m.resources,
       load: m.load,
       connectedAt: m.connectedAt,
