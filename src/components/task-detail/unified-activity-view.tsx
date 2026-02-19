@@ -636,6 +636,8 @@ export function UnifiedActivityView({
           message: text,
           action: "guidance",
           interrupt,
+          sessionId: execution?.sessionId,
+          branchName: node.branchName || execution?.branchName,
         }),
       })
 

@@ -33,6 +33,7 @@ import {
   autoCommitChanges,
   isGitRepo,
   hasRemoteOrigin,
+  findWorktreeOnDisk,
   type ServerWorktreeSetup,
 } from '../lib/worktree-manager.js'
 import { worktreeRegistry } from '../lib/worktree-registry.js'
@@ -1032,12 +1033,14 @@ async function dispatchViaRelay(
  * The agent runner receives the message and injects it into the session.
  */
 dispatchRoute.post('/steer', async (c) => {
-  const { taskId, machineId, message, action, interrupt } = await c.req.json<{
+  const { taskId, machineId, message, action, interrupt, sessionId: requestSessionId } = await c.req.json<{
     taskId: string
     machineId: string
     message: string
     action?: 'guidance' | 'redirect' | 'pause' | 'resume'
     interrupt?: boolean
+    sessionId?: string
+    branchName?: string
   }>()
 
   if (!taskId || !machineId || !message) {
@@ -1148,7 +1151,86 @@ dispatchRoute.post('/steer', async (c) => {
       })
     }
 
-    // No context at all
+    // No in-memory context — try to recover from disk using client-provided hints
+    if (requestSessionId) {
+      const workingDirectory = await findWorktreeOnDisk(taskId)
+      if (workingDirectory) {
+        console.log(`[dispatch] Recovering session for ${taskId}: worktree=${workingDirectory}, sessionId=${requestSessionId}`)
+
+        return streamSSE(c, async (stream) => {
+          try {
+            await stream.writeSSE({
+              event: 'resumed',
+              data: JSON.stringify({ taskId, sessionId: requestSessionId, workingDirectory }),
+            })
+
+            for await (const event of resumeLocalTask(taskId, message, workingDirectory, requestSessionId)) {
+              switch (event.type) {
+                case 'init':
+                  await stream.writeSSE({
+                    event: 'session_init',
+                    data: JSON.stringify({ sessionId: event.sessionId, model: event.model }),
+                  })
+                  break
+                case 'text':
+                  await stream.writeSSE({ event: 'text', data: event.text })
+                  executionEventBus.emit('task:stdout', {
+                    output: { taskId, data: event.text, stream: 'stdout', timestamp: new Date() },
+                  })
+                  break
+                case 'tool_use':
+                  await stream.writeSSE({
+                    event: 'tool_use',
+                    data: JSON.stringify({ toolName: event.toolName, toolInput: event.toolInput }),
+                  })
+                  break
+                case 'tool_result':
+                  await stream.writeSSE({
+                    event: 'tool_result',
+                    data: JSON.stringify({ toolName: event.toolName, success: event.success, result: event.result }),
+                  })
+                  break
+                case 'result':
+                  await stream.writeSSE({
+                    event: 'result',
+                    data: JSON.stringify({
+                      executionId: taskId,
+                      status: event.result.status,
+                      metrics: event.result.metrics,
+                      sessionId: event.result.sessionId,
+                    }),
+                  })
+                  break
+                case 'error':
+                  await stream.writeSSE({
+                    event: 'error',
+                    data: JSON.stringify({ error: event.error }),
+                  })
+                  break
+                case 'aborted':
+                  await stream.writeSSE({
+                    event: 'aborted',
+                    data: JSON.stringify({ reason: event.reason }),
+                  })
+                  break
+              }
+            }
+
+            await stream.writeSSE({
+              event: 'done',
+              data: JSON.stringify({ executionId: taskId }),
+            })
+          } catch (e) {
+            await stream.writeSSE({
+              event: 'error',
+              data: JSON.stringify({ error: errorMessage(e) }),
+            })
+          }
+        })
+      }
+    }
+
+    // No context at all — neither in-memory nor on disk
     return c.json({ success: false, error: 'No active local query for this task' }, 404)
   }
 

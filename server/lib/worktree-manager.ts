@@ -7,7 +7,8 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, rm, readdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
@@ -410,4 +411,38 @@ export async function hasRemoteOrigin(dir: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/**
+ * Find a worktree directory on disk by executionId.
+ *
+ * Scans ~/.astro/worktrees/{repoName}/ for a directory whose name
+ * matches the sanitized executionId. Returns the full path if found.
+ *
+ * This enables session recovery after a server restart when the
+ * in-memory worktree registry has been lost.
+ */
+export async function findWorktreeOnDisk(executionId: string): Promise<string | null> {
+  const sanitizedId = sanitize(executionId)
+  const worktreesRoot = join(homedir(), '.astro', 'worktrees')
+
+  if (!existsSync(worktreesRoot)) return null
+
+  try {
+    const repoDirs = await readdir(worktreesRoot, { withFileTypes: true })
+    for (const repoDir of repoDirs) {
+      if (!repoDir.isDirectory()) continue
+      const candidate = join(worktreesRoot, repoDir.name, sanitizedId)
+      if (existsSync(candidate)) {
+        // Verify it's actually a git worktree (has .git file/dir)
+        if (existsSync(join(candidate, '.git'))) {
+          return candidate
+        }
+      }
+    }
+  } catch {
+    // Scan failed — disk may be unavailable
+  }
+
+  return null
 }
