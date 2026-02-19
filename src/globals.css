@@ -226,3 +226,136 @@ body.timeline-dragging {
   cursor: col-resize !important;
   user-select: none;
 }
+
+/* Syntax highlighting for code blocks */
+.hljs {
+  background: transparent;
+  color: var(--foreground);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #6B7280;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #EC4899;
+  font-weight: 600;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag .hljs-attr {
+  color: #F59E0B;
+}
+
+.hljs-string,
+.hljs-doctag {
+  color: #10B981;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  color: #3B82F6;
+  font-weight: 600;
+}
+
+.hljs-type,
+.hljs-class .hljs-title {
+  color: #8B5CF6;
+}
+
+.hljs-tag,
+.hljs-name,
+.hljs-attribute {
+  color: #EC4899;
+}
+
+.hljs-regexp,
+.hljs-link {
+  color: #06B6D4;
+}
+
+.hljs-symbol,
+.hljs-bullet {
+  color: #F59E0B;
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+  color: #6366F1;
+}
+
+.hljs-meta {
+  color: #9CA3AF;
+}
+
+.hljs-deletion {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.hljs-addition {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}
+
+/* Dark mode syntax highlighting */
+.dark .hljs-comment,
+.dark .hljs-quote {
+  color: #6B7280;
+}
+
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-subst {
+  color: #F472B6;
+}
+
+.dark .hljs-number,
+.dark .hljs-literal,
+.dark .hljs-variable,
+.dark .hljs-template-variable,
+.dark .hljs-tag .hljs-attr {
+  color: #FBBF24;
+}
+
+.dark .hljs-string,
+.dark .hljs-doctag {
+  color: #34D399;
+}
+
+.dark .hljs-title,
+.dark .hljs-section,
+.dark .hljs-selector-id {
+  color: #60A5FA;
+}
+
+.dark .hljs-type,
+.dark .hljs-class .hljs-title {
+  color: #A78BFA;
+}
+
+.dark .hljs-deletion {
+  background: #7F1D1D;
+  color: #FCA5A5;
+}
+
+.dark .hljs-addition {
+  background: #064E3B;
+  color: #6EE7B7;
+}
