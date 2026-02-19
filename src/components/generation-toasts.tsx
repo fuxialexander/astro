@@ -37,7 +37,7 @@ function SessionCard({ session }: { session: GenerationSession }) {
   }
 
   function handleNavigate() {
-    navigate(`/project/${session.projectId}/plan`)
+    navigate(`/project/${session.projectId}`)
   }
 
   return (

@@ -10,7 +10,6 @@ import { AuthGuard } from "@/components/auth-guard"
 import { Dashboard } from "@/pages/dashboard"
 import { Projects } from "@/pages/projects"
 import { ProjectNew } from "@/pages/project-new"
-import { ProjectOverview } from "@/pages/project-overview"
 import { PlanView } from "@/pages/plan-view"
 import Initiatives from "@/pages/initiatives"
 import { Login } from "@/pages/login"
@@ -165,7 +164,7 @@ export default function App() {
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="projects/new" element={<ProjectNew />} />
-                <Route path="project/:id" element={<ProjectOverview />} />
+                <Route path="project/:id" element={<PlanView />} />
                 <Route path="project/:id/plan" element={<PlanView />} />
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
                 <Route path="initiatives" element={<Initiatives />} />
