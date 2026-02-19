@@ -516,59 +516,68 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border">
         <span className="text-sm font-semibold">Plan Chat</span>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[180px]">
-              <Bot className="h-3 w-3 shrink-0" />
-              <span className="truncate">{providerLabel}</span>
-              <span className="text-muted-foreground/50">/</span>
-              <span className="truncate">{modelLabel}</span>
-              <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[240px]">
-            <DropdownMenuLabel>Agent</DropdownMenuLabel>
-            <DropdownMenuItem
-              onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
-              className="gap-2"
-            >
-              <Bot className="h-3.5 w-3.5" />
-              <span>Auto</span>
-              {!selectedProvider && (
-                <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
-              )}
-            </DropdownMenuItem>
-            {providers.map((provider) => (
+        <div className="flex items-center gap-2">
+          {/* Provider Selector */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[140px]">
+                <Bot className="h-3 w-3 shrink-0" />
+                <span className="truncate">{providerLabel}</span>
+                <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[240px]">
+              <DropdownMenuLabel>Agent</DropdownMenuLabel>
               <DropdownMenuItem
-                key={provider.id}
-                onClick={() => { setSelectedProvider(provider.id); setSelectedModel("") }}
+                onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
                 className="gap-2"
-                disabled={!provider.available}
               >
                 <Bot className="h-3.5 w-3.5" />
-                <div className="flex flex-col">
-                  <span>{provider.name}</span>
-                  {!provider.available && (
-                    <span className="text-[10px] text-muted-foreground">
-                      {provider.installed ? `Auth: ${provider.authStatus}` : "Not installed"}
-                    </span>
-                  )}
-                </div>
-                {selectedProvider === provider.id && (
+                <span>Auto</span>
+                {!selectedProvider && (
                   <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
                 )}
               </DropdownMenuItem>
-            ))}
+              {providers.map((provider) => (
+                <DropdownMenuItem
+                  key={provider.id}
+                  onClick={() => { setSelectedProvider(provider.id); setSelectedModel("") }}
+                  className="gap-2"
+                  disabled={!provider.available}
+                >
+                  <Bot className="h-3.5 w-3.5" />
+                  <div className="flex flex-col">
+                    <span>{provider.name}</span>
+                    {!provider.available && (
+                      <span className="text-[10px] text-muted-foreground">
+                        {provider.installed ? `Auth: ${provider.authStatus}` : "Not installed"}
+                      </span>
+                    )}
+                  </div>
+                  {selectedProvider === provider.id && (
+                    <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-            {selectedProviderObj?.capabilities?.availableModels &&
-              selectedProviderObj.capabilities.availableModels.length > 0 && (
-              <>
-                <DropdownMenuSeparator />
+          {/* Model Selector - only show when provider has models */}
+          {selectedProviderObj?.capabilities?.availableModels &&
+            selectedProviderObj.capabilities.availableModels.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[140px]">
+                  <span className="truncate">{modelLabel}</span>
+                  <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[240px]">
                 <DropdownMenuLabel>Model</DropdownMenuLabel>
                 {selectedProviderObj.capabilities.availableModels.map((m) => (
                   <DropdownMenuItem
                     key={m}
-                    onClick={(e) => { e.stopPropagation(); setSelectedModel(m) }}
+                    onClick={() => setSelectedModel(m)}
                     className="gap-2"
                   >
                     <span className="text-xs truncate">{shortModelLabel(m)}</span>
@@ -580,10 +589,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                     )}
                   </DropdownMenuItem>
                 ))}
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
