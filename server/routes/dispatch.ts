@@ -40,6 +40,8 @@ import { existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join, resolve, relative } from 'node:path'
 import { homedir } from 'node:os'
+import { classifyTask } from '../lib/dispatch/procedure-classifier.js'
+import { getProcedure, type ProcedureState } from '../lib/dispatch/procedure-types.js'
 
 // Validation schemas
 const dispatchTaskSchema = z.object({
@@ -67,6 +69,7 @@ const dispatchTaskSchema = z.object({
   ).optional(),
   force: z.boolean().optional(),
   dryRun: z.boolean().optional(),
+  procedure: z.string().max(100).optional(),
 })
 
 const dispatchRoute = new Hono()
@@ -116,6 +119,7 @@ dispatchRoute.post('/task', async (c) => {
     workingDirectory,
     force = false,
     dryRun = false,
+    procedure: requestedProcedure,
   } = body
 
   // Validate working directory
@@ -220,6 +224,25 @@ dispatchRoute.post('/task', async (c) => {
     })
   }
 
+  // Auto-classify task to determine procedure pipeline
+  let procedureState: ProcedureState | undefined
+  const procedureName = requestedProcedure ?? (
+    await classifyTask(title, description).then((r) => r.procedure)
+  )
+
+  if (procedureName) {
+    const procedure = getProcedure(procedureName)
+    if (procedure) {
+      procedureState = {
+        procedureName,
+        currentSubroutineIndex: 0,
+        subroutineHistory: [],
+        procedure,
+      }
+      console.log(`[dispatch] Task ${nodeId} classified as '${procedureName}' (${procedure.subroutines.length} subroutines)`)
+    }
+  }
+
   // Local dispatch via provider
   return await dispatchLocal(c, {
     nodeId,
@@ -234,6 +257,7 @@ dispatchRoute.post('/task', async (c) => {
     maxTurns,
     workingDirectory: resolvedDir,
     preferredProvider,
+    procedureState,
   })
 })
 
@@ -292,6 +316,7 @@ async function dispatchLocal(
     maxTurns: number
     workingDirectory?: string
     preferredProvider?: ProviderType
+    procedureState?: ProcedureState
   }
 ) {
   const {
@@ -307,6 +332,7 @@ async function dispatchLocal(
     maxTurns,
     workingDirectory,
     preferredProvider,
+    procedureState,
   } = params
 
   const abortController = createSession(executionId, preferredProvider as string)
@@ -453,200 +479,274 @@ The user can review your reasoning in the task output and provide guidance if th
         }),
       })
 
-      // Stream execution
+      // Helper: stream a single provider execution, collecting output and forwarding SSE events
+      async function streamProviderExecution(
+        providerTask: TaskDispatch,
+      ): Promise<{ fullOutput: string; sessionId?: string; resultStatus: string; metrics?: Record<string, unknown>; verification?: Record<string, unknown> }> {
+        let subroutineOutput = ''
+        let resultSessionId: string | undefined
+        let resultStatus = 'success'
+        let resultMetrics: Record<string, unknown> | undefined
+        let resultVerification: Record<string, unknown> | undefined
+
+        for await (const event of provider.stream(providerTask)) {
+          switch (event.type) {
+            case 'init':
+              resultSessionId = event.sessionId
+              if (worktreeSetup && event.sessionId) {
+                worktreeRegistry.updateSessionId(executionId, event.sessionId)
+              }
+              await stream.writeSSE({
+                event: 'session_init',
+                data: JSON.stringify({ sessionId: event.sessionId, model: event.model }),
+              })
+              break
+            case 'text':
+              subroutineOutput += event.text
+              await stream.writeSSE({ event: 'text', data: event.text })
+              executionEventBus.emit('task:stdout', {
+                output: { taskId: executionId, data: event.text, stream: 'stdout', timestamp: new Date() },
+              })
+              break
+            case 'tool_use':
+              await stream.writeSSE({
+                event: 'tool_use',
+                data: JSON.stringify({ toolName: event.toolName, toolInput: event.toolInput }),
+              })
+              executionEventBus.emit('task:tool_trace', {
+                taskId: executionId, toolName: event.toolName, toolInput: event.toolInput,
+              })
+              break
+            case 'tool_result':
+              await stream.writeSSE({
+                event: 'tool_result',
+                data: JSON.stringify({
+                  toolName: event.toolName,
+                  success: event.success,
+                  result: typeof event.result === 'string' ? event.result.slice(0, 100000) : event.result,
+                }),
+              })
+              executionEventBus.emit('task:tool_trace', {
+                taskId: executionId,
+                toolName: event.toolName,
+                toolResult: typeof event.result === 'string' ? event.result.slice(0, 100000) : event.result,
+                success: event.success,
+              })
+              break
+            case 'file_change':
+              await stream.writeSSE({ event: 'file_change', data: JSON.stringify(event.change) })
+              executionEventBus.emit('task:file_change', { taskId: executionId, ...event.change })
+              break
+            case 'progress':
+              await stream.writeSSE({
+                event: 'progress',
+                data: JSON.stringify({ message: event.message, percentage: event.percentage }),
+              })
+              executionEventBus.emit('task:progress', {
+                taskId: executionId, progress: event.percentage, message: event.message,
+              })
+              break
+            case 'result':
+              resultStatus = event.result.status
+              resultMetrics = event.result.metrics as Record<string, unknown> | undefined
+              resultVerification = event.result.verification as Record<string, unknown> | undefined
+              resultSessionId = event.result.sessionId ?? resultSessionId
+              break
+            case 'error':
+              await stream.writeSSE({
+                event: 'error',
+                data: JSON.stringify({ error: event.error, recoverable: event.recoverable }),
+              })
+              break
+            case 'aborted':
+              await stream.writeSSE({
+                event: 'aborted',
+                data: JSON.stringify({ reason: event.reason }),
+              })
+              break
+          }
+        }
+
+        return { fullOutput: subroutineOutput, sessionId: resultSessionId, resultStatus, metrics: resultMetrics, verification: resultVerification }
+      }
+
+      // Stream execution — procedure pipeline or direct
       let fullOutput = ''
       let sessionId: string | undefined
+      let lastResultStatus = 'success'
+      let lastMetrics: Record<string, unknown> | undefined
+      let lastVerification: Record<string, unknown> | undefined
 
-      for await (const event of provider.stream(task)) {
-        switch (event.type) {
-          case 'init':
-            sessionId = event.sessionId
-            // Update worktree registry with sessionId for future resume
-            if (worktreeSetup && event.sessionId) {
-              worktreeRegistry.updateSessionId(executionId, event.sessionId)
-            }
-            await stream.writeSSE({
-              event: 'session_init',
-              data: JSON.stringify({
-                sessionId: event.sessionId,
-                model: event.model,
-              }),
-            })
-            break
+      if (procedureState) {
+        // === Procedure pipeline: run subroutines in sequence ===
+        const procedure = procedureState.procedure
+        const subroutines = procedure.subroutines
 
-          case 'text':
-            fullOutput += event.text
-            await stream.writeSSE({ event: 'text', data: event.text })
-            executionEventBus.emit('task:stdout', {
-              output: { taskId: executionId, data: event.text, stream: 'stdout', timestamp: new Date() },
-            })
-            break
+        for (let i = 0; i < subroutines.length; i++) {
+          const sub = subroutines[i]
 
-          case 'tool_use':
-            await stream.writeSSE({
-              event: 'tool_use',
-              data: JSON.stringify({
-                toolName: event.toolName,
-                toolInput: event.toolInput,
-              }),
-            })
-            executionEventBus.emit('task:tool_trace', {
-              taskId: executionId,
-              toolName: event.toolName,
-              toolInput: event.toolInput,
-            })
-            break
+          // Emit subroutine_progress event
+          await stream.writeSSE({
+            event: 'subroutine_progress',
+            data: JSON.stringify({
+              name: sub.name,
+              index: i,
+              total: subroutines.length,
+              status: 'running',
+            }),
+          })
 
-          case 'tool_result':
-            await stream.writeSSE({
-              event: 'tool_result',
-              data: JSON.stringify({
-                toolName: event.toolName,
-                success: event.success,
-                result:
-                  typeof event.result === 'string'
-                    ? event.result.slice(0, 100000)
-                    : event.result,
-              }),
-            })
-            executionEventBus.emit('task:tool_trace', {
-              taskId: executionId,
-              toolName: event.toolName,
-              toolResult: typeof event.result === 'string'
-                ? event.result.slice(0, 100000)
-                : event.result,
-              success: event.success,
-            })
-            break
+          // Build subroutine prompt using interpolation
+          const { interpolatePrompt } = await import('../lib/dispatch/procedure-executor.js')
+          const subPrompt = interpolatePrompt(sub.promptTemplate, {
+            id: nodeId,
+            title,
+            description,
+            projectId,
+            status: 'in_progress',
+            type: 'task',
+            parentId: null,
+            dependencies: [],
+            verification: 'auto',
+            position: { x: 0, y: 0 },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as import('../../src/types/index.js').PlanNode, procedureState)
 
-          case 'file_change':
-            await stream.writeSSE({
-              event: 'file_change',
-              data: JSON.stringify(event.change),
-            })
-            executionEventBus.emit('task:file_change', {
-              taskId: executionId,
-              ...event.change,
-            })
-            break
-
-          case 'progress':
-            await stream.writeSSE({
-              event: 'progress',
-              data: JSON.stringify({
-                message: event.message,
-                percentage: event.percentage,
-              }),
-            })
-            executionEventBus.emit('task:progress', {
-              taskId: executionId,
-              progress: event.percentage,
-              message: event.message,
-            })
-            break
-
-          case 'result': {
-            // Determine final status based on result and verification type
-            const isSuccess = event.result.status === 'success'
-            let finalStatus: string
-
-            if (isSuccess) {
-              finalStatus = verification === 'auto' ? 'auto_verified' : 'awaiting_judgment'
-            } else {
-              finalStatus = 'awaiting_judgment'
-            }
-
-            // Safety net: don't auto-verify when worktree was expected but failed
-            // to be created. Without a worktree, there's no isolated branch and no
-            // PR, so the task shouldn't be auto-verified.
-            if (finalStatus === 'auto_verified' && worktreeExpected && !worktreeSetup) {
-              console.warn(`[dispatch] Downgrading auto_verified → awaiting_judgment for ${executionId}: worktree expected but not created (no isolated branch/PR)`)
-              finalStatus = 'awaiting_judgment'
-            }
-
-            // Attempt PR creation if worktree was used and execution succeeded
-            let branchName: string | undefined
-            let prUrl: string | undefined
-            let prNumber: number | undefined
-
-            if (worktreeSetup && isSuccess) {
-              try {
-                const baseBranch = await getDefaultBranch(workingDirectory!)
-
-                // Auto-commit any uncommitted changes as a fallback
-                // (in case the agent didn't commit its work)
-                await autoCommitChanges(worktreeSetup.worktreePath, title)
-
-                const hasCommits = await hasBranchCommits(worktreeSetup.worktreePath, baseBranch)
-                if (hasCommits) {
-                  const prResult = await pushAndCreatePR({
-                    worktreePath: worktreeSetup.worktreePath,
-                    branchName: worktreeSetup.branchName,
-                    baseBranch,
-                    title,
-                    body: `## Task\n\n${description}\n\n---\n*Created by Astro task automation*`,
-                  })
-                  branchName = prResult.branchName
-                  prUrl = prResult.prUrl
-                  prNumber = prResult.prNumber
-                  console.log(`[dispatch] PR result for ${executionId}: branch=${branchName}, prUrl=${prUrl || 'none'}`)
-                } else {
-                  console.log(`[dispatch] No commits for ${executionId}, skipping PR creation`)
-                }
-              } catch (prErr) {
-                console.warn(`[dispatch] PR creation failed for ${executionId}: ${errorMessage(prErr)}`)
-              }
-            } else if (worktreeSetup) {
-              branchName = worktreeSetup.branchName
-            }
-
-            await stream.writeSSE({
-              event: 'result',
-              data: JSON.stringify({
-                executionId,
-                nodeId,
-                status: event.result.status,
-                finalStatus,
-                output: fullOutput,
-                metrics: event.result.metrics,
-                verification: event.result.verification,
-                sessionId: event.result.sessionId,
-                branchName,
-                prUrl,
-                prNumber,
-              }),
-            })
-            executionEventBus.emit('task:result', {
-              result: {
-                taskId: executionId,
-                status: event.result.status === 'success' ? 'completed' : 'failed',
-                output: fullOutput,
-                duration: event.result.metrics?.durationMs,
-              },
-            })
-            break
+          // Build provider task, threading sessionId for resume
+          const subTask: TaskDispatch = {
+            taskId: executionId,
+            type: 'code_generation',
+            prompt: subPrompt,
+            model,
+            maxTurns: sub.singleTurn ? 1 : maxTurns,
+            context: {
+              projectId,
+              visionDoc,
+              workingDirectory: effectiveWorkDir,
+              ...(sub.disallowAllTools ? { allowedTools: [] } : {}),
+              ...(sub.disallowedTools ? { disallowedTools: sub.disallowedTools } : {}),
+            },
+            abortController,
+            // Resume from previous session if available
+            ...(sessionId ? { sessionId } : {}),
           }
 
-          case 'error':
-            await stream.writeSSE({
-              event: 'error',
-              data: JSON.stringify({
-                error: event.error,
-                recoverable: event.recoverable,
-              }),
-            })
-            break
+          const result = await streamProviderExecution(subTask)
+          fullOutput += result.fullOutput
+          sessionId = result.sessionId ?? sessionId
+          lastResultStatus = result.resultStatus
+          lastMetrics = result.metrics
+          lastVerification = result.verification
 
-          case 'aborted':
-            await stream.writeSSE({
-              event: 'aborted',
-              data: JSON.stringify({
-                reason: event.reason,
-              }),
-            })
+          // Store in subroutine history
+          procedureState.subroutineHistory.push({
+            subroutine: sub.name,
+            completedAt: new Date(),
+            sessionId: result.sessionId ?? null,
+            result: result.fullOutput,
+          })
+
+          // Emit subroutine completed
+          await stream.writeSSE({
+            event: 'subroutine_progress',
+            data: JSON.stringify({
+              name: sub.name,
+              index: i,
+              total: subroutines.length,
+              status: result.resultStatus === 'success' ? 'completed' : 'failed',
+            }),
+          })
+
+          // If subroutine failed, stop the pipeline
+          if (result.resultStatus !== 'success') {
+            console.log(`[dispatch] Subroutine '${sub.name}' failed, stopping pipeline`)
             break
+          }
         }
+      } else {
+        // === Direct execution (no procedure) ===
+        const result = await streamProviderExecution(task)
+        fullOutput = result.fullOutput
+        sessionId = result.sessionId
+        lastResultStatus = result.resultStatus
+        lastMetrics = result.metrics
+        lastVerification = result.verification
       }
+
+      // Determine final status based on result and verification type
+      const isSuccess = lastResultStatus === 'success'
+      let finalStatus: string
+
+      if (isSuccess) {
+        finalStatus = verification === 'auto' ? 'auto_verified' : 'awaiting_judgment'
+      } else {
+        finalStatus = 'awaiting_judgment'
+      }
+
+      // Safety net: don't auto-verify when worktree was expected but failed
+      if (finalStatus === 'auto_verified' && worktreeExpected && !worktreeSetup) {
+        console.warn(`[dispatch] Downgrading auto_verified → awaiting_judgment for ${executionId}: worktree expected but not created`)
+        finalStatus = 'awaiting_judgment'
+      }
+
+      // Attempt PR creation if worktree was used and execution succeeded
+      // (Skip if procedure already handled git-commit/gh-pr subroutines)
+      let branchName: string | undefined
+      let prUrl: string | undefined
+      let prNumber: number | undefined
+
+      if (worktreeSetup && isSuccess && !procedureState) {
+        try {
+          const baseBranch = await getDefaultBranch(workingDirectory!)
+          await autoCommitChanges(worktreeSetup.worktreePath, title)
+          const hasCommits = await hasBranchCommits(worktreeSetup.worktreePath, baseBranch)
+          if (hasCommits) {
+            const prResult = await pushAndCreatePR({
+              worktreePath: worktreeSetup.worktreePath,
+              branchName: worktreeSetup.branchName,
+              baseBranch,
+              title,
+              body: `## Task\n\n${description}\n\n---\n*Created by Astro task automation*`,
+            })
+            branchName = prResult.branchName
+            prUrl = prResult.prUrl
+            prNumber = prResult.prNumber
+            console.log(`[dispatch] PR result for ${executionId}: branch=${branchName}, prUrl=${prUrl || 'none'}`)
+          } else {
+            console.log(`[dispatch] No commits for ${executionId}, skipping PR creation`)
+          }
+        } catch (prErr) {
+          console.warn(`[dispatch] PR creation failed for ${executionId}: ${errorMessage(prErr)}`)
+        }
+      } else if (worktreeSetup) {
+        branchName = worktreeSetup.branchName
+      }
+
+      await stream.writeSSE({
+        event: 'result',
+        data: JSON.stringify({
+          executionId,
+          nodeId,
+          status: lastResultStatus,
+          finalStatus,
+          output: fullOutput,
+          metrics: lastMetrics,
+          verification: lastVerification,
+          sessionId,
+          branchName,
+          prUrl,
+          prNumber,
+        }),
+      })
+      executionEventBus.emit('task:result', {
+        result: {
+          taskId: executionId,
+          status: isSuccess ? 'completed' : 'failed',
+          output: fullOutput,
+          duration: (lastMetrics as Record<string, unknown> | undefined)?.durationMs as number | undefined,
+        },
+      })
 
       // Send done event
       await stream.writeSSE({
@@ -906,7 +1006,6 @@ async function dispatchViaRelay(
       alive = false
       clearInterval(heartbeat)
       relayServer.off('task:result', onResult)
-      relayServer.off('task:stdout', onStdout)
       relayServer.off('task:text', onText)
       relayServer.off('task:session_init', onSessionInit)
       relayServer.off('task:progress', onProgress)

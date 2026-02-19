@@ -209,6 +209,13 @@ export interface TaskExecution {
   prNumber?: number;
   // Execution summary (generated post-completion)
   summary?: ExecutionSummary;
+  // Subroutine pipeline progress
+  subroutineProgress?: {
+    name: string;
+    index: number;
+    total: number;
+    status: 'running' | 'completed' | 'failed';
+  };
 }
 
 // Provider status for displaying in UI

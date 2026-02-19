@@ -1106,11 +1106,31 @@ function handleSSEEvent(
     }
 
     case "progress": {
-      // Progress updates are informational, could be used for progress bar
-      // For now, just log them
       try {
         const parsed = JSON.parse(data)
         console.log(`[execution] Progress for ${nodeId}:`, parsed.message, parsed.percentage)
+      } catch {
+        // Ignore parse errors
+      }
+      break
+    }
+
+    case "subroutine_progress": {
+      try {
+        const parsed = JSON.parse(data)
+        set((state) => {
+          const newExecutions = new Map(state.executions)
+          const exec = newExecutions.get(nodeId)
+          if (exec) {
+            exec.subroutineProgress = {
+              name: parsed.name,
+              index: parsed.index,
+              total: parsed.total,
+              status: parsed.status,
+            }
+          }
+          return { executions: newExecutions }
+        })
       } catch {
         // Ignore parse errors
       }

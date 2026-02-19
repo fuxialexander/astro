@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router"
-import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw } from "lucide-react"
+import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MobileStatusBar } from "@/components/mobile/status-bar"
@@ -29,6 +30,7 @@ export function TaskDetail() {
   const navigate = useNavigate()
   const { id: projectId, nodeId } = useParams<{ id: string; nodeId: string }>()
   const node = usePlanStore((s) => s.nodes.find((n) => n.id === nodeId))
+  const updateNode = usePlanStore((s) => s.updateNode)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const execution = useExecutionStore((s) => nodeId ? s.getExecution(nodeId) : undefined)
   const cancelExecution = useExecutionStore((s) => s.cancelExecution)
@@ -123,6 +125,22 @@ export function TaskDetail() {
             <span className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">{taskStream.progress}%</span>
           </div>
         )}
+        {execution?.subroutineProgress && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Layers className="h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
+            <span className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">
+              Step {execution.subroutineProgress.index + 1}/{execution.subroutineProgress.total}: {execution.subroutineProgress.name}
+            </span>
+            {execution.subroutineProgress.status === 'running' && (
+              <div className="h-1.5 w-12 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-blue-500 animate-pulse"
+                  style={{ width: `${((execution.subroutineProgress.index + 0.5) / execution.subroutineProgress.total) * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
+        )}
         {execution?.executionId && (
           <div className="hidden md:flex items-center gap-1.5 text-muted-foreground shrink-0">
             <Monitor className="h-3.5 w-3.5" />
@@ -197,6 +215,81 @@ export function TaskDetail() {
             approval={pendingApproval}
             onRespond={respondToApproval}
           />
+        </div>
+      )}
+
+      {/* Judgment Banner for awaiting_judgment tasks */}
+      {node.status === "awaiting_judgment" && (
+        <div className="px-4 md:px-6 pt-4">
+          <Card className="rounded-2xl shadow-lg border-amber-500/40">
+            <CardContent className="flex flex-col gap-0 p-0">
+              {/* Summary or Error */}
+              {execution?.summary ? (
+                <div className={cn(
+                  "m-4 rounded-lg border p-3",
+                  execution.summary.status === 'success' ? "border-green-500/30 bg-green-500/5" :
+                  execution.summary.status === 'partial' ? "border-yellow-500/30 bg-yellow-500/5" :
+                  "border-red-500/30 bg-red-500/5"
+                )}>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-semibold">Summary</span>
+                        <Badge variant={execution.summary.status === 'success' ? 'success' : execution.summary.status === 'partial' ? 'warning' : 'destructive'} className="text-[10px]">
+                          {execution.summary.status}
+                        </Badge>
+                        {execution.summary.filesChanged.length > 0 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {execution.summary.filesChanged.length} file{execution.summary.filesChanged.length !== 1 ? 's' : ''} changed
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-foreground">{execution.summary.workCompleted}</p>
+                      {execution.summary.followUps.length > 0 && (
+                        <div className="mt-2">
+                          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Follow-ups</span>
+                          <ul className="mt-0.5">
+                            {execution.summary.followUps.map((f, i) => (
+                              <li key={i} className="text-xs text-muted-foreground">- {f}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (node.executionError || execution?.error) ? (
+                <div className="m-4 rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                    <p className="text-sm text-red-600">{node.executionError || execution?.error}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 m-4 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Generating summary...</span>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-2 border-t px-5 py-4">
+                <Button size="sm" onClick={() => nodeId && updateNode(nodeId, { status: "completed" })} className="min-h-9">
+                  <Check className="h-3.5 w-3.5 mr-1" />
+                  Approve
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => nodeId && updateNode(nodeId, { status: "planned" })} className="min-h-9">
+                  <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                  Retry
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => nodeId && updateNode(nodeId, { status: "pruned" })} className="min-h-9 text-muted-foreground">
+                  <Scissors className="h-3.5 w-3.5 mr-1" />
+                  Prune
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 

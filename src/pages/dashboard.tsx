@@ -5,8 +5,6 @@ import {
   Eye,
   Activity,
   CircleCheck,
-  Brain,
-  Shield,
   Check,
   Play,
   FileText,
@@ -15,6 +13,10 @@ import {
   XCircle,
   Folder,
   Zap,
+  AlertCircle,
+  RotateCcw,
+  Scissors,
+  Loader2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -69,6 +71,7 @@ export function Dashboard() {
   const profile = useUserProfileStore((s) => s.profile)
   const pendingApprovals = useExecutionStore((s) => s.pendingApprovals)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
+  const getExecution = useExecutionStore((s) => s.getExecution)
   const navigate = useNavigate()
 
   // Redirect first-time users to welcome screen (dashboard is now secondary)
@@ -190,6 +193,10 @@ export function Dashboard() {
                 }
 
                 // Otherwise, show judgment card
+                const execution = getExecution(node.id)
+                const summary = execution?.summary
+                const error = node.executionError || execution?.error
+
                 return (
                   <Card key={node.id} className="rounded-2xl shadow-lg">
                     <CardContent className="flex flex-col gap-0 p-0">
@@ -201,44 +208,67 @@ export function Dashboard() {
                             {project?.name}
                           </span>
                         </div>
-                        <p className="text-base font-semibold text-foreground">{node.title}</p>
-                        <p className="text-sm text-muted-foreground">{node.description}</p>
+                        <Link to={`/project/${node.projectId}/task/${node.id}`} className="text-base font-semibold text-foreground hover:underline">
+                          {node.title}
+                        </Link>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{node.description}</p>
 
-                        {/* Confidence / Risk Row */}
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                            <Brain className="h-4 w-4" />
-                            <span>High confidence</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                            <Shield className="h-4 w-4" />
-                            <span>Low risk</span>
-                          </div>
-                        </div>
-
-                        {/* Verification Evidence */}
-                        <div className="rounded-lg bg-muted p-3.5">
-                          <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Check className="h-4 w-4 text-green-600" />
-                              <span>All tests passing</span>
+                        {/* Summary or Error or Loading */}
+                        {summary ? (
+                          <div className={cn(
+                            "rounded-lg border p-3.5",
+                            summary.status === 'success' ? "border-green-500/30 bg-green-500/5" :
+                            summary.status === 'partial' ? "border-yellow-500/30 bg-yellow-500/5" :
+                            "border-red-500/30 bg-red-500/5"
+                          )}>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <Badge variant={summary.status === 'success' ? 'success' : summary.status === 'partial' ? 'warning' : 'destructive'} className="text-[10px]">
+                                {summary.status}
+                              </Badge>
+                              {summary.filesChanged.length > 0 && (
+                                <span className="text-[10px] text-muted-foreground">
+                                  {summary.filesChanged.length} file{summary.filesChanged.length !== 1 ? 's' : ''} changed
+                                </span>
+                              )}
                             </div>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Check className="h-4 w-4 text-green-600" />
-                              <span>Build successful</span>
+                            <p className="text-sm text-foreground">{summary.workCompleted}</p>
+                            {summary.followUps.length > 0 && (
+                              <ul className="mt-2">
+                                {summary.followUps.map((f, i) => (
+                                  <li key={i} className="text-xs text-muted-foreground">- {f}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ) : error ? (
+                          <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3.5">
+                            <div className="flex items-start gap-2">
+                              <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                              <p className="text-sm text-red-600 line-clamp-3">{error}</p>
                             </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>Generating summary...</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Card Actions */}
-                      <div className="flex flex-col gap-2 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between md:px-5 md:py-4">
-                        <input
-                          type="text"
-                          placeholder="Add guidance..."
-                          className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:mr-3"
-                        />
-                        <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })} className="min-h-11 w-full sm:w-auto">Approve</Button>
+                      <div className="flex items-center gap-2 border-t px-4 py-3 md:px-5 md:py-4">
+                        <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })} className="min-h-9">
+                          <Check className="h-3.5 w-3.5 mr-1" />
+                          Approve
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => updateNode(node.id, { status: "planned" })} className="min-h-9">
+                          <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                          Retry
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => updateNode(node.id, { status: "pruned" })} className="min-h-9 text-muted-foreground">
+                          <Scissors className="h-3.5 w-3.5 mr-1" />
+                          Prune
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>

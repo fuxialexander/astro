@@ -105,6 +105,9 @@ export interface ProcedureState {
 
   /** Approval result (boolean for binary, or selected option for multi-choice) */
   approvalResult?: boolean | string
+
+  /** The full procedure definition (for reference during execution) */
+  procedure: ProcedureDefinition
 }
 
 /**
@@ -113,48 +116,152 @@ export interface ProcedureState {
 export const BUILT_IN_PROCEDURES: Record<string, ProcedureDefinition> = {
   'full-development': {
     name: 'full-development',
-    description: 'Implement → Test → Fix → Verify → Deploy',
+    description: 'Implement → Verify → Git Commit → PR → Summary',
     subroutines: [
       {
         name: 'implement',
-        promptTemplate: 'Implement the following feature:\n\n{{task.description}}\n\nFollow project conventions and write tests.',
+        description: 'Implement the task following project conventions',
+        promptTemplate: `{{task.description}}
+
+Follow project conventions. Write tests where appropriate. Be thorough but efficient.
+When you encounter decision points where multiple approaches are equally valid, note your choice and reasoning.`,
         usesValidationLoop: true,
-        validationCommand: 'npm test',
+        validationCommand: 'npm run build',
         maxValidationIterations: 3,
       },
       {
         name: 'verify',
-        promptTemplate: 'Verify the implementation meets all requirements. Provide a summary.',
-        singleTurn: true,
-        disallowAllTools: true,
+        description: 'Read-only verification of the implementation',
+        promptTemplate: `You are a code reviewer. DO NOT make any changes. Only READ and VERIFY the work done so far.
+
+Check the following:
+1. Does the implementation match the task requirements?
+2. Are there any obvious bugs or logic errors?
+3. Do tests pass? Is the build clean?
+4. Are there any security concerns?
+
+Task that was implemented: {{task.description}}
+
+Respond with a JSON object (and nothing else):
+{
+  "pass": true/false,
+  "reason": "Brief explanation",
+  "issues": ["list of specific issues if any"],
+  "quality": "good" | "acceptable" | "needs-work"
+}`,
+        usesValidationLoop: true,
+        maxValidationIterations: 2,
       },
       {
-        name: 'deploy',
-        promptTemplate: 'Create a pull request for deployment with a clear description.',
-        requiresApproval: true,
-        approvalMessage: 'Approve deployment PR creation?',
+        name: 'git-commit',
+        description: 'Stage and commit all changes with a descriptive message',
+        promptTemplate: `Stage all changed files and create a git commit with a clear, descriptive commit message summarizing the work done.
+
+The commit message should:
+- Start with a conventional commit prefix (feat:, fix:, refactor:, etc.)
+- Briefly describe what was accomplished
+- Reference the task: {{task.title}}
+
+Then push the branch to the remote. Do NOT create a pull request yet.`,
+        singleTurn: true,
+      },
+      {
+        name: 'gh-pr',
+        description: 'Create or update a pull request',
+        promptTemplate: `Create a GitHub pull request for the current branch. If a PR already exists for this branch, update its description instead.
+
+The PR should include:
+- Title: A concise description of the change
+- Body with sections:
+  ## Summary
+  Brief description of what this PR does.
+
+  ## Changes
+  - List of key changes made
+
+  ## Testing
+  - How the changes were tested
+  - Test results
+
+  ## Task
+  {{task.title}}: {{task.description}}
+
+Use the gh CLI tool to create the PR.`,
+        singleTurn: true,
+      },
+      {
+        name: 'summary',
+        description: 'Generate execution summary',
+        promptTemplate: `Generate a concise summary of the work completed for this task.
+
+Task: {{task.title}}
+Description: {{task.description}}
+
+Previous subroutine results:
+{{previous.results}}
+
+Respond with a JSON object (and nothing else):
+{
+  "workCompleted": "1-2 sentence summary of what was done",
+  "filesChanged": ["list", "of", "files", "modified"],
+  "status": "success" | "partial" | "failure",
+  "followUps": ["any follow-up tasks or considerations"]
+}`,
+        singleTurn: true,
+        disallowAllTools: true,
       },
     ],
   },
 
   'bug-fix': {
     name: 'bug-fix',
-    description: 'Debug → Fix → Test → Verify',
+    description: 'Debug → Fix → Verify → Commit → Summary',
     subroutines: [
       {
-        name: 'debug',
-        promptTemplate: 'Debug the following issue:\n\n{{task.description}}\n\nIdentify the root cause.',
-      },
-      {
-        name: 'fix',
-        promptTemplate: 'Apply the fix and ensure tests pass.',
+        name: 'implement',
+        description: 'Debug the issue and apply the fix',
+        promptTemplate: `Debug and fix the following issue:
+
+{{task.description}}
+
+Steps:
+1. Reproduce or understand the bug from the description
+2. Identify the root cause by reading relevant code
+3. Apply the minimal fix needed
+4. Verify the fix resolves the issue
+5. Ensure no regressions`,
         usesValidationLoop: true,
-        validationCommand: 'npm test',
+        validationCommand: 'npm run build',
         maxValidationIterations: 3,
       },
       {
+        name: 'git-commit',
+        description: 'Stage and commit the fix',
+        promptTemplate: `Stage all changed files and create a git commit with a descriptive message.
+
+Use the "fix:" conventional commit prefix. Reference: {{task.title}}
+
+Push the branch to the remote.`,
+        singleTurn: true,
+      },
+      {
         name: 'summary',
-        promptTemplate: 'Summarize the fix and what was changed.',
+        description: 'Generate fix summary',
+        promptTemplate: `Generate a concise summary of the bug fix.
+
+Task: {{task.title}}
+Description: {{task.description}}
+
+Previous subroutine results:
+{{previous.results}}
+
+Respond with a JSON object (and nothing else):
+{
+  "workCompleted": "1-2 sentence summary of the fix",
+  "filesChanged": ["list", "of", "files", "modified"],
+  "status": "success" | "partial" | "failure",
+  "followUps": ["any follow-up tasks"]
+}`,
         singleTurn: true,
         disallowAllTools: true,
       },
@@ -167,48 +274,40 @@ export const BUILT_IN_PROCEDURES: Record<string, ProcedureDefinition> = {
     subroutines: [
       {
         name: 'gather',
-        promptTemplate: 'Research: {{task.description}}\n\nGather relevant information from the codebase.',
-      },
-      {
-        name: 'analyze',
-        promptTemplate: 'Analyze the gathered information and identify patterns.',
-      },
-      {
-        name: 'report',
-        promptTemplate: 'Write a comprehensive report with findings and recommendations.',
-        singleTurn: true,
-        disallowAllTools: true,
-      },
-    ],
-  },
+        description: 'Gather relevant information from the codebase',
+        promptTemplate: `Research the following topic by exploring the codebase:
 
-  'feature-implementation': {
-    name: 'feature-implementation',
-    description: 'Plan → Choose approach → Implement → Test',
-    subroutines: [
+{{task.description}}
+
+Gather relevant information: read files, search for patterns, understand architecture.
+Take detailed notes on what you find.`,
+      },
       {
-        name: 'plan',
-        promptTemplate: 'Analyze the feature request:\n\n{{task.description}}\n\nIdentify 2-3 possible implementation approaches.',
+        name: 'summary',
+        description: 'Write a comprehensive research report',
+        promptTemplate: `Write a comprehensive report based on your research.
+
+Task: {{task.title}}
+Description: {{task.description}}
+
+Previous findings:
+{{previous.results}}
+
+Include:
+1. Key findings
+2. Patterns observed
+3. Recommendations
+4. Areas that need further investigation
+
+Respond with a JSON object (and nothing else):
+{
+  "workCompleted": "1-2 sentence summary of findings",
+  "filesChanged": [],
+  "status": "success",
+  "followUps": ["recommended next steps"]
+}`,
         singleTurn: true,
         disallowAllTools: true,
-      },
-      {
-        name: 'choose-approach',
-        promptTemplate: 'Based on the selected approach: {{approvalResult}}\n\nProceed with implementation.',
-        requiresApproval: true,
-        approvalMessage: 'Which implementation approach should I use?',
-        approvalOptions: [
-          'Approach 1: Minimal change to existing code',
-          'Approach 2: Refactor for cleaner architecture',
-          'Approach 3: Build new abstraction',
-        ],
-      },
-      {
-        name: 'implement',
-        promptTemplate: 'Implement the feature using the chosen approach. Write comprehensive tests.',
-        usesValidationLoop: true,
-        validationCommand: 'npm test',
-        maxValidationIterations: 3,
       },
     ],
   },
