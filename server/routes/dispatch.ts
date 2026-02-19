@@ -115,7 +115,7 @@ dispatchRoute.post('/task', async (c) => {
     preferredProvider,
     targetMachineId,
     model,
-    maxTurns = 50,
+    maxTurns = 100,
     workingDirectory,
     force = false,
     dryRun = false,

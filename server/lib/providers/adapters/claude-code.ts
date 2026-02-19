@@ -166,7 +166,7 @@ export class ClaudeCodeProvider implements AgentProvider {
       defaultModel: this.defaultModel,
       contextInjectionMethod: 'system_prompt', // Claude Code uses system prompt for context
       supportsSessionResume: true,
-      maxTurns: 100,
+      maxTurns: 150,
     }
   }
 
@@ -890,7 +890,7 @@ export async function* resumeLocalTask(
     const options: Parameters<typeof query>[0]['options'] = {
       abortController,
       model: 'claude-sonnet-4-5-20250929',
-      maxTurns: 50,
+      maxTurns: 100,
       permissionMode: 'bypassPermissions' as const,
       cwd: workingDirectory,
       ...(mcpServers ? { mcpServers } : {}),
