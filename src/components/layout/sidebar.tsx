@@ -303,7 +303,7 @@ export function Sidebar() {
               return (
                 <button
                   key={project.id}
-                  onClick={() => navigate(`/project/${project.id}`)}
+                  onClick={() => navigate(`/project/${project.id}/plan?view=list`)}
                   className={cn(
                     "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 transition-colors text-left",
                     isActive
