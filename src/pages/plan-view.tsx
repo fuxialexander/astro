@@ -170,10 +170,10 @@ function makePlanColumns(
     {
       id: "name",
       label: "Name",
-      width: "flex-1",
+      width: "flex-1 max-w-[300px]",
       sortKey: "name",
       render: (node) => (
-        <span className={cn("text-sm truncate", node.status === "pruned" && "line-through")}>
+        <span className={cn("text-sm truncate block", node.status === "pruned" && "line-through")}>
           {node.title}
         </span>
       ),
@@ -383,7 +383,7 @@ function InlineListCreationRow({
   return (
     <div className="flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-colors">
       {/* Name column */}
-      <div className={cn("min-w-0", nameCol?.width ?? "flex-1")}>
+      <div className={cn("min-w-0 overflow-hidden", nameCol?.width ?? "flex-1")}>
         <input
           type="text"
           value={taskName}
