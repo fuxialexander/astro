@@ -226,7 +226,7 @@ export function ItemListView<T>({
     <>
       {/* Batch action bar */}
       {someSelected && batchActions && (
-        <div className="flex items-center gap-3 border-b border-border bg-muted/50 pl-6 pr-2 h-10 shrink-0">
+        <div className="flex items-center gap-3 border-b border-border bg-muted/50 px-6 h-10 shrink-0">
           <span className="text-xs font-medium text-muted-foreground">
             {selected.size} selected
           </span>
@@ -258,7 +258,7 @@ export function ItemListView<T>({
       )}
 
       {/* Column headers */}
-      <div className="flex items-center border-b border-border pl-6 pr-2 h-9 shrink-0">
+      <div className="flex items-center border-b border-border px-6 h-9 shrink-0">
         {selectable && (
           <div className="w-8 shrink-0 flex items-center">
             <Checkbox
@@ -335,7 +335,7 @@ export function ItemListView<T>({
                     key={itemId}
                     onClick={() => onItemClick?.(item)}
                     className={cn(
-                      "flex items-center border-b border-border pl-6 pr-2 py-2.5 hover:bg-muted/30 transition-colors",
+                      "flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-colors",
                       onItemClick && "cursor-pointer",
                       indentGroupedRows && hasMultipleGroups && showGroupHeaders && "pl-12",
                       isSelected && "bg-primary/5",
