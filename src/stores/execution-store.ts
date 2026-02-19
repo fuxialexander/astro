@@ -166,6 +166,7 @@ interface ExecutionState {
   // Actions
   startExecution: (nodeId: string, projectId: string, options?: ExecutionOptions) => Promise<void>
   cancelExecution: (nodeId: string) => Promise<void>
+  resetExecution: (nodeId: string) => Promise<void>
   steerExecution: (nodeId: string, message: string, action?: 'guidance' | 'redirect') => Promise<boolean>
   getExecution: (nodeId: string) => TaskExecution | undefined
   isExecuting: (nodeId: string) => boolean
@@ -501,6 +502,48 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         // Ignore abort errors
       }
     }
+  },
+
+  resetExecution: async (nodeId: string) => {
+    // Cancel any in-progress execution first
+    const controller = abortControllers.get(nodeId)
+    if (controller) {
+      controller.abort()
+      abortControllers.delete(nodeId)
+    }
+
+    // Call server to clean up worktree, branch, and session context
+    try {
+      const headers = await getAuthHeaders()
+      await fetch(apiUrl("/api/dispatch/reset"), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ nodeId }),
+      })
+    } catch {
+      // Best effort — continue with local cleanup even if server call fails
+    }
+
+    // Clear execution from in-memory store
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      newExecutions.delete(nodeId)
+      return { executions: newExecutions }
+    })
+
+    // Reset PlanNode execution fields and status
+    const planStore = usePlanStore.getState()
+    planStore.updateNode(nodeId, {
+      executionId: undefined,
+      executionOutput: undefined,
+      executionError: undefined,
+      executionStartedAt: undefined,
+      executionCompletedAt: undefined,
+      status: "planned",
+    })
+
+    // Persist the change
+    get().persist()
   },
 
   steerExecution: async (nodeId: string, message: string, action: 'guidance' | 'redirect' = 'guidance') => {

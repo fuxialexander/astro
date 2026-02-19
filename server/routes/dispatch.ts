@@ -1261,6 +1261,44 @@ dispatchRoute.post('/engine/stop', async (c) => {
 })
 
 /**
+ * Reset a task for re-execution
+ *
+ * POST /api/dispatch/reset
+ *
+ * Cancels any in-progress execution, removes worktree AND branch,
+ * and cleans up preserved session context so the task can be dispatched fresh.
+ */
+dispatchRoute.post('/reset', async (c) => {
+  const { nodeId } = await c.req.json<{ nodeId?: string }>()
+
+  if (!nodeId) {
+    return c.json({ success: false, error: 'nodeId required' }, 400)
+  }
+
+  // Find worktree entry by nodeId
+  const entry = worktreeRegistry.getByNodeId(nodeId)
+
+  // Cancel any in-progress execution
+  if (entry) {
+    abortSession(entry.executionId)
+  }
+
+  // Remove worktree AND delete the git branch (keepBranch=false)
+  let removed = false
+  if (entry) {
+    removed = await worktreeRegistry.remove(entry.executionId, false)
+  }
+
+  // Clean up preserved session context
+  if (entry) {
+    const { cleanupLocalTaskContext } = await import('../lib/providers/adapters/claude-code.js')
+    cleanupLocalTaskContext(entry.executionId)
+  }
+
+  return c.json({ success: true, removed })
+})
+
+/**
  * Clean up worktree for a completed/pruned task
  *
  * POST /api/dispatch/cleanup

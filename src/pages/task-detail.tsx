@@ -1,5 +1,6 @@
+import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router"
-import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink } from "lucide-react"
+import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -31,7 +32,9 @@ export function TaskDetail() {
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const execution = useExecutionStore((s) => nodeId ? s.getExecution(nodeId) : undefined)
   const cancelExecution = useExecutionStore((s) => s.cancelExecution)
+  const resetExecution = useExecutionStore((s) => s.resetExecution)
   const isExecuting = useExecutionStore((s) => nodeId ? s.isExecuting(nodeId) : false)
+  const [isResetting, setIsResetting] = useState(false)
   const getPendingApprovalForNode = useExecutionStore((s) => s.getPendingApprovalForNode)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
 
@@ -156,6 +159,27 @@ export function TaskDetail() {
           >
             <Square className="h-3 w-3 md:h-3.5 md:w-3.5" />
             <span className="hidden sm:inline ml-1.5">Stop</span>
+          </Button>
+        )}
+        {!isRunning && node.executionId && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0"
+            disabled={isResetting}
+            onClick={async () => {
+              if (!nodeId) return
+              setIsResetting(true)
+              try {
+                await resetExecution(nodeId)
+                navigate(`/project/${projectId}/plan`)
+              } finally {
+                setIsResetting(false)
+              }
+            }}
+          >
+            <RotateCcw className={cn("h-3 w-3 md:h-3.5 md:w-3.5", isResetting && "animate-spin")} />
+            <span className="hidden sm:inline ml-1.5">{isResetting ? "Resetting..." : "Re-execute"}</span>
           </Button>
         )}
         {isExecuting && (
