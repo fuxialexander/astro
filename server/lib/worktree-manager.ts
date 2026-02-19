@@ -83,7 +83,42 @@ export async function createServerWorktree(options: {
     // Ignore
   }
 
-  // Delete branch if it already exists
+  // Find and remove any existing worktree that uses this branch.
+  // Without this, `git branch -D` fails because the branch is checked out
+  // by a lingering worktree from a previous execution.
+  try {
+    const { stdout: wtList } = await execFileAsync(
+      'git',
+      ['-C', gitRoot, 'worktree', 'list', '--porcelain'],
+      { env: withGitEnv(), timeout: 10_000 }
+    )
+    // Parse porcelain output: blocks separated by blank lines,
+    // each block has "worktree <path>" and "branch refs/heads/<name>"
+    let currentWorktreePath: string | null = null
+    for (const line of wtList.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        currentWorktreePath = line.slice('worktree '.length)
+      } else if (line.startsWith('branch ') && currentWorktreePath) {
+        const ref = line.slice('branch '.length)
+        if (ref === `refs/heads/${branchName}`) {
+          console.log(`[worktree-manager] Removing existing worktree at ${currentWorktreePath} (branch: ${branchName})`)
+          await execFileAsync(
+            'git',
+            ['-C', gitRoot, 'worktree', 'remove', '--force', currentWorktreePath],
+            { env: withGitEnv(), timeout: 30_000 }
+          )
+          // Clean up directory if it still exists
+          await rm(currentWorktreePath, { recursive: true, force: true })
+        }
+      } else if (line.trim() === '') {
+        currentWorktreePath = null
+      }
+    }
+  } catch {
+    // Ignore — best-effort cleanup
+  }
+
+  // Delete local branch if it already exists
   try {
     await execFileAsync('git', ['-C', gitRoot, 'branch', '-D', branchName], {
       env: withGitEnv(),
@@ -93,10 +128,50 @@ export async function createServerWorktree(options: {
     // Branch didn't exist
   }
 
-  // Create worktree
+  // Delete remote branch if it exists — prevents non-fast-forward push
+  // failures when re-executing a task whose previous branch was already pushed
+  try {
+    await execFileAsync('git', ['-C', gitRoot, 'push', 'origin', '--delete', branchName], {
+      env: withGitEnv(),
+      timeout: 15_000,
+    })
+    console.log(`[worktree-manager] Deleted remote branch ${branchName}`)
+  } catch {
+    // Remote branch didn't exist
+  }
+
+  // Fetch latest so we branch from up-to-date origin
+  try {
+    await execFileAsync('git', ['-C', gitRoot, 'fetch', 'origin'], {
+      env: withGitEnv(),
+      timeout: 30_000,
+    })
+  } catch {
+    // Non-fatal: proceed with potentially stale refs
+  }
+
+  // Detect the default branch to use as start point
+  const defaultBranch = await getDefaultBranch(gitRoot)
+
+  // Ensure the git root is on the default branch.
+  // A previous execution that fell back to the repo directly may have
+  // left HEAD on a task branch, which would contaminate new worktrees.
+  try {
+    await execFileAsync('git', ['-C', gitRoot, 'checkout', defaultBranch], {
+      env: withGitEnv(),
+      timeout: 10_000,
+    })
+  } catch {
+    // May fail if there are uncommitted changes; non-fatal
+  }
+
+  // Create worktree from origin/<defaultBranch> — NOT from HEAD.
+  // Using HEAD is dangerous because it could be on a stale task branch
+  // (from a previous execution that fell back to the repo directly),
+  // which would cause cross-task commit contamination.
   await execFileAsync(
     'git',
-    ['-C', gitRoot, 'worktree', 'add', '-b', branchName, worktreePath],
+    ['-C', gitRoot, 'worktree', 'add', '-b', branchName, worktreePath, `origin/${defaultBranch}`],
     { env: withGitEnv(), timeout: 30_000 }
   )
 

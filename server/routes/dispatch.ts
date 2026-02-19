@@ -346,7 +346,9 @@ async function dispatchLocal(
 
       // Create worktree for isolation if the directory is a git repo with a remote
       let effectiveWorkDir = workingDirectory
+      let worktreeExpected = false
       if (workingDirectory && await isGitRepo(workingDirectory) && await hasRemoteOrigin(workingDirectory)) {
+        worktreeExpected = true
         try {
           worktreeSetup = await createServerWorktree({
             repoPath: workingDirectory,
@@ -551,6 +553,14 @@ The user can review your reasoning in the task output and provide guidance if th
             if (isSuccess) {
               finalStatus = verification === 'auto' ? 'auto_verified' : 'awaiting_judgment'
             } else {
+              finalStatus = 'awaiting_judgment'
+            }
+
+            // Safety net: don't auto-verify when worktree was expected but failed
+            // to be created. Without a worktree, there's no isolated branch and no
+            // PR, so the task shouldn't be auto-verified.
+            if (finalStatus === 'auto_verified' && worktreeExpected && !worktreeSetup) {
+              console.warn(`[dispatch] Downgrading auto_verified → awaiting_judgment for ${executionId}: worktree expected but not created (no isolated branch/PR)`)
               finalStatus = 'awaiting_judgment'
             }
 
