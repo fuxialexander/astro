@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Diamond } from "lucide-react"
 import {
   Dialog,
@@ -37,6 +37,13 @@ export function MilestoneDialog({
   const [title, setTitle] = useState(milestone?.title || "")
   const [description, setDescription] = useState(milestone?.description || "")
   const [dueDate, setDueDate] = useState(milestone?.dueDate || "")
+
+  // Update state when milestone prop changes
+  useEffect(() => {
+    setTitle(milestone?.title || "")
+    setDescription(milestone?.description || "")
+    setDueDate(milestone?.dueDate || "")
+  }, [milestone?.id, milestone?.title, milestone?.description, milestone?.dueDate])
 
   const handleSave = () => {
     if (!title.trim()) return
