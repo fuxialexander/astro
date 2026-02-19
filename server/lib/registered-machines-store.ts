@@ -2,7 +2,7 @@
  * Registered Machines Store
  *
  * Stores information about machines registered through the device auth flow.
- * Uses Supabase as primary storage when configured, falls back to local SQLite.
+ * Uses Supabase as primary storage when configured, falls back to local Postgres (Drizzle).
  */
 
 import type { RegisteredMachine } from '../types/device-auth.js'
@@ -22,7 +22,7 @@ export function generateMachineId(hostname: string): string {
   return `${sanitizedHostname}-${uuid}`
 }
 
-// Helper: map a SQLite row to RegisteredMachine
+// Helper: map a Drizzle row to RegisteredMachine
 function mapRowToMachine(row: typeof registeredMachines.$inferSelect): RegisteredMachine {
   return {
     id: row.id,
@@ -122,7 +122,7 @@ export async function registerMachine(params: {
         throw new Error(`Failed to update machine: ${error.message}`)
       }
     } else {
-      db.update(registeredMachines)
+      await db.update(registeredMachines)
         .set({
           name: updated.name,
           environmentType: updated.environmentType,
@@ -132,7 +132,6 @@ export async function registerMachine(params: {
           metadata: updated.metadata,
         })
         .where(eq(registeredMachines.id, existingMachine.id))
-        .run()
     }
 
     return updated
@@ -190,7 +189,7 @@ export async function registerMachine(params: {
 
     console.log(`[machines-store] ✅ Registered machine ${machine.id} to Supabase for user ${machine.userId}`)
   } else {
-    db.insert(registeredMachines).values({
+    await db.insert(registeredMachines).values({
       id: machine.id,
       userId: machine.userId,
       name: machine.name,
@@ -205,7 +204,7 @@ export async function registerMachine(params: {
       isRevoked: false,
       registeredAt: now,
       lastSeenAt: now,
-    }).run()
+    })
   }
 
   return machine
@@ -247,7 +246,7 @@ export async function ensureMachineRegistered(machineId: string, params: {
       }
     } else {
       const now = new Date()
-      db.update(registeredMachines)
+      await db.update(registeredMachines)
         .set({
           isConnected: true,
           lastSeenAt: now,
@@ -255,7 +254,6 @@ export async function ensureMachineRegistered(machineId: string, params: {
           providers: params.providers as string[],
         })
         .where(eq(registeredMachines.id, machineId))
-        .run()
     }
     return
   }
@@ -308,7 +306,7 @@ export async function ensureMachineRegistered(machineId: string, params: {
 
     console.log(`[machines-store] ✅ Auto-registered machine ${machineId} to Supabase for user ${params.userId}`)
   } else {
-    db.insert(registeredMachines).values({
+    await db.insert(registeredMachines).values({
       id: machineId,
       userId: params.userId,
       name: params.name,
@@ -321,7 +319,7 @@ export async function ensureMachineRegistered(machineId: string, params: {
       isRevoked: false,
       registeredAt: now,
       lastSeenAt: now,
-    }).run()
+    })
   }
 
   console.log(`[machines-store] Auto-registered machine ${machineId} on reconnect`)
@@ -343,9 +341,9 @@ export async function getMachine(machineId: string): Promise<RegisteredMachine |
     return mapSupabaseToMachine(data)
   }
 
-  const row = db.select().from(registeredMachines)
+  const [row] = await db.select().from(registeredMachines)
     .where(eq(registeredMachines.id, machineId))
-    .get()
+    .limit(1)
 
   if (!row) return null
   return mapRowToMachine(row)
@@ -390,11 +388,11 @@ export async function updateMachineLastSeen(machineId: string): Promise<boolean>
     return !error
   }
 
-  const result = db.update(registeredMachines)
+  const result = await db.update(registeredMachines)
     .set({ lastSeenAt: new Date() })
     .where(eq(registeredMachines.id, machineId))
-    .run()
-  return result.changes > 0
+    .returning({ id: registeredMachines.id })
+  return result.length > 0
 }
 
 /**
@@ -416,11 +414,11 @@ export async function updateMachineConnectionStatus(machineId: string, isConnect
   const updates: Partial<typeof registeredMachines.$inferInsert> = { isConnected }
   if (isConnected) updates.lastSeenAt = new Date()
 
-  const result = db.update(registeredMachines)
+  const result = await db.update(registeredMachines)
     .set(updates)
     .where(eq(registeredMachines.id, machineId))
-    .run()
-  return result.changes > 0
+    .returning({ id: registeredMachines.id })
+  return result.length > 0
 }
 
 /**
@@ -436,11 +434,11 @@ export async function updateMachineProviders(machineId: string, providers: Provi
     return !error
   }
 
-  const result = db.update(registeredMachines)
+  const result = await db.update(registeredMachines)
     .set({ providers: providers as string[] })
     .where(eq(registeredMachines.id, machineId))
-    .run()
-  return result.changes > 0
+    .returning({ id: registeredMachines.id })
+  return result.length > 0
 }
 
 /**
@@ -456,11 +454,11 @@ export async function updateMachineName(machineId: string, name: string): Promis
     return !error
   }
 
-  const result = db.update(registeredMachines)
+  const result = await db.update(registeredMachines)
     .set({ name })
     .where(eq(registeredMachines.id, machineId))
-    .run()
-  return result.changes > 0
+    .returning({ id: registeredMachines.id })
+  return result.length > 0
 }
 
 /**
@@ -476,11 +474,11 @@ export async function revokeMachine(machineId: string): Promise<boolean> {
     return !error
   }
 
-  const result = db.update(registeredMachines)
+  const result = await db.update(registeredMachines)
     .set({ isRevoked: true, isConnected: false })
     .where(eq(registeredMachines.id, machineId))
-    .run()
-  return result.changes > 0
+    .returning({ id: registeredMachines.id })
+  return result.length > 0
 }
 
 /**
@@ -496,10 +494,10 @@ export async function deleteMachine(machineId: string): Promise<boolean> {
     return !error
   }
 
-  const result = db.delete(registeredMachines)
+  const result = await db.delete(registeredMachines)
     .where(eq(registeredMachines.id, machineId))
-    .run()
-  return result.changes > 0
+    .returning({ id: registeredMachines.id })
+  return result.length > 0
 }
 
 /**
