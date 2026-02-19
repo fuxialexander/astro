@@ -565,13 +565,16 @@ export function PlanListView({
       variant: "default",
       onAction: async (ids) => {
         const { startExecution } = useExecutionStore.getState()
-        // Execute all selected tasks
-        for (const id of ids) {
+        // Execute all selected tasks in parallel
+        const executions = ids.map((id) => {
           const node = planNodes.find((n) => n.id === id)
           if (node) {
-            await startExecution(id, node.projectId)
+            return startExecution(id, node.projectId)
           }
-        }
+          return Promise.resolve()
+        })
+        // Wait for all executions to start (not complete)
+        await Promise.all(executions)
         // Track activity
         addActivity({
           projectId,
