@@ -5,10 +5,12 @@ import {
   ListFilter,
   Folder,
   X,
+  Plus,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { TaskRow } from "@/components/task-row"
+import { TaskCreationForm } from "@/components/task-creation-form"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { BoardView } from "@/components/board/board-view"
 import { type ListGroup } from "@/components/views/item-list-view"
@@ -148,6 +150,7 @@ export function MyTasks() {
   })
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all")
   const [projectFilter, setProjectFilter] = useState<string>("all")
+  const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
 
   // Clear URL search params after initializing filters
   useEffect(() => {
@@ -160,6 +163,13 @@ export function MyTasks() {
   const projectMap = useMemo(() => {
     const m = new Map<string, string>()
     for (const p of projects) m.set(p.id, p.name)
+    return m
+  }, [projects])
+
+  // Reverse map: project name -> project id (for cross-project task creation)
+  const projectNameToIdMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const p of projects) m.set(p.name, p.id)
     return m
   }, [projects])
 
@@ -481,6 +491,13 @@ export function MyTasks() {
               onNodeSelect={(node) => {
                 if (node) navigate(`/project/${node.projectId}/plan`)
               }}
+              getProjectIdFromGroup={(groupKey) => {
+                // When grouped by project, extract projectId from the group label
+                if (displaySettings.groupBy === "project") {
+                  return projectNameToIdMap.get(groupKey)
+                }
+                return undefined
+              }}
             />
           )
         )
@@ -531,34 +548,69 @@ export function MyTasks() {
           ) : (
             <div className="flex-1 overflow-auto px-6 py-6">
               <div className="flex flex-col gap-6">
-                {listGroups.map((group) => (
-                  <div key={group.key} className="flex flex-col gap-4">
-                    {/* Group Header */}
-                    {displaySettings.groupBy !== "none" && (
-                      <div className="flex items-center gap-2 px-2">
-                        {group.icon}
-                        <h2 className="text-sm font-semibold text-foreground">
-                          {group.label}
-                        </h2>
-                        <span className="text-xs text-foreground/60">
-                          ({group.items.length})
-                        </span>
+                {listGroups.map((group) => {
+                  // Determine projectId for task creation when grouped by project
+                  const targetProjectId = displaySettings.groupBy === "project"
+                    ? projectNameToIdMap.get(group.label)
+                    : undefined
+
+                  return (
+                    <div key={group.key} className="flex flex-col gap-4">
+                      {/* Group Header */}
+                      {displaySettings.groupBy !== "none" && (
+                        <div className="flex items-center gap-2 px-2">
+                          {group.icon}
+                          <h2 className="text-sm font-semibold text-foreground">
+                            {group.label}
+                          </h2>
+                          <span className="text-xs text-foreground/60">
+                            ({group.items.length})
+                          </span>
+                        </div>
+                      )}
+                      {/* Task List */}
+                      <div className="flex flex-col gap-4">
+                        {group.items.map((task) => (
+                          <TaskRow
+                            key={task.id}
+                            task={task}
+                            projectName={projectMap.get(task.projectId)}
+                            showProject={displaySettings.groupBy !== "project"}
+                            onClick={() => { window.location.href = `/project/${task.projectId}/plan` }}
+                          />
+                        ))}
                       </div>
-                    )}
-                    {/* Task List */}
-                    <div className="flex flex-col gap-4">
-                      {group.items.map((task) => (
-                        <TaskRow
-                          key={task.id}
-                          task={task}
-                          projectName={projectMap.get(task.projectId)}
-                          showProject={displaySettings.groupBy !== "project"}
-                          onClick={() => { window.location.href = `/project/${task.projectId}/plan` }}
-                        />
-                      ))}
+                      {/* Add Task Footer - only show when grouped by project */}
+                      {displaySettings.groupBy === "project" && targetProjectId && (
+                        <div className="mt-2">
+                          {creatingInGroup === group.key ? (
+                            <div className="rounded-2xl border border-border bg-card p-4">
+                              <TaskCreationForm
+                                mode="inline"
+                                projectId={targetProjectId}
+                                onCreated={() => setCreatingInGroup(null)}
+                                onCancel={() => setCreatingInGroup(null)}
+                              />
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setCreatingInGroup(group.key)}
+                              className="w-full flex items-center gap-3 rounded-2xl bg-card p-4 transition-all shadow-sm hover:shadow-md border border-border border-dashed text-left text-muted-foreground hover:text-foreground"
+                            >
+                              <div className="relative flex-shrink-0">
+                                <div className="w-7 h-7 rounded-full border-[2.5px] border-dashed border-muted-foreground/30 flex items-center justify-center">
+                                  <Plus className="h-4 w-4" />
+                                </div>
+                              </div>
+                              <span className="text-sm font-medium">Add task</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )

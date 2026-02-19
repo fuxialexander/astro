@@ -511,11 +511,14 @@ function ListEmptyState({ projectId, columns }: { projectId: string; columns: Li
 export function PlanListView({
   projectId,
   nodes,
-  onNodeSelect
+  onNodeSelect,
+  getProjectIdFromGroup,
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
+  /** Optional: extract projectId from group key for cross-project task creation */
+  getProjectIdFromGroup?: (groupKey: string) => string | undefined
 }) {
   const planNodes = usePlanStore((s) => s.nodes)
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -622,10 +625,13 @@ export function PlanListView({
 
   function renderAddTaskRow(groupKey: string) {
     const defaultMilestoneId = groupKey.startsWith("milestone-") ? groupKey.replace("milestone-", "") : undefined
+    // For cross-project mode, extract projectId from group
+    const targetProjectId = getProjectIdFromGroup?.(groupKey) ?? projectId
+
     if (creatingInGroup === groupKey) {
       return (
         <InlineListCreationRow
-          projectId={projectId}
+          projectId={targetProjectId}
           columns={columns}
           displaySettings={displaySettings}
           defaultMilestoneId={defaultMilestoneId}
