@@ -162,6 +162,7 @@ export function ItemListView<T>({
 }: ItemListViewProps<T>) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [lastClickedId, setLastClickedId] = useState<string | null>(null)
   const toggleGroup = useCallback((key: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -177,14 +178,38 @@ export function ItemListView<T>({
   const allSelected = selectable && allItemIds.length > 0 && allItemIds.every((id) => selected.has(id))
   const someSelected = selectable && selected.size > 0
 
-  const toggleItem = useCallback((id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
+  const toggleItem = useCallback((id: string, shiftKey = false) => {
+    if (shiftKey && lastClickedId && lastClickedId !== id) {
+      // Shift-click: select range from lastClickedId to id
+      const startIndex = allItemIds.indexOf(lastClickedId)
+      const endIndex = allItemIds.indexOf(id)
+
+      if (startIndex !== -1 && endIndex !== -1) {
+        const [from, to] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex]
+        const rangeIds = allItemIds.slice(from, to + 1)
+
+        setSelected((prev) => {
+          const next = new Set(prev)
+          // Add all items in the range
+          for (const rangeId of rangeIds) {
+            next.add(rangeId)
+          }
+          return next
+        })
+      }
+    } else {
+      // Normal click: toggle single item
+      setSelected((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    }
+
+    // Update last clicked item
+    setLastClickedId(id)
+  }, [lastClickedId, allItemIds])
 
   const toggleAll = useCallback(() => {
     if (allSelected) {
@@ -346,7 +371,10 @@ export function ItemListView<T>({
                     {selectable && (
                       <div
                         className={cn("w-8 shrink-0 flex items-center", indentGroupedRows && hasMultipleGroups && showGroupHeaders && "-ml-6")}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleItem(itemId, e.shiftKey)
+                        }}
                       >
                         <Checkbox
                           checked={isSelected}
