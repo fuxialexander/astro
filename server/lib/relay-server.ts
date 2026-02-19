@@ -460,7 +460,7 @@ export class RelayServer extends EventEmitter {
         // Dev mode: accept connection without auth, use headers for identity
         const runnerId = info.req.headers['x-runner-id'] as string || 'dev-runner';
         const machineId = info.req.headers['x-machine-id'] as string || 'dev-machine';
-        console.log(`[relay] ⚠ Dev mode: accepting unauthenticated connection (runner=${runnerId}, machine=${machineId})`);
+        console.warn(`[relay] ⚠ SECURITY: Dev-mode auth bypass — accepting unauthenticated WebSocket connection (runner=${runnerId}, machine=${machineId}). Set RELAY_JWT_SECRET and NODE_ENV=production before deploying.`);
         (info.req as unknown as { machineJWT: MachineJWTPayload }).machineJWT = {
           sub: machineId,
           machineId,

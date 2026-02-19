@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { useRealtimeStore, type MachineEntry } from "@/stores/realtime-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useExecutionStore, type ComputeBackendInfo } from "@/stores/execution-store"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
 import { shouldUseSupabase } from "@/lib/supabase-client"
@@ -354,7 +355,16 @@ function LocalBackendsCard({ backends, onBackendClick }: { backends: ComputeBack
               {isUnreachable ? (
                 <Badge variant="secondary" className="shrink-0 ml-2">Unreachable</Badge>
               ) : isSSH ? (
-                <Badge variant="warning" className="shrink-0 ml-2">SSH Only</Badge>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="warning" className="shrink-0 ml-2">SSH Only</Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Discovery only — not a dispatch target. Install the agent runner on this host to enable task execution.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               ) : (
                 <Badge variant="success" className="shrink-0 ml-2">Available</Badge>
               )}
@@ -374,6 +384,7 @@ export function Environments() {
   const [backendDetailLoading, setBackendDetailLoading] = useState(false)
   const fetchBackendDetail = useExecutionStore((s) => s.fetchBackendDetail)
 
+  // For local backends: fetch fresh detail from server
   const handleBackendClick = (backend: ComputeBackendInfo) => {
     setSelectedBackend(backend)
     setBackendContextString("")
@@ -386,6 +397,16 @@ export function Environments() {
       }
       setBackendDetailLoading(false)
     })
+  }
+
+  // For remote machine backends: use cached strategy data from relay registry
+  // instead of calling /api/backends/:id (which detects on the server, not on
+  // the remote machine)
+  const handleRemoteBackendClick = (backend: ComputeBackendInfo) => {
+    setSelectedBackend(backend)
+    setBackendContextString("")
+    setBackendDialogOpen(true)
+    setBackendDetailLoading(false)
   }
 
   const machines = useRealtimeStore((s) => s.machines)
@@ -532,50 +553,52 @@ export function Environments() {
             <ConnectedMachinesCard
               machines={connectedLiveMachines}
               onRemove={(id) => revokeMachine(id)}
-              onBackendClick={handleBackendClick}
+              onBackendClick={handleRemoteBackendClick}
             />
           </div>
         </div>
       )}
 
-      {/* Compute Backends */}
-      <div className="flex flex-col gap-4">
-        <div className="hidden md:flex flex-col gap-1">
-          <div className="flex items-center gap-3">
-            <Boxes className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-lg font-semibold">Compute Backends</h2>
-            {availableLocalBackends.length > 0 && (
-              <Badge variant="outline">
-                {availableLocalBackends.length} detected
-              </Badge>
-            )}
+      {/* Compute Backends — only show in single-user mode (not safe for multi-tenant) */}
+      {!isMultiTenant && (
+        <div className="flex flex-col gap-4">
+          <div className="hidden md:flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <Boxes className="h-5 w-5 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">Compute Backends</h2>
+              {availableLocalBackends.length > 0 && (
+                <Badge variant="outline">
+                  {availableLocalBackends.length} detected
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground ml-8">
+              Execution environments detected on this server — Docker, Kubernetes, SLURM clusters, and SSH-reachable hosts. Click any backend to see details and the AI context that gets injected into agent sessions.
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground ml-8">
-            Execution environments detected on this server — Docker, Kubernetes, SLURM clusters, and SSH-reachable hosts. Click any backend to see details and the AI context that gets injected into agent sessions.
-          </p>
+          <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Compute Backends</p>
+          {availableLocalBackends.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <LocalBackendsCard backends={availableLocalBackends} onBackendClick={handleBackendClick} />
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <EmptyState
+                  icon={Container}
+                  title="No compute backends detected"
+                  description="Connect a machine with SLURM, Docker, Kubernetes, or SkyPilot. The agent runner auto-detects available backends and injects environment context into Claude sessions."
+                  action={{
+                    label: "Add Environment",
+                    onClick: () => setDialogOpen(true),
+                  }}
+                  className="py-8"
+                />
+              </CardContent>
+            </Card>
+          )}
         </div>
-        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Compute Backends</p>
-        {availableLocalBackends.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <LocalBackendsCard backends={availableLocalBackends} onBackendClick={handleBackendClick} />
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="p-0">
-              <EmptyState
-                icon={Container}
-                title="No compute backends detected"
-                description="Connect a machine with SLURM, Docker, Kubernetes, or SkyPilot. The agent runner auto-detects available backends and injects environment context into Claude sessions."
-                action={{
-                  label: "Add Environment",
-                  onClick: () => setDialogOpen(true),
-                }}
-                className="py-8"
-              />
-            </CardContent>
-          </Card>
-        )}
-      </div>
+      )}
 
       {/* Add Environment Dialog */}
       <AddEnvironmentDialog

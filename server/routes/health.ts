@@ -243,8 +243,17 @@ healthRoute.post('/test/auth-token', async (c) => {
 /**
  * Detect local execution backends (Docker, Kubernetes, SLURM).
  * Returns available backends on the server machine.
+ *
+ * In multi-tenant (Supabase) mode, this endpoint is blocked because local
+ * backend detection exposes server-side infrastructure details that should
+ * not be visible to arbitrary authenticated users.
  */
 healthRoute.get('/backends', async (c) => {
+  // Block in multi-tenant mode — backends expose server infrastructure
+  if (shouldUseSupabase()) {
+    return c.json({ error: 'Backend detection is not available in multi-tenant mode' }, 403)
+  }
+
   try {
     const result = await detectLocalBackends()
     return c.json(result)
@@ -256,8 +265,14 @@ healthRoute.get('/backends', async (c) => {
 
 /**
  * Get detail for a single backend (fresh detection, bypasses cache).
+ *
+ * Blocked in multi-tenant mode for the same reason as GET /backends.
  */
 healthRoute.get('/backends/:id', async (c) => {
+  if (shouldUseSupabase()) {
+    return c.json({ error: 'Backend detection is not available in multi-tenant mode' }, 403)
+  }
+
   try {
     const { id } = c.req.param()
     const backend = await detectSingleBackend(id)
