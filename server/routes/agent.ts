@@ -642,8 +642,12 @@ agentRoute.post('/chat', async (c) => {
 
   return streamSSE(c, async (stream) => {
     try {
-      // Get provider — prefer anthropic-direct for chat to avoid CLI policy false positives
-      const provider = getChatProvider(providerId)
+      // Get provider — for follow-up chats (with sessionId), we need a provider that supports
+      // session resumption. claude-code supports this, anthropic-direct does not.
+      // For initial chats, prefer anthropic-direct to avoid CLI policy false positives.
+      const provider = existingSessionId
+        ? providerRegistry.getProvider('claude-code') || getChatProvider(providerId)
+        : getChatProvider(providerId)
 
       if (!provider) {
         await stream.writeSSE({
@@ -656,6 +660,7 @@ agentRoute.post('/chat', async (c) => {
       const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
 
       // Build task dispatch
+      // For follow-up chats with sessionId, use higher maxTurns to allow multi-turn conversations
       const task: TaskDispatch = {
         taskId,
         sessionId: existingSessionId,
@@ -663,7 +668,7 @@ agentRoute.post('/chat', async (c) => {
         prompt: message,
         systemPrompt,
         model: resolveModelForProvider(provider, model),
-        maxTurns: 1,
+        maxTurns: existingSessionId ? 10 : 1,
         context: {
           projectId,
           visionDoc,
@@ -749,8 +754,12 @@ agentRoute.post('/task-chat', async (c) => {
 
   return streamSSE(c, async (stream) => {
     try {
-      // Get provider — prefer anthropic-direct for chat to avoid CLI policy false positives
-      const provider = getChatProvider(providerId)
+      // Get provider — for follow-up chats (with sessionId), we need a provider that supports
+      // session resumption. claude-code supports this, anthropic-direct does not.
+      // For initial chats, prefer anthropic-direct to avoid CLI policy false positives.
+      const provider = existingSessionId
+        ? providerRegistry.getProvider('claude-code') || getChatProvider(providerId)
+        : getChatProvider(providerId)
 
       if (!provider) {
         await stream.writeSSE({
@@ -768,6 +777,7 @@ agentRoute.post('/task-chat', async (c) => {
       })
 
       // Build task dispatch
+      // For follow-up chats with sessionId, use higher maxTurns to allow multi-turn conversations
       const task: TaskDispatch = {
         taskId,
         sessionId: existingSessionId,
@@ -775,7 +785,7 @@ agentRoute.post('/task-chat', async (c) => {
         prompt: message,
         systemPrompt,
         model: resolveModelForProvider(provider, model),
-        maxTurns: 1,
+        maxTurns: existingSessionId ? 10 : 1,
         context: {
           projectId,
           nodeId,
