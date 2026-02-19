@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown, Bot } from "lucide-react"
+// Cloud and Globe used via environmentConfig lookup
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -12,7 +13,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useExecutionStore, canExecuteNode, getProjectWorkingDir, getAllowedEnvironments, type MachineInfo } from "@/stores/execution-store"
+import { useExecutionStore, canExecuteNode, getProjectWorkingDir } from "@/stores/execution-store"
+import { shouldUseSupabase } from "@/lib/supabase-client"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -60,20 +62,22 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const defaultProvider = useSettingsStore((s) => s.defaultProvider)
 
   // Machine state
+  const machines = useExecutionStore((s) => s.machines)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
-  const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
 
-  // Compute allowed environments from project config
-  const envConstraints = getAllowedEnvironments(project)
+  // In Supabase mode, no "Local" option — only registered machines
+  const isMultiTenant = shouldUseSupabase()
 
-  // Local state for execution options — default to project's defaultEnvironment
-  const [selectedEnvironment, setSelectedEnvironment] = useState<'local' | 'remote' | 'hpc' | 'cloud'>(
-    project?.defaultEnvironment || node.environment || 'local'
-  )
-  const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
+  // Local state for execution options — default to node's machine, then project defaults
+  const defaultMachineId = node.machineId || project?.defaultMachineId
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(defaultMachineId || null)
   const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider || "")
   const [selectedModel, setSelectedModel] = useState<string>("")
+
+  // Derive environment from selected machine
+  const selectedMachine = selectedMachineId ? machines.find((m) => m.machineId === selectedMachineId) ?? null : null
+  const selectedEnvironment: 'local' | 'remote' | 'hpc' | 'cloud' = selectedMachine?.environmentType || 'local'
 
   // Derived: selected provider object
   const selectedProviderObj: ProviderStatus | null = selectedProvider
@@ -84,11 +88,15 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const dirCheck = getProjectWorkingDir(project, selectedEnvironment)
   const workingDir = dirCheck.dir || ''
 
-  // If locked to a specific machine, compute the effective machine from available machines
-  const lockedMachine = envConstraints.lockedMachineId && machinesLoaded
-    ? getMachinesForEnvironment(selectedEnvironment).find((m) => m.machineId === envConstraints.lockedMachineId) ?? null
-    : null
-  const effectiveMachine = selectedMachine ?? lockedMachine
+  const effectiveMachine = selectedMachine
+
+  // Sync selected machine when node or project defaults change
+  useEffect(() => {
+    const id = node.machineId || project?.defaultMachineId
+    if (id && !selectedMachineId) {
+      setSelectedMachineId(id)
+    }
+  }, [node.machineId, project?.defaultMachineId, selectedMachineId])
 
   // Load providers and machines on mount
   useEffect(() => {
@@ -107,20 +115,17 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
     }
   }, [execution?.streamText])
 
-  // Get available machines for selected environment
-  const availableMachines = getMachinesForEnvironment(selectedEnvironment)
+  // All online machines
+  const onlineMachines = machines.filter((m) => m.status !== 'offline')
 
   // Check if node can be executed
   const canExecuteResult = canExecuteNode(node, nodes, edges)
   const availableProvider = getAvailableProvider()
 
-  // Determine if execute button should be enabled
-  // For local environment, just need a provider
-  // For remote environments, need either a selected machine or available machines
-  const hasExecutionTarget =
-    selectedEnvironment === 'local'
-      ? availableProvider !== null
-      : effectiveMachine !== null || availableMachines.length > 0
+  // For local (no machine selected), need a provider; for remote, need a machine
+  const hasExecutionTarget = selectedMachineId
+    ? effectiveMachine !== null
+    : availableProvider !== null
 
   // Allow execution for planned nodes, and re-execution for stuck/failed nodes
   const executableStatuses: PlanNode["status"][] = ["planned", "in_progress", "awaiting_judgment"]
@@ -144,48 +149,63 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
     cancelExecution(node.id)
   }
 
-  const EnvironmentIcon = environmentConfig[selectedEnvironment].icon
+  const MachineIcon = selectedMachine
+    ? environmentConfig[selectedMachine.environmentType]?.icon || Server
+    : Laptop
+  const machineDisplayName = selectedMachine?.name || (isMultiTenant ? "Select machine" : "Local")
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Environment Selection */}
+      {/* Machine Selection */}
       <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">Environment</span>
+        <span className="text-sm text-muted-foreground">Machine</span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5" disabled={envConstraints.allowed.length <= 1}>
-              <EnvironmentIcon className="h-3.5 w-3.5" />
-              {environmentConfig[selectedEnvironment].label}
-              {envConstraints.allowed.length > 1 && <ChevronDown className="h-3 w-3 opacity-50" />}
+            <Button variant="outline" size="sm" className="gap-1.5 max-w-[200px]">
+              <MachineIcon className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                {machineDisplayName}
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Select Environment</DropdownMenuLabel>
+            <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {(Object.keys(environmentConfig) as Array<'local' | 'remote' | 'hpc' | 'cloud'>).map((env) => {
-              const config = environmentConfig[env]
-              const Icon = config.icon
-              const machineCount = getMachinesForEnvironment(env).length
-              const isAllowed = envConstraints.allowed.includes(env)
+            {!isMultiTenant && (
+              <DropdownMenuItem
+                onClick={() => setSelectedMachineId(null)}
+                className="gap-2"
+              >
+                <Laptop className="h-4 w-4" />
+                <div className="flex flex-col">
+                  <span>Local</span>
+                  <span className="text-xs text-muted-foreground">Run on this machine</span>
+                </div>
+                {!selectedMachineId && (
+                  <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                )}
+              </DropdownMenuItem>
+            )}
+            {!isMultiTenant && onlineMachines.length > 0 && <DropdownMenuSeparator />}
+            {onlineMachines.map((machine) => {
+              const envConfig = environmentConfig[machine.environmentType]
+              const Icon = envConfig?.icon || Server
               return (
                 <DropdownMenuItem
-                  key={env}
-                  onClick={() => {
-                    if (!isAllowed) return
-                    setSelectedEnvironment(env)
-                    setSelectedMachine(null)
-                  }}
+                  key={machine.machineId}
+                  onClick={() => setSelectedMachineId(machine.machineId)}
                   className="gap-2"
-                  disabled={!isAllowed}
                 >
                   <Icon className="h-4 w-4" />
                   <div className="flex flex-col">
-                    <span>{config.label}</span>
+                    <span>{machine.name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {env === 'local' ? config.description : `${machineCount} available`}
+                      {machine.hostname || machine.environmentType}
+                      {machine.load && ` · ${machine.load.activeTasks} tasks`}
                     </span>
                   </div>
-                  {selectedEnvironment === env && (
+                  {selectedMachineId === machine.machineId && (
                     <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
                   )}
                 </DropdownMenuItem>
@@ -194,85 +214,6 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-
-      {/* Environment lock info */}
-      {envConstraints.lockReason && (
-        <div className="rounded-lg bg-muted/50 p-2.5 text-xs text-muted-foreground">
-          {envConstraints.lockReason}
-        </div>
-      )}
-
-      {/* Machine Selection (for non-local environments) */}
-      {selectedEnvironment !== 'local' && availableMachines.length > 0 && (
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Machine</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5 max-w-[180px]">
-                <Server className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">
-                  {effectiveMachine?.name || "Auto-select"}
-                </span>
-                <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setSelectedMachine(null)}
-                className="gap-2"
-              >
-                <Server className="h-4 w-4" />
-                <div className="flex flex-col">
-                  <span>Auto-select</span>
-                  <span className="text-xs text-muted-foreground">
-                    Best available machine
-                  </span>
-                </div>
-                {!effectiveMachine && (
-                  <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                )}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {availableMachines.map((machine) => (
-                <DropdownMenuItem
-                  key={machine.machineId}
-                  onClick={() => setSelectedMachine(machine)}
-                  className="gap-2"
-                >
-                  <Server className="h-4 w-4" />
-                  <div className="flex flex-col">
-                    <span>{machine.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {machine.hostname || machine.machineId}
-                      {machine.load && ` • ${machine.load.activeTasks} tasks`}
-                    </span>
-                  </div>
-                  {effectiveMachine?.machineId === machine.machineId && (
-                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
-
-      {/* No machines warning for non-local environments */}
-      {selectedEnvironment !== 'local' && availableMachines.length === 0 && machinesLoaded && (
-        <div className="rounded-lg bg-warning/10 p-3 text-sm">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-warning mt-0.5" />
-            <div>
-              <p className="font-medium text-warning">No machines available</p>
-              <p className="text-muted-foreground mt-1">
-                No {environmentConfig[selectedEnvironment].label} machines are connected.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Working directory warning */}
       {!dirCheck.ok && (

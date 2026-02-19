@@ -112,6 +112,7 @@ export interface PlanNode {
   parentId: string | null;
   dependencies: string[];
   environment?: 'local' | 'remote' | 'hpc' | 'cloud';
+  machineId?: string;            // references a specific registered machine
   verification: 'auto' | 'human';
   position: { x: number; y: number };
   startDate?: string;

@@ -24,7 +24,8 @@ import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
-import { useExecutionStore, canExecuteNode, getAllowedEnvironments } from "@/stores/execution-store"
+import { useExecutionStore, canExecuteNode } from "@/stores/execution-store"
+import { shouldUseSupabase } from "@/lib/supabase-client"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
@@ -89,27 +90,35 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const executeAllProject = useExecutionStore((s) => s.executeAllProject)
   const stopBatchExecution = useExecutionStore((s) => s.stopBatchExecution)
   const batchExecution = useExecutionStore((s) => s.batchExecutions.get(projectId))
-  const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
+  const machines = useExecutionStore((s) => s.machines)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const isProjectGenerating = useAgentStore((s) => s.sessions.get(projectId)?.status === 'active')
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+  const isMultiTenant = shouldUseSupabase()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
-  const [selectedEnvironment, setSelectedEnvironment] = useState<'local' | 'remote' | 'hpc' | 'cloud'>(
-    project?.defaultEnvironment || 'local'
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(
+    project?.defaultMachineId || null
   )
-  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null)
 
-  // Load machines on mount for the environment dropdown
+  // Sync selected machine when project defaults change
+  useEffect(() => {
+    if (project?.defaultMachineId && !selectedMachineId) {
+      setSelectedMachineId(project.defaultMachineId)
+    }
+  }, [project?.defaultMachineId, selectedMachineId])
+
+  // Load machines on mount
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
   }, [machinesLoaded, loadMachines])
 
-  const envConstraints = getAllowedEnvironments(project)
-  const availableMachines = getMachinesForEnvironment(selectedEnvironment)
+  const onlineMachines = machines.filter((m) => m.status !== 'offline')
+  const selectedMachine = selectedMachineId ? machines.find((m) => m.machineId === selectedMachineId) ?? null : null
+  const selectedEnvironment: 'local' | 'remote' | 'hpc' | 'cloud' = selectedMachine?.environmentType || 'local'
   const [addChildState, setAddChildState] = useState<AddChildState | null>(null)
   const connectingNodeId = useRef<string | null>(null)
   const justCreatedChild = useRef(false)
@@ -518,7 +527,9 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const selectedNodes = projectNodes.filter((n) => checkedIds.has(n.id))
   const readyNodes = selectedNodes.filter((n) => canExecuteNode(n, allPlanNodes, allPlanEdges).ready)
   const blockedCount = selectedNodes.length - readyNodes.length
-  const SelectedEnvIcon = environmentConfig[selectedEnvironment].icon
+  const SelectedMachineIcon = selectedMachine
+    ? environmentConfig[selectedMachine.environmentType]?.icon || Server
+    : Laptop
   // Batch execution stats
   const isBatchActive = batchExecution?.active ?? false
   const plannedCount = projectNodes.filter((n) => n.status === "planned").length
@@ -646,78 +657,51 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                         type="button"
                         className="flex h-8 items-center gap-1 rounded-r-lg border border-primary/30 bg-primary/5 px-2 text-xs text-primary hover:bg-primary/10 transition-colors cursor-pointer shadow-lg"
                       >
-                        <SelectedEnvIcon className="h-3 w-3" />
+                        <SelectedMachineIcon className="h-3 w-3" />
                         <ChevronDown className="h-3 w-3" />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuLabel>Environment</DropdownMenuLabel>
+                      <DropdownMenuLabel>Machine</DropdownMenuLabel>
                       <DropdownMenuSeparator />
-                      {(Object.keys(environmentConfig) as Array<keyof typeof environmentConfig>).map((env) => {
-                        const config = environmentConfig[env]
-                        const EnvIcon = config.icon
-                        const isAllowed = envConstraints.allowed.includes(env)
-                        const machineCount = getMachinesForEnvironment(env).length
+                      {!isMultiTenant && (
+                        <DropdownMenuItem
+                          onClick={() => setSelectedMachineId(null)}
+                          className="gap-2"
+                        >
+                          <Laptop className="h-4 w-4" />
+                          <div className="flex flex-col">
+                            <span>Local</span>
+                            <span className="text-[10px] text-muted-foreground">Run on this machine</span>
+                          </div>
+                          {!selectedMachineId && (
+                            <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                          )}
+                        </DropdownMenuItem>
+                      )}
+                      {!isMultiTenant && onlineMachines.length > 0 && <DropdownMenuSeparator />}
+                      {onlineMachines.map((machine) => {
+                        const envConfig = environmentConfig[machine.environmentType]
+                        const Icon = envConfig?.icon || Server
                         return (
                           <DropdownMenuItem
-                            key={env}
-                            disabled={!isAllowed}
-                            onClick={() => {
-                              setSelectedEnvironment(env)
-                              setSelectedMachineId(null)
-                            }}
+                            key={machine.machineId}
+                            onClick={() => setSelectedMachineId(machine.machineId)}
                             className="gap-2"
                           >
-                            <EnvIcon className="h-4 w-4" />
+                            <Icon className="h-4 w-4" />
                             <div className="flex flex-col">
-                              <span>{config.label}</span>
+                              <span className="truncate max-w-[140px]">{machine.name}</span>
                               <span className="text-[10px] text-muted-foreground">
-                                {env === "local" ? "Local machine" : `${machineCount} available`}
+                                {machine.hostname || machine.environmentType}
                               </span>
                             </div>
-                            {selectedEnvironment === env && (
+                            {selectedMachineId === machine.machineId && (
                               <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
                             )}
                           </DropdownMenuItem>
                         )
                       })}
-                      {selectedEnvironment !== "local" && availableMachines.length > 0 && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Machine</DropdownMenuLabel>
-                          <DropdownMenuItem
-                            onClick={() => setSelectedMachineId(null)}
-                            className="gap-2"
-                          >
-                            <Server className="h-4 w-4" />
-                            <div className="flex flex-col">
-                              <span>Auto-select</span>
-                              <span className="text-[10px] text-muted-foreground">Best available</span>
-                            </div>
-                            {!selectedMachineId && (
-                              <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                            )}
-                          </DropdownMenuItem>
-                          {availableMachines.map((machine) => (
-                            <DropdownMenuItem
-                              key={machine.machineId}
-                              onClick={() => setSelectedMachineId(machine.machineId)}
-                              className="gap-2"
-                            >
-                              <Server className="h-4 w-4" />
-                              <div className="flex flex-col">
-                                <span className="truncate max-w-[140px]">{machine.name}</span>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {machine.hostname || machine.machineId}
-                                </span>
-                              </div>
-                              {selectedMachineId === machine.machineId && (
-                                <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                              )}
-                            </DropdownMenuItem>
-                          ))}
-                        </>
-                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -766,80 +750,51 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                   type="button"
                   className="flex h-7 items-center gap-1 rounded-r-md border border-primary/30 bg-primary/5 px-1.5 text-xs text-primary hover:bg-primary/10 transition-colors cursor-pointer"
                 >
-                  <SelectedEnvIcon className="h-3 w-3" />
+                  <SelectedMachineIcon className="h-3 w-3" />
                   <ChevronDown className="h-3 w-3" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Environment</DropdownMenuLabel>
+                <DropdownMenuLabel>Machine</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {(Object.keys(environmentConfig) as Array<keyof typeof environmentConfig>).map((env) => {
-                  const config = environmentConfig[env]
-                  const EnvIcon = config.icon
-                  const isAllowed = envConstraints.allowed.includes(env)
-                  const machineCount = getMachinesForEnvironment(env).length
+                {!isMultiTenant && (
+                  <DropdownMenuItem
+                    onClick={() => setSelectedMachineId(null)}
+                    className="gap-2"
+                  >
+                    <Laptop className="h-4 w-4" />
+                    <div className="flex flex-col">
+                      <span>Local</span>
+                      <span className="text-[10px] text-muted-foreground">Run on this machine</span>
+                    </div>
+                    {!selectedMachineId && (
+                      <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                )}
+                {!isMultiTenant && onlineMachines.length > 0 && <DropdownMenuSeparator />}
+                {onlineMachines.map((machine) => {
+                  const envConfig = environmentConfig[machine.environmentType]
+                  const Icon = envConfig?.icon || Server
                   return (
                     <DropdownMenuItem
-                      key={env}
-                      disabled={!isAllowed}
-                      onClick={() => {
-                        setSelectedEnvironment(env)
-                        setSelectedMachineId(null)
-                      }}
+                      key={machine.machineId}
+                      onClick={() => setSelectedMachineId(machine.machineId)}
                       className="gap-2"
                     >
-                      <EnvIcon className="h-4 w-4" />
+                      <Icon className="h-4 w-4" />
                       <div className="flex flex-col">
-                        <span>{config.label}</span>
+                        <span className="truncate max-w-[140px]">{machine.name}</span>
                         <span className="text-[10px] text-muted-foreground">
-                          {env === "local" ? "Local machine" : `${machineCount} available`}
+                          {machine.hostname || machine.environmentType}
                         </span>
                       </div>
-                      {selectedEnvironment === env && (
+                      {selectedMachineId === machine.machineId && (
                         <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
                       )}
                     </DropdownMenuItem>
                   )
                 })}
-
-                {/* Machine selection for non-local environments */}
-                {selectedEnvironment !== "local" && availableMachines.length > 0 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>Machine</DropdownMenuLabel>
-                    <DropdownMenuItem
-                      onClick={() => setSelectedMachineId(null)}
-                      className="gap-2"
-                    >
-                      <Server className="h-4 w-4" />
-                      <div className="flex flex-col">
-                        <span>Auto-select</span>
-                        <span className="text-[10px] text-muted-foreground">Best available</span>
-                      </div>
-                      {!selectedMachineId && (
-                        <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                      )}
-                    </DropdownMenuItem>
-                    {availableMachines.map((machine) => (
-                      <DropdownMenuItem
-                        key={machine.machineId}
-                        onClick={() => setSelectedMachineId(machine.machineId)}
-                        className="gap-2"
-                      >
-                        <Server className="h-4 w-4" />
-                        <div className="flex flex-col">
-                          <span className="truncate max-w-[140px]">{machine.name}</span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {machine.hostname || machine.machineId}
-                          </span>
-                        </div>
-                        {selectedMachineId === machine.machineId && (
-                          <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                        )}
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

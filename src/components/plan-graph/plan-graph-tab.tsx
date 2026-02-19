@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { CheckCircle2, Clock, Circle, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -8,6 +8,8 @@ import { ChatPanel } from "@/components/agent/chat-panel"
 import { ExecutionPanel } from "@/components/execution"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useExecutionStore } from "@/stores/execution-store"
+import { shouldUseSupabase } from "@/lib/supabase-client"
 import { PRIORITY_CONFIG, PRIORITIES, ESTIMATES } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants } from "@/lib/status-config"
 import { cn } from "@/lib/utils"
@@ -31,6 +33,56 @@ function formatDueDate(dateStr?: string): { text: string; className: string } {
   if (diffDays < 0) return { text, className: "text-red-500 font-medium" }
   if (diffDays < 7) return { text, className: "text-orange-500" }
   return { text, className: "text-foreground" }
+}
+
+function MachineSelector({ selectedNode, projectId, onUpdate }: {
+  selectedNode: PlanNode
+  projectId: string
+  onUpdate: (updates: Partial<PlanNode>) => void
+}) {
+  const machines = useExecutionStore((s) => s.machines)
+  const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
+  const loadMachines = useExecutionStore((s) => s.loadMachines)
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const isMultiTenant = shouldUseSupabase()
+
+  useEffect(() => {
+    if (!machinesLoaded) loadMachines()
+  }, [machinesLoaded, loadMachines])
+
+  const onlineMachines = machines.filter((m) => m.status !== 'offline')
+  const effectiveId = selectedNode.machineId || project?.defaultMachineId || ""
+  const selectedMachine = effectiveId ? machines.find((m) => m.machineId === effectiveId) : undefined
+
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-muted-foreground">Machine</span>
+      <select
+        value={effectiveId}
+        onChange={(e) => {
+          const machineId = e.target.value || undefined
+          const machine = machines.find((m) => m.machineId === machineId)
+          onUpdate({
+            machineId,
+            environment: machine?.environmentType || undefined,
+          })
+        }}
+        className="bg-transparent text-sm text-right cursor-pointer focus:outline-none max-w-[180px] truncate"
+      >
+        {!isMultiTenant && <option value="">Local</option>}
+        {isMultiTenant && !effectiveId && <option value="">Select machine</option>}
+        {onlineMachines.map((m) => (
+          <option key={m.machineId} value={m.machineId}>
+            {m.name}
+          </option>
+        ))}
+        {/* Show current selection even if machine is offline */}
+        {!selectedMachine && effectiveId && (
+          <option value={effectiveId}>{effectiveId} (offline)</option>
+        )}
+      </select>
+    </div>
+  )
 }
 
 export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
@@ -213,12 +265,15 @@ export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
               <span className="text-muted-foreground">Verification</span>
               <span className="capitalize">{selectedNode.verification}</span>
             </div>
-            {selectedNode.environment && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Environment</span>
-                <span className="capitalize">{selectedNode.environment}</span>
-              </div>
-            )}
+            {/* Machine selector */}
+            <MachineSelector
+              selectedNode={selectedNode}
+              projectId={projectId}
+              onUpdate={(updates) => {
+                updateNode(selectedNode.id, updates)
+                setSelectedNode({ ...selectedNode, ...updates })
+              }}
+            />
           </div>
           <Separator />
 
