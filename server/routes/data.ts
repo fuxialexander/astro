@@ -289,6 +289,9 @@ app.get('/plan', async (c) => {
       executionError: n.executionError,
       executionStartedAt: n.executionStartedAt,
       executionCompletedAt: n.executionCompletedAt,
+      branchName: n.branchName,
+      prUrl: n.prUrl,
+      prNumber: n.prNumber,
       createdAt: n.createdAt,
       updatedAt: n.updatedAt,
     }))
@@ -341,6 +344,9 @@ app.get('/plan/:projectId', async (c) => {
     executionError: n.executionError,
     executionStartedAt: n.executionStartedAt,
     executionCompletedAt: n.executionCompletedAt,
+    branchName: n.branchName,
+    prUrl: n.prUrl,
+    prNumber: n.prNumber,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   }))
@@ -403,6 +409,9 @@ app.put('/plan/:projectId', async (c) => {
         executionError: (n.executionError as string) ?? null,
         executionStartedAt: (typeof n.executionStartedAt === 'string' || typeof n.executionStartedAt === 'number') ? new Date(n.executionStartedAt as string | number) : null,
         executionCompletedAt: (typeof n.executionCompletedAt === 'string' || typeof n.executionCompletedAt === 'number') ? new Date(n.executionCompletedAt as string | number) : null,
+        branchName: (n.branchName as string) ?? null,
+        prUrl: (n.prUrl as string) ?? null,
+        prNumber: (n.prNumber as number) ?? null,
         createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
         updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
@@ -459,6 +468,9 @@ app.post('/plan/nodes', async (c) => {
     executionError: body.executionError ?? null,
     executionStartedAt: (typeof body.executionStartedAt === 'string' || typeof body.executionStartedAt === 'number') ? new Date(body.executionStartedAt) : null,
     executionCompletedAt: (typeof body.executionCompletedAt === 'string' || typeof body.executionCompletedAt === 'number') ? new Date(body.executionCompletedAt) : null,
+    branchName: body.branchName ?? null,
+    prUrl: body.prUrl ?? null,
+    prNumber: body.prNumber ?? null,
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   })
@@ -505,6 +517,9 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.executionError !== undefined) patch.executionError = body.executionError || null
   if (body.executionStartedAt !== undefined) patch.executionStartedAt = body.executionStartedAt ? new Date(body.executionStartedAt) : null
   if (body.executionCompletedAt !== undefined) patch.executionCompletedAt = body.executionCompletedAt ? new Date(body.executionCompletedAt) : null
+  if (body.branchName !== undefined) patch.branchName = body.branchName || null
+  if (body.prUrl !== undefined) patch.prUrl = body.prUrl || null
+  if (body.prNumber !== undefined) patch.prNumber = body.prNumber || null
   if (body.type !== undefined) patch.type = body.type
 
   await db.update(planNodes).set(patch).where(eq(planNodes.clientId, id))
