@@ -1,6 +1,8 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
 import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, RotateCcw, Play } from "lucide-react"
+import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
+import { VoiceInputButton } from "@/components/ui/voice-input-button"
 
 // Media query hook for responsive rendering
 function useMediaQuery(query: string) {
@@ -967,6 +969,25 @@ export function PlanView() {
   const [visionOpen, setVisionOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
 
+  // Voice transcription for node description
+  const handleTranscript = useCallback((text: string) => {
+    if (!selectedNode) return
+    const currentDescription = selectedNode.description ?? ""
+    const newDescription = currentDescription ? `${currentDescription} ${text}` : text
+    updateNode(selectedNode.id, { description: newDescription })
+    setSelectedNode({ ...selectedNode, description: newDescription })
+  }, [selectedNode, updateNode])
+
+  const {
+    isRecording,
+    isTranscribing,
+    isAvailable,
+    duration,
+    toggleRecording,
+  } = useVoiceTranscription({
+    onTranscript: handleTranscript,
+  })
+
   // Close detail panel when switching view modes
   useEffect(() => {
     setSelectedNode(null)
@@ -1118,7 +1139,17 @@ export function PlanView() {
       <Separator />
 
       <div className="flex flex-col gap-2">
-        <h4 className="text-[13px] font-semibold text-muted-foreground">Description</h4>
+        <div className="flex items-center justify-between">
+          <h4 className="text-[13px] font-semibold text-muted-foreground">Description</h4>
+          <VoiceInputButton
+            isRecording={isRecording}
+            isTranscribing={isTranscribing}
+            isAvailable={isAvailable}
+            duration={duration}
+            onClick={toggleRecording}
+            size="sm"
+          />
+        </div>
         <FileCompletionTextarea
           projectId={project.id}
           machineId={project.defaultMachineId}
