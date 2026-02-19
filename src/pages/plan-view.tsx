@@ -968,7 +968,7 @@ const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
 
 export function PlanView() {
   const { id } = useParams()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const initialView = searchParams.get("view") as ViewMode | null
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateProject = useProjectStore((s) => s.updateProject)
@@ -985,6 +985,13 @@ export function PlanView() {
   const [activeTab, setActiveTab] = useState<"plan" | "overview">("plan")
   const [visionOpen, setVisionOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
+
+  // Update URL when view mode changes
+  useEffect(() => {
+    if (activeTab === "plan" && viewMode !== initialView) {
+      setSearchParams({ view: viewMode }, { replace: true })
+    }
+  }, [viewMode, activeTab, setSearchParams, initialView])
 
   // Voice transcription for node description
   const handleTranscript = useCallback((text: string) => {
@@ -1188,7 +1195,7 @@ export function PlanView() {
         {selectedNode!.executionId ? (
           <>
             <Link
-              to={`/project/${project.id}/task/${selectedNode!.id}`}
+              to={`/project/${project.id}/task/${selectedNode!.id}?from=${viewMode}`}
               className="flex items-center justify-center gap-2 h-10 rounded-[10px] bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
             >
               <FileText className="h-4 w-4" />
@@ -1215,7 +1222,7 @@ export function PlanView() {
           </>
         ) : (
           <div className="flex flex-col gap-3">
-            <ExecutionPanel node={selectedNode!} projectId={project.id} />
+            <ExecutionPanel node={selectedNode!} projectId={project.id} viewMode={viewMode} />
           </div>
         )}
 
