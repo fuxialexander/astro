@@ -122,14 +122,17 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
       ? availableProvider !== null
       : effectiveMachine !== null || availableMachines.length > 0
 
-  // Allow execution for planned nodes, and re-execution for stuck/failed nodes
-  const executableStatuses: PlanNode["status"][] = ["planned", "in_progress", "awaiting_judgment"]
+  // Allow execution for planned nodes, and re-execution for stuck/failed/completed nodes
+  const executableStatuses: PlanNode["status"][] = ["planned", "in_progress", "awaiting_judgment", "completed", "auto_verified"]
   const canExecuteNow =
     canExecuteResult.ready &&
     !isExecuting &&
     executableStatuses.includes(node.status) &&
     hasExecutionTarget &&
     !!workingDir.trim()
+
+  // Determine if this is a re-execution (task has been executed before)
+  const isReexecution = node.status === "completed" || node.status === "auto_verified" || !!node.executionOutput
 
   const handleExecute = () => {
     startExecution(node.id, projectId, {
@@ -423,7 +426,7 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
             disabled={!canExecuteNow}
           >
             <Play className="h-3.5 w-3.5" />
-            Execute
+            {isReexecution ? "Reset" : "Execute"}
           </Button>
         )}
       </div>
