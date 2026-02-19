@@ -600,6 +600,7 @@ export function OverviewTab({
                   "task.created": { Icon: Plus, color: "text-blue-500" },
                   "task.deleted": { Icon: User, color: "text-red-500" },
                   "task.bulk_deleted": { Icon: User, color: "text-red-500" },
+                  "task.bulk_executed": { Icon: Play, color: "text-blue-500" },
                 }
 
                 const config = iconMap[activity.type] || { Icon: User, color: "text-muted-foreground" }

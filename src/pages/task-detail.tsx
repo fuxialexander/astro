@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router"
-import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, Layers } from "lucide-react"
+import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, Layers, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"

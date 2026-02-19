@@ -93,12 +93,10 @@ export function ExecutionPanel({ node, projectId }: ExecutionPanelProps) {
   const effectiveMachine = selectedMachine
 
   // Sync selected machine when node or project defaults change
-  useEffect(() => {
-    const id = node.machineId || project?.defaultMachineId
-    if (id && !selectedMachineId) {
-      setSelectedMachineId(id)
-    }
-  }, [node.machineId, project?.defaultMachineId, selectedMachineId])
+  const syncMachineId = node.machineId || project?.defaultMachineId
+  if (syncMachineId && !selectedMachineId) {
+    setSelectedMachineId(syncMachineId)
+  }
 
   // Load providers and machines on mount
   useEffect(() => {

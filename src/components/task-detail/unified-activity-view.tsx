@@ -6,7 +6,6 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
-  Clock,
   Wrench,
   FileEdit,
   ArrowDown,

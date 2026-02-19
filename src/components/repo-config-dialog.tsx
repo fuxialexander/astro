@@ -112,7 +112,7 @@ export function RepoConfigDialog({
     } finally {
       setIsSaving(false)
     }
-  }, [setupRepo, updateProject, addActivity, project.id, project.name, project.description, repoUrl, workDir])
+  }, [setupRepo, updateProject, addActivity, project.id, project.name, project.description, repoUrl, workDir, selectedMachineId])
 
   // Validate path on change
   const handleWorkDirChange = (value: string) => {
