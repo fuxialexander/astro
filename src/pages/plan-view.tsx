@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useSearchParams, Link } from "react-router"
-import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, RotateCcw } from "lucide-react"
+import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, RotateCcw, Play } from "lucide-react"
 
 // Media query hook for responsive rendering
 function useMediaQuery(query: string) {
@@ -547,6 +547,28 @@ export function PlanListView({
 
   const planBatchActions: BatchAction[] = useMemo(() => [
     {
+      id: "execute",
+      label: "Execute All",
+      icon: <Play className="h-3.5 w-3.5" />,
+      variant: "default",
+      onAction: async (ids) => {
+        const { startExecution } = useExecutionStore.getState()
+        // Execute all selected tasks
+        for (const id of ids) {
+          const node = planNodes.find((n) => n.id === id)
+          if (node) {
+            await startExecution(id, node.projectId)
+          }
+        }
+        // Track activity
+        addActivity({
+          projectId,
+          type: "task.bulk_executed",
+          title: `Executing ${ids.length} task${ids.length > 1 ? 's' : ''}`,
+        })
+      },
+    },
+    {
       id: "delete",
       label: "Delete",
       icon: <Trash2 className="h-3.5 w-3.5" />,
@@ -572,7 +594,7 @@ export function PlanListView({
         }
       },
     },
-  ], [removeNodes, planNodes, addActivity])
+  ], [removeNodes, planNodes, addActivity, projectId])
 
   const allProjectNodes = useMemo(() => {
     // If nodes provided (cross-project mode), use those
