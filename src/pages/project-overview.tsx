@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react"
-import { useParams, useNavigate } from "react-router"
+import { useParams } from "react-router"
 import {
   Rocket,
   Star,
@@ -13,7 +13,6 @@ import {
   FolderGit2,
   Diamond,
   ExternalLink,
-  Network,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -23,6 +22,7 @@ import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { MilestoneDialog } from "@/components/milestone-dialog"
 import { ActivityDialog } from "@/components/activity-dialog"
 import { ColorIconBadge } from "@/components/color-icon-picker"
+import { PlanListView } from "@/pages/plan-view"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
@@ -203,8 +203,6 @@ function OverviewTab({
     return `${editorScheme}://file${path}`
   }, [project.workingDirectory, project.defaultMachineId, useLocalUrls, useVSCode, machines])
 
-  const navigate = useNavigate()
-
   return (
     <div className="flex flex-1 overflow-hidden">
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
@@ -228,16 +226,6 @@ function OverviewTab({
           <p className="text-sm leading-relaxed">
             {project.description}
           </p>
-          <div className="flex items-center gap-2 mt-2">
-            <Button
-              onClick={() => navigate(`/project/${project.id}/plan?view=list`)}
-              variant="outline"
-              size="sm"
-            >
-              <Network className="h-4 w-4" />
-              View Full Plan
-            </Button>
-          </div>
         </div>
 
         {/* Milestones Section */}
@@ -631,20 +619,6 @@ function OverviewTab({
           )}
         </div>
 
-        <Separator />
-
-        {/* Updates (Comment-like section) */}
-        <div className="flex flex-col flex-1 min-h-0 p-5">
-          <h3 className="text-sm font-semibold mb-3">Updates</h3>
-          <div className="flex-1 overflow-y-auto pr-2 -mr-2">
-            <div className="flex items-center justify-center h-full text-center">
-              <div className="flex flex-col gap-1">
-                <MessageSquare className="h-5 w-5 text-muted-foreground mx-auto" />
-                <p className="text-xs text-muted-foreground">No updates yet</p>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   )
@@ -656,6 +630,8 @@ export function ProjectOverview() {
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const updateProject = useProjectStore((s) => s.updateProject)
+  const [activeView, setActiveView] = useState<"plan" | "overview">("plan") // Default to Plan view
+  const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
 
   // Refresh file tree cache if stale, missing, or from a different machine
   useEffect(() => {
@@ -697,7 +673,7 @@ export function ProjectOverview() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Single-line header: identity */}
+      {/* Single-line header: identity + toggle */}
       <div className="flex items-center gap-3 border-b border-border px-6 h-14 shrink-0">
         <ColorIconBadge
           color={project.color}
@@ -709,14 +685,43 @@ export function ProjectOverview() {
         />
         <span className="text-lg font-semibold shrink-0">{project.name}</span>
         <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
+
+        {/* Plan | Overview Toggle */}
+        <div className="flex items-center gap-1 ml-4 rounded-md bg-muted p-0.5">
+          <button
+            onClick={() => setActiveView("plan")}
+            className={cn(
+              "px-3 py-1 text-sm font-medium rounded transition-colors",
+              activeView === "plan"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Plan
+          </button>
+          <button
+            onClick={() => setActiveView("overview")}
+            className={cn(
+              "px-3 py-1 text-sm font-medium rounded transition-colors",
+              activeView === "overview"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Overview
+          </button>
+        </div>
+
         <div className="flex-1 min-w-0" />
       </div>
 
       {/* Content */}
       <div className="flex flex-1 overflow-hidden relative">
-        <OverviewTab
-          project={project}
-        />
+        {activeView === "overview" ? (
+          <OverviewTab project={project} />
+        ) : (
+          <PlanListView projectId={project.id} onNodeSelect={setSelectedNode} />
+        )}
       </div>
     </div>
   )
