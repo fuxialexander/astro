@@ -368,6 +368,9 @@ function InlineListCreationRow({
     if (e.key === "Enter" && taskName.trim()) {
       e.preventDefault()
       handleCreate()
+    } else if (e.key === "Escape") {
+      e.preventDefault()
+      onCreated?.()
     }
   }
 
