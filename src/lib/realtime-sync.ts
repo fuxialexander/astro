@@ -60,6 +60,9 @@ function mapNode(row: Record<string, unknown>): PlanNode {
     updatedAt: toDate(row.updated_at ?? row.updatedAt),
     executionStartedAt: row.execution_started_at ? toDate(row.execution_started_at) : undefined,
     executionCompletedAt: row.execution_completed_at ? toDate(row.execution_completed_at) : undefined,
+    branchName: (row.branch_name ?? row.branchName) as string | undefined,
+    prUrl: (row.pr_url ?? row.prUrl) as string | undefined,
+    prNumber: (row.pr_number ?? row.prNumber) as number | undefined,
   } as PlanNode
 }
 
