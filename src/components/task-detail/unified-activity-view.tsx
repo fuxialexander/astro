@@ -131,20 +131,20 @@ function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
   const success = toolResult?.success
 
   return (
-    <div className="mx-4 my-1.5 rounded-lg border border-border bg-card overflow-hidden">
+    <div className="mx-4 my-0.5">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-muted/50 transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 w-full px-2 py-1 text-left hover:bg-muted/30 rounded transition-colors cursor-pointer group"
       >
         <div className={cn(
-          "flex h-5 w-5 items-center justify-center rounded-full shrink-0",
+          "flex h-3.5 w-3.5 items-center justify-center shrink-0",
           success === false
-            ? "bg-red-500/10 text-red-500"
+            ? "text-red-500"
             : success === true
-              ? "bg-green-500/10 text-green-500"
+              ? "text-green-500"
               : isComplete
-                ? "bg-muted text-muted-foreground"
-                : "bg-blue-500/10 text-blue-500"
+                ? "text-muted-foreground"
+                : "text-blue-500"
         )}>
           {!isComplete ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -156,26 +156,25 @@ function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
             <Wrench className="h-3 w-3" />
           )}
         </div>
-        <span className="text-xs font-medium font-mono flex-1 truncate">{toolUse.toolName}</span>
+        <span className="text-[11px] font-mono flex-1 truncate text-muted-foreground">{toolUse.toolName}</span>
         {toolResult?.duration != null && (
-          <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground shrink-0">
-            <Clock className="h-2.5 w-2.5" />
+          <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">
             {toolResult.duration}ms
           </span>
         )}
         {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <ChevronDown className="h-3 w-3 text-muted-foreground/50 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <ChevronRight className="h-3 w-3 text-muted-foreground/50 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
         )}
       </button>
 
       {expanded && (
-        <div className="border-t border-border px-3 py-2 flex flex-col gap-2">
+        <div className="mt-1 ml-5 mr-2 px-2 py-1.5 rounded-md bg-muted/30 border-l-2 border-muted-foreground/20 flex flex-col gap-1.5">
           {toolUse.toolInput != null && (
-            <div className="rounded-md bg-muted p-2">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Input</p>
-              <pre className="font-mono text-xs whitespace-pre-wrap break-all text-foreground max-h-[200px] overflow-auto">
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Input</p>
+              <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
                 {typeof toolUse.toolInput === "string"
                   ? toolUse.toolInput
                   : JSON.stringify(toolUse.toolInput, null, 2)}
@@ -183,9 +182,9 @@ function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
             </div>
           )}
           {toolResult?.toolResult != null && (
-            <div className="rounded-md bg-muted p-2">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Result</p>
-              <pre className="font-mono text-xs whitespace-pre-wrap break-all text-foreground max-h-[200px] overflow-auto">
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Result</p>
+              <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
                 {typeof toolResult.toolResult === "string"
                   ? toolResult.toolResult
                   : JSON.stringify(toolResult.toolResult, null, 2)}
