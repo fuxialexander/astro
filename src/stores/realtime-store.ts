@@ -354,11 +354,8 @@ function handleRealtimeEvent(
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
-      // Dual-write: also update execution store (find nodeId from plan store)
-      const stdoutNode = usePlanStore.getState().nodes.find((n) => n.executionId === taskId)
-      if (stdoutNode) {
-        useExecutionStore.getState().appendText(stdoutNode.id, text)
-      }
+      // NOTE: No dual-write to execution store - realtime events stay in realtime store only
+      // The UI will use either execution store (for local dispatch) OR realtime store (for relay)
       break
     }
 
@@ -373,11 +370,8 @@ function handleRealtimeEvent(
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
-      // Dual-write
-      const textNode = usePlanStore.getState().nodes.find((n) => n.executionId === taskId)
-      if (textNode) {
-        useExecutionStore.getState().appendText(textNode.id, text)
-      }
+      // NOTE: No dual-write to execution store - realtime events stay in realtime store only
+      // The UI will use either execution store (for local dispatch) OR realtime store (for relay)
       break
     }
 
@@ -486,23 +480,8 @@ function handleRealtimeEvent(
         streams.set(taskId, stream)
         return { taskStreams: streams }
       })
-      // Dual-write to execution store
-      const traceNode = usePlanStore.getState().nodes.find((n) => n.executionId === taskId)
-      if (traceNode) {
-        const execStore = useExecutionStore.getState()
-        execStore.addToolTrace(traceNode.id, {
-          id: traceId,
-          toolName: data.toolName as string,
-          toolInput: data.toolInput as Record<string, unknown>,
-          toolResult: data.toolResult as unknown,
-          success: data.success as boolean | undefined,
-          duration: data.duration as number | undefined,
-          timestamp: now,
-        })
-        if (data.toolResult !== undefined) {
-          execStore.updateToolTraceResult(traceNode.id, data.toolName as string, data.toolResult, data.success as boolean | undefined, data.duration as number | undefined)
-        }
-      }
+      // NOTE: No dual-write to execution store - realtime events stay in realtime store only
+      // The UI will use either execution store (for local dispatch) OR realtime store (for relay)
       break
     }
 
@@ -533,18 +512,8 @@ function handleRealtimeEvent(
         return { taskStreams: streams }
       })
       addActivity(set, 'file_change', `File ${data.action}: ${data.path}`, { taskId })
-      // Dual-write to execution store
-      const fcNode = usePlanStore.getState().nodes.find((n) => n.executionId === taskId)
-      if (fcNode) {
-        useExecutionStore.getState().addFileChange(fcNode.id, {
-          path: data.path as string,
-          action: (data.action as string) as 'create' | 'modify' | 'delete',
-          linesAdded: data.linesAdded as number | undefined,
-          linesRemoved: data.linesRemoved as number | undefined,
-          diff: data.diff as string | undefined,
-          timestamp: now,
-        })
-      }
+      // NOTE: No dual-write to execution store - realtime events stay in realtime store only
+      // The UI will use either execution store (for local dispatch) OR realtime store (for relay)
       break
     }
 
