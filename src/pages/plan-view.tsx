@@ -169,12 +169,13 @@ function makePlanColumns(
   project: { labels?: { id: string; name: string; color: string }[] } | undefined,
   milestoneMap: Map<string, string>,
   onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void,
+  isInspectorOpen?: boolean,
 ): ListColumn<PlanNode>[] {
   return [
     {
       id: "name",
       label: "Name",
-      width: "flex-1 max-w-[300px]",
+      width: isInspectorOpen ? "flex-1 max-w-[200px]" : "flex-1 max-w-[300px]",
       sortKey: "name",
       render: (node) => (
         <span className={cn("text-sm truncate block", node.status === "pruned" && "line-through")}>
@@ -520,12 +521,15 @@ export function PlanListView({
   nodes,
   onNodeSelect,
   getProjectIdFromGroup,
+  isInspectorOpen,
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
   /** Optional: extract projectId from group key for cross-project task creation */
   getProjectIdFromGroup?: (groupKey: string) => string | undefined
+  /** Whether the inspector panel is open */
+  isInspectorOpen?: boolean
 }) {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
@@ -585,7 +589,7 @@ export function PlanListView({
     return m
   }, [milestones])
 
-  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate), [project, milestoneMap, handleNodeUpdate])
+  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, isInspectorOpen), [project, milestoneMap, handleNodeUpdate, isInspectorOpen])
 
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
@@ -1263,7 +1267,7 @@ export function PlanView() {
           </div>
         ) : viewMode === "list" ? (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <PlanListView projectId={project.id} onNodeSelect={setSelectedNode} />
+            <PlanListView projectId={project.id} onNodeSelect={setSelectedNode} isInspectorOpen={!!selectedNode && !chatOpen} />
           </div>
         ) : viewMode === "board" ? (
           <div className="flex flex-1 flex-col overflow-hidden">
