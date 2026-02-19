@@ -119,7 +119,7 @@ function TextBlock({ events }: { events: TaskActivityEvent[] }) {
 }
 
 function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(false) // Collapsed by default
   const toolUse = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
   const toolResult = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
 
