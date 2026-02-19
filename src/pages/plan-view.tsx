@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
-import { useParams, useSearchParams, Link } from "react-router"
+import { useParams, useLocation, useNavigate, Link } from "react-router"
 import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, RotateCcw, Play } from "lucide-react"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
@@ -968,8 +968,8 @@ const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
 
 export function PlanView() {
   const { id } = useParams()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const initialView = searchParams.get("view") as ViewMode | null
+  const location = useLocation()
+  const navigate = useNavigate()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateProject = useProjectStore((s) => s.updateProject)
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
@@ -981,17 +981,35 @@ export function PlanView() {
   const [isResetting, setIsResetting] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
-  const [viewMode, setViewMode] = useState<ViewMode>(initialView && VALID_VIEWS.has(initialView) ? initialView : "graph")
-  const [activeTab, setActiveTab] = useState<"plan" | "overview">("plan")
   const [visionOpen, setVisionOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
 
-  // Update URL when view mode changes
-  useEffect(() => {
-    if (activeTab === "plan" && viewMode !== initialView) {
-      setSearchParams({ view: viewMode }, { replace: true })
+  // Determine view mode and active tab from URL path
+  const { viewMode, activeTab } = useMemo(() => {
+    const pathParts = location.pathname.split('/')
+    const lastPart = pathParts[pathParts.length - 1]
+
+    // Check if the last part is a view mode
+    if (lastPart === 'overview') {
+      return { viewMode: 'graph' as ViewMode, activeTab: 'overview' as const }
+    } else if (VALID_VIEWS.has(lastPart as ViewMode)) {
+      return { viewMode: lastPart as ViewMode, activeTab: 'plan' as const }
     }
-  }, [viewMode, activeTab, setSearchParams, initialView])
+
+    // Default to graph view in plan tab
+    return { viewMode: 'graph' as ViewMode, activeTab: 'plan' as const }
+  }, [location.pathname])
+
+  // Redirect to default view if on base project URL
+  useEffect(() => {
+    const pathParts = location.pathname.split('/')
+    const lastPart = pathParts[pathParts.length - 1]
+
+    // If the URL ends with just the project ID (no view specified), redirect to graph view
+    if (lastPart === id && id) {
+      navigate(`/project/${id}/graph`, { replace: true })
+    }
+  }, [location.pathname, id, navigate])
 
   // Voice transcription for node description
   const handleTranscript = useCallback((text: string) => {
@@ -1260,7 +1278,7 @@ export function PlanView() {
         {/* Plan | Overview Toggle */}
         <div className="flex items-center gap-1 shrink-0">
           <button
-            onClick={() => setActiveTab("plan")}
+            onClick={() => navigate(`/project/${project.id}/graph`)}
             className={cn(
               "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
               activeTab === "plan"
@@ -1271,7 +1289,7 @@ export function PlanView() {
             Plan
           </button>
           <button
-            onClick={() => setActiveTab("overview")}
+            onClick={() => navigate(`/project/${project.id}/overview`)}
             className={cn(
               "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
               activeTab === "overview"
@@ -1292,7 +1310,7 @@ export function PlanView() {
                 {(["graph", "list", "timeline", "board"] as ViewMode[]).map((mode) => (
                   <button
                     key={mode}
-                    onClick={() => setViewMode(mode)}
+                    onClick={() => navigate(`/project/${project.id}/${mode}`)}
                     className={cn(
                       "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
                       viewMode === mode

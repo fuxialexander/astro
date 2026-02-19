@@ -222,7 +222,7 @@ export function Welcome() {
       setShowWorkDirDialog(false)
       setWorkingDirectory("")
       setIsSubmitting(false)
-      navigate(`/project/${id}?view=list`)
+      navigate(`/project/${id}/list`)
     } catch (error) {
       console.error('[welcome] Repo setup failed:', error)
       setIsSubmitting(false)
@@ -284,7 +284,7 @@ export function Welcome() {
       })
 
       setIsSubmitting(false)
-      navigate(`/project/${id}?view=list`)
+      navigate(`/project/${id}/list`)
     } catch (error) {
       console.error('[welcome] Repo setup failed:', error)
       setIsSubmitting(false)
@@ -326,7 +326,7 @@ export function Welcome() {
       })
 
       setIsSubmitting(false)
-      navigate(`/project/${id}?view=list`)
+      navigate(`/project/${id}/list`)
     } catch (error) {
       console.error('[welcome] Repo setup failed:', error)
       setIsSubmitting(false)

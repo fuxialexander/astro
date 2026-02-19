@@ -61,7 +61,7 @@ export function CommandPalette() {
         icon: undefined,
         category: "projects" as CommandCategory,
         keywords: ["project", project.name.toLowerCase()],
-        action: () => navigate(`/project/${project.id}`),
+        action: () => navigate(`/project/${project.id}/graph`),
         preview: {
           title: project.name,
           content: project.description,

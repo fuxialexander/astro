@@ -306,7 +306,7 @@ export default function InitiativesPage() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
-                        onClick={() => navigate(`/project/${project.id}`)}
+                        onClick={() => navigate(`/project/${project.id}/graph`)}
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                       </Button>
