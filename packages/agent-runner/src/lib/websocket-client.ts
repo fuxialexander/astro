@@ -145,7 +145,7 @@ export class WebSocketClient {
   }
 
   /**
-   * Refresh the access token using the refresh token
+   * Refresh the access token and WebSocket token using the refresh token
    */
   private async refreshAccessToken(): Promise<string> {
     const refreshToken = configManager.getRefreshToken();
@@ -168,22 +168,27 @@ export class WebSocketClient {
       throw new Error(`Token refresh failed: ${error.error || response.statusText}`);
     }
 
-    const data = await response.json() as { accessToken: string; refreshToken?: string };
+    const data = await response.json() as { accessToken: string; refreshToken?: string; wsToken?: string };
 
     // Update stored tokens
     configManager.setAccessToken(data.accessToken);
     if (data.refreshToken) {
       configManager.setRefreshToken(data.refreshToken);
     }
+    if (data.wsToken) {
+      configManager.setWsToken(data.wsToken);
+    }
 
-    return data.accessToken;
+    // Return wsToken for WebSocket connections (signed with RELAY_JWT_SECRET)
+    // Falls back to accessToken if server didn't return a wsToken
+    return data.wsToken || data.accessToken;
   }
 
   /**
-   * Ensure we have a valid access token before connecting
+   * Ensure we have a valid WebSocket token before connecting
    */
   private async ensureValidToken(): Promise<string> {
-    let token = this.wsToken || configManager.getAccessToken();
+    let token = this.wsToken || configManager.getWsToken();
 
     if (!token) {
       throw new Error('No access token configured. Please run setup to authenticate.');
@@ -704,7 +709,9 @@ export class WebSocketClient {
   }
 
   private handleError(message: ErrorMessage): void {
-    const error = new Error(`${message.payload.code}: ${message.payload.message}`);
+    const code = message.payload?.code ?? 'UNKNOWN';
+    const msg = message.payload?.message ?? 'Unknown error';
+    const error = new Error(`${code}: ${msg}`);
     this.emitEvent({ type: 'error', error });
   }
 

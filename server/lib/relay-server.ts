@@ -641,6 +641,16 @@ export class RelayServer extends EventEmitter {
         this.handleAgentRunnerTaskApprovalRequest(message as AgentRunnerTaskApprovalRequestMessage);
         break;
 
+      // Safety prompt from agent runner — forward as event for browser to display
+      case 'task_safety_prompt': {
+        const payload = (message as { payload: { taskId: string; safetyTier: string; warning?: string; options: unknown[] } }).payload;
+        if (payload?.taskId) {
+          this.emit('task:safety_prompt', payload);
+          console.log(`[relay] Safety prompt for task ${payload.taskId} (tier: ${payload.safetyTier})`);
+        }
+        break;
+      }
+
       case 'task.steer.ack':
         this.handleTaskSteerAck(message as TaskSteerAckMessage);
         break;
@@ -1102,13 +1112,15 @@ export class RelayServer extends EventEmitter {
    * Send an error message
    */
   private sendError(socket: WebSocket, code: string, message: string): void {
-    const error: ErrorMessage = {
+    // Include payload for agent-runner compatibility (expects {payload: {code, message}})
+    const error = {
       type: 'error',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       code,
       message,
+      payload: { code, message },
     };
-    this.sendMessage(socket, error);
+    this.sendMessage(socket, error as unknown as ErrorMessage);
   }
 
   /**
