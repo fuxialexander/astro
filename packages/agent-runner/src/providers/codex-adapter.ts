@@ -104,9 +104,22 @@ export class CodexAdapter implements ProviderAdapter {
     signal: AbortSignal
   ): Promise<{ exitCode: number; output: string; error?: string; artifacts?: TaskArtifact[] }> {
     return new Promise((resolve, reject) => {
-      // Codex CLI arguments (adjust based on actual codex CLI interface)
+      // Codex CLI: use `exec` subcommand for non-interactive execution
+      // -a never: fully autonomous, never ask for terminal approval
+      // --json: structured JSONL output for parsing
+      //
+      // Sandbox policy depends on execution context:
+      // - docker/k8s/slurm: container/job IS the sandbox → danger-full-access
+      // - direct/local: use workspace-write for safety
+      const isContainerized = task.executionStrategy
+        && ['docker', 'k8s-exec', 'slurm'].includes(task.executionStrategy);
+      const sandboxMode = isContainerized ? 'danger-full-access' : 'workspace-write';
+
       const args = [
-        '--quiet', // Suppress interactive prompts
+        'exec',
+        '-a', 'never',                // Fully autonomous — no approval prompts
+        '--sandbox', sandboxMode,      // OS-level sandbox (relaxed if already containerized)
+        '--json',                      // JSONL output for structured parsing
         task.prompt,
       ];
 

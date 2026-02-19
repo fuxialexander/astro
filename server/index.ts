@@ -256,14 +256,20 @@ async function start() {
       console.log(`[relay] Machine ${machineId} connected for user ${userId}`)
       const entry = machineRegistry.get(machineId)
       // Ensure machine exists in persistent store (survives server restarts)
-      await ensureMachineRegistered(machineId, {
-        name: entry?.name || machineId,
-        hostname: entry?.hostname || 'unknown',
-        platform: entry?.platform || 'unknown',
-        environmentType: entry?.environmentType || 'remote',
-        providers: entry?.providers?.map(p => p.type) || [],
-        userId,
-      })
+      // In IndexedDB-only mode (no Postgres), this may fail — that's OK,
+      // the in-memory machine registry still tracks the connection.
+      try {
+        await ensureMachineRegistered(machineId, {
+          name: entry?.name || machineId,
+          hostname: entry?.hostname || 'unknown',
+          platform: entry?.platform || 'unknown',
+          environmentType: entry?.environmentType || 'remote',
+          providers: entry?.providers?.map(p => p.type) || [],
+          userId,
+        })
+      } catch (err) {
+        console.warn(`[relay] Could not persist machine ${machineId} to database (IndexedDB-only mode?):`, (err as Error).message)
+      }
       if (entry && redisPubSub.isConnected()) {
         await redisPubSub.registerMachine(machineId, entry)
         await redisPubSub.publishMachineState({
@@ -277,8 +283,8 @@ async function start() {
 
     relayServer.on('machine:disconnected', async (machineId, reason) => {
       console.log(`[relay] Machine ${machineId} disconnected: ${reason}`)
-      // Update registered machine status
-      void updateMachineConnectionStatus(machineId, false)
+      // Update registered machine status (may fail in IndexedDB-only mode — that's OK)
+      updateMachineConnectionStatus(machineId, false).catch(() => {})
       if (redisPubSub.isConnected()) {
         await redisPubSub.unregisterMachine(machineId)
         await redisPubSub.publishMachineState({

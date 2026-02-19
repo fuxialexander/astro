@@ -63,10 +63,10 @@ function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[] {
 
     // Group tool_use and tool_result pairs
     const toolPairs: TaskActivityEvent[][] = []
-    const useEvents = currentToolEvents.filter(e => e.type === 'tool_use')
+    const useEvents = currentToolEvents.filter((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
 
     for (const useEvent of useEvents) {
-      const pair = [useEvent]
+      const pair: TaskActivityEvent[] = [useEvent]
       const resultEvent = currentToolEvents.find(
         e => e.type === 'tool_result' && e.id === useEvent.id
       )

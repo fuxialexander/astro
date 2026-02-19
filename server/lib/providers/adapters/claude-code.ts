@@ -59,14 +59,18 @@ export class ClaudeCodeProvider implements AgentProvider {
       // Check if we're inside a Claude Code session (nested session blocked)
       if (process.env.CLAUDECODE) {
         // We're inside Claude Code, so it's definitely available
-        // Check if auth token exists
-        const hasToken = !!(process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY)
+        // Check if auth token exists (supports OAuth, API key, and Bedrock auth)
+        const hasOAuthOrKey = !!(process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY)
+        const hasBedrock = !!(process.env.CLAUDE_CODE_USE_BEDROCK && (
+          process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE || process.env.AWS_SESSION_TOKEN
+        ))
+        const hasToken = hasOAuthOrKey || hasBedrock
 
         this.cachedDetection = {
           installed: true,
           authStatus: hasToken ? 'authenticated' : 'unauthenticated',
           message: hasToken
-            ? 'Claude Code detected (running in nested session)'
+            ? `Claude Code detected (running in nested session${hasBedrock ? ', Bedrock auth' : ''})`
             : 'Claude Code installed but not authenticated',
           detectedAt: new Date(),
         }

@@ -19,6 +19,14 @@ export interface HpcCapability {
   accounts: string[]
 }
 
+export interface ComputeBackendInfo {
+  id: string
+  name: string
+  available: boolean
+  version?: string
+  metadata?: Record<string, unknown>
+}
+
 export interface MachineEntry {
   machineId: string
   name: string
@@ -31,6 +39,13 @@ export interface MachineEntry {
     maxConcurrentTasks: number
     hpcCapability?: HpcCapability
   }>
+  executionStrategies?: ComputeBackendInfo[]
+  resources?: {
+    cpuCores: number
+    memoryMB: number
+    gpuCount?: number
+    gpuMemoryMB?: number
+  }
   load: {
     cpuPercent: number
     memoryPercent: number

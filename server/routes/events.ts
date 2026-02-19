@@ -77,6 +77,8 @@ eventsRoute.get('/stream', async (c) => {
       environmentType: m.environmentType,
       connectionStatus: m.connectionStatus,
       providers: m.providers,
+      executionStrategies: m.executionStrategies,
+      resources: m.resources,
       load: m.load,
     }))
     await stream.writeSSE({
@@ -196,6 +198,8 @@ eventsRoute.get('/stream', async (c) => {
         name: entry?.name,
         environmentType: entry?.environmentType,
         providers: entry?.providers,
+        executionStrategies: entry?.executionStrategies,
+        resources: entry?.resources,
         load: entry?.load,
       })
       const id = eventBuffer.push('machine:connected', data)

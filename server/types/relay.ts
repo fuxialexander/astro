@@ -14,7 +14,7 @@
 export type EnvironmentType = 'local' | 'remote' | 'hpc' | 'cloud';
 
 /** Provider types available on a machine */
-export type ProviderType = 'claude-code' | 'claude-sdk' | 'aws' | 'gcp' | 'custom';
+export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'aws' | 'gcp' | 'custom';
 
 /** Status of a machine connection */
 export type MachineConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -73,6 +73,15 @@ export interface ProviderInfo {
   hpcCapability?: HpcCapability;
 }
 
+/** Execution strategy info reported by agent runners */
+export interface ExecutionStrategyInfo {
+  id: string;
+  name: string;
+  available: boolean;
+  version?: string;
+  metadata?: Record<string, unknown>;
+}
+
 /** Machine registration information */
 export interface MachineInfo {
   machineId: string;
@@ -81,6 +90,7 @@ export interface MachineInfo {
   hostname?: string;
   platform?: string;
   providers: ProviderInfo[];
+  executionStrategies?: ExecutionStrategyInfo[];
   resources: MachineResources;
   load: MachineLoad;
   tags?: string[];
@@ -109,6 +119,8 @@ export interface TaskDispatch {
   visionDoc?: string;  // Project vision context
   environment: EnvironmentType;
   preferredProvider?: ProviderType;
+  /** Preferred execution strategy (direct, slurm, docker, k8s-exec, skypilot) */
+  executionStrategy?: string;
   priority?: number;
   timeout?: number;  // Timeout in milliseconds
   workingDirectory?: string;

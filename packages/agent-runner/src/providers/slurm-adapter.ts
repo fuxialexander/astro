@@ -2,6 +2,11 @@
  * Slurm HPC provider adapter
  *
  * Bridges the ProviderAdapter interface to SlurmExecutor for HPC job execution.
+ *
+ * @deprecated Use {@link import('../execution/slurm-strategy.js').SlurmStrategy} instead.
+ * The execution strategy abstraction separates execution backends (SLURM, Docker, K8s)
+ * from AI model providers (Claude, Codex). This adapter is retained for backward
+ * compatibility but new code should use SlurmStrategy.
  */
 
 import type { Task, TaskResult, SlurmInfo, SlurmJobConfig } from '../types.js';
@@ -10,6 +15,7 @@ import { detectSlurm } from '../lib/slurm-detect.js';
 import { SlurmExecutor } from '../lib/slurm-executor.js';
 import type { SlurmTaskInput } from '../lib/slurm-executor.js';
 
+/** @deprecated Use SlurmStrategy from execution/slurm-strategy.ts instead */
 export class SlurmAdapter implements ProviderAdapter {
   readonly type = 'slurm';
   readonly name = 'Slurm HPC';
