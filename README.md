@@ -62,7 +62,7 @@ Redis is **not required** for local development. It's only needed for horizontal
 3. Visit http://localhost:5173 in your browser
 4. Complete the onboarding flow to create your first project
 
-**External Access / Multi-User**: Use Cloudflare Tunnel for HTTPS + Touch ID on a custom domain. See [Setup Guide](docs/SETUP.md) for details.
+**External Access / Multi-User**: Use Cloudflare Tunnel for HTTPS + Touch ID on a custom domain. See [Setup Guide](docs/DEVELOPER_SETUP.md) for details.
 
 ### For Developers
 
@@ -231,7 +231,7 @@ npm run dev:supabase
 - ⚠️ Touch ID/Face ID only works with HTTPS or registered localhost
 - For external access: Use `npm run dev:tunnel` (sets `WEBAUTHN_RP_ID` to your tunnel domain)
 
-See [Setup Guide](docs/SETUP.md) for full details.
+See [Setup Guide](docs/DEVELOPER_SETUP.md) for full details.
 
 ### Mode Switching
 
@@ -383,7 +383,7 @@ npm run lint      # ESLint
 
 ### Deployment Considerations
 
-See [Setup Guide](docs/SETUP.md) for complete dev, tunnel, and production deployment instructions.
+See [Setup Guide](docs/DEVELOPER_SETUP.md) for complete dev, tunnel, and production deployment instructions.
 
 ## Known Issues
 
