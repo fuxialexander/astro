@@ -238,7 +238,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     // Build options for the query
     const options: Parameters<typeof query>[0]['options'] = {
       abortController,
-      maxTurns: task.maxTurns ?? 100, // Use dispatch-specified limit, or 100 for complex tasks
+      maxTurns: task.maxTurns ?? 150, // Use dispatch-specified limit, or 150 for complex tasks
       permissionMode: 'bypassPermissions', // Auto-accept all tool calls
       sandbox: { enabled: false }, // Run on host machine, not in Docker container
       settingSources: [], // Don't load settings from project - worktree is empty

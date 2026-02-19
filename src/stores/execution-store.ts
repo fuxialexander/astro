@@ -429,7 +429,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           preferredProvider: options?.preferredProvider,
           targetMachineId: effectiveTargetMachineId,
           model: options?.model,
-          maxTurns: options?.maxTurns ?? 50,
+          maxTurns: options?.maxTurns ?? 100,
           workingDirectory: resolvedDir,
         }),
         signal: abortController.signal,

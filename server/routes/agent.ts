@@ -178,9 +178,9 @@ agentRoute.post('/generate-plan', async (c) => {
       // Build task dispatch — more turns when local repo available (agent may explore);
       // With outputFormat, the SDK may need retries for schema validation, so give at least 3.
       // anthropic-direct handles everything in 1 turn; claude-code needs more.
-      // For repos: 50 turns allows thorough exploration, file reading, and plan generation.
+      // For repos: 100 turns allows thorough exploration, file reading, and plan generation.
       const maxTurns = isClaudeProvider
-        ? (isLocalDir ? 50 : 3)  // 50 turns for repo exploration; 3 for structured output retries
+        ? (isLocalDir ? 100 : 3)  // 100 turns for repo exploration; 3 for structured output retries
         : 1
       const task: TaskDispatch = {
         taskId,
@@ -411,7 +411,7 @@ async function generatePlanViaRelay(
     environment: 'remote',
     workingDirectory,
     prompt: fullPrompt,
-    maxTurns: 50, // 50 turns for plan generation (explore repo + produce JSON)
+    maxTurns: 100, // 100 turns for plan generation (explore repo + produce JSON)
     outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
   }
 
@@ -888,7 +888,7 @@ agentRoute.post('/dispatch', async (c) => {
     workingDirectory,
     model,
     providerId,
-    maxTurns = 50,
+    maxTurns = 100,
   } = body
 
   const executionId = `exec-${nodeId}-${Date.now()}`
