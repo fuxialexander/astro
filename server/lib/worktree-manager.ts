@@ -8,7 +8,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdir, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
 const execFileAsync = promisify(execFile)
@@ -64,7 +64,7 @@ export async function createServerWorktree(options: {
   }
 
   const repoName = sanitize(basename(gitRoot))
-  const baseRoot = join(tmpdir(), 'astro-worktrees', repoName)
+  const baseRoot = join(homedir(), '.astro', 'worktrees', repoName)
   await mkdir(baseRoot, { recursive: true })
 
   const branchName = `astro/${sanitize(nodeId)}`
@@ -188,6 +188,49 @@ export async function hasBranchCommits(
     )
     return parseInt(stdout.trim(), 10) > 0
   } catch {
+    return false
+  }
+}
+
+/**
+ * Auto-commit any uncommitted changes in the worktree.
+ * This is a fallback for when the agent doesn't commit its own changes.
+ */
+export async function autoCommitChanges(
+  worktreePath: string,
+  taskTitle: string,
+): Promise<boolean> {
+  try {
+    // Check if there are any changes to commit
+    const { stdout: statusOutput } = await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'status', '--porcelain'],
+      { env: withGitEnv(), timeout: 10_000 }
+    )
+
+    if (!statusOutput.trim()) {
+      return false // No changes
+    }
+
+    // Stage all changes
+    await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'add', '-A'],
+      { env: withGitEnv(), timeout: 30_000 }
+    )
+
+    // Commit
+    await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'commit', '-m', `${taskTitle}\n\nAuto-committed by Astro task automation`],
+      { env: withGitEnv(), timeout: 30_000 }
+    )
+
+    console.log(`[worktree-manager] Auto-committed uncommitted changes for: ${taskTitle}`)
+    return true
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn(`[worktree-manager] Auto-commit failed: ${msg}`)
     return false
   }
 }

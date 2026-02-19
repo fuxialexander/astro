@@ -30,6 +30,7 @@ import {
   getDefaultBranch,
   hasBranchCommits,
   pushAndCreatePR,
+  autoCommitChanges,
   isGitRepo,
   hasRemoteOrigin,
   type ServerWorktreeSetup,
@@ -125,7 +126,9 @@ dispatchRoute.post('/task', async (c) => {
   }
 
   // Validate working directory path (prevent path traversal)
-  if (!workingDirectory.startsWith('http://') && !workingDirectory.startsWith('https://') && !workingDirectory.startsWith('git@')) {
+  // Only validate local paths for local execution — relay dispatch runs on a remote machine
+  const isRelayDispatch = environment !== 'local' || !!targetMachineId
+  if (!isRelayDispatch && !workingDirectory.startsWith('http://') && !workingDirectory.startsWith('https://') && !workingDirectory.startsWith('git@')) {
     // Local path validation: check for ".." and ensure it's within an allowed base
     const allowedBase = resolve(homedir(), '.astro')
     const requestedPath = resolve(workingDirectory)
@@ -183,6 +186,18 @@ dispatchRoute.post('/task', async (c) => {
 
   const executionId = `exec-${nodeId}-${Date.now()}`
 
+  // Resolve working directory (clone repo if needed) — applies to both local and relay dispatch
+  let resolvedDir = workingDirectory
+  try {
+    resolvedDir = resolveWorkingDirectory(workingDirectory, projectId)
+  } catch (e) {
+    const msg = errorMessage(e)
+    return c.json(
+      { success: false, error: `Failed to resolve working directory: ${msg}` },
+      500
+    )
+  }
+
   // Determine dispatch target
   const useRelay = environment !== 'local' || targetMachineId
 
@@ -200,20 +215,8 @@ dispatchRoute.post('/task', async (c) => {
       preferredProvider,
       targetMachineId,
       priority,
-      workingDirectory,
+      workingDirectory: resolvedDir,
     })
-  }
-
-  // Resolve working directory (clone repo if needed)
-  let resolvedDir = workingDirectory
-  try {
-    resolvedDir = resolveWorkingDirectory(workingDirectory, projectId)
-  } catch (e) {
-    const msg = errorMessage(e)
-    return c.json(
-      { success: false, error: `Failed to resolve working directory: ${msg}` },
-      500
-    )
   }
 
   // Local dispatch via provider
@@ -386,6 +389,7 @@ Execute the task described above. Focus on completing the task thoroughly and co
 - Report progress and any issues encountered
 - Verify your work when possible
 - Be thorough but efficient
+- When you are done, commit all your changes with a descriptive commit message summarizing what was accomplished
 
 ### Making Decisions vs. Asking for User Input
 
@@ -543,6 +547,11 @@ The user can review your reasoning in the task output and provide guidance if th
             if (worktreeSetup && isSuccess) {
               try {
                 const baseBranch = await getDefaultBranch(workingDirectory!)
+
+                // Auto-commit any uncommitted changes as a fallback
+                // (in case the agent didn't commit its work)
+                await autoCommitChanges(worktreeSetup.worktreePath, title)
+
                 const hasCommits = await hasBranchCommits(worktreeSetup.worktreePath, baseBranch)
                 if (hasCommits) {
                   const prResult = await pushAndCreatePR({
@@ -557,6 +566,8 @@ The user can review your reasoning in the task output and provide guidance if th
                   prNumber = prResult.prNumber
                   keepBranch = true
                   console.log(`[dispatch] PR result for ${executionId}: branch=${branchName}, prUrl=${prUrl || 'none'}`)
+                } else {
+                  console.log(`[dispatch] No commits for ${executionId}, skipping PR creation`)
                 }
               } catch (prErr) {
                 console.warn(`[dispatch] PR creation failed for ${executionId}: ${errorMessage(prErr)}`)
