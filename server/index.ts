@@ -35,6 +35,7 @@ import { sseNotificationHook } from './lib/events/hooks/sse-notification-hook.js
 import { auditLogHook } from './lib/events/hooks/audit-log-hook.js'
 import { usageMetricsHook } from './lib/events/hooks/usage-metrics-hook.js'
 import { prCreationHook } from './lib/events/hooks/pr-creation-hook.js'
+import { gitPullHook } from './lib/events/hooks/git-pull-hook.js'
 
 // Validate environment variables on startup
 try {
@@ -206,7 +207,8 @@ async function start() {
     astroEventTransport.registerHook('audit-log', auditLogHook)
     astroEventTransport.registerHook('usage-metrics', usageMetricsHook)
     astroEventTransport.registerHook('pr-creation', prCreationHook)
-    console.log('[event-transport] Registered 4 hooks:', astroEventTransport.listHooks().join(', '))
+    astroEventTransport.registerHook('git-pull', gitPullHook)
+    console.log('[event-transport] Registered 5 hooks:', astroEventTransport.listHooks().join(', '))
   } else {
     console.log('[event-transport] Test mode detected - hooks disabled')
     astroEventTransport.setEnabled(false)
