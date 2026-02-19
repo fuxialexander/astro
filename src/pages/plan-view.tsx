@@ -1140,10 +1140,10 @@ export function PlanView() {
                 key={mode}
                 onClick={() => setViewMode(mode)}
                 className={cn(
-                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
+                  "px-3 py-1.5 text-sm transition-colors cursor-pointer capitalize border-b-2",
                   viewMode === mode
-                    ? "text-accent-foreground border-b-2 border-accent"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "text-accent-foreground border-accent"
+                    : "text-muted-foreground hover:text-foreground border-transparent"
                 )}
               >
                 {mode}
