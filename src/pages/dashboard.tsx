@@ -5,9 +5,6 @@ import {
   Eye,
   Activity,
   CircleCheck,
-  Brain,
-  Shield,
-  Check,
   Play,
   FileText,
   Monitor,
@@ -203,31 +200,20 @@ export function Dashboard() {
                         <p className="text-base font-semibold text-foreground">{node.title}</p>
                         <p className="text-sm text-muted-foreground">{node.description}</p>
 
-                        {/* Confidence / Risk Row */}
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                            <Brain className="h-4 w-4" />
-                            <span>High confidence</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                            <Shield className="h-4 w-4" />
-                            <span>Low risk</span>
-                          </div>
-                        </div>
-
-                        {/* Verification Evidence */}
-                        <div className="rounded-lg bg-muted p-3.5">
-                          <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Check className="h-4 w-4 text-green-600" />
-                              <span>All tests passing</span>
+                        {/* Plan Output */}
+                        {node.executionOutput && (
+                          <div className="rounded-lg bg-muted p-3.5">
+                            <div className="flex items-center gap-2 mb-2">
+                              <FileText className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-xs font-medium text-muted-foreground">Plan Output</span>
                             </div>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Check className="h-4 w-4 text-green-600" />
-                              <span>Build successful</span>
+                            <div className="max-h-[300px] overflow-y-auto">
+                              <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground">
+                                {node.executionOutput}
+                              </pre>
                             </div>
                           </div>
-                        </div>
+                        )}
                       </div>
 
                       {/* Card Actions */}
@@ -237,7 +223,23 @@ export function Dashboard() {
                           placeholder="Add guidance..."
                           className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:mr-3"
                         />
-                        <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })} className="min-h-11 w-full sm:w-auto">Approve</Button>
+                        <div className="flex gap-2 w-full sm:w-auto">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => navigate(`/project/${node.projectId}/task/${node.id}`)}
+                            className="min-h-11 flex-1 sm:flex-initial"
+                          >
+                            View Details
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => updateNode(node.id, { status: "completed" })}
+                            className="min-h-11 flex-1 sm:flex-initial"
+                          >
+                            Approve
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
