@@ -183,9 +183,12 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     const now = new Date()
     set((state) => {
       const streams = new Map(state.taskStreams)
-      const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
+      const existing = streams.get(taskId)
+      const stream = existing
+        ? { ...existing, steerMessages: [...existing.steerMessages], activityEvents: [...existing.activityEvents] }
+        : createEmptyTaskStream(taskId)
       stream.steerMessages.push({ message, interrupted, timestamp: now })
-      stream.activityEvents = [...stream.activityEvents, { type: 'steer' as const, message, interrupted, timestamp: now }]
+      stream.activityEvents.push({ type: 'steer' as const, message, interrupted, timestamp: now })
       streams.set(taskId, stream)
       return { taskStreams: streams }
     })
@@ -194,12 +197,14 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   updateSteerMessage: (taskId: string, index: number, update: { accepted?: boolean; ackMessage?: string }) => {
     set((state) => {
       const streams = new Map(state.taskStreams)
-      const stream = streams.get(taskId)
-      if (stream && stream.steerMessages[index]) {
-        stream.steerMessages[index] = { ...stream.steerMessages[index], ...update }
+      const existing = streams.get(taskId)
+      if (existing && existing.steerMessages[index]) {
+        // Create new stream object to trigger Zustand selector re-renders
+        const newSteerMessages = [...existing.steerMessages]
+        newSteerMessages[index] = { ...newSteerMessages[index], ...update }
         // Also update the corresponding activity event
         let steerCount = 0
-        stream.activityEvents = stream.activityEvents.map(e => {
+        const newActivityEvents = existing.activityEvents.map(e => {
           if (e.type === 'steer') {
             if (steerCount === index) {
               steerCount++
@@ -209,7 +214,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
           }
           return e
         })
-        streams.set(taskId, stream)
+        streams.set(taskId, { ...existing, steerMessages: newSteerMessages, activityEvents: newActivityEvents })
       }
       return { taskStreams: streams }
     })
@@ -559,20 +564,23 @@ function handleRealtimeEvent(
       const taskId = data.taskId as string
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId)
-        if (stream && stream.steerMessages.length > 0) {
-          // Update the last steer message with ack info
-          const last = stream.steerMessages[stream.steerMessages.length - 1]
-          last.accepted = data.accepted as boolean
-          last.ackMessage = data.message as string | undefined
-          if (data.interrupted !== undefined) {
-            last.interrupted = data.interrupted as boolean
+        const existing = streams.get(taskId)
+        if (existing && existing.steerMessages.length > 0) {
+          // Create new arrays to trigger Zustand selector re-renders
+          const newSteerMessages = [...existing.steerMessages]
+          const lastIdx = newSteerMessages.length - 1
+          newSteerMessages[lastIdx] = {
+            ...newSteerMessages[lastIdx],
+            accepted: data.accepted as boolean,
+            ackMessage: data.message as string | undefined,
+            ...(data.interrupted !== undefined ? { interrupted: data.interrupted as boolean } : {}),
           }
           // Also update the corresponding activity event
-          for (let i = stream.activityEvents.length - 1; i >= 0; i--) {
-            const e = stream.activityEvents[i]
+          const newActivityEvents = [...existing.activityEvents]
+          for (let i = newActivityEvents.length - 1; i >= 0; i--) {
+            const e = newActivityEvents[i]
             if (e.type === 'steer' && e.accepted === undefined) {
-              stream.activityEvents[i] = {
+              newActivityEvents[i] = {
                 ...e,
                 accepted: data.accepted as boolean,
                 ackMessage: data.message as string | undefined,
@@ -581,7 +589,7 @@ function handleRealtimeEvent(
               break
             }
           }
-          streams.set(taskId, stream)
+          streams.set(taskId, { ...existing, steerMessages: newSteerMessages, activityEvents: newActivityEvents })
         }
         return { taskStreams: streams }
       })
