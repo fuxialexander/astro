@@ -42,13 +42,14 @@ interface UnifiedActivityViewProps {
 
 // Group adjacent text events into single blocks
 interface DisplayBlock {
-  type: 'text' | 'tool' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant'
   events: TaskActivityEvent[]
 }
 
 function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[] {
   const blocks: DisplayBlock[] = []
   let currentTextEvents: TaskActivityEvent[] = []
+  let currentToolEvents: TaskActivityEvent[] = []
 
   function flushText() {
     if (currentTextEvents.length > 0) {
@@ -57,50 +58,75 @@ function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[] {
     }
   }
 
+  function flushTools() {
+    if (currentToolEvents.length === 0) return
+
+    // Group tool_use and tool_result pairs
+    const toolPairs: TaskActivityEvent[][] = []
+    const useEvents = currentToolEvents.filter(e => e.type === 'tool_use')
+
+    for (const useEvent of useEvents) {
+      const pair = [useEvent]
+      const resultEvent = currentToolEvents.find(
+        e => e.type === 'tool_result' && e.id === useEvent.id
+      )
+      if (resultEvent) pair.push(resultEvent)
+      toolPairs.push(pair)
+    }
+
+    // If more than 1 tool, create a tool_group, otherwise individual tool blocks
+    if (toolPairs.length > 1) {
+      blocks.push({ type: 'tool_group', events: currentToolEvents })
+    } else {
+      for (const pair of toolPairs) {
+        blocks.push({ type: 'tool', events: pair })
+      }
+    }
+
+    currentToolEvents = []
+  }
+
   for (const event of events) {
     switch (event.type) {
       case 'text':
+        flushTools()
         currentTextEvents.push(event)
         break
       case 'tool_use':
+      case 'tool_result':
         flushText()
-        // Find matching tool_result in remaining events
-        blocks.push({ type: 'tool', events: [event] })
+        currentToolEvents.push(event)
         break
-      case 'tool_result': {
-        // Merge into last tool block if matching
-        const lastBlock = blocks[blocks.length - 1]
-        if (lastBlock?.type === 'tool' && lastBlock.events[0].type === 'tool_use' && lastBlock.events[0].id === event.id) {
-          lastBlock.events.push(event)
-        } else {
-          blocks.push({ type: 'tool', events: [event] })
-        }
-        break
-      }
       case 'steer':
         flushText()
+        flushTools()
         blocks.push({ type: 'steer', events: [event] })
         break
       case 'file_change':
         flushText()
+        flushTools()
         blocks.push({ type: 'file_change', events: [event] })
         break
       case 'error':
         flushText()
+        flushTools()
         blocks.push({ type: 'error', events: [event] })
         break
       case 'chat_user':
         flushText()
+        flushTools()
         blocks.push({ type: 'chat_user', events: [event] })
         break
       case 'chat_assistant':
         flushText()
+        flushTools()
         blocks.push({ type: 'chat_assistant', events: [event] })
         break
     }
   }
 
   flushText()
+  flushTools()
   return blocks
 }
 
@@ -190,6 +216,149 @@ function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
               </pre>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ToolGroupBlock({ events }: { events: TaskActivityEvent[] }) {
+  const [expanded, setExpanded] = useState(false) // Collapsed by default showing icons
+
+  // Group tool_use and tool_result pairs
+  const toolPairs: Array<{
+    toolUse: Extract<TaskActivityEvent, { type: 'tool_use' }>
+    toolResult?: Extract<TaskActivityEvent, { type: 'tool_result' }>
+  }> = []
+
+  const useEvents = events.filter((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
+
+  for (const toolUse of useEvents) {
+    const toolResult = events.find(
+      (e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> =>
+        e.type === 'tool_result' && e.id === toolUse.id
+    )
+    toolPairs.push({ toolUse, toolResult })
+  }
+
+  if (toolPairs.length === 0) return null
+
+  return (
+    <div className="mx-4 my-0.5">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 w-full px-2 py-1 text-left hover:bg-muted/30 rounded transition-colors cursor-pointer group"
+      >
+        {/* Horizontal icon layout when collapsed */}
+        <div className="flex items-center gap-1 flex-1 min-w-0">
+          {toolPairs.map((pair, idx) => {
+            const isComplete = pair.toolResult !== undefined
+            const success = pair.toolResult?.success
+
+            return (
+              <div
+                key={idx}
+                className={cn(
+                  "flex h-3.5 w-3.5 items-center justify-center shrink-0",
+                  success === false
+                    ? "text-red-500"
+                    : success === true
+                      ? "text-green-500"
+                      : isComplete
+                        ? "text-muted-foreground"
+                        : "text-blue-500"
+                )}
+                title={pair.toolUse.toolName}
+              >
+                {!isComplete ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : success === true ? (
+                  <CheckCircle2 className="h-3 w-3" />
+                ) : success === false ? (
+                  <XCircle className="h-3 w-3" />
+                ) : (
+                  <Wrench className="h-3 w-3" />
+                )}
+              </div>
+            )
+          })}
+          <span className="text-[11px] font-mono text-muted-foreground ml-1">
+            {toolPairs.length} tools
+          </span>
+        </div>
+
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 text-muted-foreground/50 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+        ) : (
+          <ChevronRight className="h-3 w-3 text-muted-foreground/50 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+        )}
+      </button>
+
+      {/* Expanded view showing all tools as blocks */}
+      {expanded && (
+        <div className="mt-1 ml-2 mr-2 flex flex-col gap-1">
+          {toolPairs.map((pair, idx) => {
+            const isComplete = pair.toolResult !== undefined
+            const success = pair.toolResult?.success
+
+            return (
+              <div key={idx} className="border-l-2 border-muted-foreground/20 pl-3">
+                <div className="flex items-center gap-1.5 px-2 py-1">
+                  <div className={cn(
+                    "flex h-3.5 w-3.5 items-center justify-center shrink-0",
+                    success === false
+                      ? "text-red-500"
+                      : success === true
+                        ? "text-green-500"
+                        : isComplete
+                          ? "text-muted-foreground"
+                          : "text-blue-500"
+                  )}>
+                    {!isComplete ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : success === true ? (
+                      <CheckCircle2 className="h-3 w-3" />
+                    ) : success === false ? (
+                      <XCircle className="h-3 w-3" />
+                    ) : (
+                      <Wrench className="h-3 w-3" />
+                    )}
+                  </div>
+                  <span className="text-[11px] font-mono flex-1 text-muted-foreground">
+                    {pair.toolUse.toolName}
+                  </span>
+                  {pair.toolResult?.duration != null && (
+                    <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">
+                      {pair.toolResult.duration}ms
+                    </span>
+                  )}
+                </div>
+
+                <div className="px-2 py-1.5 rounded-md bg-muted/30 flex flex-col gap-1.5 text-xs">
+                  {pair.toolUse.toolInput != null && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Input</p>
+                      <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
+                        {typeof pair.toolUse.toolInput === "string"
+                          ? pair.toolUse.toolInput
+                          : JSON.stringify(pair.toolUse.toolInput, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  {pair.toolResult?.toolResult != null && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Result</p>
+                      <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
+                        {typeof pair.toolResult.toolResult === "string"
+                          ? pair.toolResult.toolResult
+                          : JSON.stringify(pair.toolResult.toolResult, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -716,6 +885,8 @@ export function UnifiedActivityView({
               return <TextBlock key={i} events={block.events} />
             case 'tool':
               return <ToolBlock key={i} events={block.events} />
+            case 'tool_group':
+              return <ToolGroupBlock key={i} events={block.events} />
             case 'steer':
               return <SteerBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
             case 'file_change':
