@@ -320,9 +320,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       updateNode(connection.target, { dependencies: [...targetNode.dependencies, connection.source] })
     }
     connectingNodeId.current = null
-    // Auto-reorganize after adding a link
-    reorganizeProject(projectId)
-    setTimeout(() => rfFitView({ padding: 0.3, duration: 300 }), 50)
+    // Auto-reorganize after adding a link (defer to ensure edge is in store)
+    setTimeout(() => {
+      reorganizeProject(projectId)
+      setTimeout(() => rfFitView({ padding: 0.3, duration: 300 }), 50)
+    }, 0)
   }, [projectEdges, projectNodes, addEdge, updateNode, reorganizeProject, projectId, rfFitView])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -401,7 +403,8 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   const handleTaskCreated = useCallback(() => {
     setAddChildState(null)
-    handleReorganize()
+    // Defer reorganization to ensure both node and edge have been added to the store
+    setTimeout(() => handleReorganize(), 0)
   }, [handleReorganize])
 
   const [showVisionDialog, setShowVisionDialog] = useState(false)
