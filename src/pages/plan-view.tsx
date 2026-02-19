@@ -405,7 +405,7 @@ function InlineListCreationRow({
 
       {/* Other visible columns — same visual style as real task rows */}
       {otherCols.map((col) => (
-        <div key={col.id} className={cn(col.width)}>
+        <div key={col.id} className={cn("flex items-center justify-end", col.width)}>
           {col.id === "priority" ? (() => {
             const config = PRIORITY_CONFIG[priority]
             const PIcon = config.icon
