@@ -376,32 +376,37 @@ async function dispatchLocal(
 
       // Create worktree for isolation if the directory is a git repo with a remote
       let effectiveWorkDir = workingDirectory
-      let worktreeExpected = false
       if (workingDirectory && await isGitRepo(workingDirectory) && await hasRemoteOrigin(workingDirectory)) {
-        worktreeExpected = true
         try {
           worktreeSetup = await createServerWorktree({
             repoPath: workingDirectory,
             taskId: executionId,
             nodeId,
           })
-          if (worktreeSetup) {
-            effectiveWorkDir = worktreeSetup.worktreePath
-            // Register worktree for post-execution persistence
-            worktreeRegistry.register({
-              executionId,
-              nodeId,
-              projectId,
-              worktreePath: worktreeSetup.worktreePath,
-              branchName: worktreeSetup.branchName,
-              repoPath: workingDirectory!,
-              cleanup: worktreeSetup.cleanup,
-              createdAt: new Date(),
-            })
-            console.log(`[dispatch] Created worktree for ${executionId}: ${worktreeSetup.worktreePath} (branch: ${worktreeSetup.branchName})`)
-          }
+          effectiveWorkDir = worktreeSetup.worktreePath
+          // Register worktree for post-execution persistence
+          worktreeRegistry.register({
+            executionId,
+            nodeId,
+            projectId,
+            worktreePath: worktreeSetup.worktreePath,
+            branchName: worktreeSetup.branchName,
+            repoPath: workingDirectory!,
+            cleanup: worktreeSetup.cleanup,
+            createdAt: new Date(),
+          })
+          console.log(`[dispatch] Created worktree for ${executionId}: ${worktreeSetup.worktreePath} (branch: ${worktreeSetup.branchName})`)
         } catch (wtErr) {
-          console.warn(`[dispatch] Worktree creation failed, using repo directly: ${errorMessage(wtErr)}`)
+          const wtErrMsg = errorMessage(wtErr)
+          console.error(`[dispatch] Worktree creation failed for ${executionId}: ${wtErrMsg}`)
+          await stream.writeSSE({
+            event: 'error',
+            data: JSON.stringify({
+              error: 'Worktree creation failed',
+              message: `Failed to create isolated worktree for task execution. The task will NOT run in the project directory to prevent contamination. Error: ${wtErrMsg}`,
+            }),
+          })
+          return
         }
       }
 
@@ -692,12 +697,6 @@ The user can review your reasoning in the task output and provide guidance if th
       if (isSuccess) {
         finalStatus = verification === 'auto' ? 'auto_verified' : 'awaiting_judgment'
       } else {
-        finalStatus = 'awaiting_judgment'
-      }
-
-      // Safety net: don't auto-verify when worktree was expected but failed
-      if (finalStatus === 'auto_verified' && worktreeExpected && !worktreeSetup) {
-        console.warn(`[dispatch] Downgrading auto_verified → awaiting_judgment for ${executionId}: worktree expected but not created`)
         finalStatus = 'awaiting_judgment'
       }
 

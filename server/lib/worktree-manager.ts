@@ -38,7 +38,7 @@ export async function createServerWorktree(options: {
   repoPath: string
   taskId: string
   nodeId: string
-}): Promise<ServerWorktreeSetup | null> {
+}): Promise<ServerWorktreeSetup> {
   const { repoPath, taskId, nodeId } = options
   const gitRoot = resolve(repoPath)
 
@@ -48,8 +48,8 @@ export async function createServerWorktree(options: {
       env: withGitEnv(),
       timeout: 5_000,
     })
-  } catch {
-    return null
+  } catch (err) {
+    throw new Error(`Repository has no commits (HEAD not found): ${err instanceof Error ? err.message : String(err)}`)
   }
 
   // Check for remote origin
@@ -59,9 +59,12 @@ export async function createServerWorktree(options: {
       ['-C', gitRoot, 'remote', 'get-url', 'origin'],
       { env: withGitEnv(), timeout: 5_000 }
     )
-    if (!stdout.trim()) return null
-  } catch {
-    return null
+    if (!stdout.trim()) {
+      throw new Error('Remote origin URL is empty')
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Remote origin URL')) throw err
+    throw new Error(`No remote origin configured: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   const repoName = sanitize(basename(gitRoot))
@@ -87,36 +90,47 @@ export async function createServerWorktree(options: {
   // Find and remove any existing worktree that uses this branch.
   // Without this, `git branch -D` fails because the branch is checked out
   // by a lingering worktree from a previous execution.
-  try {
-    const { stdout: wtList } = await execFileAsync(
-      'git',
-      ['-C', gitRoot, 'worktree', 'list', '--porcelain'],
-      { env: withGitEnv(), timeout: 10_000 }
-    )
-    // Parse porcelain output: blocks separated by blank lines,
-    // each block has "worktree <path>" and "branch refs/heads/<name>"
-    let currentWorktreePath: string | null = null
-    for (const line of wtList.split('\n')) {
-      if (line.startsWith('worktree ')) {
-        currentWorktreePath = line.slice('worktree '.length)
-      } else if (line.startsWith('branch ') && currentWorktreePath) {
-        const ref = line.slice('branch '.length)
-        if (ref === `refs/heads/${branchName}`) {
-          console.log(`[worktree-manager] Removing existing worktree at ${currentWorktreePath} (branch: ${branchName})`)
+  // This is critical — if cleanup fails, the entire worktree creation will fail.
+  const { stdout: wtList } = await execFileAsync(
+    'git',
+    ['-C', gitRoot, 'worktree', 'list', '--porcelain'],
+    { env: withGitEnv(), timeout: 10_000 }
+  )
+  // Parse porcelain output: blocks separated by blank lines,
+  // each block has "worktree <path>" and "branch refs/heads/<name>"
+  let currentWorktreePath: string | null = null
+  for (const line of wtList.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      currentWorktreePath = line.slice('worktree '.length)
+    } else if (line.startsWith('branch ') && currentWorktreePath) {
+      const ref = line.slice('branch '.length)
+      if (ref === `refs/heads/${branchName}`) {
+        console.log(`[worktree-manager] Removing existing worktree at ${currentWorktreePath} (branch: ${branchName})`)
+        // Try git worktree remove first, fall back to force-removing the directory + prune
+        try {
           await execFileAsync(
             'git',
             ['-C', gitRoot, 'worktree', 'remove', '--force', currentWorktreePath],
             { env: withGitEnv(), timeout: 30_000 }
           )
-          // Clean up directory if it still exists
+        } catch (removeErr) {
+          console.warn(`[worktree-manager] 'git worktree remove' failed for ${currentWorktreePath}: ${removeErr instanceof Error ? removeErr.message : String(removeErr)}`)
+          // Fallback: force-remove the directory and prune to deregister
+          await rm(currentWorktreePath, { recursive: true, force: true })
+          await execFileAsync('git', ['-C', gitRoot, 'worktree', 'prune'], {
+            env: withGitEnv(),
+            timeout: 30_000,
+          })
+          console.log(`[worktree-manager] Fallback cleanup succeeded: removed dir + pruned for ${currentWorktreePath}`)
+        }
+        // Clean up directory if it still exists after either path
+        if (existsSync(currentWorktreePath)) {
           await rm(currentWorktreePath, { recursive: true, force: true })
         }
-      } else if (line.trim() === '') {
-        currentWorktreePath = null
       }
+    } else if (line.trim() === '') {
+      currentWorktreePath = null
     }
-  } catch {
-    // Ignore — best-effort cleanup
   }
 
   // Delete local branch if it already exists
