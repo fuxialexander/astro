@@ -23,9 +23,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   load: async () => {
     try {
       const settings = await dataClient.getSettings()
-      if (settings.model) {
-        set({ model: settings.model, loaded: true })
-        saveState("astro-settings", { model: settings.model })
+      if (settings.model || settings.defaultProvider) {
+        set({
+          model: settings.model || get().model,
+          defaultProvider: settings.defaultProvider || "",
+          loaded: true,
+        })
+        saveState("astro-settings", { model: settings.model, defaultProvider: settings.defaultProvider })
       } else {
         set({ loaded: true })
       }
@@ -63,5 +67,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setDefaultProvider: (defaultProvider) => {
     set({ defaultProvider })
     saveState("astro-settings", { model: get().model, defaultProvider })
+    dataClient.updateSettings({ defaultProvider }).catch(() => {})
   },
 }))

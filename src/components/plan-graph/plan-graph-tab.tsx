@@ -9,7 +9,7 @@ import { ExecutionPanel } from "@/components/execution"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 import { PRIORITY_CONFIG, PRIORITIES, ESTIMATES } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants } from "@/lib/status-config"
 import { cn } from "@/lib/utils"
@@ -44,7 +44,7 @@ function MachineSelector({ selectedNode, projectId, onUpdate }: {
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
-  const isMultiTenant = shouldUseSupabase()
+  const isMultiTenant = isServerMode()
 
   useEffect(() => {
     if (!machinesLoaded) loadMachines()

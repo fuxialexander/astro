@@ -5,7 +5,7 @@ import {
 } from '../lib/providers/index.js'
 import { getSessionStats } from '../lib/session-manager.js'
 import { errorMessage } from '../lib/error-utils.js'
-import { shouldUseSupabase } from '../lib/supabase.js'
+import { isServerMode } from '../lib/app-mode.js'
 import { detectLocalBackends, detectSingleBackend, buildContextString } from '../lib/local-backends.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -28,7 +28,7 @@ healthRoute.get('/health', async (c) => {
 
     return c.json({
       status: 'ok',
-      mode: shouldUseSupabase() ? 'supabase' : 'indexeddb',
+      mode: isServerMode() ? 'supabase' : 'indexeddb',
       // Server is considered authenticated if reachable — plan generation
       // uses the Claude Agent SDK directly, regardless of local provider status.
       // Provider auth only matters for local task execution.
@@ -230,7 +230,7 @@ healthRoute.post('/test/auth-token', async (c) => {
     return c.json({ error: 'Test endpoints only available in development' }, 403)
   }
 
-  if (!shouldUseSupabase()) {
+  if (!isServerMode()) {
     return c.json({ error: 'Test auth token only needed in Supabase mode' }, 400)
   }
 

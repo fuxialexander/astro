@@ -12,8 +12,9 @@ import {
   taskChatSessions,
   taskChatMessages,
   taskExecutions,
+  activityEvents,
 } from '../lib/db/schema.js'
-import { eq, and, or, sql } from 'drizzle-orm'
+import { eq, and, or, sql, desc } from 'drizzle-orm'
 import { requireAuth } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 
@@ -612,7 +613,7 @@ app.put('/profile', async (c) => {
   const body = await c.req.json()
   const now = new Date()
 
-  const profile = {
+  const profile: Record<string, unknown> = {
     id: c.get('user')!.id,
     name: body.name ?? '',
     email: body.email ?? '',
@@ -626,6 +627,11 @@ app.put('/profile', async (c) => {
     apiKeys: body.apiKeys ?? [],
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: now,
+  }
+
+  // Include sidebarConfig if provided
+  if (body.sidebarConfig !== undefined) {
+    profile.sidebarConfig = body.sidebarConfig
   }
 
   await db.insert(userProfiles).values(profile).onConflictDoUpdate({
@@ -730,22 +736,30 @@ app.post('/usage/increment', async (c) => {
 // ── Settings ──────────────────────────────────────────────────────────
 
 app.get('/settings', async (c) => {
-  // Settings are stored in user profile metadata
+  const defaults = { model: 'claude-sonnet-4-5-20250929', defaultProvider: '' }
   const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.id, c.get('user')!.id))
   if (!profile) {
-    return c.json({ model: 'claude-sonnet-4-5-20250929', defaultProvider: '' })
+    return c.json(defaults)
   }
-  // Extract settings from profile bio or use defaults
-  // For now, return defaults - in production, add model/defaultProvider columns to user_profiles
-  return c.json({
-    model: 'claude-sonnet-4-5-20250929',
-    defaultProvider: '',
-  })
+  const stored = (profile.settings ?? {}) as Record<string, string>
+  return c.json({ ...defaults, ...stored })
 })
 
 app.patch('/settings', async (c) => {
-  // Settings patch endpoint - in production, store in user_profiles
-  // For now, just acknowledge the request
+  const userId = c.get('user')!.id
+  const body = await c.req.json()
+
+  // Read existing settings, merge with incoming
+  const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.id, userId))
+  const existing = (profile?.settings ?? {}) as Record<string, string>
+  const merged = { ...existing, ...body }
+
+  if (profile) {
+    await db.update(userProfiles).set({ settings: merged, updatedAt: new Date() }).where(eq(userProfiles.id, userId))
+  } else {
+    await db.insert(userProfiles).values({ id: userId, settings: merged })
+  }
+
   return c.json({ ok: true })
 })
 
@@ -1127,6 +1141,48 @@ app.get('/export', async (c) => {
     console.error('[data] Export failed:', error)
     return c.json({ error: 'Failed to export user data' }, 500)
   }
+})
+
+// ── Activity Events ──────────────────────────────────────────────────
+
+app.get('/activities', async (c) => {
+  const projectId = c.req.query('projectId')
+  const limit = parseInt(c.req.query('limit') || '100', 10)
+
+  const conditions = [eq(activityEvents.userId, c.get('user')!.id)]
+  if (projectId) {
+    conditions.push(eq(activityEvents.projectId, projectId))
+  }
+
+  const rows = await db.select().from(activityEvents)
+    .where(and(...conditions))
+    .orderBy(desc(activityEvents.createdAt))
+    .limit(limit)
+  return c.json(rows)
+})
+
+app.post('/activities', async (c) => {
+  const body = await c.req.json()
+  const row = {
+    id: body.id ?? undefined,
+    userId: c.get('user')!.id,
+    projectId: body.projectId,
+    type: body.type,
+    title: body.title,
+    description: body.description ?? null,
+    nodeId: body.nodeId ?? null,
+    metadata: body.metadata ?? {},
+  }
+  const [inserted] = await db.insert(activityEvents).values(row).returning()
+  return c.json(inserted)
+})
+
+app.delete('/activities/:projectId', async (c) => {
+  const projectId = c.req.param('projectId')
+  await db.delete(activityEvents).where(
+    and(eq(activityEvents.userId, c.get('user')!.id), eq(activityEvents.projectId, projectId))
+  )
+  return c.json({ ok: true })
 })
 
 export const dataRoute = app

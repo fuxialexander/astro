@@ -8,7 +8,7 @@
 import type { Context, Next } from 'hono';
 import { db } from '../lib/db/index.js';
 import { auditLogs } from '../lib/db/schema.js';
-import { shouldUseSupabase } from '../lib/supabase.js';
+import { isLocalMode } from '../lib/app-mode.js';
 
 interface AuditLogEntry {
   userId: string;
@@ -25,7 +25,7 @@ interface AuditLogEntry {
  */
 export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
   // Only log in Supabase mode (audit logs are in Postgres)
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     return;
   }
 

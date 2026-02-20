@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { Navigate, useLocation } from "react-router"
 import { useAuthStore } from "@/stores/auth-store"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isLocalMode } from "@/lib/app-mode"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -23,7 +23,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }, [initialized, initialize])
 
   // Skip auth check if Supabase is not configured or IndexedDB-only mode
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     return <>{children}</>
   }
 

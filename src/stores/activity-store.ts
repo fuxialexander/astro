@@ -1,5 +1,6 @@
 import { create } from "zustand"
-import { get as getIdb, set as setIdb } from "idb-keyval"
+import { loadState, saveState } from "@/lib/db"
+import { dataClient } from "@/lib/data-client"
 
 export type ActivityType =
   | "task.created"
@@ -49,7 +50,18 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
 
   loadActivities: async () => {
     try {
-      const stored = await getIdb<Activity[]>(ACTIVITY_STORE_KEY)
+      // Try loading from API first (server mode)
+      const activities = await dataClient.listActivities()
+      set({ activities, loaded: true })
+      // Cache to IndexedDB
+      saveState(ACTIVITY_STORE_KEY, activities)
+      return
+    } catch {
+      // API unavailable — fall back to IndexedDB
+    }
+
+    try {
+      const stored = await loadState<Activity[]>(ACTIVITY_STORE_KEY)
       if (stored) {
         // Reconstruct Date objects
         const activities = stored.map((a) => ({
@@ -77,11 +89,20 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
       // Add new activity and keep only the last MAX_ACTIVITIES
       const updated = [newActivity, ...state.activities].slice(0, MAX_ACTIVITIES)
       // Persist to IndexedDB
-      setIdb(ACTIVITY_STORE_KEY, updated).catch((err) =>
-        console.error("Failed to persist activities:", err)
-      )
+      saveState(ACTIVITY_STORE_KEY, updated)
       return { activities: updated }
     })
+
+    // Fire-and-forget: sync to server
+    dataClient.createActivity({
+      id: newActivity.id,
+      projectId: newActivity.projectId,
+      type: newActivity.type,
+      title: newActivity.title,
+      description: newActivity.description,
+      nodeId: newActivity.nodeId,
+      metadata: newActivity.metadata,
+    }).catch(() => {})
   },
 
   getProjectActivities: (projectId, limit = 10) => {
@@ -93,10 +114,11 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
   clearProjectActivities: (projectId) => {
     set((state) => {
       const filtered = state.activities.filter((a) => a.projectId !== projectId)
-      setIdb(ACTIVITY_STORE_KEY, filtered).catch((err) =>
-        console.error("Failed to persist activities:", err)
-      )
+      saveState(ACTIVITY_STORE_KEY, filtered)
       return { activities: filtered }
     })
+
+    // Fire-and-forget: sync to server
+    dataClient.clearProjectActivities(projectId).catch(() => {})
   },
 }))

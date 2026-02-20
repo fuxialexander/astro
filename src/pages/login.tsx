@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from "react"
 import { useNavigate, useLocation, useSearchParams } from "react-router"
 import { startRegistration, startAuthentication, browserSupportsWebAuthn, platformAuthenticatorIsAvailable } from "@simplewebauthn/browser"
 import { apiUrl } from "@/lib/api-url"
-import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
+import { getSupabase } from "@/lib/supabase-client"
+import { isLocalMode } from "@/lib/app-mode"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight } from "lucide-react"
@@ -36,7 +37,7 @@ export function Login() {
   const stateFrom = (location.state as { from?: { pathname: string } })?.from?.pathname
   const from = redirectParam || stateFrom || "/"
 
-  const devMode = !shouldUseSupabase()
+  const devMode = isLocalMode()
 
   const [step, setStep] = useState<AuthStep>("email")
   const [email, setEmail] = useState("")
@@ -229,7 +230,7 @@ export function Login() {
 
   // Check if platform authenticator is available (Face ID/Touch ID/Windows Hello)
   useEffect(() => {
-    if (!shouldUseSupabase()) return
+    if (isLocalMode()) return
 
     async function checkPlatformAuth() {
       if (!browserSupportsWebAuthn()) {

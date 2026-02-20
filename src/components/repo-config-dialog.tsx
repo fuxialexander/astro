@@ -9,7 +9,7 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
 import { validateAbsolutePath } from "@/lib/path-utils"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 import type { Project } from "@/types"
 
 export function RepoConfigDialog({
@@ -27,7 +27,7 @@ export function RepoConfigDialog({
   const machines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
   const { setupRepo } = useRepoSetup()
-  const isMultiTenant = shouldUseSupabase()
+  const isMultiTenant = isServerMode()
 
   const [repoUrl, setRepoUrl] = useState(project.repository ?? "")
   const [workDir, setWorkDir] = useState(project.workingDirectory ?? "")

@@ -2,7 +2,9 @@ import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, Task
 import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
-import { getAccessToken, shouldUseSupabase } from "./supabase-client"
+import type { Activity } from "@/stores/activity-store"
+import { getAccessToken } from "./supabase-client"
+import { isLocalMode } from "./app-mode"
 
 const BASE = "/api/data"
 
@@ -19,8 +21,8 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   // In IndexedDB-only mode, throw immediately to trigger fallback
-  if (!shouldUseSupabase()) {
-    throw new Error('IndexedDB-only mode: skipping API call')
+  if (isLocalMode()) {
+    throw new Error('Local mode: skipping API call')
   }
 
   const headers = await getAuthHeaders()
@@ -127,6 +129,7 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
     notificationsEnabled: (row.notificationsEnabled ?? row.notifications_enabled ?? true) as boolean,
     emailNotifications: (row.emailNotifications ?? row.email_notifications ?? false) as boolean,
     apiKeys: ((row.apiKeys ?? row.api_keys) as Record<string, unknown>[] ?? []).map(mapApiKey),
+    sidebarConfig: (row.sidebarConfig ?? row.sidebar_config) as UserProfile["sidebarConfig"],
     createdAt: toDate(row.createdAt ?? row.created_at),
     updatedAt: toDate(row.updatedAt ?? row.updated_at),
   }
@@ -447,5 +450,32 @@ export const dataClient = {
 
   async updateSettings(settings: Record<string, string>): Promise<void> {
     await patch(`${BASE}/settings`, settings)
+  },
+
+  // ── Activities ─────────────────────────────────────────────────────
+  async listActivities(projectId?: string, limit = 100): Promise<Activity[]> {
+    const params = new URLSearchParams()
+    if (projectId) params.set('projectId', projectId)
+    if (limit !== 100) params.set('limit', String(limit))
+    const qs = params.toString()
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/activities${qs ? `?${qs}` : ''}`)
+    return rows.map((row) => ({
+      id: row.id as string,
+      projectId: (row.projectId ?? row.project_id) as string,
+      type: row.type as Activity["type"],
+      title: row.title as string,
+      description: (row.description as string) ?? undefined,
+      nodeId: (row.nodeId ?? row.node_id) as string | undefined,
+      metadata: (row.metadata as Record<string, unknown>) ?? undefined,
+      timestamp: toDate(row.createdAt ?? row.created_at),
+    }))
+  },
+
+  async createActivity(activity: { id: string; projectId: string; type: string; title: string; description?: string; nodeId?: string; metadata?: Record<string, unknown> }): Promise<void> {
+    await post(`${BASE}/activities`, activity)
+  },
+
+  async clearProjectActivities(projectId: string): Promise<void> {
+    await del(`${BASE}/activities/${projectId}`)
   },
 }

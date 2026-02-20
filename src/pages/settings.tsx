@@ -29,7 +29,8 @@ import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { clearAllData } from "@/lib/db"
-import { shouldUseSupabase, getSupabase } from "@/lib/supabase-client"
+import { getSupabase } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -389,7 +390,7 @@ function ProfileContent() {
   const handleDeleteAccount = async () => {
     setIsDeletingAccount(true)
     try {
-      if (shouldUseSupabase()) {
+      if (isServerMode()) {
         // Supabase mode: Call backend to delete account
         const supabase = getSupabase()
         if (!supabase) {

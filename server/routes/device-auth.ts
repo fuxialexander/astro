@@ -59,7 +59,8 @@ import {
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
-import { getServiceClient, shouldUseSupabase, createUserClient } from '../lib/supabase.js';
+import { getServiceClient, createUserClient } from '../lib/supabase.js'
+import { isServerMode } from '../lib/app-mode.js';
 import { requireAuth } from '../middleware/auth.js';
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js';
 
@@ -372,7 +373,7 @@ deviceAuthRoute.post('/register', async (c) => {
     const { machineInfo } = body;
 
     // Validate user exists in auth.users (prevents foreign key constraint violation)
-    if (shouldUseSupabase()) {
+    if (isServerMode()) {
       // Skip validation for dev user in test mode
       const isDev = process.env.NODE_ENV !== 'production';
       const isDevUser = payload.userId === '00000000-0000-0000-0000-000000000000';
@@ -656,7 +657,7 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
   // Get userId from auth middleware (required by requireAuth)
   const user = c.get('user') as { id: string };
 
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     // Supabase mode: Use RLS for filtering (user-scoped client)
     // Extract token from Authorization header or query param
     let token: string | undefined;
@@ -738,7 +739,7 @@ deviceAuthRoute.get('/machines/:id', requireAuth, async (c) => {
   const user = c.get('user') as { id: string };
   const id = c.req.param('id');
 
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     // Supabase mode: Use RLS for filtering
     let token: string | undefined;
     const authHeader = c.req.header('Authorization');
@@ -822,7 +823,7 @@ deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
     return c.json({ error: 'Missing name field' }, 400);
   }
 
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     // Supabase mode: Use RLS for update
     let token: string | undefined;
     const authHeader = c.req.header('Authorization');
@@ -893,7 +894,7 @@ deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
   const id = c.req.param('id');
   const user = c.get('user') as { id: string };
 
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     // Supabase mode: Use RLS for delete
     let token: string | undefined;
     const authHeader = c.req.header('Authorization');
