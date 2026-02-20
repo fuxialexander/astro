@@ -1,25 +1,16 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle, MessageSquare, Plus, Calendar, Trash2, Edit3 } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle, MessageSquare, Plus, History, MoreHorizontal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { MentionTextarea, type MentionItem } from "@/components/ui/mention-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
@@ -28,7 +19,8 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
-import { useSessionStore } from "@/stores/session-store"
+import { useSessionStore, getSessionTitle } from "@/stores/session-store"
+import { SessionDialog } from "@/components/session-dialog"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import type { PlanNode, ProviderStatus, Session } from "@/types"
 
@@ -169,21 +161,34 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
   const updateLastAssistantMessage = useSessionStore((s) => s.updateLastAssistantMessage)
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
   const getSessionsForProject = useSessionStore((s) => s.getSessionsForProject)
+  const getActiveSessionId = useSessionStore((s) => s.getActiveSessionId)
+  const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId)
+  const getSession = useSessionStore((s) => s.getSession)
   const renameSession = useSessionStore((s) => s.renameSession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
+  const clearActiveSessionId = useSessionStore((s) => s.clearActiveSessionId)
+
+  // State for session dialog
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false)
+  const [editingSession, setEditingSession] = useState<Session | null>(null)
 
   // Get all plan-chat sessions for this project
   const planChatSessions = getSessionsForProject(projectId, "plan-chat")
 
-  // Track the selected session ID (default to most recent)
-  const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>(
-    planChatSessions.length > 0 ? planChatSessions[planChatSessions.length - 1].id : undefined
-  )
-
-  // Get the current session based on selectedSessionId
-  const currentSession: Session | undefined = selectedSessionId
-    ? planChatSessions.find(s => s.id === selectedSessionId)
-    : planChatSessions[planChatSessions.length - 1]
+  // Get the active session ID, or fall back to the most recent session
+  const activeSessionId = getActiveSessionId(projectId, "plan-chat")
+  const currentSession: Session | undefined = useMemo(() => {
+    // If we have an active session ID, try to get that session
+    if (activeSessionId) {
+      const session = getSession(activeSessionId)
+      // Verify the session still exists and belongs to this project
+      if (session && session.projectId === projectId && session.type === "plan-chat") {
+        return session
+      }
+    }
+    // Fall back to the most recent session
+    return planChatSessions[planChatSessions.length - 1]
+  }, [activeSessionId, getSession, planChatSessions, projectId])
 
   // Keep a ref to the session so the sendMessage callback can read fresh data
   // without depending on the full object (avoids React Compiler memoization issues).
@@ -192,23 +197,62 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
     currentSessionRef.current = currentSession
   }, [currentSession])
 
-  // Ensure session exists
+  // Ensure session exists and track as active
   useEffect(() => {
-    if (planChatSessions.length === 0) {
+    if (!currentSession) {
       const newSession = createSession({ type: "plan-chat", projectId })
-      setSelectedSessionId(newSession.id)
+      setActiveSessionId(projectId, "plan-chat", newSession.id)
+    } else if (!activeSessionId || activeSessionId !== currentSession.id) {
+      // If the current session exists but isn't marked as active, mark it
+      setActiveSessionId(projectId, "plan-chat", currentSession.id)
     }
-  }, [planChatSessions.length, createSession, projectId])
+  }, [currentSession, createSession, projectId, activeSessionId, setActiveSessionId])
 
-  // Update selectedSessionId when sessions change (e.g., new session created)
-  useEffect(() => {
-    if (selectedSessionId && !planChatSessions.find(s => s.id === selectedSessionId)) {
-      // Current selection no longer exists, switch to most recent
-      if (planChatSessions.length > 0) {
-        setSelectedSessionId(planChatSessions[planChatSessions.length - 1].id)
+  // Handler to switch to a different session
+  const handleSessionSwitch = useCallback((sessionId: string) => {
+    setActiveSessionId(projectId, "plan-chat", sessionId)
+  }, [projectId, setActiveSessionId])
+
+  // Handler to create a new session
+  const handleNewSession = useCallback(() => {
+    const newSession = createSession({ type: "plan-chat", projectId })
+    setActiveSessionId(projectId, "plan-chat", newSession.id)
+  }, [createSession, projectId, setActiveSessionId])
+
+  // Handler to open session edit dialog
+  const handleEditSession = useCallback((session: Session, e: React.MouseEvent) => {
+    e.stopPropagation() // Prevent dropdown item click
+    setEditingSession(session)
+    setSessionDialogOpen(true)
+  }, [])
+
+  // Handler for session rename
+  const handleRenameSession = useCallback((sessionId: string, title: string) => {
+    renameSession(sessionId, title)
+  }, [renameSession])
+
+  // Handler for session delete
+  const handleDeleteSession = useCallback((sessionId: string) => {
+    const isActiveSession = currentSession?.id === sessionId
+
+    // Delete the session
+    deleteSession(sessionId)
+
+    // If we deleted the active session, switch to another or create new
+    if (isActiveSession) {
+      // Get remaining sessions (after deletion, so filter out the deleted one)
+      const remainingSessions = planChatSessions.filter(s => s.id !== sessionId)
+
+      if (remainingSessions.length > 0) {
+        // Switch to the most recent remaining session
+        const mostRecent = remainingSessions[remainingSessions.length - 1]
+        setActiveSessionId(projectId, "plan-chat", mostRecent.id)
+      } else {
+        // No sessions left, clear active and let the effect create a new one
+        clearActiveSessionId(projectId, "plan-chat")
       }
     }
-  }, [selectedSessionId, planChatSessions])
+  }, [currentSession?.id, deleteSession, planChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
 
   const messages: Message[] = (currentSession?.messages || []).map((m) => ({
     role: m.role as "user" | "assistant",
@@ -543,163 +587,69 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
     return planNodes.find((n) => n.id === nodeId)?.title ?? nodeId
   }, [planNodes])
 
-  /** Create a new session and switch to it */
-  const handleCreateNewSession = useCallback(() => {
-    const newSession = createSession({ type: "plan-chat", projectId })
-    setSelectedSessionId(newSession.id)
-  }, [createSession, projectId])
-
-  /** Format session label with creation date and message count */
-  const formatSessionLabel = useCallback((session: Session) => {
-    if (session.title) return session.title
-    const date = session.createdAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    const messageCount = session.messages.filter(m => m.role === 'user').length
-    return `${date} • ${messageCount} msg${messageCount !== 1 ? 's' : ''}`
-  }, [])
-
-  // Rename dialog state
-  const [renameDialogOpen, setRenameDialogOpen] = useState(false)
-  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
-  const [renameTitle, setRenameTitle] = useState("")
-
-  // Delete confirmation dialog state
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
-
-  /** Open rename dialog for a session */
-  const handleRenameClick = useCallback((session: Session, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setRenamingSessionId(session.id)
-    setRenameTitle(session.title || "")
-    setRenameDialogOpen(true)
-  }, [])
-
-  /** Confirm rename */
-  const handleRenameConfirm = useCallback(() => {
-    if (renamingSessionId && renameTitle.trim()) {
-      renameSession(renamingSessionId, renameTitle.trim())
-      setRenameDialogOpen(false)
-      setRenamingSessionId(null)
-      setRenameTitle("")
-    }
-  }, [renamingSessionId, renameTitle, renameSession])
-
-  /** Open delete confirmation for a session */
-  const handleDeleteClick = useCallback((session: Session, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setDeletingSessionId(session.id)
-    setDeleteDialogOpen(true)
-  }, [])
-
-  /** Confirm delete */
-  const handleDeleteConfirm = useCallback(() => {
-    if (deletingSessionId) {
-      deleteSession(deletingSessionId)
-      // If we're deleting the current session, switch to another
-      if (deletingSessionId === selectedSessionId) {
-        const remaining = planChatSessions.filter(s => s.id !== deletingSessionId)
-        if (remaining.length > 0) {
-          setSelectedSessionId(remaining[remaining.length - 1].id)
-        } else {
-          setSelectedSessionId(undefined)
-        }
-      }
-      setDeleteDialogOpen(false)
-      setDeletingSessionId(null)
-    }
-  }, [deletingSessionId, selectedSessionId, planChatSessions, deleteSession])
-
   return (
     <div className="flex h-full flex-col border-l border-border bg-card">
-      {/* Header with session selector and model/provider picker */}
+      {/* Header with session switcher and model/provider picker */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">Plan Chat</span>
-
-          {/* Session Selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[160px]">
-                <MessageSquare className="h-3 w-3 shrink-0" />
-                <span className="truncate">
-                  {currentSession ? formatSessionLabel(currentSession) : 'No session'}
-                </span>
-                <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-[280px]">
-              <DropdownMenuLabel>Chat Sessions</DropdownMenuLabel>
-              {planChatSessions.length === 0 ? (
-                <div className="px-2 py-3 text-xs text-muted-foreground text-center">
-                  No sessions yet
-                </div>
-              ) : (
-                <>
-                  {[...planChatSessions].reverse().map((session) => {
-                    const isSelected = session.id === selectedSessionId
-                    const userMessageCount = session.messages.filter(m => m.role === 'user').length
-                    const dateStr = session.createdAt.toLocaleDateString(undefined, {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })
-
-                    return (
-                      <DropdownMenuItem
-                        key={session.id}
-                        onClick={() => setSelectedSessionId(session.id)}
-                        className="gap-2 cursor-pointer group"
-                      >
-                        <div className="flex flex-col flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-3 w-3 shrink-0 text-muted-foreground" />
-                            <span className="text-xs truncate">
-                              {session.title || dateStr}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <MessageSquare className="h-3 w-3 shrink-0 text-muted-foreground" />
-                            <span className="text-[10px] text-muted-foreground">
-                              {userMessageCount} message{userMessageCount !== 1 ? 's' : ''}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={(e) => handleRenameClick(session, e)}
-                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity"
-                            title="Rename session"
-                          >
-                            <Edit3 className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(session, e)}
-                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity"
-                            title="Delete session"
-                          >
-                            <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
-                          </button>
-                          {isSelected && (
-                            <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                          )}
-                        </div>
-                      </DropdownMenuItem>
-                    )
-                  })}
-                </>
-              )}
-              <div className="border-t border-border mt-1 pt-1">
-                <DropdownMenuItem
-                  onClick={handleCreateNewSession}
-                  className="gap-2 cursor-pointer text-primary"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>New Session</span>
-                </DropdownMenuItem>
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Session Switcher */}
+          {planChatSessions.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                  <History className="h-3 w-3" />
+                  <span>{planChatSessions.length}</span>
+                  <ChevronDown className="h-2.5 w-2.5 opacity-50" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[220px]">
+                <DropdownMenuLabel className="flex items-center justify-between">
+                  <span>Sessions</span>
+                  <button
+                    onClick={handleNewSession}
+                    className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-normal"
+                  >
+                    <Plus className="h-3 w-3" />
+                    New
+                  </button>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {[...planChatSessions].reverse().map((session) => {
+                  const messageCount = session.messages.length
+                  const sessionTitle = getSessionTitle(session)
+                  const isActive = currentSession?.id === session.id
+                  return (
+                    <DropdownMenuItem
+                      key={session.id}
+                      onClick={() => handleSessionSwitch(session.id)}
+                      className="flex flex-col items-start gap-0.5 py-2"
+                    >
+                      <div className="flex items-center gap-2 w-full">
+                        <MessageSquare className="h-3 w-3 shrink-0" />
+                        <span className="text-xs truncate flex-1" title={sessionTitle}>
+                          {sessionTitle}
+                        </span>
+                        {isActive && (
+                          <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
+                        )}
+                        <button
+                          onClick={(e) => handleEditSession(session, e)}
+                          className="p-1 hover:bg-accent rounded opacity-60 hover:opacity-100 transition-opacity"
+                          title="Edit session"
+                        >
+                          <MoreHorizontal className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground truncate w-full pl-5">
+                        {messageCount} messages
+                      </span>
+                    </DropdownMenuItem>
+                  )
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -906,58 +856,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
         </Button>
       </div>
 
-      {/* Rename Session Dialog */}
-      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename Session</DialogTitle>
-            <DialogDescription>
-              Enter a custom title for this chat session.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Input
-              value={renameTitle}
-              onChange={(e) => setRenameTitle(e.target.value)}
-              placeholder="Session title"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleRenameConfirm()
-                }
-              }}
-              autoFocus
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleRenameConfirm} disabled={!renameTitle.trim()}>
-              Rename
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Session Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Session</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this session? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteConfirm}>
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Session Edit/Delete Dialog */}
+      <SessionDialog
+        open={sessionDialogOpen}
+        onOpenChange={setSessionDialogOpen}
+        session={editingSession}
+        onRename={handleRenameSession}
+        onDelete={handleDeleteSession}
+      />
     </div>
   )
 }
