@@ -179,7 +179,8 @@ export function CommandPalette() {
     return flat
   }, [filteredCommands])
 
-  // Virtualized list
+  // Virtualized list — React Compiler auto-skips memoization for this component
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: flatCommands.length,
     getScrollElement: () => listRef.current,
