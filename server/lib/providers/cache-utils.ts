@@ -125,6 +125,41 @@ function hasRepoContent(context: RepoContextResult): boolean {
 }
 
 /**
+ * Build the append content for a preset systemPrompt.
+ *
+ * When using `systemPrompt: { type: 'preset', preset: 'claude_code', append: ... }`,
+ * the SDK loads CLAUDE.md automatically via settingSources. This function builds
+ * only the Astro-specific context that should be appended (vision doc, dependency
+ * context, working directory, environment info).
+ */
+export function buildAppendContent(options: {
+  baseInstructions?: string
+  visionDoc?: string
+  dependencyContext?: string
+  workingDirectory?: string
+}): string | undefined {
+  const parts: string[] = []
+
+  if (options.baseInstructions) {
+    parts.push(options.baseInstructions)
+  }
+
+  if (options.visionDoc) {
+    parts.push(`## Project Vision\n\n${options.visionDoc}`)
+  }
+
+  if (options.dependencyContext) {
+    parts.push(`## Previous Task Outputs\n\n${options.dependencyContext}`)
+  }
+
+  if (options.workingDirectory) {
+    parts.push(`## Working Directory\n\n${options.workingDirectory}`)
+  }
+
+  return parts.length > 0 ? parts.join('\n\n') : undefined
+}
+
+/**
  * Build tool definitions with cache control on the last tool.
  * This caches all MCP tool definitions as a stable prefix.
  *

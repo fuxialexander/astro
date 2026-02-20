@@ -5,7 +5,7 @@
  * This adapter translates Astro task dispatches into Claude SDK invocations.
  */
 
-import { query, type Query } from '@anthropic-ai/claude-agent-sdk'
+import { query, type Query, type Options } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentProvider,
   ProviderDetectionResult,
@@ -21,24 +21,88 @@ import type {
 } from '../types.js'
 import { errorMessage } from '../../error-utils.js'
 import { loadMcpConfig, mergeAllowedTools } from '../mcp-loader.js'
-import { readRepoContext } from '../../repo-context.js'
 import {
-  buildCachedSystemPrompt,
+  buildAppendContent,
   calculateCacheStats,
-  extractSourceRepoPath,
 } from '../cache-utils.js'
+import { SessionLogger } from '../session-logger.js'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 
-// Map of active tasks for cancellation
+// ---------------------------------------------------------------------------
+// .env loader (no external dependency)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a .env file from a directory into key=value pairs.
+ * Supports # comments, quoted values, and multi-line values.
+ */
+export function loadDotEnv(dir?: string): Record<string, string> {
+  if (!dir) return {}
+  const envPath = join(dir, '.env')
+  if (!existsSync(envPath)) return {}
+
+  try {
+    const content = readFileSync(envPath, 'utf-8')
+    const result: Record<string, string> = {}
+
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim()
+      // Skip empty lines and comments
+      if (!trimmed || trimmed.startsWith('#')) continue
+      // Match KEY=VALUE (value may be quoted)
+      const eqIdx = trimmed.indexOf('=')
+      if (eqIdx === -1) continue
+      const key = trimmed.slice(0, eqIdx).trim()
+      let value = trimmed.slice(eqIdx + 1).trim()
+      // Strip surrounding quotes
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1)
+      }
+      // Strip inline comment (only for unquoted values)
+      const hashIdx = value.indexOf(' #')
+      if (hashIdx !== -1 && !trimmed.slice(eqIdx + 1).trim().startsWith('"')) {
+        value = value.slice(0, hashIdx).trim()
+      }
+      if (key) result[key] = value
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provider config
+// ---------------------------------------------------------------------------
+
+interface ClaudeCodeProviderConfig {
+  hooks?: Record<string, unknown>
+  extraArgs?: Record<string, string | null>
+}
+
+// ---------------------------------------------------------------------------
+// Active task tracking
+// ---------------------------------------------------------------------------
+
+/** Map of active tasks for cancellation */
 const activeTasks = new Map<string, AbortController>()
 
-// Map of active queries for steering (message injection).
-// After execution completes, query is set to null but sessionId and workingDirectory
-// are preserved so the session can be resumed for post-execution steering.
+/**
+ * Map of active queries for steering (message injection).
+ * After execution completes, query is set to null but sessionId and workingDirectory
+ * are preserved so the session can be resumed for post-execution steering.
+ */
 const activeQueries = new Map<string, {
   query: Query | null
   sessionId: string
   workingDirectory?: string
 }>()
+
+// ---------------------------------------------------------------------------
+// Provider implementation
+// ---------------------------------------------------------------------------
 
 /**
  * Claude Code provider adapter.
@@ -49,7 +113,13 @@ export class ClaudeCodeProvider implements AgentProvider {
   readonly name = 'Claude Code'
 
   private defaultModel = 'claude-sonnet-4-5-20250929'
+  private fallbackModel = 'sonnet'
   private cachedDetection: ProviderDetectionResult | null = null
+  private config: ClaudeCodeProviderConfig
+
+  constructor(config: ClaudeCodeProviderConfig = {}) {
+    this.config = config
+  }
 
   /**
    * Probe whether Claude Code SDK is installed and authenticated.
@@ -58,8 +128,6 @@ export class ClaudeCodeProvider implements AgentProvider {
     try {
       // Check if we're inside a Claude Code session (nested session blocked)
       if (process.env.CLAUDECODE) {
-        // We're inside Claude Code, so it's definitely available
-        // Check if auth token exists (supports OAuth, API key, and Bedrock auth)
         const hasOAuthOrKey = !!(process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY)
         const hasBedrock = !!(process.env.CLAUDE_CODE_USE_BEDROCK && (
           process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE || process.env.AWS_SESSION_TOKEN
@@ -79,11 +147,8 @@ export class ClaudeCodeProvider implements AgentProvider {
       }
 
       const abortController = new AbortController()
-
-      // Timeout detection after 30 seconds
       const timeout = setTimeout(() => abortController.abort(), 30_000)
 
-      // Use a minimal prompt to check auth — immediately abort after init
       const gen = query({
         prompt: 'respond with ok',
         options: {
@@ -122,12 +187,10 @@ export class ClaudeCodeProvider implements AgentProvider {
       return this.cachedDetection
     } catch (error) {
       const message = errorMessage(error)
-
-      // Check for specific auth-related errors
       const isAuthError = message.includes('auth') || message.includes('login') || message.includes('API key')
 
       this.cachedDetection = {
-        installed: true, // SDK is installed, just not authenticated
+        installed: true,
         authStatus: isAuthError ? 'unauthenticated' : 'unknown',
         message: isAuthError ? 'Claude Code requires authentication. Run `claude login`.' : message,
         detectedAt: new Date(),
@@ -144,7 +207,7 @@ export class ClaudeCodeProvider implements AgentProvider {
     return {
       providerId: this.id,
       name: this.name,
-      languages: ['*'], // Claude Code supports all languages
+      languages: ['*'],
       taskTypes: [
         'code_generation',
         'code_review',
@@ -157,7 +220,7 @@ export class ClaudeCodeProvider implements AgentProvider {
         'chat',
         'general',
       ],
-      maxContextTokens: 200000, // Claude's context window
+      maxContextTokens: 200000,
       supportsStreaming: true,
       supportsCancellation: true,
       availableModels: [
@@ -168,45 +231,31 @@ export class ClaudeCodeProvider implements AgentProvider {
         'claude-3-5-haiku-20241022',
       ],
       defaultModel: this.defaultModel,
-      contextInjectionMethod: 'system_prompt', // Claude Code uses system prompt for context
+      fallbackModel: this.fallbackModel,
+      contextInjectionMethod: 'system_prompt',
       supportsSessionResume: true,
       maxTurns: 150,
     }
   }
 
+  // -----------------------------------------------------------------------
+  // Shared option building
+  // -----------------------------------------------------------------------
+
   /**
-   * Execute a task and return a structured result.
+   * Build MCP server config for a task.
    */
-  async execute(task: TaskDispatch): Promise<TaskResult> {
-    const startTime = Date.now()
-    const abortController = task.abortController ?? new AbortController()
+  private buildMcpServers(task: TaskDispatch): Record<string, unknown> | undefined {
+    let mcpServers: Record<string, unknown> | undefined
+    if (task.context.workingDirectory) {
+      mcpServers = loadMcpConfig(task.context.workingDirectory)
+    }
 
-    // Track for cancellation
-    activeTasks.set(task.taskId, abortController)
-
-    try {
-      // Prepare context
-      const preparedContext = await this.prepareContext(task.context)
-
-      // Build the full prompt with context
-      let fullPrompt = task.prompt
-      if (preparedContext.method === 'prompt_prefix' && preparedContext.promptContent) {
-        fullPrompt = `${preparedContext.promptContent}\n\n---\n\n${task.prompt}`
-      }
-
-      // Determine if this task needs full tool access
-      const isExecution = task.type !== 'planning' && task.type !== 'chat'
-      const isPlanningWithRepo = task.type === 'planning' && !!task.context.workingDirectory
-
-      // Load MCP config from working directory (Cyrus pattern)
-      let mcpServers: Record<string, unknown> | undefined
-      if (task.context.workingDirectory) {
-        mcpServers = loadMcpConfig(task.context.workingDirectory)
-      }
-
-      // Add Astro built-in MCP server for custom tools (plan/project management, user questions)
-      const astroMcpPath = new URL('../mcp/astro-tools-server.ts', import.meta.url).pathname
-      const astroMcpServer = {
+    // Add Astro built-in MCP server
+    const astroMcpPath = new URL('../mcp/astro-tools-server.ts', import.meta.url).pathname
+    mcpServers = {
+      ...mcpServers,
+      'astro-tools': {
         command: 'node',
         args: ['--import=tsx/esm', astroMcpPath],
         env: {
@@ -215,82 +264,270 @@ export class ClaudeCodeProvider implements AgentProvider {
           ASTRO_SERVER_URL: process.env.ASTRO_SERVER_URL || 'http://localhost:3001',
           ASTRO_AUTH_TOKEN: task.context.authToken || '',
         },
+      },
+    }
+
+    return mcpServers
+  }
+
+  /**
+   * Build the canUseTool callback for AskUserQuestion interception.
+   */
+  private buildCanUseTool(task: TaskDispatch): Options['canUseTool'] {
+    const approvalCallback = task.context.approvalCallback
+    if (!approvalCallback) return undefined
+
+    return async (toolName, input, opts) => {
+      if (toolName === 'AskUserQuestion') {
+        console.log(`[claude-code] Intercepted AskUserQuestion (toolUseID: ${opts.toolUseID})`)
+
+        const askInput = input as {
+          questions?: Array<{
+            question: string
+            options: Array<{ label: string; description?: string }>
+          }>
+        }
+
+        if (!askInput.questions || !Array.isArray(askInput.questions)) {
+          return {
+            behavior: 'deny' as const,
+            message: 'Invalid AskUserQuestion input: questions array is required',
+          }
+        }
+
+        if (askInput.questions.length !== 1) {
+          return {
+            behavior: 'deny' as const,
+            message: 'Only one question at a time is supported.',
+          }
+        }
+
+        const question = askInput.questions[0]
+        const optionLabels = question.options.map(opt => opt.label)
+
+        try {
+          const result = await approvalCallback(task.taskId, question.question, optionLabels)
+
+          return {
+            behavior: 'allow' as const,
+            updatedInput: {
+              questions: askInput.questions,
+              answers: { [question.question]: result },
+            },
+          }
+        } catch (error) {
+          return {
+            behavior: 'deny' as const,
+            message: `Failed to get user approval: ${errorMessage(error)}`,
+          }
+        }
       }
 
-      mcpServers = {
-        ...mcpServers,
-        'astro-tools': astroMcpServer,
+      // Allow all other tools
+      return { behavior: 'allow' as const, updatedInput: input }
+    }
+  }
+
+  /**
+   * Build query options shared across execute(), stream(), and resumeLocalTask().
+   *
+   * Uses `settingSources` for automatic CLAUDE.md loading and `systemPrompt` preset
+   * with an append containing Astro-specific context (vision doc, dependency context, etc.).
+   */
+  private buildQueryOptions(task: TaskDispatch, abortController: AbortController): Options {
+    const isExecution = task.type !== 'planning' && task.type !== 'chat'
+    const isPlanningWithRepo = task.type === 'planning' && !!task.context.workingDirectory
+    const needsTools = isExecution || isPlanningWithRepo
+
+    // Build MCP servers
+    const mcpServers = this.buildMcpServers(task)
+
+    // Build tool access control
+    const allowedTools = mergeAllowedTools(
+      task.context.allowedTools,
+      task.context.allowedDirectories
+    )
+    const disallowedTools = task.context.disallowedTools
+
+    console.log('[claude-code] Tool access control:', {
+      allowedTools: allowedTools?.length ?? 'all',
+      disallowedTools: disallowedTools?.length ?? 'none',
+      mcpServers: mcpServers ? Object.keys(mcpServers).length : 0,
+    })
+
+    // Build append content for system prompt (Astro-specific context only)
+    const appendContent = buildAppendContent({
+      baseInstructions: task.context.environment
+        ? `## Execution Environment\n${task.context.environment}`
+        : undefined,
+      visionDoc: task.context.visionDoc,
+      dependencyContext: task.context.dependencyContext,
+      workingDirectory: task.context.workingDirectory,
+    })
+
+    // Build env: process env + task env vars + .env file
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      ...(task.context.environmentVariables || {}),
+      ...loadDotEnv(task.context.workingDirectory),
+      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+    }
+
+    // Build system prompt: use preset with append, or explicit task.systemPrompt override
+    const systemPrompt: Options['systemPrompt'] = task.systemPrompt
+      ?? (appendContent
+        ? { type: 'preset' as const, preset: 'claude_code' as const, append: appendContent }
+        : { type: 'preset' as const, preset: 'claude_code' as const })
+
+    // Build canUseTool callback
+    const canUseTool = this.buildCanUseTool(task)
+
+    const options: Options = {
+      abortController,
+      model: task.model ?? this.defaultModel,
+      fallbackModel: this.fallbackModel,
+      maxTurns: task.maxTurns ?? 1,
+      env,
+      systemPrompt,
+      ...(needsTools
+        ? {
+            // Execution & planning-with-repo: full tool access
+            permissionMode: 'bypassPermissions' as const,
+            settingSources: ['user' as const, 'project' as const, 'local' as const],
+            ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
+            ...(mcpServers ? { mcpServers } : {}),
+            ...(allowedTools ? { allowedTools } : {}),
+            ...(disallowedTools ? { disallowedTools } : {}),
+          }
+        : {
+            // Planning-without-repo & chat: no tools, just text generation
+            allowedTools: [] as string[],
+          }),
+      ...(task.outputFormat ? { outputFormat: task.outputFormat } : {}),
+      ...(task.sessionId ? { resume: task.sessionId } : {}),
+      ...(canUseTool ? { canUseTool } : {}),
+      // Hooks passthrough (provider-level + task-level)
+      ...(this.config.hooks || task.context.hooks
+        ? { hooks: { ...this.config.hooks, ...(task.context.hooks as Record<string, unknown>) } as Options['hooks'] }
+        : {}),
+      // Extra args passthrough
+      ...(this.config.extraArgs || task.context.extraArgs
+        ? { extraArgs: { ...this.config.extraArgs, ...task.context.extraArgs } }
+        : {}),
+    }
+
+    return options
+  }
+
+  // -----------------------------------------------------------------------
+  // Result metrics extraction (shared helper)
+  // -----------------------------------------------------------------------
+
+  private extractResultMetrics(msg: Record<string, unknown>): Partial<TaskMetrics> {
+    const metrics: Partial<TaskMetrics> = {}
+
+    // Prefer modelUsage (aggregated across all models, includes cache tokens)
+    // over usage (BetaUsage, which only has non-cached direct input_tokens).
+    const modelUsage = msg.modelUsage as Record<string, {
+      inputTokens?: number
+      outputTokens?: number
+      cacheReadInputTokens?: number
+      cacheCreationInputTokens?: number
+      costUSD?: number
+    }> | undefined
+
+    if (modelUsage) {
+      let totalInput = 0
+      let totalOutput = 0
+      let totalCacheRead = 0
+      let totalCacheCreation = 0
+
+      for (const mu of Object.values(modelUsage)) {
+        totalInput += mu.inputTokens ?? 0
+        totalOutput += mu.outputTokens ?? 0
+        totalCacheRead += mu.cacheReadInputTokens ?? 0
+        totalCacheCreation += mu.cacheCreationInputTokens ?? 0
       }
 
-      // Process tool access control (Cyrus pattern)
-      const allowedTools = mergeAllowedTools(
-        task.context.allowedTools,
-        task.context.allowedDirectories
-      )
-      const disallowedTools = task.context.disallowedTools
+      metrics.inputTokens = totalInput + totalCacheRead + totalCacheCreation
+      metrics.outputTokens = totalOutput
+      metrics.tokensUsed = metrics.inputTokens + metrics.outputTokens
 
-      console.log('[claude-code] Tool access control:', {
-        allowedTools: allowedTools?.length ?? 'all',
-        disallowedTools: disallowedTools?.length ?? 'none',
-        mcpServers: mcpServers ? Object.keys(mcpServers).length : 0,
-      })
-
-      // Build options
-      const options: Parameters<typeof query>[0]['options'] = {
-        abortController,
-        model: task.model ?? this.defaultModel,
-        maxTurns: task.maxTurns ?? 1,
-        ...((isExecution || isPlanningWithRepo)
-          ? {
-              // Execution & planning-with-repo: controlled tool access
-              permissionMode: 'bypassPermissions' as const,
-              ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
-              // Add MCP servers if found (with caching on last tool)
-              ...(mcpServers ? { mcpServers } : {}),
-              // Add tool restrictions if specified
-              ...(allowedTools ? { allowedTools } : {}),
-              ...(disallowedTools ? { disallowedTools } : {}),
-            }
-          : {
-              // Planning-without-repo & chat: no tools needed, just text generation
-              allowedTools: [],
-            }),
+      if (totalCacheRead > 0 || totalCacheCreation > 0) {
+        const cacheStats = calculateCacheStats({
+          input_tokens: totalInput,
+          cache_read_input_tokens: totalCacheRead,
+          cache_creation_input_tokens: totalCacheCreation,
+        })
+        console.log(
+          `[claude-code] Cache stats: ${cacheStats.totalInputTokens} tokens, ` +
+          `${(cacheStats.cacheHitRate * 100).toFixed(1)}% hit rate, ` +
+          `~${cacheStats.estimatedSavings.toFixed(0)}% cost savings`
+        )
       }
+    } else {
+      // Fallback to BetaUsage (non-cached counts only)
+      const usage = msg.usage as Record<string, number> | undefined
+      if (usage) {
+        metrics.inputTokens = usage.input_tokens
+        metrics.outputTokens = usage.output_tokens
+        metrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
 
-      // Add system prompt (prefer systemBlocks for caching, fallback to string)
-      if (task.systemPrompt) {
-        options.systemPrompt = task.systemPrompt
-      } else if (preparedContext.systemBlocks && preparedContext.systemBlocks.length > 0) {
-        // Use structured blocks with cache_control
-        options.systemPrompt = preparedContext.systemBlocks as unknown as string
-      } else if (preparedContext.promptContent) {
-        options.systemPrompt = preparedContext.promptContent
+        if (usage.cache_read_input_tokens || usage.cache_creation_input_tokens) {
+          const cacheStats = calculateCacheStats(usage)
+          console.log(
+            `[claude-code] Cache stats: ${cacheStats.totalInputTokens} tokens, ` +
+            `${(cacheStats.cacheHitRate * 100).toFixed(1)}% hit rate, ` +
+            `~${cacheStats.estimatedSavings.toFixed(0)}% cost savings`
+          )
+        }
       }
+    }
 
-      // Add output format for structured JSON output
-      if (task.outputFormat) {
-        options.outputFormat = task.outputFormat
-      }
+    if (typeof msg.total_cost_usd === 'number') {
+      metrics.estimatedCostUsd = msg.total_cost_usd
+    }
+    if (typeof msg.num_turns === 'number') {
+      metrics.turnsUsed = msg.num_turns
+    }
+    if (typeof msg.duration_ms === 'number') {
+      metrics.durationMs = msg.duration_ms
+    }
+    return metrics
+  }
 
-      // Handle session resume
-      if (task.sessionId) {
-        (options as Record<string, unknown>).resume = task.sessionId
-      }
+  // -----------------------------------------------------------------------
+  // execute()
+  // -----------------------------------------------------------------------
 
-      // Execute query
-      const gen = query({ prompt: fullPrompt, options })
+  /**
+   * Execute a task and return a structured result.
+   */
+  async execute(task: TaskDispatch): Promise<TaskResult> {
+    const startTime = Date.now()
+    const abortController = task.abortController ?? new AbortController()
+    activeTasks.set(task.taskId, abortController)
+
+    const logger = new SessionLogger(task.taskId)
+
+    try {
+      const options = this.buildQueryOptions(task, abortController)
+      const gen = query({ prompt: task.prompt, options })
 
       let assistantText = ''
       let structuredOutput: StructuredOutput | undefined
       let sessionId: string | undefined
       let model = task.model ?? this.defaultModel
       let status: TaskStatus = 'success'
-      const resultMetrics: Partial<TaskMetrics> = {}
+      let errorMsg: string | undefined
+      let resultMetrics: Partial<TaskMetrics> = {}
 
       for await (const msg of gen) {
+        logger.log(msg as unknown as { type: string })
+
         if (msg.type === 'system' && msg.subtype === 'init') {
           model = msg.model
-          sessionId = msg.sessionId
+          sessionId = msg.session_id
         } else if (msg.type === 'assistant') {
           for (const block of msg.message.content) {
             if (block.type === 'text') {
@@ -298,72 +535,49 @@ export class ClaudeCodeProvider implements AgentProvider {
             }
           }
         } else if (msg.type === 'result') {
-          sessionId = msg.sessionId
+          sessionId = msg.session_id
 
-          // Extract SDK usage metrics
-          const msgAny = msg as Record<string, unknown>
-          const usage = msgAny.usage as Record<string, number> | undefined
-          if (usage) {
-            resultMetrics.inputTokens = usage.input_tokens
-            resultMetrics.outputTokens = usage.output_tokens
-            resultMetrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
-
-            // Log cache effectiveness
-            if (usage.cache_read_input_tokens || usage.cache_creation_input_tokens) {
-              const cacheStats = calculateCacheStats(usage)
-              console.log(
-                `[claude-code] Cache stats: ${cacheStats.totalInputTokens} tokens, ` +
-                `${(cacheStats.cacheHitRate * 100).toFixed(1)}% hit rate, ` +
-                `~${cacheStats.estimatedSavings.toFixed(0)}% cost savings`
-              )
-            }
-          }
-          if (typeof msgAny.total_cost_usd === 'number') {
-            resultMetrics.estimatedCostUsd = msgAny.total_cost_usd
-          }
-          if (typeof msgAny.num_turns === 'number') {
-            resultMetrics.turnsUsed = msgAny.num_turns
-          }
-          if (typeof msgAny.duration_ms === 'number') {
-            resultMetrics.durationMs = msgAny.duration_ms
-          }
+          resultMetrics = this.extractResultMetrics(msg as unknown as Record<string, unknown>)
 
           if (msg.subtype === 'success') {
             status = 'success'
-
-            // Check for structured output
             if (msg.structured_output) {
-              structuredOutput = {
-                type: 'structured',
-                data: msg.structured_output,
-              }
+              structuredOutput = { type: 'structured', data: msg.structured_output }
             } else if (msg.result) {
-              // Try to parse as JSON
               try {
                 const parsed = JSON.parse(typeof msg.result === 'string' ? msg.result : JSON.stringify(msg.result))
-                structuredOutput = {
-                  type: 'json',
-                  data: parsed,
-                }
+                structuredOutput = { type: 'json', data: parsed }
               } catch {
-                // Not JSON, leave as text
+                // Not JSON
               }
             }
-          } else if (msg.subtype === 'error') {
+          } else {
             status = 'error'
+
+            const subtypeMessages: Record<string, string> = {
+              error: 'Task failed with an error from the AI provider.',
+              error_max_turns: 'Max turns reached — the AI used all available conversation turns without completing the task.',
+              error_max_budget_usd: 'Budget limit reached — the task exceeded the allowed cost budget.',
+              error_max_structured_output_retries: 'The AI failed to produce valid structured output after multiple attempts.',
+            }
+
+            const msgAny = msg as unknown as Record<string, unknown>
+            errorMsg = subtypeMessages[msg.subtype]
+              || (typeof msgAny.error === 'string' ? msgAny.error : null)
+              || `Task ended with non-success status: ${msg.subtype}`
           }
           break
         }
       }
 
       const durationMs = Date.now() - startTime
-
-      return {
+      const result: TaskResult = {
         taskId: task.taskId,
         sessionId,
         status,
         output: structuredOutput,
         stdout: assistantText,
+        errorMessage: errorMsg,
         metrics: {
           durationMs: resultMetrics.durationMs ?? durationMs,
           model,
@@ -376,30 +590,32 @@ export class ClaudeCodeProvider implements AgentProvider {
         providerId: this.id,
         completedAt: new Date(),
       }
+
+      await logger.finalize(result)
+      return result
     } catch (error) {
       const durationMs = Date.now() - startTime
       const isAbort = error instanceof Error && error.name === 'AbortError'
-
-      return {
+      const result: TaskResult = {
         taskId: task.taskId,
         status: isAbort ? 'cancelled' : 'error',
         errorMessage: errorMessage(error),
-        metrics: {
-          durationMs,
-          model: task.model ?? this.defaultModel,
-        },
+        metrics: { durationMs, model: task.model ?? this.defaultModel },
         providerId: this.id,
         completedAt: new Date(),
       }
+      await logger.finalize(result)
+      return result
     } finally {
       activeTasks.delete(task.taskId)
-      // Preserve session context for post-execution steering (resume)
       const existing = activeQueries.get(task.taskId)
-      if (existing) {
-        existing.query = null
-      }
+      if (existing) existing.query = null
     }
   }
+
+  // -----------------------------------------------------------------------
+  // stream()
+  // -----------------------------------------------------------------------
 
   /**
    * Execute a task with streaming output.
@@ -407,123 +623,33 @@ export class ClaudeCodeProvider implements AgentProvider {
   async *stream(task: TaskDispatch): AsyncGenerator<StreamEvent, TaskResult, undefined> {
     const startTime = Date.now()
     const abortController = task.abortController ?? new AbortController()
-
-    // Track for cancellation
     activeTasks.set(task.taskId, abortController)
 
+    const logger = new SessionLogger(task.taskId)
+
     try {
-      // Prepare context
-      const preparedContext = await this.prepareContext(task.context)
-
-      // Build the full prompt with context
-      let fullPrompt = task.prompt
-      if (preparedContext.method === 'prompt_prefix' && preparedContext.promptContent) {
-        fullPrompt = `${preparedContext.promptContent}\n\n---\n\n${task.prompt}`
-      }
-
-      // Determine if this task needs full tool access
-      const isExecution = task.type !== 'planning' && task.type !== 'chat'
-      const isPlanningWithRepo = task.type === 'planning' && !!task.context.workingDirectory
-
-      // Load MCP config from working directory (Cyrus pattern)
-      let mcpServers: Record<string, unknown> | undefined
-      if (task.context.workingDirectory) {
-        mcpServers = loadMcpConfig(task.context.workingDirectory)
-      }
-
-      // Add Astro built-in MCP server for custom tools (plan/project management, user questions)
-      const astroMcpPath = new URL('../mcp/astro-tools-server.ts', import.meta.url).pathname
-      const astroMcpServer = {
-        command: 'node',
-        args: ['--import=tsx/esm', astroMcpPath],
-        env: {
-          ASTRO_EXECUTION_ID: task.taskId,
-          ASTRO_PROJECT_ID: task.context.projectId || '',
-          ASTRO_SERVER_URL: process.env.ASTRO_SERVER_URL || 'http://localhost:3001',
-          ASTRO_AUTH_TOKEN: task.context.authToken || '',
-        },
-      }
-
-      mcpServers = {
-        ...mcpServers,
-        'astro-tools': astroMcpServer,
-      }
-
-      // Process tool access control (Cyrus pattern)
-      const allowedTools = mergeAllowedTools(
-        task.context.allowedTools,
-        task.context.allowedDirectories
-      )
-      const disallowedTools = task.context.disallowedTools
-
-      console.log('[claude-code] Tool access control:', {
-        allowedTools: allowedTools?.length ?? 'all',
-        disallowedTools: disallowedTools?.length ?? 'none',
-        mcpServers: mcpServers ? Object.keys(mcpServers).length : 0,
-      })
-
-      // Build options
-      const options: Parameters<typeof query>[0]['options'] = {
-        abortController,
-        model: task.model ?? this.defaultModel,
-        maxTurns: task.maxTurns ?? 1,
-        ...((isExecution || isPlanningWithRepo)
-          ? {
-              // Execution & planning-with-repo: controlled tool access
-              permissionMode: 'bypassPermissions' as const,
-              ...(task.context.workingDirectory ? { cwd: task.context.workingDirectory } : {}),
-              // Add MCP servers if found (with caching on last tool)
-              ...(mcpServers ? { mcpServers } : {}),
-              // Add tool restrictions if specified
-              ...(allowedTools ? { allowedTools } : {}),
-              ...(disallowedTools ? { disallowedTools } : {}),
-            }
-          : {
-              // Planning-without-repo & chat: no tools needed, just text generation
-              allowedTools: [],
-            }),
-      }
-
-      // Add system prompt (prefer systemBlocks for caching, fallback to string)
-      if (task.systemPrompt) {
-        options.systemPrompt = task.systemPrompt
-      } else if (preparedContext.systemBlocks && preparedContext.systemBlocks.length > 0) {
-        // Use structured blocks with cache_control
-        options.systemPrompt = preparedContext.systemBlocks as unknown as string
-      } else if (preparedContext.promptContent) {
-        options.systemPrompt = preparedContext.promptContent
-      }
-
-      // Add output format for structured JSON output (e.g., plan generation)
-      if (task.outputFormat) {
-        options.outputFormat = task.outputFormat
-      }
-
-      // Handle session resume
-      if (task.sessionId) {
-        (options as Record<string, unknown>).resume = task.sessionId
-      }
-
-      // Execute query
-      const gen = query({ prompt: fullPrompt, options })
+      const options = this.buildQueryOptions(task, abortController)
+      const gen = query({ prompt: task.prompt, options })
 
       let assistantText = ''
       let structuredOutput: StructuredOutput | undefined
       let sessionId: string | undefined
       let model = task.model ?? this.defaultModel
       let status: TaskStatus = 'success'
-      const resultMetrics: Partial<TaskMetrics> = {}
+      let resultMetrics: Partial<TaskMetrics> = {}
 
       // Map toolUseId → toolName for correlating tool_use → tool_result
       const toolUseIdToName = new Map<string, string>()
 
       for await (const msg of gen) {
+        logger.log(msg as unknown as { type: string })
+
         if (msg.type === 'system' && msg.subtype === 'init') {
           model = msg.model
-          sessionId = msg.sessionId
+          sessionId = msg.session_id
           activeQueries.set(task.taskId, {
             query: gen,
-            sessionId: msg.sessionId,
+            sessionId: msg.session_id,
             workingDirectory: task.context.workingDirectory,
           })
 
@@ -531,20 +657,14 @@ export class ClaudeCodeProvider implements AgentProvider {
             type: 'init',
             taskId: task.taskId,
             model,
-            sessionId,
+            sessionId: msg.session_id,
             timestamp: new Date(),
           }
         } else if (msg.type === 'assistant') {
           for (const block of msg.message.content) {
             if (block.type === 'text') {
               assistantText += block.text
-
-              yield {
-                type: 'text',
-                taskId: task.taskId,
-                text: block.text,
-                timestamp: new Date(),
-              }
+              yield { type: 'text', taskId: task.taskId, text: block.text, timestamp: new Date() }
             } else if (block.type === 'tool_use') {
               toolUseIdToName.set(block.id, block.name)
               yield {
@@ -558,7 +678,6 @@ export class ClaudeCodeProvider implements AgentProvider {
             }
           }
         } else if (msg.type === 'user') {
-          // Tool results come back as user messages with tool_result blocks
           const content = Array.isArray(msg.message?.content) ? msg.message.content : []
           for (const block of content) {
             if ((block as Record<string, unknown>).type === 'tool_result') {
@@ -578,46 +697,15 @@ export class ClaudeCodeProvider implements AgentProvider {
             }
           }
         } else if (msg.type === 'result') {
-          sessionId = msg.sessionId
+          sessionId = msg.session_id
 
-          // Extract SDK usage metrics
-          const msgAny = msg as Record<string, unknown>
-          const usage = msgAny.usage as Record<string, number> | undefined
-          if (usage) {
-            resultMetrics.inputTokens = usage.input_tokens
-            resultMetrics.outputTokens = usage.output_tokens
-            resultMetrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
-
-            // Log cache effectiveness
-            if (usage.cache_read_input_tokens || usage.cache_creation_input_tokens) {
-              const cacheStats = calculateCacheStats(usage)
-              console.log(
-                `[claude-code] Cache stats: ${cacheStats.totalInputTokens} tokens, ` +
-                `${(cacheStats.cacheHitRate * 100).toFixed(1)}% hit rate, ` +
-                `~${cacheStats.estimatedSavings.toFixed(0)}% cost savings`
-              )
-            }
-          }
-          if (typeof msgAny.total_cost_usd === 'number') {
-            resultMetrics.estimatedCostUsd = msgAny.total_cost_usd
-          }
-          if (typeof msgAny.num_turns === 'number') {
-            resultMetrics.turnsUsed = msgAny.num_turns
-          }
-          if (typeof msgAny.duration_ms === 'number') {
-            resultMetrics.durationMs = msgAny.duration_ms
-          }
+          resultMetrics = this.extractResultMetrics(msg as unknown as Record<string, unknown>)
 
           if (msg.subtype === 'success') {
             status = 'success'
 
-            // Check for structured output
             if (msg.structured_output) {
-              structuredOutput = {
-                type: 'structured',
-                data: msg.structured_output,
-              }
-
+              structuredOutput = { type: 'structured', data: msg.structured_output }
               yield {
                 type: 'structured_output',
                 taskId: task.taskId,
@@ -627,11 +715,7 @@ export class ClaudeCodeProvider implements AgentProvider {
             } else if (msg.result) {
               try {
                 const parsed = JSON.parse(typeof msg.result === 'string' ? msg.result : JSON.stringify(msg.result))
-                structuredOutput = {
-                  type: 'json',
-                  data: parsed,
-                }
-
+                structuredOutput = { type: 'json', data: parsed }
                 yield {
                   type: 'structured_output',
                   taskId: task.taskId,
@@ -643,8 +727,6 @@ export class ClaudeCodeProvider implements AgentProvider {
               }
             }
           } else {
-            // Handle all non-success result subtypes:
-            // 'error', 'error_max_turns', 'error_max_budget_usd', 'error_max_structured_output_retries', etc.
             status = 'error'
 
             const subtypeMessages: Record<string, string> = {
@@ -654,7 +736,7 @@ export class ClaudeCodeProvider implements AgentProvider {
               error_max_structured_output_retries: 'The AI failed to produce valid structured output after multiple attempts. Try simplifying the request.',
             }
 
-            const msgAnyErr = msg as Record<string, unknown>
+            const msgAnyErr = msg as unknown as Record<string, unknown>
             const errorDetail = subtypeMessages[msg.subtype]
               || (typeof msgAnyErr.error === 'string' ? msgAnyErr.error : null)
               || `Task ended with non-success status: ${msg.subtype}`
@@ -695,25 +777,16 @@ export class ClaudeCodeProvider implements AgentProvider {
         completedAt: new Date(),
       }
 
-      yield {
-        type: 'result',
-        taskId: task.taskId,
-        result,
-        timestamp: new Date(),
-      }
+      yield { type: 'result', taskId: task.taskId, result, timestamp: new Date() }
 
+      await logger.finalize(result)
       return result
     } catch (error) {
       const durationMs = Date.now() - startTime
       const isAbort = error instanceof Error && error.name === 'AbortError'
 
       if (isAbort) {
-        yield {
-          type: 'aborted',
-          taskId: task.taskId,
-          reason: 'User cancelled',
-          timestamp: new Date(),
-        }
+        yield { type: 'aborted', taskId: task.taskId, reason: 'User cancelled', timestamp: new Date() }
       } else {
         yield {
           type: 'error',
@@ -728,24 +801,23 @@ export class ClaudeCodeProvider implements AgentProvider {
         taskId: task.taskId,
         status: isAbort ? 'cancelled' : 'error',
         errorMessage: errorMessage(error),
-        metrics: {
-          durationMs,
-          model: task.model ?? this.defaultModel,
-        },
+        metrics: { durationMs, model: task.model ?? this.defaultModel },
         providerId: this.id,
         completedAt: new Date(),
       }
 
+      await logger.finalize(result)
       return result
     } finally {
       activeTasks.delete(task.taskId)
-      // Preserve session context for post-execution steering (resume)
       const existing = activeQueries.get(task.taskId)
-      if (existing) {
-        existing.query = null
-      }
+      if (existing) existing.query = null
     }
   }
+
+  // -----------------------------------------------------------------------
+  // cancel()
+  // -----------------------------------------------------------------------
 
   /**
    * Cancel a running task.
@@ -760,56 +832,44 @@ export class ClaudeCodeProvider implements AgentProvider {
     return false
   }
 
+  // -----------------------------------------------------------------------
+  // prepareContext()
+  // -----------------------------------------------------------------------
+
   /**
    * Build the context injection for Claude Code.
-   * Claude Code uses system prompts with prompt caching for efficiency.
    *
-   * Cache strategy:
-   * - Repo context (1h): Stable across all tasks in a project
-   * - Vision doc (1h): Stable per project
-   * - Dependency context (5m): Shared by downstream tasks
+   * Note: With settingSources enabled, the SDK loads CLAUDE.md automatically.
+   * This method now only builds the Astro-specific append content
+   * (vision doc, dependency context, working directory).
    */
   async prepareContext(context: TaskContext): Promise<PreparedContext> {
-    // For worktrees, read repo context from SOURCE repo (not worktree)
-    // This enables cache hits across all worktrees from the same repo
-    let repoContext
-    if (context.workingDirectory) {
-      const sourceRepoPath = await extractSourceRepoPath(context.workingDirectory)
-      repoContext = readRepoContext(sourceRepoPath)
-
-      // Log if we're using a worktree (different from source)
-      if (sourceRepoPath !== context.workingDirectory) {
-        console.log(
-          `[claude-code] Using repo context from source: ${sourceRepoPath} (worktree: ${context.workingDirectory})`
-        )
-      }
-    }
-
-    // Build cached system prompt blocks
-    const systemBlocks = buildCachedSystemPrompt({
+    const appendContent = buildAppendContent({
       baseInstructions: context.environment
         ? `## Execution Environment\n${context.environment}`
         : undefined,
-      repoContext,
       visionDoc: context.visionDoc,
       dependencyContext: context.dependencyContext,
       workingDirectory: context.workingDirectory,
     })
 
-    if (systemBlocks.length === 0) {
+    if (!appendContent) {
       return { method: 'system_prompt' }
     }
 
-    // Return as structured blocks (SDK supports array of system blocks)
     return {
       method: 'system_prompt',
-      systemBlocks, // Pass blocks directly for cache_control support
+      promptContent: appendContent,
     }
   }
 }
 
 // Export singleton instance
 export const claudeCodeProvider = new ClaudeCodeProvider()
+
+// ---------------------------------------------------------------------------
+// Steering & resume functions (module-level exports)
+// ---------------------------------------------------------------------------
 
 /**
  * Inject a steering message into a locally-running task's Claude session.
@@ -829,9 +889,6 @@ export async function steerLocalTask(taskId: string, message: string, interrupt 
   if (!active.query) return 'completed'
 
   if (interrupt) {
-    // Fire interrupt without awaiting — interrupt() may block until the
-    // current turn finishes, which can take a long time.  We fire and
-    // forget, then add a small delay for the signal to propagate.
     active.query.interrupt().catch(() => {
       /* agent may be idle between turns */
     })
@@ -879,8 +936,8 @@ export async function* resumeLocalTask(
 
   try {
     // Load MCP config from working directory
-    const { loadMcpConfig } = await import('../mcp-loader.js')
-    let mcpServers: Record<string, unknown> | undefined = loadMcpConfig(workingDirectory)
+    const { loadMcpConfig: loadMcp } = await import('../mcp-loader.js')
+    let mcpServers: Record<string, unknown> | undefined = loadMcp(workingDirectory)
 
     // Add Astro built-in MCP server
     const astroMcpPath = new URL('../mcp/astro-tools-server.ts', import.meta.url).pathname
@@ -898,29 +955,35 @@ export async function* resumeLocalTask(
       },
     }
 
-    const options: Parameters<typeof query>[0]['options'] = {
-      abortController,
-      model: 'claude-sonnet-4-5-20250929',
-      maxTurns: 100,
-      permissionMode: 'bypassPermissions' as const,
-      cwd: workingDirectory,
-      ...(mcpServers ? { mcpServers } : {}),
+    // Build env with .env loading
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      ...loadDotEnv(workingDirectory),
+      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
     }
 
-    // Resume from previous session
-    ;(options as Record<string, unknown>).resume = sessionId
+    const options: Options = {
+      abortController,
+      model: 'claude-sonnet-4-5-20250929',
+      fallbackModel: 'sonnet',
+      maxTurns: 100,
+      permissionMode: 'bypassPermissions' as const,
+      settingSources: ['user' as const, 'project' as const, 'local' as const],
+      systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const },
+      cwd: workingDirectory,
+      env,
+      resume: sessionId,
+      ...(mcpServers ? { mcpServers } : {}),
+    }
 
     const gen = query({ prompt: message, options })
 
     let newSessionId = sessionId
-
-    // Map toolUseId → toolName for correlating tool_use → tool_result
     const toolUseIdToName = new Map<string, string>()
 
     for await (const msg of gen) {
       if (msg.type === 'system' && msg.subtype === 'init') {
-        newSessionId = msg.sessionId
-        // Update activeQueries with the new live query
+        newSessionId = msg.session_id
         activeQueries.set(taskId, {
           query: gen,
           sessionId: newSessionId,
@@ -963,15 +1026,33 @@ export async function* resumeLocalTask(
           }
         }
       } else if (msg.type === 'result') {
-        newSessionId = msg.sessionId
+        newSessionId = msg.session_id
 
-        const msgAny = msg as Record<string, unknown>
-        const usage = msgAny.usage as Record<string, number> | undefined
+        const msgAny = msg as unknown as Record<string, unknown>
+        // Use same extraction logic as ClaudeCodeProvider.extractResultMetrics
         const metrics: Partial<TaskMetrics> = {}
-        if (usage) {
-          metrics.inputTokens = usage.input_tokens
-          metrics.outputTokens = usage.output_tokens
-          metrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
+        const modelUsage = msgAny.modelUsage as Record<string, {
+          inputTokens?: number; outputTokens?: number
+          cacheReadInputTokens?: number; cacheCreationInputTokens?: number
+        }> | undefined
+        if (modelUsage) {
+          let totalIn = 0, totalOut = 0, totalCacheRead = 0, totalCacheCreate = 0
+          for (const mu of Object.values(modelUsage)) {
+            totalIn += mu.inputTokens ?? 0
+            totalOut += mu.outputTokens ?? 0
+            totalCacheRead += mu.cacheReadInputTokens ?? 0
+            totalCacheCreate += mu.cacheCreationInputTokens ?? 0
+          }
+          metrics.inputTokens = totalIn + totalCacheRead + totalCacheCreate
+          metrics.outputTokens = totalOut
+          metrics.tokensUsed = metrics.inputTokens + metrics.outputTokens
+        } else {
+          const usage = msgAny.usage as Record<string, number> | undefined
+          if (usage) {
+            metrics.inputTokens = usage.input_tokens
+            metrics.outputTokens = usage.output_tokens
+            metrics.tokensUsed = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
+          }
         }
         if (typeof msgAny.total_cost_usd === 'number') {
           metrics.estimatedCostUsd = msgAny.total_cost_usd
@@ -1029,11 +1110,8 @@ export async function* resumeLocalTask(
     }
   } finally {
     activeTasks.delete(taskId)
-    // Preserve session context for subsequent resumes
     const existing = activeQueries.get(taskId)
-    if (existing) {
-      existing.query = null
-    }
+    if (existing) existing.query = null
   }
 }
 

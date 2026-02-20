@@ -472,6 +472,7 @@ The user can review your reasoning in the task output and provide guidance if th
           projectId,
           visionDoc,
           workingDirectory: effectiveWorkDir,
+          approvalCallback: dispatchEngine.requestDynamicApproval.bind(dispatchEngine),
         },
         abortController,
       }
@@ -640,6 +641,7 @@ The user can review your reasoning in the task output and provide guidance if th
               projectId,
               visionDoc,
               workingDirectory: effectiveWorkDir,
+              approvalCallback: dispatchEngine.requestDynamicApproval.bind(dispatchEngine),
               ...(sub.disallowAllTools ? { allowedTools: [] } : {}),
               ...(sub.disallowedTools ? { disallowedTools: sub.disallowedTools } : {}),
             },

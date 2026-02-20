@@ -78,6 +78,8 @@ export interface ProviderCapabilities {
   availableModels: string[]
   /** Default model to use */
   defaultModel: string
+  /** Fallback model if primary is unavailable */
+  fallbackModel?: string
   /** How context should be injected */
   contextInjectionMethod: ContextInjectionMethod
   /** Whether provider supports session resumption */
@@ -123,6 +125,12 @@ export interface TaskContext {
   allowedTools?: string[]
   /** Disallowed tools (Cyrus-style tool control) */
   disallowedTools?: string[]
+  /** Callback for dynamic approval (AskUserQuestion via canUseTool) */
+  approvalCallback?: (executionId: string, question: string, options: string[]) => Promise<string>
+  /** SDK hooks for event handling */
+  hooks?: unknown
+  /** Extra CLI arguments to pass to the provider */
+  extraArgs?: Record<string, string | null>
 }
 
 /**
