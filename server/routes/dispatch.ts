@@ -504,6 +504,11 @@ The user can review your reasoning in the task output and provide guidance if th
                 event: 'session_init',
                 data: JSON.stringify({ sessionId: event.sessionId, model: event.model }),
               })
+              executionEventBus.emit('task:session_init', {
+                taskId: executionId,
+                sessionId: event.sessionId,
+                model: event.model,
+              })
               break
             case 'text':
               subroutineOutput += event.text
@@ -515,10 +520,10 @@ The user can review your reasoning in the task output and provide guidance if th
             case 'tool_use':
               await stream.writeSSE({
                 event: 'tool_use',
-                data: JSON.stringify({ toolName: event.toolName, toolInput: event.toolInput }),
+                data: JSON.stringify({ toolName: event.toolName, toolInput: event.toolInput, toolUseId: event.toolUseId }),
               })
               executionEventBus.emit('task:tool_trace', {
-                taskId: executionId, toolName: event.toolName, toolInput: event.toolInput,
+                taskId: executionId, toolName: event.toolName, toolInput: event.toolInput, toolUseId: event.toolUseId,
               })
               break
             case 'tool_result':
@@ -528,6 +533,7 @@ The user can review your reasoning in the task output and provide guidance if th
                   toolName: event.toolName,
                   success: event.success,
                   result: typeof event.result === 'string' ? event.result.slice(0, 100000) : event.result,
+                  toolUseId: event.toolUseId,
                 }),
               })
               executionEventBus.emit('task:tool_trace', {
@@ -535,6 +541,7 @@ The user can review your reasoning in the task output and provide guidance if th
                 toolName: event.toolName,
                 toolResult: typeof event.result === 'string' ? event.result.slice(0, 100000) : event.result,
                 success: event.success,
+                toolUseId: event.toolUseId,
               })
               break
             case 'file_change':

@@ -43,6 +43,9 @@ import { prCreationHook } from './lib/events/hooks/pr-creation-hook.js'
 import { gitPullHook } from './lib/events/hooks/git-pull-hook.js'
 import { channelNotificationHook } from './lib/events/hooks/channel-notification-hook.js'
 import { loadAndActivateChannelPlugins } from './lib/plugin-loader.js'
+import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
+import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
+import { observationsRoute } from './routes/observations.js'
 
 // Validate environment variables on startup
 try {
@@ -157,6 +160,7 @@ app.route('/api/system', systemRoute)
 app.route('/api/skills', skillsRoute)
 app.route('/api/share', shareRoute)
 app.route('/api/connected-accounts', connectedAccountsRoute)
+app.route('/api/observations', observationsRoute)
 
 // Landing page route
 const __filename = fileURLToPath(import.meta.url)
@@ -247,7 +251,12 @@ async function start() {
     astroEventTransport.registerHook('pr-creation', prCreationHook)
     astroEventTransport.registerHook('git-pull', gitPullHook)
     astroEventTransport.registerHook('channel-notification', channelNotificationHook)
-    console.log('[event-transport] Registered 6 hooks:', astroEventTransport.listHooks().join(', '))
+    astroEventTransport.registerHook('observability', observabilityHook)
+    observationCollector.start()
+    if (langfuseExportHook) {
+      astroEventTransport.registerHook('langfuse-export', langfuseExportHook)
+    }
+    console.log('[event-transport] Registered hooks:', astroEventTransport.listHooks().join(', '))
   } else {
     console.log('[event-transport] Test mode detected - hooks disabled')
     astroEventTransport.setEnabled(false)
@@ -421,6 +430,7 @@ async function shutdown(signal: string) {
 
   try {
     stopCleanupScheduler()
+    await observationCollector.stop()
     dispatchEngine.stop()
     httpServer?.close()
     await relayServer.stop()

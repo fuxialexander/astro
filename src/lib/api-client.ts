@@ -287,3 +287,40 @@ export async function dispatchTask(
     onDone: callbacks.onDone,
   })
 }
+
+// ============================================================================
+// Observations API
+// ============================================================================
+
+import type { RawObservation, TraceStats } from "@/types/observations"
+
+export async function fetchTraceObservations(traceId: string): Promise<RawObservation[]> {
+  const response = await fetch(apiUrl(`/api/observations/${traceId}`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to fetch observations: ${response.status}`)
+  }
+  const json = await response.json()
+  return json.data
+}
+
+export async function fetchTraceStats(traceId: string): Promise<TraceStats> {
+  const response = await fetch(apiUrl(`/api/observations/stats?executionId=${traceId}`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to fetch trace stats: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchTraceSummary(traceId: string): Promise<string> {
+  const response = await fetch(apiUrl(`/api/observations/${traceId}/summary`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to fetch trace summary: ${response.status}`)
+  }
+  return response.text()
+}

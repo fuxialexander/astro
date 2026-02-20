@@ -514,6 +514,9 @@ export class ClaudeCodeProvider implements AgentProvider {
       let status: TaskStatus = 'success'
       const resultMetrics: Partial<TaskMetrics> = {}
 
+      // Map toolUseId → toolName for correlating tool_use → tool_result
+      const toolUseIdToName = new Map<string, string>()
+
       for await (const msg of gen) {
         if (msg.type === 'system' && msg.subtype === 'init') {
           model = msg.model
@@ -543,11 +546,13 @@ export class ClaudeCodeProvider implements AgentProvider {
                 timestamp: new Date(),
               }
             } else if (block.type === 'tool_use') {
+              toolUseIdToName.set(block.id, block.name)
               yield {
                 type: 'tool_use',
                 taskId: task.taskId,
                 toolName: block.name,
                 toolInput: block.input,
+                toolUseId: block.id,
                 timestamp: new Date(),
               }
             }
@@ -558,14 +563,16 @@ export class ClaudeCodeProvider implements AgentProvider {
           for (const block of content) {
             if ((block as Record<string, unknown>).type === 'tool_result') {
               const toolResult = block as Record<string, unknown>
+              const tuId = toolResult.tool_use_id as string
               yield {
                 type: 'tool_result',
                 taskId: task.taskId,
-                toolName: (toolResult.tool_use_id as string) ?? 'unknown',
+                toolName: toolUseIdToName.get(tuId) ?? 'unknown',
                 success: !toolResult.is_error,
                 result: typeof toolResult.content === 'string'
                   ? toolResult.content.slice(0, 100000)
                   : JSON.stringify(toolResult.content).slice(0, 100000),
+                toolUseId: tuId,
                 timestamp: new Date(),
               }
             }
@@ -907,6 +914,9 @@ export async function* resumeLocalTask(
 
     let newSessionId = sessionId
 
+    // Map toolUseId → toolName for correlating tool_use → tool_result
+    const toolUseIdToName = new Map<string, string>()
+
     for await (const msg of gen) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         newSessionId = msg.sessionId
@@ -929,7 +939,8 @@ export async function* resumeLocalTask(
           if (block.type === 'text') {
             yield { type: 'text', taskId, text: block.text, timestamp: new Date() }
           } else if (block.type === 'tool_use') {
-            yield { type: 'tool_use', taskId, toolName: block.name, toolInput: block.input, timestamp: new Date() }
+            toolUseIdToName.set(block.id, block.name)
+            yield { type: 'tool_use', taskId, toolName: block.name, toolInput: block.input, toolUseId: block.id, timestamp: new Date() }
           }
         }
       } else if (msg.type === 'user') {
@@ -937,14 +948,16 @@ export async function* resumeLocalTask(
         for (const block of content) {
           if ((block as Record<string, unknown>).type === 'tool_result') {
             const toolResult = block as Record<string, unknown>
+            const tuId = toolResult.tool_use_id as string
             yield {
               type: 'tool_result',
               taskId,
-              toolName: (toolResult.tool_use_id as string) ?? 'unknown',
+              toolName: toolUseIdToName.get(tuId) ?? 'unknown',
               success: !toolResult.is_error,
               result: typeof toolResult.content === 'string'
                 ? toolResult.content.slice(0, 100000)
                 : JSON.stringify(toolResult.content).slice(0, 100000),
+              toolUseId: tuId,
               timestamp: new Date(),
             }
           }
