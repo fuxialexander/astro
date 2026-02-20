@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate } from "react-router"
-import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search } from "lucide-react"
+import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search, ListTodo, GitBranch, ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useProjectStore } from "@/stores/project-store"
+import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
@@ -20,6 +21,7 @@ import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { GitInitDialog } from "@/components/git-init-dialog"
 import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
+import { cn } from "@/lib/utils"
 
 const environmentConfig = {
   local: { icon: Laptop, label: "Local", description: "Run on this machine" },
@@ -29,9 +31,12 @@ const environmentConfig = {
 }
 
 type EnvironmentType = keyof typeof environmentConfig
+type CreateMode = "choose" | "empty" | "repo"
 
 export function ProjectNew() {
+  const [mode, setMode] = useState<CreateMode>("choose")
   const [description, setDescription] = useState("")
+  const [firstTask, setFirstTask] = useState("")
   const [repoUrl, setRepoUrl] = useState("")
   const [workingDir, setWorkingDir] = useState("")
   const [showRepoInput, setShowRepoInput] = useState(false)
@@ -43,6 +48,7 @@ export function ProjectNew() {
   const [searchQuery, setSearchQuery] = useState("")
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
+  const addNode = usePlanStore((s) => s.addNode)
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
@@ -187,108 +193,450 @@ export function ProjectNew() {
     }
   }
 
+  // Create empty project without AI - just set up working directory and navigate to task list
+  async function handleCreateEmpty() {
+    if (!description.trim() || isSubmitting) return
+    setIsSubmitting(true)
+    setRepoSetupError(null)
+    const id = crypto.randomUUID()
+    const projectName = description.slice(0, 50).trim() || "New Project"
+
+    try {
+      // Call repo setup on the machine (creates working directory)
+      const repoResult = await setupRepo({
+        projectId: id,
+        projectName,
+        projectDescription: description.trim(),
+        workingDirectory: workingDir.trim() || undefined,
+        targetMachineId: selectedMachine?.machineId || undefined,
+      })
+
+      // Create project with resolved working directory from backend
+      addProject({
+        id,
+        name: projectName,
+        description: description.trim(),
+        visionDoc: "",
+        status: "active",
+        color: getRandomColor(),
+        icon: getRandomProjectIcon(),
+        workingDirectory: repoResult?.workingDirectory || workingDir.trim() || undefined,
+        defaultEnvironment: isRemote ? selectedEnvironment : undefined,
+        defaultMachineId: selectedMachine?.machineId || undefined,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      setIsSubmitting(false)
+      navigate(`/project/${id}/list`)
+    } catch (error) {
+      console.error('[project-new] Repo setup failed:', error)
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      setRepoSetupError(errorMsg)
+      setIsSubmitting(false)
+    }
+  }
+
+  // Create project with repo and add first task manually (skip AI)
+  async function handleCreateWithFirstTask() {
+    if (!description.trim() || !firstTask.trim() || isSubmitting) return
+    setIsSubmitting(true)
+    setRepoSetupError(null)
+    const id = crypto.randomUUID()
+    const projectName = repoUrl.trim()
+      ? repoUrl.split("/").pop()?.replace(".git", "") || "New Project"
+      : description.slice(0, 50).trim() || "New Project"
+
+    try {
+      // Call repo setup to clone on the machine
+      const repoResult = await setupRepo({
+        projectId: id,
+        projectName,
+        projectDescription: description.trim(),
+        workingDirectory: workingDir.trim() || undefined,
+        repository: repoUrl.trim() || undefined,
+        targetMachineId: selectedMachine?.machineId || undefined,
+      })
+
+      // Create project with resolved working directory from backend
+      addProject({
+        id,
+        name: projectName,
+        description: description.trim(),
+        visionDoc: "",
+        status: "active",
+        color: getRandomColor(),
+        icon: getRandomProjectIcon(),
+        workingDirectory: repoResult?.workingDirectory || workingDir.trim() || undefined,
+        repository: repoUrl.trim() || undefined,
+        defaultEnvironment: isRemote ? selectedEnvironment : undefined,
+        defaultMachineId: selectedMachine?.machineId || undefined,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      // Add first task node with due date set to today
+      const taskId = crypto.randomUUID()
+      const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+      addNode({
+        id: taskId,
+        projectId: id,
+        type: "task",
+        title: firstTask.trim(),
+        description: "",
+        status: "planned",
+        parentId: null,
+        dependencies: [],
+        verification: "auto",
+        position: { x: 0, y: 0 },
+        priority: "medium",
+        dueDate: today,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      setIsSubmitting(false)
+      navigate(`/project/${id}/list`)
+    } catch (error) {
+      console.error('[project-new] Repo setup failed:', error)
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      setRepoSetupError(errorMsg)
+      setIsSubmitting(false)
+    }
+  }
+
+  // Reset mode and clear form
+  function handleBack() {
+    setMode("choose")
+    setRepoUrl("")
+    setWorkingDir("")
+    setFirstTask("")
+    setShowRepoInput(false)
+    setShowGitHubRepos(false)
+    setShowDirInput(false)
+    setSearchQuery("")
+    setRepoSetupError(null)
+  }
+
   const EnvironmentIcon = environmentConfig[selectedEnvironment].icon
+
+  // Shared environment selector component
+  const EnvironmentSelector = () => (
+    <div className="flex flex-col gap-3">
+      <span className="text-[13px] font-medium text-muted-foreground">Environment</span>
+      <div className="flex items-center gap-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+              <EnvironmentIcon className="h-4 w-4" />
+              {environmentConfig[selectedEnvironment].label}
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>Select Environment</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {(Object.keys(environmentConfig) as EnvironmentType[]).map((env) => {
+              const config = environmentConfig[env]
+              const Icon = config.icon
+              const machineCount = getMachinesForEnvironment(env).length
+              return (
+                <DropdownMenuItem
+                  key={env}
+                  onClick={() => {
+                    setSelectedEnvironment(env)
+                    setSelectedMachine(null)
+                  }}
+                  className="gap-2"
+                >
+                  <Icon className="h-4 w-4" />
+                  <div className="flex flex-col">
+                    <span>{config.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {env === "local" ? config.description : `${machineCount} available`}
+                    </span>
+                  </div>
+                  {selectedEnvironment === env && (
+                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                  )}
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Machine selector for non-local environments */}
+        {isRemote && availableMachines.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                <Server className="h-4 w-4" />
+                <span className="max-w-[140px] truncate">
+                  {selectedMachine?.name || "Select machine"}
+                </span>
+                <ChevronDown className="h-3 w-3 opacity-50" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {availableMachines.map((machine) => (
+                <DropdownMenuItem
+                  key={machine.machineId}
+                  onClick={() => setSelectedMachine(machine)}
+                  className="gap-2"
+                >
+                  <Server className="h-4 w-4" />
+                  <div className="flex flex-col">
+                    <span>{machine.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {machine.hostname || machine.machineId}
+                    </span>
+                  </div>
+                  {selectedMachine?.machineId === machine.machineId && (
+                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        {isRemote && availableMachines.length === 0 && machinesLoaded && (
+          <span className="text-xs text-muted-foreground">
+            No {environmentConfig[selectedEnvironment].label.toLowerCase()} machines connected
+          </span>
+        )}
+      </div>
+    </div>
+  )
+
+  // Error alert component
+  const ErrorAlert = () => repoSetupError ? (
+    <div className="flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+      <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+      <div className="flex flex-col gap-1 flex-1">
+        <p className="text-sm font-medium text-destructive">Repository Setup Failed</p>
+        <p className="text-sm text-destructive/90">{repoSetupError}</p>
+      </div>
+      <button
+        onClick={() => setRepoSetupError(null)}
+        className="p-1 rounded-md hover:bg-destructive/20 transition-colors"
+      >
+        <X className="h-4 w-4 text-destructive" />
+      </button>
+    </div>
+  ) : null
 
   return (
     <div className="flex h-full items-center justify-center bg-background">
       <div className="flex w-[640px] flex-col items-center gap-8">
         {/* Icon */}
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary">
-          <Sparkles className="h-7 w-7 text-primary-foreground" />
+          {mode === "choose" ? (
+            <Sparkles className="h-7 w-7 text-primary-foreground" />
+          ) : mode === "empty" ? (
+            <ListTodo className="h-7 w-7 text-primary-foreground" />
+          ) : (
+            <GitBranch className="h-7 w-7 text-primary-foreground" />
+          )}
         </div>
 
-        {/* Heading */}
-        <div className="flex flex-col items-center gap-3">
-          <h1 className="text-3xl font-bold">Create a new project</h1>
-          <p className="max-w-[480px] text-center text-[15px] leading-relaxed text-muted-foreground">
-            Describe what you want to work on. Add a repo to get AI-generated plan suggestions.
-          </p>
-        </div>
-
-        {/* Input area */}
-        <div className="flex w-full flex-col gap-4">
-          <div className="relative">
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="I'm building a personal finance app with AI-powered budgeting, transaction categorization, and savings goals tracking..."
-              className="h-[140px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            {/* Voice input button */}
-            <div className="absolute right-3 top-3">
-              <VoiceInputButton
-                isRecording={isRecording}
-                isTranscribing={isTranscribing}
-                isAvailable={isAvailable}
-                duration={duration}
-                onClick={toggleRecording}
-                disabled={isSubmitting}
-              />
+        {/* Mode: Choose */}
+        {mode === "choose" && (
+          <>
+            <div className="flex flex-col items-center gap-3">
+              <h1 className="text-3xl font-bold">Create a new project</h1>
+              <p className="max-w-[480px] text-center text-[15px] leading-relaxed text-muted-foreground">
+                Choose how you want to start your project.
+              </p>
             </div>
-            {/* Recording indicator */}
-            {isRecording && (
-              <div className="absolute right-3 bottom-3 flex items-center gap-2 text-xs text-red-500">
-                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                Recording... {Math.floor(duration / 60)}:{(duration % 60).toString().padStart(2, '0')}
-              </div>
-            )}
-            {isTranscribing && (
-              <div className="absolute right-3 bottom-3 flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Transcribing...
-              </div>
-            )}
-          </div>
 
-          {/* Repo setup error alert */}
-          {repoSetupError && (
-            <div className="flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-              <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-              <div className="flex flex-col gap-1 flex-1">
-                <p className="text-sm font-medium text-destructive">Repository Setup Failed</p>
-                <p className="text-sm text-destructive/90">{repoSetupError}</p>
-              </div>
+            {/* Option cards */}
+            <div className="flex w-full flex-col gap-4">
               <button
-                onClick={() => setRepoSetupError(null)}
-                className="p-1 rounded-md hover:bg-destructive/20 transition-colors"
+                onClick={() => setMode("empty")}
+                className={cn(
+                  "flex flex-col gap-3 rounded-2xl border p-6 text-left transition-all cursor-pointer",
+                  "border-primary bg-primary/[0.03] hover:bg-primary/[0.05] shadow-[0_2px_8px_rgba(87,73,244,0.12)]"
+                )}
               >
-                <X className="h-4 w-4 text-destructive" />
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                    <ListTodo className="h-5 w-5 text-primary" />
+                  </div>
+                  <span className="text-base font-semibold text-foreground">Start with empty project</span>
+                </div>
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  Set up a new working directory and start adding tasks manually. Best for when you want full control.
+                </p>
+              </button>
+
+              <button
+                onClick={() => setMode("repo")}
+                className={cn(
+                  "flex flex-col gap-3 rounded-2xl border p-6 text-left transition-all cursor-pointer",
+                  "border-border bg-card hover:border-foreground/20"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
+                    <GitBranch className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <span className="text-base font-semibold text-foreground">Start with a repo</span>
+                </div>
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  Link an existing repository. Add tasks manually or use AI to generate a plan based on the codebase.
+                </p>
               </button>
             </div>
-          )}
+          </>
+        )}
 
-          {/* Optional context */}
-          <div className="flex flex-col gap-3">
-            <span className="text-[13px] font-medium text-muted-foreground">Optional context</span>
-            <div className="flex flex-col gap-2.5">
-              <div className="flex gap-2.5">
-                <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-                  <Upload className="h-4 w-4" />
-                  Upload docs
-                </button>
+        {/* Mode: Empty project */}
+        {mode === "empty" && (
+          <>
+            <div className="flex flex-col items-center gap-3">
+              <h1 className="text-3xl font-bold">Create empty project</h1>
+              <p className="max-w-[480px] text-center text-[15px] leading-relaxed text-muted-foreground">
+                Describe your project and start adding tasks manually.
+              </p>
+            </div>
+
+            <div className="flex w-full flex-col gap-4">
+              {/* Project description */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Project description</label>
+                <div className="relative">
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="What are you building? e.g., A personal finance app with budgeting and transaction tracking..."
+                    className="h-[120px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    autoFocus
+                  />
+                  <div className="absolute right-3 top-3">
+                    <VoiceInputButton
+                      isRecording={isRecording}
+                      isTranscribing={isTranscribing}
+                      isAvailable={isAvailable}
+                      duration={duration}
+                      onClick={toggleRecording}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Optional working directory */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">
+                  Working directory <span className="text-muted-foreground font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={workingDir}
+                  onChange={(e) => setWorkingDir(e.target.value)}
+                  placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project (leave empty for default)"}
+                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Leave empty to create a new project directory automatically
+                </p>
+              </div>
+
+              <ErrorAlert />
+              <EnvironmentSelector />
+            </div>
+
+            {/* Actions */}
+            <div className="flex w-full flex-col gap-3">
+              <Button
+                onClick={handleCreateEmpty}
+                disabled={!description.trim() || isSubmitting}
+                className="h-12 w-full rounded-xl text-base font-semibold"
+              >
+                {isSubmitting ? (
+                  <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                ) : (
+                  <ListTodo className="h-[18px] w-[18px]" />
+                )}
+                {isSubmitting ? "Creating..." : "Create Project"}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={handleBack}
+                disabled={isSubmitting}
+                className="h-10 w-full rounded-xl"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+            </div>
+          </>
+        )}
+
+        {/* Mode: Repo project */}
+        {mode === "repo" && (
+          <>
+            <div className="flex flex-col items-center gap-3">
+              <h1 className="text-3xl font-bold">Start with a repo</h1>
+              <p className="max-w-[480px] text-center text-[15px] leading-relaxed text-muted-foreground">
+                Link a repository and choose how to create your project.
+              </p>
+            </div>
+
+            <div className="flex w-full flex-col gap-4">
+              {/* Project description */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Project description</label>
+                <div className="relative">
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="What are you building? e.g., A personal finance app with budgeting and transaction tracking..."
+                    className="h-[100px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    autoFocus
+                  />
+                  <div className="absolute right-3 top-3">
+                    <VoiceInputButton
+                      isRecording={isRecording}
+                      isTranscribing={isTranscribing}
+                      isAvailable={isAvailable}
+                      duration={duration}
+                      onClick={toggleRecording}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Repository URL */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Repository URL</label>
                 {showGitHubRepos ? (
-                  <div className="flex-1 flex flex-col gap-2">
+                  <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <div className="relative flex-1">
-                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                         <input
                           type="text"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder="Search repositories..."
-                          className="w-full rounded-lg border border-border bg-card pl-8 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                          className="w-full rounded-lg border border-border bg-card pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                         />
                       </div>
                       <button
                         onClick={() => { setShowGitHubRepos(false); setSearchQuery("") }}
-                        className="p-1.5 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                        className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
                       >
                         <X className="h-4 w-4 text-muted-foreground" />
                       </button>
                     </div>
-                    <div className="max-h-48 overflow-y-auto rounded-lg border border-border">
+                    <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-background">
                       {filteredRepos.length === 0 ? (
-                        <div className="p-3 text-center text-sm text-muted-foreground">
+                        <div className="p-4 text-center text-sm text-muted-foreground">
                           {searchQuery ? "No repositories found" : "No repositories available"}
                         </div>
                       ) : (
@@ -298,17 +646,17 @@ export function ProjectNew() {
                             onClick={() => {
                               setRepoUrl(repo.htmlUrl)
                               setShowGitHubRepos(false)
+                              setSearchQuery("")
                               setShowRepoInput(true)
                             }}
                             className="w-full p-3 text-left hover:bg-muted/50 border-b last:border-b-0 transition-colors"
                           >
-                            <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-start gap-2">
+                              <Github className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
                               <div className="flex-1 min-w-0">
-                                <div className="font-medium text-sm truncate">
-                                  {repo.fullName}
-                                </div>
+                                <div className="font-medium text-sm truncate">{repo.fullName}</div>
                                 {repo.description && (
-                                  <div className="text-xs text-muted-foreground line-clamp-1">
+                                  <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
                                     {repo.description}
                                   </div>
                                 )}
@@ -320,18 +668,17 @@ export function ProjectNew() {
                     </div>
                   </div>
                 ) : showRepoInput ? (
-                  <div className="flex items-center gap-2 flex-1">
+                  <div className="flex items-center gap-2">
                     <input
                       type="text"
                       value={repoUrl}
                       onChange={(e) => setRepoUrl(e.target.value)}
-                      placeholder="https://github.com/user/repo.git"
-                      className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                      autoFocus
+                      placeholder="https://github.com/user/repo"
+                      className="flex-1 h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
                     />
                     <button
-                      onClick={() => { setShowRepoInput(false); setRepoUrl("") }}
-                      className="p-1.5 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                      onClick={() => { setRepoUrl(""); setShowRepoInput(false) }}
+                      className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
                     >
                       <X className="h-4 w-4 text-muted-foreground" />
                     </button>
@@ -341,165 +688,79 @@ export function ProjectNew() {
                     {connected && (
                       <button
                         onClick={() => setShowGitHubRepos(true)}
-                        className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
+                        className="flex-1 h-10 flex items-center justify-center gap-2 rounded-lg border border-border bg-card text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
                       >
                         <Github className="h-4 w-4" />
-                        Browse repos
+                        Browse GitHub repos
                       </button>
                     )}
                     <button
                       onClick={() => setShowRepoInput(true)}
-                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
+                      className="flex-1 h-10 flex items-center justify-center gap-2 rounded-lg border border-border bg-card text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
                     >
-                      <LinkIcon className="h-4 w-4" />
-                      {connected ? "Manual URL" : "Link repo"}
+                      <GitBranch className="h-4 w-4" />
+                      {connected ? "Manual URL" : "Enter URL"}
                     </button>
                   </div>
-                )}
-                {showDirInput ? (
-                  <div className="flex items-center gap-2 flex-1">
-                    <input
-                      type="text"
-                      value={workingDir}
-                      onChange={(e) => setWorkingDir(e.target.value)}
-                      placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project"}
-                      className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                      autoFocus
-                    />
-                    <button
-                      onClick={() => { setShowDirInput(false); setWorkingDir("") }}
-                      className="p-1.5 rounded-md hover:bg-muted transition-colors cursor-pointer"
-                    >
-                      <X className="h-4 w-4 text-muted-foreground" />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setShowDirInput(true)}
-                    className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                    {isRemote ? "Remote path" : "Local dir"}
-                  </button>
                 )}
               </div>
-              {showDirInput && !isRemote && (
-                <p className="text-[11px] text-muted-foreground pl-1">
-                  Leave empty to create a new project directory automatically
+
+              {/* First Task */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">
+                  First task <span className="text-muted-foreground font-normal">(optional for AI)</span>
+                </label>
+                <input
+                  type="text"
+                  value={firstTask}
+                  onChange={(e) => setFirstTask(e.target.value)}
+                  placeholder="e.g., Add user authentication, refactor API endpoints, set up CI/CD..."
+                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required if you want to skip AI and add the first task manually
                 </p>
-              )}
-              {showDirInput && isRemote && (
-                <p className="text-[11px] text-muted-foreground pl-1">
-                  Path on the remote machine's filesystem
-                </p>
-              )}
+              </div>
+
+              <ErrorAlert />
+              <EnvironmentSelector />
             </div>
-          </div>
 
-          {/* Environment */}
-          <div className="flex flex-col gap-3">
-            <span className="text-[13px] font-medium text-muted-foreground">Environment</span>
-            <div className="flex items-center gap-3">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-                    <EnvironmentIcon className="h-4 w-4" />
-                    {environmentConfig[selectedEnvironment].label}
-                    <ChevronDown className="h-3 w-3 opacity-50" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuLabel>Select Environment</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {(Object.keys(environmentConfig) as EnvironmentType[]).map((env) => {
-                    const config = environmentConfig[env]
-                    const Icon = config.icon
-                    const machineCount = getMachinesForEnvironment(env).length
-                    return (
-                      <DropdownMenuItem
-                        key={env}
-                        onClick={() => {
-                          setSelectedEnvironment(env)
-                          setSelectedMachine(null)
-                        }}
-                        className="gap-2"
-                      >
-                        <Icon className="h-4 w-4" />
-                        <div className="flex flex-col">
-                          <span>{config.label}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {env === "local" ? config.description : `${machineCount} available`}
-                          </span>
-                        </div>
-                        {selectedEnvironment === env && (
-                          <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                        )}
-                      </DropdownMenuItem>
-                    )
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              {/* Machine selector for non-local environments */}
-              {isRemote && availableMachines.length > 0 && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-                      <Server className="h-4 w-4" />
-                      <span className="max-w-[140px] truncate">
-                        {selectedMachine?.name || "Select machine"}
-                      </span>
-                      <ChevronDown className="h-3 w-3 opacity-50" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {availableMachines.map((machine) => (
-                      <DropdownMenuItem
-                        key={machine.machineId}
-                        onClick={() => setSelectedMachine(machine)}
-                        className="gap-2"
-                      >
-                        <Server className="h-4 w-4" />
-                        <div className="flex flex-col">
-                          <span>{machine.name}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {machine.hostname || machine.machineId}
-                          </span>
-                        </div>
-                        {selectedMachine?.machineId === machine.machineId && (
-                          <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                        )}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-
-              {isRemote && availableMachines.length === 0 && machinesLoaded && (
-                <span className="text-xs text-muted-foreground">
-                  No {environmentConfig[selectedEnvironment].label.toLowerCase()} machines connected
-                </span>
-              )}
+            {/* Actions */}
+            <div className="flex w-full flex-col gap-3">
+              <Button
+                onClick={handleCreateWithFirstTask}
+                disabled={!description.trim() || !firstTask.trim() || isSubmitting}
+                className="h-12 w-full rounded-xl text-base font-semibold"
+              >
+                {isSubmitting ? (
+                  <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                ) : (
+                  <ListTodo className="h-[18px] w-[18px]" />
+                )}
+                {isSubmitting ? "Creating..." : "Create Project & Add First Task"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleGenerate}
+                disabled={!description.trim() || isSubmitting}
+                className="h-12 w-full rounded-xl text-base font-semibold"
+              >
+                <Sparkles className="h-[18px] w-[18px]" />
+                Or Use AI to Generate Plan
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={handleBack}
+                disabled={isSubmitting}
+                className="h-10 w-full rounded-xl"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
             </div>
-          </div>
-
-        </div>
-
-        {/* Generate button */}
-        <Button
-          onClick={handleGenerate}
-          className="h-12 rounded-xl px-8 text-base font-semibold"
-          disabled={!description.trim() || isSubmitting}
-        >
-          {isSubmitting ? (
-            <Loader2 className="h-[18px] w-[18px] animate-spin" />
-          ) : (
-            <Zap className="h-[18px] w-[18px]" />
-          )}
-          {isSubmitting ? "Generating..." : "Generate Plan"}
-        </Button>
+          </>
+        )}
 
         {/* Git init confirmation dialog */}
         <GitInitDialog
