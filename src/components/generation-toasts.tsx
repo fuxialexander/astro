@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { Loader2, GitBranch, CheckCircle2, AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react"
+import { Loader2, CheckCircle2, AlertCircle, X, ChevronDown, ChevronUp, FolderGit2 } from "lucide-react"
 import { useAgentStore, type GenerationSession } from "@/stores/agent-store"
+import { useProjectStore } from "@/stores/project-store"
+import { useMachinesStore } from "@/stores/machines-store"
 import { cn } from "@/lib/utils"
 
 const AUTO_DISMISS_MS = 4000
@@ -12,6 +14,13 @@ function SessionCard({ session }: { session: GenerationSession }) {
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Look up project and machine for richer status during repo_setup
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === session.projectId))
+  const machines = useMachinesStore((s) => s.machines)
+  const machineName = project?.defaultMachineId
+    ? machines.find((m) => m.id === project.defaultMachineId)?.name || "remote machine"
+    : null
 
   // Auto-dismiss completed sessions
   useEffect(() => {
@@ -48,7 +57,7 @@ function SessionCard({ session }: { session: GenerationSession }) {
       <div className="flex items-center gap-2.5 px-3 py-2.5">
         {/* Phase icon */}
         {isActive && session.phase === "repo_setup" && (
-          <GitBranch className="h-4 w-4 shrink-0 animate-pulse text-primary" />
+          <FolderGit2 className="h-4 w-4 shrink-0 animate-pulse text-primary" />
         )}
         {isActive && session.phase !== "repo_setup" && (
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
@@ -69,7 +78,11 @@ function SessionCard({ session }: { session: GenerationSession }) {
             {session.projectName || "Project"}
           </button>
           <p className="text-[11px] text-muted-foreground truncate">
-            {isActive && session.phase === "repo_setup" && "Setting up repo..."}
+            {isActive && session.phase === "repo_setup" && (
+              machineName
+                ? `Setting up working directory on ${machineName}...`
+                : "Setting up working directory..."
+            )}
             {isActive && session.phase === "generating" && "Generating plan..."}
             {session.status === "completed" && "Plan generated"}
             {isError && (session.error || "Generation failed")}

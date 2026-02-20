@@ -13,6 +13,7 @@ import {
   FolderGit2,
   Diamond,
   ExternalLink,
+  Loader2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -27,6 +28,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useMachinesStore } from "@/stores/machines-store"
+import { useAgentStore } from "@/stores/agent-store"
 import { cn } from "@/lib/utils"
 import type { Project, PlanNode } from "@/types"
 
@@ -86,6 +88,10 @@ export function OverviewTab({
   const [editingInitiative, setEditingInitiative] = useState(false)
   const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
   const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
+
+  // Check if repo setup is in progress for this project
+  const generationSession = useAgentStore((s) => s.sessions.get(project.id))
+  const isRepoSetupInProgress = generationSession?.status === "active" && generationSession?.phase === "repo_setup"
 
   // Calculate real progress based on task completion
   const progress = useMemo(() => {
@@ -370,8 +376,22 @@ export function OverviewTab({
                 )}
               </div>
             )}
-            {/* Only show repository warning when NOT configured */}
-            {!(project.workingDirectory || project.repository) && (
+            {/* Show loading state during repo setup */}
+            {!(project.workingDirectory || project.repository) && isRepoSetupInProgress && (
+              <div className="flex items-center gap-3 rounded-lg bg-primary/5 border border-primary/20 p-3 px-4">
+                <Loader2 className="h-[18px] w-[18px] text-primary animate-spin shrink-0" />
+                <div className="flex-1 flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">Setting up working directory...</span>
+                  <span className="text-xs text-muted-foreground">
+                    {project.defaultMachineId
+                      ? `Creating project directory on ${defaultMachine?.name || 'remote machine'}`
+                      : "Creating project directory"}
+                  </span>
+                </div>
+              </div>
+            )}
+            {/* Show repository warning when NOT configured and NOT setting up */}
+            {!(project.workingDirectory || project.repository) && !isRepoSetupInProgress && (
               <div
                 className="flex items-center gap-3 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 px-4 cursor-pointer hover:bg-amber-500/15 transition-colors"
                 onClick={() => setRepoOpen(true)}
