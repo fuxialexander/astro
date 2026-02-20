@@ -94,7 +94,7 @@ app.post('/', async (c) => {
   }
 
   // Determine external_id based on channel type
-  let externalId: string | null = null
+  const externalId: string | null = null
   // For now, external_id is set manually or derived later
 
   const [row] = await db

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { MessageSquare } from "lucide-react"
 import {
   Dialog,
@@ -32,13 +32,16 @@ export function SessionDialog({
   const [title, setTitle] = useState("")
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
-  // Reset state when session changes or dialog opens
-  useEffect(() => {
+  // Reset state during render when session or dialog open state changes
+  const [prevResetKey, setPrevResetKey] = useState(`${session?.id}-${open}`)
+  const resetKey = `${session?.id}-${open}`
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey)
     if (session && open) {
       setTitle(getSessionTitle(session))
       setShowDeleteConfirm(false)
     }
-  }, [session?.id, open])
+  }
 
   const handleSave = () => {
     if (!session || !title.trim()) return

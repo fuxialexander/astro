@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate } from "react-router"
-import { Sparkles, Zap, Upload, Link as LinkIcon, Loader2, X, FolderOpen, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search, ListTodo, GitBranch, ArrowLeft } from "lucide-react"
+import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search, ListTodo, GitBranch, ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {
@@ -41,7 +41,6 @@ export function ProjectNew() {
   const [workingDir, setWorkingDir] = useState("")
   const [showRepoInput, setShowRepoInput] = useState(false)
   const [showGitHubRepos, setShowGitHubRepos] = useState(false)
-  const [showDirInput, setShowDirInput] = useState(false)
   const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
   const [repoSetupError, setRepoSetupError] = useState<string | null>(null)
@@ -313,7 +312,6 @@ export function ProjectNew() {
     setFirstTask("")
     setShowRepoInput(false)
     setShowGitHubRepos(false)
-    setShowDirInput(false)
     setSearchQuery("")
     setRepoSetupError(null)
   }

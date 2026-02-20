@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { loadState, saveState } from '@/lib/db'
 import { apiUrl } from '@/lib/api-url'
-import { getAccessToken, shouldUseSupabase } from '@/lib/supabase-client'
+import { getAccessToken } from '@/lib/supabase-client'
+import { isLocalMode } from '@/lib/app-mode'
 
 export type ChannelType = 'slack' | 'telegram' | 'github_webhook' | 'linear'
 
@@ -62,7 +63,7 @@ export const useConnectedAccountsStore = create<ConnectedAccountsState>((set, ge
     try {
       set({ loading: true, error: null })
 
-      if (shouldUseSupabase()) {
+      if (!isLocalMode()) {
         const headers = await getAuthHeaders()
         const res = await fetch(apiUrl('/api/connected-accounts'), { headers })
         if (!res.ok) throw new Error('Failed to load accounts')
@@ -89,7 +90,7 @@ export const useConnectedAccountsStore = create<ConnectedAccountsState>((set, ge
     try {
       set({ loading: true, error: null })
 
-      if (shouldUseSupabase()) {
+      if (!isLocalMode()) {
         const headers = await getAuthHeaders()
         const res = await fetch(apiUrl('/api/connected-accounts'), {
           method: 'POST',
@@ -131,7 +132,7 @@ export const useConnectedAccountsStore = create<ConnectedAccountsState>((set, ge
     try {
       set({ loading: true, error: null })
 
-      if (shouldUseSupabase()) {
+      if (!isLocalMode()) {
         const headers = await getAuthHeaders()
         const res = await fetch(apiUrl(`/api/connected-accounts/${id}`), {
           method: 'PUT',
@@ -161,7 +162,7 @@ export const useConnectedAccountsStore = create<ConnectedAccountsState>((set, ge
     try {
       set({ loading: true, error: null })
 
-      if (shouldUseSupabase()) {
+      if (!isLocalMode()) {
         const headers = await getAuthHeaders()
         const res = await fetch(apiUrl(`/api/connected-accounts/${id}`), {
           method: 'DELETE',
@@ -185,7 +186,7 @@ export const useConnectedAccountsStore = create<ConnectedAccountsState>((set, ge
 
   testConnection: async (id) => {
     try {
-      if (shouldUseSupabase()) {
+      if (!isLocalMode()) {
         const headers = await getAuthHeaders()
         const res = await fetch(apiUrl(`/api/connected-accounts/${id}/test`), {
           method: 'POST',
