@@ -33,6 +33,8 @@ import type {
   FileListResponseMessage,
   RepoSetupRequestMessage,
   RepoSetupResponseMessage,
+  SlashCommandsRequestMessage,
+  SlashCommandsResponseMessage,
   ProviderInfo,
   ExecutionStrategyInfo,
   RunnerConfig,
@@ -69,6 +71,7 @@ export interface WebSocketClientOptions {
   onTaskSafetyDecision?: (taskId: string, decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel') => void;
   onFileList?: (path: string, correlationId: string) => void;
   onRepoSetup?: (payload: RepoSetupRequestMessage['payload']) => void;
+  onSlashCommands?: (correlationId: string, workingDirectory?: string) => void;
   version?: string;
   wsToken?: string;
 }
@@ -84,6 +87,7 @@ type IncomingMessage =
   | ConfigUpdateMessage
   | FileListRequestMessage
   | RepoSetupRequestMessage
+  | SlashCommandsRequestMessage
   | ErrorMessage;
 
 export class WebSocketClient {
@@ -112,6 +116,7 @@ export class WebSocketClient {
   private onTaskSafetyDecision?: (taskId: string, decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel') => void;
   private onFileList?: (path: string, correlationId: string) => void;
   private onRepoSetup?: (payload: RepoSetupRequestMessage['payload']) => void;
+  private onSlashCommands?: (correlationId: string, workingDirectory?: string) => void;
 
   constructor(options: WebSocketClientOptions) {
     this.runnerId = options.runnerId;
@@ -129,6 +134,7 @@ export class WebSocketClient {
     this.onTaskSafetyDecision = options.onTaskSafetyDecision;
     this.onFileList = options.onFileList;
     this.onRepoSetup = options.onRepoSetup;
+    this.onSlashCommands = options.onSlashCommands;
   }
 
   /**
@@ -611,6 +617,20 @@ export class WebSocketClient {
         return;
       }
 
+      // Handle slash_commands.request (dot notation from relay)
+      if (raw.type === 'slash_commands.request') {
+        const slashMsg: SlashCommandsRequestMessage = {
+          type: 'slash_commands_request',
+          timestamp: raw.timestamp as string ?? new Date().toISOString(),
+          payload: {
+            correlationId: raw.correlationId as string,
+            workingDirectory: raw.workingDirectory as string | undefined,
+          },
+        };
+        this.handleSlashCommandsRequest(slashMsg);
+        return;
+      }
+
       // Handle repo_setup.request (dot notation from relay)
       if (raw.type === 'repo_setup.request') {
         const repoMsg: RepoSetupRequestMessage = {
@@ -660,6 +680,9 @@ export class WebSocketClient {
         break;
       case 'repo_setup_request':
         this.handleRepoSetupRequest(message as RepoSetupRequestMessage);
+        break;
+      case 'slash_commands_request':
+        this.handleSlashCommandsRequest(message as SlashCommandsRequestMessage);
         break;
       case 'error':
         this.handleError(message);
@@ -755,6 +778,23 @@ export class WebSocketClient {
 
   private handleRepoSetupRequest(message: RepoSetupRequestMessage): void {
     this.onRepoSetup?.(message.payload);
+  }
+
+  private handleSlashCommandsRequest(message: SlashCommandsRequestMessage): void {
+    const { correlationId, workingDirectory } = message.payload;
+    this.onSlashCommands?.(correlationId, workingDirectory);
+  }
+
+  /**
+   * Send slash commands response
+   */
+  sendSlashCommandsResponse(correlationId: string, commands: Array<{ name: string; description: string }>): void {
+    const msg: SlashCommandsResponseMessage = {
+      type: 'slash_commands_response',
+      timestamp: new Date().toISOString(),
+      payload: { correlationId, commands },
+    };
+    this.send(msg);
   }
 
   /**

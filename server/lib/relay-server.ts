@@ -268,6 +268,16 @@ interface AgentRunnerRepoSetupResponseMessage {
   };
 }
 
+/** Agent runner's slash commands response message format */
+interface AgentRunnerSlashCommandsResponseMessage {
+  type: 'slash_commands_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    commands: Array<{ name: string; description: string }>;
+  };
+}
+
 /** Agent runner's steer ack message format */
 interface AgentRunnerTaskSteerAckMessage {
   type: 'task_steer_ack';
@@ -350,6 +360,7 @@ export interface RelayServerEvents {
   'session:event': (sessionId: string, taskId: string, event: SessionEvent) => void;
   'file_list:response': (data: { correlationId: string; files: string[] }) => void;
   'repo_setup:response': (data: { correlationId: string; result: RepoSetupRelayResult }) => void;
+  'slash_commands:response': (data: { correlationId: string; commands: Array<{ name: string; description: string }> }) => void;
   'error': (error: Error) => void;
 }
 
@@ -735,6 +746,15 @@ export class RelayServer extends EventEmitter {
 
       case 'repo_setup_response':
         this.handleAgentRunnerRepoSetupResponse(message as unknown as AgentRunnerRepoSetupResponseMessage);
+        break;
+
+      // Slash commands response from agent runner
+      case 'slash_commands.response':
+        this.handleSlashCommandsResponse(message as unknown as { type: 'slash_commands.response'; correlationId: string; commands: Array<{ name: string; description: string }> });
+        break;
+
+      case 'slash_commands_response':
+        this.handleAgentRunnerSlashCommandsResponse(message as unknown as AgentRunnerSlashCommandsResponseMessage);
         break;
 
       // Session attachment messages (MCP bridge)
@@ -1650,6 +1670,54 @@ export class RelayServer extends EventEmitter {
     this.emit('repo_setup:response', {
       correlationId,
       result,
+    });
+  }
+
+  // ============================================================================
+  // Slash Commands Handlers
+  // ============================================================================
+
+  /**
+   * Request slash commands from a connected machine
+   */
+  requestSlashCommands(machineId: string, correlationId: string, workingDirectory?: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for slash commands request`);
+      return false;
+    }
+
+    const msg = {
+      type: 'slash_commands_request',
+      timestamp: new Date().toISOString(),
+      payload: { correlationId, workingDirectory },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle slash_commands.response (dot notation)
+   */
+  private handleSlashCommandsResponse(message: { correlationId: string; commands: Array<{ name: string; description: string }> }): void {
+    this.emit('slash_commands:response', {
+      correlationId: message.correlationId,
+      commands: message.commands,
+    });
+  }
+
+  /**
+   * Handle agent runner's slash_commands_response format
+   */
+  private handleAgentRunnerSlashCommandsResponse(message: AgentRunnerSlashCommandsResponseMessage): void {
+    this.emit('slash_commands:response', {
+      correlationId: message.payload.correlationId,
+      commands: message.payload.commands,
     });
   }
 

@@ -5,8 +5,10 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import { spawn, execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { config } from '../lib/config.js';
 import { detectProviders } from '../lib/providers.js';
 import { getMachineResources, formatResourceSummary } from '../lib/resources.js';
@@ -40,6 +42,61 @@ async function getVersion(): Promise<string> {
   } catch {
     return '0.1.0';
   }
+}
+
+/**
+ * Scan ~/.claude/skills/ and {workdir}/.claude/skills/ for SKILL.md files.
+ * Parse YAML frontmatter to extract name and description.
+ */
+function scanSlashCommands(workingDirectory?: string): Array<{ name: string; description: string }> {
+  const commands: Array<{ name: string; description: string }> = [];
+  const seen = new Set<string>();
+
+  const skillDirs: string[] = [
+    join(homedir(), '.claude', 'skills'),
+  ];
+  if (workingDirectory) {
+    skillDirs.push(join(workingDirectory, '.claude', 'skills'));
+  }
+
+  for (const skillsDir of skillDirs) {
+    if (!existsSync(skillsDir)) continue;
+
+    try {
+      const entries = readdirSync(skillsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const skillFile = join(skillsDir, entry.name, 'SKILL.md');
+        if (!existsSync(skillFile)) continue;
+
+        try {
+          const content = readFileSync(skillFile, 'utf-8');
+          // Parse YAML frontmatter (between --- markers)
+          const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+          if (!fmMatch) continue;
+
+          const fm = fmMatch[1];
+          const nameMatch = fm.match(/^name:\s*(.+)$/m);
+          const descMatch = fm.match(/^description:\s*(.+)$/m);
+
+          const name = nameMatch?.[1]?.trim().replace(/^["']|["']$/g, '') || entry.name;
+          const description = descMatch?.[1]?.trim().replace(/^["']|["']$/g, '') || '';
+
+          const cmdName = `/${name}`;
+          if (!seen.has(cmdName)) {
+            seen.add(cmdName);
+            commands.push({ name: cmdName, description });
+          }
+        } catch {
+          // Skip unreadable skill files
+        }
+      }
+    } catch {
+      // Skip unreadable skill directories
+    }
+  }
+
+  return commands;
 }
 
 export async function startCommand(options: StartOptions = {}): Promise<void> {
@@ -239,6 +296,18 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     } catch (error) {
       log('warn', `Failed to list files: ${error instanceof Error ? error.message : String(error)}`, logLevel);
       wsClient.sendFileListResponse(correlationId, []);
+    }
+  };
+
+  wsClient['onSlashCommands'] = (correlationId: string, workingDirectory?: string) => {
+    log('debug', `Slash commands request for dir: ${workingDirectory || '(global)'}`, logLevel);
+    try {
+      const commands = scanSlashCommands(workingDirectory);
+      wsClient.sendSlashCommandsResponse(correlationId, commands);
+      log('debug', `Sent ${commands.length} slash commands`, logLevel);
+    } catch (error) {
+      log('warn', `Failed to scan slash commands: ${error instanceof Error ? error.message : String(error)}`, logLevel);
+      wsClient.sendSlashCommandsResponse(correlationId, []);
     }
   };
 

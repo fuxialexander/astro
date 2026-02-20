@@ -355,6 +355,20 @@ export interface FileListResponseMessage extends BaseMessage {
   files: string[];
 }
 
+/** Slash commands request (relay → agent) */
+export interface SlashCommandsRequestMessage extends BaseMessage {
+  type: 'slash_commands.request';
+  correlationId: string;
+  workingDirectory?: string;
+}
+
+/** Slash commands response (agent → relay) */
+export interface SlashCommandsResponseMessage extends BaseMessage {
+  type: 'slash_commands.response';
+  correlationId: string;
+  commands: Array<{ name: string; description: string }>;
+}
+
 /** Error message */
 export interface ErrorMessage extends BaseMessage {
   type: 'error';
@@ -453,7 +467,8 @@ export type AgentToRelayMessage =
   | TaskFileChangeMessage
   | TaskApprovalRequestMessage
   | HeartbeatPongMessage
-  | FileListResponseMessage;
+  | FileListResponseMessage
+  | SlashCommandsResponseMessage;
 
 /** All session-related messages from MCP bridge to relay */
 export type SessionToRelayMessage =
@@ -475,6 +490,7 @@ export type RelayToAgentMessage =
   | HeartbeatPingMessage
   | MachineRegisterAckMessage
   | FileListRequestMessage
+  | SlashCommandsRequestMessage
   | ErrorMessage;
 
 /** All relay messages */

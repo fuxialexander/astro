@@ -11,7 +11,9 @@ import { useSessionStore } from "@/stores/session-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
+import { fetchSlashCommands } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
+import type { SlashCommand } from "@/components/ui/file-completion-textarea"
 import type { Session } from "@/types"
 
 interface SteerChatProps {
@@ -35,6 +37,13 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
   const updateToolTraceResult = useExecutionStore((s) => s.updateToolTraceResult)
 
   const steerMessages = steerSession?.steerMessages || []
+
+  // Slash commands from connected machine
+  const [slashCmds, setSlashCmds] = useState<SlashCommand[]>([])
+  useEffect(() => {
+    if (!machineId) return
+    fetchSlashCommands(machineId, project?.workingDirectory).then(setSlashCmds).catch(() => {})
+  }, [machineId, project?.workingDirectory])
 
   // Voice transcription for steering input
   const handleTranscript = useCallback((text: string) => {
@@ -266,10 +275,11 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
           machineId={machineId}
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
+          slashCommands={slashCmds}
           value={input}
           onChange={setInput}
           onSubmit={handleSend}
-          placeholder={resuming ? "Session resumed..." : isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Guide the agent... (type @ to reference files)"}
+          placeholder={resuming ? "Session resumed..." : isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Guide the agent... (type @ for files, / for commands)"}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />

@@ -147,6 +147,7 @@ export type WSMessageType =
   | 'task_safety_response'
   | 'resource_update'
   | 'file_list_response'
+  | 'slash_commands_response'
   // Server -> Client
   | 'registered'
   | 'heartbeat_ack'
@@ -159,6 +160,7 @@ export type WSMessageType =
   | 'file_list_request'
   | 'repo_setup_request'
   | 'repo_setup_response'
+  | 'slash_commands_request'
   | 'error';
 
 export interface WSMessage {
@@ -447,6 +449,22 @@ export interface RepoSetupResponseMessage extends WSMessage {
       packageInfo?: string;
     };
     error?: string;
+  };
+}
+
+export interface SlashCommandsRequestMessage extends WSMessage {
+  type: 'slash_commands_request';
+  payload: {
+    correlationId: string;
+    workingDirectory?: string;
+  };
+}
+
+export interface SlashCommandsResponseMessage extends WSMessage {
+  type: 'slash_commands_response';
+  payload: {
+    correlationId: string;
+    commands: Array<{ name: string; description: string }>;
   };
 }
 

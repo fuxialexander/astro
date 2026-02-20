@@ -6,11 +6,12 @@ import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
-import { chatWithTask } from "@/lib/api-client"
+import { chatWithTask, fetchSlashCommands } from "@/lib/api-client"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
+import type { SlashCommand } from "@/components/ui/file-completion-textarea"
 import type { PlanNode } from "@/types"
 
 interface TaskChatProps {
@@ -36,6 +37,14 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
   const clearSessionsForNode = useSessionStore((s) => s.clearSessionsForNode)
   const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
+
+  // Slash commands from connected machine
+  const [slashCmds, setSlashCmds] = useState<SlashCommand[]>([])
+  useEffect(() => {
+    const mid = project?.defaultMachineId
+    if (!mid) return
+    fetchSlashCommands(mid, project?.workingDirectory).then(setSlashCmds).catch(() => {})
+  }, [project?.defaultMachineId, project?.workingDirectory])
 
   // Voice transcription
   const handleTranscript = useCallback((text: string) => {
@@ -258,10 +267,11 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
           machineId={project?.defaultMachineId}
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
+          slashCommands={slashCmds}
           value={input}
           onChange={setInput}
           onSubmit={handleSend}
-          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Ask about this task... (type @ to reference files)"}
+          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Ask about this task... (type @ for files, / for commands)"}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
