@@ -4,6 +4,10 @@
  * Single source of truth for all session data: plan chat, task chat,
  * steer messages, and execution sessions. Replaces the fragmented
  * task-chat-store and plan chat useState.
+ *
+ * Key actions:
+ * - createSession: Create a new session
+ * - createNewSession: Create a fresh session while marking existing sessions as completed
  */
 
 import { create } from "zustand"
@@ -31,6 +35,14 @@ interface SessionState {
 
   // CRUD
   createSession: (params: {
+    type: SessionType
+    projectId: string
+    nodeId?: string
+    providerId?: string
+    model?: string
+    metadata?: Record<string, unknown>
+  }) => Session
+  createNewSession: (params: {
     type: SessionType
     projectId: string
     nodeId?: string
@@ -236,6 +248,37 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // Fire-and-forget API call
     dataClient.createSession(session).catch(() => {})
     return session
+  },
+
+  createNewSession: (params) => {
+    // Mark existing sessions of the same type for this project/node as completed
+    const sessions = new Map(get().sessions)
+    for (const [id, session] of sessions) {
+      const matchesProject = session.projectId === params.projectId
+      const matchesNode = params.nodeId ? session.nodeId === params.nodeId : !session.nodeId
+      const matchesType = session.type === params.type
+
+      if (matchesProject && matchesNode && matchesType && session.status === "active") {
+        const updated = {
+          ...session,
+          status: "completed" as const,
+          updatedAt: new Date(),
+          completedAt: new Date(),
+        }
+        sessions.set(id, updated)
+        // Fire-and-forget API call to update old session
+        dataClient.updateSession(id, {
+          status: updated.status,
+          updatedAt: updated.updatedAt,
+          completedAt: updated.completedAt
+        }).catch(() => {})
+      }
+    }
+    set({ sessions })
+    immediateSave(sessions)
+
+    // Create the new session using the existing createSession logic
+    return get().createSession(params)
   },
 
   getSession: (sessionId) => {
