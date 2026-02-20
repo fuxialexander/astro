@@ -186,9 +186,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const clearActiveSessionId = useSessionStore((s) => s.clearActiveSessionId)
 
-  // State for session dialog
+  // State for session dialog and dropdown
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false)
   const [editingSession, setEditingSession] = useState<Session | null>(null)
+  const [sessionDropdownOpen, setSessionDropdownOpen] = useState(false)
 
   // Slash command autocomplete state
   const [showSlashMenu, setShowSlashMenu] = useState(false)
@@ -826,7 +827,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
           )}
           {/* Session Switcher */}
           {planChatSessions.length > 0 && (
-            <DropdownMenu>
+            <DropdownMenu open={sessionDropdownOpen} onOpenChange={setSessionDropdownOpen}>
               <DropdownMenuTrigger asChild>
                 <button ref={sessionDropdownRef} className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
                   <History className="h-3 w-3" />
@@ -839,7 +840,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                   <span className="text-xs font-semibold">Sessions</span>
                   <div className="flex items-center gap-1">
                     <button
-                      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleClearAllSessions() }}
+                      onClick={() => { handleClearAllSessions(); setSessionDropdownOpen(false) }}
                       className="flex items-center gap-1 text-[10px] text-destructive hover:text-destructive/80 font-normal px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-colors"
                       title="Delete all sessions"
                     >
@@ -847,7 +848,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                       Clear All
                     </button>
                     <button
-                      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleNewSession() }}
+                      onClick={() => { handleNewSession(); setSessionDropdownOpen(false) }}
                       className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-normal px-1.5 py-0.5 rounded hover:bg-primary/10 transition-colors"
                       title="New session"
                     >
@@ -862,10 +863,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                   const sessionTitle = getSessionTitle(session)
                   const isActive = currentSession?.id === session.id
                   return (
-                    <DropdownMenuItem
+                    <div
                       key={session.id}
-                      onClick={() => handleSessionSwitch(session.id)}
-                      className="flex flex-col items-start gap-0.5 py-2"
+                      onClick={() => { handleSessionSwitch(session.id); setSessionDropdownOpen(false) }}
+                      className="flex flex-col items-start gap-0.5 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
                     >
                       <div className="flex items-center gap-2 w-full">
                         <MessageSquare className="h-3 w-3 shrink-0" />
@@ -876,14 +877,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                           <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
                         )}
                         <button
-                          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleEditSession(session, e) }}
+                          onClick={(e) => { e.stopPropagation(); handleEditSession(session); setSessionDropdownOpen(false) }}
                           className="p-0.5 hover:bg-accent rounded opacity-60 hover:opacity-100 transition-opacity"
                           title="Rename session"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
                         <button
-                          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteSession(session.id) }}
+                          onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
                           className="p-0.5 hover:bg-destructive/10 rounded opacity-60 hover:opacity-100 transition-opacity text-destructive"
                           title="Delete session"
                         >
@@ -893,7 +894,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                       <span className="text-[10px] text-muted-foreground truncate w-full pl-5">
                         {messageCount} messages
                       </span>
-                    </DropdownMenuItem>
+                    </div>
                   )
                 })}
               </DropdownMenuContent>
