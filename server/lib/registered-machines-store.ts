@@ -419,7 +419,7 @@ export async function updateMachineLastSeen(machineId: string): Promise<boolean>
  * Prevents stale `is_connected = true` from a previous server session.
  */
 export async function resetAllConnectionStatuses(): Promise<void> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     await supabase
       .from('registered_machines')
