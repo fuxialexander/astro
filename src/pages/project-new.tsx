@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate } from "react-router"
-import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search, ListTodo, GitBranch, ArrowLeft } from "lucide-react"
+import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search, ListTodo, GitBranch, ArrowLeft, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {
@@ -16,10 +16,13 @@ import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
+import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { GitInitDialog } from "@/components/git-init-dialog"
+import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
+import { isServerMode } from "@/lib/app-mode"
 import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 
@@ -81,12 +84,32 @@ export function ProjectNew() {
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
 
+  // Server mode: registered machines
+  const isMultiTenant = isServerMode()
+  const registeredMachines = useMachinesStore((s) => s.machines)
+  const fetchRegisteredMachines = useMachinesStore((s) => s.fetchMachines)
+  const [showAddEnvironment, setShowAddEnvironment] = useState(false)
+
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
   }, [machinesLoaded, loadMachines])
 
+  useEffect(() => {
+    if (isMultiTenant) fetchRegisteredMachines()
+  }, [isMultiTenant, fetchRegisteredMachines])
+
+  // Auto-select first registered machine in server mode
+  useEffect(() => {
+    if (isMultiTenant && !selectedMachine && registeredMachines.length > 0) {
+      const first = registeredMachines.find((m) => !m.isRevoked && m.isConnected) || registeredMachines.find((m) => !m.isRevoked)
+      if (first) {
+        setSelectedMachine({ machineId: first.id, name: first.name, hostname: first.hostname, environmentType: first.environmentType } as MachineInfo)
+      }
+    }
+  }, [isMultiTenant, selectedMachine, registeredMachines])
+
   const availableMachines = getMachinesForEnvironment(selectedEnvironment)
-  const isRemote = selectedEnvironment !== "local"
+  const isRemote = isMultiTenant ? true : selectedEnvironment !== "local"
 
   // Voice transcription for project description
   const handleTranscript = useCallback((text: string) => {
@@ -319,95 +342,164 @@ export function ProjectNew() {
   const EnvironmentIcon = environmentConfig[selectedEnvironment].icon
 
   // Shared environment selector component
-  const EnvironmentSelector = () => (
-    <div className="flex flex-col gap-3">
-      <span className="text-[13px] font-medium text-muted-foreground">Environment</span>
-      <div className="flex items-center gap-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-              <EnvironmentIcon className="h-4 w-4" />
-              {environmentConfig[selectedEnvironment].label}
-              <ChevronDown className="h-3 w-3 opacity-50" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuLabel>Select Environment</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {(Object.keys(environmentConfig) as EnvironmentType[]).map((env) => {
-              const config = environmentConfig[env]
-              const Icon = config.icon
-              const machineCount = getMachinesForEnvironment(env).length
-              return (
-                <DropdownMenuItem
-                  key={env}
-                  onClick={() => {
-                    setSelectedEnvironment(env)
-                    setSelectedMachine(null)
-                  }}
-                  className="gap-2"
-                >
-                  <Icon className="h-4 w-4" />
-                  <div className="flex flex-col">
-                    <span>{config.label}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {env === "local" ? config.description : `${machineCount} available`}
-                    </span>
-                  </div>
-                  {selectedEnvironment === env && (
-                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                  )}
-                </DropdownMenuItem>
-              )
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
+  const EnvironmentSelector = () => {
+    // Server mode: show registered machines as selectable cards
+    if (isMultiTenant) {
+      const connectedMachines = registeredMachines.filter((m) => !m.isRevoked)
+      return (
+        <div className="flex flex-col gap-3">
+          <span className="text-[13px] font-medium text-muted-foreground">Target Machine</span>
+          {connectedMachines.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {connectedMachines.map((machine) => {
+                const isSelected = selectedMachine?.machineId === machine.id
+                return (
+                  <button
+                    key={machine.id}
+                    type="button"
+                    onClick={() => setSelectedMachine({ machineId: machine.id, name: machine.name, hostname: machine.hostname, environmentType: machine.environmentType } as MachineInfo)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg border-2 px-4 py-3 text-left transition-all cursor-pointer",
+                      isSelected
+                        ? "border-primary bg-primary/5"
+                        : "border-border bg-card hover:border-primary/50"
+                    )}
+                  >
+                    <Laptop className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{machine.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{machine.hostname}</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {machine.providers.length > 0 && (
+                        <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{machine.providers[0]}</span>
+                      )}
+                      <div className={cn(
+                        "flex items-center gap-1 text-xs",
+                        machine.isConnected ? "text-green-600" : "text-muted-foreground"
+                      )}>
+                        <span className={cn("h-1.5 w-1.5 rounded-full", machine.isConnected ? "bg-green-600" : "bg-muted-foreground")} />
+                        <span>{machine.isConnected ? "Online" : "Offline"}</span>
+                      </div>
+                      {isSelected && <CheckCircle2 className="h-4 w-4 text-primary" />}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 rounded-lg border-2 border-dashed border-border bg-muted/20 px-4 py-4">
+              <Laptop className="h-5 w-5 text-muted-foreground" />
+              <div className="flex-1">
+                <div className="text-sm font-medium">No machines registered</div>
+                <div className="text-xs text-muted-foreground">Register a machine to run tasks</div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAddEnvironment(true)}
+                className="gap-1.5 shrink-0"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Register
+              </Button>
+            </div>
+          )}
+        </div>
+      )
+    }
 
-        {/* Machine selector for non-local environments */}
-        {isRemote && availableMachines.length > 0 && (
+    // Local mode: show environment type dropdown
+    return (
+      <div className="flex flex-col gap-3">
+        <span className="text-[13px] font-medium text-muted-foreground">Environment</span>
+        <div className="flex items-center gap-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-                <Server className="h-4 w-4" />
-                <span className="max-w-[140px] truncate">
-                  {selectedMachine?.name || "Select machine"}
-                </span>
+                <EnvironmentIcon className="h-4 w-4" />
+                {environmentConfig[selectedEnvironment].label}
                 <ChevronDown className="h-3 w-3 opacity-50" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
+              <DropdownMenuLabel>Select Environment</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {availableMachines.map((machine) => (
-                <DropdownMenuItem
-                  key={machine.machineId}
-                  onClick={() => setSelectedMachine(machine)}
-                  className="gap-2"
-                >
-                  <Server className="h-4 w-4" />
-                  <div className="flex flex-col">
-                    <span>{machine.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {machine.hostname || machine.machineId}
-                    </span>
-                  </div>
-                  {selectedMachine?.machineId === machine.machineId && (
-                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                  )}
-                </DropdownMenuItem>
-              ))}
+              {(Object.keys(environmentConfig) as EnvironmentType[]).map((env) => {
+                const config = environmentConfig[env]
+                const Icon = config.icon
+                const machineCount = getMachinesForEnvironment(env).length
+                return (
+                  <DropdownMenuItem
+                    key={env}
+                    onClick={() => {
+                      setSelectedEnvironment(env)
+                      setSelectedMachine(null)
+                    }}
+                    className="gap-2"
+                  >
+                    <Icon className="h-4 w-4" />
+                    <div className="flex flex-col">
+                      <span>{config.label}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {env === "local" ? config.description : `${machineCount} available`}
+                      </span>
+                    </div>
+                    {selectedEnvironment === env && (
+                      <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                )
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
-        )}
 
-        {isRemote && availableMachines.length === 0 && machinesLoaded && (
-          <span className="text-xs text-muted-foreground">
-            No {environmentConfig[selectedEnvironment].label.toLowerCase()} machines connected
-          </span>
-        )}
+          {/* Machine selector for non-local environments */}
+          {isRemote && availableMachines.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                  <Server className="h-4 w-4" />
+                  <span className="max-w-[140px] truncate">
+                    {selectedMachine?.name || "Select machine"}
+                  </span>
+                  <ChevronDown className="h-3 w-3 opacity-50" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {availableMachines.map((machine) => (
+                  <DropdownMenuItem
+                    key={machine.machineId}
+                    onClick={() => setSelectedMachine(machine)}
+                    className="gap-2"
+                  >
+                    <Server className="h-4 w-4" />
+                    <div className="flex flex-col">
+                      <span>{machine.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {machine.hostname || machine.machineId}
+                      </span>
+                    </div>
+                    {selectedMachine?.machineId === machine.machineId && (
+                      <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {isRemote && availableMachines.length === 0 && machinesLoaded && (
+            <span className="text-xs text-muted-foreground">
+              No {environmentConfig[selectedEnvironment].label.toLowerCase()} machines connected
+            </span>
+          )}
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   // Error alert component
   const ErrorAlert = () => repoSetupError ? (
@@ -765,6 +857,12 @@ export function ProjectNew() {
           prompt={gitInitPrompt}
           onConfirm={confirmGitInit}
           onDismiss={dismissGitInit}
+        />
+
+        {/* Add environment dialog (server mode) */}
+        <AddEnvironmentDialog
+          open={showAddEnvironment}
+          onOpenChange={setShowAddEnvironment}
         />
       </div>
     </div>
