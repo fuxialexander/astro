@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
-  # Astro Application
+  # Astro Backend + Relay (production)
   astro:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
       target: production
     container_name: astro-app
     ports:
@@ -16,26 +14,22 @@ services:
       PORT: 3001
       RELAY_PORT: 3002
       REDIS_URL: redis://redis:6379
-      # Add other environment variables from .env
     env_file:
-      - .env
+      - ../.env
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - astro-network
-    volumes:
-      # Persist any data that needs to be stored
-      - astro-data:/app/data
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
 
-  # Redis for session management and event buffering
+  # Redis for session management and event buffering (optional)
   redis:
     image: redis:7-alpine
     container_name: astro-redis
@@ -53,12 +47,12 @@ services:
       timeout: 3s
       retries: 5
 
-  # Development-only service
+  # Development (mounts source, runs via npm run dev)
   astro-dev:
     profiles: ["dev"]
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
       target: builder
     container_name: astro-dev
     ports:
@@ -68,12 +62,12 @@ services:
     environment:
       NODE_ENV: development
     env_file:
-      - .env
+      - ../.env
     depends_on:
       redis:
         condition: service_healthy
     volumes:
-      - .:/app
+      - ..:/app
       - /app/node_modules
     command: npm run dev
     networks:
@@ -85,6 +79,4 @@ networks:
 
 volumes:
   redis-data:
-    driver: local
-  astro-data:
     driver: local
