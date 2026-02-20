@@ -8,7 +8,8 @@
 import type { RegisteredMachine } from '../types/device-auth.js'
 import type { ProviderType, EnvironmentType } from '../types/relay.js'
 import crypto from 'crypto'
-import { shouldUseSupabase, getServiceClient } from './supabase.js'
+import { getServiceClient } from './supabase.js'
+import { isServerMode } from './app-mode.js'
 import { db } from './db/index.js'
 import { registeredMachines } from './db/schema.js'
 import { eq, and, desc } from 'drizzle-orm'
@@ -120,7 +121,7 @@ export async function registerMachine(params: {
       metadata: params.metadata,
     }
 
-    if (shouldUseSupabase()) {
+    if (isServerMode()) {
       const supabase = getServiceClient()
       const { error } = await supabase
         .from('registered_machines')
@@ -175,7 +176,7 @@ export async function registerMachine(params: {
     metadata: params.metadata,
   }
 
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { error } = await supabase.from('registered_machines').insert({
       id: machine.id,
@@ -245,7 +246,7 @@ export async function ensureMachineRegistered(machineId: string, params: {
 
   if (existing) {
     // Machine exists — update connection status + environmentType/providers
-    if (shouldUseSupabase()) {
+    if (isServerMode()) {
       const supabase = getServiceClient()
       const { error } = await supabase
         .from('registered_machines')
@@ -293,7 +294,7 @@ export async function ensureMachineRegistered(machineId: string, params: {
     isRevoked: false,
   }
 
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { error } = await supabase.from('registered_machines').insert({
       id: machine.id,
@@ -347,7 +348,7 @@ export async function ensureMachineRegistered(machineId: string, params: {
  * Get a registered machine by ID
  */
 export async function getMachine(machineId: string): Promise<RegisteredMachine | null> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { data } = await supabase
       .from('registered_machines')
@@ -371,7 +372,7 @@ export async function getMachine(machineId: string): Promise<RegisteredMachine |
  * Get all machines for a user
  */
 export async function getUserMachines(userId: string): Promise<RegisteredMachine[]> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { data } = await supabase
       .from('registered_machines')
@@ -397,7 +398,7 @@ export async function getUserMachines(userId: string): Promise<RegisteredMachine
  * Update machine's last seen timestamp
  */
 export async function updateMachineLastSeen(machineId: string): Promise<boolean> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -435,7 +436,7 @@ export async function resetAllConnectionStatuses(): Promise<void> {
  * Update machine connection status
  */
 export async function updateMachineConnectionStatus(machineId: string, isConnected: boolean): Promise<boolean> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const update: Record<string, unknown> = { is_connected: isConnected }
     if (isConnected) update.last_seen_at = new Date().toISOString()
@@ -461,7 +462,7 @@ export async function updateMachineConnectionStatus(machineId: string, isConnect
  * Update machine providers
  */
 export async function updateMachineProviders(machineId: string, providers: ProviderType[]): Promise<boolean> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -481,7 +482,7 @@ export async function updateMachineProviders(machineId: string, providers: Provi
  * Update machine name
  */
 export async function updateMachineName(machineId: string, name: string): Promise<boolean> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -501,7 +502,7 @@ export async function updateMachineName(machineId: string, name: string): Promis
  * Revoke a machine
  */
 export async function revokeMachine(machineId: string): Promise<boolean> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -521,7 +522,7 @@ export async function revokeMachine(machineId: string): Promise<boolean> {
  * Delete a machine
  */
 export async function deleteMachine(machineId: string): Promise<boolean> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { error } = await supabase
       .from('registered_machines')
@@ -548,7 +549,7 @@ export async function isMachineValid(machineId: string): Promise<boolean> {
  * Get all registered machines (for admin)
  */
 export async function getAllMachines(): Promise<RegisteredMachine[]> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { data } = await supabase
       .from('registered_machines')
@@ -566,7 +567,7 @@ export async function getAllMachines(): Promise<RegisteredMachine[]> {
  * Get connected machines count
  */
 export async function getConnectedMachinesCount(): Promise<number> {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     const supabase = getServiceClient()
     const { count } = await supabase
       .from('registered_machines')

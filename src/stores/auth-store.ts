@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import type { Session, User } from "@supabase/supabase-js"
-import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
+import { getSupabase } from "@/lib/supabase-client"
+import { isLocalMode } from "@/lib/app-mode"
 import { setCurrentUser, getBrowserUserId } from "@/lib/db"
 import { setupRealtimeSync, teardownRealtimeSync } from "@/lib/realtime-sync"
 
@@ -37,7 +38,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     // If Supabase is not in use (not configured or IndexedDB-only mode), skip auth
-    if (!shouldUseSupabase()) {
+    if (isLocalMode()) {
       const browserUserId = await getBrowserUserId()
       setCurrentUser(browserUserId)
       set({

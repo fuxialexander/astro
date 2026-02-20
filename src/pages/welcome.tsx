@@ -37,7 +37,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { useTheme } from "@/components/theme-provider"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 import { validateAbsolutePath } from "@/lib/path-utils"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { cn } from "@/lib/utils"
@@ -73,7 +73,7 @@ export function Welcome() {
   const [searchParams] = useSearchParams()
 
   // Check if we're in multi-tenant mode (production)
-  const isMultiTenant = shouldUseSupabase()
+  const isMultiTenant = isServerMode()
 
   // GitHub integration
   const { connected, repos, selectedRepoIds, fetchRepos } = useGitHubStore()

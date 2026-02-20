@@ -28,7 +28,7 @@ import { useAgentStore } from "@/stores/agent-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isLocalMode } from "@/lib/app-mode"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
@@ -92,7 +92,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const sidebarLoaded = useSidebarStore((s) => s.loaded)
 
   // Only load data if authenticated or in IndexedDB-only mode
-  const shouldLoadData = !shouldUseSupabase() || !!(authInitialized && session)
+  const shouldLoadData = isLocalMode() || !!(authInitialized && session)
 
   useEffect(() => {
     if (!shouldLoadData) return

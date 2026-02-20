@@ -18,7 +18,8 @@
 
 import type { Context, Next } from 'hono'
 import { createClient } from '@supabase/supabase-js'
-import { shouldUseSupabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase.js'
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase.js'
+import { isLocalMode } from '../lib/app-mode.js'
 
 export interface AuthUser {
   id: string
@@ -33,7 +34,7 @@ export interface AuthUser {
  */
 export async function requireAuth(c: Context, next: Next) {
   // If Supabase is not configured or IndexedDB-only mode, allow unauthenticated access (dev mode)
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     // In IndexedDB mode, use browser-specific user ID from header for per-browser isolation
     const browserUserId = c.req.header('X-User-Id')
     const userId = browserUserId || '00000000-0000-0000-0000-000000000000' // Fallback to fixed UUID for backward compatibility
@@ -90,7 +91,7 @@ export async function requireAuth(c: Context, next: Next) {
  * Optional auth middleware - attaches user if present, continues regardless.
  */
 export async function optionalAuth(c: Context, next: Next) {
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     // Use a fixed UUID for dev-user to satisfy PostgreSQL UUID constraints
     c.set('user', { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' } satisfies AuthUser)
     return next()

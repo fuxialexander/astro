@@ -21,7 +21,8 @@ import type {
   RegistrationResponseJSON,
   AuthenticationResponseJSON,
 } from '@simplewebauthn/server'
-import { getServiceClient, shouldUseSupabase } from '../lib/supabase.js'
+import { getServiceClient } from '../lib/supabase.js'
+import { isLocalMode } from '../lib/app-mode.js'
 import { errorMessage } from '../lib/error-utils.js'
 
 const authRoute = new Hono()
@@ -100,7 +101,7 @@ setInterval(() => {
  * Rate limited to prevent user enumeration attacks.
  */
 authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
 
@@ -129,7 +130,7 @@ authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
  * Rate limited to prevent DoS attacks.
  */
 authRoute.post('/webauthn/register-options', authLimiter, async (c) => {
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
 
@@ -200,7 +201,7 @@ authRoute.post('/webauthn/register-options', authLimiter, async (c) => {
  * Verify registration attestation and create/update user.
  */
 authRoute.post('/webauthn/register-verify', async (c) => {
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
 
@@ -344,7 +345,7 @@ authRoute.post('/webauthn/register-verify', async (c) => {
  * Rate limited to prevent DoS attacks.
  */
 authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
 
@@ -398,7 +399,7 @@ authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
  * Verify authentication assertion and return session tokens.
  */
 authRoute.post('/webauthn/login-verify', async (c) => {
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     return c.json({ error: 'Supabase not configured' }, 503)
   }
 
@@ -510,7 +511,7 @@ authRoute.post('/webauthn/login-verify', async (c) => {
  * Check current session status.
  */
 authRoute.get('/session', async (c) => {
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     return c.json({
       authenticated: true,
       user: { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' },
@@ -565,7 +566,7 @@ authRoute.get('/session', async (c) => {
  */
 authRoute.delete('/delete-account', async (c) => {
   try {
-    if (!shouldUseSupabase()) {
+    if (isLocalMode()) {
       // IndexedDB mode: Return success (client will clear local data)
       return c.json({
         success: true,

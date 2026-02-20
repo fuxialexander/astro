@@ -5,7 +5,8 @@
  */
 
 import { create } from 'zustand'
-import { getSupabase, shouldUseSupabase } from '@/lib/supabase-client'
+import { getSupabase } from '@/lib/supabase-client'
+import { isServerMode } from '@/lib/app-mode'
 import { loadState, saveState, getBrowserUserId } from '@/lib/db'
 import { useRealtimeStore } from './realtime-store'
 
@@ -44,7 +45,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
     try {
       const headers: Record<string, string> = {}
 
-      if (shouldUseSupabase()) {
+      if (isServerMode()) {
         // Supabase mode: use access token
         const supabase = getSupabase()
         if (!supabase) {
@@ -96,7 +97,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
     try {
       const headers: Record<string, string> = {}
 
-      if (shouldUseSupabase()) {
+      if (isServerMode()) {
         const supabase = getSupabase()
         if (!supabase) {
           throw new Error('Supabase not configured')
@@ -141,7 +142,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         'Content-Type': 'application/json',
       }
 
-      if (shouldUseSupabase()) {
+      if (isServerMode()) {
         const supabase = getSupabase()
         if (!supabase) {
           throw new Error('Supabase not configured')
