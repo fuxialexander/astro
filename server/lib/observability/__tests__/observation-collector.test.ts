@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { ObservationCollector } from '../observation-collector.js'
 import { executionEventBus } from '../../execution-event-bus.js'
 import type { TaskStartedEvent, TaskCompletedEvent, TaskFailedEvent, TaskCancelledEvent } from '../../events/types.js'
-import type { PlanNode } from '../../../../src/types/index.js'
+import type { PlanNode, Project } from '../../../../src/types/index.js'
 import type { TaskResult } from '../../providers/types.js'
 
 // Mock the database module — we don't want real DB calls in unit tests
@@ -144,7 +144,7 @@ describe('ObservationCollector', () => {
 
       collector.handleLifecycleEvent(createTaskStartedEvent(execId, {
         node,
-        project: { visionDoc: 'Build a secure app' } as any,
+        project: { visionDoc: 'Build a secure app' } as Partial<Project> as Project,
       }))
 
       const state = collector._getTraceState(execId)
@@ -163,7 +163,7 @@ describe('ObservationCollector', () => {
 
     it('should not create a context span if node has no title/description', () => {
       const execId = 'exec-no-context'
-      const node = createMockNode({ title: undefined, description: undefined } as any)
+      const node = createMockNode({ title: undefined, description: undefined } as Partial<PlanNode>)
 
       collector.handleLifecycleEvent(createTaskStartedEvent(execId, { node }))
 
@@ -177,7 +177,7 @@ describe('ObservationCollector', () => {
       const longVision = 'x'.repeat(10000)
 
       collector.handleLifecycleEvent(createTaskStartedEvent(execId, {
-        project: { visionDoc: longVision } as any,
+        project: { visionDoc: longVision } as Partial<Project> as Project,
       }))
 
       const state = collector._getTraceState(execId)
@@ -206,7 +206,7 @@ describe('ObservationCollector', () => {
       // Complete the task (triggers turn finalization)
       collector.handleLifecycleEvent(createTaskCompletedEvent(execId))
 
-      const state = collector._getTraceState(execId)
+      collector._getTraceState(execId)
       // State is cleared after finishTrace, but the buffer was flushed
       // We can verify by checking the buffer before finishTrace
       // Since finishTrace is async, let's check the turn count logic differently
@@ -406,12 +406,12 @@ describe('ObservationCollector', () => {
       expect(toolObs).toHaveLength(2)
 
       // First completed (tu-r2) has output contents-b
-      const obsR2 = toolObs.find((o) => (o.metadata as any)?.toolUseId === 'tu-r2')
+      const obsR2 = toolObs.find((o) => (o.metadata as Record<string, unknown>)?.toolUseId === 'tu-r2')
       expect(obsR2?.output).toBe('contents-b')
       expect(obsR2?.input).toEqual({ path: '/b.ts' })
 
       // Second completed (tu-r1) has output contents-a
-      const obsR1 = toolObs.find((o) => (o.metadata as any)?.toolUseId === 'tu-r1')
+      const obsR1 = toolObs.find((o) => (o.metadata as Record<string, unknown>)?.toolUseId === 'tu-r1')
       expect(obsR1?.output).toBe('contents-a')
       expect(obsR1?.input).toEqual({ path: '/a.ts' })
     })
@@ -653,7 +653,7 @@ describe('ObservationCollector', () => {
       const approvalObs = state.buffer.find((o) => o.name === 'approval:requested')
       expect(approvalObs).toBeDefined()
       expect(approvalObs!.level).toBe('warning')
-      expect((approvalObs!.metadata as any).message).toBe('Should we proceed?')
+      expect((approvalObs!.metadata as Record<string, unknown>).message).toBe('Should we proceed?')
     })
   })
 
@@ -674,8 +674,8 @@ describe('ObservationCollector', () => {
       const fcObs = state.buffer.find((o) => o.name === 'file:change')
       expect(fcObs).toBeDefined()
       expect(fcObs!.type).toBe('event')
-      expect((fcObs!.metadata as any).path).toBe('/src/main.ts')
-      expect((fcObs!.metadata as any).action).toBe('modified')
+      expect((fcObs!.metadata as Record<string, unknown>).path).toBe('/src/main.ts')
+      expect((fcObs!.metadata as Record<string, unknown>).action).toBe('modified')
     })
 
     it('should record progress events at debug level', () => {
@@ -692,7 +692,7 @@ describe('ObservationCollector', () => {
       const progObs = state.buffer.find((o) => o.name === 'task:progress')
       expect(progObs).toBeDefined()
       expect(progObs!.level).toBe('debug')
-      expect((progObs!.metadata as any).percentage).toBe(50)
+      expect((progObs!.metadata as Record<string, unknown>).percentage).toBe(50)
     })
   })
 

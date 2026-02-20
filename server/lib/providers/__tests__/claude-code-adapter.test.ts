@@ -40,7 +40,7 @@ vi.mock('../cache-utils.js', () => ({
 
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeCodeProvider } from '../../providers/adapters/claude-code.js'
-import type { TaskDispatch } from '../../providers/types.js'
+import type { TaskDispatch, ToolUseStreamEvent, ToolResultStreamEvent, TextStreamEvent } from '../../providers/types.js'
 
 const mockedQuery = vi.mocked(query)
 
@@ -103,7 +103,7 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
       },
     ]
 
-    mockedQuery.mockReturnValue(asyncGen(messages) as any)
+    mockedQuery.mockReturnValue(asyncGen(messages) as unknown as ReturnType<typeof query>)
 
     const events = []
     const task = makeTask()
@@ -115,8 +115,8 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
     const toolUseEvent = events.find(e => e.type === 'tool_use')
     expect(toolUseEvent).toBeDefined()
     expect(toolUseEvent!.type).toBe('tool_use')
-    expect((toolUseEvent as any).toolName).toBe('Read')
-    expect((toolUseEvent as any).toolUseId).toBe('toolu_01XyZ123abc')
+    expect((toolUseEvent as ToolUseStreamEvent).toolName).toBe('Read')
+    expect((toolUseEvent as ToolUseStreamEvent).toolUseId).toBe('toolu_01XyZ123abc')
   })
 
   it('should use actual tool name on tool_result (not tool_use_id)', async () => {
@@ -163,7 +163,7 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
       },
     ]
 
-    mockedQuery.mockReturnValue(asyncGen(messages) as any)
+    mockedQuery.mockReturnValue(asyncGen(messages) as unknown as ReturnType<typeof query>)
 
     const events = []
     for await (const event of provider.stream(makeTask())) {
@@ -174,9 +174,9 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
     const toolResultEvent = events.find(e => e.type === 'tool_result')
     expect(toolResultEvent).toBeDefined()
     // BUG FIX: toolName should be 'Bash', NOT 'toolu_01XyZ123abc'
-    expect((toolResultEvent as any).toolName).toBe('Bash')
-    expect((toolResultEvent as any).toolUseId).toBe('toolu_01XyZ123abc')
-    expect((toolResultEvent as any).success).toBe(true)
+    expect((toolResultEvent as ToolResultStreamEvent).toolName).toBe('Bash')
+    expect((toolResultEvent as ToolResultStreamEvent).toolUseId).toBe('toolu_01XyZ123abc')
+    expect((toolResultEvent as ToolResultStreamEvent).success).toBe(true)
   })
 
   it('should correctly correlate multiple tool calls in the same turn', async () => {
@@ -235,7 +235,7 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
       },
     ]
 
-    mockedQuery.mockReturnValue(asyncGen(messages) as any)
+    mockedQuery.mockReturnValue(asyncGen(messages) as unknown as ReturnType<typeof query>)
 
     const events = []
     for await (const event of provider.stream(makeTask())) {
@@ -245,19 +245,19 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
     // Both tool_use events should have correct toolUseId
     const toolUses = events.filter(e => e.type === 'tool_use')
     expect(toolUses).toHaveLength(2)
-    expect((toolUses[0] as any).toolUseId).toBe('toolu_read_1')
-    expect((toolUses[0] as any).toolName).toBe('Read')
-    expect((toolUses[1] as any).toolUseId).toBe('toolu_read_2')
-    expect((toolUses[1] as any).toolName).toBe('Read')
+    expect((toolUses[0] as ToolUseStreamEvent).toolUseId).toBe('toolu_read_1')
+    expect((toolUses[0] as ToolUseStreamEvent).toolName).toBe('Read')
+    expect((toolUses[1] as ToolUseStreamEvent).toolUseId).toBe('toolu_read_2')
+    expect((toolUses[1] as ToolUseStreamEvent).toolName).toBe('Read')
 
     // Both tool_result events should resolve toolName correctly
     const toolResults = events.filter(e => e.type === 'tool_result')
     expect(toolResults).toHaveLength(2)
     // Both should have toolName='Read', NOT the tool_use_id
-    expect((toolResults[0] as any).toolName).toBe('Read')
-    expect((toolResults[0] as any).toolUseId).toBe('toolu_read_1')
-    expect((toolResults[1] as any).toolName).toBe('Read')
-    expect((toolResults[1] as any).toolUseId).toBe('toolu_read_2')
+    expect((toolResults[0] as ToolResultStreamEvent).toolName).toBe('Read')
+    expect((toolResults[0] as ToolResultStreamEvent).toolUseId).toBe('toolu_read_1')
+    expect((toolResults[1] as ToolResultStreamEvent).toolName).toBe('Read')
+    expect((toolResults[1] as ToolResultStreamEvent).toolUseId).toBe('toolu_read_2')
   })
 
   it('should handle mixed tool types and resolve each correctly', async () => {
@@ -298,7 +298,7 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
       },
     ]
 
-    mockedQuery.mockReturnValue(asyncGen(messages) as any)
+    mockedQuery.mockReturnValue(asyncGen(messages) as unknown as ReturnType<typeof query>)
 
     const events = []
     for await (const event of provider.stream(makeTask())) {
@@ -307,9 +307,9 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
 
     const toolResults = events.filter(e => e.type === 'tool_result')
     expect(toolResults).toHaveLength(3)
-    expect((toolResults[0] as any).toolName).toBe('Bash')
-    expect((toolResults[1] as any).toolName).toBe('Read')
-    expect((toolResults[2] as any).toolName).toBe('Edit')
+    expect((toolResults[0] as ToolResultStreamEvent).toolName).toBe('Bash')
+    expect((toolResults[1] as ToolResultStreamEvent).toolName).toBe('Read')
+    expect((toolResults[2] as ToolResultStreamEvent).toolName).toBe('Edit')
   })
 
   it('should fall back to unknown for unrecognized tool_use_id in tool_result', async () => {
@@ -343,7 +343,7 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
       },
     ]
 
-    mockedQuery.mockReturnValue(asyncGen(messages) as any)
+    mockedQuery.mockReturnValue(asyncGen(messages) as unknown as ReturnType<typeof query>)
 
     const events = []
     for await (const event of provider.stream(makeTask())) {
@@ -352,8 +352,8 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
 
     const toolResult = events.find(e => e.type === 'tool_result')
     expect(toolResult).toBeDefined()
-    expect((toolResult as any).toolName).toBe('unknown')
-    expect((toolResult as any).toolUseId).toBe('toolu_unknown_123')
+    expect((toolResult as ToolResultStreamEvent).toolName).toBe('unknown')
+    expect((toolResult as ToolResultStreamEvent).toolUseId).toBe('toolu_unknown_123')
   })
 
   it('should handle tool_result with is_error=true', async () => {
@@ -395,7 +395,7 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
       },
     ]
 
-    mockedQuery.mockReturnValue(asyncGen(messages) as any)
+    mockedQuery.mockReturnValue(asyncGen(messages) as unknown as ReturnType<typeof query>)
 
     const events = []
     for await (const event of provider.stream(makeTask())) {
@@ -403,9 +403,9 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
     }
 
     const toolResult = events.find(e => e.type === 'tool_result')
-    expect((toolResult as any).toolName).toBe('Bash')
-    expect((toolResult as any).success).toBe(false)
-    expect((toolResult as any).toolUseId).toBe('toolu_err_1')
+    expect((toolResult as ToolResultStreamEvent).toolName).toBe('Bash')
+    expect((toolResult as ToolResultStreamEvent).success).toBe(false)
+    expect((toolResult as ToolResultStreamEvent).toolUseId).toBe('toolu_err_1')
   })
 
   it('should include text events alongside tool events', async () => {
@@ -434,7 +434,7 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
       },
     ]
 
-    mockedQuery.mockReturnValue(asyncGen(messages) as any)
+    mockedQuery.mockReturnValue(asyncGen(messages) as unknown as ReturnType<typeof query>)
 
     const events = []
     for await (const event of provider.stream(makeTask())) {
@@ -443,10 +443,10 @@ describe('ClaudeCodeProvider adapter bug fixes', () => {
 
     const textEvent = events.find(e => e.type === 'text')
     expect(textEvent).toBeDefined()
-    expect((textEvent as any).text).toBe('Let me check.')
+    expect((textEvent as TextStreamEvent).text).toBe('Let me check.')
 
     const toolUseEvent = events.find(e => e.type === 'tool_use')
-    expect((toolUseEvent as any).toolUseId).toBe('toolu_t1')
-    expect((toolUseEvent as any).toolName).toBe('Read')
+    expect((toolUseEvent as ToolUseStreamEvent).toolUseId).toBe('toolu_t1')
+    expect((toolUseEvent as ToolUseStreamEvent).toolName).toBe('Read')
   })
 })

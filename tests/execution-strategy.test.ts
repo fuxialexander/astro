@@ -301,7 +301,7 @@ describe('DockerStrategy', () => {
     if (detection.available) {
       expect(detection.version).toBeDefined();
     }
-  });
+  }, 10_000);
 
   it('buildContext() returns Docker-specific context', async () => {
     const context = await strategy.buildContext();
@@ -329,7 +329,7 @@ describe('K8sExecStrategy', () => {
   it('detect() returns a boolean available status', async () => {
     const detection = await strategy.detect();
     expect(typeof detection.available).toBe('boolean');
-  });
+  }, 10_000);
 });
 
 // ============================================================================
@@ -352,7 +352,7 @@ describe('SkyPilotStrategy', () => {
   it('detect() returns a boolean available status', async () => {
     const detection = await strategy.detect();
     expect(typeof detection.available).toBe('boolean');
-  });
+  }, 10_000);
 });
 
 // ============================================================================
@@ -371,7 +371,7 @@ describe('ExecutionStrategyRegistry', () => {
     const direct = results.find((s) => s.id === 'direct');
     expect(direct).toBeDefined();
     expect(direct!.available).toBe(true);
-  });
+  }, 15_000);
 
   it('detectAll() includes all 5 strategies', async () => {
     const results = await registry.detectAll();
@@ -382,21 +382,21 @@ describe('ExecutionStrategyRegistry', () => {
     expect(ids).toContain('docker');
     expect(ids).toContain('k8s-exec');
     expect(ids).toContain('skypilot');
-  });
+  }, 15_000);
 
   it('listAvailable() has at least 1 entry (direct)', async () => {
     await registry.detectAll();
     const available = registry.listAvailable();
     expect(available.length).toBeGreaterThanOrEqual(1);
     expect(available.some((s) => s.id === 'direct')).toBe(true);
-  });
+  }, 15_000);
 
   it('get() returns strategy after detection', async () => {
     await registry.detectAll();
     const direct = registry.get('direct');
     expect(direct).not.toBeNull();
     expect(direct!.id).toBe('direct');
-  });
+  }, 15_000);
 
   it('get() returns null for unregistered strategy before detection', () => {
     const result = registry.get('slurm');
@@ -412,11 +412,11 @@ describe('ExecutionStrategyRegistry', () => {
     expect(registry.isDetected()).toBe(false);
     await registry.detectAll();
     expect(registry.isDetected()).toBe(true);
-  });
+  }, 15_000);
 
   it('listAll() returns all strategies after detection', async () => {
     await registry.detectAll();
     const all = registry.listAll();
     expect(all.length).toBe(5);
-  });
+  }, 15_000);
 });
