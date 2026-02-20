@@ -29,6 +29,8 @@ import type {
 interface SessionState {
   sessions: Map<string, Session>
   loaded: boolean
+  // Track active session per project+type combination (e.g. "projectId:plan-chat" -> sessionId)
+  activeSessionIds: Map<string, string>
 
   // Lifecycle
   load: () => Promise<void>
@@ -54,6 +56,11 @@ interface SessionState {
   getSessionsForNode: (nodeId: string, type?: SessionType) => Session[]
   getSessionsForProject: (projectId: string, type?: SessionType) => Session[]
 
+  // Active session tracking
+  getActiveSessionId: (projectId: string, type: SessionType) => string | undefined
+  setActiveSessionId: (projectId: string, type: SessionType, sessionId: string) => void
+  clearActiveSessionId: (projectId: string, type: SessionType) => void
+
   // Message ops
   addMessage: (sessionId: string, message: Omit<SessionMessage, "id" | "timestamp">) => void
   appendToLastAssistantMessage: (sessionId: string, chunk: string) => void
@@ -75,6 +82,9 @@ interface SessionState {
   // Steer ops
   addSteerMessage: (sessionId: string, message: string, interrupted?: boolean) => void
   updateSteerMessage: (sessionId: string, index: number, update: { accepted?: boolean; ackMessage?: string }) => void
+
+  // Session management
+  renameSession: (sessionId: string, title: string) => void
 
   // Cleanup
   deleteSession: (sessionId: string) => void
@@ -182,8 +192,18 @@ function migrateTaskChatData(
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
   loaded: false,
+  activeSessionIds: new Map(),
 
   load: async () => {
+    // Load active session IDs from IndexedDB
+    const savedActiveIds = await loadState<Record<string, string>>("astro-active-sessions")
+    const activeSessionIds = new Map<string, string>()
+    if (savedActiveIds) {
+      for (const [key, value] of Object.entries(savedActiveIds)) {
+        activeSessionIds.set(key, value)
+      }
+    }
+
     try {
       // Try API first
       const apiSessions = await dataClient.getAllSessions()
@@ -192,7 +212,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         for (const session of apiSessions) {
           sessions.set(session.id, session)
         }
-        set({ sessions, loaded: true })
+        set({ sessions, loaded: true, activeSessionIds })
         // Save to IndexedDB for offline cache
         saveState("astro-sessions", serializeSessions(sessions))
         return
@@ -204,7 +224,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // Fallback to IndexedDB
     const saved = await loadState<Record<string, Session>>("astro-sessions")
     if (saved && Object.keys(saved).length > 0) {
-      set({ sessions: deserializeSessions(saved), loaded: true })
+      set({ sessions: deserializeSessions(saved), loaded: true, activeSessionIds })
       return
     }
 
@@ -212,12 +232,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const oldChats = await loadState<Record<string, unknown>>("astro-task-chats")
     if (oldChats && Object.keys(oldChats).length > 0) {
       const migrated = migrateTaskChatData(oldChats as Parameters<typeof migrateTaskChatData>[0])
-      set({ sessions: migrated, loaded: true })
+      set({ sessions: migrated, loaded: true, activeSessionIds })
       immediateSave(migrated)
       return
     }
 
-    set({ loaded: true })
+    set({ loaded: true, activeSessionIds })
   },
 
   createSession: (params) => {
@@ -303,6 +323,37 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     }
     return result.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+  },
+
+  getActiveSessionId: (projectId, type) => {
+    const key = `${projectId}:${type}`
+    return get().activeSessionIds.get(key)
+  },
+
+  setActiveSessionId: (projectId, type, sessionId) => {
+    const key = `${projectId}:${type}`
+    const activeSessionIds = new Map(get().activeSessionIds)
+    activeSessionIds.set(key, sessionId)
+    set({ activeSessionIds })
+    // Persist active session IDs to IndexedDB
+    const activeIds: Record<string, string> = {}
+    activeSessionIds.forEach((value, k) => {
+      activeIds[k] = value
+    })
+    saveState("astro-active-sessions", activeIds)
+  },
+
+  clearActiveSessionId: (projectId, type) => {
+    const key = `${projectId}:${type}`
+    const activeSessionIds = new Map(get().activeSessionIds)
+    activeSessionIds.delete(key)
+    set({ activeSessionIds })
+    // Persist active session IDs to IndexedDB
+    const activeIds: Record<string, string> = {}
+    activeSessionIds.forEach((value, k) => {
+      activeIds[k] = value
+    })
+    saveState("astro-active-sessions", activeIds)
   },
 
   addMessage: (sessionId, message) => {
@@ -615,6 +666,27 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }).catch(() => {})
   },
 
+  renameSession: (sessionId, title) => {
+    const sessions = new Map(get().sessions)
+    const session = sessions.get(sessionId)
+    if (!session) return
+
+    const updated = {
+      ...session,
+      metadata: {
+        ...session.metadata,
+        title,
+      },
+      updatedAt: new Date(),
+    }
+
+    sessions.set(sessionId, updated)
+    set({ sessions })
+    immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { metadata: updated.metadata, updatedAt: updated.updatedAt }).catch(() => {})
+  },
+
   deleteSession: (sessionId) => {
     const sessions = new Map(get().sessions)
     sessions.delete(sessionId)
@@ -641,3 +713,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 }))
+
+/**
+ * Get display title for a session
+ * Priority: custom title > first user message preview > date fallback
+ */
+export function getSessionTitle(session: Session): string {
+  // Check for custom title in metadata
+  if (session.metadata?.title && typeof session.metadata.title === "string") {
+    return session.metadata.title
+  }
+
+  // Auto-generate from first user message
+  const firstUserMsg = session.messages.find((m) => m.role === "user")
+  if (firstUserMsg?.content) {
+    const preview = firstUserMsg.content.slice(0, 50)
+    return preview.length < firstUserMsg.content.length ? `${preview}...` : preview
+  }
+
+  // Fallback to timestamp-based name
+  return `Session ${session.createdAt.toLocaleDateString()}`
+}
