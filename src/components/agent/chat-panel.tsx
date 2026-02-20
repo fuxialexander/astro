@@ -772,6 +772,11 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
 
               // Update message display with clean content and mutation record
               updateLastAssistantMessage(sid, cleanContent, mutations)
+            } else {
+              // Force an immediate save — appendToLastAssistantMessage only
+              // debounce-saves to IndexedDB and never calls the API, so without
+              // this the final content can be lost on reload.
+              updateLastAssistantMessage(sid, rawAssistantText)
             }
             setIsStreaming(false)
           },
