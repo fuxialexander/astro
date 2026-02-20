@@ -568,7 +568,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         onConnectEnd={onConnectEnd}
         connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{
-          stroke: "hsl(var(--primary))",
+          stroke: "var(--primary)",
           strokeWidth: 3,
           strokeLinecap: "round",
           strokeDasharray: "5,5",
@@ -580,7 +580,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         proOptions={{ hideAttribution: true }}
         className="bg-background"
       >
-        <Background gap={40} size={2} color="hsl(var(--muted-foreground))" style={{ opacity: 0.15 }} variant={BackgroundVariant.Dots} />
+        <Background gap={40} size={2} color="var(--muted-foreground)" style={{ opacity: 0.15 }} variant={BackgroundVariant.Dots} />
 
         {/* Status legend */}
         <div className="react-flow__panel absolute bottom-3 left-14 z-10 flex items-center gap-3 rounded-lg border border-border bg-card/85 backdrop-blur-sm px-2.5 py-1.5 shadow-sm text-[10px] font-medium">

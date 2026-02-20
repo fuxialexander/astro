@@ -116,6 +116,10 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
     const plugins = new Map(get().plugins)
     const entry = plugins.get(id)
     if (entry) {
+      // Call deactivate() on the instance before clearing it
+      entry.instance?.deactivate?.().catch((err) => {
+        console.warn(`[PluginStore] deactivate() failed for "${id}":`, err)
+      })
       plugins.set(id, { ...entry, enabled: false, instance: undefined, contributions: undefined })
       set({ plugins })
       saveState(IDB_KEY, serializePlugins(plugins))

@@ -32,94 +32,86 @@ export function PluginLoader({ children }: Props) {
   const unregisterExternalItem = useSidebarStore((s) => s.unregisterExternalItem)
   const { registerTheme, unregisterTheme } = useTheme()
   const builtinRegisteredRef = useRef(false)
-  // Track which plugins have been bridged to sidebar/theme
-  const bridgedPluginsRef = useRef(new Set<string>())
+  // Track which plugins have been bridged AND what contributions were bridged
+  // so we can properly unregister even after contributions are cleared from the store
+  const bridgedRef = useRef(new Map<string, PluginContributions>())
+  // Track plugins currently being activated to prevent double-activation
+  const activatingRef = useRef(new Set<string>())
 
-  // Register and activate built-in plugins on first mount
+  // Phase 1: Register built-in plugin manifests (one-time)
   useEffect(() => {
     if (builtinRegisteredRef.current) return
     builtinRegisteredRef.current = true
 
     for (const plugin of BUILTIN_PLUGINS) {
-      const existing = plugins.get(plugin.manifest.id)
-      if (!existing) {
+      if (!plugins.has(plugin.manifest.id)) {
         registerPlugin(plugin.manifest)
       }
-      if (existing && !existing.enabled) continue
-      if (existing?.contributions) continue // Already activated
-
-      const context = createPluginContext(
-        plugin.manifest.id,
-        existing?.config ?? {},
-        (config) => updatePluginConfig(plugin.manifest.id, config)
-      )
-      plugin.activate(context)
-        .then((contributions) => {
-          setPluginInstance(plugin.manifest.id, plugin, contributions)
-        })
-        .catch((error) => {
-          console.error(`[PluginLoader] Failed to activate built-in plugin "${plugin.manifest.id}":`, error)
-          setPluginError(plugin.manifest.id, error instanceof Error ? error.message : String(error))
-        })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Sync plugin contributions to sidebar and theme provider.
-  // Runs whenever plugins map changes (activation, enable/disable).
+  // Phase 2: Activate enabled plugins that need activation (builtins + user plugins)
   useEffect(() => {
-    const bridged = bridgedPluginsRef.current
-
     for (const [id, entry] of plugins) {
-      const shouldBridge = entry.enabled && entry.contributions
-      const isBridged = bridged.has(id)
-
-      if (shouldBridge && !isBridged) {
-        // Bridge new contributions
-        bridgeContributions(id, entry.contributions!)
-        bridged.add(id)
-      } else if (!shouldBridge && isBridged) {
-        // Unbridge removed/disabled contributions
-        unbridgeContributions(id, entry.contributions)
-        bridged.delete(id)
-      }
-    }
-
-    // Clean up plugins that were removed from the map entirely
-    for (const id of bridged) {
-      if (!plugins.has(id)) {
-        unbridgeContributions(id)
-        bridged.delete(id)
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plugins])
-
-  // Activate user-installed (non-builtin) plugins that have instances
-  useEffect(() => {
-    const builtinIds = new Set(BUILTIN_PLUGINS.map((p) => p.manifest.id))
-
-    for (const [id, entry] of plugins) {
-      if (builtinIds.has(id)) continue
       if (!entry.enabled) continue
-      if (!entry.instance) continue
-      if (entry.contributions) continue
+      if (entry.contributions) continue // Already activated
+      if (activatingRef.current.has(id)) continue // Currently activating
 
+      // Resolve the plugin module: builtin or user-installed instance
+      const builtinPlugin = BUILTIN_PLUGINS.find((p) => p.manifest.id === id)
+      const pluginModule = builtinPlugin ?? entry.instance
+      if (!pluginModule) continue
+
+      activatingRef.current.add(id)
       const context = createPluginContext(
         id,
         entry.config,
         (config) => updatePluginConfig(id, config)
       )
 
-      entry.instance
+      pluginModule
         .activate(context)
         .then((contributions) => {
-          setPluginInstance(id, entry.instance!, contributions)
+          setPluginInstance(id, pluginModule, contributions)
         })
         .catch((error) => {
           console.error(`[PluginLoader] Failed to activate plugin "${id}":`, error)
           setPluginError(id, error instanceof Error ? error.message : String(error))
         })
+        .finally(() => {
+          activatingRef.current.delete(id)
+        })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plugins])
+
+  // Phase 3: Bridge contributions to sidebar and theme provider.
+  // Uses bridgedRef Map to remember what was bridged for proper cleanup.
+  useEffect(() => {
+    const bridged = bridgedRef.current
+
+    for (const [id, entry] of plugins) {
+      const shouldBridge = entry.enabled && entry.contributions
+      const wasBridged = bridged.has(id)
+
+      if (shouldBridge && !wasBridged) {
+        // Bridge new contributions
+        bridgeContributions(id, entry.contributions!)
+        bridged.set(id, entry.contributions!)
+      } else if (!shouldBridge && wasBridged) {
+        // Unbridge using the remembered contributions (not the cleared entry)
+        unbridgeContributions(id, bridged.get(id)!)
+        bridged.delete(id)
+      }
+    }
+
+    // Clean up plugins that were removed from the map entirely
+    for (const [id, contributions] of bridged) {
+      if (!plugins.has(id)) {
+        unbridgeContributions(id, contributions)
+        bridged.delete(id)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plugins])
@@ -144,13 +136,13 @@ export function PluginLoader({ children }: Props) {
     }
   }
 
-  function unbridgeContributions(pluginId: string, contributions?: PluginContributions) {
-    if (contributions?.sidebarItems) {
+  function unbridgeContributions(pluginId: string, contributions: PluginContributions) {
+    if (contributions.sidebarItems) {
       for (const item of contributions.sidebarItems) {
         unregisterExternalItem(`${pluginId}:${item.id}`)
       }
     }
-    if (contributions?.themes) {
+    if (contributions.themes) {
       for (const theme of contributions.themes) {
         unregisterTheme(theme.id)
       }
