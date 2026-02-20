@@ -243,8 +243,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
   }, [createSession, projectId, setActiveSessionId])
 
   // Handler to open session edit dialog
-  const handleEditSession = useCallback((session: Session, e: React.MouseEvent) => {
-    e.stopPropagation() // Prevent dropdown item click
+  const handleEditSession = useCallback((session: Session, e?: React.UIEvent) => {
+    e?.stopPropagation() // Prevent dropdown item click
     setEditingSession(session)
     setSessionDialogOpen(true)
   }, [])
@@ -839,7 +839,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                   <span className="text-xs font-semibold">Sessions</span>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleClearAllSessions() }}
+                      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleClearAllSessions() }}
                       className="flex items-center gap-1 text-[10px] text-destructive hover:text-destructive/80 font-normal px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-colors"
                       title="Delete all sessions"
                     >
@@ -847,7 +847,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                       Clear All
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleNewSession() }}
+                      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleNewSession() }}
                       className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-normal px-1.5 py-0.5 rounded hover:bg-primary/10 transition-colors"
                       title="New session"
                     >
@@ -876,14 +876,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                           <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
                         )}
                         <button
-                          onClick={(e) => handleEditSession(session, e)}
+                          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleEditSession(session, e) }}
                           className="p-0.5 hover:bg-accent rounded opacity-60 hover:opacity-100 transition-opacity"
                           title="Rename session"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
                         <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
+                          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteSession(session.id) }}
                           className="p-0.5 hover:bg-destructive/10 rounded opacity-60 hover:opacity-100 transition-opacity text-destructive"
                           title="Delete session"
                         >
