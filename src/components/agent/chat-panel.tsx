@@ -21,6 +21,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { SessionDialog } from "@/components/session-dialog"
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import type { PlanNode, ProviderStatus, Session } from "@/types"
 
@@ -1016,9 +1017,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                 }`}
               >
                 {msg.content ? (
-                  <pre className="whitespace-pre-wrap font-primary text-sm">
-                    {msg.content}
-                  </pre>
+                  msg.role === "assistant" ? (
+                    <MarkdownRenderer content={msg.content} className="text-sm" />
+                  ) : (
+                    <pre className="whitespace-pre-wrap font-primary text-sm">
+                      {msg.content}
+                    </pre>
+                  )
                 ) : isStreaming && i === messages.length - 1 ? (
                   <TypingIndicator className="text-muted-foreground py-1" />
                 ) : null}
