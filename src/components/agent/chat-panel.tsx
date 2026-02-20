@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle, MessageSquare, Plus, History, MoreHorizontal } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle, MessageSquare, Plus, History, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -276,6 +276,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
       }
     }
   }, [currentSession?.id, deleteSession, planChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
+
+  // Handler to clear all sessions
+  const handleClearAllSessions = useCallback(() => {
+    for (const session of planChatSessions) {
+      deleteSession(session.id)
+    }
+    clearActiveSessionId(projectId, "plan-chat")
+  }, [planChatSessions, deleteSession, projectId, clearActiveSessionId])
 
   // Filtered slash commands for autocomplete
   const filteredSlashCommands = useMemo(() => {
@@ -826,17 +834,28 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                   <ChevronDown className="h-2.5 w-2.5 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[220px]">
-                <DropdownMenuLabel className="flex items-center justify-between">
-                  <span>Sessions</span>
-                  <button
-                    onClick={handleNewSession}
-                    className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-normal"
-                  >
-                    <Plus className="h-3 w-3" />
-                    New
-                  </button>
-                </DropdownMenuLabel>
+              <DropdownMenuContent align="start" className="w-[240px]">
+                <div className="flex items-center justify-between px-2 py-1.5">
+                  <span className="text-xs font-semibold">Sessions</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleClearAllSessions() }}
+                      className="flex items-center gap-1 text-[10px] text-destructive hover:text-destructive/80 font-normal px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-colors"
+                      title="Delete all sessions"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Clear All
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleNewSession() }}
+                      className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-normal px-1.5 py-0.5 rounded hover:bg-primary/10 transition-colors"
+                      title="New session"
+                    >
+                      <Plus className="h-3 w-3" />
+                      New
+                    </button>
+                  </div>
+                </div>
                 <DropdownMenuSeparator />
                 {[...planChatSessions].reverse().map((session) => {
                   const messageCount = session.messages.length
@@ -858,10 +877,17 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                         )}
                         <button
                           onClick={(e) => handleEditSession(session, e)}
-                          className="p-1 hover:bg-accent rounded opacity-60 hover:opacity-100 transition-opacity"
-                          title="Edit session"
+                          className="p-0.5 hover:bg-accent rounded opacity-60 hover:opacity-100 transition-opacity"
+                          title="Rename session"
                         >
-                          <MoreHorizontal className="h-3 w-3" />
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
+                          className="p-0.5 hover:bg-destructive/10 rounded opacity-60 hover:opacity-100 transition-opacity text-destructive"
+                          title="Delete session"
+                        >
+                          <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
                       <span className="text-[10px] text-muted-foreground truncate w-full pl-5">

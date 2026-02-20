@@ -248,6 +248,7 @@ create table task_executions (
   estimated_cost_usd real,
   model text,
   turns_used integer,
+  markdown_summary text,
   created_at timestamptz not null default now()
 );
 
