@@ -57,7 +57,7 @@ export function TaskDetail() {
       <div className="flex flex-col items-center justify-center h-full gap-4">
         <p className="text-muted-foreground">Task not found</p>
         <Button variant="outline" asChild>
-          <Link to={`/project/${projectId}/graph`}>Back to Plan</Link>
+          <Link to={`/project/${projectId}/list`}>Back to Plan</Link>
         </Button>
       </div>
     )
@@ -92,9 +92,9 @@ export function TaskDetail() {
           // Navigate back to the view we came from
           const returnView = searchParams.get("from")
           if (returnView && projectId) {
-            navigate(`/project/${projectId}/plan?view=${returnView}`)
+            navigate(`/project/${projectId}/${returnView}`)
           } else if (projectId) {
-            navigate(`/project/${projectId}/plan`)
+            navigate(`/project/${projectId}/list`)
           } else {
             navigate(-1)
           }
@@ -201,7 +201,8 @@ export function TaskDetail() {
               setIsResetting(true)
               try {
                 await resetExecution(nodeId)
-                navigate(`/project/${projectId}/plan`)
+                const returnView = searchParams.get("from") || "list"
+                navigate(`/project/${projectId}/${returnView}`)
               } finally {
                 setIsResetting(false)
               }
