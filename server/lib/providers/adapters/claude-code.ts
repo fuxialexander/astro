@@ -253,7 +253,7 @@ export class ClaudeCodeProvider implements AgentProvider {
             }
           : {
               // Planning-without-repo & chat: no tools needed, just text generation
-              tools: [],
+              allowedTools: [],
             }),
       }
 
@@ -480,7 +480,7 @@ export class ClaudeCodeProvider implements AgentProvider {
             }
           : {
               // Planning-without-repo & chat: no tools needed, just text generation
-              tools: [],
+              allowedTools: [],
             }),
       }
 

@@ -46,6 +46,7 @@ import { loadAndActivateChannelPlugins } from './lib/plugin-loader.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
 import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
+import { cleanupExpired as cleanupChatPool } from './lib/chat-session-pool.js'
 
 // Validate environment variables on startup
 try {
@@ -190,6 +191,7 @@ const port = 3001
 const relayPort = getRelayConfig().port
 
 let httpServer: ReturnType<typeof serve> | null = null
+let chatPoolCleanup: ReturnType<typeof setInterval> | null = null
 
 /**
  * Kill any stale processes listening on a port.
@@ -387,6 +389,16 @@ async function start() {
     console.log('[cleanup] Cleanup scheduler started')
   }
 
+  // Clean expired chat session pool entries every 10 minutes
+  if (!isTest()) {
+    chatPoolCleanup = setInterval(() => {
+      const cleaned = cleanupChatPool(30 * 60 * 1000)
+      if (cleaned > 0) {
+        console.log(`[chat-pool] Cleaned ${cleaned} expired session(s)`)
+      }
+    }, 10 * 60 * 1000)
+  }
+
   httpServer = serve({ fetch: app.fetch, port })
   httpServer.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
@@ -427,6 +439,10 @@ async function shutdown(signal: string) {
     process.exit(1)
   }, 3_000)
   timer.unref()
+
+  if (chatPoolCleanup) {
+    clearInterval(chatPoolCleanup)
+  }
 
   try {
     stopCleanupScheduler()

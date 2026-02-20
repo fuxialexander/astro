@@ -14,6 +14,7 @@ import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
 import { requireAuth } from '../middleware/auth.js'
 import { errorMessage, isAbortError } from '../lib/error-utils.js'
+import * as chatSessionPool from '../lib/chat-session-pool.js'
 
 // Validation schemas
 const generatePlanSchema = z.object({
@@ -641,6 +642,8 @@ agentRoute.post('/chat', async (c) => {
   const abortController = createSession(taskId, providerId)
 
   return streamSSE(c, async (stream) => {
+    // Track which pool key we resumed from (null if not using pool resume)
+    let resumedPoolKey: string | null = null
     try {
       // Get provider — use the same provider for initial and follow-up messages.
       // anthropic-direct handles multi-turn statelessly via historyMessages,
@@ -657,21 +660,33 @@ agentRoute.post('/chat', async (c) => {
 
       const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
 
-      // Build task dispatch
-      // For providers that support multi-turn via messages (anthropic-direct),
-      // pass history in the messages field. For providers that don't (claude-code),
-      // embed history into the prompt and skip session resume (which is unreliable).
-      const supportsMessages = provider.capabilities().supportsSessionResume === false
+      // Build task dispatch — hybrid resume/fallback approach:
+      // 1. If provider supports SDK resume, try pool-based resume first (fast, preserves context)
+      // 2. Fall back to inline history if no pool entry or provider mismatch
+      // 3. For providers with native messages support (anthropic-direct), pass history directly
+      const supportsResume = provider.capabilities().supportsSessionResume === true
+      const poolKey = `${projectId}:plan-chat`
       let chatPrompt = message
       let chatSessionId = existingSessionId
 
-      if (!supportsMessages && historyMessages && historyMessages.length > 0) {
-        // claude-code provider: embed history into prompt, skip resume
-        const historyText = historyMessages
-          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-          .join('\n\n')
-        chatPrompt = `Previous conversation:\n${historyText}\n\nUser: ${message}`
-        chatSessionId = undefined // Don't resume — use inline history instead
+      if (supportsResume && historyMessages && historyMessages.length > 0) {
+        // Provider supports SDK resume — try pool-based resume first
+        const poolEntry = chatSessionPool.getSession(poolKey)
+        if (poolEntry && poolEntry.providerId === provider.id) {
+          // Resume from pool — no need to embed history
+          chatSessionId = poolEntry.sdkSessionId
+          resumedPoolKey = poolKey
+        } else {
+          // No pool entry or provider mismatch — embed history inline
+          const historyText = historyMessages
+            .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+            .join('\n\n')
+          chatPrompt = `Previous conversation:\n${historyText}\n\nUser: ${message}`
+          chatSessionId = undefined
+        }
+      } else if (!supportsResume && historyMessages && historyMessages.length > 0) {
+        // Provider handles multi-turn via messages array (anthropic-direct)
+        // No changes needed — messages passed directly below
       }
 
       const task: TaskDispatch = {
@@ -687,7 +702,7 @@ agentRoute.post('/chat', async (c) => {
           visionDoc,
         },
         abortController,
-        messages: supportsMessages ? historyMessages : undefined,
+        messages: !supportsResume ? historyMessages : undefined,
       }
 
       // Stream the execution
@@ -698,6 +713,10 @@ agentRoute.post('/chat', async (c) => {
             break
 
           case 'result':
+            // Store SDK session for future resume
+            if (supportsResume && event.result.sessionId) {
+              chatSessionPool.storeSession(poolKey, event.result.sessionId, provider.id)
+            }
             await stream.writeSSE({
               event: 'done',
               data: JSON.stringify({
@@ -717,6 +736,10 @@ agentRoute.post('/chat', async (c) => {
         }
       }
     } catch (e: unknown) {
+      if (resumedPoolKey) {
+        // Resume failed — remove stale pool entry
+        chatSessionPool.removeSession(resumedPoolKey)
+      }
       if (isAbortError(e)) {
         await stream.writeSSE({ event: 'aborted', data: '' })
       } else {
@@ -766,6 +789,8 @@ agentRoute.post('/task-chat', async (c) => {
   const abortController = createSession(taskId, providerId)
 
   return streamSSE(c, async (stream) => {
+    // Track which pool key we resumed from (null if not using pool resume)
+    let resumedPoolKey: string | null = null
     try {
       // Get provider — use the same provider for initial and follow-up messages.
       // anthropic-direct handles multi-turn statelessly via historyMessages,
@@ -787,21 +812,30 @@ agentRoute.post('/task-chat', async (c) => {
         visionDoc,
       })
 
-      // Build task dispatch
-      // For providers that support multi-turn via messages (anthropic-direct),
-      // pass history in the messages field. For providers that don't (claude-code),
-      // embed history into the prompt and skip session resume (which is unreliable).
-      const supportsMessages = provider.capabilities().supportsSessionResume === false
+      // Build task dispatch — hybrid resume/fallback approach (same as /chat)
+      const supportsResume = provider.capabilities().supportsSessionResume === true
+      const poolKey = `${projectId}:task-chat:${nodeId}`
       let chatPrompt = message
       let chatSessionId = existingSessionId
 
-      if (!supportsMessages && historyMessages && historyMessages.length > 0) {
-        // claude-code provider: embed history into prompt, skip resume
-        const historyText = historyMessages
-          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-          .join('\n\n')
-        chatPrompt = `Previous conversation:\n${historyText}\n\nUser: ${message}`
-        chatSessionId = undefined // Don't resume — use inline history instead
+      if (supportsResume && historyMessages && historyMessages.length > 0) {
+        // Provider supports SDK resume — try pool-based resume first
+        const poolEntry = chatSessionPool.getSession(poolKey)
+        if (poolEntry && poolEntry.providerId === provider.id) {
+          // Resume from pool — no need to embed history
+          chatSessionId = poolEntry.sdkSessionId
+          resumedPoolKey = poolKey
+        } else {
+          // No pool entry or provider mismatch — embed history inline
+          const historyText = historyMessages
+            .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+            .join('\n\n')
+          chatPrompt = `Previous conversation:\n${historyText}\n\nUser: ${message}`
+          chatSessionId = undefined
+        }
+      } else if (!supportsResume && historyMessages && historyMessages.length > 0) {
+        // Provider handles multi-turn via messages array (anthropic-direct)
+        // No changes needed — messages passed directly below
       }
 
       const task: TaskDispatch = {
@@ -819,7 +853,7 @@ agentRoute.post('/task-chat', async (c) => {
           taskOutput,
         },
         abortController,
-        messages: supportsMessages ? historyMessages : undefined,
+        messages: !supportsResume ? historyMessages : undefined,
       }
 
       // Stream the execution
@@ -830,6 +864,10 @@ agentRoute.post('/task-chat', async (c) => {
             break
 
           case 'result':
+            // Store SDK session for future resume
+            if (supportsResume && event.result.sessionId) {
+              chatSessionPool.storeSession(poolKey, event.result.sessionId, provider.id)
+            }
             await stream.writeSSE({
               event: 'done',
               data: JSON.stringify({
@@ -849,6 +887,10 @@ agentRoute.post('/task-chat', async (c) => {
         }
       }
     } catch (e: unknown) {
+      if (resumedPoolKey) {
+        // Resume failed — remove stale pool entry
+        chatSessionPool.removeSession(resumedPoolKey)
+      }
       if (isAbortError(e)) {
         await stream.writeSSE({ event: 'aborted', data: '' })
       } else {
