@@ -3,22 +3,41 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useMemo,
   type KeyboardEvent,
   type ChangeEvent,
 } from "react"
 import { createPortal } from "react-dom"
+import { FileCode2, Hash } from "lucide-react"
 import { cn } from "@/lib/utils"
+
+export interface SlashCommand {
+  name: string
+  description: string
+}
+
+export interface MentionItem {
+  id: string
+  label: string
+  /** Secondary text shown in the dropdown */
+  detail?: string
+  /** Icon category for styling */
+  kind: "task" | "milestone" | "special"
+}
 
 interface FileCompletionTextareaProps {
   projectId: string
   machineId?: string
   workingDirectory?: string
   fileTree?: string[]
+  slashCommands?: SlashCommand[]
+  mentionItems?: MentionItem[]
   value: string
   onChange: (value: string) => void
   placeholder?: string
   rows?: number
   className?: string
+  disabled?: boolean
   onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void
   onSubmit?: (opts?: { interrupt?: boolean }) => void
 }
@@ -40,41 +59,85 @@ export function FileCompletionTextarea({
   machineId,
   workingDirectory,
   fileTree,
+  slashCommands,
+  mentionItems,
   value,
   onChange,
   placeholder,
   rows = 1,
   className,
+  disabled,
   onKeyDown,
   onSubmit,
 }: FileCompletionTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const slashDropdownRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const abortRef = useRef<AbortController>(undefined)
 
-  // Completion state: track if we're actively completing and the '@' position
+  // File completion state: track if we're actively completing and the '@' position
   const [atIndex, setAtIndex] = useState(-1)
   const [files, setFiles] = useState<string[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [loading, setLoading] = useState(false)
   const [dropdownPos, setDropdownPos] = useState<DropdownPosition | null>(null)
 
-  const isActive = atIndex >= 0
-  const hasFileTree = !!(fileTree && fileTree.length > 0)
-  const canComplete = hasFileTree || !!(workingDirectory || machineId)
+  // Slash command completion state
+  const [slashActive, setSlashActive] = useState(false)
+  const [slashFilter, setSlashFilter] = useState("")
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
+  const [slashDropdownPos, setSlashDropdownPos] = useState<DropdownPosition | null>(null)
 
-  // Compute dropdown position from textarea bounding rect
-  const updateDropdownPosition = useCallback(() => {
+  const filteredSlashCommands = useMemo(() => {
+    if (!slashCommands || !slashActive) return []
+    if (!slashFilter) return slashCommands
+    const lowerFilter = slashFilter.toLowerCase()
+    return slashCommands.filter((cmd) => cmd.name.toLowerCase().includes(lowerFilter))
+  }, [slashCommands, slashActive, slashFilter])
+
+  // Mention query (for mentionItems mode)
+  const [mentionQuery, setMentionQuery] = useState("")
+
+  const isActive = atIndex >= 0
+  const hasMentionItems = !!(mentionItems && mentionItems.length > 0)
+  const hasFileTree = !!(fileTree && fileTree.length > 0)
+  const canComplete = hasMentionItems || hasFileTree || !!(workingDirectory || machineId)
+
+  // Filter mention items by query (client-side, instant)
+  const filteredMentions = useMemo(() => {
+    if (!hasMentionItems || !isActive) return []
+    const q = mentionQuery.toLowerCase()
+    return mentionItems!.filter((item) =>
+      item.label.toLowerCase().includes(q) ||
+      item.detail?.toLowerCase().includes(q)
+    ).slice(0, 20)
+  }, [mentionItems, mentionQuery, isActive, hasMentionItems])
+
+  // Compute dropdown position from textarea bounding rect (shared by @ and / menus)
+  const computeDropdownPosition = useCallback((opts?: { minWidth?: number }): DropdownPosition | null => {
     const textarea = textareaRef.current
-    if (!textarea) return
+    if (!textarea) return null
     const rect = textarea.getBoundingClientRect()
-    setDropdownPos({
-      top: rect.bottom + 4,
+    const maxDropdownHeight = hasMentionItems ? 280 : 240
+    const spaceBelow = window.innerHeight - rect.bottom
+    const showAbove = spaceBelow < maxDropdownHeight + 8
+    return {
+      top: showAbove ? rect.top - maxDropdownHeight - 4 : rect.bottom + 4,
       left: rect.left,
-      width: rect.width,
-    })
-  }, [])
+      width: Math.max(rect.width, opts?.minWidth ?? 0),
+    }
+  }, [hasMentionItems])
+
+  const updateDropdownPosition = useCallback(() => {
+    const pos = computeDropdownPosition(hasMentionItems ? { minWidth: 300 } : undefined)
+    if (pos) setDropdownPos(pos)
+  }, [computeDropdownPosition, hasMentionItems])
+
+  const updateSlashDropdownPosition = useCallback(() => {
+    const pos = computeDropdownPosition()
+    if (pos) setSlashDropdownPos(pos)
+  }, [computeDropdownPosition])
 
   // Client-side filter for cached file tree (instant, no network)
   const filterFileTree = useCallback(
@@ -144,17 +207,26 @@ export function FileCompletionTextarea({
     }
   }, [])
 
-  // Dismiss the completion
+  // Dismiss the @ completion (file or mention)
   const dismiss = useCallback(() => {
     setAtIndex(-1)
     setFiles([])
+    setMentionQuery("")
     setLoading(false)
     setDropdownPos(null)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     abortRef.current?.abort()
   }, [])
 
-  // Detect @-trigger on value change
+  // Dismiss slash command completion
+  const dismissSlash = useCallback(() => {
+    setSlashActive(false)
+    setSlashFilter("")
+    setSlashSelectedIndex(0)
+    setSlashDropdownPos(null)
+  }, [])
+
+  // Detect @-trigger and /-trigger on value change
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLTextAreaElement>) => {
       const newValue = e.target.value
@@ -162,6 +234,28 @@ export function FileCompletionTextarea({
 
       onChange(newValue)
 
+      // Check for / slash command trigger
+      if (slashCommands && slashCommands.length > 0 && cursorPos > 0) {
+        const beforeCursor = newValue.slice(0, cursorPos)
+        const lastSlash = beforeCursor.lastIndexOf("/")
+        if (lastSlash >= 0) {
+          const charBefore = lastSlash > 0 ? newValue[lastSlash - 1] : " "
+          if (charBefore === " " || charBefore === "\n" || lastSlash === 0) {
+            const q = beforeCursor.slice(lastSlash + 1)
+            if (!q.includes(" ")) {
+              setSlashActive(true)
+              setSlashFilter(q)
+              setSlashSelectedIndex(0)
+              updateSlashDropdownPosition()
+              dismiss() // dismiss file completion if active
+              return
+            }
+          }
+        }
+      }
+      dismissSlash()
+
+      // Check for @ completion trigger (mentions or files)
       if (cursorPos > 0) {
         const beforeCursor = newValue.slice(0, cursorPos)
         const lastAt = beforeCursor.lastIndexOf("@")
@@ -170,11 +264,15 @@ export function FileCompletionTextarea({
           const charBefore = lastAt > 0 ? newValue[lastAt - 1] : " "
           if (charBefore === " " || charBefore === "\n" || lastAt === 0) {
             const q = beforeCursor.slice(lastAt + 1)
-            if (!q.includes(" ")) {
+            // Mention mode: allow spaces up to 60 chars
+            // File mode: no spaces allowed
+            const queryValid = hasMentionItems ? q.length <= 60 : !q.includes(" ")
+            if (queryValid) {
               setAtIndex(lastAt)
               updateDropdownPosition()
-              if (canComplete) {
-                // Prefer client-side filtering when fileTree is cached (avoids repeated remote requests)
+              if (hasMentionItems) {
+                setMentionQuery(q)
+              } else if (canComplete) {
                 if (hasFileTree) {
                   filterFileTree(q)
                 } else {
@@ -190,7 +288,7 @@ export function FileCompletionTextarea({
       // No active completion
       dismiss()
     },
-    [onChange, debouncedFetch, filterFileTree, updateDropdownPosition, dismiss, canComplete, hasFileTree],
+    [onChange, slashCommands, debouncedFetch, filterFileTree, updateDropdownPosition, updateSlashDropdownPosition, dismiss, dismissSlash, canComplete, hasFileTree, hasMentionItems],
   )
 
   // Insert the selected file path
@@ -216,22 +314,105 @@ export function FileCompletionTextarea({
     [atIndex, value, onChange, dismiss],
   )
 
+  // Insert a selected mention item
+  const insertMention = useCallback(
+    (item: MentionItem) => {
+      const textarea = textareaRef.current
+      if (atIndex < 0 || !textarea) return
+
+      const cursorPos = textarea.selectionStart
+      const before = value.slice(0, atIndex)
+      const after = value.slice(cursorPos)
+      const mention = item.kind === "special" ? `@${item.id}` : `@${item.label}`
+      const newValue = `${before}${mention} ${after}`
+
+      onChange(newValue)
+      dismiss()
+
+      requestAnimationFrame(() => {
+        const newPos = before.length + mention.length + 1
+        textarea.setSelectionRange(newPos, newPos)
+        textarea.focus()
+      })
+    },
+    [atIndex, value, onChange, dismiss],
+  )
+
+  // Insert a selected slash command
+  const insertSlashCommand = useCallback(
+    (cmd: SlashCommand) => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+
+      const cursorPos = textarea.selectionStart
+      const beforeCursor = value.slice(0, cursorPos)
+      const lastSlash = beforeCursor.lastIndexOf("/")
+      if (lastSlash < 0) return
+
+      const before = value.slice(0, lastSlash)
+      const after = value.slice(cursorPos)
+      const newValue = `${before}${cmd.name} ${after}`
+
+      onChange(newValue)
+      dismissSlash()
+
+      requestAnimationFrame(() => {
+        const newPos = lastSlash + cmd.name.length + 1 // command + space
+        textarea.setSelectionRange(newPos, newPos)
+        textarea.focus()
+      })
+    },
+    [value, onChange, dismissSlash],
+  )
+
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (isActive && files.length > 0) {
+      // Slash command navigation
+      if (slashActive && filteredSlashCommands.length > 0) {
         switch (e.key) {
           case "ArrowDown":
             e.preventDefault()
-            setSelectedIndex((prev) => (prev + 1) % files.length)
+            setSlashSelectedIndex((prev) => (prev + 1) % filteredSlashCommands.length)
             return
           case "ArrowUp":
             e.preventDefault()
-            setSelectedIndex((prev) => (prev - 1 + files.length) % files.length)
+            setSlashSelectedIndex((prev) => (prev - 1 + filteredSlashCommands.length) % filteredSlashCommands.length)
             return
           case "Tab":
           case "Enter":
-            if (files[selectedIndex]) {
+            if (filteredSlashCommands[slashSelectedIndex]) {
+              e.preventDefault()
+              insertSlashCommand(filteredSlashCommands[slashSelectedIndex])
+              return
+            }
+            break
+          case "Escape":
+            e.preventDefault()
+            dismissSlash()
+            return
+        }
+      }
+
+      // @ completion navigation (mentions or files)
+      const atItems = hasMentionItems ? filteredMentions : files
+      if (isActive && atItems.length > 0) {
+        switch (e.key) {
+          case "ArrowDown":
+            e.preventDefault()
+            setSelectedIndex((prev) => (prev + 1) % atItems.length)
+            return
+          case "ArrowUp":
+            e.preventDefault()
+            setSelectedIndex((prev) => (prev - 1 + atItems.length) % atItems.length)
+            return
+          case "Tab":
+          case "Enter":
+            if (hasMentionItems && filteredMentions[selectedIndex]) {
+              e.preventDefault()
+              insertMention(filteredMentions[selectedIndex])
+              return
+            } else if (!hasMentionItems && files[selectedIndex]) {
               e.preventDefault()
               insertFile(files[selectedIndex])
               return
@@ -244,9 +425,9 @@ export function FileCompletionTextarea({
         }
       }
 
-      // Submit on Enter (only when dropdown is not active)
+      // Submit on Enter (only when no dropdown is active)
       // Enter = queue (default), Shift+Enter = interrupt+send
-      if (e.key === "Enter" && !isActive && onSubmit) {
+      if (e.key === "Enter" && !isActive && !slashActive && onSubmit) {
         e.preventDefault()
         onSubmit({ interrupt: e.shiftKey })
         return
@@ -254,34 +435,49 @@ export function FileCompletionTextarea({
 
       onKeyDown?.(e)
     },
-    [isActive, files, selectedIndex, insertFile, dismiss, onSubmit, onKeyDown],
+    [slashActive, filteredSlashCommands, slashSelectedIndex, insertSlashCommand, dismissSlash, isActive, files, filteredMentions, hasMentionItems, selectedIndex, insertFile, insertMention, dismiss, onSubmit, onKeyDown],
   )
 
   // Close dropdown on blur with delay (allows click on dropdown items)
   const handleBlur = useCallback(() => {
-    setTimeout(dismiss, 150)
-  }, [dismiss])
+    setTimeout(() => { dismiss(); dismissSlash() }, 150)
+  }, [dismiss, dismissSlash])
 
-  // Scroll selected item into view
+  // Scroll selected item into view (file dropdown)
   useEffect(() => {
     if (!dropdownRef.current) return
     const item = dropdownRef.current.children[selectedIndex] as HTMLElement
     item?.scrollIntoView({ block: "nearest" })
   }, [selectedIndex])
 
+  // Scroll selected item into view (slash dropdown)
+  useEffect(() => {
+    if (!slashDropdownRef.current) return
+    const item = slashDropdownRef.current.children[slashSelectedIndex] as HTMLElement
+    item?.scrollIntoView({ block: "nearest" })
+  }, [slashSelectedIndex])
+
   // Reposition dropdown on scroll/resize while active
   useEffect(() => {
-    if (!isActive) return
-    const update = () => updateDropdownPosition()
+    if (!isActive && !slashActive) return
+    const update = () => {
+      if (isActive) updateDropdownPosition()
+      if (slashActive) updateSlashDropdownPosition()
+    }
     window.addEventListener("scroll", update, true)
     window.addEventListener("resize", update)
     return () => {
       window.removeEventListener("scroll", update, true)
       window.removeEventListener("resize", update)
     }
-  }, [isActive, updateDropdownPosition])
+  }, [isActive, slashActive, updateDropdownPosition, updateSlashDropdownPosition])
 
-  const showDropdown = isActive && dropdownPos && (files.length > 0 || loading || !canComplete)
+  const showDropdown = isActive && dropdownPos && (
+    hasMentionItems
+      ? filteredMentions.length > 0
+      : (files.length > 0 || loading || !canComplete)
+  )
+  const showSlashDropdown = slashActive && slashDropdownPos && filteredSlashCommands.length > 0
 
   return (
     <>
@@ -293,6 +489,7 @@ export function FileCompletionTextarea({
         onBlur={handleBlur}
         placeholder={placeholder}
         rows={rows}
+        disabled={disabled}
         className={className}
       />
       {showDropdown &&
@@ -306,38 +503,111 @@ export function FileCompletionTextarea({
               width: dropdownPos.width,
             }}
             className={cn(
+              "z-[9999] overflow-y-auto",
+              hasMentionItems ? "max-h-[280px] py-1" : "max-h-[240px]",
+              "rounded-md border border-border bg-popover shadow-md",
+            )}
+          >
+            {hasMentionItems ? (
+              filteredMentions.map((item, i) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs",
+                    "hover:bg-accent hover:text-accent-foreground cursor-pointer",
+                    i === selectedIndex && "bg-accent text-accent-foreground",
+                  )}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    insertMention(item)
+                  }}
+                  onMouseEnter={() => setSelectedIndex(i)}
+                >
+                  {item.kind === "special" ? (
+                    <FileCode2 className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  ) : item.kind === "milestone" ? (
+                    <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-primary">◆</span>
+                  ) : (
+                    <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate font-medium">{item.label}</span>
+                  {item.detail && (
+                    <span className="ml-auto truncate text-[10px] text-muted-foreground max-w-[120px]">
+                      {item.detail}
+                    </span>
+                  )}
+                </button>
+              ))
+            ) : (
+              <>
+                {files.map((file, i) => (
+                  <button
+                    key={file}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center px-3 py-1.5 text-left text-xs font-mono",
+                      "hover:bg-accent hover:text-accent-foreground cursor-pointer",
+                      i === selectedIndex && "bg-accent text-accent-foreground",
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      insertFile(file)
+                    }}
+                    onMouseEnter={() => setSelectedIndex(i)}
+                  >
+                    <span className="truncate">{file}</span>
+                  </button>
+                ))}
+                {!canComplete && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    Set a working directory in project settings to enable file references
+                  </div>
+                )}
+                {canComplete && loading && files.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    Searching files...
+                  </div>
+                )}
+              </>
+            )}
+          </div>,
+          document.body,
+        )}
+      {showSlashDropdown &&
+        createPortal(
+          <div
+            ref={slashDropdownRef}
+            style={{
+              position: "fixed",
+              top: slashDropdownPos.top,
+              left: slashDropdownPos.left,
+              width: slashDropdownPos.width,
+            }}
+            className={cn(
               "z-[9999] max-h-[240px] overflow-y-auto",
               "rounded-md border border-border bg-popover shadow-md",
             )}
           >
-            {files.map((file, i) => (
+            {filteredSlashCommands.map((cmd, i) => (
               <button
-                key={file}
+                key={cmd.name}
                 type="button"
                 className={cn(
-                  "flex w-full items-center px-3 py-1.5 text-left text-xs font-mono",
+                  "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
                   "hover:bg-accent hover:text-accent-foreground cursor-pointer",
-                  i === selectedIndex && "bg-accent text-accent-foreground",
+                  i === slashSelectedIndex && "bg-accent text-accent-foreground",
                 )}
                 onMouseDown={(e) => {
-                  e.preventDefault() // prevent textarea blur
-                  insertFile(file)
+                  e.preventDefault()
+                  insertSlashCommand(cmd)
                 }}
-                onMouseEnter={() => setSelectedIndex(i)}
+                onMouseEnter={() => setSlashSelectedIndex(i)}
               >
-                <span className="truncate">{file}</span>
+                <span className="font-mono text-xs text-primary">{cmd.name}</span>
+                <span className="text-xs text-muted-foreground truncate">{cmd.description}</span>
               </button>
             ))}
-            {!canComplete && (
-              <div className="px-3 py-2 text-xs text-muted-foreground">
-                Set a working directory in project settings to enable file references
-              </div>
-            )}
-            {canComplete && loading && files.length === 0 && (
-              <div className="px-3 py-2 text-xs text-muted-foreground">
-                Searching files...
-              </div>
-            )}
           </div>,
           document.body,
         )}
