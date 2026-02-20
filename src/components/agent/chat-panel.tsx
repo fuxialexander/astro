@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle, MessageSquare, Plus, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -160,9 +160,19 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
   const getSessionsForProject = useSessionStore((s) => s.getSessionsForProject)
 
-  // Get or create the plan-chat session for this project
+  // Get all plan-chat sessions for this project
   const planChatSessions = getSessionsForProject(projectId, "plan-chat")
-  const currentSession: Session | undefined = planChatSessions[planChatSessions.length - 1]
+
+  // Track the selected session ID (default to most recent)
+  const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>(
+    planChatSessions.length > 0 ? planChatSessions[planChatSessions.length - 1].id : undefined
+  )
+
+  // Get the current session based on selectedSessionId
+  const currentSession: Session | undefined = selectedSessionId
+    ? planChatSessions.find(s => s.id === selectedSessionId)
+    : planChatSessions[planChatSessions.length - 1]
+
   // Keep a ref to the session so the sendMessage callback can read fresh data
   // without depending on the full object (avoids React Compiler memoization issues).
   const currentSessionRef = useRef(currentSession)
@@ -172,10 +182,21 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
 
   // Ensure session exists
   useEffect(() => {
-    if (!currentSession) {
-      createSession({ type: "plan-chat", projectId })
+    if (planChatSessions.length === 0) {
+      const newSession = createSession({ type: "plan-chat", projectId })
+      setSelectedSessionId(newSession.id)
     }
-  }, [currentSession, createSession, projectId])
+  }, [planChatSessions.length, createSession, projectId])
+
+  // Update selectedSessionId when sessions change (e.g., new session created)
+  useEffect(() => {
+    if (selectedSessionId && !planChatSessions.find(s => s.id === selectedSessionId)) {
+      // Current selection no longer exists, switch to most recent
+      if (planChatSessions.length > 0) {
+        setSelectedSessionId(planChatSessions[planChatSessions.length - 1].id)
+      }
+    }
+  }, [selectedSessionId, planChatSessions])
 
   const messages: Message[] = (currentSession?.messages || []).map((m) => ({
     role: m.role as "user" | "assistant",
@@ -510,11 +531,93 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
     return planNodes.find((n) => n.id === nodeId)?.title ?? nodeId
   }, [planNodes])
 
+  /** Create a new session and switch to it */
+  const handleCreateNewSession = useCallback(() => {
+    const newSession = createSession({ type: "plan-chat", projectId })
+    setSelectedSessionId(newSession.id)
+  }, [createSession, projectId])
+
+  /** Format session label with creation date and message count */
+  const formatSessionLabel = useCallback((session: Session) => {
+    const date = session.createdAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    const messageCount = session.messages.filter(m => m.role === 'user').length
+    return `${date} • ${messageCount} msg${messageCount !== 1 ? 's' : ''}`
+  }, [])
+
   return (
     <div className="flex h-full flex-col border-l border-border bg-card">
-      {/* Header with model/provider picker */}
+      {/* Header with session selector and model/provider picker */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border">
-        <span className="text-sm font-semibold">Plan Chat</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">Plan Chat</span>
+
+          {/* Session Selector */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[160px]">
+                <MessageSquare className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  {currentSession ? formatSessionLabel(currentSession) : 'No session'}
+                </span>
+                <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-[280px]">
+              <DropdownMenuLabel>Chat Sessions</DropdownMenuLabel>
+              {planChatSessions.length === 0 ? (
+                <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                  No sessions yet
+                </div>
+              ) : (
+                <>
+                  {[...planChatSessions].reverse().map((session) => {
+                    const isSelected = session.id === selectedSessionId
+                    const userMessageCount = session.messages.filter(m => m.role === 'user').length
+                    const dateStr = session.createdAt.toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })
+
+                    return (
+                      <DropdownMenuItem
+                        key={session.id}
+                        onClick={() => setSelectedSessionId(session.id)}
+                        className="gap-2 cursor-pointer"
+                      >
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            <span className="text-xs truncate">{dateStr}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <MessageSquare className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            <span className="text-[10px] text-muted-foreground">
+                              {userMessageCount} message{userMessageCount !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </>
+              )}
+              <div className="border-t border-border mt-1 pt-1">
+                <DropdownMenuItem
+                  onClick={handleCreateNewSession}
+                  className="gap-2 cursor-pointer text-primary"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>New Session</span>
+                </DropdownMenuItem>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
         <div className="flex items-center gap-2">
           {/* Provider Selector */}
