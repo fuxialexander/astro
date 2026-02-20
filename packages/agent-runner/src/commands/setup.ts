@@ -117,9 +117,10 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     const hasTokens = config.getAccessToken() && config.getRefreshToken();
 
     if (hasTokens && existingMachineId) {
-      console.log(chalk.green(`✓ Already authenticated (Machine: ${existingMachineId})`));
-      console.log(chalk.dim('  To re-authenticate, run: npx @astro/agent config --reset'));
+      // Always re-authenticate to get fresh tokens (old ones may have expired)
+      console.log(chalk.dim(`  Previously authenticated as ${existingMachineId}, refreshing tokens...`));
       console.log();
+      await runDeviceAuthFlow(apiUrl, relayUrl, resources, detectedProviders, !!options.relay, hwId);
     } else if (!options.nonInteractive) {
       const { authenticate } = await inquirer.prompt<{ authenticate: boolean }>([
         {
@@ -482,6 +483,7 @@ async function runDeviceAuthFlow(
       .map((p) => ({ type: p.type, name: p.name, version: p.version }));
 
     const regResponse = await registerMachine(apiUrl, tokenResponse.accessToken, {
+      machineId: hwId.id, // Hardware-based stable ID — used as DB primary key
       hostname, // Actual network hostname (for display)
       name: machineName, // Stable name from hardware ID
       platform,

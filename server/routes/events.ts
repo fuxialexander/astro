@@ -23,7 +23,7 @@ import type {
   TaskSessionInitMessage,
   SessionEvent,
 } from '../types/relay.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import type { ApprovalRequestedEvent, ApprovalRespondedEvent } from '../lib/events/types.js'
@@ -49,6 +49,9 @@ eventsRoute.get('/stream', async (c) => {
   void c.req.query('projectId')
   const lastEventId = c.req.header('Last-Event-ID')
 
+  // Extract authenticated user for filtering machine events
+  const user = c.get('user') as AuthUser | undefined
+
   return streamSSE(c, async (stream) => {
     let alive = true
 
@@ -69,8 +72,9 @@ eventsRoute.get('/stream', async (c) => {
       }
     }
 
-    // Send initial machine list
-    const machines = machineRegistry.getAll()
+    // Send initial machine list (filtered by authenticated user)
+    const allMachines = machineRegistry.getAll()
+    const machines = allMachines.filter(m => !m.userId || m.userId === user?.id || m.userId === 'dev-user')
     const machineData = machines.map((m) => ({
       machineId: m.machineId,
       name: m.name,
@@ -189,12 +193,14 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
     }
 
-    const onMachineConnected = (machineId: string, userId: string) => {
+    const onMachineConnected = (machineId: string, machineUserId: string) => {
       if (!alive) return
+      // Filter: only send events for machines owned by this user
+      if (machineUserId && machineUserId !== 'dev-user' && user?.id && machineUserId !== user.id) return
       const entry = machineRegistry.get(machineId)
       const data = JSON.stringify({
         machineId,
-        userId,
+        userId: machineUserId,
         name: entry?.name,
         environmentType: entry?.environmentType,
         providers: entry?.providers,
@@ -208,6 +214,8 @@ eventsRoute.get('/stream', async (c) => {
 
     const onMachineDisconnected = (machineId: string, reason?: string) => {
       if (!alive) return
+      // Note: machine is already removed from registry at this point,
+      // so we can't look up userId. The browser will filter by its known machines.
       const data = JSON.stringify({ machineId, reason })
       const id = eventBuffer.push('machine:disconnected', data)
       stream.writeSSE({ id, event: 'machine:disconnected', data }).catch(() => { alive = false })

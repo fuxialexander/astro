@@ -38,7 +38,7 @@ export class ContextAssembler {
       visionDoc: project?.visionDoc,
       dependencyOutputs,
       graphPosition,
-      workingDirectory: project?.workingDirectory || project?.repository,
+      workingDirectory: project?.workingDirectory ?? project?.repository,
     }
   }
 

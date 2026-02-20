@@ -8,7 +8,12 @@
 
 export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'slurm' | 'custom';
 
-export type ExecutionStrategyType = 'direct' | 'slurm' | 'docker' | 'k8s-exec' | 'skypilot';
+// Re-export from the canonical source to avoid duplication
+import type { ExecutionStrategyType as _ExecutionStrategyType, ExecutionStrategyInfo as _ExecutionStrategyInfo } from './execution/types.js';
+export type { _ExecutionStrategyType as ExecutionStrategyType, _ExecutionStrategyInfo as ExecutionStrategyInfo };
+// Also import directly for use within this file
+type ExecutionStrategyType = _ExecutionStrategyType;
+type ExecutionStrategyInfo = _ExecutionStrategyInfo;
 
 export interface HpcCapability {
   clusterName?: string;
@@ -164,14 +169,7 @@ export interface WSMessage {
 
 // Client -> Server Messages
 
-/** Execution strategy info for registration payload */
-export interface ExecutionStrategyInfo {
-  id: ExecutionStrategyType;
-  name: string;
-  available: boolean;
-  version?: string;
-  metadata?: Record<string, unknown>;
-}
+// ExecutionStrategyInfo is re-exported from ./execution/types.js above
 
 export interface RegisterMessage extends WSMessage {
   type: 'register';

@@ -200,6 +200,14 @@ export class SkyPilotStrategy implements ExecutionStrategy {
 
     const opts = (spec.options ?? {}) as SkyPilotExecOptions;
     const cluster = opts.cluster || `astro-${spec.jobId.substring(0, 8)}`;
+
+    if (!isValidClusterName(cluster)) {
+      return {
+        status: 'failed',
+        error: `Invalid cluster name: "${cluster}". Must contain only alphanumeric characters, hyphens, and underscores.`,
+      };
+    }
+
     const command = typeof spec.command === 'string' ? spec.command : spec.command.join(' ');
 
     // Build sky command arguments
@@ -321,11 +329,13 @@ export class SkyPilotStrategy implements ExecutionStrategy {
       this.processes.delete(jobId);
     }
 
-    // Cancel jobs on the cluster
-    try {
-      await execAsync(`"${this.skyBinary}" cancel ${job.cluster} -a -y 2>/dev/null`, { timeout: 30000 });
-    } catch {
-      // Cluster might not exist or already be down
+    // Cancel jobs on the cluster (validate name first)
+    if (isValidClusterName(job.cluster)) {
+      try {
+        await execAsync(`"${this.skyBinary}" cancel ${job.cluster} -a -y 2>/dev/null`, { timeout: 30000 });
+      } catch {
+        // Cluster might not exist or already be down
+      }
     }
 
     this.jobs.delete(jobId);
@@ -334,6 +344,10 @@ export class SkyPilotStrategy implements ExecutionStrategy {
   async getStatus(jobId: string): Promise<ExecutionJobStatus | null> {
     const job = this.jobs.get(jobId);
     if (!job) return null;
+
+    if (!isValidClusterName(job.cluster)) {
+      throw new Error(`Invalid cluster name: "${job.cluster}"`);
+    }
 
     try {
       const { stdout } = await execAsync(
@@ -361,4 +375,13 @@ export class SkyPilotStrategy implements ExecutionStrategy {
 
     return null;
   }
+}
+
+// ============================================================================
+// Input Validation
+// ============================================================================
+
+/** SkyPilot cluster names: alphanumeric, hyphens, underscores, dots */
+function isValidClusterName(name: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name);
 }

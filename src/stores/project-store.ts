@@ -2,6 +2,7 @@ import { create } from "zustand"
 import type { Project } from "@/types"
 import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
+import { usePlanStore } from "@/stores/plan-store"
 
 interface ProjectState {
   projects: Project[]
@@ -67,5 +68,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ projects: next })
     saveState("astro-projects", next)
     dataClient.deleteProject(id).catch(() => {})
+    // Clean up all plan nodes and edges for this project
+    usePlanStore.getState().removeProjectPlan(id)
   },
 }))

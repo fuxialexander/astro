@@ -51,7 +51,8 @@ export class MachineRegistry extends EventEmitter {
   register(
     machineId: string,
     machineInfo: Omit<MachineInfo, 'machineId'>,
-    socket: WebSocket
+    socket: WebSocket,
+    userId?: string
   ): MachineRegistryEntry {
     // Check if machine already exists — close old socket without removing from registry
     // (the new entry will replace it immediately below)
@@ -77,6 +78,7 @@ export class MachineRegistry extends EventEmitter {
       connectedAt: now,
       lastHeartbeat: now,
       sessionId,
+      userId,
     };
 
     const connection: MachineConnection = {
@@ -88,7 +90,7 @@ export class MachineRegistry extends EventEmitter {
     this.sessionToMachine.set(sessionId, machineId);
 
     this.emit('machine:connected', entry);
-    console.log(`[registry] Machine ${machineId} registered (session: ${sessionId})`);
+    console.log(`[registry] Machine ${machineId} registered (session: ${sessionId}, user: ${userId || 'none'})`);
 
     return entry;
   }
@@ -275,6 +277,13 @@ export class MachineRegistry extends EventEmitter {
   }
 
   /**
+   * Get machines owned by a specific user
+   */
+  getByUser(userId: string): MachineRegistryEntry[] {
+    return this.getAll().filter(m => !m.userId || m.userId === userId || m.userId === 'dev-user');
+  }
+
+  /**
    * Get machines by environment type
    */
   getByEnvironment(environment: EnvironmentType): MachineRegistryEntry[] {
@@ -297,9 +306,15 @@ export class MachineRegistry extends EventEmitter {
    */
   findBestMachine(
     environment: EnvironmentType,
-    preferredProvider?: ProviderType
+    preferredProvider?: ProviderType,
+    userId?: string
   ): MachineRegistryEntry | undefined {
     let candidates = this.getByEnvironment(environment);
+
+    // Filter by user ownership when provided
+    if (userId) {
+      candidates = candidates.filter(m => !m.userId || m.userId === userId || m.userId === 'dev-user');
+    }
 
     // For HPC, default to claude-sdk provider (HPC is handled via prompt injection)
     const effectiveProvider = (environment === 'hpc' && !preferredProvider)

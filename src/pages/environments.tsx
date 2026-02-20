@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   Server,
   Monitor,
@@ -13,17 +13,22 @@ import {
   Trash2,
   Boxes,
   Container,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useRealtimeStore, type MachineEntry } from "@/stores/realtime-store"
-import { useMachinesStore } from "@/stores/machines-store"
+import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
 import { useExecutionStore, type ComputeBackendInfo } from "@/stores/execution-store"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
 import { shouldUseSupabase } from "@/lib/supabase-client"
+import { formatRelativeTime } from "@/lib/date-utils"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
   label: string
@@ -80,10 +85,76 @@ function formatResourceSummary(resources?: MachineEntry["resources"]): string | 
   return parts.join(" · ")
 }
 
-function ConnectedMachinesCard({ machines, onRemove, onBackendClick }: {
+function InlineMachineName({ machineId, name, fallback }: {
+  machineId: string
+  name: string
+  fallback: string
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(name || fallback)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const renameMachine = useMachinesStore((s) => s.renameMachine)
+
+  const displayName = name || fallback
+
+  const startEditing = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setValue(displayName)
+    setEditing(true)
+  }
+
+  const save = async () => {
+    const trimmed = value.trim()
+    setEditing(false)
+    if (trimmed && trimmed !== displayName) {
+      await renameMachine(machineId, trimmed)
+    }
+  }
+
+  const cancel = () => {
+    setEditing(false)
+    setValue(displayName)
+  }
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        className="text-sm font-medium bg-background border border-border rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-ring min-w-0 w-full"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save()
+          if (e.key === "Escape") cancel()
+        }}
+        onClick={(e) => e.stopPropagation()}
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="group/name inline-flex items-center gap-1 min-w-0 text-left"
+      onClick={startEditing}
+    >
+      <span className="text-sm font-medium truncate">{displayName}</span>
+      <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover/name:opacity-100 shrink-0 transition-opacity" />
+    </button>
+  )
+}
+
+function ConnectedMachinesCard({ machines, onRemove }: {
   machines: MachineEntry[]
   onRemove?: (machineId: string) => void
-  onBackendClick?: (backend: ComputeBackendInfo) => void
 }) {
   return (
     <Card>
@@ -106,7 +177,6 @@ function ConnectedMachinesCard({ machines, onRemove, onBackendClick }: {
       </div>
       <div className="flex flex-col gap-2 px-6 pb-6">
         {machines.map((machine) => {
-          const strategies = machine.executionStrategies?.filter((s) => s.available) ?? []
           const loadPercent = Math.round(machine.load.cpuPercent)
           const loadColor = loadPercent > 75 ? "bg-amber-500" : "bg-blue-500"
           const resourceSummary = formatResourceSummary(machine.resources)
@@ -121,7 +191,7 @@ function ConnectedMachinesCard({ machines, onRemove, onBackendClick }: {
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
                   <div className="flex flex-col gap-0 min-w-0">
-                    <span className="text-sm font-medium truncate">{machine.name || machine.machineId}</span>
+                    <InlineMachineName machineId={machine.machineId} name={machine.name} fallback={machine.machineId} />
                     {resourceSummary && (
                       <span className="text-[11px] text-muted-foreground truncate">{resourceSummary}</span>
                     )}
@@ -147,7 +217,7 @@ function ConnectedMachinesCard({ machines, onRemove, onBackendClick }: {
                   )}
                 </div>
               </div>
-              {/* Badges: providers + backends */}
+              {/* Badges: agent providers only */}
               <div className="flex flex-wrap gap-1">
                 {machine.providers.map((p) => (
                   <span
@@ -161,24 +231,116 @@ function ConnectedMachinesCard({ machines, onRemove, onBackendClick }: {
                     {providerDisplayName[p.type] ?? p.type}
                   </span>
                 ))}
-                {strategies.filter((s) => s.id !== 'direct').map((s) => {
-                  const style = getBackendStyle(s.id)
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium cursor-pointer hover:opacity-80 transition-opacity ${style.color} ${style.bg}`}
-                      onClick={() => onBackendClick?.(s)}
-                    >
-                      {s.name}
-                      {s.version && <span className="opacity-60">v{s.version}</span>}
-                    </button>
-                  )
-                })}
               </div>
             </div>
           )
         })}
+      </div>
+    </Card>
+  )
+}
+
+function RegisteredMachinesCard({ machines, liveMachineIds, onRefresh }: {
+  machines: RegisteredMachine[]
+  liveMachineIds: Set<string>
+  onRefresh: () => void
+}) {
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const revokeMachine = useMachinesStore((s) => s.revokeMachine)
+
+  // Filter to only offline machines (not in the live relay set)
+  const offlineMachines = machines.filter((m) => !liveMachineIds.has(m.id) && !m.isRevoked)
+
+  if (offlineMachines.length === 0) return null
+
+  const handleDelete = async (id: string) => {
+    const ok = await revokeMachine(id)
+    if (ok) {
+      setConfirmingId(null)
+      onRefresh()
+    }
+  }
+
+  return (
+    <Card className="opacity-70">
+      <div className="flex items-center justify-between p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+            <Server className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div>
+            <p className="font-medium">Registered</p>
+            <p className="text-xs text-muted-foreground">
+              {offlineMachines.length} previously connected machine{offlineMachines.length !== 1 ? "s" : ""} not currently online
+            </p>
+          </div>
+        </div>
+        <Badge variant="secondary" className="gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+          {offlineMachines.length} offline
+        </Badge>
+      </div>
+      <div className="flex flex-col gap-2 px-6 pb-6">
+        {offlineMachines.map((machine) => (
+          <div
+            key={machine.id}
+            className="flex items-center justify-between rounded-lg bg-muted/50 p-3"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="h-2 w-2 rounded-full bg-muted-foreground shrink-0" />
+              <div className="flex flex-col gap-0 min-w-0">
+                <InlineMachineName machineId={machine.id} name={machine.name} fallback={machine.hostname || machine.id} />
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  {machine.hostname && <span className="truncate">{machine.hostname}</span>}
+                  {machine.platform && (
+                    <>
+                      {machine.hostname && <span>·</span>}
+                      <span>{machine.platform}</span>
+                    </>
+                  )}
+                  {machine.lastSeenAt && (
+                    <>
+                      <span>·</span>
+                      <span>Last seen {formatRelativeTime(new Date(machine.lastSeenAt))}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="shrink-0 ml-2">
+              {confirmingId === machine.id ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground mr-1">Remove?</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-destructive hover:text-destructive"
+                    onClick={() => handleDelete(machine.id)}
+                  >
+                    <Check className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground"
+                    onClick={() => setConfirmingId(null)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                  onClick={() => setConfirmingId(machine.id)}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </Card>
   )
@@ -296,7 +458,7 @@ function backendSubtitle(b: ComputeBackendInfo): string | null {
   }
 }
 
-function LocalBackendsCard({ backends, onBackendClick }: { backends: ComputeBackendInfo[]; onBackendClick?: (backend: ComputeBackendInfo) => void }) {
+function LocalBackendsCard({ backends, onBackendClick, title, subtitle }: { backends: ComputeBackendInfo[]; onBackendClick?: (backend: ComputeBackendInfo) => void; title?: string; subtitle?: string }) {
   return (
     <Card>
       <div className="flex items-center justify-between p-6">
@@ -305,9 +467,9 @@ function LocalBackendsCard({ backends, onBackendClick }: { backends: ComputeBack
             <Boxes className="h-5 w-5 text-purple-500" />
           </div>
           <div>
-            <p className="font-medium">This Machine</p>
+            <p className="font-medium">{title ?? "This Machine"}</p>
             <p className="text-xs text-muted-foreground">
-              Backends detected on the server
+              {subtitle ?? "Backends detected on the server"}
             </p>
           </div>
         </div>
@@ -354,7 +516,16 @@ function LocalBackendsCard({ backends, onBackendClick }: { backends: ComputeBack
               {isUnreachable ? (
                 <Badge variant="secondary" className="shrink-0 ml-2">Unreachable</Badge>
               ) : isSSH ? (
-                <Badge variant="warning" className="shrink-0 ml-2">SSH Only</Badge>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="warning" className="shrink-0 ml-2">SSH Only</Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Discovery only — not a dispatch target. Install the agent runner on this host to enable task execution.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               ) : (
                 <Badge variant="success" className="shrink-0 ml-2">Available</Badge>
               )}
@@ -373,13 +544,30 @@ export function Environments() {
   const [backendDialogOpen, setBackendDialogOpen] = useState(false)
   const [backendDetailLoading, setBackendDetailLoading] = useState(false)
   const fetchBackendDetail = useExecutionStore((s) => s.fetchBackendDetail)
+  const fetchRemoteBackendDetail = useExecutionStore((s) => s.fetchRemoteBackendDetail)
 
+  // For local backends: fetch fresh detail from server
   const handleBackendClick = (backend: ComputeBackendInfo) => {
     setSelectedBackend(backend)
     setBackendContextString("")
     setBackendDialogOpen(true)
     setBackendDetailLoading(true)
     fetchBackendDetail(backend.id).then((result) => {
+      if (result) {
+        setSelectedBackend(result.backend)
+        setBackendContextString(result.contextString)
+      }
+      setBackendDetailLoading(false)
+    })
+  }
+
+  // For remote machine backends: fetch context string from the relay's machine registry
+  const handleRemoteBackendClick = (backend: ComputeBackendInfo, machineId: string) => {
+    setSelectedBackend(backend)
+    setBackendContextString("")
+    setBackendDialogOpen(true)
+    setBackendDetailLoading(true)
+    fetchRemoteBackendDetail(machineId, backend.id).then((result) => {
       if (result) {
         setSelectedBackend(result.backend)
         setBackendContextString(result.contextString)
@@ -396,6 +584,8 @@ export function Environments() {
   const isMultiTenant = shouldUseSupabase()
 
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
+  const registeredMachines = useMachinesStore((s) => s.machines)
+  const fetchMachines = useMachinesStore((s) => s.fetchMachines)
 
   // Local backends detected on server
   const localBackends = useExecutionStore((s) => s.localBackends)
@@ -416,24 +606,49 @@ export function Environments() {
     }
   }, [localBackendsLoaded, loadLocalBackends])
 
+  // Fetch registered machines on mount (multi-tenant only)
+  useEffect(() => {
+    if (isMultiTenant) {
+      fetchMachines()
+    }
+  }, [isMultiTenant, fetchMachines])
+
   const liveMachines = Array.from(machines.values())
 
-  // Connected: machines with a live relay WebSocket connection
-  const connectedLiveMachines = liveMachines.filter((m) => m.environmentType !== 'local')
+  // Connected: all machines with a live relay WebSocket connection.
+  // Previously filtered out environmentType === 'local', but relay-connected
+  // machines should always show here regardless of their type — a user's
+  // laptop connecting via the agent runner is still a "connected" machine.
+  const connectedLiveMachines = liveMachines
+  const liveMachineIds = new Set(connectedLiveMachines.map((m) => m.machineId))
 
-  // In single-user mode, +1 for the local machine (this server)
-  const localMachineCount = isMultiTenant ? 0 : 1
-  const totalMachines = localMachineCount + connectedLiveMachines.length
-  const connectedCount = localMachineCount + connectedLiveMachines.length
+  // Count registered-but-offline machines
+  const offlineRegisteredCount = isMultiTenant
+    ? registeredMachines.filter((m) => !liveMachineIds.has(m.id) && !m.isRevoked).length
+    : 0
+
+  const totalMachines = connectedLiveMachines.length + offlineRegisteredCount
+  const connectedCount = connectedLiveMachines.length
   const activeTasks = liveMachines.reduce((sum, m) => sum + m.load.activeTasks, 0)
 
-  // Compute Backends: locally-detected execution environments only
+  // Compute Backends: locally-detected or from connected machines' execution strategies
   const availableLocalBackends = localBackends.filter((b) => b.available)
-  const computeBackendCount = availableLocalBackends.length
+
+  // In multi-tenant mode, group backends per connected machine
+  const remoteBackendsByMachine = connectedLiveMachines
+    .map((m) => ({
+      machineId: m.machineId,
+      machineName: m.name || m.machineId,
+      backends: (m.executionStrategies ?? []).filter((s) => s.available && s.id !== 'direct'),
+    }))
+    .filter((g) => g.backends.length > 0)
+  const remoteBackendCount = remoteBackendsByMachine.reduce((sum, g) => sum + g.backends.length, 0)
+  const computeBackendCount = isMultiTenant ? remoteBackendCount : availableLocalBackends.length
 
   const handleRefresh = () => {
     loadLocalBackends()
     if (!realtimeConnected) connectRealtime()
+    if (isMultiTenant) fetchMachines()
   }
 
   return (
@@ -532,7 +747,32 @@ export function Environments() {
             <ConnectedMachinesCard
               machines={connectedLiveMachines}
               onRemove={(id) => revokeMachine(id)}
-              onBackendClick={handleBackendClick}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Registered (offline) — multi-tenant only */}
+      {isMultiTenant && registeredMachines.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <div className="hidden md:flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <Server className="h-5 w-5 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">Registered</h2>
+              {offlineRegisteredCount > 0 && (
+                <Badge variant="secondary">{offlineRegisteredCount} offline</Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground ml-8">
+              Previously connected machines not currently online. Remove stale entries you no longer need.
+            </p>
+          </div>
+          <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Registered</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <RegisteredMachinesCard
+              machines={registeredMachines}
+              liveMachineIds={liveMachineIds}
+              onRefresh={fetchMachines}
             />
           </div>
         </div>
@@ -544,36 +784,70 @@ export function Environments() {
           <div className="flex items-center gap-3">
             <Boxes className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-lg font-semibold">Compute Backends</h2>
-            {availableLocalBackends.length > 0 && (
+            {computeBackendCount > 0 && (
               <Badge variant="outline">
-                {availableLocalBackends.length} detected
+                {computeBackendCount} detected
               </Badge>
             )}
           </div>
           <p className="text-xs text-muted-foreground ml-8">
-            Execution environments detected on this server — Docker, Kubernetes, SLURM clusters, and SSH-reachable hosts. Click any backend to see details and the AI context that gets injected into agent sessions.
+            {isMultiTenant
+              ? "Execution environments detected by agent runners on each connected machine. Click any backend to see details and the AI context that gets injected into agent sessions."
+              : "Execution environments detected on this server — Docker, Kubernetes, SLURM clusters, and SSH-reachable hosts. Click any backend to see details and the AI context that gets injected into agent sessions."
+            }
           </p>
         </div>
         <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Compute Backends</p>
-        {availableLocalBackends.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <LocalBackendsCard backends={availableLocalBackends} onBackendClick={handleBackendClick} />
-          </div>
+        {isMultiTenant ? (
+          remoteBackendsByMachine.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {remoteBackendsByMachine.map((group) => (
+                <LocalBackendsCard
+                  key={group.machineId}
+                  backends={group.backends}
+                  title={group.machineName}
+                  subtitle={`${group.backends.length} backend${group.backends.length !== 1 ? 's' : ''} detected`}
+                  onBackendClick={(b) => handleRemoteBackendClick(b, group.machineId)}
+                />
+              ))}
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <EmptyState
+                  icon={Container}
+                  title="No compute backends detected"
+                  description="Connect a machine with the agent runner. It auto-detects available backends (SLURM, Docker, Kubernetes, SkyPilot) and reports them here."
+                  action={{
+                    label: "Add Environment",
+                    onClick: () => setDialogOpen(true),
+                  }}
+                  className="py-8"
+                />
+              </CardContent>
+            </Card>
+          )
         ) : (
-          <Card>
-            <CardContent className="p-0">
-              <EmptyState
-                icon={Container}
-                title="No compute backends detected"
-                description="Connect a machine with SLURM, Docker, Kubernetes, or SkyPilot. The agent runner auto-detects available backends and injects environment context into Claude sessions."
-                action={{
-                  label: "Add Environment",
-                  onClick: () => setDialogOpen(true),
-                }}
-                className="py-8"
-              />
-            </CardContent>
-          </Card>
+          availableLocalBackends.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <LocalBackendsCard backends={availableLocalBackends} onBackendClick={handleBackendClick} />
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <EmptyState
+                  icon={Container}
+                  title="No compute backends detected"
+                  description="Connect a machine with SLURM, Docker, Kubernetes, or SkyPilot. The agent runner auto-detects available backends and injects environment context into Claude sessions."
+                  action={{
+                    label: "Add Environment",
+                    onClick: () => setDialogOpen(true),
+                  }}
+                  className="py-8"
+                />
+              </CardContent>
+            </Card>
+          )
         )}
       </div>
 

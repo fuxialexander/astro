@@ -207,6 +207,8 @@ export interface TaskExecution {
   branchName?: string;
   prUrl?: string;
   prNumber?: number;
+  // Selected compute backend for execution
+  computeBackend?: string;
   // Execution summary (generated post-completion)
   summary?: ExecutionSummary;
   // Subroutine pipeline progress

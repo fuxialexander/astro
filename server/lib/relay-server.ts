@@ -372,30 +372,51 @@ export class RelayServer extends EventEmitter {
   /**
    * Start the WebSocket server
    */
-  start(port?: number): void {
+  async start(port?: number): Promise<void> {
     const serverPort = port ?? this.config.port;
 
-    this.wss = new WebSocketServer({
-      port: serverPort,
-      verifyClient: this.verifyClient.bind(this),
+    // Stop existing server if running (handles tsx watch restarts)
+    if (this.wss) {
+      await this.stop();
+    }
+
+    return new Promise((resolve, reject) => {
+      this.wss = new WebSocketServer({
+        port: serverPort,
+        verifyClient: this.verifyClient.bind(this),
+      });
+
+      this.wss.on('connection', this.handleConnection.bind(this));
+
+      this.wss.on('listening', () => {
+        // Start heartbeat interval
+        this.startHeartbeatInterval();
+
+        // Listen for registry events
+        machineRegistry.on('machine:heartbeat-timeout', (machineId: string) => {
+          console.log(`[relay] Machine ${machineId} heartbeat timeout`);
+          machineRegistry.disconnect(machineId, 'heartbeat_timeout');
+        });
+
+        console.log(`[relay] WebSocket server listening on port ${serverPort}`);
+        resolve();
+      });
+
+      this.wss.on('error', (error: NodeJS.ErrnoException) => {
+        if (error.code === 'EADDRINUSE') {
+          console.warn(`[relay] Port ${serverPort} in use, retrying in 1s...`);
+          this.wss?.close();
+          this.wss = null;
+          setTimeout(() => {
+            this.start(serverPort).then(resolve).catch(reject);
+          }, 1000);
+        } else {
+          console.error('[relay] WebSocket server error:', error);
+          this.emit('error', error);
+          reject(error);
+        }
+      });
     });
-
-    this.wss.on('connection', this.handleConnection.bind(this));
-    this.wss.on('error', (error) => {
-      console.error('[relay] WebSocket server error:', error);
-      this.emit('error', error);
-    });
-
-    // Start heartbeat interval
-    this.startHeartbeatInterval();
-
-    // Listen for registry events
-    machineRegistry.on('machine:heartbeat-timeout', (machineId: string) => {
-      console.log(`[relay] Machine ${machineId} heartbeat timeout`);
-      machineRegistry.disconnect(machineId, 'heartbeat_timeout');
-    });
-
-    console.log(`[relay] WebSocket server listening on port ${serverPort}`);
   }
 
   /**
@@ -460,7 +481,7 @@ export class RelayServer extends EventEmitter {
         // Dev mode: accept connection without auth, use headers for identity
         const runnerId = info.req.headers['x-runner-id'] as string || 'dev-runner';
         const machineId = info.req.headers['x-machine-id'] as string || 'dev-machine';
-        console.log(`[relay] ⚠ Dev mode: accepting unauthenticated connection (runner=${runnerId}, machine=${machineId})`);
+        console.warn(`[relay] ⚠ SECURITY: Dev-mode auth bypass — accepting unauthenticated WebSocket connection (runner=${runnerId}, machine=${machineId}). Set RELAY_JWT_SECRET and NODE_ENV=production before deploying.`);
         (info.req as unknown as { machineJWT: MachineJWTPayload }).machineJWT = {
           sub: machineId,
           machineId,
@@ -750,7 +771,7 @@ export class RelayServer extends EventEmitter {
       const jwtPayload = (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload;
       const userId = jwtPayload?.userId || 'dev-user';
 
-      const entry = machineRegistry.register(machineId, machineInfo, socket);
+      const entry = machineRegistry.register(machineId, machineInfo, socket, userId);
       setMachineId(machineId);
 
       // Set up heartbeat timeout
@@ -937,6 +958,7 @@ export class RelayServer extends EventEmitter {
         timeout: task.timeout,
         maxTurns: task.maxTurns,
         outputFormat: task.outputFormat,
+        executionStrategy: task.executionStrategy || undefined,
         createdAt: new Date().toISOString(),
       },
     };
@@ -1233,8 +1255,20 @@ export class RelayServer extends EventEmitter {
         metadata: { runnerId, version },
       };
 
-      machineRegistry.register(machineId, machineInfo, socket);
+      // Extract userId from JWT payload stored on socket
+      const jwtPayload = (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload;
+      const userId = jwtPayload?.userId || 'dev-user';
+
+      machineRegistry.register(machineId, machineInfo, socket, userId);
       setMachineId(machineId);
+
+      // Log execution strategies for debugging
+      const strategies = machineInfo.executionStrategies;
+      if (strategies && strategies.length > 0) {
+        console.log(`[relay] Machine ${machineId} reported ${strategies.length} execution strategies: ${strategies.map(s => `${s.id}(${s.available ? 'ok' : 'n/a'})`).join(', ')}`);
+      } else {
+        console.log(`[relay] Machine ${machineId} reported no execution strategies`);
+      }
 
       // Set up heartbeat timeout
       this.resetHeartbeatTimer(machineId);
@@ -1253,10 +1287,6 @@ export class RelayServer extends EventEmitter {
         },
       };
       socket.send(JSON.stringify(ack));
-
-      // Extract userId from JWT payload stored on socket
-      const jwtPayload = (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload;
-      const userId = jwtPayload?.userId || 'dev-user';
 
       this.emit('machine:connected', machineId, userId);
       console.log(`[relay] Agent runner ${runnerId} (machine ${machineId}) registered successfully for user ${userId}`);

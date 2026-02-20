@@ -55,6 +55,7 @@ import {
   getMachine,
   getUserMachines,
   revokeMachine,
+  updateMachineName,
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
@@ -393,8 +394,9 @@ deviceAuthRoute.post('/register', async (c) => {
       }
     }
 
-    // Register the machine
+    // Register the machine — use client's hardware-based ID if provided
     const machine = await registerMachine({
+      id: machineInfo.machineId || undefined,
       name: machineInfo.name || machineInfo.hostname || 'Unknown',
       hostname: machineInfo.hostname || 'unknown',
       platform: machineInfo.platform || 'unknown',
@@ -682,6 +684,9 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
       return c.json({ error: 'Failed to fetch machines' }, 500);
     }
 
+    // Cross-reference DB status with live relay connections
+    const liveIds = new Set(machineRegistry.getAll().map(m => m.machineId));
+
     const machines = (data || []).map((row: Record<string, unknown>) => ({
       id: row.id as string,
       name: row.name as string,
@@ -692,7 +697,7 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
       userId: row.user_id as string,
       registeredAt: new Date(row.registered_at as string),
       lastSeenAt: new Date(row.last_seen_at as string),
-      isConnected: row.is_connected as boolean,
+      isConnected: liveIds.has(row.id as string),
       isRevoked: row.is_revoked as boolean,
     }));
 
@@ -703,6 +708,8 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
   } else {
     // IndexedDB mode: Use manual filtering (SQLite)
     const machines = await getUserMachines(user.id);
+    // Cross-reference DB status with live relay connections
+    const liveIds = new Set(machineRegistry.getAll().map(m => m.machineId));
 
     return c.json({
       machines: machines.map((m) => ({
@@ -715,7 +722,7 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
         userId: m.userId,
         registeredAt: m.registeredAt,
         lastSeenAt: m.lastSeenAt,
-        isConnected: m.isConnected,
+        isConnected: liveIds.has(m.id),
         isRevoked: m.isRevoked,
       })),
       count: machines.length,
@@ -863,13 +870,16 @@ deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
       return c.json({ error: 'Not authorized to update this machine' }, 403);
     }
 
-    machine.name = body.name;
+    const updated = await updateMachineName(id, body.name);
+    if (!updated) {
+      return c.json({ error: 'Failed to update machine name' }, 500);
+    }
 
     return c.json({
       success: true,
       machine: {
         id: machine.id,
-        name: machine.name,
+        name: body.name,
       },
     });
   }

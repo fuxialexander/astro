@@ -69,6 +69,7 @@ function mapSupabaseToMachine(row: Record<string, unknown>): RegisteredMachine {
  * If it does, updates and returns the existing machine instead of creating a duplicate.
  */
 export async function registerMachine(params: {
+  id?: string
   name: string
   hostname: string
   platform: string
@@ -81,21 +82,37 @@ export async function registerMachine(params: {
 }): Promise<RegisteredMachine> {
   const now = new Date()
 
-  // Check for existing machine with same hostname+platform+user
-  const existingMachines = await getUserMachines(params.userId)
-  const existingMachine = existingMachines.find(
-    m => m.hostname === params.hostname &&
-         m.platform === params.platform &&
-         !m.isRevoked
-  )
+  // Check for existing machine: first by client-provided ID, then by hostname+platform+user
+  let existingMachine: RegisteredMachine | undefined
+  if (params.id) {
+    existingMachine = await getMachine(params.id)
+    // Verify ownership — don't let a user claim another user's machine
+    if (existingMachine && existingMachine.userId !== params.userId) {
+      existingMachine = undefined
+    }
+  }
+  if (!existingMachine) {
+    const existingMachines = await getUserMachines(params.userId)
+    existingMachine = existingMachines.find(
+      m => m.hostname === params.hostname &&
+           m.platform === params.platform &&
+           !m.isRevoked
+    )
+  }
 
   if (existingMachine) {
     console.log(`[machines-store] 🔄 Machine already registered: ${existingMachine.id}, updating...`)
 
     // Update the existing machine instead of creating a new one
+    // Preserve user-set custom name: if the existing name differs from its
+    // hostname (and from the incoming default name), the user renamed it.
+    const preserveName = existingMachine.name
+      && existingMachine.name !== existingMachine.hostname
+      && existingMachine.name !== existingMachine.id
+      && existingMachine.name !== params.name
     const updated: RegisteredMachine = {
       ...existingMachine,
-      name: params.name,
+      name: preserveName ? existingMachine.name : params.name,
       environmentType: params.environmentType,
       providers: params.providers,
       lastSeenAt: now,
@@ -138,7 +155,8 @@ export async function registerMachine(params: {
   }
 
   // No existing machine found, create a new one
-  const id = generateMachineId(params.hostname)
+  // Use client-provided hardware-based ID if available, otherwise generate one
+  const id = params.id || generateMachineId(params.hostname)
 
   const machine: RegisteredMachine = {
     id,
@@ -393,6 +411,24 @@ export async function updateMachineLastSeen(machineId: string): Promise<boolean>
     .where(eq(registeredMachines.id, machineId))
     .returning({ id: registeredMachines.id })
   return result.length > 0
+}
+
+/**
+ * Reset all machines to disconnected on server startup.
+ * Prevents stale `is_connected = true` from a previous server session.
+ */
+export async function resetAllConnectionStatuses(): Promise<void> {
+  if (shouldUseSupabase()) {
+    const supabase = getServiceClient()
+    await supabase
+      .from('registered_machines')
+      .update({ is_connected: false })
+      .eq('is_connected', true)
+  } else {
+    await db.update(registeredMachines)
+      .set({ isConnected: false })
+      .where(eq(registeredMachines.isConnected, true))
+  }
 }
 
 /**

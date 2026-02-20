@@ -7,6 +7,8 @@ import { getSessionStats } from '../lib/session-manager.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { shouldUseSupabase } from '../lib/supabase.js'
 import { detectLocalBackends, detectSingleBackend, buildContextString } from '../lib/local-backends.js'
+import { machineRegistry } from '../lib/machine-registry.js'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
 const healthRoute = new Hono()
 
@@ -243,8 +245,17 @@ healthRoute.post('/test/auth-token', async (c) => {
 /**
  * Detect local execution backends (Docker, Kubernetes, SLURM).
  * Returns available backends on the server machine.
+ *
+ * In multi-tenant (Supabase) mode, this endpoint is blocked because local
+ * backend detection exposes server-side infrastructure details that should
+ * not be visible to arbitrary authenticated users.
  */
 healthRoute.get('/backends', async (c) => {
+  // Block in multi-tenant mode — backends expose server infrastructure
+  if (shouldUseSupabase()) {
+    return c.json({ error: 'Backend detection is not available in multi-tenant mode' }, 403)
+  }
+
   try {
     const result = await detectLocalBackends()
     return c.json(result)
@@ -256,8 +267,14 @@ healthRoute.get('/backends', async (c) => {
 
 /**
  * Get detail for a single backend (fresh detection, bypasses cache).
+ *
+ * Blocked in multi-tenant mode for the same reason as GET /backends.
  */
 healthRoute.get('/backends/:id', async (c) => {
+  if (shouldUseSupabase()) {
+    return c.json({ error: 'Backend detection is not available in multi-tenant mode' }, 403)
+  }
+
   try {
     const { id } = c.req.param()
     const backend = await detectSingleBackend(id)
@@ -280,6 +297,53 @@ healthRoute.post('/backends/detect', async (c) => {
     // Clear cache by calling detect (cache TTL handles freshness)
     const result = await detectLocalBackends()
     return c.json(result)
+  } catch (e: unknown) {
+    const message = errorMessage(e)
+    return c.json({ error: message }, 500)
+  }
+})
+
+/**
+ * Get detail for a compute backend on a remote machine.
+ * Looks up the machine's execution strategy and builds a context string.
+ *
+ * Requires auth; verifies machine ownership.
+ */
+healthRoute.get('/backends/remote/:machineId/:strategyId', requireAuth, async (c) => {
+  try {
+    const { machineId, strategyId } = c.req.param()
+    const user = c.get('user') as AuthUser
+
+    const machine = machineRegistry.get(machineId)
+    if (!machine) {
+      return c.json({ error: 'Machine not found' }, 404)
+    }
+
+    // Verify ownership (allow dev-user or matching userId)
+    if (machine.userId && machine.userId !== 'dev-user' && machine.userId !== user.id) {
+      return c.json({ error: 'Machine not found' }, 404)
+    }
+
+    // Find matching execution strategy on the machine
+    const strategy = machine.executionStrategies?.find(s => s.id === strategyId)
+    if (!strategy) {
+      return c.json({ error: `Strategy '${strategyId}' not found on machine ${machineId}` }, 404)
+    }
+
+    // Build context string using the same function as local backends
+    // (LocalBackendInfo and ExecutionStrategyInfo have compatible shapes)
+    const contextString = buildContextString({
+      id: strategy.id,
+      name: strategy.name,
+      available: strategy.available,
+      version: strategy.version,
+      metadata: strategy.metadata as Record<string, unknown> | undefined,
+    })
+
+    return c.json({
+      backend: strategy,
+      contextString,
+    })
   } catch (e: unknown) {
     const message = errorMessage(e)
     return c.json({ error: message }, 500)

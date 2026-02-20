@@ -71,6 +71,8 @@ export const planNodes = pgTable('plan_nodes', {
   branchName: text('branch_name'),
   prUrl: text('pr_url'),
   prNumber: integer('pr_number'),
+  deletedAt: timestamp('deleted_at'),
+  deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
@@ -92,6 +94,8 @@ export const planEdges = pgTable('plan_edges', {
   sourceClientId: text('source_client_id').notNull(),
   targetClientId: text('target_client_id').notNull(),
   type: text('type').notNull().default('dependency'), // 'dependency' | 'branch'
+  deletedAt: timestamp('deleted_at'),
+  deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 

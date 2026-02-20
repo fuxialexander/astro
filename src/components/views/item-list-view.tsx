@@ -378,8 +378,9 @@ export function ItemListView<T>({
                       >
                         <Checkbox
                           checked={isSelected}
-                          onCheckedChange={() => toggleItem(itemId)}
                           aria-label={`Select item`}
+                          tabIndex={-1}
+                          className="pointer-events-none"
                         />
                       </div>
                     )}
