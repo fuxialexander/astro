@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate, Link } from "react-router"
-import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, RotateCcw, Play } from "lucide-react"
+import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, RotateCcw, Play, Download } from "lucide-react"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 
@@ -49,6 +49,7 @@ import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColor
 import { formatDueDateShort } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
+import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import type { PlanNode, Priority } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -1337,6 +1338,18 @@ export function PlanView() {
             <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)} className="hidden md:flex">
               <FileText className="h-3.5 w-3.5" />
               Vision
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden md:flex"
+              onClick={() => {
+                const bundle = exportProject(project.id)
+                downloadBundle(bundle)
+              }}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export
             </Button>
             <Button
               variant={chatOpen ? "default" : "outline"}

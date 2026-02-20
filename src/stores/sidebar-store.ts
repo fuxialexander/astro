@@ -13,6 +13,7 @@ export interface SidebarItem {
 
 interface SidebarStore {
   items: SidebarItem[]
+  externalItems: SidebarItem[]
   isEditing: boolean
   loaded: boolean
   load: () => Promise<void>
@@ -23,6 +24,8 @@ interface SidebarStore {
   resetToDefault: () => void
   subscribeToChanges: () => () => void
   syncWithProjectCount: () => void
+  registerExternalItem: (item: SidebarItem) => void
+  unregisterExternalItem: (itemId: string) => void
 }
 
 const defaultItems: SidebarItem[] = [
@@ -50,6 +53,7 @@ function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
 
 export const useSidebarStore = create<SidebarStore>((set, get) => ({
   items: defaultItems,
+  externalItems: [],
   isEditing: false,
   loaded: false,
 
@@ -129,6 +133,16 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
 
   syncWithProjectCount: () => {
     // Tasks is always visible (it's the home route)
+  },
+
+  registerExternalItem: (item: SidebarItem) => {
+    const externalItems = [...get().externalItems, item]
+    set({ externalItems })
+  },
+
+  unregisterExternalItem: (itemId: string) => {
+    const externalItems = get().externalItems.filter((i) => i.id !== itemId)
+    set({ externalItems })
   },
 }))
 

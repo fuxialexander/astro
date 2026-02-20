@@ -84,9 +84,6 @@ interface SessionState {
   addSteerMessage: (sessionId: string, message: string, interrupted?: boolean) => void
   updateSteerMessage: (sessionId: string, index: number, update: { accepted?: boolean; ackMessage?: string }) => void
 
-  // Session management
-  renameSession: (sessionId: string, title: string) => void
-
   // Cleanup
   deleteSession: (sessionId: string) => void
   clearSessionsForNode: (nodeId: string) => void
@@ -685,27 +682,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }).catch(() => {})
   },
 
-  renameSession: (sessionId, title) => {
-    const sessions = new Map(get().sessions)
-    const session = sessions.get(sessionId)
-    if (!session) return
-
-    const updated = {
-      ...session,
-      metadata: {
-        ...session.metadata,
-        title,
-      },
-      updatedAt: new Date(),
-    }
-
-    sessions.set(sessionId, updated)
-    set({ sessions })
-    immediateSave(sessions)
-    // Fire-and-forget API call
-    dataClient.updateSession(sessionId, { metadata: updated.metadata, updatedAt: updated.updatedAt }).catch(() => {})
-  },
-
   deleteSession: (sessionId) => {
     const sessions = new Map(get().sessions)
     sessions.delete(sessionId)
@@ -738,7 +714,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
  * Priority: custom title > first user message preview > date fallback
  */
 export function getSessionTitle(session: Session): string {
-  // Check for custom title in metadata
+  // Check for custom title (set via renameSession)
+  if (session.title) {
+    return session.title
+  }
+
+  // Legacy: check metadata.title
   if (session.metadata?.title && typeof session.metadata.title === "string") {
     return session.metadata.title
   }

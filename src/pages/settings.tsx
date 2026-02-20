@@ -11,6 +11,8 @@ import {
   Bot,
   Brain,
   Keyboard,
+  Puzzle,
+  Zap,
   RefreshCw,
   Terminal,
   Camera,
@@ -22,6 +24,8 @@ import {
   XCircle,
   Loader2,
   Github,
+  MessageSquare,
+  Send,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -36,6 +40,10 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
+import { PluginSettingsContent } from "@/components/plugin-settings"
+import { SkillSettingsContent } from "@/components/skill-settings"
+import { ChannelAccountCard } from "@/components/channel-account-card"
+import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import type { DomainExpertise, ExperienceLevel, PreferredEnvironment } from "@/types"
 
 const models = [
@@ -80,6 +88,8 @@ type SettingsTab =
   | "agents"
   | "models"
   | "keyboard-shortcuts"
+  | "plugins"
+  | "skills"
 
 const personalItems: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: "preferences", label: "Preferences", icon: SlidersHorizontal },
@@ -93,6 +103,8 @@ const workspaceItems: { id: SettingsTab; label: string; icon: React.ElementType 
   { id: "environments", label: "Environments", icon: Server },
   { id: "agents", label: "Agents", icon: Bot },
   { id: "models", label: "Models", icon: Brain },
+  { id: "plugins", label: "Plugins", icon: Puzzle },
+  { id: "skills", label: "Skills", icon: Zap },
   { id: "keyboard-shortcuts", label: "Keyboard shortcuts", icon: Keyboard },
 ]
 
@@ -1046,10 +1058,17 @@ function AgentsContent() {
 
 function ConnectedAccountsContent() {
   const { connected, user, repos, selectedRepoIds, fetchStatus, disconnect } = useGitHubStore()
+  const { load: loadAccounts, loaded: accountsLoaded } = useConnectedAccountsStore()
 
   useEffect(() => {
     fetchStatus()
   }, [fetchStatus])
+
+  useEffect(() => {
+    if (!accountsLoaded) {
+      loadAccounts()
+    }
+  }, [accountsLoaded, loadAccounts])
 
   return (
     <div className="flex flex-col gap-8">
@@ -1134,16 +1153,61 @@ function ConnectedAccountsContent() {
         </div>
       </section>
 
-      {/* Other Integrations (Placeholder) */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Other integrations</h2>
-        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-12">
-          <p className="text-sm text-muted-foreground">More integrations coming soon</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            GitLab, Bitbucket, Linear, and more
-          </p>
-        </div>
-      </section>
+      {/* Slack */}
+      <ChannelAccountCard
+        channel="slack"
+        icon={MessageSquare}
+        title="Slack"
+        description="Connect your Slack workspace to receive notifications and interact with Astro."
+        fields={[
+          { key: 'botToken', label: 'Bot Token', placeholder: 'xoxb-...', type: 'password', required: true },
+          { key: 'signingSecret', label: 'Signing Secret', placeholder: 'Enter signing secret', type: 'password', required: true },
+        ]}
+        mappingLabel="Channel ID → Project"
+        mappingKeyPlaceholder="C01ABC23DEF"
+      />
+
+      {/* Telegram */}
+      <ChannelAccountCard
+        channel="telegram"
+        icon={Send}
+        title="Telegram"
+        description="Connect a Telegram bot to interact with Astro from Telegram chats."
+        fields={[
+          { key: 'botToken', label: 'Bot Token', placeholder: '123456:ABC-DEF...', type: 'password', required: true },
+          { key: 'webhookSecret', label: 'Webhook Secret', placeholder: 'Enter webhook secret', type: 'password', required: true },
+        ]}
+        mappingLabel="Chat ID → Project"
+        mappingKeyPlaceholder="-1001234567890"
+      />
+
+      {/* GitHub Webhooks */}
+      <ChannelAccountCard
+        channel="github_webhook"
+        icon={Github}
+        title="GitHub Webhooks"
+        description="Receive GitHub webhook events (issues, PRs, pushes) and route them to Astro projects."
+        fields={[
+          { key: 'authToken', label: 'Auth Token', placeholder: 'ghp_...', type: 'password', required: true },
+          { key: 'webhookSecret', label: 'Webhook Secret', placeholder: 'Enter webhook secret', type: 'password', required: true },
+        ]}
+        mappingLabel="owner/repo → Project"
+        mappingKeyPlaceholder="owner/repo-name"
+      />
+
+      {/* Linear */}
+      <ChannelAccountCard
+        channel="linear"
+        icon={LinkIcon}
+        title="Linear"
+        description="Connect Linear to sync issues and receive webhook events for your Astro projects."
+        fields={[
+          { key: 'apiToken', label: 'API Token', placeholder: 'lin_api_...', type: 'password', required: true },
+          { key: 'webhookSecret', label: 'Webhook Secret', placeholder: 'Enter webhook secret', type: 'password', required: true },
+        ]}
+        mappingLabel="Team ID → Project"
+        mappingKeyPlaceholder="TEAM-123"
+      />
     </div>
   )
 }
@@ -1168,6 +1232,8 @@ const tabTitles: Record<SettingsTab, string> = {
   environments: "Environments",
   agents: "Agents",
   models: "Models",
+  plugins: "Plugins",
+  skills: "Skills",
   "keyboard-shortcuts": "Keyboard shortcuts",
 }
 
@@ -1186,6 +1252,10 @@ export function Settings() {
         return <AgentsContent />
       case "connected-accounts":
         return <ConnectedAccountsContent />
+      case "plugins":
+        return <PluginSettingsContent />
+      case "skills":
+        return <SkillSettingsContent />
       default:
         return <PlaceholderContent title={tabTitles[activeTab]} />
     }

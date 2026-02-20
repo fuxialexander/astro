@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react"
 import { NavLink, useNavigate, useParams } from "react-router"
-import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical } from "lucide-react"
+import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, Puzzle, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -14,7 +14,7 @@ import { isServerMode } from "@/lib/app-mode"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 
-// Icon mapping
+// Icon mapping (extended for plugin-contributed sidebar items)
 const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare,
   GitBranch,
@@ -22,6 +22,16 @@ const iconMap: Record<string, typeof CheckSquare> = {
   Radio,
   Target,
   Cpu,
+  Puzzle,
+  BookOpen,
+  Palette,
+  Zap,
+  Globe,
+  FileText,
+  Layers,
+  Box,
+  Wrench,
+  Code,
 }
 
 // Project color palette (matching ios.pen design)
@@ -46,6 +56,7 @@ export function Sidebar() {
   const signOut = useAuthStore((s) => s.signOut)
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const sidebarItems = useSidebarStore((s) => s.items)
+  const externalItems = useSidebarStore((s) => s.externalItems)
   const isEditing = useSidebarStore((s) => s.isEditing)
   const setEditing = useSidebarStore((s) => s.setEditing)
   const toggleItemVisibility = useSidebarStore((s) => s.toggleItemVisibility)
@@ -287,6 +298,35 @@ export function Sidebar() {
           </button>
         )}
       </nav>
+
+      {/* Plugin Items Section */}
+      {externalItems.filter((i) => i.visible).length > 0 && (
+        <div className="flex flex-col gap-1 px-4 py-2">
+          <div className="px-1 text-xs font-medium tracking-[0.5px] text-muted-foreground mb-1">
+            PLUGINS
+          </div>
+          {externalItems.filter((i) => i.visible).map((item) => {
+            const Icon = iconMap[item.icon] || Puzzle
+            return (
+              <NavLink
+                key={item.id}
+                to={item.to}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
+                    isActive
+                      ? "bg-accent text-accent-foreground font-semibold"
+                      : "text-muted-foreground hover:bg-muted/50"
+                  )
+                }
+              >
+                <Icon className="h-5 w-5" />
+                <span className="flex-1">{item.label}</span>
+              </NavLink>
+            )
+          })}
+        </div>
+      )}
 
       {/* Projects Section */}
       {projects.length > 0 && (

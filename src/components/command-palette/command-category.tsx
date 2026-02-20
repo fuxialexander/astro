@@ -7,6 +7,7 @@ import {
   CheckSquare,
   Settings,
   Search,
+  Puzzle,
   type LucideIcon,
 } from "lucide-react"
 
@@ -24,6 +25,7 @@ const categoryIcons: Record<CommandCategoryType, LucideIcon> = {
   tasks: CheckSquare,
   settings: Settings,
   search: Search,
+  plugins: Puzzle,
 }
 
 const categoryLabels: Record<CommandCategoryType, string> = {
@@ -34,6 +36,7 @@ const categoryLabels: Record<CommandCategoryType, string> = {
   tasks: "Tasks",
   settings: "Settings",
   search: "Search Results",
+  plugins: "Plugins",
 }
 
 export function CommandCategory({ category, count, children }: CommandCategoryProps) {

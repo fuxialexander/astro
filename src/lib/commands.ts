@@ -142,10 +142,32 @@ export const actionCommands: CommandDefinition[] = [
 ]
 
 /**
- * Get all static commands (navigation + actions)
+ * External commands registered by plugins
+ */
+const externalCommands: CommandDefinition[] = []
+
+/**
+ * Register a command from a plugin
+ */
+export function registerCommand(command: CommandDefinition): void {
+  externalCommands.push(command)
+}
+
+/**
+ * Unregister a plugin command
+ */
+export function unregisterCommand(commandId: string): void {
+  const index = externalCommands.findIndex((c) => c.id === commandId)
+  if (index !== -1) {
+    externalCommands.splice(index, 1)
+  }
+}
+
+/**
+ * Get all static commands (navigation + actions + plugin commands)
  */
 export function getStaticCommands(): CommandDefinition[] {
-  return [...navigationCommands, ...actionCommands]
+  return [...navigationCommands, ...actionCommands, ...externalCommands]
 }
 
 /**

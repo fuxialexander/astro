@@ -29,6 +29,10 @@ import { useActivityStore } from "@/stores/activity-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { isLocalMode } from "@/lib/app-mode"
+import { usePluginStore } from "@/stores/plugin-store"
+import { useSkillStore } from "@/stores/skill-store"
+import { PluginLoader } from "@/components/plugin-loader"
+import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
@@ -75,6 +79,8 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadAgent = useAgentStore((s) => s.load)
   const loadActivities = useActivityStore((s) => s.loadActivities)
   const loadSidebar = useSidebarStore((s) => s.load)
+  const loadPlugins = usePluginStore((s) => s.load)
+  const loadSkills = useSkillStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -90,6 +96,8 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const agentLoaded = useAgentStore((s) => s.loaded)
   const activitiesLoaded = useActivityStore((s) => s.loaded)
   const sidebarLoaded = useSidebarStore((s) => s.loaded)
+  const pluginsLoaded = usePluginStore((s) => s.loaded)
+  const skillsLoaded = useSkillStore((s) => s.loaded)
 
   // Only load data if authenticated or in IndexedDB-only mode
   const shouldLoadData = isLocalMode() || !!(authInitialized && session)
@@ -111,6 +119,8 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!agentLoaded) loadAgent()
     if (!activitiesLoaded) loadActivities()
     if (!sidebarLoaded) loadSidebar()
+    if (!pluginsLoaded) loadPlugins()
+    if (!skillsLoaded) loadSkills()
 
     connectRealtime()
 
@@ -123,7 +133,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run once when shouldLoadData becomes true
   }, [shouldLoadData])
 
-  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && sidebarLoaded
+  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && sidebarLoaded && pluginsLoaded && skillsLoaded
 
   // Show loading state only if we should load data and it's not loaded yet
   if (shouldLoadData && !allLoaded) {
@@ -150,6 +160,7 @@ export default function App() {
       <TooltipProvider>
         <BrowserRouter>
           <DataLoader>
+            <PluginLoader>
             <CommandPalette />
             <GenerationToasts />
             <Routes>
@@ -176,8 +187,10 @@ export default function App() {
                 <Route path="agents" element={<Agents />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="plugins/*" element={<PluginRoutes />} />
               </Route>
             </Routes>
+            </PluginLoader>
           </DataLoader>
         </BrowserRouter>
       </TooltipProvider>

@@ -299,13 +299,20 @@ export class ContextAssembler {
 
   /**
    * Build the execution prompt from assembled context
+   *
+   * @param skillPromptInjection - Optional XML block of skill instructions to inject
    */
-  buildExecutionPrompt(context: AssembledContext): string {
+  buildExecutionPrompt(context: AssembledContext, skillPromptInjection?: string): string {
     const parts: string[] = []
 
     // Vision doc
     if (context.visionDoc) {
       parts.push(`## Project Vision\n\n${context.visionDoc}`)
+    }
+
+    // Skill instructions (injected after vision, before task context)
+    if (skillPromptInjection) {
+      parts.push(`## Agent Skills\n\n${skillPromptInjection}`)
     }
 
     // Graph position context

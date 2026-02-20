@@ -139,6 +139,8 @@ export interface PlanNode {
   // Soft-delete metadata
   deletedAt?: Date;
   deletionActionId?: string;
+  // Plugin-contributed custom metadata fields
+  metadata?: Record<string, unknown>;
 }
 
 // Tool trace for execution detail view
@@ -328,7 +330,8 @@ export type CommandCategory =
   | 'projects'
   | 'tasks'
   | 'settings'
-  | 'search';
+  | 'search'
+  | 'plugins';
 
 export interface CommandItem {
   id: string;

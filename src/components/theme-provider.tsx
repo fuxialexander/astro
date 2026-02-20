@@ -1,40 +1,103 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react"
 
-type Theme = "light" | "dark" | "system"
+type Theme = "light" | "dark" | "system" | (string & {})
+
+export interface ThemeDefinition {
+  id: string
+  name: string
+  baseTheme: "light" | "dark"
+  cssVariables?: Record<string, string>
+}
 
 interface ThemeContextValue {
   theme: Theme
   setTheme: (theme: Theme) => void
+  availableThemes: ThemeDefinition[]
+  registerTheme: (theme: ThemeDefinition) => void
+  unregisterTheme: (themeId: string) => void
 }
+
+const builtInThemes: ThemeDefinition[] = [
+  { id: "light", name: "Light", baseTheme: "light" },
+  { id: "dark", name: "Dark", baseTheme: "dark" },
+  { id: "system", name: "System", baseTheme: "light" },
+]
 
 const ThemeContext = createContext<ThemeContextValue>({
   theme: "system",
   setTheme: () => {},
+  availableThemes: builtInThemes,
+  registerTheme: () => {},
+  unregisterTheme: () => {},
 })
+
+/** Track custom CSS variables set by plugins so we can remove them */
+let activeCustomVariables: string[] = []
+
+function applyTheme(theme: Theme, customThemes: ThemeDefinition[]) {
+  const root = document.documentElement
+  root.classList.remove("light", "dark")
+
+  // Clear any previously applied custom variables
+  for (const prop of activeCustomVariables) {
+    root.style.removeProperty(prop)
+  }
+  activeCustomVariables = []
+
+  if (theme === "system") {
+    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+    root.classList.add(systemTheme)
+  } else if (theme === "light" || theme === "dark") {
+    root.classList.add(theme)
+  } else {
+    // Custom theme from plugin
+    const customTheme = customThemes.find((t) => t.id === theme)
+    if (customTheme) {
+      root.classList.add(customTheme.baseTheme)
+      if (customTheme.cssVariables) {
+        for (const [prop, value] of Object.entries(customTheme.cssVariables)) {
+          root.style.setProperty(prop, value)
+          activeCustomVariables.push(prop)
+        }
+      }
+    } else {
+      // Fallback to light if custom theme not found
+      root.classList.add("light")
+    }
+  }
+
+  localStorage.setItem("astro-theme", theme)
+}
 
 export function ThemeProvider({ children, defaultTheme = "system" }: { children: ReactNode; defaultTheme?: Theme }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const stored = localStorage.getItem("astro-theme") as Theme | null
     return stored || defaultTheme
   })
+  const [customThemes, setCustomThemes] = useState<ThemeDefinition[]>([])
+
+  const availableThemes = [...builtInThemes, ...customThemes]
 
   useEffect(() => {
-    const root = document.documentElement
-    root.classList.remove("light", "dark")
+    applyTheme(theme, customThemes)
+  }, [theme, customThemes])
 
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
-      root.classList.add(systemTheme)
-    } else {
-      root.classList.add(theme)
-    }
+  const registerTheme = useCallback((themeDef: ThemeDefinition) => {
+    setCustomThemes((prev) => {
+      if (prev.some((t) => t.id === themeDef.id)) return prev
+      return [...prev, themeDef]
+    })
+  }, [])
 
-    localStorage.setItem("astro-theme", theme)
-  }, [theme])
+  const unregisterTheme = useCallback((themeId: string) => {
+    setCustomThemes((prev) => prev.filter((t) => t.id !== themeId))
+    // If the removed theme was active, fall back to system
+    setTheme((current) => (current === themeId ? "system" : current))
+  }, [])
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, availableThemes, registerTheme, unregisterTheme }}>
       {children}
     </ThemeContext.Provider>
   )

@@ -1,9 +1,10 @@
-import { useMemo, useState, useCallback } from "react"
+import { useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2 } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
+import { ImportPreviewDialog } from "@/components/sharing/import-preview-dialog"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { FilterSelect } from "@/components/views/filter-select"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
@@ -174,6 +175,25 @@ export function Projects() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [healthFilter, setHealthFilter] = useState("all")
   const [initiativeFilter, setInitiativeFilter] = useState("all")
+  const [importBundle, setImportBundle] = useState<import("@/lib/sharing/types").AstroExportBundle | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const bundle = JSON.parse(ev.target?.result as string)
+        setImportBundle(bundle)
+      } catch {
+        console.error('[projects] Failed to parse import file')
+      }
+    }
+    reader.readAsText(file)
+    // Reset input so same file can be selected again
+    e.target.value = ''
+  }, [])
 
   // Helper to get initiative name from ID
   const getInitiativeName = useCallback((initiativeId?: string) => {
@@ -432,6 +452,17 @@ export function Projects() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="h-3.5 w-3.5" />
+              Import
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,.astro.json"
+              className="hidden"
+              onChange={handleImportFile}
+            />
             <Button size="sm" asChild>
               <Link to="/projects/new">
                 <Plus className="h-3.5 w-3.5" />
@@ -442,6 +473,13 @@ export function Projects() {
             {viewTab === "timeline" && <DisplayPopover config={projectsTimelineDisplayConfig} />}
           </div>
         </div>
+
+        {/* Import Preview Dialog */}
+        <ImportPreviewDialog
+          open={!!importBundle}
+          onOpenChange={(open) => { if (!open) setImportBundle(null) }}
+          bundle={importBundle}
+        />
 
         {/* Filter Bar */}
         <div className="flex items-center gap-3 border-b border-border px-6 py-3 shrink-0">

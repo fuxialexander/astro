@@ -332,3 +332,18 @@ export const activityEvents = pgTable('activity_events', {
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+// ── Connected Accounts ──────────────────────────────────────────────
+export const connectedAccounts = pgTable('connected_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  channel: text('channel').notNull(),
+  label: text('label').notNull().default(''),
+  credentials: jsonb('credentials').$type<Record<string, unknown>>().notNull(),
+  mappings: jsonb('mappings').$type<Record<string, string>>().notNull().default({}),
+  settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
+  externalId: text('external_id'),
+  enabled: boolean('enabled').notNull().default(true),
+  connectedAt: timestamp('connected_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})

@@ -22,6 +22,10 @@ import { notificationsRoute } from './routes/notifications.js'
 import githubRoute from './routes/github.js'
 import { wellKnownRoute } from './routes/well-known.js'
 import systemRoute from './routes/system.js'
+import { skillsRoute } from './routes/skills.js'
+import { shareRoute } from './routes/share.js'
+import { connectedAccountsRoute } from './routes/connected-accounts.js'
+import { skillManager } from './lib/skill-manager.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
@@ -37,6 +41,8 @@ import { auditLogHook } from './lib/events/hooks/audit-log-hook.js'
 import { usageMetricsHook } from './lib/events/hooks/usage-metrics-hook.js'
 import { prCreationHook } from './lib/events/hooks/pr-creation-hook.js'
 import { gitPullHook } from './lib/events/hooks/git-pull-hook.js'
+import { channelNotificationHook } from './lib/events/hooks/channel-notification-hook.js'
+import { loadAndActivateChannelPlugins } from './lib/plugin-loader.js'
 
 // Validate environment variables on startup
 try {
@@ -148,6 +154,9 @@ app.route('/api/data', dataRoute)
 app.route('/api/notifications', notificationsRoute)
 app.route('/api/github', githubRoute)
 app.route('/api/system', systemRoute)
+app.route('/api/skills', skillsRoute)
+app.route('/api/share', shareRoute)
+app.route('/api/connected-accounts', connectedAccountsRoute)
 
 // Landing page route
 const __filename = fileURLToPath(import.meta.url)
@@ -221,6 +230,14 @@ async function start() {
     // Continue even if initialization fails - providers can be detected on-demand
   }
 
+  // Load skills
+  try {
+    const skills = await skillManager.loadSkills()
+    console.log(`[backend] loaded ${skills.size} skills`)
+  } catch (err) {
+    console.warn('[backend] skill loading warning:', err)
+  }
+
   // Register event transport hooks (skip in test mode to avoid side effects)
   if (!isTest()) {
     console.log('[event-transport] Registering hooks...')
@@ -229,10 +246,19 @@ async function start() {
     astroEventTransport.registerHook('usage-metrics', usageMetricsHook)
     astroEventTransport.registerHook('pr-creation', prCreationHook)
     astroEventTransport.registerHook('git-pull', gitPullHook)
-    console.log('[event-transport] Registered 5 hooks:', astroEventTransport.listHooks().join(', '))
+    astroEventTransport.registerHook('channel-notification', channelNotificationHook)
+    console.log('[event-transport] Registered 6 hooks:', astroEventTransport.listHooks().join(', '))
   } else {
     console.log('[event-transport] Test mode detected - hooks disabled')
     astroEventTransport.setEnabled(false)
+  }
+
+  // Load and mount channel plugins
+  try {
+    const pluginCount = await loadAndActivateChannelPlugins(app)
+    console.log(`[backend] activated ${pluginCount} channel plugins`)
+  } catch (err) {
+    console.warn('[backend] channel plugin loading warning:', err)
   }
 
   // Reset stale connection statuses from previous server session
