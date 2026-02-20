@@ -165,9 +165,11 @@ interface ChatPanelProps {
   visionDoc?: string
   /** Pre-fill and auto-send a message (e.g. from decompose button) */
   initialMessage?: string
+  /** Called when the user clicks a [node_id] link in a chat message */
+  onNodeSelect?: (nodeId: string) => void
 }
 
-export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelProps) {
+export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }: ChatPanelProps) {
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -823,6 +825,24 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
     return planNodes.find((n) => n.id === nodeId)?.title ?? nodeId
   }, [planNodes])
 
+  /** Set of known node IDs for quick lookup */
+  const nodeIdSet = useMemo(() => new Set(planNodes.map((n) => n.id)), [planNodes])
+
+  /**
+   * Preprocess markdown to replace [uuid] references with clickable node links.
+   * Converts `[uuid]` to `[Title](astro:node:uuid)` when the uuid matches a known node.
+   */
+  const preprocessNodeRefs = useCallback((text: string) => {
+    // Match [uuid] patterns — UUIDs are 8-4-4-4-12 hex chars
+    return text.replace(/\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi, (_match, id) => {
+      if (nodeIdSet.has(id)) {
+        const title = planNodes.find((n) => n.id === id)?.title ?? id
+        return `[${title}](astro:node:${id})`
+      }
+      return _match
+    })
+  }, [nodeIdSet, planNodes])
+
   return (
     <div className="flex h-full flex-col border-l border-border bg-card">
       {/* Header with session switcher and model/provider picker */}
@@ -1018,7 +1038,17 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
               >
                 {msg.content ? (
                   msg.role === "assistant" ? (
-                    <MarkdownRenderer content={msg.content} className="text-sm" />
+                    <MarkdownRenderer
+                      content={preprocessNodeRefs(msg.content)}
+                      className="text-sm"
+                      onLinkClick={(href) => {
+                        const match = href.match(/^astro:node:(.+)$/)
+                        if (match) {
+                          onNodeSelect?.(match[1])
+                          return true
+                        }
+                      }}
+                    />
                   ) : (
                     <pre className="whitespace-pre-wrap font-primary text-sm">
                       {msg.content}

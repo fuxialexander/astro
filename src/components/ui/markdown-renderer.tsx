@@ -7,11 +7,13 @@ import { cn } from "@/lib/utils"
 interface MarkdownRendererProps {
   content: string
   className?: string
+  /** Custom handler for link clicks. Return true to prevent default navigation. */
+  onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void
 }
 
 type ElProps = HTMLAttributes<HTMLElement> & ExtraProps & { children?: ReactNode }
 
-export const MarkdownRenderer = memo(({ content, className }: MarkdownRendererProps) => {
+export const MarkdownRenderer = memo(({ content, className, onLinkClick }: MarkdownRendererProps) => {
   const memoizedContent = useMemo(() => content, [content])
 
   const components = useMemo(() => ({
@@ -50,16 +52,24 @@ export const MarkdownRenderer = memo(({ content, className }: MarkdownRendererPr
         {children}
       </blockquote>
     ),
-    a: ({ children, href }: ElProps & { href?: string }) => (
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-blue-500 hover:underline"
-      >
-        {children}
-      </a>
-    ),
+    a: ({ children, href }: ElProps & { href?: string }) => {
+      const isCustom = href?.startsWith("astro:")
+      return (
+        <a
+          href={isCustom ? undefined : href}
+          target={isCustom ? undefined : "_blank"}
+          rel={isCustom ? undefined : "noopener noreferrer"}
+          className={cn("hover:underline cursor-pointer", isCustom ? "text-primary font-medium" : "text-blue-500")}
+          onClick={(e) => {
+            if (href && onLinkClick?.(href, e)) {
+              e.preventDefault()
+            }
+          }}
+        >
+          {children}
+        </a>
+      )
+    },
     table: ({ children }: ElProps) => (
       <div className="overflow-x-auto my-2">
         <table className="min-w-full border-collapse border border-border">
@@ -77,7 +87,7 @@ export const MarkdownRenderer = memo(({ content, className }: MarkdownRendererPr
         {children}
       </td>
     ),
-  }), [])
+  }), [onLinkClick])
 
   return (
     <div className={cn("markdown-content", className)}>

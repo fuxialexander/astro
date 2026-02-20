@@ -981,6 +981,18 @@ export function PlanView() {
   const resetExecution = useExecutionStore((s) => s.resetExecution)
   const [isResetting, setIsResetting] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+
+  /** Select a node and close chat to show the inspector */
+  const handleNodeSelect = useCallback((node: PlanNode | null) => {
+    setSelectedNode(node)
+    if (node) setChatOpen(false)
+  }, [])
+
+  /** Handle node ID click from chat messages */
+  const handleChatNodeSelect = useCallback((nodeId: string) => {
+    const node = planNodes.find((n) => n.id === nodeId)
+    if (node) handleNodeSelect(node)
+  }, [planNodes, handleNodeSelect])
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
@@ -1370,20 +1382,20 @@ export function PlanView() {
         ) : viewMode === "graph" ? (
           <div className="flex-1 relative overflow-hidden">
             <div className="absolute inset-0 touch-pan-x touch-pan-y">
-              <PlanCanvas projectId={project.id} onNodeSelect={setSelectedNode} onDecomposeNode={handleDecomposeNode} />
+              <PlanCanvas projectId={project.id} onNodeSelect={handleNodeSelect} onDecomposeNode={handleDecomposeNode} />
             </div>
           </div>
         ) : viewMode === "list" ? (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <PlanListView projectId={project.id} onNodeSelect={setSelectedNode} />
+            <PlanListView projectId={project.id} onNodeSelect={handleNodeSelect} />
           </div>
         ) : viewMode === "board" ? (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <PlanBoardView projectId={project.id} onNodeSelect={setSelectedNode} />
+            <PlanBoardView projectId={project.id} onNodeSelect={handleNodeSelect} />
           </div>
         ) : (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <PlanTimelineView projectId={project.id} onNodeSelect={setSelectedNode} />
+            <PlanTimelineView projectId={project.id} onNodeSelect={handleNodeSelect} />
           </div>
         )}
 
@@ -1400,7 +1412,7 @@ export function PlanView() {
                     <SheetTitle>Plan Chat</SheetTitle>
                   </SheetHeader>
                   <div className="flex-1 overflow-hidden mt-4">
-                    <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
+                    <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} onNodeSelect={handleChatNodeSelect} />
                   </div>
                 </SheetContent>
               </Sheet>
@@ -1409,7 +1421,7 @@ export function PlanView() {
             {/* Desktop: right sidebar */}
             {!isMobile && (
               <div className="w-[380px] shrink-0">
-                <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} />
+                <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} onNodeSelect={handleChatNodeSelect} />
               </div>
             )}
           </>
