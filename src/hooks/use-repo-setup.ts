@@ -81,7 +81,7 @@ export function useRepoSetup() {
       }
     } catch (error) {
       console.error('[repo-setup] Setup failed:', error)
-      return null
+      throw error
     }
   }
 

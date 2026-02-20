@@ -4,6 +4,7 @@ import { secureHeaders } from 'hono/secure-headers'
 import { serve } from '@hono/node-server'
 import { rateLimiter } from 'hono-rate-limiter'
 import { readFileSync } from 'fs'
+import { execSync } from 'node:child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { healthRoute } from './routes/health.js'
@@ -177,8 +178,28 @@ const relayPort = getRelayConfig().port
 
 let httpServer: ReturnType<typeof serve> | null = null
 
+/**
+ * Kill any stale processes listening on a port.
+ * This handles orphaned Node processes from tsx watch restarts
+ * or unclean Ctrl+C shutdowns where signal propagation failed.
+ */
+function killStalePortProcess(targetPort: number): void {
+  try {
+    execSync(`fuser -k ${targetPort}/tcp 2>/dev/null || true`, {
+      stdio: 'ignore',
+      timeout: 3000,
+    })
+  } catch {
+    // Ignore errors — no stale process to kill, or fuser not available
+  }
+}
+
 // Initialize providers and relay server before starting
 async function start() {
+  // Kill any stale processes on our ports (handles tsx watch orphans)
+  killStalePortProcess(port)
+  killStalePortProcess(relayPort)
+
   // Run database migrations
   try {
     runMigrations()

@@ -156,18 +156,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       // Deserialize sessions
       const sessions = new Map<string, GenerationSession>()
       for (const session of stored) {
-        // Only restore active sessions for crash recovery
+        // Mark stale active sessions as errors — they have no AbortController
+        // and cannot be resumed after a page reload
         if (session.status === "active") {
+          console.log(`[agent-store] Marking stale session for ${session.projectId} as error (no live connection)`)
           sessions.set(session.projectId, {
             ...session,
             startedAt: new Date(session.startedAt).getTime(),
-            completedAt: session.completedAt ? new Date(session.completedAt).getTime() : null,
+            completedAt: Date.now(),
+            status: "error",
+            error: "Generation interrupted (page was reloaded). Try regenerating the plan.",
           })
         }
-      }
-
-      if (sessions.size > 0) {
-        console.log(`[agent-store] Restored ${sessions.size} active session(s) from crash recovery`)
       }
 
       set({ sessions, loaded: true })
@@ -364,9 +364,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               }
             }
 
+            console.log(`[plan-gen] Calling setProjectPlan for ${projectId} with ${nodes.length} nodes, ${edges.length} edges`)
             usePlanStore.getState().setProjectPlan(projectId, nodes, edges)
             // Auto-layout the generated graph
             usePlanStore.getState().reorganizeProject(projectId)
+            console.log(`[plan-gen] Plan stored and layout applied for ${projectId}`)
 
             if (result.projectName) {
               useProjectStore.getState().updateProject(projectId, { name: result.projectName })

@@ -24,6 +24,34 @@ function cleanupWorktree(executionId: string, nodeId: string) {
   })
 }
 
+/**
+ * Retry an async operation with exponential backoff.
+ */
+async function retryAsync(
+  fn: () => Promise<void>,
+  label: string,
+  maxRetries = 3,
+  baseDelayMs = 1000,
+): Promise<void> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await fn()
+      if (attempt > 0) {
+        console.log(`[plan-store] ${label} succeeded on retry ${attempt}`)
+      }
+      return
+    } catch (err) {
+      if (attempt === maxRetries) {
+        console.error(`[plan-store] ${label} failed after ${maxRetries + 1} attempts:`, err)
+        return
+      }
+      const delay = baseDelayMs * Math.pow(2, attempt)
+      console.warn(`[plan-store] ${label} failed (attempt ${attempt + 1}), retrying in ${delay}ms...`)
+      await new Promise((r) => setTimeout(r, delay))
+    }
+  }
+}
+
 interface PlanState {
   nodes: PlanNode[]
   edges: PlanEdge[]
@@ -68,6 +96,65 @@ function saveToIdb(nodes: PlanNode[], edges: PlanEdge[]) {
   saveState("astro-plan-edges", edges)
 }
 
+/**
+ * Ensure all nodes have positions. Computes layout for projects with missing positions.
+ */
+function ensurePositions(nodes: PlanNode[], edges: PlanEdge[]): void {
+  const needsLayout = nodes.some((n) => !n.position)
+  if (!needsLayout) return
+
+  console.log("[plan-store] Nodes missing positions, calculating layout")
+  const projectIds = new Set(nodes.map((n) => n.projectId))
+  for (const projectId of projectIds) {
+    const projectNodes = nodes.filter((n) => n.projectId === projectId)
+    const nodeIds = new Set(projectNodes.map((n) => n.id))
+    const projectEdges = edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+    const positions = layoutGraph(projectNodes, projectEdges)
+    for (const node of projectNodes) {
+      const pos = positions.get(node.id)
+      node.position = pos ?? { x: 0, y: 0 }
+    }
+  }
+}
+
+/**
+ * Merge IDB-cached nodes into API-loaded nodes.
+ * If IDB has nodes for a project that the API doesn't, keep the IDB nodes
+ * and push them to the API. This prevents data loss when API writes fail.
+ */
+function mergeWithIdbCache(
+  apiNodes: PlanNode[],
+  apiEdges: PlanEdge[],
+  idbNodes: PlanNode[],
+  idbEdges: PlanEdge[],
+): { nodes: PlanNode[]; edges: PlanEdge[]; recoveredProjectIds: string[] } {
+  const apiProjectIds = new Set(apiNodes.map((n) => n.projectId))
+  const idbProjectIds = new Set(idbNodes.map((n) => n.projectId))
+
+  // Find projects that exist in IDB but not in API
+  const recoveredProjectIds: string[] = []
+  const extraNodes: PlanNode[] = []
+  const extraEdges: PlanEdge[] = []
+
+  for (const projectId of idbProjectIds) {
+    if (!apiProjectIds.has(projectId)) {
+      const projectNodes = idbNodes.filter((n) => n.projectId === projectId)
+      if (projectNodes.length > 0) {
+        recoveredProjectIds.push(projectId)
+        extraNodes.push(...projectNodes)
+        const nodeIds = new Set(projectNodes.map((n) => n.id))
+        extraEdges.push(...idbEdges.filter((e) => nodeIds.has(e.source) || nodeIds.has(e.target)))
+      }
+    }
+  }
+
+  return {
+    nodes: [...apiNodes, ...extraNodes],
+    edges: [...apiEdges, ...extraEdges],
+    recoveredProjectIds,
+  }
+}
+
 export const usePlanStore = create<PlanState>((set, get) => ({
   nodes: [],
   edges: [],
@@ -75,62 +162,51 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   load: async () => {
     try {
-      const { nodes, edges: rawEdges } = await dataClient.getAllPlans()
+      const { nodes: apiNodes, edges: rawApiEdges } = await dataClient.getAllPlans()
       // Deduplicate edges by source→target on load
       const seen = new Set<string>()
-      const edges = rawEdges.filter((e) => {
+      const apiEdges = rawApiEdges.filter((e) => {
         const key = `${e.source}->${e.target}`
         if (seen.has(key)) return false
         seen.add(key)
         return true
       })
-      // Ensure all nodes have positions - if any are missing, calculate for all projects
-      const needsLayout = nodes.some((n) => !n.position)
-      if (needsLayout) {
-        console.log("[plan-store] Nodes missing positions, calculating layout for all projects")
-        const projectIds = new Set(nodes.map((n) => n.projectId))
-        for (const projectId of projectIds) {
-          const projectNodes = nodes.filter((n) => n.projectId === projectId)
-          const nodeIds = new Set(projectNodes.map((n) => n.id))
-          const projectEdges = edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
-          const positions = layoutGraph(projectNodes, projectEdges)
-          for (const node of projectNodes) {
-            const pos = positions.get(node.id)
-            if (pos) {
-              node.position = pos
-            } else {
-              // Fallback: assign a default position if layout calculation failed
-              node.position = { x: 0, y: 0 }
-            }
+
+      // Check IDB for plans that didn't make it to Supabase (fire-and-forget failures)
+      const cached = await loadFromIdb()
+      let nodes = apiNodes
+      let edges = apiEdges
+
+      if (cached && cached.nodes.length > 0) {
+        const { nodes: merged, edges: mergedEdges, recoveredProjectIds } = mergeWithIdbCache(
+          apiNodes, apiEdges, cached.nodes, cached.edges,
+        )
+        if (recoveredProjectIds.length > 0) {
+          console.log(`[plan-store] Recovered ${recoveredProjectIds.length} project(s) from IDB cache:`, recoveredProjectIds)
+          nodes = merged
+          edges = mergedEdges
+
+          // Push recovered plans to Supabase in the background
+          for (const projectId of recoveredProjectIds) {
+            const projectNodes = cached.nodes.filter((n) => n.projectId === projectId)
+            const projectNodeIds = new Set(projectNodes.map((n) => n.id))
+            const projectEdges = cached.edges.filter((e) => projectNodeIds.has(e.source) || projectNodeIds.has(e.target))
+            retryAsync(
+              () => dataClient.setProjectPlan(projectId, projectNodes, projectEdges),
+              `Recover project ${projectId} to Supabase`,
+            )
           }
         }
       }
+
+      ensurePositions(nodes, edges)
       set({ nodes, edges, loaded: true })
       saveToIdb(nodes, edges)
     } catch {
       // API unavailable — fall back to IndexedDB cache
       const cached = await loadFromIdb()
       if (cached) {
-        // Ensure all cached nodes have positions
-        const needsLayout = cached.nodes.some((n) => !n.position)
-        if (needsLayout) {
-          console.log("[plan-store] Cached nodes missing positions, calculating layout")
-          const projectIds = new Set(cached.nodes.map((n) => n.projectId))
-          for (const projectId of projectIds) {
-            const projectNodes = cached.nodes.filter((n) => n.projectId === projectId)
-            const nodeIds = new Set(projectNodes.map((n) => n.id))
-            const projectEdges = cached.edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
-            const positions = layoutGraph(projectNodes, projectEdges)
-            for (const node of projectNodes) {
-              const pos = positions.get(node.id)
-              if (pos) {
-                node.position = pos
-              } else {
-                node.position = { x: 0, y: 0 }
-              }
-            }
-          }
-        }
+        ensurePositions(cached.nodes, cached.edges)
         set({ ...cached, loaded: true })
       } else {
         set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true })
@@ -235,6 +311,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   },
 
   setProjectPlan: (projectId, newNodes, newEdges) => {
+    console.log(`[plan-store] setProjectPlan called: projectId=${projectId}, ${newNodes.length} nodes, ${newEdges.length} edges`)
     const otherNodes = get().nodes.filter((n) => n.projectId !== projectId)
     const otherEdges = get().edges.filter((e) => {
       const nodeIds = new Set(get().nodes.filter((n) => n.projectId === projectId).map((n) => n.id))
@@ -250,11 +327,14 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     })
     const nextNodes = [...otherNodes, ...newNodes]
     const nextEdges = [...otherEdges, ...dedupedNewEdges]
+    console.log(`[plan-store] Updating store: ${nextNodes.length} total nodes (${otherNodes.length} existing + ${newNodes.length} new)`)
     set({ nodes: nextNodes, edges: nextEdges })
     saveToIdb(nextNodes, nextEdges)
-    dataClient.setProjectPlan(projectId, newNodes, dedupedNewEdges).catch((err) => {
-      console.error('[plan-store] Failed to save project plan to API:', err)
-    })
+    // Retry API save — this is critical in Supabase mode to prevent data loss on reload
+    retryAsync(
+      () => dataClient.setProjectPlan(projectId, newNodes, dedupedNewEdges),
+      `Save project plan ${projectId}`,
+    )
   },
 
   removeProjectPlan: (projectId) => {

@@ -47,6 +47,7 @@ export interface RepoSetupResult {
   workingDirectory: string
   fileTree: string[]
   repository?: string
+  keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }
   needsGitInit?: boolean
   claudeMdCreated?: boolean
   gitignoreCreated?: boolean
@@ -80,14 +81,16 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
     const claudeMdCreated = generateClaudeMdIfMissing(dir, projectName, projectDescription)
     initialCommit(dir)
     const fileTree = getFileTree(dir)
-    return { workingDirectory: dir, fileTree, claudeMdCreated, gitignoreCreated }
+    const keyFiles = readKeyFiles(dir)
+    return { workingDirectory: dir, fileTree, keyFiles, claudeMdCreated, gitignoreCreated }
   }
 
   // Case 2: Repository URL provided — clone it
   if (repository && !workingDirectory) {
     const dir = cloneRepo(repository, projectId)
     const fileTree = getFileTree(dir)
-    return { workingDirectory: dir, fileTree }
+    const keyFiles = readKeyFiles(dir)
+    return { workingDirectory: dir, fileTree, keyFiles }
   }
 
   // Case 3/4: Local directory provided
@@ -100,14 +103,16 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
       const claudeMdCreated = generateClaudeMdIfMissing(workingDirectory, projectName, projectDescription)
       initialCommit(workingDirectory)
       const fileTree = getFileTree(workingDirectory)
-      return { workingDirectory, fileTree, claudeMdCreated, gitignoreCreated }
+      const keyFiles = readKeyFiles(workingDirectory)
+      return { workingDirectory, fileTree, keyFiles, claudeMdCreated, gitignoreCreated }
     }
 
     if (isGitRepo(workingDirectory)) {
-      // Already a git repo — return file tree + auto-detect remote URL
+      // Already a git repo — return file tree + auto-detect remote URL + key files
       const fileTree = getFileTree(workingDirectory)
       const repository = getGitRemoteUrl(workingDirectory)
-      return { workingDirectory, fileTree, repository }
+      const keyFiles = readKeyFiles(workingDirectory)
+      return { workingDirectory, fileTree, keyFiles, repository }
     }
 
     // Not a git repo — ask user to confirm
@@ -134,7 +139,8 @@ export function initializeGitRepo(
   const claudeMdCreated = generateClaudeMdIfMissing(workingDirectory, projectName, projectDescription)
   initialCommit(workingDirectory)
   const fileTree = getFileTree(workingDirectory)
-  return { workingDirectory, fileTree, claudeMdCreated, gitignoreCreated }
+  const keyFiles = readKeyFiles(workingDirectory)
+  return { workingDirectory, fileTree, keyFiles, claudeMdCreated, gitignoreCreated }
 }
 
 /**
@@ -156,6 +162,39 @@ export function getFileTree(workingDirectory: string): string[] {
   } catch {
     return []
   }
+}
+
+/**
+ * Read key files (CLAUDE.md, README.md, package metadata) from a directory.
+ * Returns them for use as context in plan generation.
+ */
+function readKeyFiles(dir: string): RepoSetupResult['keyFiles'] {
+  const keyFiles: NonNullable<RepoSetupResult['keyFiles']> = {}
+
+  const claudeMdPath = join(dir, 'CLAUDE.md')
+  if (existsSync(claudeMdPath)) {
+    try { keyFiles.claudeMd = readFileSync(claudeMdPath, 'utf-8').slice(0, 15_000) } catch { /* skip */ }
+  }
+
+  const readmePath = existsSync(join(dir, 'README.md'))
+    ? join(dir, 'README.md')
+    : existsSync(join(dir, 'readme.md'))
+      ? join(dir, 'readme.md')
+      : null
+  if (readmePath) {
+    try { keyFiles.readmeMd = readFileSync(readmePath, 'utf-8').slice(0, 15_000) } catch { /* skip */ }
+  }
+
+  const packageFiles = ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod']
+  for (const pkg of packageFiles) {
+    const pkgPath = join(dir, pkg)
+    if (existsSync(pkgPath)) {
+      try { keyFiles.packageInfo = `# ${pkg}\n${readFileSync(pkgPath, 'utf-8').slice(0, 5_000)}` } catch { /* skip */ }
+      break
+    }
+  }
+
+  return Object.keys(keyFiles).length > 0 ? keyFiles : undefined
 }
 
 // --- Internal helpers ---

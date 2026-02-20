@@ -93,10 +93,15 @@ function SessionCard({ session }: { session: GenerationSession }) {
         {/* Close/cancel button */}
         <button
           onClick={handleClose}
-          className="p-1 rounded hover:bg-muted transition-colors cursor-pointer"
+          className={cn(
+            "p-1 rounded transition-colors cursor-pointer",
+            isActive
+              ? "hover:bg-destructive/20 text-destructive"
+              : "hover:bg-muted text-muted-foreground"
+          )}
           title={isActive ? "Cancel generation" : "Dismiss"}
         >
-          <X className="h-3.5 w-3.5 text-muted-foreground" />
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
 

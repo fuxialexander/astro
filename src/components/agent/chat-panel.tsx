@@ -621,7 +621,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage }: ChatPanelPro
                 }`}
               >
                 {msg.content ? (
-                  <pre className="whitespace-pre-wrap font-secondary text-sm">
+                  <pre className="whitespace-pre-wrap font-primary text-sm">
                     {msg.content}
                   </pre>
                 ) : isStreaming && i === messages.length - 1 ? (
