@@ -148,6 +148,40 @@ export async function abortAgent(sessionId: string): Promise<void> {
   })
 }
 
+/** Compact (summarize) a conversation to reduce context size. */
+export async function compactConversation(
+  params: {
+    messages: Array<{ role: "user" | "assistant"; content: string }>
+    projectId: string
+    model?: string
+    providerId?: string
+  },
+  callbacks: {
+    onText: (text: string) => void
+    onDone: (sessionId: string) => void
+    onError: (error: string) => void
+  },
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(apiUrl("/api/agent/compact"), {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(params),
+    signal,
+  })
+
+  if (!res.ok) {
+    callbacks.onError(`Server error: ${res.status}`)
+    return
+  }
+
+  await parseChatSSE(res, {
+    onText: callbacks.onText,
+    onDone: callbacks.onDone,
+    onError: callbacks.onError,
+  })
+}
+
 export interface TaskChatParams {
   message: string
   sessionId?: string

@@ -658,21 +658,36 @@ agentRoute.post('/chat', async (c) => {
       const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
 
       // Build task dispatch
-      // For follow-up chats with sessionId, use higher maxTurns to allow multi-turn conversations
+      // For providers that support multi-turn via messages (anthropic-direct),
+      // pass history in the messages field. For providers that don't (claude-code),
+      // embed history into the prompt and skip session resume (which is unreliable).
+      const supportsMessages = provider.capabilities().supportsSessionResume === false
+      let chatPrompt = message
+      let chatSessionId = existingSessionId
+
+      if (!supportsMessages && historyMessages && historyMessages.length > 0) {
+        // claude-code provider: embed history into prompt, skip resume
+        const historyText = historyMessages
+          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+          .join('\n\n')
+        chatPrompt = `Previous conversation:\n${historyText}\n\nUser: ${message}`
+        chatSessionId = undefined // Don't resume — use inline history instead
+      }
+
       const task: TaskDispatch = {
         taskId,
-        sessionId: existingSessionId,
+        sessionId: chatSessionId,
         type: 'chat',
-        prompt: message,
+        prompt: chatPrompt,
         systemPrompt,
         model: resolveModelForProvider(provider, model),
-        maxTurns: existingSessionId ? 10 : 1,
+        maxTurns: chatSessionId ? 10 : 1,
         context: {
           projectId,
           visionDoc,
         },
         abortController,
-        messages: historyMessages,
+        messages: supportsMessages ? historyMessages : undefined,
       }
 
       // Stream the execution
@@ -773,15 +788,30 @@ agentRoute.post('/task-chat', async (c) => {
       })
 
       // Build task dispatch
-      // For follow-up chats with sessionId, use higher maxTurns to allow multi-turn conversations
+      // For providers that support multi-turn via messages (anthropic-direct),
+      // pass history in the messages field. For providers that don't (claude-code),
+      // embed history into the prompt and skip session resume (which is unreliable).
+      const supportsMessages = provider.capabilities().supportsSessionResume === false
+      let chatPrompt = message
+      let chatSessionId = existingSessionId
+
+      if (!supportsMessages && historyMessages && historyMessages.length > 0) {
+        // claude-code provider: embed history into prompt, skip resume
+        const historyText = historyMessages
+          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+          .join('\n\n')
+        chatPrompt = `Previous conversation:\n${historyText}\n\nUser: ${message}`
+        chatSessionId = undefined // Don't resume — use inline history instead
+      }
+
       const task: TaskDispatch = {
         taskId,
-        sessionId: existingSessionId,
+        sessionId: chatSessionId,
         type: 'chat',
-        prompt: message,
+        prompt: chatPrompt,
         systemPrompt,
         model: resolveModelForProvider(provider, model),
-        maxTurns: existingSessionId ? 10 : 1,
+        maxTurns: chatSessionId ? 10 : 1,
         context: {
           projectId,
           nodeId,
@@ -789,7 +819,7 @@ agentRoute.post('/task-chat', async (c) => {
           taskOutput,
         },
         abortController,
-        messages: historyMessages,
+        messages: supportsMessages ? historyMessages : undefined,
       }
 
       // Stream the execution
@@ -852,6 +882,106 @@ agentRoute.post('/abort', async (c) => {
   }
 
   return c.json({ aborted })
+})
+
+/**
+ * Compact (summarize) a conversation to reduce context size.
+ * Takes the full message history and returns a compressed summary via SSE.
+ */
+agentRoute.post('/compact', async (c) => {
+  const body = await c.req.json<{
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>
+    projectId: string
+    model?: string
+    providerId?: string
+  }>()
+
+  const { messages, projectId, model, providerId } = body
+
+  if (!messages || messages.length === 0) {
+    return c.json({ error: 'No messages to compact' }, 400)
+  }
+
+  const taskId = `compact-${projectId}-${Date.now()}`
+  const abortController = createSession(taskId, providerId)
+
+  return streamSSE(c, async (stream) => {
+    try {
+      const provider = getChatProvider(providerId)
+
+      if (!provider) {
+        await stream.writeSSE({
+          event: 'error',
+          data: 'No agent provider available.',
+        })
+        return
+      }
+
+      // Build a conversation transcript for summarization
+      const transcript = messages
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+        .join('\n\n')
+
+      const compactPrompt = `Summarize the following conversation into a concise but comprehensive context document. Preserve all important decisions, key facts, action items, and technical details. The summary will be used as context for future messages in the same session.
+
+Focus on:
+- Decisions made and their rationale
+- Technical details and specifications discussed
+- Action items and their status
+- Key constraints or requirements mentioned
+- Any plan modifications or task updates
+
+Conversation:
+${transcript}
+
+Provide a structured summary that captures the essential context needed to continue this conversation effectively.`
+
+      const task: TaskDispatch = {
+        taskId,
+        type: 'chat',
+        prompt: compactPrompt,
+        model: resolveModelForProvider(provider, model),
+        maxTurns: 1,
+        context: { projectId },
+        abortController,
+      }
+
+      for await (const event of provider.stream(task)) {
+        switch (event.type) {
+          case 'text':
+            await stream.writeSSE({ event: 'text', data: event.text })
+            break
+
+          case 'result':
+            await stream.writeSSE({
+              event: 'done',
+              data: JSON.stringify({
+                sessionId: event.result.sessionId ?? taskId,
+                providerId: provider.id,
+              }),
+            })
+            break
+
+          case 'error':
+            await stream.writeSSE({ event: 'error', data: event.error })
+            break
+
+          case 'aborted':
+            await stream.writeSSE({ event: 'aborted', data: event.reason ?? '' })
+            break
+        }
+      }
+    } catch (e: unknown) {
+      if (isAbortError(e)) {
+        await stream.writeSSE({ event: 'aborted', data: '' })
+      } else {
+        const message = errorMessage(e)
+        await stream.writeSSE({ event: 'error', data: message })
+      }
+    } finally {
+      removeSession(taskId)
+    }
+  })
 })
 
 /**

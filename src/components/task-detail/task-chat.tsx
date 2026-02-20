@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Send, Loader2, Trash2, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -53,12 +53,21 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
     }
   }, [messagesLength])
 
-  async function handleSend() {
+  const handleSend = useCallback(async () => {
     const text = input.trim()
-    if (!text || isStreaming || !session) return
+    if (!text || isStreaming) return
+
+    // Read session fresh from store — never use stale closure
+    const taskSessions = useSessionStore.getState()
+    const allSessions = [...taskSessions.sessions.values()]
+    const freshSession = allSessions
+      .filter((s) => s.nodeId === node.id && s.type === "task-chat")
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .pop()
+    if (!freshSession) return
 
     setInput("")
-    const sid = session.id
+    const sid = freshSession.id
 
     // Add user message
     addMessage(sid, { role: "user", content: text })
@@ -67,18 +76,32 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
     addMessage(sid, { role: "assistant", content: "" })
 
     setIsStreaming(true)
+
+    // Abort any in-flight request before starting a new one
+    if (abortRef.current) {
+      abortRef.current.abort()
+    }
     abortRef.current = new AbortController()
 
-    // Build message history from session
-    const historyMessages = (session.messages || [])
+    // Re-read messages from store after adding user msg + placeholder
+    const updatedSession = useSessionStore.getState().sessions.get(sid)
+    const freshMessages = updatedSession?.messages || []
+    // Exclude the just-added user message and empty assistant placeholder
+    const historyMessages = freshMessages
+      .slice(0, -2)
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+
+    // Only send providerSessionId if the session has completed at least one exchange
+    const hasCompletedExchange = (updatedSession?.messages || []).some(
+      (m) => m.role === "assistant" && m.content.length > 0
+    )
 
     try {
       await chatWithTask(
         {
           message: text,
-          sessionId: session.providerSessionId,
+          sessionId: hasCompletedExchange ? freshSession.providerSessionId : undefined,
           nodeId: node.id,
           projectId,
           taskTitle: node.title,
@@ -106,7 +129,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
     } catch {
       setIsStreaming(false)
     }
-  }
+  }, [input, isStreaming, node.id, node.title, node.description, projectId, taskOutput, visionDoc, model, addMessage, appendToLastAssistantMessage, setProviderSessionId])
 
   function handleClear() {
     if (isStreaming) {

@@ -11,6 +11,14 @@ export interface SSEEvent {
 }
 
 /**
+ * Strip exactly one leading space from a field value per the SSE spec.
+ * "data: hello" → "hello", "data:hello" → "hello", "data:  two" → " two"
+ */
+function stripOneLeadingSpace(value: string): string {
+  return value.startsWith(" ") ? value.slice(1) : value
+}
+
+/**
  * Low-level SSE line parser. Reads a fetch Response body and emits parsed events.
  */
 export async function parseSSEStream(
@@ -29,10 +37,21 @@ export async function parseSSEStream(
 
   function flushEvent() {
     if (!currentEvent || dataLines.length === 0) return
-    const data = dataLines.join("\n").trim()
+    const data = dataLines.join("\n")
     handlers.onEvent({ event: currentEvent, data })
     currentEvent = ""
     dataLines = []
+  }
+
+  function processLine(line: string) {
+    if (line.startsWith("event:")) {
+      flushEvent()
+      currentEvent = line.slice(6).trim()
+    } else if (line.startsWith("data:")) {
+      dataLines.push(stripOneLeadingSpace(line.slice(5)))
+    } else if (line === "") {
+      flushEvent()
+    }
   }
 
   while (true) {
@@ -44,15 +63,13 @@ export async function parseSSEStream(
     buffer = lines.pop() || ""
 
     for (const line of lines) {
-      if (line.startsWith("event:")) {
-        flushEvent()
-        currentEvent = line.slice(6).trim()
-      } else if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5))
-      } else if (line === "") {
-        flushEvent()
-      }
+      processLine(line)
     }
+  }
+
+  // Process any remaining content in the buffer (stream ended without trailing newline)
+  if (buffer) {
+    processLine(buffer)
   }
 
   // Flush any remaining event
