@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -214,7 +215,7 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
                   You
                 </span>
                 <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[280px]">
-                  <p className="whitespace-pre-wrap">{msg.message}</p>
+                  <MarkdownRenderer content={msg.message} className="text-sm text-primary-foreground [&_a]:text-primary-foreground [&_code]:bg-primary-foreground/20" />
                 </div>
               </div>
 
@@ -229,8 +230,10 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
                   ) : (
                     <>
                       <XCircle className="h-3 w-3 text-red-500" />
-                      <span className="text-[10px] text-red-600">
-                        {msg.ackMessage || "Rejected"}
+                      <span className="text-[10px] text-red-600 max-w-[240px]">
+                        {msg.ackMessage ? (
+                          <MarkdownRenderer content={msg.ackMessage} className="text-[10px] text-red-600 inline" />
+                        ) : "Rejected"}
                       </span>
                     </>
                   )}

@@ -2,12 +2,15 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Send, Loader2, Trash2, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { chatWithTask } from "@/lib/api-client"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import type { PlanNode } from "@/types"
 
 interface TaskChatProps {
@@ -33,6 +36,24 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
   const clearSessionsForNode = useSessionStore((s) => s.clearSessionsForNode)
   const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
+
+  // Voice transcription
+  const handleTranscript = useCallback((text: string) => {
+    setInput((prev) => {
+      if (prev.trim()) {
+        return prev.trim() + " " + text
+      }
+      return text
+    })
+  }, [])
+
+  const {
+    isRecording,
+    isTranscribing,
+    isAvailable,
+    duration,
+    toggleRecording,
+  } = useVoiceTranscription({ onTranscript: handleTranscript })
 
   // Get or create task-chat session for this node
   const taskChatSessions = getSessionsForNode(node.id, "task-chat")
@@ -207,9 +228,11 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
                 }`}
               >
                 {msg.content ? (
-                  <pre className="whitespace-pre-wrap text-sm">
-                    {msg.content}
-                  </pre>
+                  msg.role === "assistant" ? (
+                    <MarkdownRenderer content={msg.content} className="text-sm" />
+                  ) : (
+                    <pre className="whitespace-pre-wrap text-sm">{msg.content}</pre>
+                  )
                 ) : isStreaming && msg.role === "assistant" ? (
                   <TypingIndicator className="text-muted-foreground py-1" />
                 ) : null}
@@ -221,6 +244,15 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
 
       {/* Input */}
       <div className="flex items-end gap-2 border-t border-border p-3">
+        <VoiceInputButton
+          isRecording={isRecording}
+          isTranscribing={isTranscribing}
+          isAvailable={isAvailable}
+          duration={duration}
+          onClick={toggleRecording}
+          disabled={isStreaming}
+          className="h-9 w-9 shrink-0"
+        />
         <FileCompletionTextarea
           projectId={projectId}
           machineId={project?.defaultMachineId}
@@ -229,7 +261,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
           value={input}
           onChange={setInput}
           onSubmit={handleSend}
-          placeholder="Ask about this task... (type @ to reference files)"
+          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Ask about this task... (type @ to reference files)"}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
@@ -237,7 +269,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
           size="icon"
           className="h-9 w-9 shrink-0"
           onClick={handleSend}
-          disabled={!input.trim() || isStreaming}
+          disabled={!input.trim() || isStreaming || isRecording || isTranscribing}
         >
           {isStreaming ? (
             <Loader2 className="h-4 w-4 animate-spin" />
