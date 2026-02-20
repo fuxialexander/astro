@@ -642,12 +642,10 @@ agentRoute.post('/chat', async (c) => {
 
   return streamSSE(c, async (stream) => {
     try {
-      // Get provider — for follow-up chats (with sessionId), we need a provider that supports
-      // session resumption. claude-code supports this, anthropic-direct does not.
-      // For initial chats, prefer anthropic-direct to avoid CLI policy false positives.
-      const provider = existingSessionId
-        ? providerRegistry.getProvider('claude-code') || getChatProvider(providerId)
-        : getChatProvider(providerId)
+      // Get provider — use the same provider for initial and follow-up messages.
+      // anthropic-direct handles multi-turn statelessly via historyMessages,
+      // so no need to switch to claude-code for session resumption.
+      const provider = getChatProvider(providerId)
 
       if (!provider) {
         await stream.writeSSE({
@@ -754,12 +752,10 @@ agentRoute.post('/task-chat', async (c) => {
 
   return streamSSE(c, async (stream) => {
     try {
-      // Get provider — for follow-up chats (with sessionId), we need a provider that supports
-      // session resumption. claude-code supports this, anthropic-direct does not.
-      // For initial chats, prefer anthropic-direct to avoid CLI policy false positives.
-      const provider = existingSessionId
-        ? providerRegistry.getProvider('claude-code') || getChatProvider(providerId)
-        : getChatProvider(providerId)
+      // Get provider — use the same provider for initial and follow-up messages.
+      // anthropic-direct handles multi-turn statelessly via historyMessages,
+      // so no need to switch to claude-code for session resumption.
+      const provider = getChatProvider(providerId)
 
       if (!provider) {
         await stream.writeSSE({

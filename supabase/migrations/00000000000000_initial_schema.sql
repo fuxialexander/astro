@@ -4,7 +4,6 @@
 -- ============================================================================
 -- Extensions
 -- ============================================================================
-create extension if not exists "uuid-ossp";
 create extension if not exists "pgcrypto";
 
 -- ============================================================================
@@ -89,7 +88,7 @@ create index idx_audit_logs_created_at on audit_logs(created_at);
 
 -- Projects (includes repository column from start)
 create table projects (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   description text not null default '',
@@ -121,7 +120,7 @@ create trigger projects_updated_at
 
 -- Initiatives (high-level organizational grouping)
 create table initiatives (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   description text not null default '',
@@ -162,7 +161,7 @@ create index idx_project_members_user on project_members(user_id);
 
 -- Plan nodes
 create table plan_nodes (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
   -- Use text IDs to preserve compatibility with existing client-generated IDs
   client_id text not null,
@@ -214,7 +213,7 @@ create table plan_node_dependencies (
 
 -- Plan edges (React Flow graph edges)
 create table plan_edges (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
   client_id text not null,
   source_client_id text not null,
@@ -228,7 +227,7 @@ create index idx_plan_edges_project on plan_edges(project_id);
 
 -- Task executions
 create table task_executions (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   execution_id text not null unique,
   node_client_id text not null,
   project_id uuid not null references projects(id) on delete cascade,
@@ -258,7 +257,7 @@ create index idx_executions_execution_id on task_executions(execution_id);
 
 -- Tool traces (per execution)
 create table tool_traces (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   execution_id text not null references task_executions(execution_id) on delete cascade,
   tool_name text not null,
   tool_input jsonb,
@@ -272,7 +271,7 @@ create index idx_tool_traces_execution on tool_traces(execution_id);
 
 -- File changes (per execution)
 create table file_changes (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   execution_id text not null references task_executions(execution_id) on delete cascade,
   path text not null,
   action file_action not null,
@@ -285,7 +284,7 @@ create index idx_file_changes_execution on file_changes(execution_id);
 
 -- Task chat sessions
 create table task_chat_sessions (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   node_id text not null,
   project_id uuid not null references projects(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,

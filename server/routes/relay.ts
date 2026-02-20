@@ -12,8 +12,12 @@ import { relayServer } from '../lib/relay-server.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { redisPubSub } from '../lib/redis-pubsub.js';
 import type { TaskDispatch, EnvironmentType, ProviderType } from '../types/relay.js';
+import { requireAuth, type AuthUser } from '../middleware/auth.js';
 
 export const relayRoute = new Hono();
+
+// All relay routes require authentication
+relayRoute.use('/*', requireAuth);
 
 // ============================================================================
 // Health & Status
@@ -78,10 +82,13 @@ relayRoute.get('/status', (c) => {
  * List all connected machines
  */
 relayRoute.get('/machines', (c) => {
+  const user = c.get('user') as AuthUser | undefined;
   const snapshot = machineRegistry.getSnapshot();
+  // Filter machines by authenticated user
+  const userMachines = snapshot.machines.filter(m => !m.userId || m.userId === user?.id || m.userId === 'dev-user');
 
   return c.json({
-    machines: snapshot.machines.map((m) => ({
+    machines: userMachines.map((m) => ({
       machineId: m.machineId,
       name: m.name,
       environmentType: m.environmentType,
@@ -99,7 +106,7 @@ relayRoute.get('/machines', (c) => {
       lastHeartbeat: m.lastHeartbeat,
       tags: m.tags,
     })),
-    summary: snapshot.summary,
+    summary: { ...snapshot.summary, total: userMachines.length },
   });
 });
 
@@ -109,9 +116,15 @@ relayRoute.get('/machines', (c) => {
  */
 relayRoute.get('/machines/:machineId', (c) => {
   const machineId = c.req.param('machineId');
+  const user = c.get('user') as AuthUser | undefined;
   const machine = machineRegistry.get(machineId);
 
   if (!machine) {
+    return c.json({ error: 'Machine not found' }, 404);
+  }
+
+  // Verify ownership
+  if (machine.userId && machine.userId !== 'dev-user' && user?.id && machine.userId !== user.id) {
     return c.json({ error: 'Machine not found' }, 404);
   }
 
@@ -404,12 +417,13 @@ relayRoute.get('/tasks/:taskId/machine', async (c) => {
 relayRoute.get('/best-machine', (c) => {
   const environment = c.req.query('environment') as EnvironmentType;
   const provider = c.req.query('provider') as ProviderType | undefined;
+  const user = c.get('user') as AuthUser | undefined;
 
   if (!environment || !['local', 'hpc', 'cloud'].includes(environment)) {
     return c.json({ error: 'Invalid or missing environment parameter' }, 400);
   }
 
-  const machine = machineRegistry.findBestMachine(environment, provider);
+  const machine = machineRegistry.findBestMachine(environment, provider, user?.id);
 
   if (!machine) {
     return c.json({

@@ -9,7 +9,11 @@
 export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'slurm' | 'custom';
 
 // Re-export from the canonical source to avoid duplication
-export type { ExecutionStrategyType, ExecutionStrategyInfo } from './execution/types.js';
+import type { ExecutionStrategyType as _ExecutionStrategyType, ExecutionStrategyInfo as _ExecutionStrategyInfo } from './execution/types.js';
+export type { _ExecutionStrategyType as ExecutionStrategyType, _ExecutionStrategyInfo as ExecutionStrategyInfo };
+// Also import directly for use within this file
+type ExecutionStrategyType = _ExecutionStrategyType;
+type ExecutionStrategyInfo = _ExecutionStrategyInfo;
 
 export interface HpcCapability {
   clusterName?: string;

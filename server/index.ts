@@ -27,7 +27,7 @@ import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
 import { dispatchEngine } from './lib/dispatch/index.js'
-import { updateMachineConnectionStatus, ensureMachineRegistered } from './lib/registered-machines-store.js'
+import { updateMachineConnectionStatus, ensureMachineRegistered, resetAllConnectionStatuses } from './lib/registered-machines-store.js'
 import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isIndexedDBMode } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
 import { astroEventTransport } from './lib/events/astro-event-transport.js'
@@ -214,6 +214,14 @@ async function start() {
     astroEventTransport.setEnabled(false)
   }
 
+  // Reset stale connection statuses from previous server session
+  try {
+    await resetAllConnectionStatuses()
+    console.log('[relay] Reset all machine connection statuses')
+  } catch (err) {
+    console.warn('[relay] Could not reset connection statuses:', (err as Error).message)
+  }
+
   // Initialize relay server
   try {
     // Connect to Redis if configured
@@ -318,8 +326,35 @@ async function start() {
     console.log('[cleanup] Cleanup scheduler started')
   }
 
-  console.log(`[backend] listening on http://localhost:${port}`)
   httpServer = serve({ fetch: app.fetch, port })
+  httpServer.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[backend] Port ${port} already in use. Killing stale process...`)
+      import('child_process').then(({ execSync }) => {
+        try {
+          const pids = execSync(`lsof -ti :${port}`, { encoding: 'utf-8' }).trim()
+          if (pids) {
+            execSync(`kill ${pids}`)
+            console.log(`[backend] Killed stale process(es): ${pids.replace(/\n/g, ', ')}`)
+            // Retry after a short delay
+            setTimeout(() => {
+              httpServer = serve({ fetch: app.fetch, port })
+              console.log(`[backend] listening on http://localhost:${port}`)
+            }, 1000)
+          }
+        } catch {
+          console.error(`[backend] Could not kill stale process on port ${port}. Run: kill $(lsof -ti :${port})`)
+          process.exit(1)
+        }
+      })
+    } else {
+      console.error('[backend] Server error:', err)
+      process.exit(1)
+    }
+  })
+  httpServer.on('listening', () => {
+    console.log(`[backend] listening on http://localhost:${port}`)
+  })
 }
 
 // Shared shutdown logic with a hard timeout so the process never hangs

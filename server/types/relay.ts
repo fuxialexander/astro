@@ -103,6 +103,8 @@ export interface MachineRegistryEntry extends MachineInfo {
   connectedAt: Date;
   lastHeartbeat: Date;
   sessionId: string;
+  /** Owner user ID (from JWT at registration time) */
+  userId?: string;
 }
 
 // ============================================================================

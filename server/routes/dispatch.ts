@@ -22,7 +22,7 @@ import { relayServer } from '../lib/relay-server.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import type { ExecutionEnvironment } from '../lib/providers/types.js'
 import type { ProviderType } from '../types/relay.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { errorMessage, isAbortError } from '../lib/error-utils.js'
 import {
@@ -71,6 +71,7 @@ const dispatchTaskSchema = z.object({
   force: z.boolean().optional(),
   dryRun: z.boolean().optional(),
   procedure: z.string().max(100).optional(),
+  computeBackend: z.string().max(100).optional(),
 })
 
 const dispatchRoute = new Hono()
@@ -121,6 +122,7 @@ dispatchRoute.post('/task', async (c) => {
     force = false,
     dryRun = false,
     procedure: requestedProcedure,
+    computeBackend,
   } = body
 
   // Validate working directory
@@ -222,6 +224,7 @@ dispatchRoute.post('/task', async (c) => {
       targetMachineId,
       priority,
       workingDirectory: resolvedDir,
+      computeBackend,
     })
   }
 
@@ -802,6 +805,7 @@ async function dispatchViaRelay(
     targetMachineId?: string
     priority: DispatchPriority
     workingDirectory?: string
+    computeBackend?: string
   }
 ) {
   const {
@@ -817,12 +821,16 @@ async function dispatchViaRelay(
     targetMachineId,
     priority,
     workingDirectory,
+    computeBackend,
   } = params
+
+  // Extract user for ownership verification
+  const user = c.get('user') as AuthUser | undefined
 
   // Find target machine
   let machineId = targetMachineId
   if (!machineId) {
-    const bestMachine = machineRegistry.findBestMachine(environment, preferredProvider)
+    const bestMachine = machineRegistry.findBestMachine(environment, preferredProvider, user?.id)
     if (!bestMachine) {
       return c.json(
         {
@@ -833,6 +841,15 @@ async function dispatchViaRelay(
       )
     }
     machineId = bestMachine.machineId
+  } else {
+    // Verify ownership of explicitly targeted machine
+    const targetMachine = machineRegistry.get(machineId)
+    if (targetMachine?.userId && targetMachine.userId !== 'dev-user' && user?.id && targetMachine.userId !== user.id) {
+      return c.json(
+        { success: false, error: `Machine ${machineId} not found or not authorized` },
+        403
+      )
+    }
   }
 
   // Build dependency output string
@@ -850,6 +867,7 @@ async function dispatchViaRelay(
     visionDoc,
     environment,
     preferredProvider,
+    executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     dependencies: dependencyContext ? [dependencyContext] : undefined,
     workingDirectory,
@@ -976,10 +994,18 @@ async function dispatchViaRelay(
       return
     }
 
-    // Send init event after successful dispatch
+    // Send init event after successful dispatch (include provider/backend info)
+    const targetMachine = machineRegistry.get(machineId!)
     await stream.writeSSE({
       event: 'init',
-      data: JSON.stringify({ executionId, nodeId, machineId }),
+      data: JSON.stringify({
+        executionId,
+        nodeId,
+        machineId,
+        providerId: preferredProvider || targetMachine?.providers[0]?.type,
+        providerName: preferredProvider || targetMachine?.providers[0]?.type,
+        computeBackend,
+      }),
     })
 
     // Keepalive + activity timeout check

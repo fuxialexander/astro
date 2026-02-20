@@ -264,7 +264,7 @@ app.get('/plan', async (c) => {
   // Get all nodes for user's projects
   const rawNodes = await db.select().from(planNodes)
   const nodes = rawNodes
-    .filter(n => projectIds.has(n.projectId))
+    .filter(n => projectIds.has(n.projectId) && !n.deletedAt)
     .map(n => ({
       id: n.clientId, // Use clientId as frontend ID
       projectId: n.projectId,
@@ -298,7 +298,7 @@ app.get('/plan', async (c) => {
 
   const rawEdges = await db.select().from(planEdges)
   const edges = rawEdges
-    .filter(e => projectIds.has(e.projectId))
+    .filter(e => projectIds.has(e.projectId) && !e.deletedAt)
     .map(e => ({
       id: e.clientId,
       source: e.sourceClientId,
@@ -320,7 +320,7 @@ app.get('/plan/:projectId', async (c) => {
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
   const rawNodes = await db.select().from(planNodes).where(eq(planNodes.projectId, projectId))
-  const nodes = rawNodes.map(n => ({
+  const nodes = rawNodes.filter(n => !n.deletedAt).map(n => ({
     id: n.clientId, // Use clientId as frontend ID
     projectId: n.projectId,
     type: n.type,
@@ -352,7 +352,7 @@ app.get('/plan/:projectId', async (c) => {
   }))
 
   const rawEdges = await db.select().from(planEdges).where(eq(planEdges.projectId, projectId))
-  const edges = rawEdges.map(e => ({
+  const edges = rawEdges.filter(e => !e.deletedAt).map(e => ({
     id: e.clientId,
     source: e.sourceClientId,
     target: e.targetClientId,
@@ -521,8 +521,22 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.prUrl !== undefined) patch.prUrl = body.prUrl || null
   if (body.prNumber !== undefined) patch.prNumber = body.prNumber || null
   if (body.type !== undefined) patch.type = body.type
+  if (body.deletedAt !== undefined) patch.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
+  if (body.deletionActionId !== undefined) patch.deletionActionId = body.deletionActionId || null
 
   await db.update(planNodes).set(patch).where(eq(planNodes.clientId, id))
+
+  // If soft-deleting a node, also soft-delete connected edges
+  if (body.deletedAt) {
+    const edgePatch: Record<string, unknown> = {
+      deletedAt: new Date(body.deletedAt),
+    }
+    if (body.deletionActionId) edgePatch.deletionActionId = body.deletionActionId
+    await db.update(planEdges).set(edgePatch).where(
+      or(eq(planEdges.sourceClientId, id), eq(planEdges.targetClientId, id))
+    )
+  }
+
   return c.json({ ok: true })
 })
 
@@ -874,6 +888,9 @@ app.post('/sessions', async (c) => {
   await db.insert(sessions).values({
     ...body,
     userId,
+    createdAt: body.createdAt ? new Date(body.createdAt) : new Date(),
+    updatedAt: body.updatedAt ? new Date(body.updatedAt) : new Date(),
+    completedAt: body.completedAt ? new Date(body.completedAt) : null,
   })
 
   return c.json(body)
@@ -884,8 +901,15 @@ app.patch('/sessions/:sessionId', async (c) => {
   const userId = c.get('user')!.id
   const body = await c.req.json()
 
+  const patch: Record<string, unknown> = { ...body, updatedAt: new Date() }
+  if (body.createdAt !== undefined) {
+    patch.createdAt = new Date(body.createdAt)
+  }
+  if (body.completedAt !== undefined) {
+    patch.completedAt = body.completedAt ? new Date(body.completedAt) : null
+  }
   await db.update(sessions)
-    .set({ ...body, updatedAt: new Date() })
+    .set(patch)
     .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
 
   return c.json({ ok: true })

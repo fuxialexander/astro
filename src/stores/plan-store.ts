@@ -36,6 +36,7 @@ interface PlanState {
   removeEdge: (source: string, target: string) => void
   setProjectPlan: (projectId: string, nodes: PlanNode[], edges: PlanEdge[]) => void
   reorganizeProject: (projectId: string) => void
+  removeProjectPlan: (projectId: string) => void
 }
 
 // Empty seed data — new users start with no plans and create via /projects/new
@@ -254,6 +255,24 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     dataClient.setProjectPlan(projectId, newNodes, dedupedNewEdges).catch((err) => {
       console.error('[plan-store] Failed to save project plan to API:', err)
     })
+  },
+
+  removeProjectPlan: (projectId) => {
+    const allNodes = get().nodes
+    const allEdges = get().edges
+    const projectNodeIds = new Set(allNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
+
+    const nextNodes = allNodes.filter((n) => n.projectId !== projectId)
+    const nextEdges = allEdges.filter((e) => !projectNodeIds.has(e.source) && !projectNodeIds.has(e.target))
+    set({ nodes: nextNodes, edges: nextEdges })
+    saveToIdb(nextNodes, nextEdges)
+
+    // Delete from API
+    for (const id of projectNodeIds) {
+      dataClient.deleteNode(id).catch((err) => {
+        console.error('[plan-store] Failed to delete node from API:', err)
+      })
+    }
   },
 
   reorganizeProject: (projectId) => {

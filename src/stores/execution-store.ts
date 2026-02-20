@@ -58,10 +58,11 @@ export function getProjectWorkingDir(
     }
   }
 
-  // Local: prefer workingDirectory, fall back to repository
+  // Local: prefer workingDirectory (resolved local path)
   if (project?.workingDirectory) {
     return { ok: true, dir: project.workingDirectory, source: 'local' }
   }
+  // If only a git URL is available, pass it through — the server will clone/resolve it
   if (project?.repository) {
     return { ok: true, dir: project.repository, source: 'repository' }
   }
@@ -207,6 +208,7 @@ interface ExecutionState {
   // Local backend actions
   loadLocalBackends: () => Promise<void>
   fetchBackendDetail: (id: string) => Promise<{ backend: ComputeBackendInfo; contextString: string } | null>
+  fetchRemoteBackendDetail: (machineId: string, strategyId: string) => Promise<{ backend: ComputeBackendInfo; contextString: string } | null>
 
   // Selection
   selectExecution: (nodeId: string | null) => void
@@ -453,6 +455,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           model: options?.model,
           maxTurns: options?.maxTurns ?? 100,
           workingDirectory: resolvedDir,
+          computeBackend: options?.computeBackend,
         }),
         signal: abortController.signal,
       })
@@ -791,6 +794,20 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
   },
 
+  fetchRemoteBackendDetail: async (machineId: string, strategyId: string) => {
+    try {
+      const headers = await getAuthHeaders()
+      const response = await fetch(apiUrl(`/api/backends/remote/${machineId}/${strategyId}`), { headers })
+      if (response.ok) {
+        const data = await response.json() as { backend: ComputeBackendInfo; contextString: string }
+        return data
+      }
+      return null
+    } catch {
+      return null
+    }
+  },
+
   selectExecution: (nodeId: string | null) => {
     set({ selectedExecutionId: nodeId })
   },
@@ -1042,6 +1059,7 @@ function handleSSEEvent(
             exec.machineId = parsed.machineId
             exec.providerId = parsed.providerId
             exec.providerName = parsed.providerName
+            if (parsed.computeBackend) exec.computeBackend = parsed.computeBackend
           }
           return { executions: newExecutions }
         })
