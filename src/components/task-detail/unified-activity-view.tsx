@@ -531,6 +531,7 @@ export function UnifiedActivityView({
   const createSessionAction = useSessionStore((s) => s.createSession)
   const addMessage = useSessionStore((s) => s.addMessage)
   const appendToLastAssistantMessage = useSessionStore((s) => s.appendToLastAssistantMessage)
+  const updateLastAssistantMessage = useSessionStore((s) => s.updateLastAssistantMessage)
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
   const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
 
@@ -772,6 +773,7 @@ export function UnifiedActivityView({
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
+    let rawText = ""
     try {
       await chatWithTask(
         {
@@ -787,9 +789,11 @@ export function UnifiedActivityView({
           messages: historyMessages,
         },
         {
-          onText: (chunk) => appendToLastAssistantMessage(sid, chunk),
+          onText: (chunk) => { rawText += chunk; appendToLastAssistantMessage(sid, chunk) },
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
+            // Force immediate save — appendToLastAssistantMessage only debounce-saves
+            updateLastAssistantMessage(sid, rawText)
             setIsChatStreaming(false)
           },
           onError: (error) => {

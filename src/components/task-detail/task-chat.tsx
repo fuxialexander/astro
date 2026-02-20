@@ -29,6 +29,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   const createSession = useSessionStore((s) => s.createSession)
   const addMessage = useSessionStore((s) => s.addMessage)
   const appendToLastAssistantMessage = useSessionStore((s) => s.appendToLastAssistantMessage)
+  const updateLastAssistantMessage = useSessionStore((s) => s.updateLastAssistantMessage)
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
   const clearSessionsForNode = useSessionStore((s) => s.clearSessionsForNode)
   const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
@@ -97,6 +98,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
       (m) => m.role === "assistant" && m.content.length > 0
     )
 
+    let rawText = ""
     try {
       await chatWithTask(
         {
@@ -113,10 +115,13 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
         },
         {
           onText: (chunk) => {
+            rawText += chunk
             appendToLastAssistantMessage(sid, chunk)
           },
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
+            // Force immediate save — appendToLastAssistantMessage only debounce-saves
+            updateLastAssistantMessage(sid, rawText)
             setIsStreaming(false)
           },
           onError: (error) => {
@@ -129,7 +134,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
     } catch {
       setIsStreaming(false)
     }
-  }, [input, isStreaming, node.id, node.title, node.description, projectId, taskOutput, visionDoc, model, addMessage, appendToLastAssistantMessage, setProviderSessionId])
+  }, [input, isStreaming, node.id, node.title, node.description, projectId, taskOutput, visionDoc, model, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])
 
   function handleClear() {
     if (isStreaming) {
