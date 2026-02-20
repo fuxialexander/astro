@@ -7,6 +7,7 @@
 import { create } from 'zustand'
 import { getSupabase, shouldUseSupabase } from '@/lib/supabase-client'
 import { loadState, saveState, getBrowserUserId } from '@/lib/db'
+import { useRealtimeStore } from './realtime-store'
 
 export interface RegisteredMachine {
   id: string
@@ -175,6 +176,14 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         saveState('astro-machines', nextMachines)
         return { machines: nextMachines }
       })
+      // Also update the realtime store's live machine entry if connected
+      const realtimeState = useRealtimeStore.getState()
+      const liveMachine = realtimeState.machines.get(machineId)
+      if (liveMachine) {
+        const updatedMachines = new Map(realtimeState.machines)
+        updatedMachines.set(machineId, { ...liveMachine, name })
+        useRealtimeStore.setState({ machines: updatedMachines })
+      }
       return true
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' })

@@ -28,7 +28,7 @@ import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
 import { dispatchEngine } from './lib/dispatch/index.js'
-import { updateMachineConnectionStatus, ensureMachineRegistered, resetAllConnectionStatuses } from './lib/registered-machines-store.js'
+import { updateMachineConnectionStatus, ensureMachineRegistered, resetAllConnectionStatuses, getMachine } from './lib/registered-machines-store.js'
 import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isIndexedDBMode } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
 import { astroEventTransport } from './lib/events/astro-event-transport.js'
@@ -296,6 +296,11 @@ async function start() {
           providers: entry?.providers?.map(p => p.type) || [],
           userId,
         })
+        // Sync user-set name from DB back to the live registry so SSE events use the correct name
+        const dbMachine = await getMachine(machineId)
+        if (dbMachine && entry && dbMachine.name !== entry.name) {
+          entry.name = dbMachine.name
+        }
       } catch (err) {
         console.warn(`[relay] Could not persist machine ${machineId} to database (IndexedDB-only mode?):`, (err as Error).message)
       }

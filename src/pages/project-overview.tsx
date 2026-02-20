@@ -180,7 +180,11 @@ export function OverviewTab({
   }
 
   // Generate editor URL (Cursor/VSCode) with local/remote protocol
-  const editorUrl = useMemo(() => {
+  // Use project's assigned machine, or fall back to the only available machine
+  const defaultMachine = project.defaultMachineId
+    ? machines.find((m) => m.id === project.defaultMachineId)
+    : (machines.length === 1 ? machines[0] : undefined)
+  const editorUrl = (() => {
     if (!project.workingDirectory) return null
 
     const path = project.workingDirectory
@@ -191,17 +195,14 @@ export function OverviewTab({
       return `${editorScheme}://file${path}`
     }
 
-    // Remote mode - use SSH remote URL
-    if (project.defaultMachineId) {
-      const machine = machines.find((m) => m.id === project.defaultMachineId)
-      if (machine && machine.hostname) {
-        return `${editorScheme}://vscode-remote/ssh-remote+${machine.hostname}${path}`
-      }
+    // Remote mode - use SSH remote URL (prefer user-set name as SSH alias)
+    if (defaultMachine?.name) {
+      return `${editorScheme}://vscode-remote/ssh-remote+${defaultMachine.name}${path}`
     }
 
     // Fallback to local file URL
     return `${editorScheme}://file${path}`
-  }, [project.workingDirectory, project.defaultMachineId, useLocalUrls, useVSCode, machines])
+  })()
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -320,9 +321,9 @@ export function OverviewTab({
                   <div className="flex-1 flex flex-col gap-0.5 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-sm font-medium shrink-0">Working Directory</span>
-                      {project.defaultMachineId && (
+                      {defaultMachine && (
                         <span className="text-[10px] text-muted-foreground truncate">
-                          ({machines.find(m => m.id === project.defaultMachineId)?.hostname || 'unknown'})
+                          ({defaultMachine.name || 'unknown'})
                         </span>
                       )}
                     </div>

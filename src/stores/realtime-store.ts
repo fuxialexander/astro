@@ -345,6 +345,11 @@ function handleRealtimeEvent(
 
     case 'machine:connected': {
       const entry = data as unknown as MachineEntry
+      // Prefer user-set name from registered machines store over WebSocket-provided name
+      const registeredMachine = useMachinesStore.getState().machines.find(m => m.id === entry.machineId)
+      if (registeredMachine?.name && registeredMachine.name !== registeredMachine.hostname) {
+        entry.name = registeredMachine.name
+      }
       set((state) => {
         const machines = new Map(state.machines)
         machines.set(entry.machineId, entry)

@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { relayServer } from '../lib/relay-server.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { redisPubSub } from '../lib/redis-pubsub.js';
+import { getMachine } from '../lib/registered-machines-store.js';
 import type { TaskDispatch, EnvironmentType, ProviderType } from '../types/relay.js';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 
@@ -81,16 +82,29 @@ relayRoute.get('/status', (c) => {
  * GET /relay/machines
  * List all connected machines
  */
-relayRoute.get('/machines', (c) => {
+relayRoute.get('/machines', async (c) => {
   const user = c.get('user') as AuthUser | undefined;
   const snapshot = machineRegistry.getSnapshot();
   // Filter machines by authenticated user
   const userMachines = snapshot.machines.filter(m => !m.userId || m.userId === user?.id || m.userId === 'dev-user');
 
+  // Cross-reference with persistent store to get user-set names
+  const machinesWithDbNames = await Promise.all(
+    userMachines.map(async (m) => {
+      const dbMachine = await getMachine(m.machineId);
+      // Prefer user-set name from DB if it differs from hostname (i.e., user renamed it)
+      const name = (dbMachine?.name && dbMachine.name !== dbMachine.hostname && dbMachine.name !== m.machineId)
+        ? dbMachine.name
+        : m.name;
+      return { ...m, resolvedName: name };
+    })
+  );
+
   return c.json({
-    machines: userMachines.map((m) => ({
+    machines: machinesWithDbNames.map((m) => ({
       machineId: m.machineId,
-      name: m.name,
+      name: m.resolvedName,
+      hostname: m.hostname,
       environmentType: m.environmentType,
       connectionStatus: m.connectionStatus,
       providers: m.providers.map((p) => ({

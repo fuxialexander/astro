@@ -9,6 +9,7 @@
  * Minimal machine info needed for file URL building
  */
 interface MachineInfo {
+  name?: string
   hostname?: string
 }
 
@@ -158,20 +159,21 @@ export async function buildFileUrl(
     return `${editorType}://file${filePath}${line}`
   }
 
-  if (!machine?.hostname) {
-    // No machine hostname available, fall back to file:// (assume local)
+  const sshTarget = machine?.name || machine?.hostname
+  if (!sshTarget) {
+    // No machine info available, fall back to file:// (assume local)
     return `${editorType}://file${filePath}${line}`
   }
 
   const browserHostname = await getBrowserHostname()
-  const isSameMachine = isSameHostname(browserHostname, machine.hostname)
+  const isSameMachine = machine.hostname ? isSameHostname(browserHostname, machine.hostname) : false
 
   if (isSameMachine) {
     // Same machine: use editor file protocol
     return `${editorType}://file${filePath}${line}`
   } else {
-    // Different machine: use editor remote protocol
-    return `${editorType}://vscode-remote/ssh-remote+${machine.hostname}${filePath}${line}`
+    // Different machine: use editor remote protocol (prefer user-set name as SSH alias)
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${filePath}${line}`
   }
 }
 
@@ -203,16 +205,18 @@ export function buildFileUrlSync(
     return undefined // Need to call getBrowserHostname() first
   }
 
-  if (!machine?.hostname) {
+  const sshTarget = machine?.name || machine?.hostname
+  if (!sshTarget) {
     return `${editorType}://file${filePath}${line}`
   }
 
-  const isSameMachine = isSameHostname(cachedBrowserHostname, machine.hostname)
+  const isSameMachine = machine?.hostname ? isSameHostname(cachedBrowserHostname, machine.hostname) : false
 
   if (isSameMachine) {
     return `${editorType}://file${filePath}${line}`
   } else {
-    return `${editorType}://vscode-remote/ssh-remote+${machine.hostname}${filePath}${line}`
+    // Prefer user-set name as SSH alias
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${filePath}${line}`
   }
 }
 
