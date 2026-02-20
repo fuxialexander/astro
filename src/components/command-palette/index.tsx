@@ -29,7 +29,7 @@ export function CommandPalette() {
   const clearCommandSelection = useUIStore((s) => s.clearCommandSelection)
 
   const projects = useProjectStore((s) => s.projects)
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, availableThemes } = useTheme()
   const navigate = useNavigate()
 
   const [searchQuery, setSearchQuery] = useState("")
@@ -114,15 +114,20 @@ export function CommandPalette() {
         return { ...cmd, action: () => navigate("/projects/new") }
       }
       if (cmd.id === "action-toggle-theme") {
+        // Cycle through all available themes
+        const themeIds = availableThemes.map((t) => t.id)
+        const currentIndex = themeIds.indexOf(theme)
+        const nextIndex = (currentIndex + 1) % themeIds.length
         return {
           ...cmd,
-          action: () => setTheme(theme === "dark" ? "light" : "dark"),
+          description: `Current: ${availableThemes.find((t) => t.id === theme)?.name ?? theme}`,
+          action: () => setTheme(themeIds[nextIndex]),
         }
       }
 
       return cmd
     })
-  }, [allCommands, navigate, theme, setTheme])
+  }, [allCommands, navigate, theme, setTheme, availableThemes])
 
   // Fuzzy search setup
   const fuse = useMemo(

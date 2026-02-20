@@ -252,7 +252,7 @@ healthRoute.post('/test/auth-token', async (c) => {
  */
 healthRoute.get('/backends', async (c) => {
   // Block in multi-tenant mode — backends expose server infrastructure
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     return c.json({ error: 'Backend detection is not available in multi-tenant mode' }, 403)
   }
 
@@ -271,7 +271,7 @@ healthRoute.get('/backends', async (c) => {
  * Blocked in multi-tenant mode for the same reason as GET /backends.
  */
 healthRoute.get('/backends/:id', async (c) => {
-  if (shouldUseSupabase()) {
+  if (isServerMode()) {
     return c.json({ error: 'Backend detection is not available in multi-tenant mode' }, 403)
   }
 

@@ -136,8 +136,9 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
   },
 
   registerExternalItem: (item: SidebarItem) => {
-    const externalItems = [...get().externalItems, item]
-    set({ externalItems })
+    const existing = get().externalItems
+    if (existing.some((i) => i.id === item.id)) return // Deduplicate
+    set({ externalItems: [...existing, item] })
   },
 
   unregisterExternalItem: (itemId: string) => {
