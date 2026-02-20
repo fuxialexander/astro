@@ -4,7 +4,8 @@ import { parseSSEStream } from "@/lib/sse-parser"
 import { usePlanStore, isLive } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
-import { getAccessToken, shouldUseSupabase } from "@/lib/supabase-client"
+import { getAccessToken } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
@@ -956,7 +957,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   load: async () => {
     try {
       // Try loading from Supabase first (if enabled)
-      if (shouldUseSupabase()) {
+      if (isServerMode()) {
         try {
           const executionsRecord = await dataClient.getExecutions()
           // dataClient already deserializes dates, just convert Record to Map
@@ -1006,7 +1007,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       console.log('[execution-store] Persisted', Object.keys(serialized).length, 'executions to IndexedDB')
 
       // Fire-and-forget: sync to Supabase (if enabled)
-      if (shouldUseSupabase()) {
+      if (isServerMode()) {
         // Only sync newly completed executions (not already in DB)
         for (const [, execution] of completedExecutions) {
           if (execution.status === 'success' || execution.status === 'failure' || execution.status === 'cancelled') {

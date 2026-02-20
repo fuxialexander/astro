@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useExecutionStore } from "@/stores/execution-store"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 
 interface AddEnvironmentDialogProps {
   open: boolean
@@ -41,7 +41,7 @@ function CopyBlock({ text }: { text: string }) {
 }
 
 export function AddEnvironmentDialog({ open, onOpenChange }: AddEnvironmentDialogProps) {
-  const isMultiTenant = shouldUseSupabase()
+  const isMultiTenant = isServerMode()
   const providers = useExecutionStore((s) => s.providers)
   const providersLoaded = useExecutionStore((s) => s.providersLoaded)
   const loadProviders = useExecutionStore((s) => s.loadProviders)

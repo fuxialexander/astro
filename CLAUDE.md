@@ -29,16 +29,16 @@ npm run deploy           # Build + deploy to Cloudflare Pages
 
 ### Database Modes
 
-Astro supports two database modes:
+Astro supports two database modes, detected via `isLocalMode()` / `isServerMode()` from `src/lib/app-mode.ts` (frontend) and `server/lib/app-mode.ts` (server):
 
-**IndexedDB Mode** (default for local dev):
+**Local Mode** (default for local dev):
 - No authentication required
 - All data stored in browser IndexedDB
 - Single-user only
 - Perfect for rapid iteration
 - Start with: `npm run dev:indexeddb` or `npm run dev` (if no Supabase env vars)
 
-**Supabase Mode** (multi-user production):
+**Server Mode** (multi-user production):
 - WebAuthn/passkey authentication
 - PostgreSQL database with RLS
 - Multi-user with data isolation
@@ -46,11 +46,11 @@ Astro supports two database modes:
 - Start with: `npm run dev:supabase` or `npm run dev` (if Supabase env vars set)
 
 **Mode Detection:**
-1. If `USE_INDEXEDDB_ONLY=true` → IndexedDB mode (explicit override)
-2. If Supabase env vars not set → IndexedDB mode (auto-detected)
-3. If Supabase env vars set → Supabase mode
+1. If `USE_INDEXEDDB_ONLY=true` → Local mode (explicit override)
+2. If Supabase env vars not set → Local mode (auto-detected)
+3. If Supabase env vars set → Server mode
 
-**Visual Indicator:** Sidebar shows "IndexedDB Mode (Local Only)" badge when in IndexedDB mode.
+**Visual Indicator:** Sidebar shows "Local Mode" badge when in local mode.
 
 ### Local Development
 

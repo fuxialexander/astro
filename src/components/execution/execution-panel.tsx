@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir, type ComputeBackendInfo } from "@/stores/execution-store"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -70,7 +70,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const loadMachines = useExecutionStore((s) => s.loadMachines)
 
   // In Supabase mode, no "Local" option — only registered machines
-  const isMultiTenant = shouldUseSupabase()
+  const isMultiTenant = isServerMode()
 
   // Local state for execution options — default to node's machine, then project defaults
   const defaultMachineId = node.machineId || project?.defaultMachineId

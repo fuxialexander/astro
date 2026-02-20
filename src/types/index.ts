@@ -300,6 +300,10 @@ export interface UserProfile {
   emailNotifications: boolean;
   // API keys for agent providers
   apiKeys: ApiKey[];
+  // Sidebar configuration (synced via user profile)
+  sidebarConfig?: Array<{
+    id: string; to: string; icon: string; label: string; visible: boolean; protected: boolean
+  }>;
   createdAt: Date;
   updatedAt: Date;
 }

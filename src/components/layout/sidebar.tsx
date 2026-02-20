@@ -10,7 +10,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useUIStore } from "@/stores/ui-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 
@@ -53,7 +53,7 @@ export function Sidebar() {
   const subscribeToChanges = useSidebarStore((s) => s.subscribeToChanges)
   const navigate = useNavigate()
   const params = useParams()
-  const showAuth = shouldUseSupabase()
+  const showAuth = isServerMode()
 
   const activeProjectId = params.id
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
@@ -345,11 +345,11 @@ export function Sidebar() {
       {/* Spacer to push content to bottom */}
       <div className="flex-1" />
 
-      {/* IndexedDB Mode Badge */}
+      {/* Local Mode Badge */}
       {!showAuth && (
         <div className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground border-t border-border dark:border-border">
           <div className="h-2 w-2 rounded-full bg-yellow-500" />
-          IndexedDB Mode (Local Only)
+          Local Mode
         </div>
       )}
 

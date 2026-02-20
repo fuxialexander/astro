@@ -26,7 +26,7 @@ import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, canExecuteNode } from "@/stores/execution-store"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
@@ -100,7 +100,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
-  const isMultiTenant = shouldUseSupabase()
+  const isMultiTenant = isServerMode()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(

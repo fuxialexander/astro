@@ -2,7 +2,8 @@ import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, Task
 import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
-import { getAccessToken, shouldUseSupabase } from "./supabase-client"
+import { getAccessToken } from "./supabase-client"
+import { isLocalMode } from "./app-mode"
 
 const BASE = "/api/data"
 
@@ -19,7 +20,7 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   // In IndexedDB-only mode, throw immediately to trigger fallback
-  if (!shouldUseSupabase()) {
+  if (isLocalMode()) {
     throw new Error('IndexedDB-only mode: skipping API call')
   }
 
@@ -127,6 +128,7 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
     notificationsEnabled: (row.notificationsEnabled ?? row.notifications_enabled ?? true) as boolean,
     emailNotifications: (row.emailNotifications ?? row.email_notifications ?? false) as boolean,
     apiKeys: ((row.apiKeys ?? row.api_keys) as Record<string, unknown>[] ?? []).map(mapApiKey),
+    sidebarConfig: (row.sidebarConfig ?? row.sidebar_config) as UserProfile["sidebarConfig"],
     createdAt: toDate(row.createdAt ?? row.created_at),
     updatedAt: toDate(row.updatedAt ?? row.updated_at),
   }
@@ -438,6 +440,33 @@ export const dataClient = {
 
   async saveExecution(execution: TaskExecution): Promise<void> {
     await post(`${BASE}/executions`, execution)
+  },
+
+  // ── Activities ──────────────────────────────────────────────────────
+  async listActivities(projectId?: string, limit = 100): Promise<Array<{ id: string; projectId: string; type: string; title: string; description?: string; nodeId?: string; metadata?: Record<string, unknown>; createdAt: Date }>> {
+    const params = new URLSearchParams()
+    if (projectId) params.set('projectId', projectId)
+    if (limit !== 100) params.set('limit', String(limit))
+    const qs = params.toString()
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/activities${qs ? `?${qs}` : ''}`)
+    return rows.map(r => ({
+      id: r.id as string,
+      projectId: (r.projectId ?? r.project_id) as string,
+      type: r.type as string,
+      title: r.title as string,
+      description: r.description as string | undefined,
+      nodeId: (r.nodeId ?? r.node_id) as string | undefined,
+      metadata: r.metadata as Record<string, unknown> | undefined,
+      createdAt: toDate(r.createdAt ?? r.created_at),
+    }))
+  },
+
+  async createActivity(activity: { id: string; projectId: string; type: string; title: string; description?: string; nodeId?: string; metadata?: Record<string, unknown> }): Promise<void> {
+    await post(`${BASE}/activities`, activity)
+  },
+
+  async clearProjectActivities(projectId: string): Promise<void> {
+    await del(`${BASE}/activities/${projectId}`)
   },
 
   // ── Settings ────────────────────────────────────────────────────────

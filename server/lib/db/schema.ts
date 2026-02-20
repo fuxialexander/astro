@@ -112,8 +112,25 @@ export const userProfiles = pgTable('user_profiles', {
   notificationsEnabled: boolean('notifications_enabled').notNull().default(true),
   emailNotifications: boolean('email_notifications').notNull().default(false),
   apiKeys: jsonb('api_keys').$type<Array<{ id: string; provider: string; name: string; maskedKey: string }>>().notNull().default([]),
+  sidebarConfig: jsonb('sidebar_config').$type<Array<{
+    id: string; to: string; icon: string; label: string; visible: boolean; protected: boolean
+  }>>(),
+  settings: jsonb('settings').$type<Record<string, string>>().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// ── Activity Events ──────────────────────────────────────────────────
+export const activityEvents = pgTable('activity_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  nodeId: text('node_id'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
 // ── Display Settings ──────────────────────────────────────────────────

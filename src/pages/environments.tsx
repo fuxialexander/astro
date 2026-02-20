@@ -27,7 +27,7 @@ import { useExecutionStore, type ComputeBackendInfo } from "@/stores/execution-s
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
-import { shouldUseSupabase } from "@/lib/supabase-client"
+import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
@@ -581,7 +581,7 @@ export function Environments() {
   const connectRealtime = useRealtimeStore((s) => s.connect)
 
   // Check if we're in multi-tenant mode (hide "Local" in production)
-  const isMultiTenant = shouldUseSupabase()
+  const isMultiTenant = isServerMode()
 
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
   const registeredMachines = useMachinesStore((s) => s.machines)

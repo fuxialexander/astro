@@ -1,6 +1,6 @@
 import { create } from "zustand"
-import { get as idbGet, set as idbSet } from "idb-keyval"
-import { getSupabase, shouldUseSupabase } from "@/lib/supabase-client"
+import { loadState, saveState } from "@/lib/db"
+import { dataClient } from "@/lib/data-client"
 
 export interface SidebarItem {
   id: string
@@ -34,6 +34,23 @@ const defaultItems: SidebarItem[] = [
   { id: "agents", to: "/agents", icon: "Cpu", label: "Agents", visible: false, protected: false },
 ]
 
+/**
+ * Merge stored sidebar config with defaults so new items get picked up.
+ */
+function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
+  return defaultItems.map((defaultItem) => {
+    const storedItem = stored.find((s) => s.id === defaultItem.id)
+    if (storedItem) {
+      // Protected items must always be visible
+      if (defaultItem.protected) {
+        return { ...storedItem, visible: true }
+      }
+      return storedItem
+    }
+    return defaultItem
+  })
+}
+
 export const useSidebarStore = create<SidebarStore>((set, get) => ({
   items: defaultItems,
   isEditing: false,
@@ -41,78 +58,32 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
 
   load: async () => {
     try {
-      let stored: SidebarItem[] | null | undefined = null
-
-      // Try Supabase first (multi-device sync)
-      const supabase = getSupabase()
-      if (supabase && shouldUseSupabase()) {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          const { data, error } = await supabase
-            .from("user_profiles")
-            .select("sidebar_config")
-            .eq("id", user.id)
-            .single()
-
-          if (!error && data?.sidebar_config) {
-            stored = data.sidebar_config as SidebarItem[]
-          }
-        }
+      // Try API first (server mode)
+      const profile = await dataClient.getProfile()
+      if (profile?.sidebarConfig) {
+        set({ items: mergeWithDefaults(profile.sidebarConfig as SidebarItem[]), loaded: true })
+        saveState("sidebar-items", profile.sidebarConfig)
+        return
       }
+    } catch {
+      // API unavailable — fall through to IndexedDB
+    }
 
-      // Fallback to IndexedDB (local-only mode or no Supabase data)
-      if (!stored) {
-        stored = await idbGet<SidebarItem[]>("sidebar-items")
-      }
-
-      if (stored) {
-        // Merge stored items with defaults (in case new items were added)
-        const merged = defaultItems.map((defaultItem) => {
-          const storedItem = stored!.find((s) => s.id === defaultItem.id)
-          if (storedItem) {
-            // Protected items (like Tasks) must always be visible
-            if (defaultItem.protected) {
-              return { ...storedItem, visible: true }
-            }
-            return storedItem
-          }
-          return defaultItem
-        })
-        set({ items: merged, loaded: true })
-      } else {
-        set({ loaded: true })
-      }
-    } catch (error) {
-      console.error("[SidebarStore] Failed to load:", error)
+    // Fallback to IndexedDB
+    const stored = await loadState<SidebarItem[]>("sidebar-items")
+    if (stored) {
+      set({ items: mergeWithDefaults(stored), loaded: true })
+    } else {
       set({ loaded: true })
     }
   },
 
   save: async () => {
-    try {
-      const items = get().items
-
-      // Save to IndexedDB (always, for offline access)
-      await idbSet("sidebar-items", items)
-
-      // Save to Supabase (multi-device sync)
-      const supabase = getSupabase()
-      if (supabase && shouldUseSupabase()) {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          const { error } = await supabase
-            .from("user_profiles")
-            .update({ sidebar_config: items })
-            .eq("id", user.id)
-
-          if (error) {
-            console.error("[SidebarStore] Failed to save to Supabase:", error)
-          }
-        }
-      }
-    } catch (error) {
-      console.error("[SidebarStore] Failed to save:", error)
-    }
+    const items = get().items
+    // Save to IndexedDB (always, for offline access)
+    saveState("sidebar-items", items)
+    // Fire-and-forget API call
+    dataClient.updateProfile({ sidebarConfig: items } as Partial<import("@/types").UserProfile>).catch(() => {})
   },
 
   setEditing: (editing: boolean) => {
@@ -141,51 +112,14 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
   },
 
   subscribeToChanges: () => {
-    const supabase = getSupabase()
-    if (!supabase || !shouldUseSupabase()) {
-      return () => {} // No-op in IndexedDB-only mode
-    }
-
-    // Get current user ID synchronously if possible
-    let userId: string | undefined
-    supabase.auth.getUser().then((r) => {
-      userId = r.data.user?.id
-    })
-
-    const channel = supabase
-      .channel("sidebar-config-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "user_profiles",
-        },
-        (payload: { new: { id: string; sidebar_config: unknown } }) => {
-          // Only process updates for the current user
-          if (payload.new.id === userId) {
-            const newConfig = payload.new.sidebar_config as SidebarItem[] | null
-            if (newConfig) {
-              // Merge with defaults to handle new items
-              const merged = defaultItems.map((defaultItem) => {
-                const storedItem = newConfig.find((s) => s.id === defaultItem.id)
-                return storedItem || defaultItem
-              })
-              set({ items: merged })
-              // Also save to IndexedDB for offline access
-              idbSet("sidebar-items", merged).catch(console.error)
-            }
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    // Realtime sync is handled centrally by realtime-sync.ts
+    return () => {}
   },
 
   syncWithProjectCount: () => {
     // Tasks is always visible (it's the home route)
   },
 }))
+
+// Export mergeWithDefaults for use in realtime-sync
+export { mergeWithDefaults, defaultItems as sidebarDefaults }

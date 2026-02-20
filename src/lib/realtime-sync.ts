@@ -6,12 +6,15 @@
  */
 
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
-import { getSupabase, shouldUseSupabase } from './supabase-client'
+import { getSupabase } from './supabase-client'
+import { isServerMode } from './app-mode'
 import { useProjectStore } from '@/stores/project-store'
 import { usePlanStore } from '@/stores/plan-store'
 import { useUserProfileStore } from '@/stores/user-profile-store'
 import { useDisplaySettingsStore } from '@/stores/display-settings-store'
 import { useTaskChatStore } from '@/stores/task-chat-store'
+import { useSidebarStore, mergeWithDefaults } from '@/stores/sidebar-store'
+import type { SidebarItem } from '@/stores/sidebar-store'
 import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey } from '@/types'
 import type { DisplaySettings, ViewKey } from '@/stores/display-settings-store'
 import type { TaskChatSession } from '@/stores/task-chat-store'
@@ -319,6 +322,12 @@ function subscribeToUserProfiles(supabase: ReturnType<typeof getSupabase>) {
               if (currentProfile.id === profile.id) {
                 // Directly update state without triggering API call
                 useUserProfileStore.setState({ profile })
+
+                // Propagate sidebar config changes
+                const sidebarConfig = payload.new.sidebar_config as SidebarItem[] | null
+                if (sidebarConfig) {
+                  useSidebarStore.setState({ items: mergeWithDefaults(sidebarConfig) })
+                }
               }
             }
             break
@@ -493,7 +502,7 @@ function subscribeToTaskChatMessages(supabase: ReturnType<typeof getSupabase>) {
  */
 export function setupRealtimeSync() {
   // Only setup if Supabase is configured
-  if (!shouldUseSupabase()) {
+  if (!isServerMode()) {
     console.log('[realtime-sync] Skipping setup - IndexedDB-only mode')
     return
   }
