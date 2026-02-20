@@ -69,6 +69,8 @@ export const useConnectedAccountsStore = create<ConnectedAccountsState>((set, ge
         if (!res.ok) throw new Error('Failed to load accounts')
         const data = await res.json()
         set({ accounts: data, loaded: true, loading: false })
+        // Cache to IndexedDB for offline fallback
+        saveState(IDB_KEY, data)
       } else {
         // IndexedDB fallback
         const saved = await loadState<ConnectedAccount[]>(IDB_KEY)
