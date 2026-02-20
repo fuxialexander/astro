@@ -71,6 +71,7 @@ interface SessionState {
   setStatus: (sessionId: string, status: SessionStatus) => void
   setSummary: (sessionId: string, summary: ExecutionSummary) => void
   setMetrics: (sessionId: string, metrics: UsageMetrics) => void
+  renameSession: (sessionId: string, title: string) => void
 
   // Activity events (for execution sessions)
   addActivityEvent: (sessionId: string, event: TaskActivityEvent) => void
@@ -504,6 +505,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     debouncedSave(sessions)
     // Fire-and-forget API call (debounced in memory, but API call is immediate)
     dataClient.updateSession(sessionId, { metrics, updatedAt: updated.updatedAt }).catch(() => {})
+  },
+
+  renameSession: (sessionId, title) => {
+    const sessions = new Map(get().sessions)
+    const session = sessions.get(sessionId)
+    if (!session) return
+
+    const updated = {
+      ...session,
+      title,
+      updatedAt: new Date(),
+    }
+
+    sessions.set(sessionId, updated)
+    set({ sessions })
+    immediateSave(sessions)
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { title, updatedAt: updated.updatedAt }).catch(() => {})
   },
 
   addActivityEvent: (sessionId, event) => {

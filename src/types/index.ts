@@ -38,6 +38,7 @@ export interface Session {
   status: SessionStatus;
   projectId: string;
   nodeId?: string;
+  title?: string;
   providerSessionId?: string;
   providerId?: string;
   model?: string;
