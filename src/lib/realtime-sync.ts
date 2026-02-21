@@ -39,14 +39,23 @@ function toDate(v: unknown): Date {
  * Map database row to Project type
  */
 function mapProject(row: Record<string, unknown>): Project {
-  return {
+  const mapped: Record<string, unknown> = {
     ...row,
+    ownerId: row.owner_id ?? row.ownerId,
+    visionDoc: row.vision_doc ?? row.visionDoc,
+    startDate: row.start_date ?? row.startDate,
+    targetDate: row.target_date ?? row.targetDate,
+    initiativeId: row.initiative_id ?? row.initiativeId,
+    workingDirectory: row.working_directory ?? row.workingDirectory,
+    defaultEnvironment: row.default_environment ?? row.defaultEnvironment,
+    defaultMachineId: row.default_machine_id ?? row.defaultMachineId,
+    mergeQueueEnabled: row.merge_queue_enabled ?? row.mergeQueueEnabled,
+    mergeQueueMergeMethod: row.merge_queue_merge_method ?? row.mergeQueueMergeMethod,
     createdAt: toDate(row.created_at ?? row.createdAt),
     updatedAt: toDate(row.updated_at ?? row.updatedAt),
     labels: (row.labels as Project["labels"]) ?? [],
-    mergeQueueEnabled: (row.merge_queue_enabled ?? row.mergeQueueEnabled) as boolean | undefined,
-    mergeQueueMergeMethod: (row.merge_queue_merge_method ?? row.mergeQueueMergeMethod) as Project["mergeQueueMergeMethod"],
-  } as Project
+  }
+  return mapped as unknown as Project
 }
 
 /**
@@ -55,20 +64,31 @@ function mapProject(row: Record<string, unknown>): Project {
 function mapNode(row: Record<string, unknown>): PlanNode {
   return {
     ...row,
-    id: row.client_id as string, // Frontend uses client_id as id
+    id: (row.client_id ?? row.id) as string,
+    projectId: (row.project_id ?? row.projectId) as string,
+    parentId: (row.parent_id ?? row.parentId) as string | undefined,
     dependencies: (row.dependencies as string[]) ?? [],
     position: row.position_x !== undefined && row.position_y !== undefined
       ? { x: row.position_x as number, y: row.position_y as number }
       : (row.position as { x: number; y: number }),
-    labelIds: (row.label_ids as string[]) ?? undefined,
-    createdAt: toDate(row.created_at ?? row.createdAt),
-    updatedAt: toDate(row.updated_at ?? row.updatedAt),
-    executionStartedAt: row.execution_started_at ? toDate(row.execution_started_at) : undefined,
-    executionCompletedAt: row.execution_completed_at ? toDate(row.execution_completed_at) : undefined,
+    startDate: (row.start_date ?? row.startDate) as string | undefined,
+    endDate: (row.end_date ?? row.endDate) as string | undefined,
+    dueDate: (row.due_date ?? row.dueDate) as string | undefined,
+    milestoneId: (row.milestone_id ?? row.milestoneId) as string | undefined,
+    labelIds: (row.label_ids ?? row.labelIds) as string[] | undefined,
+    executionId: (row.execution_id ?? row.executionId) as string | undefined,
+    executionOutput: (row.execution_output ?? row.executionOutput) as string | undefined,
+    executionError: (row.execution_error ?? row.executionError) as string | undefined,
+    executionStartedAt: (row.execution_started_at ?? row.executionStartedAt) ? toDate(row.execution_started_at ?? row.executionStartedAt) : undefined,
+    executionCompletedAt: (row.execution_completed_at ?? row.executionCompletedAt) ? toDate(row.execution_completed_at ?? row.executionCompletedAt) : undefined,
     branchName: (row.branch_name ?? row.branchName) as string | undefined,
     prUrl: (row.pr_url ?? row.prUrl) as string | undefined,
     prNumber: (row.pr_number ?? row.prNumber) as number | undefined,
     mergeQueueStatus: (row.merge_queue_status ?? row.mergeQueueStatus) as string | undefined,
+    deletedAt: (row.deleted_at ?? row.deletedAt) as string | undefined,
+    deletionActionId: (row.deletion_action_id ?? row.deletionActionId) as string | undefined,
+    createdAt: toDate(row.created_at ?? row.createdAt),
+    updatedAt: toDate(row.updated_at ?? row.updatedAt),
   } as PlanNode
 }
 
@@ -161,11 +181,11 @@ function subscribeToProjects(supabase: ReturnType<typeof getSupabase>) {
             break
           case 'UPDATE':
             if (payload.new) {
-              const project = mapProject(payload.new)
+              const incoming = mapProject(payload.new)
               const store = useProjectStore.getState()
-              // Directly update state without triggering API call
+              // Merge with existing state to preserve frontend-only fields (fileTree, etc.)
               const updated = store.projects.map(p =>
-                p.id === project.id ? project : p
+                p.id === incoming.id ? { ...p, ...incoming } : p
               )
               useProjectStore.setState({ projects: updated })
             }
