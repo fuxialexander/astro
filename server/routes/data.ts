@@ -13,6 +13,8 @@ import {
   taskChatMessages,
   taskExecutions,
   activityEvents,
+  teams,
+  teamMembers,
 } from '../lib/db/schema.js'
 import { eq, and, or, sql, desc } from 'drizzle-orm'
 import { requireAuth } from '../middleware/auth.js'
@@ -49,6 +51,7 @@ app.post('/projects', async (c) => {
     lead: body.lead ?? null,
     health: body.health ?? null,
     initiativeId: body.initiativeId ?? null,
+    teamId: body.teamId ?? null,
     progress: body.progress ?? 0,
     labels: body.labels ?? [],
     color: body.color ?? '#3b82f6',
@@ -115,6 +118,7 @@ app.patch('/projects/:id', async (c) => {
   if (body.lead !== undefined) patch.lead = body.lead || null
   if (body.health !== undefined) patch.health = body.health || null
   if (body.initiativeId !== undefined) patch.initiativeId = body.initiativeId || null
+  if (body.teamId !== undefined) patch.teamId = body.teamId || null
   if (body.progress !== undefined) patch.progress = body.progress
   if (body.labels !== undefined) patch.labels = body.labels
   if (body.color !== undefined) patch.color = body.color
@@ -1215,6 +1219,173 @@ app.delete('/activities/:projectId', async (c) => {
   await db.delete(activityEvents).where(
     and(eq(activityEvents.userId, c.get('user')!.id), eq(activityEvents.projectId, projectId))
   )
+  return c.json({ ok: true })
+})
+
+// ── Teams ──────────────────────────────────────────────────────────────
+
+app.get('/teams', async (c) => {
+  const userId = c.get('user')!.id
+
+  // Get all teams where user is a member
+  const userTeamIds = await db.select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
+
+  if (userTeamIds.length === 0) {
+    return c.json({ teams: [], teamMembers: {} })
+  }
+
+  const teamIdList = userTeamIds.map(t => t.teamId)
+  const teamRows = await db.select().from(teams)
+    .where(sql`${teams.id} IN (${sql.join(teamIdList.map(id => sql`${id}`), sql`, `)})`)
+
+  // Get all team members for these teams
+  const memberRows = await db.select().from(teamMembers)
+    .where(sql`${teamMembers.teamId} IN (${sql.join(teamIdList.map(id => sql`${id}`), sql`, `)})`)
+
+  // Group members by team
+  const teamMembersMap: Record<string, typeof memberRows> = {}
+  for (const member of memberRows) {
+    if (!teamMembersMap[member.teamId]) {
+      teamMembersMap[member.teamId] = []
+    }
+    teamMembersMap[member.teamId].push(member)
+  }
+
+  return c.json({ teams: teamRows, teamMembers: teamMembersMap })
+})
+
+app.post('/teams', async (c) => {
+  const body = await c.req.json()
+  const userId = c.get('user')!.id
+  const now = new Date()
+
+  const teamId = body.id || crypto.randomUUID()
+
+  const row = {
+    id: teamId,
+    name: body.name,
+    description: body.description ?? '',
+    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
+    updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
+  }
+
+  await db.insert(teams).values(row).onConflictDoUpdate({
+    target: teams.id,
+    set: { ...row, id: undefined } as typeof row,
+  })
+
+  // Add creator as team owner
+  await db.insert(teamMembers).values({
+    teamId,
+    userId,
+    role: 'owner',
+    joinedAt: now,
+  }).onConflictDoNothing()
+
+  const [created] = await db.select().from(teams).where(eq(teams.id, teamId))
+  return c.json(created, 201)
+})
+
+app.patch('/teams/:id', async (c) => {
+  const teamId = c.req.param('id')
+  const userId = c.get('user')!.id
+
+  // Verify user is team owner or admin
+  const [membership] = await db.select().from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+
+  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const body = await c.req.json()
+  const patch: Record<string, unknown> = { updatedAt: new Date() }
+  if (body.name !== undefined) patch.name = body.name
+  if (body.description !== undefined) patch.description = body.description
+
+  await db.update(teams).set(patch).where(eq(teams.id, teamId))
+  const [updated] = await db.select().from(teams).where(eq(teams.id, teamId))
+  return c.json(updated)
+})
+
+app.delete('/teams/:id', async (c) => {
+  const teamId = c.req.param('id')
+  const userId = c.get('user')!.id
+
+  // Verify user is team owner
+  const [membership] = await db.select().from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+
+  if (!membership || membership.role !== 'owner') {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  await db.delete(teams).where(eq(teams.id, teamId))
+  return c.json({ ok: true })
+})
+
+app.post('/teams/:teamId/members', async (c) => {
+  const teamId = c.req.param('teamId')
+  const userId = c.get('user')!.id
+  const body = await c.req.json()
+
+  // Verify user is team owner or admin
+  const [membership] = await db.select().from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+
+  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  await db.insert(teamMembers).values({
+    teamId,
+    userId: body.userId,
+    role: body.role ?? 'member',
+    joinedAt: new Date(),
+  }).onConflictDoNothing()
+
+  return c.json({ ok: true })
+})
+
+app.delete('/teams/:teamId/members/:userId', async (c) => {
+  const teamId = c.req.param('teamId')
+  const currentUserId = c.get('user')!.id
+  const targetUserId = c.req.param('userId')
+
+  // Verify user is team owner or admin
+  const [membership] = await db.select().from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, currentUserId)))
+
+  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  await db.delete(teamMembers).where(
+    and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId))
+  )
+  return c.json({ ok: true })
+})
+
+app.patch('/teams/:teamId/members/:userId', async (c) => {
+  const teamId = c.req.param('teamId')
+  const currentUserId = c.get('user')!.id
+  const targetUserId = c.req.param('userId')
+  const body = await c.req.json()
+
+  // Verify user is team owner or admin
+  const [membership] = await db.select().from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, currentUserId)))
+
+  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  await db.update(teamMembers)
+    .set({ role: body.role })
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)))
+
   return c.json({ ok: true })
 })
 

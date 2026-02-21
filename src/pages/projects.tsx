@@ -16,6 +16,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useToastStore } from "@/stores/toast-store"
+import { useTeamStore } from "@/stores/team-store"
 import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { isServerMode } from "@/lib/app-mode"
@@ -197,6 +198,7 @@ export function Projects() {
   const rawAllNodes = usePlanStore((s) => s.nodes)
   const allNodes = useMemo(() => rawAllNodes.filter(isLive), [rawAllNodes])
   const initiatives = useInitiativeStore((s) => s.initiatives)
+  const teams = useTeamStore((s) => s.teams)
   const addToast = useToastStore((s) => s.add)
   const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
@@ -205,6 +207,7 @@ export function Projects() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [healthFilter, setHealthFilter] = useState("all")
   const [initiativeFilter, setInitiativeFilter] = useState("all")
+  const [teamFilter, setTeamFilter] = useState("all")
   const [importBundle, setImportBundle] = useState<import("@/lib/sharing/types").AstroExportBundle | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
@@ -231,6 +234,12 @@ export function Projects() {
     if (!initiativeId) return undefined
     return initiatives.find(i => i.id === initiativeId)?.name
   }, [initiatives])
+
+  // Helper to get team name from ID
+  const getTeamName = useCallback((teamId?: string) => {
+    if (!teamId) return undefined
+    return teams.find(t => t.id === teamId)?.name
+  }, [teams])
 
   const projectBatchActions: BatchAction[] = useMemo(() => [
     {
@@ -270,6 +279,13 @@ export function Projects() {
     if (initiativeFilter !== "all") {
       filtered = filtered.filter((p) => p.initiativeId === initiativeFilter)
     }
+    if (teamFilter !== "all") {
+      if (teamFilter === "personal") {
+        filtered = filtered.filter((p) => !p.teamId)
+      } else {
+        filtered = filtered.filter((p) => p.teamId === teamFilter)
+      }
+    }
     const sorted = [...filtered]
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     sorted.sort((a, b) => {
@@ -292,7 +308,7 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter])
+  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, teamFilter])
 
   // Group projects for list view
   const listGroups = useMemo((): ListGroup<Project>[] => {
@@ -601,6 +617,16 @@ export function Projects() {
                 ...initiatives.map((i) => ({ value: i.id, label: i.name })),
               ]}
               onChange={setInitiativeFilter}
+            />
+            <FilterSelect
+              label="Team"
+              value={teamFilter}
+              options={[
+                { value: "all", label: "All projects" },
+                { value: "personal", label: "Personal" },
+                ...teams.map((t) => ({ value: t.id, label: t.name })),
+              ]}
+              onChange={setTeamFilter}
             />
           </div>
         </div>

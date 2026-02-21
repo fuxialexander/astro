@@ -14,6 +14,7 @@ import { CommandCategory as CategorySection } from "./command-category"
 import { Breadcrumbs } from "./breadcrumbs"
 import { QuickActions } from "./quick-actions"
 import { CommandPreview } from "./command-preview"
+import { TeamSelectorDialog } from "@/components/team-selector-dialog"
 import "./command-palette.css"
 
 export function CommandPalette() {
@@ -36,6 +37,7 @@ export function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [multiSelectMode, setMultiSelectMode] = useState(false)
   const [selectedItem, setSelectedItem] = useState<CommandItemType | null>(null)
+  const [showTeamSelector, setShowTeamSelector] = useState(false)
 
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -160,6 +162,9 @@ export function CommandPalette() {
             },
           }))
         return { ...cmd, children }
+      }
+      if (cmd.id === "action-new-team-project") {
+        return { ...cmd, action: () => setShowTeamSelector(true) }
       }
       if (cmd.id === "action-toggle-theme") {
         // Cycle through all available themes
@@ -401,11 +406,23 @@ export function CommandPalette() {
     }
   }, [selectedIndex, flatCommands])
 
+  const handleTeamSelection = useCallback((teamId: string) => {
+    navigate(`/projects/new?teamId=${teamId}`)
+  }, [navigate])
+
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50">
-      {/* Backdrop */}
+    <>
+      <TeamSelectorDialog
+        open={showTeamSelector}
+        onOpenChange={setShowTeamSelector}
+        onSelectTeam={handleTeamSelection}
+        title="Create Team Project"
+        description="Select a team for the new project"
+      />
+      <div className="fixed inset-0 z-50">
+        {/* Backdrop */}
       <div
         className="command-palette-backdrop fixed inset-0 bg-black/60"
         onClick={() => {
@@ -544,7 +561,8 @@ export function CommandPalette() {
           </div>
         </Command>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
 
