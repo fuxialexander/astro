@@ -440,6 +440,11 @@ Agent runners store data in `~/.astro/`:
 
 ## Documentation
 
+**When adding or updating documentation, follow these principles:**
+- **Centralize in `docs/`** — All documentation lives under `docs/` in topic subdirectories (backend/, frontend/, relay/, setup/, features/, mcp/, integrations/, testing/). Never place docs at the repo root.
+- **Lowercase kebab-case filenames** — Use `kebab-case.md` for all doc files (e.g., `api-reference.md`, `state-management.md`). Exception: `docs/design/` uses UPPER_CASE.md as canonical design references.
+- **Cross-check with design docs** — Before adding new technical docs, check `docs/design/` for existing coverage and `docs/design/CURRENT_CONFLICT_VIEW.md` for known discrepancies. New docs should not contradict design docs; if reality differs, update the conflict view.
+
 **Main Index:** `docs/index.md` — Complete documentation index
 
 ### Design Documents (Canonical Reference)
