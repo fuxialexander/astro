@@ -3,6 +3,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
 import { Plus, GitPullRequest, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
+import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 
 const statusConfig: Record<string, { bg: string; border: string; dotColor: string }> = {
   planned: { bg: "bg-card", border: "border-border", dotColor: "bg-muted-foreground" },
@@ -45,6 +46,8 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   const isMilestone = data.nodeType === "milestone"
   const isTask = data.nodeType === "task"
   const [hovered, setHovered] = useState(false)
+  const focusedId = useKeyboardNavStore((s) => s.focusedId)
+  const isFocused = focusedId === id
 
   // Resolve highlight colors based on highlightBy mode
   const highlight = (() => {
@@ -92,14 +95,15 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   return (
     <div
       className={cn(
-        "relative flex items-center gap-2.5 border px-3 shadow-sm",
+        "relative flex items-center gap-2.5 border px-3 shadow-sm transition-all duration-200",
         highlight.bg,
         highlight.border,
         isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-xl",
         data.status === "pruned" && "opacity-50",
         isOverdue && "border-l-red-500 border-l-[3px]",
         isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
-        isRunning && "shadow-lg shadow-primary/20"
+        isRunning && "shadow-lg shadow-primary/20",
+        isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50"
       )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

@@ -1,10 +1,12 @@
-import { useState, useCallback, type ReactNode } from "react"
+import { useState, useCallback, useEffect, useRef, type ReactNode } from "react"
 import { ChevronRight, ArrowUp, ArrowDown, X } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { PropertyPicker } from "@/components/property-picker"
 import type { PickerOption } from "@/lib/constants"
 import { cn } from "@/lib/utils"
+import { useKeyboardNav } from "@/hooks/use-keyboard-nav"
+import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 
 export interface ListColumn<T> {
   id: string
@@ -163,6 +165,8 @@ export function ItemListView<T>({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastClickedId, setLastClickedId] = useState<string | null>(null)
+  const itemRefs = useRef<Map<string, HTMLElement>>(new Map())
+
   const toggleGroup = useCallback((key: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -171,6 +175,37 @@ export function ItemListView<T>({
       return next
     })
   }, [])
+
+  // Keyboard navigation integration
+  const setItems = useKeyboardNavStore((s) => s.setItems)
+  const clear = useKeyboardNavStore((s) => s.clear)
+
+  const { focusedId } = useKeyboardNav({
+    onActivate: (id) => {
+      const item = groups.flatMap((g) => g.items).find((item) => getItemId(item) === id)
+      if (item && onItemClick) {
+        onItemClick(item)
+      }
+    },
+    enabled: true,
+  })
+
+  // Update keyboard nav items when groups change
+  useEffect(() => {
+    const allItems = groups.flatMap((g) =>
+      g.items.map((item) => ({
+        id: getItemId(item),
+        type: "task" as const,
+        element: itemRefs.current.get(getItemId(item)),
+      }))
+    )
+    setItems(allItems)
+  }, [groups, getItemId, setItems])
+
+  // Clear on unmount
+  useEffect(() => {
+    return () => clear()
+  }, [clear])
 
   const selectable = batchActions && batchActions.length > 0
 
@@ -355,15 +390,24 @@ export function ItemListView<T>({
               {!isCollapsed && group.items.map((item) => {
                 const itemId = getItemId(item)
                 const isSelected = selected.has(itemId)
+                const isFocused = focusedId === itemId
                 return (
                   <div
                     key={itemId}
+                    ref={(el) => {
+                      if (el) {
+                        itemRefs.current.set(itemId, el)
+                      } else {
+                        itemRefs.current.delete(itemId)
+                      }
+                    }}
                     onClick={() => onItemClick?.(item)}
                     className={cn(
-                      "flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-colors",
+                      "flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-all duration-200",
                       onItemClick && "cursor-pointer",
                       indentGroupedRows && hasMultipleGroups && showGroupHeaders && "pl-12",
                       isSelected && "bg-primary/5",
+                      isFocused && "shadow-[0_0_0_2px_rgba(var(--primary),0.3)] bg-accent/20 scale-[1.005]",
                       getItemClass?.(item)
                     )}
                   >
