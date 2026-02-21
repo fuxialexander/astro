@@ -81,16 +81,31 @@ export async function pushBranch(
   worktreePath: string,
   branchName: string,
 ): Promise<boolean> {
+  // Log remote URL for debugging push target
   try {
-    await execFileAsync(
+    const { stdout: remoteUrl } = await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'remote', 'get-url', 'origin'],
+      { env: withGitEnv(), timeout: 5_000 }
+    );
+    console.log(`[git-pr] Pushing branch ${branchName} to origin (${remoteUrl.trim()})`);
+  } catch {
+    console.warn(`[git-pr] Could not resolve origin URL for ${worktreePath}`);
+  }
+
+  try {
+    const { stdout, stderr } = await execFileAsync(
       'git',
       ['-C', worktreePath, 'push', '-u', 'origin', branchName],
       { env: withGitEnv(), timeout: 60_000 }
     );
+    if (stderr) console.log(`[git-pr] Push stderr: ${stderr.trim()}`);
+    if (stdout) console.log(`[git-pr] Push stdout: ${stdout.trim()}`);
     return true;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[git-pr] Failed to push branch ${branchName}: ${msg}`);
+    const execErr = err as { stderr?: string; stdout?: string; message?: string };
+    console.error(`[git-pr] Failed to push branch ${branchName}: ${execErr.message ?? err}`);
+    if (execErr.stderr) console.error(`[git-pr] Push stderr: ${execErr.stderr}`);
     return false;
   }
 }
@@ -195,16 +210,27 @@ export async function pushAndCreatePR(
 
   // Get git root from worktree to find default branch
   const gitRoot = await getGitRoot(worktreePath);
-  if (!gitRoot) return result;
+  if (!gitRoot) {
+    console.warn(`[git-pr] No git root found for ${worktreePath}, skipping PR`);
+    return result;
+  }
 
   // Check if repo has a remote
-  if (!(await hasRemoteOrigin(gitRoot))) return result;
+  if (!(await hasRemoteOrigin(gitRoot))) {
+    console.warn(`[git-pr] No remote origin for ${gitRoot}, skipping PR`);
+    return result;
+  }
 
   // Get default branch
   const baseBranch = await getDefaultBranch(gitRoot);
 
   // Check if there are commits to push
-  if (!(await hasBranchCommits(worktreePath, baseBranch))) return result;
+  const hasCommits = await hasBranchCommits(worktreePath, baseBranch);
+  if (!hasCommits) {
+    console.log(`[git-pr] No commits ahead of ${baseBranch} in ${worktreePath}, skipping PR`);
+    return result;
+  }
+  console.log(`[git-pr] Branch ${options.branchName} has commits ahead of ${baseBranch}`);
 
   // Push the branch
   const pushed = await pushBranch(worktreePath, options.branchName);
