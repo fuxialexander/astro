@@ -41,6 +41,7 @@ import { Environments } from "@/pages/environments"
 import { Agents } from "@/pages/agents"
 import { MyTasks } from "@/pages/my-tasks"
 import { Welcome } from "@/pages/welcome"
+import { Workflows } from "@/pages/workflows"
 
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
@@ -186,6 +187,7 @@ export default function App() {
                 <Route path="tasks" element={<MyTasks />} />
                 <Route path="agents" element={<Agents />} />
                 <Route path="environments" element={<Environments />} />
+                <Route path="workflows" element={<Workflows />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="plugins/*" element={<PluginRoutes />} />
               </Route>
