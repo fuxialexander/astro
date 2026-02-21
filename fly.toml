@@ -5,7 +5,7 @@
 #   - HTTPS on 443 → Hono API (port 3001)
 #   - TLS on 3002  → WebSocket relay (port 3002)
 
-app = "astro-backend"
+app = "astro-backend-platform"
 primary_region = "sjc"
 
 [build]
