@@ -280,7 +280,7 @@ export type DomainExpertise =
 // Experience level for calibrating plan granularity
 export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
 
-// Preferred environment for task dispatch
+// Preferred environment for task dispatch (deprecated - use preferredMachines instead)
 export type PreferredEnvironment = 'local' | 'remote' | 'hpc' | 'cloud';
 
 // API key entry for agent providers
@@ -303,7 +303,7 @@ export interface UserProfile {
   domains: DomainExpertise[];
   experienceLevel: ExperienceLevel;
   // Preferences
-  preferredEnvironments: PreferredEnvironment[];
+  preferredMachines: string[]; // Array of registered machine IDs
   notificationsEnabled: boolean;
   emailNotifications: boolean;
   // API keys for agent providers

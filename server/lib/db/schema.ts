@@ -112,7 +112,7 @@ export const userProfiles = pgTable('user_profiles', {
   bio: text('bio').default(''),
   domains: text('domains').array().notNull().default([]),
   experienceLevel: text('experience_level').notNull().default('intermediate'),
-  preferredEnvironments: text('preferred_environments').array().notNull().default(['local']),
+  preferredMachines: text('preferred_machines').array().notNull().default([]),
   notificationsEnabled: boolean('notifications_enabled').notNull().default(true),
   emailNotifications: boolean('email_notifications').notNull().default(false),
   apiKeys: jsonb('api_keys').$type<Array<{ id: string; provider: string; name: string; maskedKey: string }>>().notNull().default([]),

@@ -546,11 +546,13 @@ Get the current user profile including name, email, domains of expertise, experi
   "email": "jane@example.com",
   "domains": ["backend", "infrastructure", "databases"],
   "experienceLevel": "senior",
-  "preferredEnvironments": ["local", "cloud"],
+  "preferredMachines": ["machine-abc123", "machine-xyz789"],
   "notificationsEnabled": true,
   ...
 }
 ```
+
+**Note:** `preferredMachines` contains an array of registered machine IDs that the user prefers for task execution.
 
 ---
 
