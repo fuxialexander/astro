@@ -228,10 +228,13 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     // cleaned up. The SDK's `cwd` option (line below) handles per-query working
     // directory correctly without mutating global state.
 
+    // Determine appropriate maxTurns based on task type
+    const defaultMaxTurns = (task.type === 'chat' || task.type === 'summarize') ? 10 : 150;
+
     // Build options for the query
     const options: Parameters<typeof query>[0]['options'] = {
       abortController,
-      maxTurns: task.maxTurns ?? 150, // Use dispatch-specified limit, or 150 for complex tasks
+      maxTurns: task.maxTurns ?? defaultMaxTurns,
       permissionMode: 'bypassPermissions', // Auto-accept all tool calls
       sandbox: { enabled: false }, // Run on host machine, not in Docker container
       settingSources: [], // Don't load settings from project - worktree is empty
@@ -332,6 +335,17 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       (options as Record<string, unknown>).outputFormat = task.outputFormat;
     }
 
+    // Apply system prompt if provided (new relay protocol field)
+    // This keeps system instructions separate from user content.
+    if (task.systemPrompt) {
+      (options as Record<string, unknown>).systemPrompt = task.systemPrompt;
+    }
+
+    // Apply explicit model selection if provided (new relay protocol field)
+    if (task.model) {
+      (options as Record<string, unknown>).model = task.model;
+    }
+
     // Load MCP servers from config if available
     const agentConfig = config.getConfig();
     console.log(`[claude-sdk] Agent config loaded:`, JSON.stringify(agentConfig, null, 2));
@@ -361,9 +375,26 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       console.log(`[claude-sdk] Allowed MCP tools:`, allowedTools);
     }
 
-    // Use plain string prompt — simple and reliable
+    // Build the prompt: use messages array if provided (chat tasks), otherwise flat string
+    // The messages field carries multi-turn conversation history from chat endpoints,
+    // preserving role structure (user/assistant turns) that would be lost with a flat string.
+    let queryPrompt: string | AsyncIterable<{ role: 'user'; content: string }>;
+    if (task.messages && task.messages.length > 0) {
+      // For chat tasks with conversation history, build the prompt by appending
+      // the conversation history to the effective prompt. The last user message
+      // is the actual query; prior messages provide context.
+      const conversationContext = task.messages
+        .map(m => `${m.role === 'user' ? 'Human' : 'Assistant'}: ${m.content}`)
+        .join('\n\n');
+      queryPrompt = effectivePrompt
+        ? `${effectivePrompt}\n\n---\n\nConversation history:\n${conversationContext}`
+        : conversationContext;
+    } else {
+      queryPrompt = effectivePrompt;
+    }
+
     const gen = query({
-      prompt: effectivePrompt,
+      prompt: queryPrompt,
       options,
     });
 

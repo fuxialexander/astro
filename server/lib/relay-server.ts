@@ -965,6 +965,8 @@ export class RelayServer extends EventEmitter {
     }
 
     // Send in agent-runner's expected format (type: 'task_dispatch', payload: Task)
+    // New fields (type, systemPrompt, messages, model) are forwarded when present.
+    // Agent runners that don't recognize them will ignore them (backward-compatible).
     const agentRunnerMsg: Record<string, unknown> = {
       type: 'task_dispatch',
       timestamp: new Date().toISOString(),
@@ -980,6 +982,11 @@ export class RelayServer extends EventEmitter {
         outputFormat: task.outputFormat,
         executionStrategy: task.executionStrategy || undefined,
         createdAt: new Date().toISOString(),
+        // New relay protocol fields
+        ...(task.type && { type: task.type }),
+        ...(task.systemPrompt && { systemPrompt: task.systemPrompt }),
+        ...(task.messages && { messages: task.messages }),
+        ...(task.model && { model: task.model }),
       },
     };
 
