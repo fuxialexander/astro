@@ -221,7 +221,7 @@ function escapeHtml(text: string): string {
 /**
  * Generate plain text version of invitation email.
  */
-function generateInvitationEmailText(data: InvitationEmailData): string {
+export function generateInvitationEmailText(data: InvitationEmailData): string {
   const expiryDate = data.expiresAt.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',

@@ -86,7 +86,6 @@ function getProjectColumns(
   setRenamingProjectId: (id: string | null) => void,
   handleRename: (id: string, name: string) => void,
   validateName: (name: string) => string | null,
-  _navigate: (path: string) => void
 ): ListColumn<Project>[] {
   return [
     {
@@ -465,7 +464,7 @@ export function Projects() {
     }
   }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
 
-  const handleProjectRename = async (projectId: string, newName: string) => {
+  const handleProjectRename = useCallback(async (projectId: string, newName: string) => {
     const project = projects.find((p) => p.id === projectId)
     if (!project) return
 
@@ -494,7 +493,7 @@ export function Projects() {
       })
       console.error("Project rename error:", error)
     }
-  }
+  }, [projects, updateProject, setRenamingProjectId, addToast])
 
   const validateProjectName = useCallback((name: string): string | null => {
     if (!name.trim()) {
@@ -520,8 +519,8 @@ export function Projects() {
   ]
 
   const projectColumns = useMemo(
-    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, navigate),
-    [renamingProjectId, validateProjectName, navigate]
+    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName),
+    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId]
   )
 
   return (

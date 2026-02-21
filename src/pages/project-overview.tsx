@@ -93,11 +93,6 @@ export function OverviewTab({
   const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
   const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
 
-  // Sync description draft when project changes
-  useEffect(() => {
-    setDescriptionDraft(project.description)
-  }, [project.description])
-
   // Check if repo setup is in progress for this project
   const generationSession = useAgentStore((s) => s.sessions.get(project.id))
   const isRepoSetupInProgress = generationSession?.status === "active" && generationSession?.phase === "repo_setup"
