@@ -120,7 +120,8 @@ dist
 
 # Gatsby files
 .cache/
-public
+public/*
+!public/landing/
 
 # Vite
 *.local
