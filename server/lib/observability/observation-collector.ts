@@ -28,9 +28,9 @@
  */
 
 import { randomUUID } from 'crypto'
-import { eq } from 'drizzle-orm'
+import { eq, and, asc, desc } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { observationEvents, taskExecutions } from '../db/schema.js'
+import { observationEvents, taskExecutions, planNodes } from '../db/schema.js'
 import { executionEventBus } from '../execution-event-bus.js'
 import type { AstroEvent } from '../events/types.js'
 import type { EventHook } from '../events/types.js'
@@ -840,6 +840,51 @@ export class ObservationCollector {
 
     // Flush remaining observations
     await this.flush(traceId)
+
+    // Update plan node with execution timestamps from observability data
+    if (state.projectId && state.nodeId) {
+      try {
+        // Query observability events to find first startTime and last endTime
+        const events = await db
+          .select({
+            startTime: observationEvents.startTime,
+            endTime: observationEvents.endTime,
+          })
+          .from(observationEvents)
+          .where(eq(observationEvents.traceId, traceId))
+          .orderBy(asc(observationEvents.startTime))
+
+        if (events.length > 0) {
+          const firstStartTime = events[0].startTime
+          // Find the last non-null endTime
+          const lastEndTime = events
+            .filter((e) => e.endTime !== null)
+            .map((e) => e.endTime!)
+            .sort((a, b) => b.getTime() - a.getTime())[0]
+
+          if (firstStartTime) {
+            // Update plan node with precise execution timestamps from observability data
+            // Both executionStartedAt/executionCompletedAt (legacy) and actualStartDate/actualEndDate (new)
+            await db
+              .update(planNodes)
+              .set({
+                executionStartedAt: firstStartTime,
+                executionCompletedAt: lastEndTime || null,
+                actualStartDate: firstStartTime,
+                actualEndDate: lastEndTime || null,
+              })
+              .where(
+                and(
+                  eq(planNodes.projectId, state.projectId),
+                  eq(planNodes.clientId, state.nodeId)
+                )
+              )
+          }
+        }
+      } catch (err) {
+        console.error(`[observability] Failed to update plan node timestamps for ${traceId}:`, err)
+      }
+    }
 
     // Write markdown summary to taskExecutions
     if (summary) {
