@@ -75,6 +75,7 @@ export function FileCompletionTextarea({
   const slashDropdownRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const abortRef = useRef<AbortController>(undefined)
+  const hiddenDivRef = useRef<HTMLDivElement>(null)
 
   // File completion state: track if we're actively completing and the '@' position
   const [atIndex, setAtIndex] = useState(-1)
@@ -226,6 +227,22 @@ export function FileCompletionTextarea({
     setSlashDropdownPos(null)
   }, [])
 
+  // Auto-resize textarea to fit content
+  const autoResize = useCallback(() => {
+    const textarea = textareaRef.current
+    const hiddenDiv = hiddenDivRef.current
+    if (!textarea || !hiddenDiv) return
+
+    // Copy text content to hidden div to measure height
+    hiddenDiv.textContent = textarea.value + "\u200b" // zero-width space to preserve trailing newline height
+
+    // Get computed height from hidden div
+    const newHeight = hiddenDiv.scrollHeight
+
+    // Update textarea height (with max-height of 50vh enforced via CSS)
+    textarea.style.height = `${newHeight}px`
+  }, [])
+
   // Detect @-trigger and /-trigger on value change
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -233,6 +250,7 @@ export function FileCompletionTextarea({
       const cursorPos = e.target.selectionStart
 
       onChange(newValue)
+      autoResize()
 
       // Check for / slash command trigger
       if (slashCommands && slashCommands.length > 0 && cursorPos > 0) {
@@ -288,8 +306,13 @@ export function FileCompletionTextarea({
       // No active completion
       dismiss()
     },
-    [onChange, slashCommands, debouncedFetch, filterFileTree, updateDropdownPosition, updateSlashDropdownPosition, dismiss, dismissSlash, canComplete, hasFileTree, hasMentionItems],
+    [onChange, slashCommands, debouncedFetch, filterFileTree, updateDropdownPosition, updateSlashDropdownPosition, dismiss, dismissSlash, canComplete, hasFileTree, hasMentionItems, autoResize],
   )
+
+  // Auto-resize on mount and when value changes externally
+  useEffect(() => {
+    autoResize()
+  }, [value, autoResize])
 
   // Insert the selected file path
   const insertFile = useCallback(
@@ -481,6 +504,19 @@ export function FileCompletionTextarea({
 
   return (
     <>
+      {/* Hidden div for measuring content height */}
+      <div
+        ref={hiddenDivRef}
+        className={cn(
+          className,
+          "invisible absolute top-0 left-0 pointer-events-none",
+          "whitespace-pre-wrap break-words overflow-hidden"
+        )}
+        style={{
+          width: textareaRef.current?.offsetWidth || "100%",
+        }}
+        aria-hidden="true"
+      />
       <textarea
         ref={textareaRef}
         value={value}
@@ -490,7 +526,11 @@ export function FileCompletionTextarea({
         placeholder={placeholder}
         rows={rows}
         disabled={disabled}
-        className={className}
+        className={cn(className, "overflow-y-auto")}
+        style={{
+          maxHeight: "50vh",
+          minHeight: `${rows * 1.5}em`, // Preserve initial rows as min-height
+        }}
       />
       {showDropdown &&
         createPortal(
