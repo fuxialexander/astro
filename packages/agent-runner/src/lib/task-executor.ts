@@ -570,11 +570,13 @@ export class TaskExecutor {
     } finally {
       clearTimeout(timeoutId);
 
-      // Cleanup worktree
-      if (!this.preserveWorktrees) {
-        await prepared.cleanup({ keepBranch });
+      // Cleanup worktree — but preserve it if a branch was pushed/PR created,
+      // so the worktree remains available for post-execution steering or inspection.
+      // The server will trigger explicit cleanup when the task is fully completed.
+      if (this.preserveWorktrees || keepBranch) {
+        console.log(`[executor] Task ${task.id}: worktree preserved (${this.preserveWorktrees ? 'debug mode' : 'branch pushed'})`);
       } else {
-        console.log(`[executor] Task ${task.id}: worktree preserved for debugging (cleanup skipped)`);
+        await prepared.cleanup({ keepBranch: false });
       }
 
       // Cleanup sandbox if used

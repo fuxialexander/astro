@@ -344,7 +344,8 @@ Execute the task described above. Focus on completing the task thoroughly and co
 - Use appropriate tools to accomplish the task
 - Report progress and any issues encountered
 - Verify your work when possible
-- Be thorough but efficient`)
+- Be thorough but efficient
+- When you make code changes, commit them with a descriptive commit message before finishing. Do not leave uncommitted changes.`)
 
     return parts.join('\n\n---\n\n')
   }
