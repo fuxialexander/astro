@@ -8,6 +8,7 @@
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { getSupabase } from './supabase-client'
 import { isLocalMode } from './app-mode'
+import { snakeToCamel } from './utils'
 import { useProjectStore } from '@/stores/project-store'
 import { usePlanStore } from '@/stores/plan-store'
 import { useUserProfileStore } from '@/stores/user-profile-store'
@@ -39,56 +40,31 @@ function toDate(v: unknown): Date {
  * Map database row to Project type
  */
 function mapProject(row: Record<string, unknown>): Project {
-  const mapped: Record<string, unknown> = {
-    ...row,
-    ownerId: row.owner_id ?? row.ownerId,
-    visionDoc: row.vision_doc ?? row.visionDoc,
-    startDate: row.start_date ?? row.startDate,
-    targetDate: row.target_date ?? row.targetDate,
-    initiativeId: row.initiative_id ?? row.initiativeId,
-    workingDirectory: row.working_directory ?? row.workingDirectory,
-    defaultEnvironment: row.default_environment ?? row.defaultEnvironment,
-    defaultMachineId: row.default_machine_id ?? row.defaultMachineId,
-    mergeQueueEnabled: row.merge_queue_enabled ?? row.mergeQueueEnabled,
-    mergeQueueMergeMethod: row.merge_queue_merge_method ?? row.mergeQueueMergeMethod,
-    createdAt: toDate(row.created_at ?? row.createdAt),
-    updatedAt: toDate(row.updated_at ?? row.updatedAt),
-    labels: (row.labels as Project["labels"]) ?? [],
-  }
-  return mapped as unknown as Project
+  const r = snakeToCamel(row)
+  return {
+    ...r,
+    createdAt: toDate(r.createdAt),
+    updatedAt: toDate(r.updatedAt),
+    labels: (r.labels as Project["labels"]) ?? [],
+  } as unknown as Project
 }
 
 /**
  * Map database row to PlanNode type
  */
 function mapNode(row: Record<string, unknown>): PlanNode {
+  const r = snakeToCamel(row)
   return {
-    ...row,
-    id: (row.client_id ?? row.id) as string,
-    projectId: (row.project_id ?? row.projectId) as string,
-    parentId: (row.parent_id ?? row.parentId) as string | undefined,
-    dependencies: (row.dependencies as string[]) ?? [],
-    position: row.position_x !== undefined && row.position_y !== undefined
-      ? { x: row.position_x as number, y: row.position_y as number }
-      : (row.position as { x: number; y: number }),
-    startDate: (row.start_date ?? row.startDate) as string | undefined,
-    endDate: (row.end_date ?? row.endDate) as string | undefined,
-    dueDate: (row.due_date ?? row.dueDate) as string | undefined,
-    milestoneId: (row.milestone_id ?? row.milestoneId) as string | undefined,
-    labelIds: (row.label_ids ?? row.labelIds) as string[] | undefined,
-    executionId: (row.execution_id ?? row.executionId) as string | undefined,
-    executionOutput: (row.execution_output ?? row.executionOutput) as string | undefined,
-    executionError: (row.execution_error ?? row.executionError) as string | undefined,
-    executionStartedAt: (row.execution_started_at ?? row.executionStartedAt) ? toDate(row.execution_started_at ?? row.executionStartedAt) : undefined,
-    executionCompletedAt: (row.execution_completed_at ?? row.executionCompletedAt) ? toDate(row.execution_completed_at ?? row.executionCompletedAt) : undefined,
-    branchName: (row.branch_name ?? row.branchName) as string | undefined,
-    prUrl: (row.pr_url ?? row.prUrl) as string | undefined,
-    prNumber: (row.pr_number ?? row.prNumber) as number | undefined,
-    mergeQueueStatus: (row.merge_queue_status ?? row.mergeQueueStatus) as string | undefined,
-    deletedAt: (row.deleted_at ?? row.deletedAt) as string | undefined,
-    deletionActionId: (row.deletion_action_id ?? row.deletionActionId) as string | undefined,
-    createdAt: toDate(row.created_at ?? row.createdAt),
-    updatedAt: toDate(row.updated_at ?? row.updatedAt),
+    ...r,
+    id: (r.clientId ?? r.id) as string,
+    dependencies: (r.dependencies as string[]) ?? [],
+    position: r.positionX !== undefined && r.positionY !== undefined
+      ? { x: r.positionX as number, y: r.positionY as number }
+      : (r.position as { x: number; y: number }),
+    executionStartedAt: r.executionStartedAt ? toDate(r.executionStartedAt) : undefined,
+    executionCompletedAt: r.executionCompletedAt ? toDate(r.executionCompletedAt) : undefined,
+    createdAt: toDate(r.createdAt),
+    updatedAt: toDate(r.updatedAt),
   } as PlanNode
 }
 
@@ -96,11 +72,12 @@ function mapNode(row: Record<string, unknown>): PlanNode {
  * Map database row to PlanEdge type
  */
 function mapEdge(row: Record<string, unknown>): PlanEdge {
+  const r = snakeToCamel(row)
   return {
-    id: row.client_id as string, // Frontend uses client_id as id
-    source: row.source_client_id as string,
-    target: row.target_client_id as string,
-    type: (row.type as PlanEdge["type"]) ?? "dependency",
+    id: r.clientId as string,
+    source: r.sourceClientId as string,
+    target: r.targetClientId as string,
+    type: (r.type as PlanEdge["type"]) ?? "dependency",
   }
 }
 
@@ -108,12 +85,13 @@ function mapEdge(row: Record<string, unknown>): PlanEdge {
  * Map database row to ApiKey type
  */
 function mapApiKey(row: Record<string, unknown>): ApiKey {
+  const r = snakeToCamel(row)
   return {
-    id: row.id as string,
-    provider: row.provider as string,
-    name: row.name as string,
-    maskedKey: (row.maskedKey ?? row.masked_key) as string,
-    createdAt: toDate(row.createdAt ?? row.created_at),
+    id: r.id as string,
+    provider: r.provider as string,
+    name: r.name as string,
+    maskedKey: r.maskedKey as string,
+    createdAt: toDate(r.createdAt),
   }
 }
 
@@ -121,20 +99,21 @@ function mapApiKey(row: Record<string, unknown>): ApiKey {
  * Map database row to UserProfile type
  */
 function mapProfile(row: Record<string, unknown>): UserProfile {
+  const r = snakeToCamel(row)
   return {
-    id: row.id as string,
-    name: (row.name as string) ?? "",
-    email: (row.email as string) ?? "",
-    avatarUrl: (row.avatar_url ?? row.avatarUrl) as string | undefined,
-    bio: (row.bio as string) ?? "",
-    domains: (row.domains as UserProfile["domains"]) ?? [],
-    experienceLevel: (row.experience_level ?? row.experienceLevel ?? "intermediate") as UserProfile["experienceLevel"],
-    preferredEnvironments: (row.preferred_environments ?? row.preferredEnvironments ?? ["local"]) as UserProfile["preferredEnvironments"],
-    notificationsEnabled: (row.notifications_enabled ?? row.notificationsEnabled ?? true) as boolean,
-    emailNotifications: (row.email_notifications ?? row.emailNotifications ?? false) as boolean,
-    apiKeys: ((row.api_keys ?? row.apiKeys) as Record<string, unknown>[] ?? []).map(mapApiKey),
-    createdAt: toDate(row.created_at ?? row.createdAt),
-    updatedAt: toDate(row.updated_at ?? row.updatedAt),
+    id: r.id as string,
+    name: (r.name as string) ?? "",
+    email: (r.email as string) ?? "",
+    avatarUrl: r.avatarUrl as string | undefined,
+    bio: (r.bio as string) ?? "",
+    domains: (r.domains as UserProfile["domains"]) ?? [],
+    experienceLevel: (r.experienceLevel ?? "intermediate") as UserProfile["experienceLevel"],
+    preferredEnvironments: (r.preferredEnvironments ?? ["local"]) as UserProfile["preferredEnvironments"],
+    notificationsEnabled: (r.notificationsEnabled ?? true) as boolean,
+    emailNotifications: (r.emailNotifications ?? false) as boolean,
+    apiKeys: ((r.apiKeys as Record<string, unknown>[]) ?? []).map(mapApiKey),
+    createdAt: toDate(r.createdAt),
+    updatedAt: toDate(r.updatedAt),
   }
 }
 
@@ -347,7 +326,7 @@ function subscribeToUserProfiles(supabase: ReturnType<typeof getSupabase>) {
                 useUserProfileStore.setState({ profile })
 
                 // Propagate sidebar config changes
-                const sidebarConfig = payload.new.sidebar_config as SidebarItem[] | null
+                const sidebarConfig = snakeToCamel(payload.new).sidebarConfig as SidebarItem[] | null
                 if (sidebarConfig) {
                   useSidebarStore.setState({ items: mergeWithDefaults(sidebarConfig) })
                 }
@@ -383,8 +362,9 @@ function subscribeToDisplaySettings(supabase: ReturnType<typeof getSupabase>) {
           case 'INSERT':
           case 'UPDATE':
             if (payload.new) {
-              const viewKey = payload.new.view_key as ViewKey
-              const settings = payload.new.settings as DisplaySettings
+              const r = snakeToCamel(payload.new)
+              const viewKey = r.viewKey as ViewKey
+              const settings = r.settings as DisplaySettings
               const store = useDisplaySettingsStore.getState()
               // Directly update state without triggering API call
               const updated = {
@@ -422,18 +402,19 @@ function subscribeToTaskChatSessions(supabase: ReturnType<typeof getSupabase>) {
         switch (payload.eventType) {
           case 'INSERT':
             if (payload.new) {
-              const nodeId = payload.new.node_id as string
-              const projectId = payload.new.project_id as string
+              const r = snakeToCamel(payload.new)
+              const nodeId = r.nodeId as string
+              const projectId = r.projectId as string
               const store = useTaskChatStore.getState()
               // Only create if not already present
               if (!store.sessions.has(nodeId)) {
                 const session: TaskChatSession = {
                   nodeId,
                   projectId,
-                  sessionId: payload.new.session_id as string | undefined,
+                  sessionId: r.sessionId as string | undefined,
                   messages: [],
-                  createdAt: toDate(payload.new.created_at),
-                  updatedAt: toDate(payload.new.updated_at),
+                  createdAt: toDate(r.createdAt),
+                  updatedAt: toDate(r.updatedAt),
                 }
                 const sessions = new Map(store.sessions)
                 sessions.set(nodeId, session)
@@ -443,15 +424,16 @@ function subscribeToTaskChatSessions(supabase: ReturnType<typeof getSupabase>) {
             break
           case 'UPDATE':
             if (payload.new) {
-              const nodeId = payload.new.node_id as string
+              const r = snakeToCamel(payload.new)
+              const nodeId = r.nodeId as string
               const store = useTaskChatStore.getState()
               const session = store.sessions.get(nodeId)
               if (session) {
-                const sessionId = payload.new.session_id as string | undefined
+                const sessionId = r.sessionId as string | undefined
                 const updatedSession = {
                   ...session,
                   sessionId: sessionId ?? session.sessionId,
-                  updatedAt: toDate(payload.new.updated_at),
+                  updatedAt: toDate(r.updatedAt),
                 }
                 const sessions = new Map(store.sessions)
                 sessions.set(nodeId, updatedSession)
@@ -461,7 +443,7 @@ function subscribeToTaskChatSessions(supabase: ReturnType<typeof getSupabase>) {
             break
           case 'DELETE':
             if (payload.old) {
-              const nodeId = payload.old.node_id as string
+              const nodeId = snakeToCamel(payload.old).nodeId as string
               const store = useTaskChatStore.getState()
               const sessions = new Map(store.sessions)
               sessions.delete(nodeId)

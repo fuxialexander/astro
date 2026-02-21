@@ -5,6 +5,7 @@ import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
 import type { Activity } from "@/stores/activity-store"
 import { getAccessToken } from "./supabase-client"
 import { isLocalMode } from "./app-mode"
+import { snakeToCamel } from "./utils"
 
 const BASE = "/api/data"
 
@@ -65,35 +66,38 @@ function toDate(v: unknown): Date {
 }
 
 function mapProject(row: Record<string, unknown>): Project {
+  const r = snakeToCamel(row)
   return {
-    ...row,
-    createdAt: toDate(row.createdAt ?? row.created_at),
-    updatedAt: toDate(row.updatedAt ?? row.updated_at),
-    labels: (row.labels as Project["labels"]) ?? [],
+    ...r,
+    createdAt: toDate(r.createdAt),
+    updatedAt: toDate(r.updatedAt),
+    labels: (r.labels as Project["labels"]) ?? [],
   } as Project
 }
 
 function mapInitiative(row: Record<string, unknown>): Initiative {
+  const r = snakeToCamel(row)
   return {
-    ...row,
-    createdAt: toDate(row.createdAt ?? row.created_at),
-    updatedAt: toDate(row.updatedAt ?? row.updated_at),
+    ...r,
+    createdAt: toDate(r.createdAt),
+    updatedAt: toDate(r.updatedAt),
   } as Initiative
 }
 
 function mapNode(row: Record<string, unknown>): PlanNode {
+  const r = snakeToCamel(row)
   return {
-    ...row,
-    dependencies: (row.dependencies as string[]) ?? [],
-    position: row.position as { x: number; y: number },
-    labelIds: (row.labelIds as string[]) ?? undefined,
-    createdAt: toDate(row.createdAt ?? row.created_at),
-    updatedAt: toDate(row.updatedAt ?? row.updated_at),
-    executionStartedAt: row.executionStartedAt ? toDate(row.executionStartedAt) : undefined,
-    executionCompletedAt: row.executionCompletedAt ? toDate(row.executionCompletedAt) : undefined,
-    branchName: (row.branchName as string) ?? undefined,
-    prUrl: (row.prUrl as string) ?? undefined,
-    prNumber: (row.prNumber as number) ?? undefined,
+    ...r,
+    dependencies: (r.dependencies as string[]) ?? [],
+    position: r.position as { x: number; y: number },
+    labelIds: (r.labelIds as string[]) ?? undefined,
+    createdAt: toDate(r.createdAt),
+    updatedAt: toDate(r.updatedAt),
+    executionStartedAt: r.executionStartedAt ? toDate(r.executionStartedAt) : undefined,
+    executionCompletedAt: r.executionCompletedAt ? toDate(r.executionCompletedAt) : undefined,
+    branchName: (r.branchName as string) ?? undefined,
+    prUrl: (r.prUrl as string) ?? undefined,
+    prNumber: (r.prNumber as number) ?? undefined,
   } as PlanNode
 }
 
@@ -107,31 +111,33 @@ function mapEdge(row: Record<string, unknown>): PlanEdge {
 }
 
 function mapApiKey(row: Record<string, unknown>): ApiKey {
+  const r = snakeToCamel(row)
   return {
-    id: row.id as string,
-    provider: row.provider as string,
-    name: row.name as string,
-    maskedKey: (row.maskedKey ?? row.masked_key) as string,
-    createdAt: toDate(row.createdAt ?? row.created_at),
+    id: r.id as string,
+    provider: r.provider as string,
+    name: r.name as string,
+    maskedKey: r.maskedKey as string,
+    createdAt: toDate(r.createdAt),
   }
 }
 
 function mapProfile(row: Record<string, unknown>): UserProfile {
+  const r = snakeToCamel(row)
   return {
-    id: row.id as string,
-    name: (row.name as string) ?? "",
-    email: (row.email as string) ?? "",
-    avatarUrl: (row.avatarUrl ?? row.avatar_url) as string | undefined,
-    bio: (row.bio as string) ?? "",
-    domains: (row.domains as UserProfile["domains"]) ?? [],
-    experienceLevel: (row.experienceLevel ?? row.experience_level ?? "intermediate") as UserProfile["experienceLevel"],
-    preferredEnvironments: (row.preferredEnvironments ?? row.preferred_environments ?? ["local"]) as UserProfile["preferredEnvironments"],
-    notificationsEnabled: (row.notificationsEnabled ?? row.notifications_enabled ?? true) as boolean,
-    emailNotifications: (row.emailNotifications ?? row.email_notifications ?? false) as boolean,
-    apiKeys: ((row.apiKeys ?? row.api_keys) as Record<string, unknown>[] ?? []).map(mapApiKey),
-    sidebarConfig: (row.sidebarConfig ?? row.sidebar_config) as UserProfile["sidebarConfig"],
-    createdAt: toDate(row.createdAt ?? row.created_at),
-    updatedAt: toDate(row.updatedAt ?? row.updated_at),
+    id: r.id as string,
+    name: (r.name as string) ?? "",
+    email: (r.email as string) ?? "",
+    avatarUrl: r.avatarUrl as string | undefined,
+    bio: (r.bio as string) ?? "",
+    domains: (r.domains as UserProfile["domains"]) ?? [],
+    experienceLevel: (r.experienceLevel ?? "intermediate") as UserProfile["experienceLevel"],
+    preferredEnvironments: (r.preferredEnvironments ?? ["local"]) as UserProfile["preferredEnvironments"],
+    notificationsEnabled: (r.notificationsEnabled ?? true) as boolean,
+    emailNotifications: (r.emailNotifications ?? false) as boolean,
+    apiKeys: ((r.apiKeys as Record<string, unknown>[]) ?? []).map(mapApiKey),
+    sidebarConfig: r.sidebarConfig as UserProfile["sidebarConfig"],
+    createdAt: toDate(r.createdAt),
+    updatedAt: toDate(r.updatedAt),
   }
 }
 
@@ -145,14 +151,15 @@ function mapChatMessage(m: Record<string, unknown>): TaskChatMessage {
 }
 
 function mapChatEntry(entry: { session: Record<string, unknown>; messages: Record<string, unknown>[] }): { session: TaskChatSession; messages: TaskChatMessage[] } {
+  const s = snakeToCamel(entry.session)
   return {
     session: {
-      nodeId: entry.session.nodeId as string ?? entry.session.node_id as string,
-      projectId: entry.session.projectId as string ?? entry.session.project_id as string,
-      sessionId: (entry.session.sessionId ?? entry.session.session_id) as string | undefined,
+      nodeId: s.nodeId as string,
+      projectId: s.projectId as string,
+      sessionId: s.sessionId as string | undefined,
       messages: [],
-      createdAt: toDate(entry.session.createdAt ?? entry.session.created_at),
-      updatedAt: toDate(entry.session.updatedAt ?? entry.session.updated_at),
+      createdAt: toDate(s.createdAt),
+      updatedAt: toDate(s.updatedAt),
     },
     messages: entry.messages.map(mapChatMessage),
   }
@@ -312,59 +319,63 @@ export const dataClient = {
   // ── Sessions ────────────────────────────────────────────────────────
   async getAllSessions(): Promise<import("@/types").Session[]> {
     const rows = await json<Record<string, unknown>[]>(`${BASE}/sessions`)
-    return rows.map(row => ({
-      ...row,
-      createdAt: toDate(row.createdAt ?? row.created_at),
-      updatedAt: toDate(row.updatedAt ?? row.updated_at),
-      completedAt: row.completedAt ? toDate(row.completedAt) : undefined,
-      messages: (row.messages as Array<Record<string, unknown>> ?? []).map(m => ({
-        ...m,
-        timestamp: toDate(m.timestamp),
-      })),
-      steerMessages: (row.steerMessages as Array<Record<string, unknown>> ?? []).map(m => ({
-        ...m,
-        timestamp: toDate(m.timestamp),
-      })),
-      activityEvents: (row.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
-        ...e,
-        timestamp: toDate(e.timestamp),
-      })),
-      toolTraces: (row.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
-        ...t,
-        timestamp: toDate(t.timestamp),
-      })),
-      fileChanges: (row.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
-        ...f,
-        timestamp: toDate(f.timestamp),
-      })),
-    })) as import("@/types").Session[]
+    return rows.map(row => {
+      const r = snakeToCamel(row)
+      return {
+        ...r,
+        createdAt: toDate(r.createdAt),
+        updatedAt: toDate(r.updatedAt),
+        completedAt: r.completedAt ? toDate(r.completedAt) : undefined,
+        messages: (r.messages as Array<Record<string, unknown>> ?? []).map(m => ({
+          ...m,
+          timestamp: toDate(m.timestamp),
+        })),
+        steerMessages: (r.steerMessages as Array<Record<string, unknown>> ?? []).map(m => ({
+          ...m,
+          timestamp: toDate(m.timestamp),
+        })),
+        activityEvents: (r.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
+          ...e,
+          timestamp: toDate(e.timestamp),
+        })),
+        toolTraces: (r.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
+          ...t,
+          timestamp: toDate(t.timestamp),
+        })),
+        fileChanges: (r.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
+          ...f,
+          timestamp: toDate(f.timestamp),
+        })),
+      }
+    }) as import("@/types").Session[]
   },
 
   async getSession(sessionId: string): Promise<import("@/types").Session | null> {
     const row = await json<Record<string, unknown> | null>(`${BASE}/sessions/${sessionId}`)
     if (!row) return null
+    const r = snakeToCamel(row)
     return {
-      ...row,
-      createdAt: toDate(row.createdAt ?? row.created_at),
-      updatedAt: toDate(row.updatedAt ?? row.updated_at),
-      completedAt: row.completedAt ? toDate(row.completedAt) : undefined,
-      messages: (row.messages as Array<Record<string, unknown>> ?? []).map(m => ({
+      ...r,
+      createdAt: toDate(r.createdAt),
+      updatedAt: toDate(r.updatedAt),
+      completedAt: r.completedAt ? toDate(r.completedAt) : undefined,
+      messages: (r.messages as Array<Record<string, unknown>> ?? []).map(m => ({
         ...m,
         timestamp: toDate(m.timestamp),
       })),
-      steerMessages: (row.steerMessages as Array<Record<string, unknown>> ?? []).map(m => ({
+      steerMessages: (r.steerMessages as Array<Record<string, unknown>> ?? []).map(m => ({
         ...m,
         timestamp: toDate(m.timestamp),
       })),
-      activityEvents: (row.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
+      activityEvents: (r.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
         ...e,
         timestamp: toDate(e.timestamp),
       })),
-      toolTraces: (row.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
+      toolTraces: (r.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
         ...t,
         timestamp: toDate(t.timestamp),
       })),
-      fileChanges: (row.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
+      fileChanges: (r.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
         ...f,
         timestamp: toDate(f.timestamp),
       })),
@@ -373,28 +384,29 @@ export const dataClient = {
 
   async createSession(session: import("@/types").Session): Promise<import("@/types").Session> {
     const row = await post(`${BASE}/sessions`, session) as Record<string, unknown>
+    const r = snakeToCamel(row)
     return {
-      ...row,
-      createdAt: toDate(row.createdAt ?? row.created_at),
-      updatedAt: toDate(row.updatedAt ?? row.updated_at),
-      completedAt: row.completedAt ? toDate(row.completedAt) : undefined,
-      messages: (row.messages as Array<Record<string, unknown>> ?? []).map(m => ({
+      ...r,
+      createdAt: toDate(r.createdAt),
+      updatedAt: toDate(r.updatedAt),
+      completedAt: r.completedAt ? toDate(r.completedAt) : undefined,
+      messages: (r.messages as Array<Record<string, unknown>> ?? []).map(m => ({
         ...m,
         timestamp: toDate(m.timestamp),
       })),
-      steerMessages: (row.steerMessages as Array<Record<string, unknown>> ?? []).map(m => ({
+      steerMessages: (r.steerMessages as Array<Record<string, unknown>> ?? []).map(m => ({
         ...m,
         timestamp: toDate(m.timestamp),
       })),
-      activityEvents: (row.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
+      activityEvents: (r.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
         ...e,
         timestamp: toDate(e.timestamp),
       })),
-      toolTraces: (row.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
+      toolTraces: (r.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
         ...t,
         timestamp: toDate(t.timestamp),
       })),
-      fileChanges: (row.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
+      fileChanges: (r.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
         ...f,
         timestamp: toDate(f.timestamp),
       })),
@@ -418,19 +430,20 @@ export const dataClient = {
     const rows = await json<Record<string, Record<string, unknown>>>(`${BASE}/executions`)
     const result: Record<string, TaskExecution> = {}
     for (const [nodeId, row] of Object.entries(rows)) {
+      const r = snakeToCamel(row)
       result[nodeId] = {
-        ...row,
-        startedAt: toDate(row.startedAt ?? row.started_at),
-        completedAt: row.completedAt ? toDate(row.completedAt) : undefined,
-        toolTraces: (row.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
+        ...r,
+        startedAt: toDate(r.startedAt),
+        completedAt: r.completedAt ? toDate(r.completedAt) : undefined,
+        toolTraces: (r.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
           ...t,
           timestamp: toDate(t.timestamp),
         })),
-        fileChanges: (row.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
+        fileChanges: (r.fileChanges as Array<Record<string, unknown>> ?? []).map(f => ({
           ...f,
           timestamp: toDate(f.timestamp),
         })),
-        activityEvents: (row.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
+        activityEvents: (r.activityEvents as Array<Record<string, unknown>> ?? []).map(e => ({
           ...e,
           timestamp: toDate(e.timestamp),
         })),
@@ -459,16 +472,19 @@ export const dataClient = {
     if (limit !== 100) params.set('limit', String(limit))
     const qs = params.toString()
     const rows = await json<Record<string, unknown>[]>(`${BASE}/activities${qs ? `?${qs}` : ''}`)
-    return rows.map((row) => ({
-      id: row.id as string,
-      projectId: (row.projectId ?? row.project_id) as string,
-      type: row.type as Activity["type"],
-      title: row.title as string,
-      description: (row.description as string) ?? undefined,
-      nodeId: (row.nodeId ?? row.node_id) as string | undefined,
-      metadata: (row.metadata as Record<string, unknown>) ?? undefined,
-      timestamp: toDate(row.createdAt ?? row.created_at),
-    }))
+    return rows.map((row) => {
+      const r = snakeToCamel(row)
+      return {
+        id: r.id as string,
+        projectId: r.projectId as string,
+        type: r.type as Activity["type"],
+        title: r.title as string,
+        description: (r.description as string) ?? undefined,
+        nodeId: r.nodeId as string | undefined,
+        metadata: (r.metadata as Record<string, unknown>) ?? undefined,
+        timestamp: toDate(r.createdAt),
+      }
+    })
   },
 
   async createActivity(activity: { id: string; projectId: string; type: string; title: string; description?: string; nodeId?: string; metadata?: Record<string, unknown> }): Promise<void> {
