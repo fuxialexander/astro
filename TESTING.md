@@ -388,7 +388,7 @@ npm run dev
 ### Documentation
 
 - `APPROVAL_SYSTEM.md` - Complete architecture
-- `docs/APPROVAL_QUICKSTART.md` - How to use approvals
+- `APPROVAL_QUICKSTART.md` - How to use approvals
 - `scripts/README.md` - Detailed test documentation
 - `scripts/test-e2e-with-approval.sh` - E2E test source
 

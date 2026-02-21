@@ -4,7 +4,7 @@ Welcome to the Astro documentation. This index organizes all documentation into 
 
 ## Quick Start
 
-- **New to Astro?** Start with [Developer Setup](./setup/developer-setup.md)
+- **New to Astro?** Start with [Developer Setup](./DEVELOPER_SETUP.md)
 - **Setting up local development?** See [Local Mode Setup](./setup/local-mode.md)
 - **Deploying to production?** Check [Production Setup](./setup/production-setup.md)
 - **Understanding the architecture?** Read [Architecture Overview](./ARCHITECTURE.md)
@@ -41,7 +41,7 @@ Frontend documentation covers React components, routing, state management, and u
 
 **Specialized Topics:**
 - [Plugin System](./PLUGIN_SYSTEM.md) - Plugin architecture and API
-- [Real-time Sync](./frontend/realtime-sync.md) - Supabase Realtime integration
+- [Real-time Sync](../REALTIME_SYNC.md) - Supabase Realtime integration
 - [Plan Graph](./frontend/plan-graph.md) - React Flow graph visualization
 - [UI Screens Reference](./ui_screen_list.md) - Complete screen inventory
 
@@ -66,10 +66,10 @@ Relay server documentation covers WebSocket communication, agent dispatch, and w
 Setup documentation covers development modes, deployment, and infrastructure configuration.
 
 **Core Documentation:**
-- [Developer Setup](./setup/developer-setup.md) - Getting started with local development
+- [Developer Setup](./DEVELOPER_SETUP.md) - Getting started with local development
 - [Local Mode](./setup/local-mode.md) - IndexedDB-only single-user mode
 - [Server Mode](./setup/server-mode.md) - Supabase multi-user mode
-- [Production Deployment](./setup/production-deployment.md) - Fly.io + Cloudflare Pages
+- [Fly.io Deployment](./FLY_DEPLOYMENT.md) - Fly.io + Cloudflare Pages
 - [Supabase Local Development](./setup/supabase-local-dev.md) - Running Supabase locally
 
 **Specialized Topics:**
@@ -82,7 +82,7 @@ Setup documentation covers development modes, deployment, and infrastructure con
 
 ### Approvals
 - [Approval System](../APPROVAL_SYSTEM.md) - Complete approval architecture
-- [Approval Quickstart](./APPROVAL_QUICKSTART.md) - Getting started with approvals
+- [Approval Quickstart](../APPROVAL_QUICKSTART.md) - Getting started with approvals
 - [Approval Testing](../scripts/TESTING_APPROVAL.md) - Testing guide
 
 ### Activity & Events
@@ -112,8 +112,7 @@ Setup documentation covers development modes, deployment, and infrastructure con
 ## Architecture Documentation
 
 - [Architecture Overview](./ARCHITECTURE.md) - Complete system architecture
-- [Information Flow](./architecture/information-flow.md) - Data flow diagrams
-- [Relay System](./architecture/relay-system.md) - Relay server architecture
+- [Relay Overview](./relay/overview.md) - Relay server architecture
 - [Deployment Architecture](./architecture/deployment.md) - Production infrastructure
 
 ## Additional Resources
@@ -126,16 +125,15 @@ Setup documentation covers development modes, deployment, and infrastructure con
 - [Contributing](../CONTRIBUTING.md) - Contribution guidelines
 
 ### Security & Operations
-- [Deployment Security Checklist](../DEPLOYMENT_SECURITY_CHECKLIST.md) - Security checklist
+- [Deployment Security Checklist](./setup/security-checklist.md) - Security checklist
 - [Machine Names](./MACHINE_NAMES.md) - Machine naming conventions
 - [Observability](./OBSERVABILITY_AND_SAFETY.md) - Monitoring and safety
 
 ### Performance
-- [Prompt Caching](../PROMPT_CACHING.md) - Claude prompt caching
-- [Caching Quick Start](../CACHING_QUICK_START.md) - Getting started with caching
+- [Prompt Caching](./backend/prompt-caching.md) - Claude prompt caching
 
 ### Legacy/Deprecated
-- [Cyrus Integration](../CYRUS_INTEGRATION.md) - Legacy integration (deprecated)
+- [Cyrus Integration](./backend/cyrus-integration.md) - Legacy integration (deprecated)
 - [Sidebar Supabase Sync](../SIDEBAR_SUPABASE_SYNC.md) - Old sync approach (deprecated)
 - [Local Server Mode Changes](./LOCAL_SERVER_MODE_CHANGES.md) - Migration notes
 

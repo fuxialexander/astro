@@ -76,7 +76,7 @@ cd packages/agent-runner && node dist/cli.js connect
 ## 📚 Documentation
 
 - `APPROVAL_SYSTEM.md` - Architecture
-- `docs/APPROVAL_QUICKSTART.md` - Usage guide
+- `APPROVAL_QUICKSTART.md` - Usage guide
 - `scripts/TESTING_APPROVAL.md` - Full testing guide
 - `scripts/README.md` - All test scripts
 

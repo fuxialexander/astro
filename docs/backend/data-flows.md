@@ -259,6 +259,6 @@ Zustand Store (optimistic update)
 
 - [API Reference](./api-reference.md) - API endpoint details
 - [Database Schema](./database-schema.md) - Table structures
-- [Real-time Sync](../frontend/realtime-sync.md) - Supabase Realtime setup
+- [Real-time Sync](../../REALTIME_SYNC.md) - Supabase Realtime setup
 - [Relay System](../relay/overview.md) - Agent runner communication
 - [Approval System](../../APPROVAL_SYSTEM.md) - Approval architecture

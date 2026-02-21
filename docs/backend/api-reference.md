@@ -682,4 +682,4 @@ All endpoints return consistent error responses:
 - [Database Schema](./database-schema.md) - Database tables and relationships
 - [Data Flows](./data-flows.md) - How data moves through the system
 - [Authentication](./authentication.md) - Auth implementation details
-- [Real-time Sync](../frontend/realtime-sync.md) - Supabase Realtime integration
+- [Real-time Sync](../../REALTIME_SYNC.md) - Supabase Realtime integration

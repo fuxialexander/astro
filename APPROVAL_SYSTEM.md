@@ -459,4 +459,4 @@ Then manually:
 - `scripts/TESTING_APPROVAL.md` - Complete testing guide
 - `scripts/README.md` - All test scripts documentation
 - `APPROVAL_TESTING_CHEATSHEET.md` - Quick reference
-- `docs/APPROVAL_QUICKSTART.md` - Usage guide
+- `APPROVAL_QUICKSTART.md` - Usage guide

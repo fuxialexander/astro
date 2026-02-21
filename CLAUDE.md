@@ -445,7 +445,7 @@ Agent runners store data in `~/.astro/`:
 - `docs/frontend/page-structure.md` — All pages and routes
 - `docs/frontend/component-architecture.md` — UI component organization
 - `docs/frontend/state-management.md` — Zustand stores
-- `docs/frontend/realtime-sync.md` — Supabase Realtime integration
+- `REALTIME_SYNC.md` — Supabase Realtime integration
 - `docs/frontend/plan-graph.md` — React Flow graph visualization
 
 **Relay Server:**
@@ -454,7 +454,7 @@ Agent runners store data in `~/.astro/`:
 - `docs/relay/workspace-preparation.md` — Git worktree management
 
 **System Setup:**
-- `docs/setup/developer-setup.md` — Getting started guide
+- `docs/DEVELOPER_SETUP.md` — Getting started guide
 - `docs/setup/local-mode.md` — IndexedDB-only mode
 - `docs/setup/server-mode.md` — Supabase multi-user mode
 - `docs/setup/environment-variables.md` — Complete env var reference
@@ -480,7 +480,7 @@ Agent runners store data in `~/.astro/`:
 ### Testing Documentation
 - `scripts/TESTING_APPROVAL.md` — Comprehensive approval system testing guide
 - `scripts/README.md` — Testing scripts documentation
-- `docs/APPROVAL_QUICKSTART.md` — Approval system quick start guide
+- `APPROVAL_QUICKSTART.md` — Approval system quick start guide
 - `docs/DEPLOYMENT_AND_TESTING.md` — Pre-deployment testing
 
 ## MCP Tools for Agents

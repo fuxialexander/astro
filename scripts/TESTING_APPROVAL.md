@@ -288,7 +288,7 @@ npm run test:approval:quick
 ## Documentation
 
 - `APPROVAL_SYSTEM.md` - Architecture and implementation details
-- `docs/APPROVAL_QUICKSTART.md` - Developer guide for using approvals
+- `APPROVAL_QUICKSTART.md` - Developer guide for using approvals
 - `scripts/README.md` - All test scripts documentation
 - `TESTING.md` - Overall testing strategy
 - This file - Approval testing specifically
@@ -307,5 +307,5 @@ After running tests, you should:
 
 Check the detailed docs:
 - How approvals work: `APPROVAL_SYSTEM.md`
-- How to use in code: `docs/APPROVAL_QUICKSTART.md`
+- How to use in code: `APPROVAL_QUICKSTART.md`
 - Troubleshooting: `scripts/README.md`

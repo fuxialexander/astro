@@ -369,7 +369,7 @@ bash scripts/agent-setup.sh yourdomain.com
 
 This builds the agent runner, detects providers (Claude Code, Codex), runs the device auth flow (approve in browser), and starts the runner. The machine appears in the Environments page.
 
-See `setup_hpc_ssh.md` for remote machine and HPC/Slurm setup.
+See `docs/setup/hpc-ssh-setup.md` for remote machine and HPC/Slurm setup.
 
 ---
 
