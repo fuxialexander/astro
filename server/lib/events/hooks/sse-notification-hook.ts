@@ -66,5 +66,25 @@ export const sseNotificationHook: EventHook = async (event) => {
         reason: event.reason,
       })
       break
+
+    case 'merge_queue.failed':
+      executionEventBus.emit('merge_queue:failed', {
+        nodeId: event.nodeId,
+        projectId: event.projectId,
+        prNumber: event.prNumber,
+        reason: event.reason,
+        branchName: event.branchName,
+      })
+      break
+
+    case 'merge_queue.succeeded':
+      executionEventBus.emit('merge_queue:succeeded', {
+        nodeId: event.nodeId,
+        projectId: event.projectId,
+        prNumber: event.prNumber,
+        branchName: event.branchName,
+        mergedSha: event.mergedSha,
+      })
+      break
   }
 }

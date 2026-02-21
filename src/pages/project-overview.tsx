@@ -562,6 +562,47 @@ export function OverviewTab({
             )}
           </div>
 
+          {/* Merge Queue (visible when repository is configured) */}
+          {project.repository && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">Merge Queue</span>
+              <button
+                onClick={() => updateProject(project.id, { mergeQueueEnabled: !project.mergeQueueEnabled })}
+                className={cn(
+                  "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer",
+                  project.mergeQueueEnabled ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                    project.mergeQueueEnabled ? "translate-x-[18px]" : "translate-x-[3px]"
+                  )}
+                />
+              </button>
+            </div>
+          )}
+
+          {/* Merge Method (visible when merge queue is enabled) */}
+          {project.repository && project.mergeQueueEnabled && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">Merge Method</span>
+              <select
+                className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
+                value={project.mergeQueueMergeMethod || "squash"}
+                onChange={(e) => {
+                  updateProject(project.id, {
+                    mergeQueueMergeMethod: e.target.value as "merge" | "squash" | "rebase",
+                  })
+                }}
+              >
+                <option value="squash">Squash</option>
+                <option value="merge">Merge</option>
+                <option value="rebase">Rebase</option>
+              </select>
+            </div>
+          )}
+
           {/* Labels */}
           {project.labels && project.labels.length > 0 && (
             <div className="flex items-center justify-between">

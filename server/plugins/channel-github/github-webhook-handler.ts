@@ -7,6 +7,7 @@
 
 import type { GitHubChannelConfig, InboundMessage, ChannelRouter } from '../../lib/channel/channel-types.js'
 import { postGitHubComment } from './github-api.js'
+import { astroEventTransport } from '../../lib/events/astro-event-transport.js'
 
 /**
  * Handle `issues` webhook events.
@@ -124,6 +125,7 @@ export async function handlePullRequestEvent(
 
   const prNumber = pr.number as number
   const prTitle = pr.title as string
+  const headRef = (pr.head as Record<string, unknown>)?.ref as string | undefined
 
   switch (action) {
     case 'opened':
@@ -131,16 +133,106 @@ export async function handlePullRequestEvent(
       break
     case 'closed': {
       const merged = pr.merged as boolean
+      const mergedSha = pr.merge_commit_sha as string | undefined
       if (merged) {
         console.log(`[github-channel] PR #${prNumber} merged in ${repoFullName}: "${prTitle}" → task completion for project ${projectId}`)
+
+        // Emit merge queue succeeded event for astro-managed PRs
+        const nodeId = extractNodeIdFromBranch(headRef)
+        if (nodeId) {
+          await astroEventTransport.emitEvent({
+            type: 'merge_queue.succeeded',
+            nodeId,
+            projectId,
+            prNumber,
+            branchName: headRef || '',
+            mergedSha,
+            timestamp: new Date(),
+          })
+        }
       } else {
         console.log(`[github-channel] PR #${prNumber} closed (not merged) in ${repoFullName}: "${prTitle}"`)
+      }
+      break
+    }
+    case 'dequeued': {
+      // PR removed from merge queue
+      console.log(`[github-channel] PR #${prNumber} dequeued from merge queue in ${repoFullName}: "${prTitle}"`)
+      const nodeId = extractNodeIdFromBranch(headRef)
+      if (nodeId) {
+        const reason = (payload.reason as string) || 'removed'
+        await astroEventTransport.emitEvent({
+          type: 'merge_queue.failed',
+          nodeId,
+          projectId,
+          prNumber,
+          reason: mapDequeueReason(reason),
+          branchName: headRef || '',
+          timestamp: new Date(),
+        })
       }
       break
     }
     default:
       console.log(`[github-channel] PR event "${action}" for #${prNumber} in ${repoFullName}`)
   }
+}
+
+/**
+ * Handle `merge_group` webhook events.
+ * Fired when GitHub creates or destroys a merge group for the merge queue.
+ */
+export async function handleMergeGroupEvent(
+  payload: Record<string, unknown>,
+  config: GitHubChannelConfig
+): Promise<void> {
+  const action = payload.action as string
+  const mergeGroup = payload.merge_group as Record<string, unknown> | undefined
+  const repo = payload.repository as Record<string, unknown> | undefined
+  const repoFullName = repo?.full_name as string | undefined
+
+  if (!mergeGroup || !repoFullName) return
+
+  const projectId = config.repoMappings[repoFullName]
+  if (!projectId) return
+
+  const headRef = mergeGroup.head_ref as string | undefined
+
+  switch (action) {
+    case 'checks_requested':
+      console.log(`[github-channel] Merge group checks requested in ${repoFullName} for ref ${headRef}`)
+      // The merge queue is testing this group — individual PR status updates
+      // are tracked via PR events, not here
+      break
+    case 'destroyed': {
+      // Merge group was destroyed (failed checks, conflicts, or manual removal)
+      const reason = (mergeGroup.reason as string) || 'unknown'
+      console.log(`[github-channel] Merge group destroyed in ${repoFullName}: ${reason}`)
+      // Individual PR dequeue events handle node status updates
+      break
+    }
+    default:
+      console.log(`[github-channel] Merge group event "${action}" in ${repoFullName}`)
+  }
+}
+
+/**
+ * Extract nodeId from an Astro branch name (astro/<nodeId>).
+ */
+function extractNodeIdFromBranch(branchName?: string): string | undefined {
+  if (!branchName) return undefined
+  const match = branchName.match(/^astro\/(.+)$/)
+  return match?.[1]
+}
+
+/**
+ * Map GitHub dequeue reason to our internal reason type.
+ */
+function mapDequeueReason(reason: string): 'conflicts' | 'ci_failure' | 'removed' | 'unknown' {
+  if (reason.includes('conflict')) return 'conflicts'
+  if (reason.includes('ci') || reason.includes('check') || reason.includes('fail')) return 'ci_failure'
+  if (reason.includes('remov') || reason.includes('dequeue')) return 'removed'
+  return 'unknown'
 }
 
 /**

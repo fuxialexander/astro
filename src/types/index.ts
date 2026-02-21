@@ -99,6 +99,9 @@ export interface Project {
   fileTreeMachineId?: string;    // Which machine the cached fileTree belongs to ("local" or machineId)
   defaultEnvironment?: 'local' | 'remote' | 'hpc' | 'cloud'
   defaultMachineId?: string
+  // Merge queue settings
+  mergeQueueEnabled?: boolean
+  mergeQueueMergeMethod?: 'merge' | 'squash' | 'rebase'
   createdAt: Date;
   updatedAt: Date;
 }
@@ -136,6 +139,7 @@ export interface PlanNode {
   branchName?: string;
   prUrl?: string;
   prNumber?: number;
+  mergeQueueStatus?: 'queued' | 'testing' | 'merged' | 'failed';
   // Soft-delete metadata
   deletedAt?: Date;
   deletionActionId?: string;

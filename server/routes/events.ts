@@ -291,6 +291,21 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('session:detached', onSessionDetached)
     relayServer.on('session:event', onSessionEvent)
 
+    // Merge queue event handlers
+    const onMergeQueueFailed = (msg: { nodeId: string; projectId: string; prNumber: number; reason: string; branchName: string }) => {
+      if (!alive) return
+      const data = JSON.stringify(msg)
+      const id = eventBuffer.push('merge_queue:failed', data)
+      stream.writeSSE({ id, event: 'merge_queue:failed', data }).catch(() => { alive = false })
+    }
+
+    const onMergeQueueSucceeded = (msg: { nodeId: string; projectId: string; prNumber: number; branchName: string; mergedSha?: string }) => {
+      if (!alive) return
+      const data = JSON.stringify(msg)
+      const id = eventBuffer.push('merge_queue:succeeded', data)
+      stream.writeSSE({ id, event: 'merge_queue:succeeded', data }).catch(() => { alive = false })
+    }
+
     // Subscribe to local execution events (same message shapes as relay)
     executionEventBus.on('task:result', onTaskResult)
     executionEventBus.on('task:stdout', onTaskStdout)
@@ -300,6 +315,8 @@ eventsRoute.get('/stream', async (c) => {
     executionEventBus.on('task:file_change', onTaskFileChange)
     executionEventBus.on('task:session_init', onTaskSessionInit)
     executionEventBus.on('task:steer_ack', onTaskSteerAck)
+    executionEventBus.on('merge_queue:failed', onMergeQueueFailed)
+    executionEventBus.on('merge_queue:succeeded', onMergeQueueSucceeded)
 
     // Subscribe to approval events from astroEventTransport
     const astroEventHandler = (event: { type: string; [key: string]: unknown }) => {
@@ -355,6 +372,8 @@ eventsRoute.get('/stream', async (c) => {
       executionEventBus.off('task:file_change', onTaskFileChange)
       executionEventBus.off('task:session_init', onTaskSessionInit)
       executionEventBus.off('task:steer_ack', onTaskSteerAck)
+      executionEventBus.off('merge_queue:failed', onMergeQueueFailed)
+      executionEventBus.off('merge_queue:succeeded', onMergeQueueSucceeded)
 
       // Cleanup astroEventTransport listeners
       astroEventTransport.off('event', astroEventHandler)

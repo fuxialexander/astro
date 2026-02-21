@@ -251,6 +251,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           dueDate: n.dueDate,
           executionId: n.executionId,
           prUrl: n.prUrl,
+          mergeQueueStatus: n.mergeQueueStatus,
           highlightBy,
           checked: checkedIds.has(n.id),
           selectionActive: selectionActive,

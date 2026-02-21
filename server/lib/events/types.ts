@@ -20,6 +20,8 @@ export type AstroEvent =
   | BranchPrunedEvent
   | ApprovalRequestedEvent
   | ApprovalRespondedEvent
+  | MergeQueueFailedEvent
+  | MergeQueueSucceededEvent
 
 export interface TaskStartedEvent {
   type: 'task.started'
@@ -107,6 +109,26 @@ export interface ApprovalRespondedEvent {
   executionId: string
   approved: boolean
   selectedOption?: string // For multi-choice approvals
+  timestamp: Date
+}
+
+export interface MergeQueueFailedEvent {
+  type: 'merge_queue.failed'
+  nodeId: string
+  projectId: string
+  prNumber: number
+  reason: 'conflicts' | 'ci_failure' | 'removed' | 'unknown'
+  branchName: string
+  timestamp: Date
+}
+
+export interface MergeQueueSucceededEvent {
+  type: 'merge_queue.succeeded'
+  nodeId: string
+  projectId: string
+  prNumber: number
+  branchName: string
+  mergedSha?: string
   timestamp: Date
 }
 

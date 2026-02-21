@@ -1,6 +1,6 @@
 import { memo, useState, useCallback } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { Plus, GitPullRequest, Sparkles, Check } from "lucide-react"
+import { Plus, GitPullRequest, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 
@@ -32,6 +32,7 @@ type TaskNodeData = Node<{
   priority?: string
   dueDate?: string
   prUrl?: string
+  mergeQueueStatus?: string
   highlightBy?: string
   checked?: boolean
   selectionActive?: boolean
@@ -162,8 +163,18 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         </span>
       )}
 
+      {/* Merge queue status badge */}
+      {data.mergeQueueStatus && (
+        <span className="relative z-10 ml-auto shrink-0" title={`Merge queue: ${data.mergeQueueStatus}`}>
+          {data.mergeQueueStatus === 'queued' && <GitMerge className="h-3 w-3 text-blue-500" />}
+          {data.mergeQueueStatus === 'testing' && <Loader2 className="h-3 w-3 text-amber-500 animate-spin" />}
+          {data.mergeQueueStatus === 'merged' && <CheckCircle2 className="h-3 w-3 text-green-500" />}
+          {data.mergeQueueStatus === 'failed' && <XCircle className="h-3 w-3 text-red-500" />}
+        </span>
+      )}
+
       {/* PR indicator */}
-      {data.prUrl && (
+      {data.prUrl && !data.mergeQueueStatus && (
         <GitPullRequest className="h-3 w-3 shrink-0 text-purple-500 relative z-10 ml-auto" />
       )}
 

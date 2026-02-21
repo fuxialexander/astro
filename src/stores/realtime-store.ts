@@ -736,6 +736,42 @@ function handleRealtimeEvent(
       break
     }
 
+    case 'merge_queue:failed': {
+      const nodeId = data.nodeId as string
+      const projectId = data.projectId as string
+      const reason = data.reason as string
+
+      // Update plan node to awaiting_judgment + failed merge queue status
+      const planStore = usePlanStore.getState()
+      const node = planStore.nodes.find((n) => n.id === nodeId && n.projectId === projectId)
+      if (node) {
+        planStore.updateNode(nodeId, {
+          status: 'awaiting_judgment',
+          mergeQueueStatus: 'failed',
+        })
+      }
+
+      addActivity(set, 'merge_queue', `Merge queue failed for node ${nodeId}: ${reason}`)
+      break
+    }
+
+    case 'merge_queue:succeeded': {
+      const nodeId = data.nodeId as string
+      const projectId = data.projectId as string
+
+      // Update plan node merge queue status
+      const planStore = usePlanStore.getState()
+      const node = planStore.nodes.find((n) => n.id === nodeId && n.projectId === projectId)
+      if (node) {
+        planStore.updateNode(nodeId, {
+          mergeQueueStatus: 'merged',
+        })
+      }
+
+      addActivity(set, 'merge_queue', `PR merged via merge queue for node ${nodeId}`)
+      break
+    }
+
     case 'task:approval_request': {
       const taskId = data.taskId as string
       const requestId = data.requestId as string
