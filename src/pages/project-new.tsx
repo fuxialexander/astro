@@ -734,7 +734,7 @@ export function ProjectNew() {
                           <button
                             key={repo.id}
                             onClick={() => {
-                              setRepoUrl(repo.htmlUrl)
+                              setRepoUrl(repo.sshUrl)
                               setShowGitHubRepos(false)
                               setSearchQuery("")
                               setShowRepoInput(true)
@@ -763,7 +763,7 @@ export function ProjectNew() {
                       type="text"
                       value={repoUrl}
                       onChange={(e) => setRepoUrl(e.target.value)}
-                      placeholder="https://github.com/user/repo"
+                      placeholder="git@github.com:user/repo.git"
                       className="flex-1 h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
                     />
                     <button
