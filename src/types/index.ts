@@ -283,13 +283,34 @@ export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert
 // Preferred environment for task dispatch
 export type PreferredEnvironment = 'local' | 'remote' | 'hpc' | 'cloud';
 
-// API key entry for agent providers
+// API key entry for agent providers (legacy, unencrypted - stored in user_profiles.api_keys)
 export interface ApiKey {
   id: string;
   provider: string;
   name: string;
   maskedKey: string;  // Only store masked version for display
   createdAt: Date;
+}
+
+// Encrypted API key stored in database (encrypted_api_keys table)
+export interface EncryptedApiKey {
+  id: string;
+  userId: string;
+  serviceName: string; // e.g., 'openai-whisper', 'anthropic', 'openai'
+  encryptedKey: string; // Base64-encoded encrypted key
+  iv: string; // Base64-encoded initialization vector
+  salt?: string; // Base64-encoded salt (optional, for migration support)
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Decrypted API key (in-memory only, never persisted)
+export interface DecryptedApiKey {
+  id: string;
+  serviceName: string;
+  plainKey: string; // The actual decrypted API key
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // User profile for identity and domain context
