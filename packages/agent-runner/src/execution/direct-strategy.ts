@@ -19,7 +19,7 @@ export class DirectStrategy implements ExecutionStrategy {
   readonly name = 'Direct (local)';
   readonly isAsync = false;
 
-  private processes = new Map<string, ChildProcess>();
+  private processes = new Map<string, { child: ChildProcess; signal: AbortSignal }>();
 
   async detect(): Promise<ExecutionStrategyDetection> {
     return {
@@ -76,7 +76,7 @@ export class DirectStrategy implements ExecutionStrategy {
         });
       }
 
-      this.processes.set(spec.jobId, child);
+      this.processes.set(spec.jobId, { child, signal });
 
       let stdout = '';
       let stderr = '';
@@ -158,29 +158,27 @@ export class DirectStrategy implements ExecutionStrategy {
   }
 
   async cancel(jobId: string): Promise<void> {
-    const child = this.processes.get(jobId);
-    if (!child) return;
+    const entry = this.processes.get(jobId);
+    if (!entry) return;
 
-    child.kill('SIGTERM');
+    entry.child.kill('SIGTERM');
     // Force kill after 5s
     setTimeout(() => {
-      if (!child.killed) {
-        child.kill('SIGKILL');
+      if (!entry.child.killed) {
+        entry.child.kill('SIGKILL');
       }
     }, 5000).unref();
-
-    this.processes.delete(jobId);
   }
 
   async getStatus(jobId: string): Promise<ExecutionJobStatus | null> {
-    const child = this.processes.get(jobId);
-    if (!child) return null;
+    const entry = this.processes.get(jobId);
+    if (!entry) return null;
 
     return {
       jobId,
-      externalJobId: String(child.pid ?? ''),
-      state: child.exitCode !== null ? 'exited' : 'running',
-      exitCode: child.exitCode ?? undefined,
+      externalJobId: String(entry.child.pid ?? ''),
+      state: entry.child.exitCode !== null ? 'exited' : 'running',
+      exitCode: entry.child.exitCode ?? undefined,
     };
   }
 }

@@ -84,7 +84,11 @@ export class AstroEventTransport extends EventEmitter {
           err.cause = error
         }
         console.error(err)
-        this.emit('error', err as Error)
+        // Only emit 'error' if there are listeners; unhandled 'error' events
+        // throw in Node.js EventEmitter, which would break error isolation.
+        if (this.listenerCount('error') > 0) {
+          this.emit('error', err as Error)
+        }
       }
     }
   }

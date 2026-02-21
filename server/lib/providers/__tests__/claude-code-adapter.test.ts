@@ -33,10 +33,17 @@ vi.mock('../../repo-context.js', () => ({
   readRepoContext: vi.fn().mockReturnValue(undefined),
 }))
 vi.mock('../cache-utils.js', () => ({
-  buildCachedSystemPrompt: vi.fn().mockReturnValue([]),
+  buildAppendContent: vi.fn().mockReturnValue(undefined),
   calculateCacheStats: vi.fn().mockReturnValue({ totalInputTokens: 0, cacheHitRate: 0, estimatedSavings: 0 }),
-  extractSourceRepoPath: vi.fn().mockImplementation((dir: string) => Promise.resolve(dir)),
 }))
+vi.mock('../session-logger.js', () => {
+  return {
+    SessionLogger: class {
+      log = vi.fn()
+      finalize = vi.fn().mockResolvedValue(undefined)
+    },
+  }
+})
 
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeCodeProvider } from '../../providers/adapters/claude-code.js'
