@@ -22,10 +22,14 @@ import {
   Github,
   MessageSquare,
   Send,
+  Eye,
+  EyeOff,
+  Lock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useGitHubStore } from "@/stores/github-store"
+import { useApiKeysStore } from "@/stores/api-keys-store"
 import { clearAllData } from "@/lib/db"
 import { getSupabase } from "@/lib/supabase-client"
 import { isServerMode } from "@/lib/app-mode"
@@ -33,6 +37,14 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
 import { PluginSettingsContent } from "@/components/plugin-settings"
 import { SkillSettingsContent } from "@/components/skill-settings"
@@ -361,12 +373,38 @@ function ProfileContent() {
     removeApiKey,
   } = useUserProfileStore()
 
+  const {
+    encryptedKeys,
+    loaded: keysLoaded,
+    loading: keysLoading,
+    load: loadKeys,
+    addKey: addEncryptedKey,
+    removeKey: removeEncryptedKey,
+    getDecryptedKey,
+  } = useApiKeysStore()
+
   const [newKeyProvider, setNewKeyProvider] = useState("")
   const [newKeyName, setNewKeyName] = useState("")
   const [newKeyValue, setNewKeyValue] = useState("")
   const [showAddKey, setShowAddKey] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeletingAccount, setIsDeletingAccount] = useState(false)
+
+  // Encrypted API keys state
+  const [showAddEncryptedKey, setShowAddEncryptedKey] = useState(false)
+  const [newService, setNewService] = useState("")
+  const [newApiKey, setNewApiKey] = useState("")
+  const [addingKey, setAddingKey] = useState(false)
+  const [removingKey, setRemovingKey] = useState<string | null>(null)
+  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set())
+  const [decryptedKeyValues, setDecryptedKeyValues] = useState<Map<string, string>>(new Map())
+
+  // Load encrypted keys on mount
+  useEffect(() => {
+    if (isServerMode() && !keysLoaded && !keysLoading) {
+      loadKeys()
+    }
+  }, [keysLoaded, keysLoading, loadKeys])
 
   const handleAddApiKey = () => {
     if (newKeyProvider && newKeyName && newKeyValue) {
@@ -380,6 +418,76 @@ function ProfileContent() {
       setNewKeyName("")
       setNewKeyValue("")
       setShowAddKey(false)
+    }
+  }
+
+  const handleAddEncryptedKey = async () => {
+    if (!newService || !newApiKey) return
+
+    setAddingKey(true)
+    try {
+      await addEncryptedKey(newService, newApiKey)
+      setNewService("")
+      setNewApiKey("")
+      setShowAddEncryptedKey(false)
+    } catch (error) {
+      console.error("[settings] Failed to add encrypted key:", error)
+      alert(`Failed to add API key: ${error instanceof Error ? error.message : "Unknown error"}`)
+    } finally {
+      setAddingKey(false)
+    }
+  }
+
+  const handleRemoveEncryptedKey = async (serviceName: string) => {
+    setRemovingKey(serviceName)
+    try {
+      await removeEncryptedKey(serviceName)
+      // Remove from revealed keys
+      setRevealedKeys((prev) => {
+        const next = new Set(prev)
+        next.delete(serviceName)
+        return next
+      })
+      // Remove from decrypted cache
+      setDecryptedKeyValues((prev) => {
+        const next = new Map(prev)
+        next.delete(serviceName)
+        return next
+      })
+    } catch (error) {
+      console.error("[settings] Failed to remove encrypted key:", error)
+      alert(`Failed to remove API key: ${error instanceof Error ? error.message : "Unknown error"}`)
+    } finally {
+      setRemovingKey(null)
+    }
+  }
+
+  const toggleRevealKey = async (serviceName: string) => {
+    const isRevealed = revealedKeys.has(serviceName)
+
+    if (isRevealed) {
+      // Hide key
+      setRevealedKeys((prev) => {
+        const next = new Set(prev)
+        next.delete(serviceName)
+        return next
+      })
+    } else {
+      // Decrypt and reveal key
+      if (!decryptedKeyValues.has(serviceName)) {
+        try {
+          const plainKey = await getDecryptedKey(serviceName)
+          if (plainKey) {
+            setDecryptedKeyValues((prev) => new Map(prev).set(serviceName, plainKey))
+          }
+        } catch (error) {
+          console.error("[settings] Failed to decrypt key:", error)
+          alert("Failed to decrypt API key")
+          return
+        }
+      }
+
+      setRevealedKeys((prev) => new Set(prev).add(serviceName))
     }
   }
 
@@ -613,103 +721,167 @@ function ProfileContent() {
         </div>
       </section>
 
-      {/* API Keys */}
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">API Keys</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowAddKey(!showAddKey)}
-          >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Add Key
-          </Button>
-        </div>
-        <p className="text-[13px] text-muted-foreground">
-          Manage API keys for agent providers. Keys are stored securely and masked for display.
-        </p>
+      {/* Encrypted API Keys (Server Mode Only) */}
+      {isServerMode() && (
+        <section className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold">API Keys</h2>
+              <Badge variant="secondary" className="gap-1 text-[10px]">
+                <Lock className="h-2.5 w-2.5" />
+                Encrypted
+              </Badge>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAddEncryptedKey(true)}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Add Key
+            </Button>
+          </div>
+          <p className="text-[13px] text-muted-foreground">
+            Manage API keys for external services (OpenAI Whisper, etc.). Keys are encrypted
+            client-side before storage using Web Crypto API.
+          </p>
 
-        {showAddKey && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm">Provider</label>
-                  <Input
-                    value={newKeyProvider}
-                    onChange={(e) => setNewKeyProvider(e.target.value)}
-                    placeholder="e.g., OpenAI, Anthropic"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm">Name</label>
-                  <Input
-                    value={newKeyName}
-                    onChange={(e) => setNewKeyName(e.target.value)}
-                    placeholder="e.g., Production Key"
-                  />
-                </div>
+          <div className="rounded-xl border border-border bg-card">
+            {keysLoading ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Loader2 className="mb-2 h-5 w-5 animate-spin" />
+                <span className="text-sm">Loading API keys...</span>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm">API Key</label>
-                <Input
-                  type="password"
-                  value={newKeyValue}
-                  onChange={(e) => setNewKeyValue(e.target.value)}
-                  placeholder="sk-..."
-                />
+            ) : encryptedKeys.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Key className="mb-2 h-8 w-8" />
+                <span className="text-sm">No API keys configured</span>
               </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => setShowAddKey(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleAddApiKey}
-                  disabled={!newKeyProvider || !newKeyName || !newKeyValue}
-                >
-                  Add Key
-                </Button>
-              </div>
+            ) : (
+              encryptedKeys.map((key, idx) => {
+                const isRevealed = revealedKeys.has(key.serviceName)
+                const decryptedValue = decryptedKeyValues.get(key.serviceName)
+                const displayValue = isRevealed && decryptedValue
+                  ? decryptedValue
+                  : "••••••••••••••••"
+
+                return (
+                  <div
+                    key={key.id}
+                    className={cn(
+                      "flex items-center justify-between px-4 py-3",
+                      idx !== encryptedKeys.length - 1 && "border-b border-border"
+                    )}
+                  >
+                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                      <span className="text-sm font-medium">{key.serviceName}</span>
+                      <div className="flex items-center gap-2">
+                        <code className="text-[12px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                          {displayValue}
+                        </code>
+                        <button
+                          onClick={() => toggleRevealKey(key.serviceName)}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          title={isRevealed ? "Hide key" : "Reveal key"}
+                        >
+                          {isRevealed ? (
+                            <EyeOff className="h-3.5 w-3.5" />
+                          ) : (
+                            <Eye className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground">
+                        Added {key.createdAt.toLocaleDateString()}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveEncryptedKey(key.serviceName)}
+                      disabled={removingKey === key.serviceName}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      {removingKey === key.serviceName ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Add Encrypted API Key Dialog */}
+      <Dialog open={showAddEncryptedKey} onOpenChange={setShowAddEncryptedKey}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add API Key</DialogTitle>
+            <DialogDescription>
+              Add an encrypted API key for an external service. Your key will be encrypted
+              client-side before being stored.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Service Name</label>
+              <Input
+                value={newService}
+                onChange={(e) => setNewService(e.target.value)}
+                placeholder="e.g., openai-whisper, anthropic"
+              />
+              <p className="text-xs text-muted-foreground">
+                Use a unique identifier for the service (e.g., openai-whisper, openai-gpt4)
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">API Key</label>
+              <Input
+                type="password"
+                value={newApiKey}
+                onChange={(e) => setNewApiKey(e.target.value)}
+                placeholder="sk-..."
+              />
+              <p className="text-xs text-muted-foreground">
+                Your key will be encrypted using AES-GCM before storage
+              </p>
             </div>
           </div>
-        )}
-
-        <div className="rounded-xl border border-border bg-card">
-          {profile.apiKeys.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-              <Key className="mb-2 h-8 w-8" />
-              <span className="text-sm">No API keys configured</span>
-            </div>
-          ) : (
-            profile.apiKeys.map((key, idx) => (
-              <div
-                key={key.id}
-                className={cn(
-                  "flex items-center justify-between px-4 py-3",
-                  idx !== profile.apiKeys.length - 1 && "border-b border-border"
-                )}
-              >
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium">{key.name}</span>
-                  <span className="text-[13px] text-muted-foreground">
-                    {key.provider} &middot; {key.maskedKey}
-                  </span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeApiKey(key.id)}
-                  className="text-destructive hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowAddEncryptedKey(false)
+                setNewService("")
+                setNewApiKey("")
+              }}
+              disabled={addingKey}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddEncryptedKey}
+              disabled={!newService || !newApiKey || addingKey}
+            >
+              {addingKey ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <Lock className="mr-2 h-4 w-4" />
+                  Add Key
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Account Actions */}
       <section className="flex flex-col gap-3">
