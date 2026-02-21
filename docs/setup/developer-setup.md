@@ -480,7 +480,7 @@ npm run deploy:frontend  # Cloudflare Pages only
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `VITE_API_BASE_URL` | `https://astro-backend.fly.dev` | SSE goes direct to Fly.io (bypasses Cloudflare) |
+| `VITE_API_BASE_URL` | `https://astro-backend-platform.fly.dev` | SSE goes direct to Fly.io (bypasses Cloudflare) |
 | `WEBAUTHN_RP_ID` | `astro.yourdomain.com` | Passkey domain binding |
 | `WEBAUTHN_ORIGIN` | `https://astro.yourdomain.com` | WebAuthn origin check |
 | `SUPABASE_URL` | `https://xxx.supabase.co` | Backend Supabase access |

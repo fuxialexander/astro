@@ -42,27 +42,9 @@ Referenced in `docs/design/README.md`, `ARCHITECTURE.md`, and `RELAY.md` but nev
 
 ### 6. Production Domain References
 
-Inconsistent across docs: `astro.fuxialexander.work` (dev tunnel), `astroanywhere.com` (prod), `astro-backend-platform.fly.dev` (Fly default).
+Inconsistent across docs: `astro.fuxialexander.work` (dev tunnel), `astroanywhere.com` (prod), `astro-backend-platform.fly.dev` (Fly default). Dev tunnel URLs are used in examples that should be generic.
 
-**Resolution needed:** Standardize dev vs. prod URL references.
-
-### 7. Dead References in Approval Quickstart
-
-`docs/testing/approval-quickstart.md` references three non-existent docs: `DYNAMIC_APPROVAL_UI.md`, `docs/APPROVAL_FLOW.md`, `APPROVAL_RELAY_IMPLEMENTATION.md`.
-
-**Resolution needed:** Remove dead references.
-
-### 8. Approval Testing 4-Way Redundancy
-
-Same content in `docs/features/approval-system.md`, `docs/testing/approval-testing.md`, `scripts/TESTING_APPROVAL.md`, and `docs/testing/testing.md`.
-
-**Resolution needed:** Consolidate into `scripts/TESTING_APPROVAL.md`; other docs should link to it.
-
-### 9. MCP Docs Redundancy
-
-`docs/mcp/tools-reference.md` and `docs/mcp/tools-implementation.md` overlap substantially.
-
-**Resolution needed:** Deprecate `tools-implementation.md`.
+**Resolution needed:** Clearly distinguish dev vs. prod URL references. Consider using placeholder domains in examples.
 
 ---
 
@@ -71,5 +53,5 @@ Same content in `docs/features/approval-system.md`, `docs/testing/approval-testi
 | Category | Count |
 |----------|-------|
 | Design doc issues | 5 |
-| Other open issues | 4 |
-| **Total open** | **9** |
+| Other open issues | 1 |
+| **Total open** | **6** |

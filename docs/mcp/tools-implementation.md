@@ -1,5 +1,7 @@
 # MCP Tools Implementation Summary
 
+> **Deprecated:** This document is a historical implementation changelog. For the current MCP tools reference, see [tools-reference.md](./tools-reference.md).
+
 ## Overview
 
 Implemented comprehensive MCP (Model Context Protocol) tools to expose the Astro API to agents running during task execution. This enables agents to be **self-directed** and autonomously manage the planning layer, projects, and initiatives during execution.

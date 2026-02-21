@@ -116,9 +116,8 @@ Response:
 
 ## Documentation
 
-- **DYNAMIC_APPROVAL_UI.md** - Complete UI implementation details
-- **docs/APPROVAL_FLOW.md** - Full architecture documentation
-- **APPROVAL_RELAY_IMPLEMENTATION.md** - Server implementation summary
+- `docs/features/approval-system.md` - Complete architecture
+- `scripts/TESTING_APPROVAL.md` - Testing guide
 
 ## Common Issues
 
