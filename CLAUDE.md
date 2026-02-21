@@ -26,6 +26,7 @@ npm run dev:indexeddb    # IndexedDB-only mode (no Supabase, no auth)
 npm run dev:supabase     # Supabase mode (setup + start)
 npm run build            # TypeScript check + Vite production build
 npm run lint             # ESLint
+npm test                 # Vitest (29 test files, integration tests auto-skip without server/API key)
 npm run deploy           # Build + deploy to Cloudflare Pages
 ```
 
@@ -231,10 +232,8 @@ server/
 │   │   └── parser.ts             # Parses SLURM output
 │   └── mcp/                      # MCP server integration
 │       └── astro-tools-server.ts # Custom MCP server (ask_user_question tool)
-├── types/
-│   └── relay.ts                  # WebSocket protocol types for relay communication
-└── test/
-    └── relay-server.test.ts      # Integration tests for relay server
+└── types/
+    └── relay.ts                  # WebSocket protocol types for relay communication
 
 packages/
 └── agent-runner/                 # Compiled agent runner distribution
@@ -392,11 +391,11 @@ Messages use JSON with a `type` field. Key message types:
 
 ### Testing
 ```bash
-# Start server
-npm run dev:backend
+# Relay integration tests are in tests/relay-server-integration.test.ts (vitest, auto-skips without running server)
+npm test
 
-# Run integration tests
-npx tsx server/test/relay-server.test.ts
+# For manual relay testing, start server first
+npm run dev:backend
 ```
 
 ## Deployment & Infrastructure
