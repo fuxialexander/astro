@@ -13,6 +13,7 @@ export const projects = pgTable('projects', {
   lead: text('lead'),
   health: text('health'), // 'on_track' | 'at_risk' | 'off_track'
   initiativeId: uuid('initiative_id'),
+  teamId: uuid('team_id'),
   progress: integer('progress').default(0),
   labels: jsonb('labels').$type<{ id: string; name: string; color: string }[]>().notNull().default([]),
   color: text('color').default('#3b82f6'),
@@ -43,6 +44,25 @@ export const initiatives = pgTable('initiatives', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
+
+// ── Teams ─────────────────────────────────────────────────────────────
+export const teams = pgTable('teams', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// ── Team Members ──────────────────────────────────────────────────────
+export const teamMembers = pgTable('team_members', {
+  teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull(),
+  role: text('role').notNull().default('member'), // 'owner' | 'admin' | 'member'
+  joinedAt: timestamp('joined_at').notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.teamId, table.userId] }),
+}))
 
 // ── Plan Nodes ────────────────────────────────────────────────────────
 export const planNodes = pgTable('plan_nodes', {
