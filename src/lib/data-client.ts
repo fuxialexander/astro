@@ -133,7 +133,7 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
     bio: (r.bio as string) ?? "",
     domains: (r.domains as UserProfile["domains"]) ?? [],
     experienceLevel: (r.experienceLevel ?? "intermediate") as UserProfile["experienceLevel"],
-    preferredEnvironments: (r.preferredEnvironments ?? ["local"]) as UserProfile["preferredEnvironments"],
+    preferredMachines: (r.preferredMachines ?? []) as UserProfile["preferredMachines"],
     notificationsEnabled: (r.notificationsEnabled ?? true) as boolean,
     emailNotifications: (r.emailNotifications ?? false) as boolean,
     apiKeys: ((r.apiKeys as Record<string, unknown>[]) ?? []).map(mapApiKey),

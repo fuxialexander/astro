@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { clearAllData } from "@/lib/db"
@@ -56,7 +57,7 @@ import { PluginSettingsContent } from "@/components/plugin-settings"
 import { SkillSettingsContent } from "@/components/skill-settings"
 import { ChannelAccountCard } from "@/components/channel-account-card"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
-import type { DomainExpertise, ExperienceLevel, PreferredEnvironment } from "@/types"
+import type { DomainExpertise, ExperienceLevel } from "@/types"
 
 const models = [
   { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
@@ -84,11 +85,7 @@ const experienceLevelOptions: { value: ExperienceLevel; label: string; descripti
   { value: "expert", label: "Expert", description: "Deep expertise, can lead complex projects" },
 ]
 
-const environmentOptions: { value: PreferredEnvironment; label: string; description: string }[] = [
-  { value: "local", label: "Local Machine", description: "Run tasks on your development machine" },
-  { value: "hpc", label: "HPC Cluster", description: "High-performance computing with Slurm" },
-  { value: "cloud", label: "Cloud (AWS/GCP)", description: "Scalable cloud compute resources" },
-]
+// Removed: environmentOptions - replaced with dynamic machine list from useMachinesStore
 
 type SettingsTab =
   | "preferences"
@@ -378,7 +375,7 @@ function ProfileContent() {
     setBio,
     toggleDomain,
     setExperienceLevel,
-    togglePreferredEnvironment,
+    togglePreferredMachine,
     setNotificationsEnabled,
     setEmailNotifications,
     setDefaultMachineId,
@@ -396,6 +393,8 @@ function ProfileContent() {
     removeKey: removeEncryptedKey,
     getDecryptedKey,
   } = useApiKeysStore()
+
+  const { machines } = useMachinesStore()
 
   const [newKeyProvider, setNewKeyProvider] = useState("")
   const [newKeyName, setNewKeyName] = useState("")
@@ -420,8 +419,8 @@ function ProfileContent() {
     }
   }, [keysLoaded, keysLoading, loadKeys])
 
-  // Load machines and providers for default selection
-  const machines = useExecutionStore((s) => s.machines)
+  // Load execution machines and providers for default selection
+  const execMachines = useExecutionStore((s) => s.machines)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const providers = useExecutionStore((s) => s.providers)
@@ -433,7 +432,7 @@ function ProfileContent() {
     if (!providersLoaded) loadProviders()
   }, [machinesLoaded, loadMachines, providersLoaded, loadProviders])
 
-  const onlineMachines = machines.filter((m) => m.status !== 'offline')
+  const onlineMachines = execMachines.filter((m) => m.status !== 'offline')
   const availableProviders = providers.filter((p) => p.available)
 
   const handleAddApiKey = () => {
@@ -695,34 +694,63 @@ function ProfileContent() {
         </div>
       </section>
 
-      {/* Preferred Environments */}
+      {/* Preferred Machines */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Preferred Environments</h2>
+        <h2 className="text-sm font-semibold">Preferred Machines</h2>
         <p className="text-[13px] text-muted-foreground">
-          Select your default environments for task dispatch.
+          Select your preferred machines for task dispatch. Tasks will prioritize these machines when available.
         </p>
-        <div className="rounded-xl border border-border bg-card">
-          {environmentOptions.map((option, idx) => (
-            <label
-              key={option.value}
-              className={cn(
-                "flex cursor-pointer items-center gap-3 px-4 py-3",
-                idx !== environmentOptions.length - 1 && "border-b border-border"
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={profile.preferredEnvironments.includes(option.value)}
-                onChange={() => togglePreferredEnvironment(option.value)}
-                className="h-4 w-4 rounded accent-primary"
-              />
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm">{option.label}</span>
-                <span className="text-[13px] text-muted-foreground">{option.description}</span>
-              </div>
-            </label>
-          ))}
-        </div>
+        {machines.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card px-4 py-6 text-center">
+            <p className="text-sm text-muted-foreground">No registered machines found.</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              Register machines from the{" "}
+              <Link to="/environments" className="text-primary hover:underline">
+                Environments
+              </Link>{" "}
+              page to set preferences.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border bg-card">
+            {machines.map((machine, idx) => (
+              <label
+                key={machine.id}
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 px-4 py-3",
+                  idx !== machines.length - 1 && "border-b border-border",
+                  machine.isRevoked && "opacity-50"
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={profile.preferredMachines.includes(machine.id)}
+                  onChange={() => togglePreferredMachine(machine.id)}
+                  disabled={machine.isRevoked}
+                  className="h-4 w-4 rounded accent-primary disabled:cursor-not-allowed"
+                />
+                <div className="flex flex-1 flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{machine.name}</span>
+                    {machine.isConnected && (
+                      <Badge variant="outline" className="h-5 text-[10px] uppercase">
+                        Online
+                      </Badge>
+                    )}
+                    {machine.isRevoked && (
+                      <Badge variant="outline" className="h-5 text-[10px] uppercase text-muted-foreground">
+                        Revoked
+                      </Badge>
+                    )}
+                  </div>
+                  <span className="text-[13px] text-muted-foreground">
+                    {machine.hostname} • {machine.environmentType} • {machine.platform}
+                  </span>
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Default Execution Settings */}

@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
-import type { UserProfile, DomainExpertise, ExperienceLevel, PreferredEnvironment, ApiKey } from "@/types"
+import type { UserProfile, DomainExpertise, ExperienceLevel, ApiKey } from "@/types"
 
 interface UserProfileState {
   profile: UserProfile
@@ -15,8 +15,8 @@ interface UserProfileState {
   setDomains: (domains: DomainExpertise[]) => void
   toggleDomain: (domain: DomainExpertise) => void
   setExperienceLevel: (level: ExperienceLevel) => void
-  setPreferredEnvironments: (environments: PreferredEnvironment[]) => void
-  togglePreferredEnvironment: (environment: PreferredEnvironment) => void
+  setPreferredMachines: (machines: string[]) => void
+  togglePreferredMachine: (machineId: string) => void
   setNotificationsEnabled: (enabled: boolean) => void
   setEmailNotifications: (enabled: boolean) => void
   setDefaultMachineId: (machineId: string | undefined) => void
@@ -33,7 +33,7 @@ const defaultProfile: UserProfile = {
   bio: "",
   domains: [],
   experienceLevel: "intermediate",
-  preferredEnvironments: ["local"],
+  preferredMachines: [],
   notificationsEnabled: true,
   emailNotifications: false,
   apiKeys: [],
@@ -111,14 +111,14 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
 
   setExperienceLevel: (experienceLevel) => get().updateProfile({ experienceLevel }),
 
-  setPreferredEnvironments: (preferredEnvironments) => get().updateProfile({ preferredEnvironments }),
+  setPreferredMachines: (preferredMachines) => get().updateProfile({ preferredMachines }),
 
-  togglePreferredEnvironment: (environment) => {
-    const current = get().profile.preferredEnvironments
-    const updated = current.includes(environment)
-      ? current.filter((e) => e !== environment)
-      : [...current, environment]
-    get().updateProfile({ preferredEnvironments: updated })
+  togglePreferredMachine: (machineId) => {
+    const current = get().profile.preferredMachines
+    const updated = current.includes(machineId)
+      ? current.filter((id) => id !== machineId)
+      : [...current, machineId]
+    get().updateProfile({ preferredMachines: updated })
   },
 
   setNotificationsEnabled: (notificationsEnabled) => get().updateProfile({ notificationsEnabled }),
