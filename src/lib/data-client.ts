@@ -1,4 +1,4 @@
-import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, TaskExecution } from "@/types"
+import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, TaskExecution, Team, TeamMember } from "@/types"
 import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
@@ -497,5 +497,65 @@ export const dataClient = {
 
   async clearProjectActivities(projectId: string): Promise<void> {
     await del(`${BASE}/activities/${projectId}`)
+  },
+
+  // ── Teams ───────────────────────────────────────────────────────────
+  async listTeams(): Promise<{ teams: Team[]; teamMembers: Record<string, TeamMember[]> }> {
+    const data = await json<{ teams: Record<string, unknown>[]; teamMembers: Record<string, Record<string, unknown>[]> }>(`${BASE}/teams`)
+    const teams = data.teams.map(row => {
+      const r = snakeToCamel(row)
+      return {
+        ...r,
+        createdAt: toDate(r.createdAt),
+        updatedAt: toDate(r.updatedAt),
+      } as Team
+    })
+    const teamMembers: Record<string, TeamMember[]> = {}
+    for (const [teamId, members] of Object.entries(data.teamMembers)) {
+      teamMembers[teamId] = members.map(m => {
+        const r = snakeToCamel(m)
+        return {
+          ...r,
+          joinedAt: toDate(r.joinedAt),
+        } as TeamMember
+      })
+    }
+    return { teams, teamMembers }
+  },
+
+  async createTeam(team: Team): Promise<Team> {
+    const row = await post(`${BASE}/teams`, team) as Record<string, unknown>
+    const r = snakeToCamel(row)
+    return {
+      ...r,
+      createdAt: toDate(r.createdAt),
+      updatedAt: toDate(r.updatedAt),
+    } as Team
+  },
+
+  async updateTeam(id: string, updates: Partial<Team>): Promise<Team> {
+    const row = await patch(`${BASE}/teams/${id}`, updates) as Record<string, unknown>
+    const r = snakeToCamel(row)
+    return {
+      ...r,
+      createdAt: toDate(r.createdAt),
+      updatedAt: toDate(r.updatedAt),
+    } as Team
+  },
+
+  async deleteTeam(id: string): Promise<void> {
+    await del(`${BASE}/teams/${id}`)
+  },
+
+  async addTeamMember(teamId: string, userId: string, role: TeamMember['role']): Promise<void> {
+    await post(`${BASE}/teams/${teamId}/members`, { userId, role })
+  },
+
+  async removeTeamMember(teamId: string, userId: string): Promise<void> {
+    await del(`${BASE}/teams/${teamId}/members/${userId}`)
+  },
+
+  async updateTeamMemberRole(teamId: string, userId: string, role: TeamMember['role']): Promise<void> {
+    await patch(`${BASE}/teams/${teamId}/members/${userId}`, { role })
   },
 }

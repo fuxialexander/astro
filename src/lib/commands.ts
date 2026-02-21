@@ -106,6 +106,14 @@ export const actionCommands: CommandDefinition[] = [
     shortcut: "⌘N",
   },
   {
+    id: "action-new-team-project",
+    label: "Create Team Project",
+    description: "Create a project for a team to collaborate on",
+    icon: Users,
+    category: "actions",
+    keywords: ["create", "new", "team", "project", "collaborate", "share"],
+  },
+  {
     id: "action-new-task",
     label: "Add Task to Project...",
     description: "Select a project to add a task",

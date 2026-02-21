@@ -77,6 +77,21 @@ export interface Initiative {
   updatedAt: Date;
 }
 
+export interface Team {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TeamMember {
+  teamId: string;
+  userId: string;
+  role: 'owner' | 'admin' | 'member';
+  joinedAt: Date;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -88,6 +103,7 @@ export interface Project {
   lead?: string;
   health?: 'on_track' | 'at_risk' | 'off_track';
   initiativeId?: string;
+  teamId?: string;        // Team that owns this project (for team projects)
   progress?: number;      // 0-100
   labels?: Label[];
   color?: string;         // hex color for visual grouping

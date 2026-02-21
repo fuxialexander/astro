@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react"
-import { useNavigate } from "react-router"
+import { useNavigate, useSearchParams } from "react-router"
 import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search, ListTodo, GitBranch, ArrowLeft, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
@@ -18,6 +18,7 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
+import { useTeamStore } from "@/stores/team-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { GitInitDialog } from "@/components/git-init-dialog"
@@ -37,6 +38,9 @@ type EnvironmentType = keyof typeof environmentConfig
 type CreateMode = "choose" | "empty" | "repo"
 
 export function ProjectNew() {
+  const [searchParams] = useSearchParams()
+  const teamIdParam = searchParams.get('teamId')
+
   const [mode, setMode] = useState<CreateMode>("choose")
   const [description, setDescription] = useState("")
   const [firstTask, setFirstTask] = useState("")
@@ -50,6 +54,7 @@ export function ProjectNew() {
   const [searchQuery, setSearchQuery] = useState("")
   const navigate = useNavigate()
   const addProject = useProjectStore((s) => s.addProject)
+  const teams = useTeamStore((s) => s.teams)
   const addNode = usePlanStore((s) => s.addNode)
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -146,6 +151,7 @@ export function ProjectNew() {
       description: description.trim(),
       visionDoc: "",
       status: "active",
+      teamId: teamIdParam || undefined,
       color: getRandomColor(),
       icon: getRandomProjectIcon(),
       workingDirectory: workingDir.trim() || undefined,
@@ -240,6 +246,7 @@ export function ProjectNew() {
         description: description.trim(),
         visionDoc: "",
         status: "active",
+        teamId: teamIdParam || undefined,
         color: getRandomColor(),
         icon: getRandomProjectIcon(),
         workingDirectory: repoResult?.workingDirectory || workingDir.trim() || undefined,
@@ -287,6 +294,7 @@ export function ProjectNew() {
         description: description.trim(),
         visionDoc: "",
         status: "active",
+        teamId: teamIdParam || undefined,
         color: getRandomColor(),
         icon: getRandomProjectIcon(),
         workingDirectory: repoResult?.workingDirectory || workingDir.trim() || undefined,
@@ -518,9 +526,20 @@ export function ProjectNew() {
     </div>
   ) : null
 
+  // Get team name if creating team project
+  const selectedTeam = teamIdParam ? teams.find(t => t.id === teamIdParam) : null
+
   return (
     <div className="flex h-full items-center justify-center bg-background">
       <div className="flex w-[640px] flex-col items-center gap-8">
+        {/* Team indicator */}
+        {selectedTeam && (
+          <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2">
+            <Users className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-primary">Team: {selectedTeam.name}</span>
+          </div>
+        )}
+
         {/* Icon */}
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary">
           {mode === "choose" ? (
