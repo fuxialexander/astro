@@ -696,7 +696,7 @@ agentRoute.post('/chat', async (c) => {
         prompt: chatPrompt,
         systemPrompt,
         model: resolveModelForProvider(provider, model),
-        maxTurns: chatSessionId ? 50 : 1, // 50 turns for plan chat (explore repo, refine plans)
+        maxTurns: 50, // Plan chat is always multi-turn (explore repo, refine plans)
         context: {
           projectId,
           visionDoc,
@@ -845,7 +845,7 @@ agentRoute.post('/task-chat', async (c) => {
         prompt: chatPrompt,
         systemPrompt,
         model: resolveModelForProvider(provider, model),
-        maxTurns: chatSessionId ? 50 : 1, // 50 turns for task chat (explore context, steer agent)
+        maxTurns: 50, // Task chat is always multi-turn (explore context, steer agent)
         context: {
           projectId,
           nodeId,
