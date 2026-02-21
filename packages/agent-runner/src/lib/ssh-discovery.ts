@@ -13,10 +13,13 @@ import type { SSHHost, DiscoveredHost } from '../types.js';
 async function parseSSHConfig(): Promise<SSHHost[]> {
   const sshConfigPath = join(homedir(), '.ssh', 'config');
 
+  console.log(`[ssh-discovery] Parsing SSH config from: ${sshConfigPath}`);
+
   try {
     const content = await readFile(sshConfigPath, 'utf-8');
     const hosts: SSHHost[] = [];
     let currentHost: SSHHost | null = null;
+    let skippedCount = 0;
 
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
@@ -37,6 +40,7 @@ async function parseSSHConfig(): Promise<SSHHost[]> {
         // Save previous host if exists
         if (currentHost) {
           hosts.push(currentHost);
+          console.log(`[ssh-discovery] ✓ Added host: ${currentHost.name} (${currentHost.hostname})`);
         }
 
         const hostPattern = value?.trim() ?? '';
@@ -47,6 +51,8 @@ async function parseSSHConfig(): Promise<SSHHost[]> {
           hostPattern === 'localhost' ||
           hostPattern === '127.0.0.1'
         ) {
+          console.log(`[ssh-discovery] ⊗ Skipped pattern/localhost: ${hostPattern}`);
+          skippedCount++;
           currentHost = null;
           continue;
         }
@@ -79,14 +85,18 @@ async function parseSSHConfig(): Promise<SSHHost[]> {
     // Don't forget the last host
     if (currentHost) {
       hosts.push(currentHost);
+      console.log(`[ssh-discovery] ✓ Added host: ${currentHost.name} (${currentHost.hostname})`);
     }
 
+    console.log(`[ssh-discovery] Parsed ${hosts.length} valid hosts (skipped ${skippedCount} wildcards/localhost)`);
     return hosts;
   } catch (error) {
     // SSH config doesn't exist or can't be read
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      console.log(`[ssh-discovery] No SSH config file found at ${sshConfigPath}`);
       return [];
     }
+    console.error(`[ssh-discovery] Error reading SSH config:`, error);
     throw error;
   }
 }
@@ -218,10 +228,13 @@ async function parseKnownHosts(): Promise<string[]> {
  * Discover all remote hosts from various sources
  */
 export async function discoverRemoteHosts(): Promise<DiscoveredHost[]> {
+  console.log('[ssh-discovery] Starting remote host discovery...');
+
   const discovered: DiscoveredHost[] = [];
   const seenHosts = new Set<string>();
 
   // Parse SSH config (highest priority)
+  console.log('[ssh-discovery] 1/3 Checking SSH config (~/.ssh/config)...');
   const sshHosts = await parseSSHConfig();
   for (const host of sshHosts) {
     seenHosts.add(host.name);
@@ -230,8 +243,10 @@ export async function discoverRemoteHosts(): Promise<DiscoveredHost[]> {
       source: 'ssh-config',
     });
   }
+  console.log(`[ssh-discovery] Found ${sshHosts.length} hosts from SSH config`);
 
   // Discover VS Code tunnels
+  console.log('[ssh-discovery] 2/3 Checking VS Code Remote SSH...');
   const vscodeTunnels = await discoverVSCodeTunnels();
   for (const host of vscodeTunnels) {
     if (!seenHosts.has(host.name)) {
@@ -242,9 +257,12 @@ export async function discoverRemoteHosts(): Promise<DiscoveredHost[]> {
       });
     }
   }
+  console.log(`[ssh-discovery] Found ${vscodeTunnels.length} unique VS Code hosts`);
 
   // Parse known_hosts (lowest priority - just suggests hostnames)
+  console.log('[ssh-discovery] 3/3 Checking known_hosts...');
   const knownHostnames = await parseKnownHosts();
+  let knownHostsAdded = 0;
   for (const hostname of knownHostnames) {
     if (!seenHosts.has(hostname)) {
       seenHosts.add(hostname);
@@ -253,9 +271,12 @@ export async function discoverRemoteHosts(): Promise<DiscoveredHost[]> {
         hostname,
         source: 'known-hosts',
       });
+      knownHostsAdded++;
     }
   }
+  console.log(`[ssh-discovery] Found ${knownHostsAdded} unique hosts from known_hosts`);
 
+  console.log(`[ssh-discovery] Discovery complete: ${discovered.length} total unique hosts`);
   return discovered;
 }
 
