@@ -2,6 +2,7 @@ import { Outlet } from "react-router"
 import { Sidebar } from "./sidebar"
 import { DynamicApprovalDialog } from "@/components/dynamic-approval-dialog"
 import { WelcomeProfileDialog } from "@/components/welcome-profile-dialog"
+import { ToastContainer } from "@/components/toast-container"
 
 export function AppLayout() {
   return (
@@ -12,6 +13,7 @@ export function AppLayout() {
       </main>
       <DynamicApprovalDialog />
       <WelcomeProfileDialog />
+      <ToastContainer />
     </div>
   )
 }
