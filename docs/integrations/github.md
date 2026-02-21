@@ -19,7 +19,7 @@ This guide explains how to set up GitHub OAuth integration in Astro to allow use
 3. Fill in the application details:
    - **Application name**: `Astro` (or your preferred name)
    - **Homepage URL**: `http://localhost:5173` (dev) or your production URL
-   - **Authorization callback URL**: `http://localhost:5173/settings/github/callback`
+   - **Authorization callback URL**: `http://localhost:3001/api/github/callback`
 4. Click **"Register application"**
 5. Copy the **Client ID**
 6. Click **"Generate a new client secret"** and copy the **Client Secret**
@@ -34,7 +34,7 @@ Add the following to your `.env` file:
 # GitHub OAuth Configuration
 GITHUB_CLIENT_ID=your_github_oauth_client_id_here
 GITHUB_CLIENT_SECRET=your_github_oauth_client_secret_here
-GITHUB_REDIRECT_URI=http://localhost:5173/settings/github/callback
+GITHUB_REDIRECT_URI=http://localhost:3001/api/github/callback
 ```
 
 For production deployments, update the redirect URI:

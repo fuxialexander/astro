@@ -104,7 +104,7 @@ npm run dev
 | **Domain** | Custom domain (optional) | ~$10/yr | Via any registrar |
 
 **You do NOT need to register a domain to test.** Both Fly.io and Cloudflare Pages give you free subdomains:
-- Fly.io: `astro-backend.fly.dev`
+- Fly.io: `astro-backend-platform.fly.dev`
 - Cloudflare Pages: `astro-app.pages.dev`
 
 ### Step-by-Step Deployment
@@ -133,9 +133,9 @@ npm run dev
 1. Sign up at https://fly.io
 2. Install flyctl: `brew install flyctl` (or see https://fly.io/docs/flyctl/install/)
 3. Login: `fly auth login`
-4. Create the app (the fly.toml already names it `astro-backend`):
+4. Create the app (the fly.toml already names it `astro-backend-platform`):
    ```bash
-   fly apps create astro-backend
+   fly apps create astro-backend-platform
    ```
 5. Set secrets (production env vars):
    ```bash
@@ -151,7 +151,7 @@ npm run dev
    ```bash
    fly deploy
    ```
-7. Verify: `curl https://astro-backend.fly.dev/api/health`
+7. Verify: `curl https://astro-backend-platform.fly.dev/api/health`
 
 #### Step 3: Cloudflare Pages Frontend
 
@@ -163,7 +163,7 @@ npm run dev
    # Set the backend URL for the frontend build
    VITE_SUPABASE_URL="https://abcdef.supabase.co" \
    VITE_SUPABASE_ANON_KEY="eyJ..." \
-   VITE_API_BASE_URL="https://astro-backend.fly.dev" \
+   VITE_API_BASE_URL="https://astro-backend-platform.fly.dev" \
    npm run build
    ```
 5. Deploy:
@@ -181,7 +181,7 @@ If you have `fuxialexander.work` or want a custom domain:
 3. In Fly.io: `fly certs add astro-api.fuxialexander.work`
 4. Add DNS records in Cloudflare:
    - `astro` → CNAME to `astro-app.pages.dev`
-   - `astro-api` → CNAME to `astro-backend.fly.dev`
+   - `astro-api` → CNAME to `astro-backend-platform.fly.dev`
 
 ---
 
@@ -218,7 +218,7 @@ If you have `fuxialexander.work` or want a custom domain:
 
 ```bash
 # Check backend is running
-curl https://astro-backend.fly.dev/api/health
+curl https://astro-backend-platform.fly.dev/api/health
 
 # Expected response:
 # { "status": "ok", "mode": "server", "authenticated": false }

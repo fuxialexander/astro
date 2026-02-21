@@ -371,6 +371,263 @@ ON connected_accounts FOR ALL
 USING (auth.uid() = user_id);
 ```
 
+## Encrypted API Keys
+
+### encrypted_api_keys
+
+```sql
+-- Users can only access their own encrypted API keys
+CREATE POLICY "Users can view their own API keys"
+ON encrypted_api_keys FOR SELECT
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own API keys"
+ON encrypted_api_keys FOR INSERT
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own API keys"
+ON encrypted_api_keys FOR UPDATE
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own API keys"
+ON encrypted_api_keys FOR DELETE
+USING (auth.uid() = user_id);
+```
+
+## Team-Based Access
+
+Team policies use two helper functions to check team membership and management rights.
+
+### Helper Functions
+
+```sql
+-- Check if user is a member of a team
+CREATE OR REPLACE FUNCTION user_is_team_member(p_team_id uuid)
+RETURNS boolean
+LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM team_members
+    WHERE team_id = p_team_id
+    AND user_id = auth.uid()
+  );
+$$;
+
+-- Check if user is owner or admin of a team
+CREATE OR REPLACE FUNCTION user_can_manage_team(p_team_id uuid)
+RETURNS boolean
+LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM team_members
+    WHERE team_id = p_team_id
+    AND user_id = auth.uid()
+    AND role IN ('owner', 'admin')
+  );
+$$;
+```
+
+**Note:** The `user_has_project_access()` function is updated when teams are enabled to also grant access via team membership:
+
+```sql
+CREATE OR REPLACE FUNCTION user_has_project_access(p_project_id uuid)
+RETURNS boolean
+LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT EXISTS (
+    -- Owner access
+    SELECT 1 FROM projects WHERE id = p_project_id AND owner_id = auth.uid()
+    UNION ALL
+    -- Direct project member access
+    SELECT 1 FROM project_members WHERE project_id = p_project_id AND user_id = auth.uid()
+    UNION ALL
+    -- Team member access
+    SELECT 1 FROM projects p
+    JOIN team_members tm ON tm.team_id = p.team_id
+    WHERE p.id = p_project_id AND tm.user_id = auth.uid()
+  );
+$$;
+```
+
+### teams
+
+```sql
+-- Teams: visible to team members
+CREATE POLICY "Team members can view teams"
+ON teams FOR SELECT
+USING (user_is_team_member(id));
+
+-- Any authenticated user can create a team (they become owner)
+CREATE POLICY "Users can create teams"
+ON teams FOR INSERT
+WITH CHECK (auth.uid() IS NOT NULL);
+
+-- Only owners/admins can update team settings
+CREATE POLICY "Owners/admins can update teams"
+ON teams FOR UPDATE
+USING (user_can_manage_team(id));
+
+-- Only owners can delete teams (will cascade delete members)
+CREATE POLICY "Owners can delete teams"
+ON teams FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1 FROM team_members
+    WHERE team_id = teams.id
+    AND user_id = auth.uid()
+    AND role = 'owner'
+  )
+);
+```
+
+### team_members
+
+```sql
+-- Team members can view team membership
+CREATE POLICY "Team members can view team membership"
+ON team_members FOR SELECT
+USING (user_is_team_member(team_id));
+
+-- Only owners/admins can add members
+CREATE POLICY "Owners/admins can add members"
+ON team_members FOR INSERT
+WITH CHECK (
+  user_can_manage_team(team_id) OR
+  (user_id = auth.uid() AND role = 'owner') -- Allow creating team with self as owner
+);
+
+-- Users can insert themselves via invite tokens
+CREATE POLICY "team_members_insert_via_invite"
+ON team_members FOR INSERT
+WITH CHECK (
+  user_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM invite_tokens
+    WHERE invite_tokens.team_id = team_members.team_id
+      AND invite_tokens.email = (SELECT email FROM user_profiles WHERE id = auth.uid())
+      AND invite_tokens.used_at IS NULL
+      AND invite_tokens.expires_at > now()
+  )
+);
+
+-- Only owners/admins can update member roles
+CREATE POLICY "Owners/admins can update member roles"
+ON team_members FOR UPDATE
+USING (user_can_manage_team(team_id));
+
+-- Only owners/admins can remove members
+CREATE POLICY "Owners/admins can remove members"
+ON team_members FOR DELETE
+USING (user_can_manage_team(team_id));
+```
+
+### invite_tokens
+
+```sql
+-- Team admins/owners can create invites for their teams
+CREATE POLICY "invite_tokens_insert_policy"
+ON invite_tokens FOR INSERT
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM team_members
+    WHERE team_members.team_id = invite_tokens.team_id
+      AND team_members.user_id = auth.uid()
+      AND team_members.role IN ('owner', 'admin')
+  )
+);
+
+-- Team admins/owners can view invites for their teams
+CREATE POLICY "invite_tokens_select_policy"
+ON invite_tokens FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM team_members
+    WHERE team_members.team_id = invite_tokens.team_id
+      AND team_members.user_id = auth.uid()
+      AND team_members.role IN ('owner', 'admin')
+  )
+);
+
+-- Anyone can view invites sent to their email (needed for acceptance flow)
+CREATE POLICY "invite_tokens_select_by_email_policy"
+ON invite_tokens FOR SELECT
+USING (
+  email = (SELECT email FROM user_profiles WHERE id = auth.uid())
+);
+
+-- Team admins/owners can delete (revoke) invites for their teams
+CREATE POLICY "invite_tokens_delete_policy"
+ON invite_tokens FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1 FROM team_members
+    WHERE team_members.team_id = invite_tokens.team_id
+      AND team_members.user_id = auth.uid()
+      AND team_members.role IN ('owner', 'admin')
+  )
+);
+
+-- Anyone can update invites sent to their email (to mark as used)
+CREATE POLICY "invite_tokens_update_policy"
+ON invite_tokens FOR UPDATE
+USING (
+  email = (SELECT email FROM user_profiles WHERE id = auth.uid())
+);
+```
+
+### registered_machines (updated for teams)
+
+When teams are enabled, machine RLS policies are updated to support team-based access via the `user_can_access_machine()` helper:
+
+```sql
+-- Helper: Check if user can access a machine (owner or team member)
+CREATE OR REPLACE FUNCTION user_can_access_machine(p_machine_id text)
+RETURNS boolean
+LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT EXISTS (
+    -- Machine owner access
+    SELECT 1 FROM registered_machines
+    WHERE id = p_machine_id AND user_id = auth.uid()
+    UNION ALL
+    -- Team machine access
+    SELECT 1 FROM registered_machines rm
+    JOIN team_members tm ON tm.team_id = rm.team_id
+    WHERE rm.id = p_machine_id AND tm.user_id = auth.uid()
+  );
+$$;
+
+-- Users can view their own machines + team machines
+CREATE POLICY "Users can view accessible machines"
+ON registered_machines FOR SELECT
+USING (user_id = auth.uid() OR user_can_access_machine(id));
+
+-- Users can register their own machines
+CREATE POLICY "Users can register machines"
+ON registered_machines FOR INSERT
+WITH CHECK (user_id = auth.uid());
+
+-- Users can only update their own machines (not team machines)
+CREATE POLICY "Users can update own machines"
+ON registered_machines FOR UPDATE
+USING (user_id = auth.uid());
+
+-- Users can only delete their own machines (not team machines)
+CREATE POLICY "Users can delete own machines"
+ON registered_machines FOR DELETE
+USING (user_id = auth.uid());
+```
+
+### machine_usage_logs
+
+```sql
+-- Users can view logs for machines they have access to
+CREATE POLICY "Users can view machine usage logs"
+ON machine_usage_logs FOR SELECT
+USING (user_can_access_machine(machine_id));
+
+-- Service role can insert usage logs
+CREATE POLICY "Service role can insert usage logs"
+ON machine_usage_logs FOR INSERT
+WITH CHECK (auth.role() = 'service_role');
+```
+
 ## Refresh Tokens & Passkeys
 
 ### refresh_tokens

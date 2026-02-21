@@ -1,6 +1,6 @@
-# Nexus Improvement Roadmap
+# Astro Improvement Roadmap
 
-> Evolving Nexus from a planning-first platform into a full agentic observability and management system.
+> Evolving Astro from a planning-first platform into a full agentic observability and management system.
 
 **Date**: February 2026
 **Status**: Draft (Revision 5 -- separates agent models from execution strategies; hub model)
@@ -40,13 +40,13 @@ The core insight: **agents are the new first-class citizens**. Humans should be 
 
 ### 2.1 The Three Options
 
-Nexus currently uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) for local execution and the Claude Code CLI for remote execution via agent-runners. The question: should we standardize on one approach?
+Astro currently uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) for local execution and the Claude Code CLI for remote execution via agent-runners. The question: should we standardize on one approach?
 
-| Approach | What It Is | How Nexus Uses It |
+| Approach | What It Is | How Astro Uses It |
 |----------|-----------|-------------------|
 | **Claude Agent SDK** | TypeScript/Python library; `query()` returns async generator of structured `SDKMessage` objects | Local dispatch in `server/lib/providers/adapters/claude-code.ts` |
 | **Claude Code CLI** | Binary invoked via `claude` command; outputs stdout/stderr | Remote dispatch via `packages/agent-runner/src/providers/claude-code-adapter` |
-| **Claude Code App** | Desktop GUI application (VS Code-like) | Not used by Nexus |
+| **Claude Code App** | Desktop GUI application (VS Code-like) | Not used by Astro |
 
 ### 2.2 Deep Analysis
 
@@ -66,9 +66,9 @@ Nexus currently uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) for
 
 - **Permission modes**: `default` (custom `canUseTool` callback), `acceptEdits` (auto-approve file changes), `bypassPermissions` (full automation), `plan` (no execution).
 
-- **Session management**: Sessions persist via `session_id`. Can `resume` sessions and `forkSession` for branching exploration. This maps directly to Nexus's task branching model.
+- **Session management**: Sessions persist via `session_id`. Can `resume` sessions and `forkSession` for branching exploration. This maps directly to Astro's task branching model.
 
-- **MCP servers**: In-process (`createSdkMcpServer()` with `tool()` helper) and out-of-process (stdio/SSE/HTTP). Nexus's existing MCP tools server works with both.
+- **MCP servers**: In-process (`createSdkMcpServer()` with `tool()` helper) and out-of-process (stdio/SSE/HTTP). Astro's existing MCP tools server works with both.
 
 - **Sandbox**: Programmatic sandbox configuration with network restrictions, filesystem controls, and unsandboxed command fallback with `canUseTool` approval.
 
@@ -76,7 +76,7 @@ Nexus currently uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) for
 
 - **Structured output**: `outputFormat: { type: 'json_schema', schema: ... }` for deterministic output formats.
 
-**Verdict on SDK**: It is definitively the right choice for Nexus. The SDK gives us:
+**Verdict on SDK**: It is definitively the right choice for Astro. The SDK gives us:
 1. Observability for free via structured `SDKMessage` streaming + hooks
 2. Safety rails for free via `PreToolUse` hooks + `maxBudgetUsd`
 3. Session continuity via `resume` / `forkSession`
@@ -99,7 +99,7 @@ Nexus currently uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) for
 
 #### Claude Code App (Desktop)
 
-**Verdict**: Not relevant for Nexus. The app is for interactive human use. Nexus's agents run programmatically. Skip entirely.
+**Verdict**: Not relevant for Astro. The app is for interactive human use. Astro's agents run programmatically. Skip entirely.
 
 ### 2.3 Recommendation
 
@@ -151,7 +151,7 @@ With the SDK, observability becomes dramatically simpler:
 
 ### 3.1 The Question
 
-ZeroClaw demonstrates that a Rust implementation achieves <5MB memory and <10ms startup versus Node.js's >100MB memory and multi-second startup. Should Nexus migrate to Rust?
+ZeroClaw demonstrates that a Rust implementation achieves <5MB memory and <10ms startup versus Node.js's >100MB memory and multi-second startup. Should Astro migrate to Rust?
 
 ### 3.2 Analysis
 
@@ -159,8 +159,8 @@ ZeroClaw demonstrates that a Rust implementation achieves <5MB memory and <10ms 
 
 | Component | Language | Memory | Justification |
 |-----------|----------|--------|--------------|
-| Nexus server (Hono) | TypeScript/Node.js | ~100-200MB | Shares language with frontend, SDK is TypeScript-native |
-| Nexus frontend | TypeScript/React | Browser | Cannot be Rust |
+| Astro server (Hono) | TypeScript/Node.js | ~100-200MB | Shares language with frontend, SDK is TypeScript-native |
+| Astro frontend | TypeScript/React | Browser | Cannot be Rust |
 | Agent-runner | TypeScript/Node.js | ~80-150MB | SDK is TypeScript-native |
 | Claude Agent SDK | TypeScript | N/A | Anthropic provides TypeScript + Python only |
 
@@ -190,7 +190,7 @@ Rust makes sense for components that DON'T depend on the Claude Agent SDK:
 
 | Component | Why Not Rust |
 |-----------|-------------|
-| **Nexus server (Hono)** | Tightly coupled to SDK for plan generation, chat, and task dispatch. Rewriting in Rust means losing SDK integration or adding an FFI bridge. |
+| **Astro server (Hono)** | Tightly coupled to SDK for plan generation, chat, and task dispatch. Rewriting in Rust means losing SDK integration or adding an FFI bridge. |
 | **Frontend** | React. Not applicable. |
 | **Agent-runner task executor** | Needs SDK for direct execution. Rust can only invoke the CLI and tail logs. |
 | **MCP tools server** | SDK provides `createSdkMcpServer()` and `tool()` helpers in TypeScript. Reimplementing in Rust means writing raw MCP protocol. |
@@ -201,7 +201,7 @@ Rust makes sense for components that DON'T depend on the Claude Agent SDK:
 
 Specifically:
 
-1. **Keep TypeScript**: Nexus server, frontend, agent-runner task executor, MCP tools. The SDK integration is too valuable to lose.
+1. **Keep TypeScript**: Astro server, frontend, agent-runner task executor, MCP tools. The SDK integration is too valuable to lose.
 
 2. **Consider Rust for (future)**:
    - **Observation collector sidecar**: A small Rust binary that receives high-volume observation events via Unix socket, batch-writes to SQLite, and serves query API. This is a performance optimization, not a rewrite.
@@ -235,7 +235,7 @@ Specifically:
 
 ### 4.1 The Question
 
-Can Nexus use models beyond Claude? Specifically:
+Can Astro use models beyond Claude? Specifically:
 - **OpenAI Codex** (coding agent from OpenAI)
 - **Chinese models**: GLM-5 (Zhipu AI), Kimi-K2.5 (Moonshot AI), MiniMax-M2.5
 - Can the Claude Agent SDK be used with non-Claude backends?
@@ -256,11 +256,11 @@ All three of these are still running Claude. You cannot point the Claude Agent S
 
 ### 4.3 The Two-Layer Architecture
 
-This constraint leads to a clear architecture: **Nexus needs two execution layers**.
+This constraint leads to a clear architecture: **Astro needs two execution layers**.
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│                    Nexus Multi-Model Architecture                  │
+│                    Astro Multi-Model Architecture                  │
 │                                                                     │
 │  Layer 1: Claude Agent SDK (Primary)                                │
 │  ┌─────────────────────────────────────────────────────────────┐   │
@@ -271,12 +271,12 @@ This constraint leads to a clear architecture: **Nexus needs two execution layer
 │                                                                     │
 │  Layer 2: Provider Adapters (Secondary)                             │
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  Nexus-managed observability (wrapper-based, not hook-based) │   │
+│  │  Astro-managed observability (wrapper-based, not hook-based) │   │
 │  │  Models: Codex, GLM-5, Kimi-K2.5, MiniMax-M2.5, DeepSeek   │   │
 │  │  Used for: Cost-sensitive tasks, specific model strengths    │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
-│  Nexus Orchestration Layer (Shared)                                 │
+│  Astro Orchestration Layer (Shared)                                 │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │  Task dispatch, plan graph, analytics, UI -- provider-agnostic│   │
 │  └─────────────────────────────────────────────────────────────┘   │
@@ -295,9 +295,9 @@ OpenAI Codex is a coding agent (CLI + SDK + desktop app) analogous to Claude Cod
 - **Models**: GPT-4o, GPT-4o-mini, o1, o1-mini, o3-mini
 - **Structured output**: JSON Schema / Zod support via `outputSchema`
 
-#### How Nexus Already Integrates Codex
+#### How Astro Already Integrates Codex
 
-Nexus already has a `codex.ts` provider adapter that:
+Astro already has a `codex.ts` provider adapter that:
 - Spawns the Codex CLI as a subprocess
 - Injects context via prompt prefix (Codex doesn't support `--context-file`)
 - Parses NDJSON output for tool traces and file changes
@@ -322,10 +322,10 @@ async *stream(task: TaskDispatch): AsyncGenerator<StreamEvent> {
   // Observability: wrap the streaming call
   const streamed = thread.runStreamed(task.prompt);
   for await (const event of streamed) {
-    // Normalize Codex events → Nexus ObservationEvent
+    // Normalize Codex events → Astro ObservationEvent
     observationCollector.record(normalizeCodexEvent(event, task.executionId));
 
-    // Yield Nexus StreamEvents for backwards compatibility
+    // Yield Astro StreamEvents for backwards compatibility
     if (event.type === 'item.completed') {
       yield { type: 'text', text: event.item?.text ?? '' };
     }
@@ -398,7 +398,7 @@ export class OpenAICompatibleProvider implements AgentProvider {
 
   async *stream(task: TaskDispatch): AsyncGenerator<StreamEvent> {
     const messages = this.buildMessages(task);
-    const tools = this.buildTools(task);  // Convert Nexus MCP tools to OpenAI tool format
+    const tools = this.buildTools(task);  // Convert Astro MCP tools to OpenAI tool format
 
     const stream = await this.client.chat.completions.create({
       model: task.model ?? this.config.defaultModel,
@@ -445,7 +445,7 @@ export class OpenAICompatibleProvider implements AgentProvider {
 
 #### The Agentic Loop Problem
 
-**Critical difference**: The Claude Agent SDK and Codex SDK handle the entire agentic loop (model call → tool execution → model call → ... → result). For Chinese models, **Nexus must implement its own agentic loop**.
+**Critical difference**: The Claude Agent SDK and Codex SDK handle the entire agentic loop (model call → tool execution → model call → ... → result). For Chinese models, **Astro must implement its own agentic loop**.
 
 This means:
 1. Call the model API
@@ -454,13 +454,13 @@ This means:
 4. Feed tool results back to the model
 5. Repeat until the model stops calling tools
 
-This is the "Client SDK" pattern from the Claude docs -- significantly more work than the Agent SDK pattern. However, it gives Nexus **total control** over:
+This is the "Client SDK" pattern from the Claude docs -- significantly more work than the Agent SDK pattern. However, it gives Astro **total control** over:
 - Observability (we control every step)
 - Safety (we can inspect every tool call before execution)
 - Cost tracking (we see every API call)
 - Tool implementation (we define what tools are available)
 
-#### Nexus Agentic Loop for OpenAI-Compatible Models
+#### Astro Agentic Loop for OpenAI-Compatible Models
 
 ```typescript
 // server/lib/providers/agentic-loop.ts
@@ -607,22 +607,22 @@ export class ClaudeSdkAdapter implements AgentProvider {
 }
 ```
 
-This gives us **identical observability on remote machines as local execution**. The hooks run on the remote machine, and the structured events are forwarded to the Nexus server via the relay WebSocket.
+This gives us **identical observability on remote machines as local execution**. The hooks run on the remote machine, and the structured events are forwarded to the Astro server via the relay WebSocket.
 
 ### 4.7 Provider Comparison Matrix
 
 | Capability | Claude SDK | Codex SDK | OpenAI-Compatible (Chinese) |
 |-----------|-----------|-----------|----------------------------|
-| **Hooks (PreToolUse)** | Native (12 events) | None | Nexus-managed (agentic loop) |
-| **Safety enforcement** | `canUseTool` + `maxBudgetUsd` | Manual (abort thread) | Nexus-managed (pre-execution check) |
-| **Observability** | `SDKMessage` stream (full) | `runStreamed()` events (partial) | Nexus-managed (full, since we control the loop) |
+| **Hooks (PreToolUse)** | Native (12 events) | None | Astro-managed (agentic loop) |
+| **Safety enforcement** | `canUseTool` + `maxBudgetUsd` | Manual (abort thread) | Astro-managed (pre-execution check) |
+| **Observability** | `SDKMessage` stream (full) | `runStreamed()` events (partial) | Astro-managed (full, since we control the loop) |
 | **Session resume** | `resume` / `forkSession` | `resumeThread()` | Manual (message history) |
 | **MCP integration** | `createSdkMcpServer()` + `tool()` | None | Manual (tool definitions) |
-| **Sandbox** | `SandboxSettings` | `--sandbox` flag | None (Nexus must sandbox) |
-| **Built-in tools** | Read, Write, Edit, Bash, Glob, Grep, etc. | Similar set | None (Nexus provides tools) |
+| **Sandbox** | `SandboxSettings` | `--sandbox` flag | None (Astro must sandbox) |
+| **Built-in tools** | Read, Write, Edit, Bash, Glob, Grep, etc. | Similar set | None (Astro provides tools) |
 | **Structured output** | `outputFormat` | `outputSchema` | `response_format` |
 | **Cost** | $3-75/M tokens (model-dependent) | ~$2-15/M tokens | $0.14-2/M tokens |
-| **Agentic loop** | SDK handles it | SDK handles it | **Nexus must implement** |
+| **Agentic loop** | SDK handles it | SDK handles it | **Astro must implement** |
 | **Remote deployment** | Yes (npm install) | Yes (npm install) | Yes (API calls, no local install needed) |
 
 ### 4.8 Recommended Multi-Model Strategy
@@ -639,22 +639,22 @@ This gives us **identical observability on remote machines as local execution**.
 
 - Models: GPT-4o, o3-mini, o1
 - Used for: OpenAI-ecosystem tasks, model diversity, cost comparison
-- Observability: Good (streaming events from `runStreamed()`, Nexus wraps)
-- Safety: Partial (Nexus-managed cost tracking, no pre-execution hooks)
+- Observability: Good (streaming events from `runStreamed()`, Astro wraps)
+- Safety: Partial (Astro-managed cost tracking, no pre-execution hooks)
 - Deploy on: Machines with Codex SDK installed
 
-#### Tier 3: OpenAI-Compatible (Cost-Optimized, Nexus-Managed)
+#### Tier 3: OpenAI-Compatible (Cost-Optimized, Astro-Managed)
 
 - Models: DeepSeek-V3, GLM-5, Kimi-K2.5, MiniMax-M2.5, Qwen-3
 - Used for: Cost-sensitive tasks, batch operations, Chinese-language tasks, bulk code generation
-- Observability: Full (Nexus controls the agentic loop, sees everything)
-- Safety: Full (Nexus checks every tool call before execution)
+- Observability: Full (Astro controls the agentic loop, sees everything)
+- Safety: Full (Astro checks every tool call before execution)
 - Deploy on: Server-side only (API calls, no local SDK needed)
 - Key advantage: **Cheapest option** (DeepSeek at ~$0.14/M input tokens is 20-50x cheaper than Claude)
 
 #### Smart Routing
 
-Nexus should intelligently route tasks to providers based on:
+Astro should intelligently route tasks to providers based on:
 
 ```typescript
 interface RoutingPolicy {
@@ -683,11 +683,11 @@ interface RoutingPolicy {
 
 **Context**: Users want to use cheaper models for routine tasks and Claude for complex ones. Chinese models offer 20-50x cost savings.
 
-**Decision**: Three-tier provider system. Claude SDK for full-featured execution. Codex SDK for OpenAI ecosystem. OpenAI-compatible adapter for Chinese models. Nexus provides its own agentic loop for Tier 3 models.
+**Decision**: Three-tier provider system. Claude SDK for full-featured execution. Codex SDK for OpenAI ecosystem. OpenAI-compatible adapter for Chinese models. Astro provides its own agentic loop for Tier 3 models.
 
-**Rationale**: The Claude SDK's hooks are irreplaceable for complex agentic tasks. But not every task needs $3/M-token quality. A simple "add a docstring to every function" task can run on DeepSeek at $0.14/M tokens. The agentic loop for Tier 3 models is more work to build, but gives Nexus complete control over observability and safety -- arguably even better than relying on external SDK hooks.
+**Rationale**: The Claude SDK's hooks are irreplaceable for complex agentic tasks. But not every task needs $3/M-token quality. A simple "add a docstring to every function" task can run on DeepSeek at $0.14/M tokens. The agentic loop for Tier 3 models is more work to build, but gives Astro complete control over observability and safety -- arguably even better than relying on external SDK hooks.
 
-**Trade-off**: Building the agentic loop is significant engineering effort. But it also makes Nexus less dependent on any single provider. If Claude or Codex changes their SDK, Nexus's own loop is unaffected.
+**Trade-off**: Building the agentic loop is significant engineering effort. But it also makes Astro less dependent on any single provider. If Claude or Codex changes their SDK, Astro's own loop is unaffected.
 
 ---
 
@@ -1018,7 +1018,7 @@ Agent models (Claude, Codex, DeepSeek, None) and execution strategies (Direct, S
 
 ### 6.1 The Problem (Solved)
 
-Nexus previously captured streaming events (stdout, tool traces, file changes, progress) during task execution, but:
+Astro previously captured streaming events (stdout, tool traces, file changes, progress) during task execution, but:
 
 - **No persistent dialogue storage**: Conversations were streamed and displayed but not durably stored with structure — **now stored in `observation_events` table**
 - **No cross-session analytics**: Couldn't answer "how many tokens did agent X use this week?" — **stats endpoint implemented, analytics dashboard pending**
@@ -1137,7 +1137,7 @@ async *stream(task: TaskDispatch): AsyncGenerator<StreamEvent> {
       hooks: mergeHooks(observationHooks, safetyHooks),
       maxBudgetUsd: task.costLimit,
       canUseTool: (toolName, input, opts) => safetyEngine.evaluate(toolName, input, opts),
-      mcpServers: { 'nexus-tools': nexusMcpServer },
+      mcpServers: { 'astro-tools': astroMcpServer },
       // ...existing options
     }
   });
@@ -1477,7 +1477,7 @@ const createPR = tool(
 );
 
 export const skillServer = createSdkMcpServer({
-  name: 'nexus-skills',
+  name: 'astro-skills',
   tools: [runTests, createPR, /* ...more skills */],
 });
 ```
@@ -1489,8 +1489,8 @@ const q = query({
   prompt: taskPrompt,
   options: {
     mcpServers: {
-      'nexus-tools': nexusToolsServer,   // Existing platform tools
-      'nexus-skills': skillServer,        // NEW: skill tools
+      'astro-tools': astroToolsServer,   // Existing platform tools
+      'astro-skills': skillServer,        // NEW: skill tools
     },
   }
 });
@@ -1498,7 +1498,7 @@ const q = query({
 
 ### 8.3 Skills Directory Structure
 
-(Same as previous revision -- `nexus/skills/` with `registry.json`, `built-in/`, `community/`, `custom/`.)
+(Same as previous revision -- `astro/skills/` with `registry.json`, `built-in/`, `community/`, `custom/`.)
 
 ### 8.4 Built-in Skills (Initial Set)
 
@@ -1529,7 +1529,7 @@ const q = query({
 - No new codebase required
 
 **Option A: VS Code Extension** (next)
-- Lightweight sidebar panel via WebView loading stripped Nexus React app
+- Lightweight sidebar panel via WebView loading stripped Astro React app
 - Uses VS Code's built-in `vscode.diff` for file comparisons
 - Read-only monitoring -- no code editing features
 
@@ -1560,17 +1560,17 @@ await q.rewindFiles(selectedMessageUuid);
 
 ## 10. Pillar 5: Features to Adopt from Reference Packages
 
-Analysis of features from HappyClaw, OpenClaw, OpenCode, and ZeroClaw that Nexus should adopt.
+Analysis of features from HappyClaw, OpenClaw, OpenCode, and ZeroClaw that Astro should adopt.
 
 ### 8.1 From HappyClaw
 
 | Feature | Priority | Rationale |
 |---------|----------|-----------|
-| **Scheduled / autonomous tasks** | High | Cron/interval/once scheduling for 24/7 agent operation. Nexus currently only dispatches tasks manually or via dependency resolution. Add a task scheduler that triggers agent tasks on schedule. |
+| **Scheduled / autonomous tasks** | High | Cron/interval/once scheduling for 24/7 agent operation. Astro currently only dispatches tasks manually or via dependency resolution. Add a task scheduler that triggers agent tasks on schedule. |
 | **Cross-session memory** | High | Multi-layer memory (user global, session private, daily logs). For 24/7 agents, they need to remember past work across sessions. Store as CLAUDE.md injection or SDK `systemPrompt` appendage. |
 | **IM channel integration** | Medium | Slack/Discord/Telegram notifications for task completion, safety alerts, approval requests. Not full IM-based interaction (that's HappyClaw's niche), but notification forwarding. |
 | **Web terminal access** | Medium | xterm.js access to agent execution environments. Useful for debugging when you need to inspect the agent's workspace. |
-| **PWA / mobile support** | Low | Mobile-friendly dashboard for monitoring agents on the go. Current Nexus UI is desktop-first. |
+| **PWA / mobile support** | Low | Mobile-friendly dashboard for monitoring agents on the go. Current Astro UI is desktop-first. |
 | **Per-user AI personality** | Low | Customizable agent name/avatar. Nice for multi-user environments. |
 
 ### 8.2 From OpenClaw
@@ -1586,24 +1586,24 @@ Analysis of features from HappyClaw, OpenClaw, OpenCode, and ZeroClaw that Nexus
 | Feature | Priority | Rationale |
 |---------|----------|-----------|
 | **Desktop app (Tauri)** | Low | Future Option B for standalone agent viewer. OpenCode's Tauri integration proves the pattern. |
-| **Plugin/extension system** | Medium | The SDK now has `plugins` support. Build on this for Nexus-specific extensions. |
-| **Multi-agent switching** | Medium | OpenCode supports 2 built-in agents. Nexus should make it easy to switch providers per task (already has the architecture, needs UI polish). |
-| **Session context metrics** | High | OpenCode's `AsyncLocalStorage` pattern for tracking per-session metrics. Adopt for Nexus's observation pipeline. |
+| **Plugin/extension system** | Medium | The SDK now has `plugins` support. Build on this for Astro-specific extensions. |
+| **Multi-agent switching** | Medium | OpenCode supports 2 built-in agents. Astro should make it easy to switch providers per task (already has the architecture, needs UI polish). |
+| **Session context metrics** | High | OpenCode's `AsyncLocalStorage` pattern for tracking per-session metrics. Adopt for Astro's observation pipeline. |
 
 ### 8.4 From ZeroClaw
 
 | Feature | Priority | Rationale |
 |---------|----------|-----------|
 | **Trait-based observer architecture** | High | Already adopted conceptually. The SDK hooks are the TypeScript equivalent. |
-| **Three-tier budget enforcement** | High | `Allowed` / `Warning` / `Exceeded` maps to Nexus's cost guard `allow` / `warn` / `abort`. |
+| **Three-tier budget enforcement** | High | `Allowed` / `Warning` / `Exceeded` maps to Astro's cost guard `allow` / `warn` / `abort`. |
 | **JSONL cost persistence** | Medium | Persistent cost tracking across sessions. Implement via observation events stored in SQLite. |
 | **SkillForge pipeline** | Low | Scout/Evaluate/Integrate for skill discovery. Future enhancement for community skills. |
-| **Hardware discovery** | Low | Relevant only if Nexus targets edge deployment. |
+| **Hardware discovery** | Low | Relevant only if Astro targets edge deployment. |
 | **Autonomy levels** | High | Already adopted (`supervised` / `semi-autonomous` / `autonomous`). |
 
 ### 8.5 Composite Feature: Agent Memory System
 
-Inspired by HappyClaw's multi-layer memory, Nexus should implement:
+Inspired by HappyClaw's multi-layer memory, Astro should implement:
 
 ```
 Memory Layers:
@@ -1641,7 +1641,7 @@ interface ScheduledTask {
 }
 ```
 
-Add to Nexus server as a scheduler service that triggers task dispatch on schedule. Use `node-cron` or `croner` for cron parsing. Store schedules in the existing database.
+Add to Astro server as a scheduler service that triggers task dispatch on schedule. Use `node-cron` or `croner` for cron parsing. Store schedules in the existing database.
 
 ---
 
@@ -1749,7 +1749,7 @@ Testing:
 **Goal**: Extensible skills, cross-session memory, and task scheduling.
 
 **Files to create/modify**:
-- `nexus/skills/` -- skill directories with manifests and handlers
+- `astro/skills/` -- skill directories with manifests and handlers
 - `server/lib/skills/` -- registry, loader
 - `server/lib/skills/skill-mcp-server.ts` -- in-process MCP skill server
 - `server/lib/scheduler/` -- task scheduling service
@@ -1770,7 +1770,7 @@ Testing:
 
 ### ADR-001: Standardize on Claude Agent SDK over CLI
 
-**Context**: Nexus uses both the SDK (local) and CLI (remote). Hooks, sessions, and safety features are only available via SDK.
+**Context**: Astro uses both the SDK (local) and CLI (remote). Hooks, sessions, and safety features are only available via SDK.
 
 **Decision**: Make the SDK the primary execution path everywhere. Keep CLI as fallback only.
 

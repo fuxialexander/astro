@@ -86,7 +86,7 @@ function getProjectColumns(
   setRenamingProjectId: (id: string | null) => void,
   handleRename: (id: string, name: string) => void,
   validateName: (name: string) => string | null,
-  navigate: (path: string) => void
+  _navigate: (path: string) => void
 ): ListColumn<Project>[] {
   return [
     {
@@ -236,10 +236,6 @@ export function Projects() {
   }, [initiatives])
 
   // Helper to get team name from ID
-  const getTeamName = useCallback((teamId?: string) => {
-    if (!teamId) return undefined
-    return teams.find(t => t.id === teamId)?.name
-  }, [teams])
 
   const projectBatchActions: BatchAction[] = useMemo(() => [
     {

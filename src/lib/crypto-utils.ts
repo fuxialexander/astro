@@ -20,7 +20,7 @@ const SALT_LENGTH = 16
 /**
  * Derive an encryption key from a password using PBKDF2
  */
-async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
   const encoder = new TextEncoder()
   const passwordBuffer = encoder.encode(password)
 
@@ -112,8 +112,8 @@ export async function encryptText(
 
   return {
     encrypted: arrayBufferToBase64(encryptedBuffer),
-    iv: arrayBufferToBase64(iv),
-    salt: arrayBufferToBase64(salt),
+    iv: arrayBufferToBase64(iv.buffer as ArrayBuffer),
+    salt: arrayBufferToBase64(salt.buffer as ArrayBuffer),
   }
 }
 

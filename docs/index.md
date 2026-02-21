@@ -1,161 +1,127 @@
 # Astro Documentation
 
-Welcome to the Astro documentation. This index organizes all documentation into four main sections: Backend, Frontend, Relay Server, and System Setup.
+Welcome to the Astro documentation. Documents are organized into design docs (the canonical reference) and technical docs (implementation details).
 
 ## Quick Start
 
-- **New to Astro?** Start with [Developer Setup](./DEVELOPER_SETUP.md)
-- **Setting up local development?** See [Local Mode Setup](./setup/local-mode.md)
-- **Deploying to production?** Check [Production Setup](./setup/production-setup.md)
-- **Understanding the architecture?** Read [Architecture Overview](./ARCHITECTURE.md)
+- **New to Astro?** Start with [Developer Setup](./setup/developer-setup.md)
+- **Setting up local development?** See [Local Mode](./setup/local-mode.md)
+- **Understanding the architecture?** Read [Design Docs](./design/README.md)
 
-## Documentation Sections
+## Design Documents (Canonical Reference)
 
-### 1. Backend
+The design docs in `docs/design/` are the authoritative reference for the system. Always consult these first.
 
-Backend documentation covers the Hono.js server, database schema, API endpoints, and data flows.
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE](./design/ARCHITECTURE.md) | System structure, processes, modes, tech stack, protocols |
+| [FRONTEND](./design/FRONTEND.md) | React app: routing, stores, components, data flow |
+| [BACKEND](./design/BACKEND.md) | Hono server: routes, middleware, storage, dispatch, providers |
+| [AGENT_RUNNER](./design/AGENT_RUNNER.md) | Agent runner: CLI, providers, strategies, safety, worktree |
+| [RELAY](./design/RELAY.md) | WebSocket relay: protocol, registry, scaling |
+| [DATA_MODEL](./design/DATA_MODEL.md) | All types: Project, PlanNode, PlanEdge, etc. |
+| [USER_WORKFLOWS](./design/USER_WORKFLOWS.md) | End-to-end data flows for all user journeys |
+| [IMPLEMENTATION_PIPELINE](./design/IMPLEMENTATION_PIPELINE.md) | Implementation priorities and pipeline |
+| [CURRENT_CONFLICT_VIEW](./design/CURRENT_CONFLICT_VIEW.md) | Known conflicts between design and code |
 
-**Core Documentation:**
-- [Database Schema](./backend/database-schema.md) - Drizzle schema, tables, and relationships
-- [API Reference](./backend/api-reference.md) - Complete API endpoint documentation
-- [RLS Policies](./backend/rls-policies.md) - Row-level security policies for Supabase
+## Technical Documentation
+
+### Backend
+
+- [API Reference](./backend/api-reference.md) - API endpoint documentation
+- [Database Schema](./backend/database-schema.md) - Drizzle schema, tables, relationships
+- [RLS Policies](./backend/rls-policies.md) - Row-level security policies
 - [Data Flows](./backend/data-flows.md) - How data moves through the system
-- [User Behavior Tracking](./backend/user-behavior-tracking.md) - Activity logging and analytics
-
-**Specialized Topics:**
 - [Authentication](./backend/authentication.md) - WebAuthn/passkey implementation
-- [Device Authorization](./backend/device-authorization.md) - OAuth2 device code flow for agent runners
-- [MCP Integration](./MCP_TOOLS_REFERENCE.md) - Model Context Protocol tools for agents
-- [Observability](./OBSERVABILITY_AND_SAFETY.md) - Logging, metrics, and safety
-
-### 2. Frontend
-
-Frontend documentation covers React components, routing, state management, and user workflows.
-
-**Core Documentation:**
-- [Page Structure](./frontend/page-structure.md) - All pages and their routes
-- [Component Architecture](./frontend/component-architecture.md) - UI component organization
-- [State Management](./frontend/state-management.md) - Zustand stores and IndexedDB persistence
-- [Routing](./frontend/routing.md) - React Router v7 setup and protected routes
-- [User Workflows](./frontend/user-workflows.md) - Common user journeys
-
-**Specialized Topics:**
-- [Plugin System](./PLUGIN_SYSTEM.md) - Plugin architecture and API
-- [Real-time Sync](../REALTIME_SYNC.md) - Supabase Realtime integration
-- [Plan Graph](./frontend/plan-graph.md) - React Flow graph visualization
-- [UI Screens Reference](./ui_screen_list.md) - Complete screen inventory
-
-### 3. Relay Server
-
-Relay server documentation covers WebSocket communication, agent dispatch, and workspace management.
-
-**Core Documentation:**
-- [Relay Overview](./relay/overview.md) - WebSocket hub architecture
-- [Protocol Specification](./relay/protocol.md) - Message types and flows
-- [Machine Registry](./relay/machine-registry.md) - Connected machine tracking
-- [Dispatch System](./relay/dispatch-system.md) - Task routing and execution
-- [Workspace Preparation](./relay/workspace-preparation.md) - Git worktree management
-
-**Specialized Topics:**
-- [Agent Runner Protocol](./guides/agent-runner-protocol.md) - Client implementation guide
-- [Horizontal Scaling](./relay/scaling.md) - Redis pub/sub for multi-instance
-- [Security](./relay/security.md) - Authentication and rate limiting
-
-### 4. System Setup
-
-Setup documentation covers development modes, deployment, and infrastructure configuration.
-
-**Core Documentation:**
-- [Developer Setup](./DEVELOPER_SETUP.md) - Getting started with local development
-- [Local Mode](./setup/local-mode.md) - IndexedDB-only single-user mode
-- [Server Mode](./setup/server-mode.md) - Supabase multi-user mode
-- [Fly.io Deployment](./FLY_DEPLOYMENT.md) - Fly.io + Cloudflare Pages
-- [Supabase Local Development](./setup/supabase-local-dev.md) - Running Supabase locally
-
-**Specialized Topics:**
-- [Docker Setup](./setup/docker-setup.md) - Docker Compose configuration
-- [Environment Variables](./setup/environment-variables.md) - Complete env var reference
-- [Cloudflare Tunnel](./setup/cloudflare-tunnel.md) - Local HTTPS tunneling
-- [Fly.io Deployment](./FLY_DEPLOYMENT.md) - Fly.io deployment guide
-
-## Feature-Specific Documentation
-
-### Approvals
-- [Approval System](../APPROVAL_SYSTEM.md) - Complete approval architecture
-- [Approval Quickstart](../APPROVAL_QUICKSTART.md) - Getting started with approvals
-- [Approval Testing](../scripts/TESTING_APPROVAL.md) - Testing guide
-
-### Activity & Events
-- [Activity Feed](../ACTIVITY_FEED.md) - Activity tracking system
-- [Real-time Sync](../REALTIME_SYNC.md) - Supabase Realtime implementation
-- [Real-time Examples](./realtime-sync-example.md) - Usage examples
-- [Real-time Quick Reference](./realtime-sync-quick-reference.md) - Quick reference guide
-
-### Integrations
-- [GitHub Integration](./GITHUB_INTEGRATION.md) - GitHub OAuth and API integration
-- [GitHub Quickstart](./GITHUB_QUICKSTART.md) - Getting started with GitHub
-- [GitHub OAuth Local Setup](./GITHUB_OAUTH_LOCAL_SETUP.md) - Local OAuth setup
-- [Merge Queue Setup](./MERGE_QUEUE_SETUP.md) - GitHub merge queue integration
-- [Git Pull Hook](./git-pull-hook.md) - Git hooks for Claude Code
-
-### MCP Tools
-- [MCP Tools Reference](./MCP_TOOLS_REFERENCE.md) - Complete tool catalog
-- [MCP Tools Implementation](./MCP_TOOLS_IMPLEMENTATION.md) - Implementation details
-- [MCP Installation](./MCP_INSTALLATION.md) - Installation and setup
-
-### Testing
-- [Testing Guide](../TESTING.md) - Testing strategy and tools
-- [Approval Testing](../scripts/TESTING_APPROVAL.md) - Approval system tests
-- [Deployment Testing](./DEPLOYMENT_AND_TESTING.md) - Pre-deployment testing
-- [Scripts README](../scripts/README.md) - Testing scripts documentation
-
-## Architecture Documentation
-
-- [Architecture Overview](./ARCHITECTURE.md) - Complete system architecture
-- [Relay Overview](./relay/overview.md) - Relay server architecture
-- [Deployment Architecture](./architecture/deployment.md) - Production infrastructure
-
-## Additional Resources
-
-### Project Management
-- [Vision Document](../vision.md) - Product vision and roadmap
-- [CLAUDE.md](../CLAUDE.md) - AI assistant instructions
-- [Roadmap](../ROADMAP.md) - Feature roadmap
-- [Changelog](../CHANGELOG.md) - Release notes
-- [Contributing](../CONTRIBUTING.md) - Contribution guidelines
-
-### Security & Operations
-- [Deployment Security Checklist](./setup/security-checklist.md) - Security checklist
-- [Machine Names](./MACHINE_NAMES.md) - Machine naming conventions
-- [Observability](./OBSERVABILITY_AND_SAFETY.md) - Monitoring and safety
-
-### Performance
+- [Device Authorization](./backend/device-authorization.md) - OAuth2 device code flow
+- [Teams Schema](./backend/teams-schema.md) - Teams and collaboration schema
+- [Observability](./backend/observability-and-safety.md) - Logging, metrics, safety
+- [User Behavior Tracking](./backend/user-behavior-tracking.md) - Activity and analytics
+- [Machine Names](./backend/machine-names.md) - Machine naming conventions
 - [Prompt Caching](./backend/prompt-caching.md) - Claude prompt caching
 
-### Legacy/Deprecated
-- [Cyrus Integration](./backend/cyrus-integration.md) - Legacy integration (deprecated)
-- [Sidebar Supabase Sync](../SIDEBAR_SUPABASE_SYNC.md) - Old sync approach (deprecated)
-- [Local Server Mode Changes](./LOCAL_SERVER_MODE_CHANGES.md) - Migration notes
+### Frontend
 
-## Documentation Conventions
+- [Page Structure](./frontend/page-structure.md) - Pages and routes
+- [Component Architecture](./frontend/component-architecture.md) - UI component organization
+- [State Management](./frontend/state-management.md) - Zustand stores
+- [Routing](./frontend/routing.md) - React Router v7 setup
+- [Plan Graph](./frontend/plan-graph.md) - React Flow graph visualization
+- [Keyboard Navigation](./frontend/keyboard-navigation.md) - Keyboard nav system
+- [UI Screen List](./frontend/ui-screen-list.md) - Complete screen inventory
 
-### File Organization
-- `docs/backend/` - Backend implementation details
-- `docs/frontend/` - Frontend implementation details
-- `docs/relay/` - Relay server documentation
-- `docs/setup/` - Setup and deployment guides
-- `docs/architecture/` - High-level architecture docs
-- `docs/guides/` - How-to guides and tutorials
-- Root directory - Feature-specific documentation (APPROVAL_SYSTEM.md, ACTIVITY_FEED.md, etc.)
+### Relay Server
 
-### Cross-References
-- Use relative paths for all links
-- Link to the most specific documentation available
-- Keep examples up-to-date with current implementation
+- [Relay Overview](./relay/overview.md) - WebSocket hub architecture
+- [Protocol Specification](./relay/protocol.md) - Message types and flows
+- [Workspace Preparation](./relay/workspace-preparation.md) - Git worktree management
 
-### Updating Documentation
-When adding new features:
-1. Create feature-specific documentation in the root if it's a major feature
-2. Add implementation details to the appropriate section (backend/frontend/relay/setup)
-3. Update this index with links to new documentation
-4. Update CLAUDE.md with any new patterns or conventions
+### Setup & Deployment
+
+- [Developer Setup](./setup/developer-setup.md) - Getting started guide
+- [Local Mode](./setup/local-mode.md) - IndexedDB-only single-user mode
+- [Server Mode](./setup/server-mode.md) - Supabase multi-user mode
+- [Environment Variables](./setup/environment-variables.md) - Complete env var reference
+- [Fly Deployment](./setup/fly-deployment.md) - Fly.io deployment guide
+- [Xi Fu Deployment](./setup/xi-fu-deployment.md) - Production deployment runbook
+- [Deployment & Testing](./setup/deployment-and-testing.md) - Pre-deployment testing
+- [Cloudflare Tunnel](./setup/cloudflare-tunnel.md) - Local HTTPS tunneling
+- [Docker Setup](./setup/docker-setup.md) - Docker Compose configuration
+- [Supabase Local Dev](./setup/supabase-local-dev.md) - Running Supabase locally
+- [HPC SSH Setup](./setup/hpc-ssh-setup.md) - HPC cluster connection
+- [Security Checklist](./setup/security-checklist.md) - Security checklist
+
+### Features
+
+- [Approval System](./features/approval-system.md) - Approval architecture
+- [Activity Feed](./features/activity-feed.md) - Activity tracking system
+- [Realtime Sync](./features/realtime-sync.md) - Supabase Realtime integration
+- [Plugin System](./features/plugin-system.md) - Plugin architecture and API
+
+### MCP Tools
+
+- [Tools Reference](./mcp/tools-reference.md) - Complete MCP tool catalog
+- [Tools Implementation](./mcp/tools-implementation.md) - Implementation details
+- [Installation](./mcp/installation.md) - MCP installation and setup
+
+### Integrations
+
+- [GitHub Integration](./integrations/github.md) - GitHub OAuth and API
+- [GitHub OAuth Local Setup](./integrations/github-oauth-local-setup.md) - Local OAuth setup
+- [Merge Queue](./integrations/merge-queue-setup.md) - GitHub merge queue
+- [Overleaf & Zotero](./integrations/overleaf-zotero.md) - Research tool integrations
+
+### Guides
+
+- [Agent Runner Protocol](./guides/agent-runner-protocol.md) - Client implementation guide
+- [Git Pull Hook](./guides/git-pull-hook.md) - Git hooks for Claude Code
+
+### Testing
+
+- [Testing Guide](./testing/testing.md) - Testing strategy and tools
+- [Approval Testing](./testing/approval-testing.md) - Approval system tests
+- [Approval Quickstart](./testing/approval-quickstart.md) - Approval developer guide
+
+### Deprecated
+
+- [Architecture v1](./deprecated/architecture-v1.md) - Old architecture doc (SQLite era)
+- [Cyrus Integration](./deprecated/cyrus-integration.md) - Legacy integration
+- [Local Server Mode Changes](./deprecated/local-server-mode-changes.md) - Migration notes
+- [Sidebar Supabase Sync](./deprecated/sidebar-supabase-sync.md) - Old sync approach
+- [Frontend User Workflows](./deprecated/frontend-user-workflows.md) - Superseded by design/USER_WORKFLOWS.md
+
+## Root Documents
+
+These files remain at the project root by convention:
+
+- `README.md` - Project overview
+- `CLAUDE.md` - AI assistant instructions
+- `CONTRIBUTING.md` - Contribution guidelines
+- `CHANGELOG.md` - Release notes
+- `ROADMAP.md` - Feature roadmap
+- `vision.md` - Product vision
+
+## Other
+
+- `scripts/README.md` - Test scripts documentation
+- `scripts/TESTING_APPROVAL.md` - Approval testing scripts (canonical source)

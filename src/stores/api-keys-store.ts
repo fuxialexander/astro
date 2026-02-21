@@ -6,7 +6,7 @@
  */
 
 import { create } from "zustand"
-import type { EncryptedApiKey, DecryptedApiKey } from "@/types"
+import type { EncryptedApiKey } from "@/types"
 import { encryptText, decryptText, getEncryptionPassword } from "@/lib/crypto-utils"
 import { getSupabase } from "@/lib/supabase-client"
 import { isServerMode } from "@/lib/app-mode"

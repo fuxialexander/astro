@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/stores/auth-store"
 import { isServerMode } from "@/lib/app-mode"
-import { cn } from "@/lib/utils"
 
 interface InviteDetails {
   email: string

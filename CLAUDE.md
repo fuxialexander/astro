@@ -141,8 +141,8 @@ src/
 │   │   └── job-list.tsx          # Active HPC jobs list
 │   ├── environments/
 │   │   └── add-environment-dialog.tsx # Dialog for adding local/HPC/cloud machines
+│   ├── generation-toasts.tsx    # Toast notifications during AI plan generation
 │   ├── agent/
-│   │   ├── generation-overlay.tsx # Modal overlay during AI plan generation
 │   │   └── chat-panel.tsx        # Sidebar chat for plan refinement
 │   ├── activity-dialog.tsx       # Activity history dialog for projects
 │   ├── approval-card.tsx         # Approval/decision UI component
@@ -150,21 +150,33 @@ src/
 │   ├── theme-provider.tsx        # Light/dark/system theme context
 │   └── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
 ├── stores/
-│   ├── project-store.ts          # Projects CRUD, IndexedDB persistence, mock seed data
-│   ├── plan-store.ts             # Plan nodes/edges per project, bulk updates
-│   ├── agent-store.ts            # AI generation state, SSE streaming, abort
-│   ├── execution-store.ts        # Task execution state, SSE stream processing, provider/machine management
-│   ├── realtime-store.ts         # Real-time events: machines, activity feed, task streams
-│   ├── machines-store.ts         # Registered machines (fetch, revoke, rename)
-│   ├── slurm-store.ts            # HPC/Slurm cluster state (clusters, jobs, queue tracking)
-│   ├── user-profile-store.ts     # User identity and preferences (name, email, domains, API keys)
-│   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties), IndexedDB persistence
-│   ├── usage-store.ts            # Session usage metrics (cost, tokens, task counts), IndexedDB persistence
-│   ├── task-chat-store.ts        # Task-level chat history, IndexedDB persistence
 │   ├── activity-store.ts         # Activity tracking and history, IndexedDB persistence
+│   ├── agent-store.ts            # AI generation state, SSE streaming, abort
+│   ├── api-keys-store.ts         # Encrypted API keys for external services (Web Crypto API)
+│   ├── auth-store.ts             # Supabase auth session, user state, WebAuthn/passkey
+│   ├── connected-accounts-store.ts # Connected external accounts (Slack, Telegram, GitHub webhooks, Linear)
+│   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties), IndexedDB persistence
+│   ├── execution-store.ts        # Task execution state, SSE stream processing, provider/machine management
+│   ├── github-store.ts           # GitHub integration: connection, repositories, selections
 │   ├── initiative-store.ts       # Initiatives/projects grouping, IndexedDB persistence
+│   ├── keyboard-nav-store.ts     # Keyboard navigation state (focused item, navigable items)
+│   ├── machines-store.ts         # Registered machines (fetch, revoke, rename)
+│   ├── observation-store.ts      # Trace observation trees for execution debugging
+│   ├── plan-store.ts             # Plan nodes/edges per project, bulk updates
+│   ├── plugin-store.ts           # Plugin registry, manifests, contributions, IndexedDB persistence
+│   ├── project-store.ts          # Projects CRUD, IndexedDB persistence, mock seed data
+│   ├── realtime-store.ts         # Real-time events: machines, activity feed, task streams
+│   ├── session-store.ts          # Unified session store: plan chat, task chat, steer messages, execution sessions
+│   ├── settings-store.ts         # Model selection, backend health, IndexedDB persistence
+│   ├── sidebar-store.ts          # Sidebar navigation items, visibility, ordering
+│   ├── skill-store.ts            # OpenClaw skill registry, IndexedDB persistence
+│   ├── slurm-store.ts            # HPC/Slurm cluster state (clusters, jobs, queue tracking)
+│   ├── task-chat-store.ts        # Task-level chat history, IndexedDB persistence
+│   ├── team-store.ts             # Teams CRUD, team members, IndexedDB persistence
+│   ├── toast-store.ts            # Toast notification queue (info, success, warning, error)
 │   ├── ui-store.ts               # Sidebar collapsed, command palette open
-│   └── settings-store.ts         # Model selection, backend health, IndexedDB persistence
+│   ├── usage-store.ts            # Session usage metrics (cost, tokens, task counts), IndexedDB persistence
+│   └── user-profile-store.ts     # User identity and preferences (name, email, domains, API keys)
 ├── lib/
 │   ├── db.ts                     # idb-keyval wrapper for IndexedDB
 │   ├── api-client.ts             # HTTP + SSE client for /api/agent/* endpoints
@@ -205,7 +217,7 @@ server/
 │   │   └── adapters/             # Provider implementations
 │   │       ├── claude-code.ts    # Claude Code provider adapter
 │   │       ├── codex.ts          # Codex provider adapter
-│   │       └── slurm.ts          # SLURM provider adapter
+│   │       └── anthropic-direct.ts # Anthropic direct API provider adapter
 │   ├── dispatch/                 # Task dispatch engine
 │   │   ├── dispatch-engine.ts    # Core dispatch execution logic
 │   │   ├── dispatch-queue.ts     # Task queue management
@@ -428,24 +440,27 @@ Agent runners store data in `~/.astro/`:
 
 ## Documentation
 
-**Main Index:** `docs/index.md` — Complete documentation with sections for Backend, Frontend, Relay, and System Setup
+**Main Index:** `docs/index.md` — Complete documentation index
+
+### Design Documents (Canonical Reference)
+- `docs/design/` — Authoritative design documents (ARCHITECTURE, BACKEND, FRONTEND, RELAY, AGENT_RUNNER, DATA_MODEL, USER_WORKFLOWS)
+- `docs/design/CURRENT_CONFLICT_VIEW.md` — Known conflicts between design docs and code
 
 ### Quick Links
 
 **Backend:**
-- `docs/backend/database-schema.md` — Complete database schema reference
-- `docs/backend/api-reference.md` — All API endpoints
+- `docs/backend/database-schema.md` — Database schema reference
+- `docs/backend/api-reference.md` — API endpoints
 - `docs/backend/rls-policies.md` — Row-level security policies
-- `docs/backend/data-flows.md` — How data moves through the system
+- `docs/backend/data-flows.md` — Data flows
 - `docs/backend/authentication.md` — WebAuthn/passkey implementation
 - `docs/backend/device-authorization.md` — OAuth2 device code flow
-- `docs/backend/user-behavior-tracking.md` — Activity, observability, audit logs
+- `docs/backend/observability-and-safety.md` — Logging, metrics, safety
 
 **Frontend:**
-- `docs/frontend/page-structure.md` — All pages and routes
+- `docs/frontend/page-structure.md` — Pages and routes
 - `docs/frontend/component-architecture.md` — UI component organization
 - `docs/frontend/state-management.md` — Zustand stores
-- `REALTIME_SYNC.md` — Supabase Realtime integration
 - `docs/frontend/plan-graph.md` — React Flow graph visualization
 
 **Relay Server:**
@@ -453,39 +468,32 @@ Agent runners store data in `~/.astro/`:
 - `docs/relay/protocol.md` — Message protocol specification
 - `docs/relay/workspace-preparation.md` — Git worktree management
 
-**System Setup:**
-- `docs/DEVELOPER_SETUP.md` — Getting started guide
+**Setup & Deployment:**
+- `docs/setup/developer-setup.md` — Getting started guide
 - `docs/setup/local-mode.md` — IndexedDB-only mode
 - `docs/setup/server-mode.md` — Supabase multi-user mode
-- `docs/setup/environment-variables.md` — Complete env var reference
+- `docs/setup/environment-variables.md` — Env var reference
+- `docs/setup/fly-deployment.md` — Fly.io deployment
 
-### Core Documentation
-- `vision.md` — Full product vision document (confidential, Feb 2026 draft)
-- `docs/ARCHITECTURE.md` — Complete system architecture
-- `docs/architecture/` — Architecture diagrams and deep dives
+**Features:**
+- `docs/features/approval-system.md` — Approval system architecture
+- `docs/features/activity-feed.md` — Activity tracking
+- `docs/features/realtime-sync.md` — Supabase Realtime sync
+- `docs/features/plugin-system.md` — Plugin architecture
 
-### Feature Documentation
-- `ACTIVITY_FEED.md` — Activity tracking system implementation and architecture
-- `APPROVAL_SYSTEM.md` — Complete approval system architecture (dynamic + procedure-level)
-- `APPROVAL_TESTING_CHEATSHEET.md` — Quick reference for approval testing scripts
-- `REALTIME_SYNC.md` — Supabase realtime sync system with multi-device collaboration
-- `REALTIME_SYNC_IMPLEMENTATION.md` — Realtime sync implementation details
-- `docs/PLUGIN_SYSTEM.md` — Plugin architecture and API
-- `docs/MCP_TOOLS_REFERENCE.md` — Complete MCP tools reference (18 tools for agents)
-- `docs/MCP_TOOLS_IMPLEMENTATION.md` — MCP tools implementation summary
-- `docs/MCP_INSTALLATION.md` — MCP installation guide
-- `docs/GITHUB_INTEGRATION.md` — GitHub OAuth and API integration
-- `docs/OBSERVABILITY_AND_SAFETY.md` — Logging, metrics, and safety
+**MCP & Integrations:**
+- `docs/mcp/tools-reference.md` — MCP tools reference (15 tools)
+- `docs/mcp/installation.md` — MCP installation
+- `docs/integrations/github.md` — GitHub OAuth and API
 
-### Testing Documentation
-- `scripts/TESTING_APPROVAL.md` — Comprehensive approval system testing guide
-- `scripts/README.md` — Testing scripts documentation
-- `APPROVAL_QUICKSTART.md` — Approval system quick start guide
-- `docs/DEPLOYMENT_AND_TESTING.md` — Pre-deployment testing
+**Testing:**
+- `docs/testing/testing.md` — Testing strategy
+- `docs/testing/approval-testing.md` — Approval system tests
+- `scripts/TESTING_APPROVAL.md` — Approval testing scripts
 
 ## MCP Tools for Agents
 
-Agents running inside Astro tasks have access to **18 MCP tools** for self-directed work:
+Agents running inside Astro tasks have access to **15 MCP tools** for self-directed work:
 
 ### Plan Management (5 tools)
 - `query_plan` - Get plan graph (nodes + edges)
@@ -512,10 +520,4 @@ Agents running inside Astro tasks have access to **18 MCP tools** for self-direc
 ### User Interaction (1 tool)
 - `ask_user_question` - Ask user for decisions
 
-### Session Bridge (4 tools, `astro_*` prefix)
-- `astro_attach` - Attach session to a task
-- `astro_detach` - Detach from current task
-- `astro_status` - Check attachment status
-- `astro_send` - Send message/event to task
-
-See `docs/MCP_TOOLS_REFERENCE.md` for complete documentation with examples.
+See `docs/mcp/tools-reference.md` for complete documentation with examples.

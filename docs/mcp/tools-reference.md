@@ -4,7 +4,7 @@ This document describes all MCP (Model Context Protocol) tools available to agen
 
 ## Overview
 
-Agents executing tasks in Astro have access to **18 comprehensive MCP tools** that enable them to:
+Agents executing tasks in Astro have access to **15 server-side MCP tools** that enable them to:
 - **Manage the plan** (create/update/delete tasks, dependencies)
 - **Manage projects** (create/update projects, query project details)
 - **Manage initiatives** (group related projects)

@@ -44,6 +44,25 @@ interface PlanGraphResult {
   }>
 }
 
+/**
+ * Fetch available slash commands from a connected machine.
+ */
+export async function fetchSlashCommands(
+  machineId: string,
+  workingDirectory?: string,
+): Promise<{ name: string; description: string }[]> {
+  try {
+    const headers = await authHeaders()
+    const params = new URLSearchParams({ machineId })
+    if (workingDirectory) params.set("workingDirectory", workingDirectory)
+    const res = await fetch(`${apiUrl}/api/relay/slash-commands?${params}`, { headers })
+    if (!res.ok) return []
+    return await res.json()
+  } catch {
+    return []
+  }
+}
+
 export async function generatePlan(
   params: { description: string; visionDoc?: string; projectId: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string },
   callbacks: {

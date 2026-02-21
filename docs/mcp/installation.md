@@ -49,7 +49,7 @@ If you can't publish or link, modify the MCP config to use a local path:
     "astro": {
       "command": "node",
       "args": [
-        "/absolute/path/to/nexus/packages/agent-runner/dist/cli.js",
+        "/absolute/path/to/astro/packages/agent-runner/dist/cli.js",
         "mcp"
       ]
     }
@@ -78,7 +78,7 @@ cat ~/.claude/mcp_servers.json
 
 ## MCP Server Tools
 
-The Astro MCP server provides 18 tools across 5 categories:
+The Astro MCP server provides 15 tools across 5 categories:
 
 ### User Interaction (1 tool)
 - `ask_user_question` - Ask user for decisions
@@ -105,7 +105,9 @@ The Astro MCP server provides 18 tools across 5 categories:
 - `get_user_profile` - Get user profile
 - `query_executions` - Query execution history
 
-See [MCP_TOOLS_REFERENCE.md](./MCP_TOOLS_REFERENCE.md) for complete documentation.
+See [tools-reference.md](./tools-reference.md) for complete documentation.
+
+> **Note:** In addition to these 15 server-side tools, the agent-runner provides 4 session bridge tools (`astro_attach`, `astro_detach`, `astro_status`, `astro_send`) for managing execution sessions. Total: 19 tools across both MCP servers.
 
 ## Troubleshooting
 
@@ -198,4 +200,4 @@ Update this if you need newer MCP SDK features.
 
 ⚠️ **Local development caveat** - Use `npm link` or direct path until package is published to npm
 
-📖 **Full tool reference** - See [MCP_TOOLS_REFERENCE.md](./MCP_TOOLS_REFERENCE.md) for all 18 tools
+📖 **Full tool reference** - See [tools-reference.md](./tools-reference.md) for all 15 server-side tools (plus 4 session bridge tools in agent-runner)

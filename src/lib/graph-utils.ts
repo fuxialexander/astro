@@ -156,7 +156,6 @@ export function layoutGraph(
     for (const node of row) {
       if (assignedToColumn.has(node.id)) continue
 
-      const nodeChildren = children.get(node.id) ?? []
       const nodeInDegree = inDegree.get(node.id) ?? 0
 
       // If this node has a parent that assigned it a column, use that
@@ -201,7 +200,6 @@ export function layoutGraph(
 
     for (const n of row) {
       const col = chainColumn.get(n.id) ?? 0
-      const w = n.type === "milestone" ? MILESTONE_WIDTH : NODE_WIDTH
       const x = margin + col * columnWidth
       positions.set(n.id, { x, y })
     }
@@ -263,14 +261,3 @@ export function layoutGraph(
   return positions
 }
 
-/** Get the average x position of a node's parents (for sorting within ranks). */
-function getParentX(
-  nodeId: string,
-  edges: PlanEdge[],
-  positions: Map<string, { x: number; y: number }>,
-): number {
-  const parentEdges = edges.filter((e) => e.target === nodeId)
-  if (parentEdges.length === 0) return 0
-  const sum = parentEdges.reduce((s, e) => s + (positions.get(e.source)?.x ?? 0), 0)
-  return sum / parentEdges.length
-}

@@ -13,6 +13,8 @@ Comprehensive design documentation for the Astro platform. Use these documents a
 | [RELAY.md](./RELAY.md) | WebSocket relay: protocol messages, machine registry, authentication (local vs server), horizontal scaling, event flow, protocol gaps |
 | [DATA_MODEL.md](./DATA_MODEL.md) | All data types: Project, PlanNode, PlanEdge, TaskExecution, Session, and more. Entity relationships, Postgres schema, IndexedDB keys |
 | [USER_WORKFLOWS.md](./USER_WORKFLOWS.md) | End-to-end data flows: project creation, plan generation, task execution, chat, steering, approvals, batch execution, branch pruning, device auth, procedure pipeline |
+| [IMPLEMENTATION_PIPELINE.md](./IMPLEMENTATION_PIPELINE.md) | Implementation priorities and pipeline |
+| [CURRENT_CONFLICT_VIEW.md](./CURRENT_CONFLICT_VIEW.md) | Known conflicts between design docs and actual code/technical docs |
 
 ## How to Use
 
@@ -24,6 +26,6 @@ Comprehensive design documentation for the Astro platform. Use these documents a
 
 ## Related Documents
 
-- `docs/SERVER_LOCAL_MODE_SEPARATION.md` — Migration plan: moving AI execution from server to agent runner
 - `CLAUDE.md` — Project-level instructions for Claude Code
 - `vision.md` — Product vision document
+- `docs/index.md` — Complete documentation index
