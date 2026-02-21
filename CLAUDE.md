@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The product vision is documented in `vision.md`. The UI design is in `UI.pen` (read via Pencil MCP tools only, not with `Read` or `Grep`).
 
+**Documentation:** Complete documentation is in `docs/index.md` with sections for Backend, Frontend, Relay Server, and System Setup.
+
 ## Build & Quality
 
 **After implementing any feature or code change, always run `npm run build` (or equivalent TypeScript compilation check) and fix ALL type errors before considering the task complete. Do not present work as done until it compiles cleanly.**
@@ -424,11 +426,43 @@ Agent runners store data in `~/.astro/`:
 - Agent runner: `@astro/agent` (packages/agent-runner)
 - CLI binary: `astro-agent`
 
-## File Reference
+## Documentation
+
+**Main Index:** `docs/index.md` — Complete documentation with sections for Backend, Frontend, Relay, and System Setup
+
+### Quick Links
+
+**Backend:**
+- `docs/backend/database-schema.md` — Complete database schema reference
+- `docs/backend/api-reference.md` — All API endpoints
+- `docs/backend/rls-policies.md` — Row-level security policies
+- `docs/backend/data-flows.md` — How data moves through the system
+- `docs/backend/authentication.md` — WebAuthn/passkey implementation
+- `docs/backend/device-authorization.md` — OAuth2 device code flow
+- `docs/backend/user-behavior-tracking.md` — Activity, observability, audit logs
+
+**Frontend:**
+- `docs/frontend/page-structure.md` — All pages and routes
+- `docs/frontend/component-architecture.md` — UI component organization
+- `docs/frontend/state-management.md` — Zustand stores
+- `docs/frontend/realtime-sync.md` — Supabase Realtime integration
+- `docs/frontend/plan-graph.md` — React Flow graph visualization
+
+**Relay Server:**
+- `docs/relay/overview.md` — WebSocket hub architecture
+- `docs/relay/protocol.md` — Message protocol specification
+- `docs/relay/workspace-preparation.md` — Git worktree management
+
+**System Setup:**
+- `docs/setup/developer-setup.md` — Getting started guide
+- `docs/setup/local-mode.md` — IndexedDB-only mode
+- `docs/setup/server-mode.md` — Supabase multi-user mode
+- `docs/setup/environment-variables.md` — Complete env var reference
 
 ### Core Documentation
 - `vision.md` — Full product vision document (confidential, Feb 2026 draft)
-- `server/types/relay.ts` — Relay server protocol documentation (see type definitions)
+- `docs/ARCHITECTURE.md` — Complete system architecture
+- `docs/architecture/` — Architecture diagrams and deep dives
 
 ### Feature Documentation
 - `ACTIVITY_FEED.md` — Activity tracking system implementation and architecture
@@ -436,17 +470,18 @@ Agent runners store data in `~/.astro/`:
 - `APPROVAL_TESTING_CHEATSHEET.md` — Quick reference for approval testing scripts
 - `REALTIME_SYNC.md` — Supabase realtime sync system with multi-device collaboration
 - `REALTIME_SYNC_IMPLEMENTATION.md` — Realtime sync implementation details
-- `E2E_TEST_COMPATIBILITY_FIX.md` — Test mode event transport handling
+- `docs/PLUGIN_SYSTEM.md` — Plugin architecture and API
 - `docs/MCP_TOOLS_REFERENCE.md` — Complete MCP tools reference (18 tools for agents)
 - `docs/MCP_TOOLS_IMPLEMENTATION.md` — MCP tools implementation summary
-- `docs/MCP_INSTALLATION.md` — MCP installation guide (npm package, local dev, troubleshooting)
+- `docs/MCP_INSTALLATION.md` — MCP installation guide
+- `docs/GITHUB_INTEGRATION.md` — GitHub OAuth and API integration
+- `docs/OBSERVABILITY_AND_SAFETY.md` — Logging, metrics, and safety
 
 ### Testing Documentation
 - `scripts/TESTING_APPROVAL.md` — Comprehensive approval system testing guide
 - `scripts/README.md` — Testing scripts documentation
 - `docs/APPROVAL_QUICKSTART.md` — Approval system quick start guide
-- `docs/realtime-sync-example.md` — Realtime sync usage examples
-- `docs/realtime-sync-quick-reference.md` — Realtime sync quick reference
+- `docs/DEPLOYMENT_AND_TESTING.md` — Pre-deployment testing
 
 ## MCP Tools for Agents
 
