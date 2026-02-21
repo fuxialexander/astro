@@ -48,8 +48,8 @@ const nodeTypes = { task: TaskNode as any }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const edgeTypes = { deletable: DeletableEdge as any }
 
-const POPOVER_WIDTH = 320
-const POPOVER_HEIGHT_EST = 180
+const POPOVER_WIDTH = 180 // Match node width
+const POPOVER_HEIGHT = 44   // Match node height
 const POPOVER_MARGIN = 12
 
 /** Clamps a screen position so a popover of known size stays within a container. */
@@ -60,7 +60,7 @@ function clampPopoverPosition(
   if (!container) return screenPos
   const rect = container.getBoundingClientRect()
   const maxX = rect.width - POPOVER_WIDTH - POPOVER_MARGIN
-  const maxY = rect.height - POPOVER_HEIGHT_EST - POPOVER_MARGIN
+  const maxY = rect.height - POPOVER_HEIGHT - POPOVER_MARGIN
   return {
     x: Math.max(POPOVER_MARGIN, Math.min(screenPos.x, maxX)),
     y: Math.max(POPOVER_MARGIN, Math.min(screenPos.y, maxY)),
@@ -358,10 +358,14 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       ? calculateChildPosition(parentNode, projectNodes, projectEdges)
       : dropPosition
 
-    const screenPos = clampPopoverPosition(
-      flowToScreenPosition(position),
-      canvasRef.current,
-    )
+    // Center the popup on the node position
+    const nodeScreenPos = flowToScreenPosition(position)
+    const centeredScreenPos = {
+      x: nodeScreenPos.x - POPOVER_WIDTH / 2,
+      y: nodeScreenPos.y - POPOVER_HEIGHT / 2,
+    }
+    const screenPos = clampPopoverPosition(centeredScreenPos, canvasRef.current)
+
     justCreatedChild.current = true
     setAddChildState({
       parentNodeId: connectingNodeId.current,
@@ -477,7 +481,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                 // Calculate center of viewport for form positioning
                 const container = canvasRef.current
                 const centerX = container ? container.clientWidth / 2 - POPOVER_WIDTH / 2 : 300
-                const centerY = container ? container.clientHeight / 2 - POPOVER_HEIGHT_EST / 2 : 200
+                const centerY = container ? container.clientHeight / 2 - POPOVER_HEIGHT / 2 : 200
                 setAddChildState({
                   parentNodeId: "", // Root level task
                   position: { x: centerX, y: centerY },
