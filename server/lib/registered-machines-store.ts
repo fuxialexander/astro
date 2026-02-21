@@ -32,6 +32,7 @@ function mapRowToMachine(row: typeof registeredMachines.$inferSelect): Registere
     platform: row.platform,
     environmentType: row.environmentType as EnvironmentType,
     providers: (row.providers ?? []) as ProviderType[],
+    providerConfigs: (row.providerConfigs ?? []) as import('../types/device-auth.js').ProviderConfig[],
     userId: row.userId,
     workspaceId: row.workspaceId ?? undefined,
     registeredAt: row.registeredAt,
@@ -52,6 +53,7 @@ function mapSupabaseToMachine(row: Record<string, unknown>): RegisteredMachine {
     platform: row.platform as string,
     environmentType: row.environment_type as EnvironmentType,
     providers: row.providers as ProviderType[],
+    providerConfigs: (row.provider_configs ?? []) as import('../types/device-auth.js').ProviderConfig[],
     userId: row.user_id as string,
     workspaceId: row.workspace_id as string | undefined,
     registeredAt: new Date(row.registered_at as string),
@@ -493,6 +495,35 @@ export async function updateMachineName(machineId: string, name: string): Promis
 
   const result = await db.update(registeredMachines)
     .set({ name })
+    .where(eq(registeredMachines.id, machineId))
+    .returning({ id: registeredMachines.id })
+  return result.length > 0
+}
+
+/**
+ * Update machine provider configurations
+ */
+export async function updateMachineProviderConfigs(
+  machineId: string,
+  providerConfigs: Array<{
+    provider: string
+    apiKey?: string
+    defaultModel?: string
+    enabled: boolean
+    settings?: Record<string, unknown>
+  }>
+): Promise<boolean> {
+  if (isServerMode()) {
+    const supabase = getServiceClient()
+    const { error } = await supabase
+      .from('registered_machines')
+      .update({ provider_configs: providerConfigs })
+      .eq('id', machineId)
+    return !error
+  }
+
+  const result = await db.update(registeredMachines)
+    .set({ providerConfigs: providerConfigs as never[] })
     .where(eq(registeredMachines.id, machineId))
     .returning({ id: registeredMachines.id })
   return result.length > 0

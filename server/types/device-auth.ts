@@ -153,6 +153,20 @@ export interface TokenRevokeRequest {
 // Registered Machine Types
 // ============================================================================
 
+/** Provider configuration for a machine */
+export interface ProviderConfig {
+  /** Provider identifier (anthropic, openai, etc.) */
+  provider: string;
+  /** API key (encrypted/masked) */
+  apiKey?: string;
+  /** Default model for this provider */
+  defaultModel?: string;
+  /** Whether this provider is enabled */
+  enabled: boolean;
+  /** Additional provider-specific settings */
+  settings?: Record<string, unknown>;
+}
+
 /** Registered machine entry in the database */
 export interface RegisteredMachine {
   /** Unique machine ID */
@@ -167,6 +181,8 @@ export interface RegisteredMachine {
   environmentType: EnvironmentType;
   /** Available providers */
   providers: ProviderType[];
+  /** Provider configurations (API keys, models, settings) */
+  providerConfigs?: ProviderConfig[];
   /** User ID who registered this machine */
   userId: string;
   /** Workspace ID (if applicable) */

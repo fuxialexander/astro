@@ -8,13 +8,9 @@ import {
   Shield,
   Link as LinkIcon,
   Server,
-  Bot,
-  Brain,
   Keyboard,
   Puzzle,
   Zap,
-  RefreshCw,
-  Terminal,
   Camera,
   Plus,
   Trash2,
@@ -28,9 +24,7 @@ import {
   Send,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
-import { useExecutionStore } from "@/stores/execution-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { clearAllData } from "@/lib/db"
 import { getSupabase } from "@/lib/supabase-client"
@@ -45,12 +39,6 @@ import { SkillSettingsContent } from "@/components/skill-settings"
 import { ChannelAccountCard } from "@/components/channel-account-card"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import type { DomainExpertise, ExperienceLevel, PreferredEnvironment } from "@/types"
-
-const models = [
-  { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
-  { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
-  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-]
 
 const domainOptions: { value: DomainExpertise; label: string; description: string }[] = [
   { value: "computational-biology", label: "Computational Biology", description: "Bioinformatics, genomics, protein analysis" },
@@ -85,8 +73,6 @@ type SettingsTab =
   | "security"
   | "connected-accounts"
   | "environments"
-  | "agents"
-  | "models"
   | "keyboard-shortcuts"
   | "plugins"
   | "skills"
@@ -101,8 +87,6 @@ const personalItems: { id: SettingsTab; label: string; icon: React.ElementType }
 
 const workspaceItems: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: "environments", label: "Environments", icon: Server },
-  { id: "agents", label: "Agents", icon: Bot },
-  { id: "models", label: "Models", icon: Brain },
   { id: "plugins", label: "Plugins", icon: Puzzle },
   { id: "skills", label: "Skills", icon: Zap },
   { id: "keyboard-shortcuts", label: "Keyboard shortcuts", icon: Keyboard },
@@ -1230,8 +1214,6 @@ const tabTitles: Record<SettingsTab, string> = {
   security: "Security & access",
   "connected-accounts": "Connected accounts",
   environments: "Environments",
-  agents: "Agents",
-  models: "Models",
   plugins: "Plugins",
   skills: "Skills",
   "keyboard-shortcuts": "Keyboard shortcuts",
@@ -1246,10 +1228,6 @@ export function Settings() {
         return <PreferencesContent />
       case "profile":
         return <ProfileContent />
-      case "models":
-        return <ModelsContent />
-      case "agents":
-        return <AgentsContent />
       case "connected-accounts":
         return <ConnectedAccountsContent />
       case "plugins":

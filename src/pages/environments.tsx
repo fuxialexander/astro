@@ -16,6 +16,7 @@ import {
   Pencil,
   Check,
   X,
+  Settings,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -27,6 +28,7 @@ import { useExecutionStore, type ComputeBackendInfo } from "@/stores/execution-s
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
+import { MachineConfigDialog } from "@/components/environments/machine-config-dialog"
 import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
 
@@ -152,9 +154,10 @@ function InlineMachineName({ machineId, name, fallback }: {
   )
 }
 
-function ConnectedMachinesCard({ machines, onRemove }: {
+function ConnectedMachinesCard({ machines, onRemove, onConfigure }: {
   machines: MachineEntry[]
   onRemove?: (machineId: string) => void
+  onConfigure?: (machineId: string) => void
 }) {
   return (
     <Card>
@@ -205,6 +208,16 @@ function ConnectedMachinesCard({ machines, onRemove }: {
                       style={{ width: `${Math.min(loadPercent, 100)}%` }}
                     />
                   </div>
+                  {onConfigure && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-foreground hidden md:flex"
+                      onClick={() => onConfigure(machine.machineId)}
+                    >
+                      <Settings className="h-3 w-3" />
+                    </Button>
+                  )}
                   {onRemove && (
                     <Button
                       variant="ghost"
@@ -543,6 +556,8 @@ export function Environments() {
   const [backendContextString, setBackendContextString] = useState("")
   const [backendDialogOpen, setBackendDialogOpen] = useState(false)
   const [backendDetailLoading, setBackendDetailLoading] = useState(false)
+  const [machineConfigDialogOpen, setMachineConfigDialogOpen] = useState(false)
+  const [selectedMachine, setSelectedMachine] = useState<RegisteredMachine | null>(null)
   const fetchBackendDetail = useExecutionStore((s) => s.fetchBackendDetail)
   const fetchRemoteBackendDetail = useExecutionStore((s) => s.fetchRemoteBackendDetail)
 
@@ -651,6 +666,14 @@ export function Environments() {
     if (isMultiTenant) fetchMachines()
   }
 
+  const handleConfigureMachine = (machineId: string) => {
+    const machine = registeredMachines.find((m) => m.id === machineId)
+    if (machine) {
+      setSelectedMachine(machine)
+      setMachineConfigDialogOpen(true)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 p-4 md:p-8 md:px-10">
       {/* Header */}
@@ -747,6 +770,7 @@ export function Environments() {
             <ConnectedMachinesCard
               machines={connectedLiveMachines}
               onRemove={(id) => revokeMachine(id)}
+              onConfigure={handleConfigureMachine}
             />
           </div>
         </div>
@@ -864,6 +888,13 @@ export function Environments() {
         backend={selectedBackend}
         contextString={backendContextString}
         loading={backendDetailLoading}
+      />
+
+      {/* Machine Config Dialog */}
+      <MachineConfigDialog
+        open={machineConfigDialogOpen}
+        onOpenChange={setMachineConfigDialogOpen}
+        machine={selectedMachine}
       />
     </div>
   )
