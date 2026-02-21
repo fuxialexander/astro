@@ -12,6 +12,8 @@ import {
   isValidDateStr,
 } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
+import { useKeyboardNav } from "@/hooks/use-keyboard-nav"
+import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 
 // Map barClass to ios.pen gradient styles
 function getBarGradient(barClass: string): string {
@@ -123,6 +125,38 @@ export function ItemTimelineView<T>({
   }
   const ppdRef = useRef(ppd)
   useEffect(() => { ppdRef.current = ppd }, [ppd])
+
+  // Keyboard navigation
+  const itemRefs = useRef<Map<string, HTMLElement>>(new Map())
+  const setItems = useKeyboardNavStore((s) => s.setItems)
+  const clear = useKeyboardNavStore((s) => s.clear)
+
+  const { focusedId } = useKeyboardNav({
+    onActivate: (id) => {
+      const row = rows.find((r) => r.kind === "item" && r.timeline.id === id)
+      if (row && row.kind === "item" && onItemClick) {
+        onItemClick(row.item)
+      }
+    },
+    enabled: true,
+  })
+
+  // Update keyboard nav items when rows change
+  useEffect(() => {
+    const items = rows
+      .filter((r): r is TimelineRow<T> & { kind: "item" } => r.kind === "item")
+      .map((r) => ({
+        id: r.timeline.id,
+        type: "task" as const,
+        element: itemRefs.current.get(r.timeline.id),
+      }))
+    setItems(items)
+  }, [rows, setItems])
+
+  // Clear on unmount
+  useEffect(() => {
+    return () => clear()
+  }, [clear])
 
   // Which button to highlight — nearest preset
   const activePreset = closestPreset(ppd)
@@ -358,10 +392,18 @@ export function ItemTimelineView<T>({
             ) : (
               <div
                 key={row.timeline.id}
+                ref={(el) => {
+                  if (el) {
+                    itemRefs.current.set(row.timeline.id, el)
+                  } else {
+                    itemRefs.current.delete(row.timeline.id)
+                  }
+                }}
                 onClick={() => onItemClick?.(row.item)}
                 className={cn(
-                  "flex items-center border-b border-border px-4 hover:bg-muted/30 transition-colors",
-                  onItemClick && "cursor-pointer"
+                  "flex items-center border-b border-border px-4 hover:bg-muted/30 transition-all duration-200",
+                  onItemClick && "cursor-pointer",
+                  focusedId === row.timeline.id && "shadow-[0_0_0_2px_rgba(var(--primary),0.3)] bg-accent/20 scale-[1.005]"
                 )}
                 style={{ height: `${rowHeight}px` }}
               >

@@ -28,6 +28,8 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, canExecuteNode } from "@/stores/execution-store"
 import { isServerMode } from "@/lib/app-mode"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { useKeyboardNav } from "@/hooks/use-keyboard-nav"
+import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -130,6 +132,41 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const selectionActive = checkedIds.size > 0
 
   const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView, zoomIn: rfZoomIn, zoomOut: rfZoomOut } = useReactFlow()
+
+  // Keyboard navigation
+  const setItems = useKeyboardNavStore((s) => s.setItems)
+  const clear = useKeyboardNavStore((s) => s.clear)
+
+  const { focusedId } = useKeyboardNav({
+    onActivate: (id) => {
+      const node = projectNodes.find((n) => n.id === id)
+      if (node && onNodeSelect) {
+        onNodeSelect(node)
+      }
+    },
+    enabled: true,
+  })
+
+  // Update keyboard nav items when nodes change
+  useEffect(() => {
+    const items = projectNodes.map((n) => ({
+      id: n.id,
+      type: "node" as const,
+    }))
+    setItems(items)
+  }, [projectNodes, setItems])
+
+  // Clear on unmount
+  useEffect(() => {
+    return () => clear()
+  }, [clear])
+
+  // Sync focused node with selected node visually
+  useEffect(() => {
+    if (focusedId && focusedId !== selectedId) {
+      setSelectedId(focusedId)
+    }
+  }, [focusedId, selectedId])
 
   const projectNodes = useMemo(() => {
     let nodes = planNodes.filter((n) => n.projectId === projectId && n.type !== "milestone")
