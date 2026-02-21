@@ -39,8 +39,8 @@ COPY --from=builder --chown=astro:astro /app/server ./server
 COPY --from=builder --chown=astro:astro /app/dist ./dist
 
 # Landing page HTML files
-COPY --from=builder --chown=astro:astro /app/astro-landing.html ./astro-landing.html
-COPY --from=builder --chown=astro:astro /app/astro-about.html ./astro-about.html
+COPY --from=builder --chown=astro:astro /app/public/landing/index.html ./astro-landing.html
+COPY --from=builder --chown=astro:astro /app/public/landing/about.html ./astro-about.html
 
 # Supabase migrations (for reference / future use)
 COPY --from=builder --chown=astro:astro /app/supabase ./supabase
