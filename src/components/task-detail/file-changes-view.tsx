@@ -101,7 +101,7 @@ function DiffRenderer({ diff }: { diff: string }) {
   )
 }
 
-function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change: FileChange; machineId?: string; useLocalUrls: boolean; useVSCode: boolean }) {
+function FileChangeItem({ change, machineId, urlMode, useVSCode }: { change: FileChange; machineId?: string; urlMode: 'auto' | 'local' | 'remote'; useVSCode: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const [fileUrl, setFileUrl] = useState<string | undefined>()
   const config = actionConfig[change.action] || actionConfig.modified
@@ -116,11 +116,13 @@ function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change
       // Pre-cache hostname if needed
       await getBrowserHostname()
       const editorType = useVSCode ? 'vscode' : 'cursor'
-      const url = buildFileUrlSync(change.path, undefined, machine, useLocalUrls, editorType)
+      // Map urlMode to forceLocal parameter
+      const forceLocal = urlMode === 'local' ? true : urlMode === 'remote' ? 'remote' : false
+      const url = buildFileUrlSync(change.path, undefined, machine, forceLocal, editorType)
       setFileUrl(url)
     }
     buildUrl()
-  }, [change.path, machine, useLocalUrls, useVSCode])
+  }, [change.path, machine, urlMode, useVSCode])
 
   // Extract filename from path
   const parts = change.path.split("/")
@@ -189,7 +191,7 @@ function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change
 }
 
 export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
-  const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
+  const [urlMode, setUrlMode] = useState<'auto' | 'local' | 'remote'>('auto') // auto, local, or remote
   const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
 
   if (changes.length === 0) {
@@ -225,9 +227,12 @@ export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
           <Badge
             variant="outline"
             className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-6 px-2"
-            onClick={() => setUseLocalUrls(!useLocalUrls)}
+            onClick={() => {
+              // Cycle through: auto → local → remote → auto
+              setUrlMode(urlMode === 'auto' ? 'local' : urlMode === 'local' ? 'remote' : 'auto')
+            }}
           >
-            {useLocalUrls ? "Local" : "Remote"}
+            {urlMode === 'auto' ? "Auto" : urlMode === 'local' ? "Local" : "Remote"}
           </Badge>
           <Badge
             variant="outline"
@@ -242,7 +247,7 @@ export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
       {/* File list */}
       <div className="flex flex-col gap-2">
         {changes.map((change, i) => (
-          <FileChangeItem key={i} change={change} machineId={machineId} useLocalUrls={useLocalUrls} useVSCode={useVSCode} />
+          <FileChangeItem key={i} change={change} machineId={machineId} urlMode={urlMode} useVSCode={useVSCode} />
         ))}
       </div>
     </div>

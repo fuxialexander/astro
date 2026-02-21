@@ -141,7 +141,7 @@ export function isSameHostname(hostname1: string, hostname2: string): boolean {
  * @param filePath - Absolute file path
  * @param lineNumber - Optional line number
  * @param machine - Machine where the file is located
- * @param forceLocal - If true, always use file:// protocol (user viewing files locally)
+ * @param forceLocal - If true, always use file:// protocol; if false, auto-detect; if 'remote', force remote SSH protocol
  * @param editorType - Editor to use ('cursor' or 'vscode')
  * @returns URL string for editor integration
  */
@@ -149,17 +149,28 @@ export async function buildFileUrl(
   filePath: string,
   lineNumber: number | undefined,
   machine: MachineInfo | undefined,
-  forceLocal = false,
+  forceLocal: boolean | 'remote' = false,
   editorType: 'cursor' | 'vscode' = 'cursor'
 ): Promise<string> {
   const line = lineNumber ? `:${lineNumber}` : ''
 
   // If user toggled "Local" mode, always use file:// protocol
-  if (forceLocal) {
+  if (forceLocal === true) {
     return `${editorType}://file${filePath}${line}`
   }
 
   const sshTarget = machine?.name || machine?.hostname
+
+  // If user toggled "Remote" mode, always use SSH remote protocol
+  if (forceLocal === 'remote') {
+    if (!sshTarget) {
+      // No machine info available, fall back to file:// (cannot construct remote URL)
+      return `${editorType}://file${filePath}${line}`
+    }
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${filePath}${line}`
+  }
+
+  // Auto-detect mode (forceLocal === false)
   if (!sshTarget) {
     // No machine info available, fall back to file:// (assume local)
     return `${editorType}://file${filePath}${line}`
@@ -184,28 +195,39 @@ export async function buildFileUrl(
  * @param filePath - Absolute file path
  * @param lineNumber - Optional line number
  * @param machine - Machine where the file is located
- * @param forceLocal - If true, always use file:// protocol (user viewing files locally)
+ * @param forceLocal - If true, always use file:// protocol; if false, auto-detect; if 'remote', force remote SSH protocol
  * @param editorType - Editor to use ('cursor' or 'vscode')
  */
 export function buildFileUrlSync(
   filePath: string,
   lineNumber: number | undefined,
   machine: MachineInfo | undefined,
-  forceLocal = false,
+  forceLocal: boolean | 'remote' = false,
   editorType: 'cursor' | 'vscode' = 'cursor'
 ): string | undefined {
   const line = lineNumber ? `:${lineNumber}` : ''
 
   // If user toggled "Local" mode, always use file:// protocol
-  if (forceLocal) {
+  if (forceLocal === true) {
     return `${editorType}://file${filePath}${line}`
   }
 
+  const sshTarget = machine?.name || machine?.hostname
+
+  // If user toggled "Remote" mode, always use SSH remote protocol
+  if (forceLocal === 'remote') {
+    if (!sshTarget) {
+      // No machine info available, fall back to file:// (cannot construct remote URL)
+      return `${editorType}://file${filePath}${line}`
+    }
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${filePath}${line}`
+  }
+
+  // Auto-detect mode (forceLocal === false)
   if (!cachedBrowserHostname) {
     return undefined // Need to call getBrowserHostname() first
   }
 
-  const sshTarget = machine?.name || machine?.hostname
   if (!sshTarget) {
     return `${editorType}://file${filePath}${line}`
   }
