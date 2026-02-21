@@ -7,6 +7,7 @@
 
 import { create } from 'zustand'
 import { realtimeClient, type RealtimeEvent } from '@/lib/realtime-client'
+import { apiUrl } from '@/lib/api-url'
 import { usePlanStore } from './plan-store'
 import { useExecutionStore } from './execution-store'
 import { useMachinesStore } from './machines-store'
@@ -261,7 +262,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
 
     try {
-      const response = await fetch('/api/dispatch/approval', {
+      const response = await fetch(apiUrl('/api/dispatch/approval'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

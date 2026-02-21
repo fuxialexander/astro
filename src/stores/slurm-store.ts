@@ -7,6 +7,7 @@
 
 import { create } from 'zustand'
 import { loadState, saveState } from '@/lib/db'
+import { apiUrl } from '@/lib/api-url'
 
 // ============================================================================
 // Types
@@ -145,7 +146,7 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
   fetchClusters: async () => {
     set({ loading: true, error: null })
     try {
-      const response = await fetch('/api/relay/slurm/clusters')
+      const response = await fetch(apiUrl('/api/relay/slurm/clusters'))
       if (!response.ok) {
         throw new Error(`Failed to fetch clusters: ${response.statusText}`)
       }
@@ -185,7 +186,7 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
   fetchJobs: async () => {
     set({ loading: true, error: null })
     try {
-      const response = await fetch('/api/relay/slurm/jobs')
+      const response = await fetch(apiUrl('/api/relay/slurm/jobs'))
       if (!response.ok) {
         throw new Error(`Failed to fetch jobs: ${response.statusText}`)
       }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useProjectStore } from '@/stores/project-store'
+import { apiUrl } from '@/lib/api-url'
 
 export interface RepoSetupParams {
   projectId: string
@@ -31,7 +32,7 @@ export function useRepoSetup() {
   async function setupRepo(params: RepoSetupParams): Promise<RepoSetupResult | null> {
     console.log('[repo-setup] Starting repo setup for project:', params.projectId, params)
     try {
-      const res = await fetch('/api/repo/setup', {
+      const res = await fetch(apiUrl('/api/repo/setup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -90,7 +91,7 @@ export function useRepoSetup() {
     const { projectId, dir, name, description } = gitInitPrompt
     setGitInitPrompt(null)
     try {
-      const res = await fetch('/api/repo/git-init', {
+      const res = await fetch(apiUrl('/api/repo/git-init'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

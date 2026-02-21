@@ -6,6 +6,7 @@ import type { Activity } from "@/stores/activity-store"
 import { getAccessToken } from "./supabase-client"
 import { isLocalMode } from "./app-mode"
 import { snakeToCamel } from "./utils"
+import { apiUrl } from "./api-url"
 
 const BASE = "/api/data"
 
@@ -27,7 +28,7 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   }
 
   const headers = await getAuthHeaders()
-  const res = await fetch(url, {
+  const res = await fetch(apiUrl(url), {
     ...init,
     headers: {
       ...headers,

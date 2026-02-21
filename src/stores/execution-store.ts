@@ -824,7 +824,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   respondToApproval: async (approvalId: string, approved: boolean, selectedOption?: string) => {
     const headers = await getAuthHeaders()
 
-    const response = await fetch('/api/dispatch/approve', {
+    const response = await fetch(apiUrl('/api/dispatch/approve'), {
       method: 'POST',
       headers,
       body: JSON.stringify({ approvalId, approved, selectedOption }),

@@ -5,6 +5,8 @@
  * - File URLs: Smart local/remote protocol detection for Cursor integration
  */
 
+import { apiUrl } from "./api-url"
+
 /**
  * Minimal machine info needed for file URL building
  */
@@ -83,7 +85,7 @@ export async function getBrowserHostname(): Promise<string> {
 
   try {
     // Try to fetch from server-side endpoint
-    const response = await fetch('/api/system/hostname')
+    const response = await fetch(apiUrl('/api/system/hostname'))
     if (response.ok) {
       const data = await response.json() as { hostname?: string }
       if (data.hostname) {

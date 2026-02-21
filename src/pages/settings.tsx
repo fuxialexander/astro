@@ -37,6 +37,7 @@ import { useGitHubStore } from "@/stores/github-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { clearAllData } from "@/lib/db"
 import { getSupabase } from "@/lib/supabase-client"
+import { apiUrl } from "@/lib/api-url"
 import { isServerMode } from "@/lib/app-mode"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -508,7 +509,7 @@ function ProfileContent() {
           throw new Error('Not authenticated')
         }
 
-        const response = await fetch('/api/auth/delete-account', {
+        const response = await fetch(apiUrl('/api/auth/delete-account'), {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${session.access_token}`
