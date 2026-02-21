@@ -8,6 +8,8 @@ import {
   Shield,
   Link as LinkIcon,
   Server,
+  Bot,
+  Brain,
   Keyboard,
   Puzzle,
   Zap,
@@ -22,12 +24,16 @@ import {
   Github,
   MessageSquare,
   Send,
+  RefreshCw,
+  Terminal,
   Eye,
   EyeOff,
   Lock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
+import { useExecutionStore } from "@/stores/execution-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { clearAllData } from "@/lib/db"
@@ -51,6 +57,12 @@ import { SkillSettingsContent } from "@/components/skill-settings"
 import { ChannelAccountCard } from "@/components/channel-account-card"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import type { DomainExpertise, ExperienceLevel, PreferredEnvironment } from "@/types"
+
+const models = [
+  { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
+  { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
+  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
+]
 
 const domainOptions: { value: DomainExpertise; label: string; description: string }[] = [
   { value: "computational-biology", label: "Computational Biology", description: "Bioinformatics, genomics, protein analysis" },
@@ -369,6 +381,8 @@ function ProfileContent() {
     togglePreferredEnvironment,
     setNotificationsEnabled,
     setEmailNotifications,
+    setDefaultMachineId,
+    setDefaultProvider,
     addApiKey,
     removeApiKey,
   } = useUserProfileStore()
@@ -405,6 +419,22 @@ function ProfileContent() {
       loadKeys()
     }
   }, [keysLoaded, keysLoading, loadKeys])
+
+  // Load machines and providers for default selection
+  const machines = useExecutionStore((s) => s.machines)
+  const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
+  const loadMachines = useExecutionStore((s) => s.loadMachines)
+  const providers = useExecutionStore((s) => s.providers)
+  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
+  const loadProviders = useExecutionStore((s) => s.loadProviders)
+
+  useEffect(() => {
+    if (!machinesLoaded) loadMachines()
+    if (!providersLoaded) loadProviders()
+  }, [machinesLoaded, loadMachines, providersLoaded, loadProviders])
+
+  const onlineMachines = machines.filter((m) => m.status !== 'offline')
+  const availableProviders = providers.filter((p) => p.available)
 
   const handleAddApiKey = () => {
     if (newKeyProvider && newKeyName && newKeyValue) {
@@ -692,6 +722,59 @@ function ProfileContent() {
               </div>
             </label>
           ))}
+        </div>
+      </section>
+
+      {/* Default Execution Settings */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Default Execution Settings</h2>
+        <p className="text-[13px] text-muted-foreground">
+          Set default machine and agent for the node inspector. These will be pre-selected when creating or editing tasks.
+        </p>
+        <div className="rounded-xl border border-border bg-card">
+          {/* Default Machine */}
+          <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3.5">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm">Default machine</span>
+              <span className="text-[13px] text-muted-foreground">
+                Machine to pre-select in the node inspector
+              </span>
+            </div>
+            <select
+              value={profile.defaultMachineId || ""}
+              onChange={(e) => setDefaultMachineId(e.target.value || undefined)}
+              className="h-8 rounded-md border border-border bg-card px-2.5 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-w-[180px]"
+            >
+              <option value="">Auto (first available)</option>
+              {onlineMachines.map((m) => (
+                <option key={m.machineId} value={m.machineId}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Default Agent Provider */}
+          <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm">Default agent</span>
+              <span className="text-[13px] text-muted-foreground">
+                Agent provider to pre-select in the node inspector
+              </span>
+            </div>
+            <select
+              value={profile.defaultProvider || ""}
+              onChange={(e) => setDefaultProvider(e.target.value || undefined)}
+              className="h-8 rounded-md border border-border bg-card px-2.5 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-w-[180px]"
+            >
+              <option value="">Auto (first available)</option>
+              {availableProviders.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </section>
 

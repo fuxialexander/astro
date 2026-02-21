@@ -9,6 +9,7 @@ import { ExecutionPanel } from "@/components/execution"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useUserProfileStore } from "@/stores/user-profile-store"
 import { isServerMode } from "@/lib/app-mode"
 import { PRIORITY_CONFIG, PRIORITIES, ESTIMATES } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants } from "@/lib/status-config"
@@ -44,6 +45,7 @@ function MachineSelector({ selectedNode, projectId, onUpdate }: {
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const profile = useUserProfileStore((s) => s.profile)
   const isMultiTenant = isServerMode()
 
   useEffect(() => {
@@ -51,7 +53,18 @@ function MachineSelector({ selectedNode, projectId, onUpdate }: {
   }, [machinesLoaded, loadMachines])
 
   const onlineMachines = machines.filter((m) => m.status !== 'offline')
-  const effectiveId = selectedNode.machineId || project?.defaultMachineId || ""
+
+  // Effective machine ID fallback chain:
+  // 1. Node-specific machine
+  // 2. Project default machine
+  // 3. User profile default machine
+  // 4. First available online machine (in server mode)
+  // 5. Empty string (local mode)
+  const effectiveId = selectedNode.machineId
+    || project?.defaultMachineId
+    || profile.defaultMachineId
+    || (isMultiTenant && onlineMachines.length > 0 ? onlineMachines[0].machineId : "")
+
   const selectedMachine = effectiveId ? machines.find((m) => m.machineId === effectiveId) : undefined
 
   return (
