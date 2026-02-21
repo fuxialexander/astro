@@ -371,9 +371,13 @@ app.get('/plan/:projectId', async (c) => {
   return c.json({ nodes, edges })
 })
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 app.put('/plan/:projectId', async (c) => {
   const userId = c.get('user')!.id
   const projectId = c.req.param('projectId')
+
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
   // Verify project ownership
   const [project] = await db.select().from(projects).where(
@@ -446,6 +450,8 @@ app.put('/plan/:projectId', async (c) => {
 app.post('/plan/nodes', async (c) => {
   const userId = c.get('user')!.id
   const body = await c.req.json()
+
+  if (!body.projectId || !UUID_RE.test(body.projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
   // Verify project ownership
   const [project] = await db.select().from(projects).where(

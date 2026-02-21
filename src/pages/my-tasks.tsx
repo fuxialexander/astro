@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from "react"
-import { useSearchParams, useNavigate } from "react-router"
+import { useSearchParams } from "react-router"
 import {
   CheckSquare,
   ListFilter,
@@ -17,6 +17,7 @@ import { type ListGroup } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { FilterSelect } from "@/components/views/filter-select"
 import { PlanListView, PlanTimelineView, PlanBoardView } from "@/pages/plan-view"
+import { NodeInspectorSheet, NodeInspectorSidebar } from "@/components/node-inspector"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
@@ -140,7 +141,6 @@ export function MyTasks() {
   const displaySettings = useDisplaySettingsStore((s) => s.get("my-tasks"))
   const boardSettings = useDisplaySettingsStore((s) => s.get("my-tasks-board"))
   const updateNode = usePlanStore((s) => s.updateNode)
-  const navigate = useNavigate()
   const isDesktop = useMediaQuery("(min-width: 1024px)")
 
   const [searchParams, setSearchParams] = useSearchParams()
@@ -153,6 +153,7 @@ export function MyTasks() {
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all")
   const [projectFilter, setProjectFilter] = useState<string>("all")
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
+  const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
 
   // Clear URL search params after initializing filters
   useEffect(() => {
@@ -175,6 +176,15 @@ export function MyTasks() {
     return m
   }, [projects])
 
+  // Node inspector: resolve selected node's project
+  const handleNodeSelect = useCallback((node: PlanNode | null) => {
+    setSelectedNode(node)
+  }, [])
+
+  const selectedNodeProject = useMemo(() => {
+    if (!selectedNode) return null
+    return projects.find((p) => p.id === selectedNode.projectId) ?? null
+  }, [selectedNode, projects])
 
   // Filter tasks
   const filteredTasks = useMemo(() => {
@@ -329,8 +339,8 @@ export function MyTasks() {
 
   const getProjectName = useCallback((node: PlanNode) => projectMap.get(node.projectId), [projectMap])
   const handleBoardNodeSelect = useCallback((node: PlanNode) => {
-    window.location.href = `/project/${node.projectId}`
-  }, [])
+    handleNodeSelect(node)
+  }, [handleNodeSelect])
   const handleBoardNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
     updateNode(id, updates)
   }, [updateNode])
@@ -457,6 +467,8 @@ export function MyTasks() {
         )}
       </div>
 
+      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden">
       {isDesktop ? (
         // Desktop: Use Plan View components
         viewMode === "board" ? (
@@ -467,9 +479,7 @@ export function MyTasks() {
               <PlanBoardView
                 projectId="cross-project-mode"
                 nodes={sortedTasks}
-                onNodeSelect={(node) => {
-                  if (node) navigate(`/project/${node.projectId}`)
-                }}
+                onNodeSelect={handleNodeSelect}
                 applyCompletedFilter={false}
               />
             )}
@@ -481,9 +491,7 @@ export function MyTasks() {
             <PlanTimelineView
               projectId="cross-project-mode"
               nodes={sortedTasks}
-              onNodeSelect={(node) => {
-                if (node) navigate(`/project/${node.projectId}`)
-              }}
+              onNodeSelect={handleNodeSelect}
               applyCompletedFilter={false}
               displayViewKey="my-tasks-timeline"
             />
@@ -495,9 +503,7 @@ export function MyTasks() {
             <PlanListView
               projectId="cross-project-mode"
               nodes={sortedTasks}
-              onNodeSelect={(node) => {
-                if (node) navigate(`/project/${node.projectId}`)
-              }}
+              onNodeSelect={handleNodeSelect}
               getProjectIdFromGroup={(groupKey) => {
                 // When grouped by project, extract projectId from the group label
                 if (displaySettings.groupBy === "project") {
@@ -547,7 +553,7 @@ export function MyTasks() {
                   <span className="text-sm truncate">{node.title}</span>
                 </div>
               )}
-              onItemClick={(node) => { window.location.href = `/project/${node.projectId}` }}
+              onItemClick={(node) => handleNodeSelect(node)}
               onDateChange={(nodeId, startDate, endDate) => updateNode(nodeId, { startDate, endDate })}
             />
           )
@@ -585,7 +591,7 @@ export function MyTasks() {
                             task={task}
                             projectName={projectMap.get(task.projectId)}
                             showProject={displaySettings.groupBy !== "project"}
-                            onClick={() => { window.location.href = `/project/${task.projectId}` }}
+                            onClick={() => handleNodeSelect(task)}
                           />
                         ))}
                       </div>
@@ -625,6 +631,38 @@ export function MyTasks() {
           )
         )
       )}
+      </div>
+
+      {/* Node Inspector Sidebar (desktop) / Sheet (mobile) */}
+      {selectedNode && selectedNodeProject && (
+        isDesktop ? (
+          <NodeInspectorSidebar
+            node={selectedNode}
+            project={{
+              id: selectedNodeProject.id,
+              workingDirectory: selectedNodeProject.workingDirectory,
+              defaultMachineId: selectedNodeProject.defaultMachineId,
+            }}
+            viewMode="list"
+            onClose={() => setSelectedNode(null)}
+            onNodeUpdate={(updated) => setSelectedNode(updated)}
+          />
+        ) : (
+          <NodeInspectorSheet
+            open={true}
+            node={selectedNode}
+            project={{
+              id: selectedNodeProject.id,
+              workingDirectory: selectedNodeProject.workingDirectory,
+              defaultMachineId: selectedNodeProject.defaultMachineId,
+            }}
+            viewMode="list"
+            onClose={() => setSelectedNode(null)}
+            onNodeUpdate={(updated) => setSelectedNode(updated)}
+          />
+        )
+      )}
+      </div>
     </div>
   )
 }

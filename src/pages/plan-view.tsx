@@ -1,8 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
-import { useParams, useLocation, useNavigate, Link } from "react-router"
-import { FileText, Plus, MessageSquare, XCircle, Diamond, X, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, RotateCcw, Play, Download } from "lucide-react"
-import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
-import { VoiceInputButton } from "@/components/ui/voice-input-button"
+import { useParams, useLocation, useNavigate } from "react-router"
+import { FileText, Plus, MessageSquare, Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Download, Folder, Check } from "lucide-react"
 
 // Media query hook for responsive rendering
 function useMediaQuery(query: string) {
@@ -25,13 +23,13 @@ function useMediaQuery(query: string) {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
-import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
-import { ExecutionPanel } from "@/components/execution"
+import { NodeInspectorSheet, NodeInspectorSidebar } from "@/components/node-inspector"
 import { BoardView } from "@/components/board/board-view"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
@@ -342,6 +340,7 @@ function makePlanColumns(
 
 // --- Inline List Creation Row (reusable) ---
 // Renders with the same visual style as a real task row (PropertyPicker, Badge, etc.)
+// In cross-project mode (projectId not a valid UUID), shows a project picker before creating.
 function InlineListCreationRow({
   projectId,
   columns,
@@ -356,19 +355,27 @@ function InlineListCreationRow({
   onCreated?: () => void
 }) {
   const addNode = usePlanStore((s) => s.addNode)
+  const allProjects = useProjectStore((s) => s.projects)
   const [taskName, setTaskName] = useState("")
   const [priority, setPriority] = useState<Priority>("medium")
   const [status, setStatus] = useState<PlanNode["status"]>("planned")
   const [dueDate, setDueDate] = useState("")
   const [estimate, setEstimate] = useState<PlanNode["estimate"]>(undefined)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [showProjectPicker, setShowProjectPicker] = useState(false)
   const dateInputRef = useRef<HTMLInputElement>(null)
+  const projectPickerRef = useRef<HTMLDivElement>(null)
 
-  const handleCreate = () => {
+  // Detect cross-project mode: projectId is not a valid UUID
+  const isCrossProject = !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)
+  const effectiveProjectId = isCrossProject ? selectedProjectId : projectId
+
+  const createTask = useCallback((targetProjectId: string) => {
     if (!taskName.trim()) return
 
     addNode({
       id: crypto.randomUUID(),
-      projectId,
+      projectId: targetProjectId,
       type: "task",
       title: taskName.trim(),
       description: "",
@@ -391,7 +398,26 @@ function InlineListCreationRow({
     setStatus("planned")
     setDueDate("")
     setEstimate(undefined)
+    setSelectedProjectId(null)
+    setShowProjectPicker(false)
     onCreated?.()
+  }, [taskName, status, priority, dueDate, estimate, defaultMilestoneId, addNode, onCreated])
+
+  const handleCreate = () => {
+    if (!taskName.trim()) return
+
+    if (isCrossProject) {
+      // In cross-project mode, if only one project, use it directly
+      if (allProjects.length === 1) {
+        createTask(allProjects[0].id)
+      } else {
+        // Show project picker
+        setShowProjectPicker(true)
+      }
+      return
+    }
+
+    createTask(projectId)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -400,7 +426,11 @@ function InlineListCreationRow({
       handleCreate()
     } else if (e.key === "Escape") {
       e.preventDefault()
-      onCreated?.()
+      if (showProjectPicker) {
+        setShowProjectPicker(false)
+      } else {
+        onCreated?.()
+      }
     }
   }
 
@@ -412,6 +442,10 @@ function InlineListCreationRow({
   )
 
   const { text: dueDateText, className: dueDateClass } = formatDueDateShort(dueDate || undefined)
+
+  const selectedProjectName = effectiveProjectId
+    ? allProjects.find((p) => p.id === effectiveProjectId)?.name
+    : undefined
 
   return (
     <div className="flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-colors">
@@ -478,6 +512,51 @@ function InlineListCreationRow({
                 {estimate ?? "\u2014"}
               </span>
             </PropertyPicker>
+          ) : col.id === "project" && isCrossProject ? (
+            <div className="relative" ref={projectPickerRef}>
+              <Popover open={showProjectPicker} onOpenChange={setShowProjectPicker}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer text-xs text-muted-foreground"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Folder className="h-3 w-3 shrink-0" />
+                    {selectedProjectName ?? "Select project"}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  className="w-56 p-1"
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Select project</p>
+                  {allProjects.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer",
+                        "hover:bg-accent transition-colors",
+                        effectiveProjectId === p.id && "bg-accent/50"
+                      )}
+                      onClick={() => {
+                        if (taskName.trim()) {
+                          createTask(p.id)
+                        } else {
+                          setSelectedProjectId(p.id)
+                          setShowProjectPicker(false)
+                        }
+                      }}
+                    >
+                      <ColorIconBadge icon={p.icon} color={p.color} className="!p-0 !rounded-none" />
+                      <span className="flex-1 text-left truncate">{p.name}</span>
+                      {effectiveProjectId === p.id && <Check className="h-3.5 w-3.5 text-foreground" />}
+                    </button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
           ) : null}
         </div>
       ))}
@@ -707,7 +786,11 @@ export function PlanListView({
 
     if (displaySettings.groupBy === "project") {
       const projectMap = new Map(projects.map((p) => [p.id, p.name]))
+      // Start with all projects so empty ones get a group too
       const grouped: Record<string, PlanNode[]> = {}
+      for (const p of projects) {
+        grouped[p.name] = []
+      }
       for (const node of tasks) {
         const key = projectMap.get(node.projectId) ?? "Unknown Project"
         ;(grouped[key] ??= []).push(node)
@@ -1021,12 +1104,9 @@ export function PlanView() {
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateProject = useProjectStore((s) => s.updateProject)
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
-  const updateNode = usePlanStore((s) => s.updateNode)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
-  const resetExecution = useExecutionStore((s) => s.resetExecution)
-  const [isResetting, setIsResetting] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
 
   /** Select a node and close chat to show the inspector */
@@ -1070,25 +1150,6 @@ export function PlanView() {
       navigate(`/project/${id}/graph`, { replace: true })
     }
   }, [location.pathname, id, navigate])
-
-  // Voice transcription for node description
-  const handleTranscript = useCallback((text: string) => {
-    if (!selectedNode) return
-    const currentDescription = selectedNode.description ?? ""
-    const newDescription = currentDescription ? `${currentDescription} ${text}` : text
-    updateNode(selectedNode.id, { description: newDescription })
-    setSelectedNode({ ...selectedNode, description: newDescription })
-  }, [selectedNode, updateNode])
-
-  const {
-    isRecording,
-    isTranscribing,
-    isAvailable,
-    duration,
-    toggleRecording,
-  } = useVoiceTranscription({
-    onTranscript: handleTranscript,
-  })
 
   // Close detail panel when switching view modes
   useEffect(() => {
@@ -1137,13 +1198,6 @@ export function PlanView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, project?.workingDirectory, project?.defaultMachineId])
 
-  // Count upstream dependencies
-  const upstreamCount = useMemo(() => {
-    if (!selectedNode) return 0
-    const planEdges = usePlanStore.getState().edges
-    return planEdges.filter((e) => e.target === selectedNode.id).length
-  }, [selectedNode])
-
   if (!project) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -1152,170 +1206,13 @@ export function PlanView() {
     )
   }
 
-  const handlePrune = () => {
-    if (selectedNode) {
-      updateNode(selectedNode.id, { status: "pruned" })
-      setSelectedNode({ ...selectedNode, status: "pruned" })
-    }
-  }
-
-  // Render inspector panel content (shared between mobile sheet and desktop sidebar)
-  const renderInspectorContent = () => (
-    <>
-      <div className="flex flex-col gap-3.5">
-        {/* Priority — editable */}
-        <div className="flex items-center justify-between text-[13px]">
-          <span className="text-muted-foreground">Priority</span>
-          <PropertyPicker
-            value={selectedNode!.priority ?? "none"}
-            options={PRIORITY_OPTIONS}
-            title="Set priority"
-            onSelect={(id) => {
-              updateNode(selectedNode!.id, { priority: id as Priority })
-              setSelectedNode({ ...selectedNode!, priority: id as Priority })
-            }}
-          >
-            {(() => {
-              const config = PRIORITY_CONFIG[(selectedNode!.priority ?? "none") as Priority]
-              return (
-                <span className={cn("text-[13px] font-medium", config.color)}>
-                  {config.label}
-                </span>
-              )
-            })()}
-          </PropertyPicker>
-        </div>
-
-        {/* Estimate — editable */}
-        <div className="flex items-center justify-between text-[13px]">
-          <span className="text-muted-foreground">Estimate</span>
-          <PropertyPicker
-            value={selectedNode!.estimate}
-            options={ESTIMATE_OPTIONS}
-            title="Set estimate"
-            onSelect={(id) => {
-              updateNode(selectedNode!.id, { estimate: id as PlanNode["estimate"] })
-              setSelectedNode({ ...selectedNode!, estimate: id as PlanNode["estimate"] })
-            }}
-          >
-            <span className="text-[13px] font-medium text-foreground">
-              {selectedNode!.estimate ?? "\u2014"}
-            </span>
-          </PropertyPicker>
-        </div>
-
-        {/* Dependencies — read-only */}
-        <div className="flex items-center justify-between text-[13px]">
-          <span className="text-muted-foreground">Dependencies</span>
-          <span className="text-[13px] font-medium text-foreground">
-            {upstreamCount > 0 ? `${upstreamCount} upstream` : "\u2014"}
-          </span>
-        </div>
-
-        {/* Status — editable */}
-        <div className="flex items-center justify-between text-[13px]">
-          <span className="text-muted-foreground">Status</span>
-          <PropertyPicker
-            value={selectedNode!.status}
-            options={STATUS_OPTIONS}
-            title="Set status"
-            onSelect={(id) => {
-              updateNode(selectedNode!.id, { status: id as PlanNode["status"] })
-              setSelectedNode({ ...selectedNode!, status: id as PlanNode["status"] })
-            }}
-          >
-            <span className="text-[13px] font-medium text-foreground">
-              {statusLabels[selectedNode!.status]}
-            </span>
-          </PropertyPicker>
-        </div>
-
-        {/* Elapsed time — read-only */}
-        {selectedNode!.executionId && (
-          <div className="flex items-center justify-between text-[13px]">
-            <span className="text-muted-foreground">Elapsed</span>
-            <span className="text-[13px] font-medium text-blue-500">3:24</span>
-          </div>
-        )}
-      </div>
-      <Separator />
-
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <h4 className="text-[13px] font-semibold text-muted-foreground">Description</h4>
-          <VoiceInputButton
-            isRecording={isRecording}
-            isTranscribing={isTranscribing}
-            isAvailable={isAvailable}
-            duration={duration}
-            onClick={toggleRecording}
-            size="sm"
-          />
-        </div>
-        <FileCompletionTextarea
-          projectId={project.id}
-          machineId={project.defaultMachineId}
-          workingDirectory={project.workingDirectory}
-          fileTree={project.fileTree}
-          value={selectedNode!.description ?? ""}
-          onChange={(val) => {
-            updateNode(selectedNode!.id, { description: val })
-            setSelectedNode({ ...selectedNode!, description: val })
-          }}
-          placeholder="Describe this task... Use @ to reference files"
-          rows={4}
-          className="w-full resize-none rounded-md border-none bg-transparent px-0 py-0 text-[13px] leading-[1.5] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0"
-        />
-      </div>
-      <Separator />
-
-      <div className="flex flex-col gap-2.5">
-        {selectedNode!.executionId ? (
-          <>
-            <Link
-              to={`/project/${project.id}/task/${selectedNode!.id}?from=${viewMode}`}
-              className="flex items-center justify-center gap-2 h-10 rounded-[10px] bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
-            >
-              <FileText className="h-4 w-4" />
-              View Execution
-            </Link>
-            <button
-              disabled={isResetting}
-              onClick={async () => {
-                setIsResetting(true)
-                try {
-                  await resetExecution(selectedNode!.id)
-                  // Refresh selectedNode to reflect cleared execution fields
-                  const freshNode = usePlanStore.getState().nodes.find((n) => n.id === selectedNode!.id)
-                  if (freshNode) setSelectedNode(freshNode)
-                } finally {
-                  setIsResetting(false)
-                }
-              }}
-              className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
-            >
-              <RotateCcw className={cn("h-4 w-4", isResetting && "animate-spin")} />
-              {isResetting ? "Resetting..." : "Re-execute"}
-            </button>
-          </>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <ExecutionPanel node={selectedNode!} projectId={project.id} viewMode={viewMode} />
-          </div>
-        )}
-
-        {selectedNode!.status !== "pruned" && (
-          <button
-            onClick={handlePrune}
-            className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-destructive text-sm font-medium hover:bg-muted/50 transition-colors"
-          >
-            <XCircle className="h-4 w-4" />
-            Prune Branch
-          </button>
-        )}
-      </div>
-    </>
-  )
+  const inspectorProps = selectedNode ? {
+    node: selectedNode,
+    project,
+    viewMode,
+    onClose: () => setSelectedNode(null),
+    onNodeUpdate: setSelectedNode,
+  } : null
 
   return (
     <div className="flex h-full flex-col">
@@ -1475,60 +1372,10 @@ export function PlanView() {
         )}
 
         {/* Detail pane with Execution Panel — full-screen sheet on mobile, right sidebar on desktop */}
-        {selectedNode && !chatOpen && (
+        {inspectorProps && !chatOpen && (
           <>
-            {/* Mobile: full-screen sheet */}
-            {isMobile && (
-              <Sheet open={!!selectedNode} onOpenChange={(open) => !open && setSelectedNode(null)}>
-                <SheetContent side="right" className="w-full p-0">
-                  <div className="flex flex-col gap-5 p-4 overflow-auto h-full">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="font-semibold text-base truncate flex-1">{selectedNode.title}</h3>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0"
-                        onClick={() => setSelectedNode(null)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <Separator />
-                    {renderInspectorContent()}
-                  </div>
-                </SheetContent>
-              </Sheet>
-            )}
-
-            {/* Desktop: right sidebar following theme */}
-            {!isMobile && (
-              <div className="flex flex-col gap-5 border-l bg-card p-5 overflow-auto border-border w-[320px] shrink-0">
-                <div className="flex items-center justify-between gap-2">
-                  <h4 className="text-sm font-semibold text-muted-foreground">Node Inspector</h4>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-[18px] w-[18px] shrink-0 p-0 hover:bg-transparent"
-                    onClick={() => setSelectedNode(null)}
-                  >
-                    <X className="h-[18px] w-[18px] text-muted-foreground" />
-                  </Button>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <h3 className="font-semibold text-xl text-foreground truncate font-serif">
-                    {selectedNode.title}
-                  </h3>
-                  {selectedNode.executionId && (
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="h-2 w-2 rounded-full bg-muted" />
-                      <span className="text-muted-foreground">MacBook Pro</span>
-                    </div>
-                  )}
-                </div>
-                <Separator />
-                {renderInspectorContent()}
-              </div>
-            )}
+            {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
+            {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
           </>
         )}
       </div>
