@@ -306,6 +306,9 @@ export interface UserProfile {
   preferredEnvironments: PreferredEnvironment[];
   notificationsEnabled: boolean;
   emailNotifications: boolean;
+  // Default execution preferences
+  defaultMachineId?: string;   // Default machine for task execution
+  defaultProvider?: string;     // Default agent provider (e.g., claude-code, codex)
   // API keys for agent providers
   apiKeys: ApiKey[];
   // Sidebar layout config (synced via profile)

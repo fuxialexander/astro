@@ -18,6 +18,7 @@ import { isServerMode } from "@/lib/app-mode"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useUserProfileStore } from "@/stores/user-profile-store"
 import type { PlanNode, ProviderStatus } from "@/types"
 
 interface ExecutionPanelProps {
@@ -48,6 +49,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const rawEdges = usePlanStore((s) => s.edges)
   const edges = useMemo(() => rawEdges.filter(isLive), [rawEdges])
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const profile = useUserProfileStore((s) => s.profile)
 
   // Execution state
   const execution = useExecutionStore((s) => s.getExecution(node.id))
@@ -61,8 +63,8 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const loadProviders = useExecutionStore((s) => s.loadProviders)
   const getAvailableProvider = useExecutionStore((s) => s.getAvailableProvider)
 
-  // Default provider from settings
-  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
+  // Default provider from settings (fallback to profile default)
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider) || profile.defaultProvider
 
   // Machine state
   const machines = useExecutionStore((s) => s.machines)
@@ -72,9 +74,15 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   // In Supabase mode, no "Local" option — only registered machines
   const isMultiTenant = isServerMode()
 
-  // Local state for execution options — default to node's machine, then project defaults
-  const defaultMachineId = node.machineId || project?.defaultMachineId
-  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(defaultMachineId || null)
+  // Default machine ID fallback chain:
+  // 1. Node-specific machine
+  // 2. Project default machine
+  // 3. User profile default machine
+  // 4. null (will be handled below)
+  const defaultMachineId = node.machineId || project?.defaultMachineId || profile.defaultMachineId || null
+
+  // Local state for execution options
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(defaultMachineId)
   const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider || "")
   const [selectedModel, setSelectedModel] = useState<string>("")
   const [selectedBackend, setSelectedBackend] = useState<string>("")
@@ -100,9 +108,14 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const effectiveMachine = selectedMachine
 
   // Sync selected machine when node or project defaults change
-  const syncMachineId = node.machineId || project?.defaultMachineId
+  const syncMachineId = node.machineId || project?.defaultMachineId || profile.defaultMachineId
   if (syncMachineId && !selectedMachineId) {
     setSelectedMachineId(syncMachineId)
+  }
+
+  // In multi-tenant mode, if no machine is selected and there are online machines, auto-select the first one
+  if (isMultiTenant && !selectedMachineId && onlineMachines.length > 0 && machinesLoaded) {
+    setSelectedMachineId(onlineMachines[0].machineId)
   }
 
   // Load providers and machines on mount

@@ -19,6 +19,8 @@ interface UserProfileState {
   togglePreferredEnvironment: (environment: PreferredEnvironment) => void
   setNotificationsEnabled: (enabled: boolean) => void
   setEmailNotifications: (enabled: boolean) => void
+  setDefaultMachineId: (machineId: string | undefined) => void
+  setDefaultProvider: (provider: string | undefined) => void
   addApiKey: (provider: string, name: string, maskedKey: string) => void
   removeApiKey: (id: string) => void
 }
@@ -121,6 +123,9 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
 
   setNotificationsEnabled: (notificationsEnabled) => get().updateProfile({ notificationsEnabled }),
   setEmailNotifications: (emailNotifications) => get().updateProfile({ emailNotifications }),
+
+  setDefaultMachineId: (defaultMachineId) => get().updateProfile({ defaultMachineId }),
+  setDefaultProvider: (defaultProvider) => get().updateProfile({ defaultProvider }),
 
   addApiKey: (provider, name, maskedKey) => {
     const newKey: ApiKey = {
