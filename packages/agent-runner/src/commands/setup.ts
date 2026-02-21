@@ -164,23 +164,23 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
         await setupClaudeOauthToken();
       }
     } else {
-      console.log(chalk.dim('The agent runner needs authentication to call the Claude API.'));
-      console.log(chalk.dim('You can either:'));
-      console.log(chalk.dim('  1. Generate a long-lived token via `claude setup-token` (recommended)'));
-      console.log(chalk.dim('  2. Set ANTHROPIC_API_KEY environment variable'));
-      console.log(chalk.dim('  3. Run `claude login` to use short-lived OAuth (may expire)\n'));
+      // Check if `claude` CLI is already logged in (session-based OAuth)
+      let claudeCliLoggedIn = false;
+      try {
+        const { stdout } = await execFile('claude', ['--version']);
+        if (stdout) claudeCliLoggedIn = true;
+      } catch {
+        // claude CLI not available
+      }
 
-      const { setupAuth } = await inquirer.prompt<{ setupAuth: boolean }>([
-        {
-          type: 'confirm',
-          name: 'setupAuth',
-          message: 'Generate a long-lived Claude OAuth token now?',
-          default: true,
-        },
-      ]);
-
-      if (setupAuth) {
-        await setupClaudeOauthToken();
+      if (claudeCliLoggedIn) {
+        console.log(chalk.green('✓ Claude CLI detected — agent SDK will use existing CLI session\n'));
+      } else {
+        console.log(chalk.dim('The agent runner needs authentication to call the Claude API.'));
+        console.log(chalk.dim('You can either:'));
+        console.log(chalk.dim('  1. Run `claude login` to authenticate the CLI (recommended)'));
+        console.log(chalk.dim('  2. Set ANTHROPIC_API_KEY environment variable'));
+        console.log(chalk.dim('  3. Generate a long-lived token via `claude setup-token`\n'));
       }
     }
     console.log();
