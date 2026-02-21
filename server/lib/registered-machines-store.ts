@@ -11,7 +11,7 @@ import crypto from 'crypto'
 import { getServiceClient } from './supabase.js'
 import { isServerMode } from './app-mode.js'
 import { db } from './db/index.js'
-import { registeredMachines } from './db/schema.js'
+import { registeredMachines, machineUsageLogs } from './db/schema.js'
 import { eq, and, desc } from 'drizzle-orm'
 
 /**
@@ -34,6 +34,7 @@ function mapRowToMachine(row: typeof registeredMachines.$inferSelect): Registere
     providers: (row.providers ?? []) as ProviderType[],
     providerConfigs: (row.providerConfigs ?? []) as import('../types/device-auth.js').ProviderConfig[],
     userId: row.userId,
+    teamId: row.teamId ?? undefined,
     workspaceId: row.workspaceId ?? undefined,
     registeredAt: row.registeredAt,
     lastSeenAt: row.lastSeenAt,
@@ -55,6 +56,7 @@ function mapSupabaseToMachine(row: Record<string, unknown>): RegisteredMachine {
     providers: row.providers as ProviderType[],
     providerConfigs: (row.provider_configs ?? []) as import('../types/device-auth.js').ProviderConfig[],
     userId: row.user_id as string,
+    teamId: row.team_id as string | undefined,
     workspaceId: row.workspace_id as string | undefined,
     registeredAt: new Date(row.registered_at as string),
     lastSeenAt: new Date(row.last_seen_at as string),
@@ -626,4 +628,244 @@ export async function getConnectedMachinesCount(): Promise<number> {
       eq(registeredMachines.isRevoked, false),
     ))
   return rows.length
+}
+
+/**
+ * Share a machine with a team (owner only)
+ */
+export async function shareMachineWithTeam(machineId: string, teamId: string | null): Promise<boolean> {
+  if (isServerMode()) {
+    const supabase = getServiceClient()
+    const { error } = await supabase
+      .from('registered_machines')
+      .update({ team_id: teamId })
+      .eq('id', machineId)
+    return !error
+  }
+
+  const result = await db.update(registeredMachines)
+    .set({ teamId: teamId ?? undefined })
+    .where(eq(registeredMachines.id, machineId))
+    .returning({ id: registeredMachines.id })
+  return result.length > 0
+}
+
+/**
+ * Get all machines available to a user (owned + team shared)
+ * Uses the database function for efficient query
+ */
+export async function getAvailableMachines(userId: string): Promise<import('../types/device-auth.js').MachineWithTeamInfo[]> {
+  if (isServerMode()) {
+    const supabase = getServiceClient()
+
+    // Call the database function
+    const { data, error } = await supabase.rpc('get_user_available_machines', {
+      p_user_id: userId
+    })
+
+    if (error) {
+      console.error('[machines-store] Error fetching available machines:', error)
+      return []
+    }
+
+    return (data || []).map((row: Record<string, unknown>) => ({
+      id: row.id as string,
+      name: row.name as string,
+      hostname: row.hostname as string,
+      platform: row.platform as string,
+      environmentType: row.environment_type as import('../types/relay.js').EnvironmentType,
+      providers: (row.providers as string[]) as import('../types/relay.js').ProviderType[],
+      providerConfigs: [],
+      userId,
+      teamId: row.team_id as string | undefined,
+      workspaceId: undefined,
+      registeredAt: new Date(),
+      lastSeenAt: new Date(),
+      isConnected: row.is_connected as boolean,
+      refreshTokenHash: '',
+      isRevoked: false,
+      isTeamMachine: row.is_team_machine as boolean,
+      teamName: row.team_name as string | undefined,
+    }))
+  }
+
+  // Local mode: query manually
+  const ownMachines = await getUserMachines(userId)
+
+  // Map to MachineWithTeamInfo
+  return ownMachines.map(m => ({
+    ...m,
+    isTeamMachine: false,
+    teamName: undefined,
+  }))
+}
+
+/**
+ * Get team machines for a specific team
+ */
+export async function getTeamMachines(teamId: string): Promise<RegisteredMachine[]> {
+  if (isServerMode()) {
+    const supabase = getServiceClient()
+    const { data } = await supabase
+      .from('registered_machines')
+      .select('*')
+      .eq('team_id', teamId)
+      .eq('is_revoked', false)
+      .order('registered_at', { ascending: false })
+
+    return (data || []).map(mapSupabaseToMachine)
+  }
+
+  const rows = await db.select().from(registeredMachines)
+    .where(and(
+      eq(registeredMachines.teamId, teamId),
+      eq(registeredMachines.isRevoked, false),
+    ))
+    .orderBy(desc(registeredMachines.registeredAt))
+
+  return rows.map(mapRowToMachine)
+}
+
+// ============================================================================
+// Machine Usage Logging
+// ============================================================================
+
+/**
+ * Log the start of a machine usage
+ */
+export async function logMachineUsageStart(params: {
+  machineId: string
+  userId: string
+  projectId: string
+  nodeId: string
+  executionId: string
+}): Promise<string | null> {
+  const now = new Date()
+
+  if (isServerMode()) {
+    const supabase = getServiceClient()
+    const { data, error } = await supabase
+      .from('machine_usage_logs')
+      .insert({
+        machine_id: params.machineId,
+        user_id: params.userId,
+        project_id: params.projectId,
+        node_id: params.nodeId,
+        execution_id: params.executionId,
+        started_at: now.toISOString(),
+        status: 'success', // Will be updated on completion
+      })
+      .select('id')
+      .single()
+
+    if (error) {
+      console.error('[machines-store] Failed to log machine usage start:', error)
+      return null
+    }
+
+    return data?.id as string
+  }
+
+  const [result] = await db.insert(machineUsageLogs)
+    .values({
+      machineId: params.machineId,
+      userId: params.userId,
+      projectId: params.projectId,
+      nodeId: params.nodeId,
+      executionId: params.executionId,
+      startedAt: now,
+      status: 'success',
+    })
+    .returning({ id: machineUsageLogs.id })
+
+  return result?.id
+}
+
+/**
+ * Log the completion of a machine usage
+ */
+export async function logMachineUsageComplete(params: {
+  logId: string
+  status: 'success' | 'failure' | 'cancelled'
+  durationMs?: number
+}): Promise<boolean> {
+  const now = new Date()
+
+  if (isServerMode()) {
+    const supabase = getServiceClient()
+    const { error } = await supabase
+      .from('machine_usage_logs')
+      .update({
+        completed_at: now.toISOString(),
+        duration_ms: params.durationMs,
+        status: params.status,
+      })
+      .eq('id', params.logId)
+
+    if (error) {
+      console.error('[machines-store] Failed to log machine usage completion:', error)
+      return false
+    }
+
+    return true
+  }
+
+  const result = await db.update(machineUsageLogs)
+    .set({
+      completedAt: now,
+      durationMs: params.durationMs,
+      status: params.status,
+    })
+    .where(eq(machineUsageLogs.id, params.logId))
+    .returning({ id: machineUsageLogs.id })
+
+  return result.length > 0
+}
+
+/**
+ * Get machine usage logs for a machine
+ */
+export async function getMachineUsageLogs(machineId: string, limit = 50): Promise<import('../types/device-auth.js').MachineUsageLog[]> {
+  if (isServerMode()) {
+    const supabase = getServiceClient()
+    const { data } = await supabase
+      .from('machine_usage_logs')
+      .select('*')
+      .eq('machine_id', machineId)
+      .order('started_at', { ascending: false })
+      .limit(limit)
+
+    return (data || []).map((row: Record<string, unknown>) => ({
+      id: row.id as string,
+      machineId: row.machine_id as string,
+      userId: row.user_id as string,
+      projectId: row.project_id as string,
+      nodeId: row.node_id as string,
+      executionId: row.execution_id as string,
+      startedAt: new Date(row.started_at as string),
+      completedAt: row.completed_at ? new Date(row.completed_at as string) : undefined,
+      durationMs: row.duration_ms as number | undefined,
+      status: row.status as 'success' | 'failure' | 'cancelled',
+      createdAt: new Date(row.created_at as string),
+    }))
+  }
+
+  const rows = await db.select().from(machineUsageLogs)
+    .where(eq(machineUsageLogs.machineId, machineId))
+    .orderBy(desc(machineUsageLogs.startedAt))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    id: row.id,
+    machineId: row.machineId,
+    userId: row.userId,
+    projectId: row.projectId,
+    nodeId: row.nodeId,
+    executionId: row.executionId,
+    startedAt: row.startedAt,
+    completedAt: row.completedAt ?? undefined,
+    durationMs: row.durationMs ?? undefined,
+    status: row.status as 'success' | 'failure' | 'cancelled',
+    createdAt: row.createdAt,
+  }))
 }

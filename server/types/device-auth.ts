@@ -185,6 +185,8 @@ export interface RegisteredMachine {
   providerConfigs?: ProviderConfig[];
   /** User ID who registered this machine */
   userId: string;
+  /** Team ID if shared with a team (optional) */
+  teamId?: string;
   /** Workspace ID (if applicable) */
   workspaceId?: string;
   /** Registration timestamp */
@@ -345,3 +347,41 @@ export const DEFAULT_MACHINE_SCOPES = [
   MACHINE_SCOPES.EXECUTE,
   MACHINE_SCOPES.READ,
 ];
+
+// ============================================================================
+// Machine Usage Tracking Types
+// ============================================================================
+
+/** Machine usage log entry */
+export interface MachineUsageLog {
+  /** Log entry ID */
+  id: string;
+  /** Machine ID */
+  machineId: string;
+  /** User who executed the task */
+  userId: string;
+  /** Project ID */
+  projectId: string;
+  /** Plan node ID */
+  nodeId: string;
+  /** Execution ID */
+  executionId: string;
+  /** Task started timestamp */
+  startedAt: Date;
+  /** Task completed timestamp */
+  completedAt?: Date;
+  /** Duration in milliseconds */
+  durationMs?: number;
+  /** Execution status */
+  status: 'success' | 'failure' | 'cancelled';
+  /** Created timestamp */
+  createdAt: Date;
+}
+
+/** Extended machine info with team context */
+export interface MachineWithTeamInfo extends RegisteredMachine {
+  /** Whether this is a team-shared machine */
+  isTeamMachine: boolean;
+  /** Team name if shared */
+  teamName?: string;
+}
