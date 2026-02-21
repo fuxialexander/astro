@@ -133,11 +133,32 @@ export function TaskCreationForm({
   const isInline = mode === "inline"
   const isPopover = mode === "popover"
 
+  // Simplified popover mode - title only, matches node visual style
+  if (isPopover) {
+    return (
+      <div
+        className="w-[180px] h-[44px] rounded-xl border border-primary/50 bg-card shadow-lg flex items-center gap-2.5 px-3"
+        onKeyDown={handleKeyDown}
+      >
+        <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+        <input
+          ref={titleRef}
+          type="text"
+          placeholder="Task title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="flex-1 bg-transparent text-xs font-medium outline-none placeholder:text-muted-foreground"
+          autoFocus
+        />
+      </div>
+    )
+  }
+
+  // Full form for inline and dialog modes
   return (
     <div
       className={cn(
         "flex flex-col gap-2",
-        isPopover && "w-[320px] rounded-lg border border-border bg-card p-3 shadow-lg",
         isInline && "px-6 py-2 border-b border-border",
         mode === "dialog" && "gap-3"
       )}
