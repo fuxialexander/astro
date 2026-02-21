@@ -38,12 +38,15 @@ import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from 
 import { ItemTimelineView, TimelineAddTaskFooter, type TimelineRow } from "@/components/views/item-timeline-view"
 import { PropertyPicker } from "@/components/property-picker"
 import { ColorIconBadge } from "@/components/color-icon-picker"
+import { InlineRenameInput } from "@/components/inline-rename-input"
 import { OverviewTab } from "@/pages/project-overview"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore, type DisplaySettings, type ViewKey } from "@/stores/display-settings-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useToastStore } from "@/stores/toast-store"
+import { isServerMode } from "@/lib/app-mode"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { formatDueDateShort } from "@/lib/date-utils"
@@ -1019,6 +1022,7 @@ export function PlanView() {
   const location = useLocation()
   const navigate = useNavigate()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
+  const projects = useProjectStore((s) => s.projects)
   const updateProject = useProjectStore((s) => s.updateProject)
   const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -1026,8 +1030,59 @@ export function PlanView() {
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
   const resetExecution = useExecutionStore((s) => s.resetExecution)
+  const addToast = useToastStore((s) => s.add)
   const [isResetting, setIsResetting] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [isRenamingProject, setIsRenamingProject] = useState(false)
+
+  // Project rename handler
+  const handleProjectRename = async (newName: string) => {
+    if (!project) return
+
+    const oldName = project.name
+
+    try {
+      // Optimistic update
+      updateProject(project.id, { name: newName })
+      setIsRenamingProject(false)
+
+      // Show success toast in server mode
+      if (isServerMode()) {
+        addToast({
+          type: "success",
+          title: "Project renamed",
+          description: `"${oldName}" → "${newName}"`,
+        })
+      }
+    } catch (error) {
+      // Revert on error
+      updateProject(project.id, { name: oldName })
+      addToast({
+        type: "error",
+        title: "Rename failed",
+        description: "Could not rename project. Please try again.",
+      })
+      console.error("Project rename error:", error)
+    }
+  }
+
+  // Validate project name
+  const validateProjectName = (name: string): string | null => {
+    if (!name.trim()) {
+      return "Project name cannot be empty"
+    }
+    if (name.length > 100) {
+      return "Project name is too long (max 100 characters)"
+    }
+    // Check for duplicates (excluding current project)
+    const isDuplicate = projects.some(
+      (p) => p.id !== id && p.name.toLowerCase() === name.toLowerCase()
+    )
+    if (isDuplicate) {
+      return "A project with this name already exists"
+    }
+    return null
+  }
 
   /** Select a node and close chat to show the inspector */
   const handleNodeSelect = useCallback((node: PlanNode | null) => {
@@ -1331,7 +1386,23 @@ export function PlanView() {
             onColorChange={(color) => updateProject(project.id, { color })}
             onIconChange={(icon) => updateProject(project.id, { icon })}
           />
-          <span className="text-lg font-semibold shrink-0">{project.name}</span>
+          {isRenamingProject ? (
+            <InlineRenameInput
+              value={project.name}
+              onSave={handleProjectRename}
+              onCancel={() => setIsRenamingProject(false)}
+              validate={validateProjectName}
+              className="text-lg font-semibold"
+            />
+          ) : (
+            <span
+              onDoubleClick={() => setIsRenamingProject(true)}
+              className="text-lg font-semibold shrink-0 cursor-pointer hover:text-muted-foreground transition-colors"
+              title="Double-click to rename"
+            >
+              {project.name}
+            </span>
+          )}
           <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
         </div>
 

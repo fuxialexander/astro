@@ -11,11 +11,9 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useUIStore } from "@/stores/ui-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
-import { useToastStore } from "@/stores/toast-store"
 import { isServerMode } from "@/lib/app-mode"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { InlineRenameInput } from "@/components/inline-rename-input"
 
 // Icon mapping (extended for plugin-contributed sidebar items)
 const iconMap: Record<string, typeof CheckSquare> = {
@@ -54,7 +52,6 @@ export function Sidebar() {
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const profile = useUserProfileStore((s) => s.profile)
   const projects = useProjectStore((s) => s.projects)
-  const updateProject = useProjectStore((s) => s.updateProject)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const signOut = useAuthStore((s) => s.signOut)
@@ -66,7 +63,6 @@ export function Sidebar() {
   const toggleItemVisibility = useSidebarStore((s) => s.toggleItemVisibility)
   const reorderItems = useSidebarStore((s) => s.reorderItems)
   const subscribeToChanges = useSidebarStore((s) => s.subscribeToChanges)
-  const addToast = useToastStore((s) => s.add)
   const navigate = useNavigate()
   const params = useParams()
   const showAuth = isServerMode()
@@ -77,9 +73,6 @@ export function Sidebar() {
   // Long press state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const longPressTimer = useRef<number | null>(null)
-
-  // Rename state
-  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
 
   // Subscribe to realtime changes (multi-device sync)
   useEffect(() => {
@@ -188,56 +181,6 @@ export function Sidebar() {
   const handleSignOut = async () => {
     await signOut()
     navigate("/login")
-  }
-
-  const handleProjectRename = async (projectId: string, newName: string) => {
-    const project = projects.find((p) => p.id === projectId)
-    if (!project) return
-
-    const oldName = project.name
-
-    try {
-      // Optimistic update
-      updateProject(projectId, { name: newName })
-      setRenamingProjectId(null)
-
-      // Verify server sync (only in server mode)
-      if (isServerMode()) {
-        // In a real implementation, we'd check for conflicts here
-        // For now, we'll just show a success message
-        addToast({
-          type: "success",
-          title: "Project renamed",
-          description: `"${oldName}" → "${newName}"`,
-        })
-      }
-    } catch (error) {
-      // Revert on error
-      updateProject(projectId, { name: oldName })
-      addToast({
-        type: "error",
-        title: "Rename failed",
-        description: "Could not rename project. Please try again.",
-      })
-      console.error("Project rename error:", error)
-    }
-  }
-
-  const validateProjectName = (name: string): string | null => {
-    if (!name.trim()) {
-      return "Project name cannot be empty"
-    }
-    if (name.length > 100) {
-      return "Project name is too long (max 100 characters)"
-    }
-    // Check for duplicates (excluding current project)
-    const isDuplicate = projects.some(
-      (p) => p.id !== renamingProjectId && p.name.toLowerCase() === name.toLowerCase()
-    )
-    if (isDuplicate) {
-      return "A project with this name already exists"
-    }
-    return null
   }
 
   return (
@@ -422,32 +365,18 @@ export function Sidebar() {
                     return <span className="text-base leading-none shrink-0">{projIcon}</span>
                   })()}
 
-                  {/* Project name - editable on double-click */}
-                  {renamingProjectId === project.id ? (
-                    <InlineRenameInput
-                      value={project.name}
-                      onSave={(newName) => handleProjectRename(project.id, newName)}
-                      onCancel={() => setRenamingProjectId(null)}
-                      validate={validateProjectName}
-                      className="flex-1"
-                    />
-                  ) : (
-                    <span
-                      onDoubleClick={(e) => {
-                        e.stopPropagation()
-                        setRenamingProjectId(project.id)
-                      }}
-                      onClick={() => navigate(`/project/${project.id}/list`)}
-                      className={cn(
-                        "flex-1 text-sm truncate cursor-pointer",
-                        isActive
-                          ? "text-accent-foreground font-semibold"
-                          : "text-muted-foreground font-medium"
-                      )}
-                    >
-                      {project.name}
-                    </span>
-                  )}
+                  {/* Project name */}
+                  <span
+                    onClick={() => navigate(`/project/${project.id}/list`)}
+                    className={cn(
+                      "flex-1 text-sm truncate cursor-pointer",
+                      isActive
+                        ? "text-accent-foreground font-semibold"
+                        : "text-muted-foreground font-medium"
+                    )}
+                  >
+                    {project.name}
+                  </span>
 
                   {/* Health bar */}
                   <div className="w-10 h-1 bg-muted rounded-sm overflow-hidden shrink-0">
