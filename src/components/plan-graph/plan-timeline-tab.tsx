@@ -37,6 +37,7 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
   const [editEstimate, setEditEstimate] = useState<Estimate | "">("")
   const [editDueDate, setEditDueDate] = useState("")
   const [editMilestoneId, setEditMilestoneId] = useState("")
+  const [showActualDates, setShowActualDates] = useState(false)
 
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(nodes.filter((n) => n.projectId === projectId).map((n) => n.id))
@@ -61,13 +62,39 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
       }
     }
 
-    let minDate = parseDate(projectNodes[0].startDate!)
-    let maxDate = parseDate(projectNodes[0].endDate!)
+    // Calculate bounds based on actual dates if toggle is on, otherwise use planned dates
+    let minDate: Date | null = null
+    let maxDate: Date | null = null
+
     for (const n of projectNodes) {
-      const s = parseDate(n.startDate!)
-      const e = parseDate(n.endDate!)
-      if (s < minDate) minDate = s
-      if (e > maxDate) maxDate = e
+      let s: Date
+      let e: Date
+
+      if (showActualDates && n.actualStartDate && n.actualEndDate) {
+        s = n.actualStartDate
+        e = n.actualEndDate
+      } else if (n.startDate && n.endDate) {
+        s = parseDate(n.startDate)
+        e = parseDate(n.endDate)
+      } else {
+        continue
+      }
+
+      if (!minDate || s < minDate) minDate = s
+      if (!maxDate || e > maxDate) maxDate = e
+    }
+
+    // Fallback if no valid dates found
+    if (!minDate || !maxDate) {
+      const now = new Date()
+      const start = snapToMonday(now)
+      return {
+        timelineStart: start,
+        weeks: Array.from({ length: 4 }, (_, i) => {
+          const d = addDays(start, i * 7)
+          return fmtDate(d)
+        }),
+      }
     }
 
     const start = snapToMonday(addDays(minDate, -7))
@@ -82,7 +109,7 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
         return fmtDate(d)
       }),
     }
-  }, [projectNodes])
+  }, [projectNodes, showActualDates])
 
   const totalWidth = weeks.length * 7 * DAY_WIDTH
 
@@ -148,8 +175,16 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
     <div className="flex flex-1 overflow-hidden relative">
       {/* Task labels */}
       <div className="w-[240px] shrink-0 border-r border-border">
-        <div className="flex h-10 items-center border-b border-border px-4">
+        <div className="flex h-10 items-center justify-between border-b border-border px-4">
           <span className="text-[11px] font-semibold text-muted-foreground uppercase">Tasks</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowActualDates(!showActualDates)}
+            className="h-6 text-[10px] px-2"
+          >
+            {showActualDates ? "Actual" : "Planned"}
+          </Button>
         </div>
         {projectNodes.map((node) => {
           // Compute milestone completion
@@ -209,8 +244,14 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
 
         <div className="relative" style={{ width: `${totalWidth}px` }}>
           {projectNodes.map((node) => {
-            const start = parseDate(node.startDate!)
-            const end = parseDate(node.endDate!)
+            // Use actual dates if toggle is on AND actual dates exist, otherwise use planned dates
+            const hasActualDates = showActualDates && node.actualStartDate && node.actualEndDate
+            const start = hasActualDates
+              ? node.actualStartDate
+              : parseDate(node.startDate!)
+            const end = hasActualDates
+              ? node.actualEndDate
+              : parseDate(node.endDate!)
             const barLeft = diffDays(timelineStart, start) * DAY_WIDTH
             const barWidth = Math.max(diffDays(start, end) * DAY_WIDTH, 6)
 
@@ -242,18 +283,23 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
                       {node.title}
                     </span>
                   )}
-                  <div
-                    className="drag-handle absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
-                    onMouseDown={(e) => handleDragMouseDown(e, "left", node.id, e.currentTarget.parentElement!, fmtDate(start), fmtDate(end))}
-                  >
-                    <div className="w-0.5 h-3 rounded-full bg-white/60" />
-                  </div>
-                  <div
-                    className="drag-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
-                    onMouseDown={(e) => handleDragMouseDown(e, "right", node.id, e.currentTarget.parentElement!, fmtDate(start), fmtDate(end))}
-                  >
-                    <div className="w-0.5 h-3 rounded-full bg-white/60" />
-                  </div>
+                  {/* Only show drag handles when showing planned dates (actual dates are read-only) */}
+                  {!showActualDates && (
+                    <>
+                      <div
+                        className="drag-handle absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
+                        onMouseDown={(e) => handleDragMouseDown(e, "left", node.id, e.currentTarget.parentElement!, fmtDate(start), fmtDate(end))}
+                      >
+                        <div className="w-0.5 h-3 rounded-full bg-white/60" />
+                      </div>
+                      <div
+                        className="drag-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
+                        onMouseDown={(e) => handleDragMouseDown(e, "right", node.id, e.currentTarget.parentElement!, fmtDate(start), fmtDate(end))}
+                      >
+                        <div className="w-0.5 h-3 rounded-full bg-white/60" />
+                      </div>
+                    </>
+                  )}
                 </div>
                 {/* Due date marker */}
                 {hasDueDate && (

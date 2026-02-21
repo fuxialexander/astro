@@ -135,6 +135,9 @@ export interface PlanNode {
   executionError?: string;
   executionStartedAt?: Date;
   executionCompletedAt?: Date;
+  // Actual execution timestamps (for timeline tracking)
+  actualStartDate?: Date;   // First execution attempt timestamp
+  actualEndDate?: Date;      // Final execution completion timestamp
   // Git PR metadata
   branchName?: string;
   prUrl?: string;

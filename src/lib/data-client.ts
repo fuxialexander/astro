@@ -95,6 +95,8 @@ function mapNode(row: Record<string, unknown>): PlanNode {
     updatedAt: toDate(r.updatedAt),
     executionStartedAt: r.executionStartedAt ? toDate(r.executionStartedAt) : undefined,
     executionCompletedAt: r.executionCompletedAt ? toDate(r.executionCompletedAt) : undefined,
+    actualStartDate: r.actualStartDate ? toDate(r.actualStartDate) : undefined,
+    actualEndDate: r.actualEndDate ? toDate(r.actualEndDate) : undefined,
     branchName: (r.branchName as string) ?? undefined,
     prUrl: (r.prUrl as string) ?? undefined,
     prNumber: (r.prNumber as number) ?? undefined,

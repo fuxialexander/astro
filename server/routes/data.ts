@@ -526,6 +526,8 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.executionError !== undefined) patch.executionError = body.executionError || null
   if (body.executionStartedAt !== undefined) patch.executionStartedAt = body.executionStartedAt ? new Date(body.executionStartedAt) : null
   if (body.executionCompletedAt !== undefined) patch.executionCompletedAt = body.executionCompletedAt ? new Date(body.executionCompletedAt) : null
+  if (body.actualStartDate !== undefined) patch.actualStartDate = body.actualStartDate ? new Date(body.actualStartDate) : null
+  if (body.actualEndDate !== undefined) patch.actualEndDate = body.actualEndDate ? new Date(body.actualEndDate) : null
   if (body.branchName !== undefined) patch.branchName = body.branchName || null
   if (body.prUrl !== undefined) patch.prUrl = body.prUrl || null
   if (body.prNumber !== undefined) patch.prNumber = body.prNumber || null

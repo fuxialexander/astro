@@ -473,11 +473,14 @@ function handleRealtimeEvent(
         (n) => n.executionId === taskId
       )
       if (node) {
+        const completionTime = new Date()
         planStore.updateNode(node.id, {
           status: isSuccess ? 'auto_verified' : 'awaiting_judgment',
           executionOutput: data.output as string | undefined,
           executionError: data.error as string | undefined,
-          executionCompletedAt: new Date(),
+          executionCompletedAt: completionTime,
+          // Set actualEndDate on task completion
+          actualEndDate: completionTime,
         })
       }
       break
