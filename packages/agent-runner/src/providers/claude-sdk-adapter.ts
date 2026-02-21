@@ -221,19 +221,12 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     process.env.DEBUG_SDK = '1';
     process.env.CLAUDE_CODE_DEBUG_LOGS_DIR = join(homedir(), '.astro', 'logs', 'sdk-debug');
 
-    // Save original cwd to restore later
-    const originalCwd = process.cwd();
-
-    // CRITICAL: Explicitly change process working directory to worktree
-    // The Claude Agent SDK's cwd option alone is not sufficient - we must
-    // actually change process.cwd() to ensure file operations happen in the worktree
-    try {
-      process.chdir(task.workingDirectory);
-      console.log(`[claude-sdk] Changed process cwd to: ${task.workingDirectory}`);
-    } catch (error) {
-      console.error(`[claude-sdk] Failed to change cwd to ${task.workingDirectory}:`, error);
-      // Continue anyway - the cwd option might still work
-    }
+    // NOTE: We intentionally do NOT call process.chdir() here.
+    // process.cwd() is global state shared across concurrent tasks, so calling
+    // chdir() creates race conditions where one task captures another's worktree
+    // path as its "original cwd", then fails to restore when that worktree is
+    // cleaned up. The SDK's `cwd` option (line below) handles per-query working
+    // directory correctly without mutating global state.
 
     // Build options for the query
     const options: Parameters<typeof query>[0]['options'] = {
@@ -380,8 +373,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     const artifacts: TaskArtifact[] = [];
     let progress = 0;
 
-    try {
-      for await (const msg of gen) {
+    for await (const msg of gen) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         this.model = msg.model;
         const sessionId = (msg as unknown as Record<string, unknown>).session_id as string ?? '';
@@ -488,14 +480,5 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       error: errorMessage,
       artifacts: artifacts.length > 0 ? artifacts : undefined,
     };
-    } finally {
-      // Restore original working directory
-      try {
-        process.chdir(originalCwd);
-        console.log(`[claude-sdk] Restored process cwd to: ${originalCwd}`);
-      } catch (error) {
-        console.error(`[claude-sdk] Failed to restore cwd to ${originalCwd}:`, error);
-      }
-    }
   }
 }
