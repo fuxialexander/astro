@@ -93,7 +93,7 @@ export interface Project {
   color?: string;         // hex color for visual grouping
   icon?: string;          // emoji icon
   workingDirectory?: string; // Absolute path for task execution (cwd for agents)
-  repository?: string;       // Git clone URL (e.g., https://github.com/user/repo.git)
+  repository?: string;       // Git SSH URL (e.g., git@github.com:user/repo.git)
   fileTree?: string[];           // Cached git ls-files output (relative paths)
   fileTreeUpdatedAt?: string;    // ISO timestamp for staleness check
   fileTreeMachineId?: string;    // Which machine the cached fileTree belongs to ("local" or machineId)

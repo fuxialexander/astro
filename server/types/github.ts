@@ -33,6 +33,7 @@ export interface GitHubRepo {
   };
   private: boolean;
   htmlUrl: string;
+  sshUrl: string;
   description: string | null;
   fork: boolean;
   language: string | null;

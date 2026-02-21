@@ -9,6 +9,7 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
 import { validateAbsolutePath } from "@/lib/path-utils"
+import { validateGitUrl, convertToSshUrl } from "@/lib/git-url-utils"
 import { isServerMode } from "@/lib/app-mode"
 import type { Project } from "@/types"
 
@@ -37,6 +38,7 @@ export function RepoConfigDialog({
   const [useGitHub, setUseGitHub] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [pathError, setPathError] = useState<string | null>(null)
+  const [repoUrlError, setRepoUrlError] = useState<string | null>(null)
 
   // Fetch machines if in multi-tenant mode
   useEffect(() => {
@@ -72,24 +74,40 @@ export function RepoConfigDialog({
     }
     setPathError(null)
 
+    // Validate and convert repository URL to SSH format
+    let finalRepoUrl = repoUrl.trim()
+    if (finalRepoUrl) {
+      const urlValidation = validateGitUrl(finalRepoUrl)
+      if (!urlValidation.isValid) {
+        setRepoUrlError(urlValidation.error || 'Invalid Git URL')
+        return
+      }
+      // Use the SSH URL
+      finalRepoUrl = urlValidation.sshUrl || finalRepoUrl
+    }
+    setRepoUrlError(null)
+
     setIsSaving(true)
     try {
       // If working directory is set, call setupRepo to validate
-      if (workDir.trim() || repoUrl.trim()) {
+      if (workDir.trim() || finalRepoUrl) {
         const result = await setupRepo({
           projectId: project.id,
           projectName: project.name,
           projectDescription: project.description,
           workingDirectory: workDir.trim() || undefined,
-          repository: repoUrl.trim() || undefined,
+          repository: finalRepoUrl || undefined,
         })
 
         // Update project state with the result
         updateProject(project.id, {
-          repository: repoUrl.trim() || undefined,
+          repository: finalRepoUrl || undefined,
           workingDirectory: result?.workingDirectory,
           defaultMachineId: selectedMachineId || undefined,
         })
+
+        // Update local state with SSH URL
+        setRepoUrl(finalRepoUrl)
       } else {
         // No directory or repo - just update machine if changed
         updateProject(project.id, {
@@ -103,7 +121,7 @@ export function RepoConfigDialog({
         projectId: project.id,
         type: "repo.configured",
         title: "Configured repository and working directory",
-        description: workDir.trim() || repoUrl.trim() || undefined,
+        description: workDir.trim() || finalRepoUrl || undefined,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 1500)
@@ -191,9 +209,11 @@ export function RepoConfigDialog({
                         <button
                           key={repo.id}
                           onClick={() => {
-                            setRepoUrl(repo.htmlUrl)
+                            // Use SSH URL from GitHub repo
+                            setRepoUrl(repo.sshUrl)
                             setSaved(false)
                             setUseGitHub(false)
+                            setRepoUrlError(null)
                           }}
                           className="w-full p-3 text-left hover:bg-muted/50 border-b last:border-b-0 transition-colors"
                         >
@@ -241,17 +261,27 @@ export function RepoConfigDialog({
           {/* Manual Repository URL Input */}
           {!useGitHub && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Repository URL</label>
+              <label className="text-sm font-medium">Repository URL (SSH format)</label>
               <input
                 type="text"
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                placeholder="https://github.com/user/repo.git"
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                placeholder="git@github.com:user/repo.git"
                 value={repoUrl}
                 onChange={(e) => {
                   setRepoUrl(e.target.value)
                   setSaved(false)
+                  setRepoUrlError(null)
                 }}
               />
+              {repoUrlError && (
+                <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>{repoUrlError}</span>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                SSH format required (e.g., git@github.com:user/repo.git). HTTPS URLs will be automatically converted.
+              </p>
             </div>
           )}
           <div className="flex flex-col gap-1.5">
@@ -309,7 +339,7 @@ export function RepoConfigDialog({
           <span className="text-xs text-muted-foreground">
             {saved ? "Saved" : hasChanges ? "Unsaved changes" : ""}
           </span>
-          <Button size="sm" onClick={handleSave} disabled={!hasChanges || isSaving || !!pathError}>
+          <Button size="sm" onClick={handleSave} disabled={!hasChanges || isSaving || !!pathError || !!repoUrlError}>
             {isSaving ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (

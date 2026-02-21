@@ -3,6 +3,7 @@
  */
 
 import type { GitHubRepo, GitHubUser, GitHubTokenResponse, GitHubApiRepo } from '../types/github';
+import { convertToSshUrl } from './git-url-utils.js';
 
 export class GitHubClient {
   private readonly baseUrl = 'https://api.github.com';
@@ -137,6 +138,7 @@ export class GitHubClient {
             },
             private: repo.private,
             htmlUrl: repo.html_url,
+            sshUrl: convertToSshUrl(repo.html_url) || `git@github.com:${repo.full_name}.git`,
             description: repo.description,
             fork: repo.fork,
             language: repo.language,
