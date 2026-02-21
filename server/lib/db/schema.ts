@@ -329,7 +329,7 @@ export const observationEvents = pgTable('observation_events', {
   estimatedCostUsd: real('estimated_cost_usd'),
   level: text('level').notNull().default('default'),
   metadata: jsonb('metadata'),
-  projectId: uuid('project_id').notNull(),
+  projectId: uuid('project_id'),
   nodeId: text('node_id'),
   statusMessage: text('status_message'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS "observation_events" (
   "estimated_cost_usd" real,
   "level" text NOT NULL DEFAULT 'default',
   "metadata" jsonb,
-  "project_id" uuid NOT NULL,
+  "project_id" uuid,
   "node_id" text,
   "status_message" text,
   "created_at" timestamp NOT NULL DEFAULT now()

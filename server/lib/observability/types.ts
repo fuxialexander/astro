@@ -39,8 +39,8 @@ export interface ObservationEvent {
   level: ObservationLevel
   /** Arbitrary metadata */
   metadata?: Record<string, unknown>
-  /** Project this observation belongs to */
-  projectId: string
+  /** Project this observation belongs to (null when trace is orphaned) */
+  projectId: string | null
   /** Plan node ID if applicable */
   nodeId?: string
   /** Status message (e.g. error details) */

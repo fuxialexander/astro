@@ -80,7 +80,7 @@ interface GenerationTurn {
  * Per-trace state tracked by the collector
  */
 interface TraceState {
-  projectId: string
+  projectId: string | null
   nodeId?: string
   model?: string
   sessionId?: string
@@ -352,7 +352,7 @@ export class ObservationCollector {
     const state = this.traces.get(traceId)
     if (!state) {
       // Trace might not be initialized yet — create it
-      this.initTrace(traceId, 'unknown')
+      this.initTrace(traceId, null)
       const newState = this.traces.get(traceId)!
       newState.sessionId = sessionId
       newState.model = model
@@ -544,11 +544,23 @@ export class ObservationCollector {
 
   // ── Internal helpers ────────────────────────────────────────────────
 
-  private initTrace(traceId: string, projectId: string, nodeId?: string): void {
-    if (this.traces.has(traceId)) return
+  private initTrace(traceId: string, projectId: string | null, nodeId?: string): void {
+    const existing = this.traces.get(traceId)
+    if (existing) {
+      // Backfill projectId/nodeId if they were unknown at initial creation
+      if (!existing.projectId && projectId) {
+        existing.projectId = projectId
+        // Also patch any buffered observations that have null projectId
+        for (const obs of existing.buffer) {
+          if (!obs.projectId) obs.projectId = projectId
+        }
+      }
+      if (!existing.nodeId && nodeId) existing.nodeId = nodeId
+      return
+    }
 
     const state: TraceState = {
-      projectId,
+      projectId: projectId ?? null,
       nodeId,
       buffer: [],
       pendingTools: new Map(),
