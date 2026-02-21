@@ -485,6 +485,7 @@ export function MyTasks() {
                 if (node) navigate(`/project/${node.projectId}`)
               }}
               applyCompletedFilter={false}
+              displayViewKey="my-tasks-timeline"
             />
           )
         ) : (
@@ -505,6 +506,7 @@ export function MyTasks() {
                 return undefined
               }}
               applyCompletedFilter={false}
+              displayViewKey="my-tasks"
             />
           )
         )

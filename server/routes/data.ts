@@ -622,26 +622,47 @@ app.get('/profile', async (c) => {
 app.put('/profile', async (c) => {
   const body = await c.req.json()
   const now = new Date()
+  const userId = c.get('user')!.id
 
+  // Read existing profile first to support partial updates
+  const [existing] = await db.select().from(userProfiles).where(eq(userProfiles.id, userId))
+
+  const defaults = {
+    name: '',
+    email: '',
+    avatarUrl: null,
+    bio: '',
+    domains: [],
+    experienceLevel: 'intermediate',
+    preferredEnvironments: ['local'],
+    notificationsEnabled: true,
+    emailNotifications: false,
+    apiKeys: [],
+    sidebarConfig: null,
+  }
+
+  // Merge: body wins over existing, existing wins over defaults
   const profile: Record<string, unknown> = {
-    id: c.get('user')!.id,
-    name: body.name ?? '',
-    email: body.email ?? '',
-    avatarUrl: body.avatarUrl ?? null,
-    bio: body.bio ?? '',
-    domains: body.domains ?? [],
-    experienceLevel: body.experienceLevel ?? 'intermediate',
-    preferredEnvironments: body.preferredEnvironments ?? ['local'],
-    notificationsEnabled: body.notificationsEnabled ?? true,
-    emailNotifications: body.emailNotifications ?? false,
-    apiKeys: body.apiKeys ?? [],
-    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
+    id: userId,
+    name: body.name ?? (existing?.name ?? defaults.name),
+    email: body.email ?? (existing?.email ?? defaults.email),
+    avatarUrl: body.avatarUrl !== undefined ? body.avatarUrl : (existing?.avatarUrl ?? defaults.avatarUrl),
+    bio: body.bio ?? (existing?.bio ?? defaults.bio),
+    domains: body.domains ?? (existing?.domains ?? defaults.domains),
+    experienceLevel: body.experienceLevel ?? (existing?.experienceLevel ?? defaults.experienceLevel),
+    preferredEnvironments: body.preferredEnvironments ?? (existing?.preferredEnvironments ?? defaults.preferredEnvironments),
+    notificationsEnabled: body.notificationsEnabled ?? (existing?.notificationsEnabled ?? defaults.notificationsEnabled),
+    emailNotifications: body.emailNotifications ?? (existing?.emailNotifications ?? defaults.emailNotifications),
+    apiKeys: body.apiKeys ?? (existing?.apiKeys ?? defaults.apiKeys),
+    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : (existing?.createdAt ?? now),
     updatedAt: now,
   }
 
-  // Include sidebarConfig if provided
+  // Include sidebarConfig if provided in body, otherwise keep existing
   if (body.sidebarConfig !== undefined) {
     profile.sidebarConfig = body.sidebarConfig
+  } else if (existing?.sidebarConfig) {
+    profile.sidebarConfig = existing.sidebarConfig
   }
 
   await db.insert(userProfiles).values(profile).onConflictDoUpdate({
@@ -649,7 +670,7 @@ app.put('/profile', async (c) => {
     set: { ...profile, id: undefined } as typeof profile,
   })
 
-  const [updated] = await db.select().from(userProfiles).where(eq(userProfiles.id, c.get('user')!.id))
+  const [updated] = await db.select().from(userProfiles).where(eq(userProfiles.id, userId))
   return c.json(updated)
 })
 
@@ -728,7 +749,7 @@ app.post('/usage/increment', async (c) => {
       totalOutputTokens: sql`${usageMetrics.totalOutputTokens} + ${body.totalOutputTokens ?? 0}`,
       tasksCompleted: sql`${usageMetrics.tasksCompleted} + ${body.tasksCompleted ?? 0}`,
       tasksFailed: sql`${usageMetrics.tasksFailed} + ${body.tasksFailed ?? 0}`,
-    }).where(eq(usageMetrics.id, existing.id))
+    }).where(and(eq(usageMetrics.userId, existing.userId), eq(usageMetrics.sessionDate, existing.sessionDate)))
   } else {
     await db.insert(usageMetrics).values({
       userId: c.get('user')!.id,

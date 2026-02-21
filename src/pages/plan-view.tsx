@@ -41,7 +41,7 @@ import { ColorIconBadge } from "@/components/color-icon-picker"
 import { OverviewTab } from "@/pages/project-overview"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
-import { useDisplaySettingsStore, type DisplaySettings } from "@/stores/display-settings-store"
+import { useDisplaySettingsStore, type DisplaySettings, type ViewKey } from "@/stores/display-settings-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
@@ -172,6 +172,7 @@ function makePlanColumns(
   project: { labels?: { id: string; name: string; color: string }[] } | undefined,
   milestoneMap: Map<string, string>,
   onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void,
+  projectMap?: Map<string, string>,
 ): ListColumn<PlanNode>[] {
   return [
     {
@@ -323,6 +324,16 @@ function makePlanColumns(
             {node.prNumber != null && <span>#{node.prNumber}</span>}
           </a>
         )
+      },
+    },
+    {
+      id: "project",
+      label: "Project",
+      width: "w-[120px]",
+      render: (node) => {
+        const name = projectMap?.get(node.projectId)
+        if (!name) return null
+        return <span className="text-xs text-muted-foreground truncate">{name}</span>
       },
     },
   ]
@@ -535,7 +546,8 @@ export function PlanListView({
   nodes,
   onNodeSelect,
   getProjectIdFromGroup,
-  applyCompletedFilter = true
+  applyCompletedFilter = true,
+  displayViewKey = "plan-list",
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
@@ -543,6 +555,7 @@ export function PlanListView({
   /** Optional: extract projectId from group key for cross-project task creation */
   getProjectIdFromGroup?: (groupKey: string) => string | undefined
   applyCompletedFilter?: boolean // Whether to apply showCompleted filter (default true)
+  displayViewKey?: ViewKey // Which display settings to use (default "plan-list")
 }) {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
@@ -550,7 +563,8 @@ export function PlanListView({
   const removeNodes = usePlanStore((s) => s.removeNodes)
   const addActivity = useActivityStore((s) => s.addActivity)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
-  const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
+  const projects = useProjectStore((s) => s.projects)
+  const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
 
@@ -627,7 +641,8 @@ export function PlanListView({
     return m
   }, [milestones])
 
-  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate), [project, milestoneMap, handleNodeUpdate])
+  const projectNameMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
+  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap), [project, milestoneMap, handleNodeUpdate, projectNameMap])
 
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
@@ -690,8 +705,22 @@ export function PlanListView({
       }))
     }
 
+    if (displaySettings.groupBy === "project") {
+      const projectMap = new Map(projects.map((p) => [p.id, p.name]))
+      const grouped: Record<string, PlanNode[]> = {}
+      for (const node of tasks) {
+        const key = projectMap.get(node.projectId) ?? "Unknown Project"
+        ;(grouped[key] ??= []).push(node)
+      }
+      return Object.entries(grouped).map(([label, items]) => ({
+        key: label,
+        label,
+        items,
+      }))
+    }
+
     return [{ key: "all", label: "All Tasks", items: tasks }]
-  }, [tasks, milestones, displaySettings.groupBy])
+  }, [tasks, milestones, projects, displaySettings.groupBy])
 
   function renderAddTaskRow(groupKey: string) {
     const defaultMilestoneId = groupKey.startsWith("milestone-") ? groupKey.replace("milestone-", "") : undefined
@@ -723,13 +752,13 @@ export function PlanListView({
 
   const handleSort = useCallback((sortKey: string) => {
     if (displaySettings.orderBy === sortKey) {
-      updateDisplaySettings("plan-list", {
+      updateDisplaySettings(displayViewKey, {
         orderDirection: displaySettings.orderDirection === "asc" ? "desc" : "asc",
       })
     } else {
-      updateDisplaySettings("plan-list", { orderBy: sortKey, orderDirection: "asc" })
+      updateDisplaySettings(displayViewKey, { orderBy: sortKey, orderDirection: "asc" })
     }
-  }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
+  }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings, displayViewKey])
 
   // Show empty state if no tasks (with column headers)
   if (tasks.length === 0) {
@@ -763,19 +792,22 @@ export function PlanTimelineView({
   projectId,
   nodes,
   onNodeSelect,
-  applyCompletedFilter = true
+  applyCompletedFilter = true,
+  displayViewKey = "plan-list",
 }: {
   projectId: string
   nodes?: PlanNode[] // Optional: pre-filtered nodes for cross-project mode
   onNodeSelect: (node: PlanNode | null) => void
   applyCompletedFilter?: boolean // Whether to apply showCompleted filter (default true)
+  displayViewKey?: ViewKey // Which display settings to use (default "plan-list")
 }) {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const updateNode = usePlanStore((s) => s.updateNode)
-  const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
+  const projects = useProjectStore((s) => s.projects)
+  const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
   const [isCreating, setIsCreating] = useState(false)
 
   const allProjectNodes = useMemo(() => {
@@ -868,13 +900,28 @@ export function PlanTimelineView({
       return rows
     }
 
+    if (displaySettings.groupBy === "project") {
+      const projectMap = new Map(projects.map((p) => [p.id, p.name]))
+      const grouped: Record<string, PlanNode[]> = {}
+      for (const node of datedTasks) {
+        const key = projectMap.get(node.projectId) ?? "Unknown Project"
+        ;(grouped[key] ??= []).push(node)
+      }
+      const rows: TimelineRow<PlanNode>[] = []
+      for (const [label, items] of Object.entries(grouped)) {
+        rows.push({ kind: "header", label, count: items.length })
+        for (const item of items) rows.push(nodeToRow(item))
+      }
+      return rows
+    }
+
     return datedTasks.map(nodeToRow)
-  }, [datedTasks, milestones, displaySettings.groupBy])
+  }, [datedTasks, milestones, projects, displaySettings.groupBy])
 
   return (
     <ItemTimelineView
       rows={timelineRows}
-      viewKey="plan-list"
+      viewKey={displayViewKey}
       renderLeftCell={(node) => (
         <span className={cn(
           "text-sm truncate",
