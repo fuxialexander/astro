@@ -64,6 +64,19 @@ export const teamMembers = pgTable('team_members', {
   pk: primaryKey({ columns: [table.teamId, table.userId] }),
 }))
 
+// ── Invite Tokens ─────────────────────────────────────────────────────
+export const inviteTokens = pgTable('invite_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  token: text('token').notNull().unique(),
+  teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(),
+  invitedBy: uuid('invited_by').notNull(),
+  role: text('role').notNull().default('member'), // 'owner' | 'admin' | 'member'
+  expiresAt: timestamp('expires_at').notNull(),
+  usedAt: timestamp('used_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
 // ── Plan Nodes ────────────────────────────────────────────────────────
 export const planNodes = pgTable('plan_nodes', {
   id: uuid('id').primaryKey().defaultRandom(),

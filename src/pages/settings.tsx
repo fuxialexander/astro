@@ -29,6 +29,10 @@ import {
   Eye,
   EyeOff,
   Lock,
+  Users,
+  Mail,
+  Copy,
+  Clock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -92,6 +96,7 @@ type SettingsTab =
   | "profile"
   | "notifications"
   | "security"
+  | "teams"
   | "connected-accounts"
   | "environments"
   | "keyboard-shortcuts"
@@ -103,6 +108,7 @@ const personalItems: { id: SettingsTab; label: string; icon: React.ElementType }
   { id: "profile", label: "Profile", icon: User },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "security", label: "Security & access", icon: Shield },
+  { id: "teams", label: "Teams", icon: Users },
   { id: "connected-accounts", label: "Connected accounts", icon: LinkIcon },
 ]
 
@@ -1479,6 +1485,362 @@ function ConnectedAccountsContent() {
   )
 }
 
+function TeamsContent() {
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
+  const [teams, setTeams] = useState<Array<{ id: string; name: string; role: string }>>([])
+  const [members, setMembers] = useState<Array<{ user_id: string; role: string; joined_at: string; user: { name: string; email: string } }>>([])
+  const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; expires_at: string; created_at: string }>>([])
+  const [loading, setLoading] = useState(true)
+  const [showInviteDialog, setShowInviteDialog] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<'owner' | 'admin' | 'member'>('member')
+  const [inviting, setInviting] = useState(false)
+  const [revoking, setRevoking] = useState<string | null>(null)
+  const [removing, setRemoving] = useState<string | null>(null)
+  const [copiedToken, setCopiedToken] = useState(false)
+
+  // Fetch user's teams
+  useEffect(() => {
+    const fetchTeams = async () => {
+      try {
+        // TODO: Implement API call to fetch user's teams
+        // For now, mock empty state
+        setTeams([])
+        setLoading(false)
+      } catch (error) {
+        console.error('[settings] Failed to fetch teams:', error)
+        setLoading(false)
+      }
+    }
+    fetchTeams()
+  }, [])
+
+  // Fetch team members and invites when a team is selected
+  useEffect(() => {
+    if (!selectedTeamId) {
+      setMembers([])
+      setPendingInvites([])
+      return
+    }
+
+    const fetchTeamData = async () => {
+      try {
+        // TODO: Implement API calls to fetch members and invites
+        setMembers([])
+        setPendingInvites([])
+      } catch (error) {
+        console.error('[settings] Failed to fetch team data:', error)
+      }
+    }
+    fetchTeamData()
+  }, [selectedTeamId])
+
+  const handleSendInvite = async () => {
+    if (!inviteEmail || !selectedTeamId) return
+
+    setInviting(true)
+    try {
+      // TODO: Implement API call to send invitation
+      console.log('[settings] Sending invite:', { teamId: selectedTeamId, email: inviteEmail, role: inviteRole })
+      setShowInviteDialog(false)
+      setInviteEmail('')
+      setInviteRole('member')
+      // Refresh invites list
+    } catch (error) {
+      console.error('[settings] Failed to send invite:', error)
+      alert(`Failed to send invitation: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setInviting(false)
+    }
+  }
+
+  const handleRevokeInvite = async (inviteId: string) => {
+    setRevoking(inviteId)
+    try {
+      // TODO: Implement API call to revoke invitation
+      console.log('[settings] Revoking invite:', inviteId)
+      // Refresh invites list
+    } catch (error) {
+      console.error('[settings] Failed to revoke invite:', error)
+      alert(`Failed to revoke invitation: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setRevoking(null)
+    }
+  }
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!selectedTeamId) return
+
+    setRemoving(userId)
+    try {
+      // TODO: Implement API call to remove member
+      console.log('[settings] Removing member:', { teamId: selectedTeamId, userId })
+      // Refresh members list
+    } catch (error) {
+      console.error('[settings] Failed to remove member:', error)
+      alert(`Failed to remove member: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setRemoving(null)
+    }
+  }
+
+  const copyInviteLink = (token: string) => {
+    const inviteUrl = `${window.location.origin}/invite/${token}`
+    navigator.clipboard.writeText(inviteUrl)
+    setCopiedToken(true)
+    setTimeout(() => setCopiedToken(false), 2000)
+  }
+
+  if (!isServerMode()) {
+    return (
+      <div className="flex flex-col gap-8">
+        <h1 className="text-[28px] font-semibold">Teams</h1>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16">
+          <Users className="mb-4 h-12 w-12 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Teams are only available in server mode</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Run Astro with Supabase to enable team collaboration
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-8">
+        <h1 className="text-[28px] font-semibold">Teams</h1>
+        <div className="flex items-center justify-center rounded-xl border border-border bg-card py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    )
+  }
+
+  const selectedTeam = teams.find((t) => t.id === selectedTeamId)
+  const canInvite = selectedTeam && ['owner', 'admin'].includes(selectedTeam.role)
+
+  return (
+    <div className="flex flex-col gap-8">
+      <h1 className="text-[28px] font-semibold">Teams</h1>
+
+      {teams.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16">
+          <Users className="mb-4 h-12 w-12 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">You're not a member of any teams yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ask a team admin to send you an invitation
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Team Selector */}
+          <section className="flex flex-col gap-3">
+            <h2 className="text-sm font-semibold">Select Team</h2>
+            <div className="rounded-xl border border-border bg-card">
+              {teams.map((team, idx) => (
+                <button
+                  key={team.id}
+                  onClick={() => setSelectedTeamId(team.id)}
+                  className={cn(
+                    "flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-muted/50",
+                    idx !== teams.length - 1 && "border-b border-border",
+                    selectedTeamId === team.id && "bg-muted"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{team.name}</span>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {team.role}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {selectedTeamId && (
+            <>
+              {/* Team Members */}
+              <section className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold">Members</h2>
+                  {canInvite && (
+                    <Button variant="outline" size="sm" onClick={() => setShowInviteDialog(true)}>
+                      <Mail className="mr-1.5 h-3.5 w-3.5" />
+                      Invite Member
+                    </Button>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-border bg-card">
+                  {members.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                      <Users className="mb-2 h-8 w-8" />
+                      <span className="text-sm">No members yet</span>
+                    </div>
+                  ) : (
+                    members.map((member, idx) => (
+                      <div
+                        key={member.user_id}
+                        className={cn(
+                          "flex items-center justify-between px-4 py-3",
+                          idx !== members.length - 1 && "border-b border-border"
+                        )}
+                      >
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-sm font-medium">{member.user.name}</span>
+                          <span className="text-xs text-muted-foreground">{member.user.email}</span>
+                          <span className="text-xs text-muted-foreground">
+                            Joined {new Date(member.joined_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="text-xs">
+                            {member.role}
+                          </Badge>
+                          {canInvite && member.role !== 'owner' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRemoveMember(member.user_id)}
+                              disabled={removing === member.user_id}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              {removing === member.user_id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              {/* Pending Invitations */}
+              {canInvite && (
+                <section className="flex flex-col gap-3">
+                  <h2 className="text-sm font-semibold">Pending Invitations</h2>
+                  <div className="rounded-xl border border-border bg-card">
+                    {pendingInvites.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                        <Mail className="mb-2 h-8 w-8" />
+                        <span className="text-sm">No pending invitations</span>
+                      </div>
+                    ) : (
+                      pendingInvites.map((invite, idx) => (
+                        <div
+                          key={invite.id}
+                          className={cn(
+                            "flex items-center justify-between px-4 py-3",
+                            idx !== pendingInvites.length - 1 && "border-b border-border"
+                          )}
+                        >
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-sm font-medium">{invite.email}</span>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Clock className="h-3 w-3" />
+                              Expires {new Date(invite.expires_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-xs">
+                              {invite.role}
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRevokeInvite(invite.id)}
+                              disabled={revoking === invite.id}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              {revoking === invite.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <XCircle className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* Invite Dialog */}
+      <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite Team Member</DialogTitle>
+            <DialogDescription>
+              Send an email invitation to join {selectedTeam?.name}. The invitation will be valid for 7 days.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Email Address</label>
+              <Input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="colleague@example.com"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Role</label>
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as 'owner' | 'admin' | 'member')}
+                className="h-9 rounded-md border border-border bg-card px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="member">Member — Can view and participate</option>
+                <option value="admin">Admin — Can manage members and settings</option>
+                <option value="owner">Owner — Full control</option>
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowInviteDialog(false)
+                setInviteEmail('')
+                setInviteRole('member')
+              }}
+              disabled={inviting}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSendInvite} disabled={!inviteEmail || inviting}>
+              {inviting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Mail className="mr-2 h-4 w-4" />
+                  Send Invitation
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
 function PlaceholderContent({ title }: { title: string }) {
   return (
     <div className="flex flex-col gap-8">
@@ -1495,6 +1857,7 @@ const tabTitles: Record<SettingsTab, string> = {
   profile: "Profile",
   notifications: "Notifications",
   security: "Security & access",
+  teams: "Teams",
   "connected-accounts": "Connected accounts",
   environments: "Environments",
   plugins: "Plugins",
@@ -1511,6 +1874,8 @@ export function Settings() {
         return <PreferencesContent />
       case "profile":
         return <ProfileContent />
+      case "teams":
+        return <TeamsContent />
       case "connected-accounts":
         return <ConnectedAccountsContent />
       case "plugins":

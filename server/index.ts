@@ -25,6 +25,7 @@ import systemRoute from './routes/system.js'
 import { skillsRoute } from './routes/skills.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
+import { teamsRoute } from './routes/teams.js'
 import { skillManager } from './lib/skill-manager.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { initializeProviders } from './lib/providers/index.js'
@@ -166,6 +167,7 @@ app.route('/api/skills', skillsRoute)
 app.route('/api/share', shareRoute)
 app.route('/api/connected-accounts', connectedAccountsRoute)
 app.route('/api/observations', observationsRoute)
+app.route('/api/teams', teamsRoute)
 
 // Landing page route
 const __filename = fileURLToPath(import.meta.url)
