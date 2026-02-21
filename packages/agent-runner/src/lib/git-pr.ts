@@ -16,6 +16,7 @@ function withGitEnv(): NodeJS.ProcessEnv {
 
 export interface PRResult {
   branchName: string;
+  pushed?: boolean;
   prUrl?: string;
   prNumber?: number;
 }
@@ -196,7 +197,47 @@ export async function getGitRoot(dir: string): Promise<string | null> {
 }
 
 /**
- * Full PR creation flow: push + create PR, with graceful fallbacks
+ * Auto-commit any uncommitted changes in the worktree.
+ * Fallback for when the agent doesn't commit its own changes.
+ */
+export async function autoCommitChanges(
+  worktreePath: string,
+  taskTitle: string,
+): Promise<boolean> {
+  try {
+    const { stdout: statusOutput } = await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'status', '--porcelain'],
+      { env: withGitEnv(), timeout: 10_000 }
+    );
+
+    if (!statusOutput.trim()) {
+      return false;
+    }
+
+    await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'add', '-A'],
+      { env: withGitEnv(), timeout: 30_000 }
+    );
+
+    await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'commit', '-m', `${taskTitle}\n\nAuto-committed by Astro agent-runner`],
+      { env: withGitEnv(), timeout: 30_000 }
+    );
+
+    console.log(`[git-pr] Auto-committed uncommitted changes for: ${taskTitle}`);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[git-pr] Auto-commit failed: ${msg}`);
+    return false;
+  }
+}
+
+/**
+ * Full PR creation flow: auto-commit + push + create PR, with graceful fallbacks
  */
 export async function pushAndCreatePR(
   worktreePath: string,
@@ -224,6 +265,9 @@ export async function pushAndCreatePR(
   // Get default branch
   const baseBranch = await getDefaultBranch(gitRoot);
 
+  // Auto-commit any uncommitted changes the agent left behind
+  await autoCommitChanges(worktreePath, options.taskTitle);
+
   // Check if there are commits to push
   const hasCommits = await hasBranchCommits(worktreePath, baseBranch);
   if (!hasCommits) {
@@ -235,6 +279,7 @@ export async function pushAndCreatePR(
   // Push the branch
   const pushed = await pushBranch(worktreePath, options.branchName);
   if (!pushed) return result;
+  result.pushed = true;
 
   // Create PR if gh is available
   if (!(await isGhAvailable())) {

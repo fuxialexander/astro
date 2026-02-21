@@ -531,10 +531,11 @@ export class TaskExecutor {
             result.prNumber = prResult.prNumber;
             keepBranch = true;
             console.log(`[executor] Task ${task.id}: PR created at ${prResult.prUrl}`);
-          } else if (prResult.branchName) {
-            // Branch was pushed but no PR created (gh not available or no remote)
+          } else if (prResult.pushed) {
             keepBranch = true;
-            console.log(`[executor] Task ${task.id}: branch pushed, no PR created`);
+            console.log(`[executor] Task ${task.id}: branch pushed, no PR created (gh not available?)`);
+          } else {
+            console.log(`[executor] Task ${task.id}: no changes to push`);
           }
         } catch (prError) {
           const prMsg = prError instanceof Error ? prError.message : String(prError);
