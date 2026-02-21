@@ -73,6 +73,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
 
   // In Supabase mode, no "Local" option — only registered machines
   const isMultiTenant = isServerMode()
+  const onlineMachines = machines.filter((m) => m.status !== 'offline')
 
   // Default machine ID fallback chain:
   // 1. Node-specific machine
@@ -134,9 +135,6 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
       outputRef.current.scrollTop = outputRef.current.scrollHeight
     }
   }, [execution?.streamText])
-
-  // All online machines
-  const onlineMachines = machines.filter((m) => m.status !== 'offline')
 
   // Check if node can be executed
   const canExecuteResult = canExecuteNode(node, nodes, edges)

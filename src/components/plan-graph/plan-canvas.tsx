@@ -133,6 +133,14 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView, zoomIn: rfZoomIn, zoomOut: rfZoomOut } = useReactFlow()
 
+  const projectNodes = useMemo(() => {
+    let nodes = planNodes.filter((n) => n.projectId === projectId && n.type !== "milestone")
+    if (!graphDisplaySettings.showCompleted) {
+      nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
+    }
+    return nodes
+  }, [planNodes, projectId, graphDisplaySettings.showCompleted])
+
   // Keyboard navigation
   const setItems = useKeyboardNavStore((s) => s.setItems)
   const clear = useKeyboardNavStore((s) => s.clear)
@@ -168,13 +176,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     }
   }, [focusedId, selectedId])
 
-  const projectNodes = useMemo(() => {
-    let nodes = planNodes.filter((n) => n.projectId === projectId && n.type !== "milestone")
-    if (!graphDisplaySettings.showCompleted) {
-      nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
-    }
-    return nodes
-  }, [planNodes, projectId, graphDisplaySettings.showCompleted])
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
     const filtered = planEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
