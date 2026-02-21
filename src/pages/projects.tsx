@@ -10,12 +10,15 @@ import { FilterSelect } from "@/components/views/filter-select"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { ItemTimelineView, type TimelineRow } from "@/components/views/item-timeline-view"
 import { ColorIconBadge } from "@/components/color-icon-picker"
+import { InlineRenameInput } from "@/components/inline-rename-input"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
+import { useToastStore } from "@/stores/toast-store"
 import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
+import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import type { Project } from "@/types"
 
@@ -76,29 +79,54 @@ const projectsTimelineDisplayConfig: DisplayPopoverConfig = {
 }
 
 // --- Column definitions for project list ---
-const PROJECT_COLUMNS: ListColumn<Project>[] = [
-  {
-    id: "name",
-    label: "Name",
-    width: "flex-1",
-    sortKey: "name",
-    render: (p) => (
-      <Link
-        to={`/project/${p.id}`}
-        className="flex items-center gap-2.5 min-w-0"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <ColorIconBadge
-          color={p.color}
-          icon={p.icon}
-          type="project"
-        />
-        <span className="text-sm truncate">{p.name}</span>
-      </Link>
-    ),
-  },
-  {
-    id: "status",
+// Note: This will be replaced with a function that takes renaming state
+function getProjectColumns(
+  renamingProjectId: string | null,
+  setRenamingProjectId: (id: string | null) => void,
+  handleRename: (id: string, name: string) => void,
+  validateName: (name: string) => string | null,
+  navigate: (path: string) => void
+): ListColumn<Project>[] {
+  return [
+    {
+      id: "name",
+      label: "Name",
+      width: "flex-1",
+      sortKey: "name",
+      render: (p) => (
+        <div className="flex items-center gap-2.5 min-w-0 w-full">
+          <ColorIconBadge
+            color={p.color}
+            icon={p.icon}
+            type="project"
+          />
+          {renamingProjectId === p.id ? (
+            <InlineRenameInput
+              value={p.name}
+              onSave={(newName) => handleRename(p.id, newName)}
+              onCancel={() => setRenamingProjectId(null)}
+              validate={validateName}
+              className="flex-1"
+            />
+          ) : (
+            <Link
+              to={`/project/${p.id}`}
+              onDoubleClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setRenamingProjectId(p.id)
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="text-sm truncate flex-1 hover:underline"
+            >
+              {p.name}
+            </Link>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "status",
     label: "Status",
     width: "w-[100px]",
     render: (p) => (
@@ -121,31 +149,32 @@ const PROJECT_COLUMNS: ListColumn<Project>[] = [
         </div>
       )
     },
-  },
-  {
-    id: "progress",
-    label: "Progress",
-    width: "w-[80px]",
-    sortKey: "progress",
-    render: (p) => <span className="text-xs">{p.progress ?? 0}%</span>,
-  },
-  {
-    id: "targetDate",
-    label: "Target date",
-    width: "w-[100px]",
-    sortKey: "targetDate",
-    render: (p) => (
-      <span className={cn(
-        "text-xs",
-        isOverdue(p.targetDate, (p.progress ?? 0) >= 100 ? "completed" : "planned")
-          ? "text-red-500"
-          : "text-muted-foreground"
-      )}>
-        {formatShortDate(p.targetDate) || "\u2014"}
-      </span>
-    ),
-  },
-]
+    },
+    {
+      id: "progress",
+      label: "Progress",
+      width: "w-[80px]",
+      sortKey: "progress",
+      render: (p) => <span className="text-xs">{p.progress ?? 0}%</span>,
+    },
+    {
+      id: "targetDate",
+      label: "Target date",
+      width: "w-[100px]",
+      sortKey: "targetDate",
+      render: (p) => (
+        <span className={cn(
+          "text-xs",
+          isOverdue(p.targetDate, (p.progress ?? 0) >= 100 ? "completed" : "planned")
+            ? "text-red-500"
+            : "text-muted-foreground"
+        )}>
+          {formatShortDate(p.targetDate) || "\u2014"}
+        </span>
+      ),
+    },
+  ]
+}
 
 function getProjectBarColors(project: Project) {
   const pct = project.progress ?? 0
@@ -168,6 +197,7 @@ export function Projects() {
   const rawAllNodes = usePlanStore((s) => s.nodes)
   const allNodes = useMemo(() => rawAllNodes.filter(isLive), [rawAllNodes])
   const initiatives = useInitiativeStore((s) => s.initiatives)
+  const addToast = useToastStore((s) => s.add)
   const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
@@ -177,6 +207,7 @@ export function Projects() {
   const [initiativeFilter, setInitiativeFilter] = useState("all")
   const [importBundle, setImportBundle] = useState<import("@/lib/sharing/types").AstroExportBundle | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
 
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -422,11 +453,64 @@ export function Projects() {
     }
   }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings])
 
+  const handleProjectRename = async (projectId: string, newName: string) => {
+    const project = projects.find((p) => p.id === projectId)
+    if (!project) return
+
+    const oldName = project.name
+
+    try {
+      // Optimistic update
+      updateProject(projectId, { name: newName })
+      setRenamingProjectId(null)
+
+      // Verify server sync (only in server mode)
+      if (isServerMode()) {
+        addToast({
+          type: "success",
+          title: "Project renamed",
+          description: `"${oldName}" → "${newName}"`,
+        })
+      }
+    } catch (error) {
+      // Revert on error
+      updateProject(projectId, { name: oldName })
+      addToast({
+        type: "error",
+        title: "Rename failed",
+        description: "Could not rename project. Please try again.",
+      })
+      console.error("Project rename error:", error)
+    }
+  }
+
+  const validateProjectName = useCallback((name: string): string | null => {
+    if (!name.trim()) {
+      return "Project name cannot be empty"
+    }
+    if (name.length > 100) {
+      return "Project name is too long (max 100 characters)"
+    }
+    // Check for duplicates (excluding current project)
+    const isDuplicate = projects.some(
+      (p) => p.id !== renamingProjectId && p.name.toLowerCase() === name.toLowerCase()
+    )
+    if (isDuplicate) {
+      return "A project with this name already exists"
+    }
+    return null
+  }, [projects, renamingProjectId])
+
   const viewTabs: { id: ViewTab; label: string }[] = [
     { id: "all", label: "All projects" },
     { id: "timeline", label: "Timeline" },
     { id: "board", label: "Board" },
   ]
+
+  const projectColumns = useMemo(
+    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, navigate),
+    [renamingProjectId, validateProjectName, navigate]
+  )
 
   return (
     <div className="flex flex-1 flex-col min-w-0 h-full">
@@ -537,7 +621,7 @@ export function Projects() {
             </div>
           ) : (
             <ItemListView
-              columns={PROJECT_COLUMNS}
+              columns={projectColumns}
               groups={listGroups}
               visibleColumns={displaySettings.visibleProperties}
               onItemClick={(p) => navigate(`/project/${p.id}/graph`)}
