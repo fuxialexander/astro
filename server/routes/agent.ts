@@ -1274,13 +1274,18 @@ agentRoute.post('/summarize', async (c) => {
     status: 'success' | 'failure'
   }>()
 
+  console.log(`[summarize] Summary generation requested for task: ${body.taskTitle} (status: ${body.status})`)
+
   try {
     // Get provider — prefer anthropic-direct for this lightweight task
     const provider = getChatProvider()
 
     if (!provider) {
+      console.error('[summarize] No provider available for summary generation')
       return c.json({ error: 'No provider available' }, 503)
     }
+
+    console.log('[summarize] Using provider for summary generation')
 
     const prompt = buildSummaryPrompt(body)
     const taskId = `summary-${Date.now()}`
@@ -1294,7 +1299,9 @@ agentRoute.post('/summarize', async (c) => {
       context: { projectId: '' },
     }
 
+    console.log('[summarize] Executing summary generation task...')
     const result = await provider.execute(task)
+    console.log(`[summarize] Summary generation completed with status: ${result.status}`)
 
     if (result.status === 'success' && result.stdout) {
       try {
@@ -1302,9 +1309,11 @@ agentRoute.post('/summarize', async (c) => {
         const jsonMatch = result.stdout.match(/\{[\s\S]*\}/)
         if (jsonMatch) {
           const summary = JSON.parse(jsonMatch[0])
+          console.log('[summarize] Successfully generated and parsed JSON summary')
           return c.json({ summary })
         }
-      } catch {
+      } catch (parseError) {
+        console.warn('[summarize] JSON parsing failed, returning basic summary:', errorMessage(parseError))
         // If JSON parsing fails, return a basic summary
         return c.json({
           summary: {
@@ -1317,6 +1326,7 @@ agentRoute.post('/summarize', async (c) => {
       }
     }
 
+    console.error(`[summarize] Summary generation failed: result.status=${result.status}, stdout length=${result.stdout?.length || 0}`)
     return c.json({ error: 'Failed to generate summary' }, 500)
   } catch (error) {
     console.error('[summarize] Error:', errorMessage(error))

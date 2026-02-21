@@ -1335,7 +1335,8 @@ function handleSSEEvent(
         }
 
         // Fire async summary generation (non-blocking)
-        if (isSuccess && execution) {
+        // Generate summary for all tasks that enter awaiting_judgment, not just successful ones
+        if (execution && (finalStatus === "awaiting_judgment" || (isSuccess && node?.verification !== "auto"))) {
           requestExecutionSummary(nodeId, execution, node)
         }
 
@@ -1352,6 +1353,9 @@ function handleSSEEvent(
         const parsed = JSON.parse(data)
         const errorMessage = typeof parsed === 'string' ? parsed : parsed.error || 'Unknown error'
         const errorTime = new Date()
+        const execution = get().executions.get(nodeId)
+        const node = planStore.nodes.find((n) => n.id === nodeId)
+
         set((state) => {
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
@@ -1369,6 +1373,11 @@ function handleSSEEvent(
           // Set actualEndDate even on error to track when task stopped
           actualEndDate: errorTime,
         })
+
+        // Fire async summary generation for failed tasks (non-blocking)
+        if (execution) {
+          requestExecutionSummary(nodeId, execution, node)
+        }
 
         // Persist failed execution to IndexedDB and Supabase
         useExecutionStore.getState().persist()
@@ -1408,7 +1417,11 @@ async function requestExecutionSummary(
   execution: TaskExecution,
   node: PlanNode | undefined,
 ) {
-  if (!node || !execution.streamText) return
+  if (!node || !execution.streamText) {
+    console.log(`[execution-store] Skipping summary generation for ${nodeId}: node=${!!node}, streamText=${!!execution.streamText}`)
+    return
+  }
+  console.log(`[execution-store] Requesting summary generation for task: ${node.title} (status: ${execution.status})`)
   try {
     const headers = await getAuthHeaders()
     const response = await fetch(apiUrl("/api/agent/summarize"), {
@@ -1422,9 +1435,11 @@ async function requestExecutionSummary(
         status: execution.status === "success" ? "success" : "failure",
       }),
     })
+    console.log(`[execution-store] Summary generation response status: ${response.status}`)
     if (response.ok) {
       const data = await response.json()
       if (data.summary) {
+        console.log(`[execution-store] Successfully received summary for ${nodeId}`)
         useExecutionStore.setState((state) => {
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
@@ -1433,10 +1448,16 @@ async function requestExecutionSummary(
           }
           return { executions: newExecutions }
         })
+      } else {
+        console.warn(`[execution-store] Summary response missing 'summary' field for ${nodeId}`)
       }
+    } else {
+      const errorText = await response.text()
+      console.error(`[execution-store] Summary generation failed for ${nodeId}:`, errorText)
     }
-  } catch {
-    // Non-critical — silently ignore summary failures
+  } catch (error) {
+    // Non-critical — log but don't fail the execution
+    console.error(`[execution-store] Summary generation error for ${nodeId}:`, error)
   }
 }
 
