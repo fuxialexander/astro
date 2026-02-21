@@ -54,6 +54,8 @@ app.post('/projects', async (c) => {
     color: body.color ?? '#3b82f6',
     icon: body.icon ?? '📋',
     workingDirectory: body.workingDirectory ?? null,
+    mergeQueueEnabled: body.mergeQueueEnabled ?? false,
+    mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   }
@@ -121,6 +123,8 @@ app.patch('/projects/:id', async (c) => {
   if (body.repository !== undefined) patch.repository = body.repository || null
   if (body.defaultEnvironment !== undefined) patch.defaultEnvironment = body.defaultEnvironment || null
   if (body.defaultMachineId !== undefined) patch.defaultMachineId = body.defaultMachineId || null
+  if (body.mergeQueueEnabled !== undefined) patch.mergeQueueEnabled = body.mergeQueueEnabled ?? false
+  if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
 
   await db.update(projects).set(patch).where(
     and(eq(projects.id, id), eq(projects.ownerId, userId))
@@ -413,6 +417,7 @@ app.put('/plan/:projectId', async (c) => {
         branchName: (n.branchName as string) ?? null,
         prUrl: (n.prUrl as string) ?? null,
         prNumber: (n.prNumber as number) ?? null,
+        mergeQueueStatus: (n.mergeQueueStatus as string) ?? null,
         createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
         updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
@@ -472,6 +477,7 @@ app.post('/plan/nodes', async (c) => {
     branchName: body.branchName ?? null,
     prUrl: body.prUrl ?? null,
     prNumber: body.prNumber ?? null,
+    mergeQueueStatus: body.mergeQueueStatus ?? null,
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   })
@@ -521,6 +527,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.branchName !== undefined) patch.branchName = body.branchName || null
   if (body.prUrl !== undefined) patch.prUrl = body.prUrl || null
   if (body.prNumber !== undefined) patch.prNumber = body.prNumber || null
+  if (body.mergeQueueStatus !== undefined) patch.mergeQueueStatus = body.mergeQueueStatus || null
   if (body.type !== undefined) patch.type = body.type
   if (body.deletedAt !== undefined) patch.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
   if (body.deletionActionId !== undefined) patch.deletionActionId = body.deletionActionId || null

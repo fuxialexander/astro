@@ -21,6 +21,8 @@ export const projects = pgTable('projects', {
   repository: text('repository'),
   defaultEnvironment: text('default_environment'),
   defaultMachineId: text('default_machine_id'),
+  mergeQueueEnabled: boolean('merge_queue_enabled').default(false),
+  mergeQueueMergeMethod: text('merge_queue_merge_method').default('squash'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
@@ -71,6 +73,7 @@ export const planNodes = pgTable('plan_nodes', {
   branchName: text('branch_name'),
   prUrl: text('pr_url'),
   prNumber: integer('pr_number'),
+  mergeQueueStatus: text('merge_queue_status'),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
