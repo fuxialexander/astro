@@ -182,6 +182,16 @@ export function CommandPalette() {
     })
   }, [allCommands, navigate, theme, setTheme, availableThemes, projects])
 
+  // Get commands to display (either root commands or children of current breadcrumb)
+  const displayCommands = useMemo(() => {
+    if (breadcrumbs.length > 0) {
+      // Show children of the last breadcrumb
+      const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
+      return lastBreadcrumb.children ?? []
+    }
+    return commandsWithActions
+  }, [breadcrumbs, commandsWithActions])
+
   // Fuzzy search setup
   const fuse = useMemo(
     () =>
@@ -193,16 +203,6 @@ export function CommandPalette() {
       }),
     [displayCommands]
   )
-
-  // Get commands to display (either root commands or children of current breadcrumb)
-  const displayCommands = useMemo(() => {
-    if (breadcrumbs.length > 0) {
-      // Show children of the last breadcrumb
-      const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
-      return lastBreadcrumb.children ?? []
-    }
-    return commandsWithActions
-  }, [breadcrumbs, commandsWithActions])
 
   // Filter and search commands
   const filteredCommands = useMemo(() => {
