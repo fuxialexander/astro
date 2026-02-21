@@ -44,6 +44,8 @@ function mapProject(row: Record<string, unknown>): Project {
     createdAt: toDate(row.created_at ?? row.createdAt),
     updatedAt: toDate(row.updated_at ?? row.updatedAt),
     labels: (row.labels as Project["labels"]) ?? [],
+    mergeQueueEnabled: (row.merge_queue_enabled ?? row.mergeQueueEnabled) as boolean | undefined,
+    mergeQueueMergeMethod: (row.merge_queue_merge_method ?? row.mergeQueueMergeMethod) as Project["mergeQueueMergeMethod"],
   } as Project
 }
 
@@ -66,6 +68,7 @@ function mapNode(row: Record<string, unknown>): PlanNode {
     branchName: (row.branch_name ?? row.branchName) as string | undefined,
     prUrl: (row.pr_url ?? row.prUrl) as string | undefined,
     prNumber: (row.pr_number ?? row.prNumber) as number | undefined,
+    mergeQueueStatus: (row.merge_queue_status ?? row.mergeQueueStatus) as string | undefined,
   } as PlanNode
 }
 
