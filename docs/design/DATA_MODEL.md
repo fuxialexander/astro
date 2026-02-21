@@ -575,7 +575,7 @@ type AgentToRelayMessage =
 
 ## 8. Database Schema (Postgres)
 
-Defined in `server/lib/db/schema.ts` (~300 lines, 24 tables):
+Defined in `server/lib/db/schema.ts` (~300 lines, 27+ tables):
 
 ### 8.1 Core Tables
 
@@ -607,13 +607,37 @@ Defined in `server/lib/db/schema.ts` (~300 lines, 24 tables):
 | `usageMetrics` | composite (userId, sessionDate) | — | Daily usage aggregation |
 | `projectMembers` | composite (projectId, userId) | — | Project access control |
 
-### 8.4 Infrastructure Tables
+### 8.4 Team & Collaboration Tables
 
 | Table | Primary Key | Foreign Keys | Purpose |
 |-------|------------|-------------|---------|
-| `registeredMachines` | `id` (text) | `userId` | Machine registration |
+| `teams` | `id` (UUID) | — | Team grouping entity |
+| `teamMembers` | composite (teamId, userId) | `teamId` → teams | Team membership with roles (owner/admin/member) |
+| `inviteTokens` | `id` (UUID) | `teamId` → teams | Email-based team invitation tokens |
+
+### 8.5 Infrastructure Tables
+
+| Table | Primary Key | Foreign Keys | Purpose |
+|-------|------------|-------------|---------|
+| `registeredMachines` | `id` (text) | `userId`, `teamId` → teams | Machine registration (now team-aware) |
 | `refreshTokens` | `tokenHash` | `machineId` | Device auth tokens |
 | `pushTokens` | — | — | Push notification tokens |
+| `machineUsageLogs` | `id` (UUID) | `machineId`, `userId` | Machine usage tracking |
+
+### 8.6 Auth & Integration Tables
+
+| Table | Primary Key | Foreign Keys | Purpose |
+|-------|------------|-------------|---------|
+| `passkeyCredentials` | `credentialId` (text) | `userId` | WebAuthn/passkey credentials |
+| `connectedAccounts` | `id` (UUID) | `userId` | External OAuth integrations (GitHub, Linear) |
+
+### 8.7 Activity & Audit Tables
+
+| Table | Primary Key | Foreign Keys | Purpose |
+|-------|------------|-------------|---------|
+| `auditLogs` | `id` (UUID) | `userId` | Audit trail of user actions |
+| `activityEvents` | `id` (UUID) | `userId`, `projectId` | Activity feed events |
+| `observationEvents` | `id` | `executionId` | Observability trace events |
 
 ---
 
@@ -632,6 +656,18 @@ Defined in `server/lib/db/schema.ts` (~300 lines, 24 tables):
 | `astro-usage-metrics` | usage-store | `SessionMetrics` |
 | `astro:activities` | activity-store | `Activity[]` (max 1000) |
 | `astro-display-settings` | display-settings-store | `Record<string, DisplaySettings>` |
+| `astro-sessions` | session-store | `Record<string, Session>` |
+| `astro-active-sessions` | session-store | Active session ID tracking |
+| `astro-initiatives` | initiative-store | `Initiative[]` |
+| `astro-teams` | team-store | `Team[]` |
+| `astro-team-members` | team-store | `Record<string, TeamMember[]>` |
+| `astro-machines` | machines-store | `RegisteredMachine[]` |
+| `astro-slurm-clusters` | slurm-store | `SlurmCluster[]` |
+| `astro-slurm-jobs` | slurm-store | `SlurmJob[]` |
+| `astro-plugins` | plugin-store | Plugin data |
+| `astro-skills` | skill-store | Skill data |
+| `astro-connected-accounts` | connected-accounts-store | Connected account data |
+| `astro:command-history` | command-palette | Command history |
 
 **Serialization**: Dates stored as ISO strings. Maps serialized as Records. Reconstructed on load.
 
@@ -643,12 +679,20 @@ Defined in `server/lib/db/schema.ts` (~300 lines, 24 tables):
 ┌──────────────────────────────────────────────────────────────────┐
 │  ENTITY RELATIONSHIPS                                            │
 │                                                                  │
+│  Team                                                            │
+│  ├── has many TeamMembers (owner, admin, member)                 │
+│  ├── has many Projects (via teamId)                              │
+│  ├── has many RegisteredMachines (shared machines)               │
+│  └── has many InviteTokens (pending invitations)                 │
+│                                                                  │
 │  Initiative                                                      │
 │  └── has many Projects                                           │
 │                                                                  │
 │  Project                                                         │
 │  ├── has many PlanNodes (tasks, milestones, branches, decisions) │
 │  ├── has many PlanEdges (dependency and branch connections)       │
+│  ├── has many ProjectMembers (access control)                    │
+│  ├── may belong to a Team (via teamId)                           │
 │  └── has a visionDoc (injected into every AI session)            │
 │                                                                  │
 │  PlanNode                                                        │

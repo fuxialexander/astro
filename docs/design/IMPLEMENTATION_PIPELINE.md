@@ -1,598 +1,695 @@
 # Astro — Implementation Pipeline
 
-This document surveys the entire Astro system across all design documents, catalogs what is implemented vs what is missing, and provides a prioritized checklist for reaching a beta launch.
+This document surveys the entire Astro system, catalogs what is implemented vs what is missing, and provides a prioritized checklist with **concrete implementation plans** for reaching an alpha (server mode + multi-user) and beta (full release) launch. Each action item includes the exact files to change, what to do in them, and what the expected result is — designed so you can vibe-code each one independently.
 
-**Last updated**: 2026-02-21
+**Milestones**:
+- **Alpha**: Server mode on Fly.io with multiple users. Backend calls NO AI directly — all through relay → agent runners. Deploy today and test with collaborators.
+- **Beta**: Full release including local mode for open-source, comprehensive testing, npm publishing.
+
+**Last updated**: 2026-02-21 (audited against commit `15f0327` on main)
 
 ---
 
 ## 1. Component Status Overview
 
-A high-level snapshot of each component's readiness.
-
 ```
-Component         Implemented    Partial    Gaps     Beta-Ready?
-─────────────────────────────────────────────────────────────────
-Frontend          ██████████░    ~90%       Minor    Nearly
-Backend           ███████░░░░    ~70%       Major    NO — calls AI directly
-Relay             █████████░░    ~85%       Medium   Nearly (protocol gaps)
-Agent Runner      █████████░░    ~85%       Medium   Nearly
-Data Persistence  ██████████░    ~90%       Minor    Nearly
-Deployment        ████████░░░    ~80%       Minor    Nearly
-Testing           █░░░░░░░░░░    ~10%       Major    NO — almost no tests
-─────────────────────────────────────────────────────────────────
-Overall                                              NO — 3 blockers
+Component         Implemented    Gaps     Beta-Ready?
+──────────────────────────────────────────────────────────────────
+Frontend          ███████████    ~92%     Nearly (27 stores, 16 pages, 10 component dirs)
+Backend           ████████░░░    ~75%     NO — still calls AI directly for chat/plan/summarize
+Relay             █████████░░    ~88%     Nearly (protocol fix in PR #115)
+Agent Runner      ██████████░    ~90%     Nearly (protocol consumption in PR #115)
+Data Persistence  ██████████░    ~92%     Nearly (28 Postgres tables, IndexedDB working)
+Testing           ███░░░░░░░░    ~25%     NO — some tests exist but coverage low
+Deployment        █████████░░    ~85%     Nearly (Fly.io + Cloudflare configured)
+──────────────────────────────────────────────────────────────────
+Overall                                   NO — 2 blockers remain
 ```
 
 ---
 
-## 2. Frontend Status
+## 2. What Exists Now (Audited 2026-02-21)
 
-**Design doc**: `FRONTEND.md`
+### 2.1 Frontend — 27 stores, 16 pages, 10 component directories
 
-### 2.1 Implemented (working)
+**Pages (16)**: dashboard, projects, project-new, project-overview, plan-view, task-detail, my-tasks, environments, agents, initiatives, settings, device-auth, welcome, login, **team-invite** (new), **workflows** (new)
 
-| Feature | Files | Notes |
-|---------|-------|-------|
-| All 18 Zustand stores | `src/stores/*.ts` | project, plan, execution, realtime, settings, machines, slurm, user-profile, display-settings, usage, task-chat, activity, initiative, ui, agent, settings |
-| 14 route pages | `src/pages/*.tsx` | dashboard, projects, project-new, project-overview, plan-view, task-detail, my-tasks, environments, agents, initiatives, settings, device-auth, welcome, login |
-| IndexedDB persistence | `src/lib/db.ts` | idb-keyval wrapper, 11 keys |
-| SSE event consumption | `src/lib/realtime-client.ts`, `src/stores/realtime-store.ts` | Persistent EventSource + action SSE |
-| React Flow plan graph | `src/components/plan-graph/` | Custom nodes, edges, layout, detail panel |
-| Task detail views | `src/components/task-detail/` | Output, tool traces, file changes, steer chat, session activity |
-| Chat panels | `src/components/agent/chat-panel.tsx` | Plan-level and task-level chat |
-| Approval UI | `src/components/approval-card.tsx` | Dynamic approval dialogs via SSE |
-| Activity feed | `src/stores/activity-store.ts` | 1000-event history, IndexedDB persistence |
-| Usage metrics | `src/stores/usage-store.ts` | Cost, tokens, task counts |
-| Task creation | `src/components/task-creation-form.tsx` | Inline, popover, dialog modes |
-| Command palette | `src/components/command-palette.tsx` | Cmd+K navigation + search |
-| Theme system | `src/components/theme-provider.tsx` | Light/dark/system |
-| Display settings | `src/components/display-popover.tsx` | Per-view groupBy, orderBy, properties |
-| Timeline view | `src/components/plan-graph/plan-timeline-tab.tsx` | Gantt-style with topological sort |
+**Stores (27)**: project, plan, agent, execution, realtime, machines, slurm, user-profile, display-settings, usage, task-chat, activity, initiative, ui, settings, sidebar, connected-accounts, plugin, **team** (new), **auth** (new), **github** (new), **observation** (new), **session** (new), **skill** (new), **api-keys** (new), **keyboard-nav** (new), **toast** (new)
 
-### 2.2 Partially implemented
+**New component directories**: `board/` (kanban), `mobile/`, `sharing/`, `views/`, `environments/` (machine-config-dialog)
 
-| Feature | Issue | Impact |
-|---------|-------|--------|
-| Supabase sync layer | Three-layer persistence exists but not stress-tested in production | May have sync bugs under concurrent multi-device use |
-| Machine list in Environments | Shows machines from API, but "Install Agent Runner" button not wired | Users see SSH hosts but can't act on them |
-| Async strategy UX | No "queued, waiting for resources" state for SLURM/SkyPilot tasks | Users expect immediate output, see nothing |
+**New hooks**: use-keyboard-nav, use-bar-drag-resize, use-voice-transcription, use-welcome-form-persistence, use-repo-setup
 
-### 2.3 Gaps (not implemented)
+**New libs**: crypto-utils, git-url-utils, plugin-context, plugin-loader, skill-loader, color-icon-utils, api-url, sse-parser, realtime-sync
 
-| Gap | Priority | Effort | Notes |
-|-----|----------|--------|-------|
-| SSH host classification in Environments page | Medium | S | All SSH hosts look identical — need HPC vs compute vs storage labels |
-| "Install Agent Runner" one-click button | High | M | Wire to `ssh-installer.ts`, show progress |
-| Rented cloud VM setup flow | Medium | M | Guided setup: paste SSH address → install → verify connection |
-| Async strategy progress UI | Medium | S | Show "Queued (position 3/12)" or "Provisioning VM..." |
-| Machine auto-selection (no targetMachineId) | High | S | Frontend should call `/api/relay/best-machine` before dispatch |
+### 2.2 Backend — 20 route files, 30+ lib files, 28 DB tables
+
+**Routes (20)**: agent, dispatch, events, relay, health, device-auth, data, auth, connected-accounts, **teams** (new), **observations** (new), **skills** (new), **transcribe** (new), **fs** (new), **repo** (new), **notifications** (new), **github** (new), **system** (new), **well-known** (new), **share** (new)
+
+**New libs**: chat-session-pool, email-service, github-client, github-store, worktree-registry, repo-context, environment (validation), plugin-loader, skill-manager, signal-processor, cleanup-scheduler, error-utils, execution-event-bus, push-notifications
+
+**New subsystems**: channel integration (5 files), observability (4 files), procedure system (executor, classifier, types), machine-selector
+
+**DB tables (28)**: projects, initiatives, planNodes, planEdges, planNodeDependencies, userProfiles, displaySettings, usageMetrics, sessions (unified), taskChatSessions, taskChatMessages, taskExecutions, toolTraces, fileChanges, observationEvents, auditLogs, activityEvents, registeredMachines, machineUsageLogs, refreshTokens, pushTokens, connectedAccounts, passkeyCredentials, **teams** (new), **teamMembers** (new), **inviteTokens** (new), **projectMembers** (new), encryptedApiKeys (new)
+
+### 2.3 Agent Runner — production-grade, 20+ lib files
+
+All documented features present plus: SSH discovery/installer, 4-tier safety system (SAFE/GUARDED/RISKY/UNSAFE), token refresh with JWT expiry checks, slash command/skill discovery, dev mode fallback (unauthenticated ws://)
+
+### 2.4 Testing — improved from before
+
+**Tests that exist now** (in `tests/`):
+- `relay-protocol-fields.test.ts` — 25 tests (relay protocol extension)
+- `sse-parser.test.ts` — SSE stream parsing
+- `chat-api-route.test.ts` — Chat API route tests
+- `chat-hybrid-resume.test.ts` — Chat session resume
+- `chat-mutations.test.ts` — Chat mutation tests
+- `chat-session-flow.test.ts` — Chat session lifecycle
+- `chat-session-pool.test.ts` — Session pool management
+- `session-manager.test.ts` — Session management
+
+**Tests in `server/test/`**:
+- `relay-server.test.ts` — Relay integration
+- `claude-code-provider.test.ts` — Provider adapter tests
+- `claude-code-sdk-integration.test.ts` — SDK integration
+
+**Hook tests**: `server/lib/events/hooks/__tests__/merge-queue-hook.test.ts`, `pr-creation-hook.test.ts`
 
 ---
 
-## 3. Backend Status
+## 3. The 2 Remaining Blockers
 
-**Design doc**: `BACKEND.md`
+### Blocker A: Server Still Calls AI Directly
 
-### 3.1 Implemented (working)
+The backend calls AI providers directly for chat, task-chat, summarize, and parts of plan generation / dispatch. The target architecture routes ALL AI through relay → agent runner.
 
-| Feature | Files | Notes |
-|---------|-------|-------|
-| Hono HTTP server | `server/index.ts` | CORS, middleware, 22 route files |
-| REST API (all endpoints) | `server/routes/*.ts` | agent, dispatch, events, relay, health, device-auth, data, etc. |
-| Authentication (dual mode) | `server/middleware/` | WebAuthn+JWT (server mode), no-auth (local mode) |
-| Database layer | `server/lib/db/` | Drizzle ORM, 24 Postgres tables, migrations |
-| IndexedDB-only mode | `server/lib/app-mode.ts` | Auto-detected from env vars |
-| Event transport (7 hooks) | `server/lib/events/astro-event-transport.ts` | SSE, audit, usage, PR, git-pull, channel, observability |
-| Dispatch engine | `server/lib/dispatch/` | Queue, context assembly, result routing, batch execution |
-| Procedure pipeline | `server/lib/dispatch/dispatch-engine.ts` | 5 subroutines: implement → verify → commit → PR → summarize |
-| Observability | `server/lib/observability/` | Langfuse exporter, observation collector, turn grouping |
-| Relay server (WebSocket hub) | `server/lib/relay-server.ts` | Machine registry, task routing, heartbeat |
-| Machine registry | `server/lib/machine-registry.ts` | In-memory connected machines, best-machine selection |
-| Device auth (RFC 8628) | `server/routes/device-auth.ts`, `server/lib/device-code-store.ts` | Full device code flow for machine registration |
-| Health check | `server/routes/health.ts` | Provider detection, backend status |
-| Compute backend detection | `server/lib/local-backends.ts` | Docker, SSH, K8s, SLURM detection for UI display |
+**Status of the fix**: PR #115 (`zhuoran/relay-protocol-fix`) adds the 4 missing protocol fields (`type`, `systemPrompt`, `messages`, `model`). Once merged, the endpoint conversions can proceed.
 
-### 3.2 Partially implemented
+### Blocker B: No Error Recovery Path When Agent Runner Is Down
 
-| Feature | Issue | Impact |
-|---------|-------|--------|
-| **Relay-only execution** | `/generate-plan`, `/chat`, `/task-chat`, `/dispatch`, `/summarize` all have LOCAL fallback paths that call AI directly | **CRITICAL** — violates target architecture |
-| Provider system | `server/lib/providers/` adapters exist and work but should be deleted | Dead code after migration |
-| Task classification | `server/lib/dispatch/procedure-classifier.ts` calls Anthropic API directly | Should move to agent runner or be removed |
+When no agent runner is connected, chat/plan/dispatch endpoints currently fall back to calling AI locally. After removing that fallback, we need clean error handling so users get a clear message instead of a crash.
 
-### 3.3 Gaps (not implemented)
+---
 
-| Gap | Priority | Effort | Blocker? | Notes |
-|-----|----------|--------|----------|-------|
-| **Remove all local AI execution paths** | **CRITICAL** | L | **YES** | Lines 131-351 of agent.ts, ~480 lines of dispatchLocal in dispatch.ts, all of `/chat`, `/task-chat`, `/summarize` local paths |
-| **Delete server-side provider adapters** | **CRITICAL** | S | **YES** (after above) | `anthropic-direct.ts`, `claude-code.ts`, `codex.ts`, `registry.ts`, `context.ts` |
-| Remove `initializeProviders()` from startup | High | XS | After above | `server/index.ts` line 30 |
-| Replace backend detection with agent runner capabilities | Medium | M | No | Backend shows what IT detects; should show what agent runners report |
-| SSH remote install API endpoint | Medium | S | No | Expose `ssh-installer.ts` via HTTP |
+## 4. Concrete Implementation Plans
 
-### 3.4 The Critical Issue: Server Calls AI Directly
+Each plan below is self-contained and can be vibe-coded independently. They are in dependency order.
 
-This is the single biggest architectural gap. The backend is supposed to be a **coordination layer** that never touches AI. Currently:
+---
 
+### Plan 0: Merge Relay Protocol Fix (PR #115)
+
+**Status**: PR open, ready to merge.
+
+**What to do**: Merge PR #115 into main. This adds `type`, `systemPrompt`, `messages`, `model` to `TaskDispatch` in `server/types/relay.ts`, mirrors them in `packages/agent-runner/src/types.ts`, forwards them in `server/lib/relay-server.ts`, and consumes them in `packages/agent-runner/src/providers/claude-sdk-adapter.ts`.
+
+**Verify**: `npm run build && npx vitest run tests/relay-protocol-fields.test.ts`
+
+---
+
+### Plan 1: Convert `/api/agent/chat` to relay-only
+
+**Goal**: Remove local AI calls from the chat endpoint. All chat goes through relay → agent runner.
+
+**Files to modify**:
+1. `server/routes/agent.ts` — the `/chat` endpoint handler
+
+**Current behavior** (what to find in agent.ts):
+- The `/chat` endpoint builds a prompt from conversation history
+- It calls `getChatProvider()` → `provider.stream()` to get a response
+- It streams the response back via SSE
+
+**What to change**:
+1. Open `server/routes/agent.ts`
+2. Find the `/chat` POST handler (search for `'/chat'`)
+3. Instead of calling `getChatProvider()` / `provider.stream()`, build a `TaskDispatch` object:
+   ```typescript
+   const task: TaskDispatch = {
+     taskId: `chat-${Date.now()}`,
+     projectId: req.body.projectId,
+     nodeId: '',  // chat has no specific node
+     title: 'Chat',
+     description: lastUserMessage,
+     environment: 'local',
+     type: 'chat',
+     systemPrompt: buildChatSystemPrompt(project),  // reuse existing prompt from prompt-templates.ts
+     messages: req.body.messages,  // pass conversation history
+     model: req.body.model,
+     maxTurns: 1,  // single-turn response
+     workingDirectory: project.workingDirectory,
+   };
+   ```
+4. Dispatch via relay: `relayServer.dispatchTask(task, targetMachineId)`
+5. Stream relay events back to the client via SSE (reuse the pattern from `generatePlanViaRelay()`)
+6. If no agent runner is connected, return `{ error: "No agent runner connected. Start one with: npx astro-agent start" }` with HTTP 503
+
+**Key function to reuse**: Look at how `generatePlanViaRelay()` in agent.ts dispatches and streams — the chat endpoint should follow the same pattern.
+
+**Error case**: If `machineRegistry.findBestMachine()` returns null, respond with 503 and a clear message. Do NOT fall back to local AI.
+
+**Test**: Start backend without agent runner → POST to `/api/agent/chat` → should get 503 error, not a crash.
+
+**Verify**: `npm run build && npm run lint`
+
+---
+
+### Plan 2: Convert `/api/agent/task-chat` to relay-only
+
+**Goal**: Same as Plan 1 but for task-specific chat.
+
+**Files to modify**: `server/routes/agent.ts` — the `/task-chat` endpoint
+
+**What to change**: Nearly identical to Plan 1, but:
+- The `nodeId` comes from the request body (it's chat about a specific task)
+- The system prompt should include task context (execution output, tool traces)
+- Use `type: 'chat'` on the TaskDispatch
+
+**Implementation**: Follow the exact same pattern as Plan 1. The only difference is the system prompt construction — task-chat includes task output context.
+
+---
+
+### Plan 3: Convert `/api/agent/summarize` to relay-only
+
+**Goal**: Remove the direct Anthropic API call for summarization.
+
+**Files to modify**: `server/routes/agent.ts` — the `/summarize` endpoint
+
+**Current behavior**: Calls Anthropic Messages API directly with a summarization prompt.
+
+**What to change**:
+1. Find the `/summarize` POST handler in agent.ts
+2. Build a TaskDispatch:
+   ```typescript
+   const task: TaskDispatch = {
+     taskId: `summarize-${Date.now()}`,
+     projectId,
+     nodeId,
+     title: 'Summarize task output',
+     description: 'Generate a concise summary of the task execution output.',
+     environment: 'local',
+     type: 'summarize',
+     systemPrompt: 'Summarize the following task execution output concisely...',
+     prompt: taskOutput,  // the text to summarize
+     maxTurns: 1,
+     model: 'claude-haiku',  // use fast model for summarization
+   };
+   ```
+3. Dispatch via relay, collect result, return summary text
+4. If no agent runner, return 503
+
+**Note**: This is the simplest conversion — single-turn, no streaming needed, just collect the result.
+
+---
+
+### Plan 4: Convert `/api/agent/generate-plan` local fallback to relay-only
+
+**Goal**: Remove the local execution path from plan generation. Currently, if no `targetMachineId` is provided, it calls AI locally.
+
+**Files to modify**: `server/routes/agent.ts` — the `/generate-plan` endpoint
+
+**Current behavior**: Has two paths:
+- If `targetMachineId` → `generatePlanViaRelay()` (correct)
+- Else → `providerRegistry.getProvider()` → `provider.stream()` (wrong)
+
+**What to change**:
+1. Find the `/generate-plan` handler in agent.ts
+2. Remove the local execution path (the `else` branch that calls provider.stream)
+3. When no `targetMachineId`, auto-select: `machineRegistry.findBestMachine('local')`
+4. If no machine found, return 503 with message
+5. Always call `generatePlanViaRelay()` with the auto-selected or provided machineId
+6. Add `type: 'plan'` and `systemPrompt` to the TaskDispatch inside `generatePlanViaRelay()`
+
+**The relay path already works** — this is just deleting the fallback and adding auto-selection.
+
+---
+
+### Plan 5: Convert `/api/dispatch/task` to relay-only
+
+**Goal**: Remove `dispatchLocal()` from dispatch.ts. All task execution goes through relay.
+
+**Files to modify**: `server/routes/dispatch.ts`
+
+**Current behavior**: Has two paths:
+- If relay has a machine → `dispatchViaRelay()` (correct)
+- Else → `dispatchLocal()` (wrong — ~480 lines of local execution code)
+
+**What to change**:
+1. Find the `/task` POST handler in dispatch.ts
+2. Remove the `dispatchLocal()` function call entirely
+3. Always call `dispatchViaRelay()`
+4. If no agent runner connected, return 503
+5. Delete the `dispatchLocal()` function (large block, ~480 lines)
+6. Delete the `classifyTask()` call if it calls Anthropic API directly
+7. Remove imports that are only used by `dispatchLocal()`
+
+**This is the biggest deletion** — removing ~480 lines of local execution code. Be careful to preserve the relay path.
+
+**Verify**: `npm run build` (many imports may become unused — clean them up)
+
+---
+
+### Plan 6: Convert `/api/agent/dispatch` to relay-only
+
+**Goal**: The agent.ts dispatch endpoint also has a local path.
+
+**Files to modify**: `server/routes/agent.ts`
+
+**What to change**: Same pattern as Plans 1-5. Find the dispatch handler, remove local path, always use relay.
+
+---
+
+### Plan 7: Delete server-side provider adapters
+
+**Goal**: Remove all code that allows the server to call AI directly.
+
+**Files to delete**:
+- `server/lib/providers/adapters/anthropic-direct.ts`
+- `server/lib/providers/adapters/claude-code.ts`
+- `server/lib/providers/adapters/codex.ts`
+- `server/lib/providers/registry.ts`
+- `server/lib/providers/context.ts`
+
+**Files to keep**:
+- `server/lib/providers/types.ts` (StreamEvent, TaskDispatch types used by relay)
+- `server/lib/providers/cache-utils.ts` (if used elsewhere)
+- `server/lib/providers/session-logger.ts` (if used elsewhere)
+
+**Files to modify**:
+- `server/index.ts` — Remove `initializeProviders()` call and import
+- `server/routes/agent.ts` — Remove all imports from providers (getProvider, providerRegistry, etc.)
+- `server/routes/dispatch.ts` — Remove provider imports
+- `server/lib/dispatch/procedure-classifier.ts` — If this calls Anthropic API directly, either delete the file or move the classification to the agent runner
+
+**How to verify nothing breaks**: After deletion, run `npm run build`. Any remaining references to deleted files will show as TypeScript errors. Fix each one by either removing the import or replacing with relay dispatch.
+
+**Verify**: `npm run build && npm run lint`
+
+---
+
+### Plan 8: Frontend machine auto-selection
+
+**Goal**: When user dispatches a task without selecting a machine, frontend auto-selects.
+
+**Files to modify**:
+1. `src/stores/execution-store.ts` — Add auto-selection logic before dispatch
+2. `src/stores/agent-store.ts` — Same for plan generation
+3. `src/components/execution/execution-panel.tsx` — Show "No agent runner connected" state
+
+**What to change in execution-store.ts**:
+1. Find the `dispatchTask()` or equivalent function
+2. Before making the API call, if no `targetMachineId`:
+   ```typescript
+   if (!targetMachineId) {
+     const res = await fetch('/api/relay/best-machine');
+     const data = await res.json();
+     if (!data.machine) {
+       // Show error: "No agent runner connected"
+       return;
+     }
+     targetMachineId = data.machine.machineId;
+   }
+   ```
+
+**What to change in execution-panel.tsx**:
+- When machine list is empty, show a banner: "No agent runner connected. Run `npx astro-agent start` to connect."
+- Use `useMachinesStore()` to check connected machines
+
+---
+
+### Plan 9: Clean up `chat-session-pool.ts` and `procedure-classifier.ts`
+
+**Goal**: These files call AI directly from the server process.
+
+**`server/lib/chat-session-pool.ts`**: This pools Claude SDK sessions for chat. After Plans 1-2 (chat via relay), this becomes dead code.
+- **Action**: Delete the file
+- **Update**: Remove import from any file that references it
+
+**`server/lib/dispatch/procedure-classifier.ts`**: Calls Anthropic Haiku to classify tasks into procedure types.
+- **Option A**: Delete it entirely — let the agent runner handle procedure classification as part of task execution
+- **Option B**: Move the classification call into the agent runner's task executor, so it runs on the user's machine with their credentials
+- **Recommendation**: Option A is simpler. The procedure system can still work — just don't auto-classify. Let the user or the plan generation choose the procedure type.
+
+---
+
+### Plan 10: Add "no agent runner" error handling across all endpoints
+
+**Goal**: After removing all local fallbacks, every endpoint that needs an agent runner should return a clear 503 error.
+
+**Files to modify**: `server/routes/agent.ts`, `server/routes/dispatch.ts`
+
+**What to add**: A shared helper function:
+
+```typescript
+// server/lib/require-runner.ts
+import { machineRegistry } from './machine-registry';
+
+export function requireRunner(environment: string = 'local', provider?: string) {
+  const machine = machineRegistry.findBestMachine(environment, provider);
+  if (!machine) {
+    return null;
+  }
+  return machine;
+}
 ```
-CURRENT STATE (broken):
 
-  /api/agent/generate-plan
-    ├─ if targetMachineId → relay → agent runner     ✓ CORRECT
-    └─ else → providerRegistry.getProvider().stream() ✗ WRONG — server calls AI
-
-  /api/agent/chat
-    └─ getChatProvider() → provider.stream()          ✗ WRONG — server calls AI
-
-  /api/agent/task-chat
-    └─ getChatProvider() → provider.stream()          ✗ WRONG — server calls AI
-
-  /api/dispatch/task
-    ├─ if relay available → dispatchViaRelay()         ✓ CORRECT
-    └─ else → dispatchLocal()                         ✗ WRONG — server calls AI
-
-  /api/agent/summarize
-    └─ Anthropic direct API call                      ✗ WRONG — server calls AI
+Then in each endpoint:
+```typescript
+const machine = requireRunner();
+if (!machine) {
+  return c.json({
+    error: 'No agent runner connected',
+    hint: 'Start one with: npx astro-agent start',
+  }, 503);
+}
 ```
 
-```
-TARGET STATE (after migration):
-
-  /api/agent/generate-plan
-    └─ always → relay → agent runner                  ✓
-
-  /api/agent/chat
-    └─ always → relay → agent runner                  ✓
-
-  /api/agent/task-chat
-    └─ always → relay → agent runner                  ✓
-
-  /api/dispatch/task
-    └─ always → dispatchViaRelay()                    ✓
-
-  /api/agent/summarize
-    └─ always → relay → agent runner                  ✓
-```
-
-**Dependency**: This migration requires fixing the relay protocol gaps first (Section 5.3).
-
 ---
 
-## 4. Relay Status
-
-**Design doc**: `RELAY.md`
-
-### 4.1 Implemented (working)
-
-| Feature | Notes |
-|---------|-------|
-| WebSocket server (port 3002) | ws library, configurable port |
-| Connection handshake | `machine.register` / `machine.register.ack` |
-| Task dispatch + streaming | `task.dispatch` → agent runner → stream events back |
-| Heartbeat (30s) | ping/pong with resource updates |
-| Machine registry | In-memory, tracks connections + capabilities |
-| All 20+ message types | Defined in `server/types/relay.ts` |
-| Event forwarding | relay → executionEventBus → hooks → SSE |
-| Redis pub/sub | Optional horizontal scaling |
-| Task operations | Cancel, steer, approval response, safety decision |
-| File operations | `file_list.request`, `repo_setup.request` |
-| Auth modes | JWT (server), open (local) |
-
-### 4.2 Protocol Gaps
-
-The relay protocol (`TaskDispatch` message) is missing 4 fields that prevent full migration of chat and planning endpoints:
-
-| Missing Field | Type | Why Needed | Impact |
-|---------------|------|-----------|--------|
-| `messages` | `SessionMessage[]` | Chat history for `/chat` and `/task-chat` | Chat history must be flattened into single `prompt` string (loses structure) |
-| `systemPrompt` | `string` | System prompt for planning/chat | System prompts concatenated into user prompt (loses role separation) |
-| `type` | `'plan' \| 'chat' \| 'execution' \| 'summarize'` | Task type for agent runner optimization | Agent runner can't distinguish task types |
-| `model` | `string` | Explicit model selection | Model selection is implicit only |
-
-**These 4 gaps are the #1 dependency** for the server/local mode separation. They must be fixed before chat endpoints can be converted to relay-only.
-
----
-
-## 5. Agent Runner Status
-
-**Design doc**: `AGENT_RUNNER.md`
-
-### 5.1 Implemented (working)
-
-| Feature | Notes |
-|---------|-------|
-| CLI (10 commands) | setup, start, stop, status, auth, config, providers, resources, hosts, mcp |
-| WebSocket client | Auto-reconnect, exponential backoff, heartbeat |
-| Task executor | Queue (max 4 concurrent), abort, timeout |
-| Claude Code adapter | Subprocess, JSON parsing, steering via stdin |
-| Claude SDK adapter | In-process, approval interception, HPC context, MCP loading |
-| Codex adapter | Subprocess, sandbox modes |
-| Direct strategy | Local process execution |
-| Docker strategy | Container with volume mounts |
-| SLURM strategy | sbatch submit, squeue poll, scancel |
-| K8s Exec strategy | kubectl exec into existing pods |
-| Safety system | 4 tiers (SAFE/GUARDED/RISKY/UNSAFE) |
-| Git worktree management | Create, cleanup, branch naming |
-| PR creation | Push branch + `gh pr create` |
-| MCP server | 4 tools (astro_attach/detach/status/send) |
-| Configuration | Cross-platform, `conf` package |
-| Hardware ID | MAC → random fallback |
-
-### 5.2 Partially implemented
-
-| Feature | Issue | Impact |
-|---------|-------|--------|
-| SkyPilot strategy | Code exists (388 lines) but marked experimental | Not usable for beta |
-| SSH host discovery | `hosts` command works, `ssh-installer.ts` exists | Not exposed in UI, requires manual SSH |
-
-### 5.3 Gaps
-
-| Gap | Priority | Effort | Notes |
-|-----|----------|--------|-------|
-| Handle new relay protocol fields (`messages`, `systemPrompt`, `type`, `model`) | **CRITICAL** | M | Agent runner must consume these to support chat/planning via relay |
-| K8s Job strategy (batch workloads) | Medium | M | Only `kubectl exec` exists; need `kubectl apply -f job.yaml` + poll |
-| One-click remote install via UI | Medium | M | `ssh-installer.ts` exists, needs UI + API endpoint |
-| Rented VM quick-setup flow | Medium | S | Guided: paste SSH address → auto-install → verify |
-| Capability-based routing | Low | M | Auto-select machine based on task requirements (GPU, memory, etc.) |
-| Multi-machine distributed training | Low | L | Coordinating tasks across interconnected VMs |
-
----
-
-## 6. Data Persistence Status
-
-**Design doc**: `DATA_MODEL.md`
-
-### 6.1 Implemented (working)
-
-| Feature | Notes |
-|---------|-------|
-| IndexedDB (11 keys) | projects, plan-nodes, plan-edges, executions, sessions, settings, user-profile, task-chats, usage-metrics, activities, display-settings |
-| Postgres (24 tables) | Full Drizzle ORM schema with migrations |
-| Three-layer persistence | Zustand → IndexedDB → Supabase API |
-| Mode-aware data access | Local = IndexedDB primary; Server = Postgres primary + IndexedDB cache |
-| Soft-delete support | `deletedAt` + `deletionActionId` fields |
-| Execution history cap | 100 in IndexedDB, unlimited in Postgres |
-
-### 6.2 Gaps
-
-| Gap | Priority | Notes |
-|-----|----------|-------|
-| Supabase sync stress-testing | Medium | Not tested under concurrent multi-device load |
-| Conflict resolution edge cases | Low | Optimistic updates may lose changes under race conditions |
-
----
-
-## 7. Testing Status
-
-### 7.1 Current state
-
-| Scope | Tests | Coverage |
-|-------|-------|----------|
-| Relay integration | `server/test/relay-server.test.ts` | ~60% of relay |
-| Frontend stores | None | 0% |
-| Backend routes | None | 0% |
-| Provider adapters | None | 0% |
-| Execution strategies | None | 0% |
-| Agent runner | None | 0% |
-| E2E | None | 0% |
-
-### 7.2 What's needed for beta
-
-| Test Area | Priority | Effort | What to Test |
-|-----------|----------|--------|-------------|
-| Backend route tests | **CRITICAL** | M | `/generate-plan`, `/dispatch/task`, `/chat` — verify relay-only paths |
-| Agent runner task executor | High | M | Task lifecycle, queue, timeout, cancellation |
-| Execution strategy tests | High | M | Direct, Docker, SLURM (with mocked binaries) |
-| Frontend store tests | Medium | M | project-store, plan-store, execution-store CRUD + persistence |
-| E2E smoke test | High | M | Create project → generate plan → execute task → view results |
-| Relay message tests | Medium | S | All 20+ message types serialize/deserialize correctly |
-
----
-
-## 8. Deployment Status
-
-### 8.1 Current state
-
-| Component | Status | Target |
-|-----------|--------|--------|
-| Frontend (Cloudflare Pages) | Configured, deployable | `npm run deploy:frontend` |
-| Backend (Fly.io) | Just deployed (commit 587555a) | `npm run deploy:backend` |
-| Relay (same Fly.io VM) | Included in backend deploy | Port 3002 |
-| Agent runner (npm package) | Publishable | `npx astro-agent` |
-| Cloudflare Tunnel | Working for dev | `scripts/start-tunnel.sh` |
-| CI/CD | Not configured | Need GitHub Actions |
-
-### 8.2 Gaps
-
-| Gap | Priority | Notes |
-|-----|----------|-------|
-| CI/CD pipeline (GitHub Actions) | High | Build + lint + test on every PR |
-| Fly.io load testing | Medium | Unknown performance under concurrent users |
-| npm package publishing | High | `@astro/agent` needs to be on npm for `npx` |
-
----
-
-## 9. Beta Readiness Checklist
+## 5. Beta Readiness Checklist (Updated)
 
 ### Legend
 - `[x]` = Done
 - `[~]` = Partially done
 - `[ ]` = Not done
-- `[!]` = BLOCKER — must be fixed before beta
+- `[!]` = BLOCKER
 
-### 9.1 Core User Journey: Create Project → Plan → Execute → Results
+### 5.1 Core User Journey
 
 ```
-[x] User can create a project (title, description, repo URL)
-[x] User can generate an AI plan (graph of tasks)
+[x] Create a project (title, description, repo URL)
+[x] Generate an AI plan (graph of tasks with dependencies)
 [x] Plan renders as interactive graph (React Flow)
-[x] User can edit plan nodes (title, description, dependencies)
-[x] User can add/remove nodes and edges
-[x] User can execute a task (dispatch to agent runner)
-[x] Task execution streams output in real time (SSE)
-[x] User can see tool traces, file changes, terminal output
-[x] Task creates git branch and PR on completion
-[x] User can cancel a running task
-[x] User can steer a running task (mid-execution guidance)
-[x] Batch execution: auto-dispatch ready tasks as dependencies complete
+[x] Edit plan nodes (title, description, dependencies)
+[x] Add/remove nodes and edges
+[x] Execute a task (dispatch to agent runner)
+[x] Real-time output streaming (SSE)
+[x] Tool traces, file changes, terminal output
+[x] Git branch + PR on completion
+[x] Cancel a running task
+[x] Steer a running task (mid-execution guidance)
+[x] Batch execution (auto-dispatch as deps complete)
 [x] Chat with AI about a plan
 [x] Chat with AI about a specific task
-[x] Usage metrics tracked (cost, tokens, task counts)
+[x] Usage metrics (cost, tokens, task counts)
+[x] Team management (create, invite, roles)
+[x] Kanban board view
+[x] Keyboard navigation
+[x] GitHub integration (OAuth, SSH URLs)
+[x] Observability (Langfuse trace export)
 ```
 
-### 9.2 Architecture: Server/Local Mode Separation
+### 5.2 Architecture: Server/Local Mode Separation
 
 ```
-[!] Fix relay protocol: add messages, systemPrompt, type, model fields
-[!] Convert /api/agent/generate-plan to relay-only (remove local fallback)
-[!] Convert /api/agent/chat to relay-only
-[!] Convert /api/agent/task-chat to relay-only
-[!] Convert /api/agent/dispatch to relay-only
-[!] Convert /api/agent/summarize to relay-only
-[!] Convert /api/dispatch/task to relay-only (remove dispatchLocal)
-[ ] Delete server-side provider adapters (anthropic-direct, claude-code, codex)
-[ ] Delete provider registry, context, initializeProviders()
-[ ] Delete procedure-classifier.ts direct AI call
-[ ] Remove ANTHROPIC_API_KEY from backend requirements
+[x] Fix relay protocol: add messages, systemPrompt, type, model (PR #115)
+[!] Convert /api/agent/chat to relay-only (Plan 1)
+[!] Convert /api/agent/task-chat to relay-only (Plan 2)
+[!] Convert /api/agent/summarize to relay-only (Plan 3)
+[!] Convert /api/agent/generate-plan local fallback (Plan 4)
+[!] Convert /api/dispatch/task — delete dispatchLocal (Plan 5)
+[!] Convert /api/agent/dispatch to relay-only (Plan 6)
+[ ] Delete server-side provider adapters (Plan 7)
+[ ] Delete procedure-classifier direct AI call (Plan 9)
+[ ] Remove chat-session-pool (Plan 9)
+[ ] Frontend machine auto-selection (Plan 8)
+[ ] Add 503 error handling for no runner (Plan 10)
 ```
 
-### 9.3 Agent Runner
+### 5.3 Agent Runner
 
 ```
-[x] CLI setup flow (setup, start, stop, status)
-[x] WebSocket connection with auto-reconnect
-[x] Task execution with Claude SDK adapter
-[x] Task execution with Claude Code adapter
-[x] Task execution with Codex adapter
-[x] Direct execution strategy
-[x] Docker execution strategy
-[x] SLURM execution strategy
-[x] K8s Exec strategy
-[~] SkyPilot strategy (experimental, not supported)
-[x] Safety system (4 tiers)
+[x] CLI setup + start + stop + status
+[x] WebSocket with auto-reconnect + token refresh
+[x] Claude SDK adapter (in-process, MCP, HPC context)
+[x] Claude Code adapter (subprocess, steering)
+[x] Codex adapter (subprocess, sandbox)
+[x] Direct, Docker, SLURM, K8s Exec strategies
+[x] 4-tier safety system
 [x] Git worktree isolation
 [x] PR creation
-[x] MCP server integration
-[ ] Handle new protocol fields (messages, systemPrompt, type, model)
-[ ] K8s Job strategy (batch workloads with autoscaler)
-[ ] Rented VM quick-setup documentation
+[x] MCP server (4 tools)
+[x] SSH discovery + installer
+[x] Skill/slash command discovery
+[x] Handle protocol fields: type, systemPrompt, messages, model (PR #115)
 ```
 
-### 9.4 Frontend UX
+### 5.4 Frontend
 
 ```
-[x] Dashboard with stats, pending decisions, active projects
-[x] Project list (grouped, sortable)
-[x] Plan graph view with node editing
-[x] Plan list view
-[x] Plan timeline (Gantt) view
-[x] Task detail: output, tool traces, file changes
-[x] Task steering chat
-[x] Activity feed
+[x] 27 Zustand stores
+[x] 16 page routes
+[x] Plan graph + list + timeline + board views
+[x] Task detail views (output, tools, files, steer, sessions)
+[x] Chat panels (plan + task level)
 [x] Approval dialogs
-[x] Environments page (machine list)
-[x] Command palette (Cmd+K)
-[x] Theme (light/dark/system)
-[x] Settings (model selection, backend health)
-[ ] Machine auto-selection when no targetMachineId
-[ ] "Install Agent Runner" button on Environments page
-[ ] SSH host classification (HPC vs compute vs storage labels)
-[ ] Async strategy UX ("queued, waiting for resources")
-[ ] Rented VM setup wizard
+[x] Activity feed
+[x] Command palette (Cmd+K with nested commands)
+[x] Teams + invitations
+[x] Environments page
+[x] API key encryption
+[x] Plugin system
+[ ] Machine auto-selection when no targetMachineId (Plan 8)
+[ ] "No agent runner" error state in execution panel (Plan 8)
 ```
 
-### 9.5 Data & Persistence
+### 5.5 Data & Persistence
 
 ```
-[x] IndexedDB: all 11 keys working
-[x] Postgres: 24 tables with migrations
-[x] Three-layer persistence (Zustand → IndexedDB → API)
+[x] IndexedDB: all keys working
+[x] Postgres: 28 tables with migrations
+[x] Three-layer persistence
 [x] Mode detection (local vs server)
 [x] Soft-delete support
-[ ] Supabase sync stress-test under concurrent load
+[x] Teams, team members, project members tables
+[x] Encrypted API key storage
 ```
 
-### 9.6 Deployment & Operations
-
-```
-[x] Fly.io backend deployment configured
-[x] Cloudflare Pages frontend configured
-[x] Cloudflare Tunnel for dev
-[x] Environment variable system (ASTRO_* prefix)
-[ ] CI/CD pipeline (GitHub Actions)
-[ ] npm publish @astro/agent package
-[ ] Production monitoring/alerting
-```
-
-### 9.7 Testing
+### 5.6 Testing
 
 ```
 [x] Relay integration tests
-[ ] Backend route unit tests
-[ ] Agent runner unit tests
-[ ] Frontend store unit tests
+[x] Relay protocol extension tests (25 tests)
+[x] SSE parser tests
+[x] Chat API route tests
+[x] Chat session flow/resume/mutation tests
+[x] Session manager tests
+[x] Claude Code provider tests
+[x] Hook tests (merge-queue, PR creation)
 [ ] Execution strategy unit tests
 [ ] E2E smoke test
-[ ] CI/CD running tests on every PR
+[ ] CI/CD pipeline
+```
+
+### 5.7 Deployment
+
+```
+[x] Fly.io backend (Docker, fly.toml, deploy script)
+[x] Cloudflare Pages frontend
+[x] Cloudflare Tunnel (dev)
+[x] Environment variable system (ASTRO_*)
+[ ] CI/CD pipeline (GitHub Actions)
+[ ] npm publish @astro/agent
 ```
 
 ---
 
-## 10. Prioritized Implementation Roadmap
-
-### Phase 0: Protocol Fix (dependency for everything else)
-
-| # | Task | Effort | Files | Blocked By |
-|---|------|--------|-------|------------|
-| 0.1 | Add `messages`, `systemPrompt`, `type`, `model` to `TaskDispatch` type | XS | `server/types/relay.ts` | — |
-| 0.2 | Update relay server to forward new fields | S | `server/lib/relay-server.ts` | 0.1 |
-| 0.3 | Update agent runner to consume new fields in task executor | M | `packages/agent-runner/src/lib/task-executor.ts`, provider adapters | 0.1 |
-| 0.4 | Update `dispatchToRunner()` helper to populate new fields | S | `server/routes/agent.ts` | 0.1 |
-
-### Phase 1: Server/Local Mode Separation (critical path)
-
-| # | Task | Effort | Files | Blocked By |
-|---|------|--------|-------|------------|
-| 1.1 | Convert `/api/agent/generate-plan` to relay-only | M | `server/routes/agent.ts` | Phase 0 |
-| 1.2 | Convert `/api/agent/chat` to relay-only | M | `server/routes/agent.ts` | Phase 0 |
-| 1.3 | Convert `/api/agent/task-chat` to relay-only | M | `server/routes/agent.ts` | Phase 0 |
-| 1.4 | Convert `/api/agent/dispatch` to relay-only | S | `server/routes/agent.ts` | Phase 0 |
-| 1.5 | Convert `/api/agent/summarize` to relay-only | S | `server/routes/agent.ts` | Phase 0 |
-| 1.6 | Convert `/api/dispatch/task` to relay-only, delete `dispatchLocal()` | M | `server/routes/dispatch.ts` | Phase 0 |
-| 1.7 | Delete provider adapters and registry | S | `server/lib/providers/` | 1.1-1.6 |
-| 1.8 | Delete `procedure-classifier.ts` direct AI call | XS | `server/lib/dispatch/` | 1.7 |
-| 1.9 | Remove `initializeProviders()` from startup | XS | `server/index.ts` | 1.7 |
-| 1.10 | Frontend: auto-select machine when no targetMachineId | S | `src/stores/execution-store.ts`, `src/stores/agent-store.ts` | 1.1 |
-
-### Phase 2: Test Infrastructure
-
-| # | Task | Effort | Files | Blocked By |
-|---|------|--------|-------|------------|
-| 2.1 | Set up Jest + testing config | S | `jest.config.ts`, `package.json` | — |
-| 2.2 | Backend route tests (agent.ts, dispatch.ts) | M | `server/test/` | Phase 1 |
-| 2.3 | Agent runner executor tests | M | `packages/agent-runner/test/` | Phase 0 |
-| 2.4 | Execution strategy tests (mock binaries) | M | `packages/agent-runner/test/` | — |
-| 2.5 | Frontend store tests | M | `src/__tests__/` | — |
-| 2.6 | E2E smoke test (create → plan → execute → result) | L | `e2e/` | Phase 1 |
-
-### Phase 3: Remote Machine UX
-
-| # | Task | Effort | Files | Blocked By |
-|---|------|--------|-------|------------|
-| 3.1 | SSH host classification (HPC/compute/storage/rented) | S | `server/lib/local-backends.ts`, `src/pages/environments.tsx` | — |
-| 3.2 | "Install Agent Runner" button on Environments page | M | `src/pages/environments.tsx`, new API endpoint | — |
-| 3.3 | Wire to `ssh-installer.ts` via backend API | M | `server/routes/`, `packages/agent-runner/src/lib/ssh-installer.ts` | 3.2 |
-| 3.4 | Async strategy UX ("waiting for resources" state) | S | `src/components/execution/execution-panel.tsx` | — |
-| 3.5 | Rented VM quick-setup documentation | S | `docs/` | — |
-
-### Phase 4: Polish & Deploy
-
-| # | Task | Effort | Files | Blocked By |
-|---|------|--------|-------|------------|
-| 4.1 | CI/CD pipeline (GitHub Actions) | M | `.github/workflows/` | Phase 2 |
-| 4.2 | Publish `@astro/agent` to npm | S | `packages/agent-runner/package.json` | — |
-| 4.3 | Fly.io load testing | M | — | Phase 1 |
-| 4.4 | Bug fixes from testing | M | — | Phase 2, 3 |
-| 4.5 | Beta launch | — | — | Phase 1-4 |
-
----
-
-## 11. Effort Estimates
-
-| Size | Meaning |
-|------|---------|
-| XS | < 1 hour of focused work |
-| S | 1-4 hours |
-| M | 4-16 hours (1-2 days) |
-| L | 16-40 hours (3-5 days) |
-| XL | 40+ hours (1+ weeks) |
-
-### Phase totals
-
-| Phase | Total Effort | Description |
-|-------|-------------|-------------|
-| **Phase 0** | S-M | Protocol fix (4 fields + forwarding) |
-| **Phase 1** | L-XL | Server/local mode separation (the big refactor) |
-| **Phase 2** | L | Test infrastructure + core tests |
-| **Phase 3** | M-L | Remote machine UX improvements |
-| **Phase 4** | M | CI/CD, npm publish, load testing, bugs |
-
----
-
-## 12. Dependency Graph
+## 6. Implementation Order
 
 ```
-Phase 0: Protocol Fix
-  │
-  ├──→ Phase 1: Server/Local Mode Separation
-  │       │
-  │       ├──→ Phase 2: Test Infrastructure (tests the new architecture)
-  │       │       │
-  │       │       └──→ Phase 4: Polish & Deploy
-  │       │
-  │       └──→ Phase 4: Load testing (needs relay-only paths)
-  │
-  └──→ Phase 3: Remote Machine UX (independent, can run in parallel with Phase 1)
+Plan 0:  Merge PR #115 (relay protocol fix)     ← do first
+   │
+   ├─→ Plan 1:  Convert /chat to relay-only
+   ├─→ Plan 2:  Convert /task-chat to relay-only
+   ├─→ Plan 3:  Convert /summarize to relay-only
+   ├─→ Plan 4:  Convert /generate-plan (remove local fallback)
+   ├─→ Plan 5:  Convert /dispatch/task (delete dispatchLocal)
+   └─→ Plan 6:  Convert /agent/dispatch to relay-only
+         │
+         ├─→ Plan 7:  Delete provider adapters + registry
+         ├─→ Plan 9:  Delete chat-session-pool + procedure-classifier
+         └─→ Plan 10: Add 503 error handling
+               │
+               └─→ Plan 8: Frontend machine auto-selection
 
-Legend: ──→ means "must complete before"
+Plans 1-6 can be done in any order (all depend only on Plan 0).
+Plans 7, 9, 10 can be done after Plans 1-6 are all complete.
+Plan 8 can be done after Plan 10.
 ```
 
-**Phase 3 can run in parallel with Phase 1.** SSH host classification, rented VM docs, and async UX don't depend on the server/local mode separation.
+---
+
+## 7. Alpha Version — Server Mode for Multi-User Testing
+
+The **alpha** milestone focuses on **server mode**: deploying the Fly.io backend with Supabase, then testing with multiple users connecting their own agent runners. Local mode is deferred to the release — alpha is about validating the multi-user server architecture.
+
+### 7.1 What Alpha Looks Like
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         FLY.IO VM                                │
+│                                                                  │
+│   Hono API (3001) ─── Relay WS (3002) ─── Supabase (cloud)     │
+│        ▲                    ▲         ▲                          │
+│        │ HTTPS              │ WSS     │ Postgres                 │
+└────────┼────────────────────┼─────────┼─────────────────────────┘
+         │                    │         │
+    ┌────┴────┐          ┌───┴────┐    │
+    │ Browser │          │ Agent  │    │
+    │ User A  │          │ Runner │    │
+    └─────────┘          │ (A's   │    │
+    ┌─────────┐          │ laptop)│    │
+    │ Browser │          └────────┘    │
+    │ User B  │          ┌────────┐    │
+    └─────────┘          │ Agent  │    │
+                         │ Runner │    │
+                         │ (B's   │    │
+                         │ laptop)│    │
+                         └────────┘    │
+```
+
+- Backend on Fly.io — no AI credentials, just coordination
+- Each user authenticates via WebAuthn (passkeys) on the frontend
+- Each user runs `npx astro-agent start --relay wss://astro-relay.fuxialexander.work` on their laptop
+- Agent runner authenticates via device code flow, connects to remote relay
+- Users create projects, generate plans, dispatch tasks — all through relay → their own agent runner
+- Multiple users can work simultaneously on the same or different projects
+
+### 7.2 Alpha Blockers — What Must Be Done
+
+**Critical (blocks all multi-user testing):**
+
+| # | Blocker | Plan | Why Critical |
+|---|---------|------|-------------|
+| 1 | Server calls AI directly for chat, task-chat, summarize, plan generation | Plans 1-6 | Fly.io VM has no Claude credentials. These endpoints will FAIL in server mode. |
+| 2 | `ANTHROPIC_API_KEY` treated as required in some code paths | Plan 7 | Server should never need this env var |
+| 3 | Merge relay protocol fix (PR #115) | Plan 0 | Prerequisite for Plans 1-6 |
+
+**Important (affects UX but not blockers):**
+
+| # | Issue | Plan | Impact |
+|---|-------|------|--------|
+| 4 | Frontend assumes local machine for dispatch | Plan 8 | Users must manually select their machine from dropdown |
+| 5 | No 503 error when agent runner disconnected | Plan 10 | Confusing errors instead of "connect your agent runner" |
+| 6 | Server-side provider adapters still exist | Plan 7 | Dead code, confusing, but doesn't block |
+
+**Already Working for Server Mode:**
+
+```
+[x] Supabase Postgres — 28 tables, migrations, RLS
+[x] WebAuthn passkey auth — login page, credential storage
+[x] Teams — creation, invitations, member roles
+[x] Device code flow — agent runner auth against server
+[x] Relay server — remote WebSocket with JWT auth
+[x] Agent runner — remote connection with token refresh
+[x] SSE event streaming — relay events → browser
+[x] Frontend data persistence — IndexedDB cache + Supabase sync
+[x] Fly.io deployment — Docker, fly.toml, deploy script
+[x] Cloudflare Pages frontend — deployment configured
+```
+
+### 7.3 Alpha Implementation Order
+
+```
+Step 1: Merge PR #115 (relay protocol fix)
+   ↓
+Step 2: Convert all 6 endpoints to relay-only (Plans 1-6)
+         — This is the one big push. Each is independent.
+         — Minimal effort per endpoint: ~30 lines changed each
+   ↓
+Step 3: Add 503 error handling (Plan 10)
+   ↓
+Step 4: Deploy to Fly.io (already configured)
+         — Set env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+           RELAY_JWT_SECRET, DEVICE_AUTH_JWT_SECRET, etc.
+         — Deploy: npm run deploy:backend
+   ↓
+Step 5: Deploy frontend to Cloudflare Pages
+         — Point to Fly.io API URL
+   ↓
+Step 6: Test with 2+ users
+```
+
+### 7.4 Alpha Testing Checklist
+
+```
+[ ] User A: Create WebAuthn passkey on login page
+[ ] User A: Run agent runner, connect via device code
+[ ] User A: Create project → generate plan → succeeds via relay
+[ ] User A: Chat about plan → works via relay
+[ ] User A: Dispatch task → executes on A's machine
+[ ] User A: See real-time output in browser
+[ ] User B: Repeat all of the above independently
+[ ] Both: Work simultaneously without interference
+[ ] Both: Can see their own projects (RLS isolation)
+[ ] Edge: Stop agent runner → endpoints return 503 with clear message
+[ ] Edge: Reconnect agent runner → tasks resume
+```
+
+### 7.5 Potential Multi-User Issues to Watch
+
+| Issue | Symptom | Fix |
+|-------|---------|-----|
+| Machine registry doesn't distinguish users | User A's tasks dispatched to User B's runner | Ensure dispatch matches `userId` to runner ownership |
+| RLS not enforced on all tables | User A can see User B's data | Audit Supabase RLS policies |
+| Relay JWT shared secret is weak | Anyone can connect a runner | Use strong `RELAY_JWT_SECRET` in production |
+| SSE stream cross-contamination | User A sees User B's task output | Verify SSE filtering by authenticated user |
+| Agent runner reconnect drops tasks | Running task lost when WebSocket blips | Verify task resumption after reconnect |
+| Passkey setup fails on non-HTTPS | WebAuthn requires secure context | Ensure Fly.io serves HTTPS |
+
+### 7.6 Not Needed for Alpha
+
+- Local mode (that's for the open-source release)
+- Channel integrations (Slack, Telegram)
+- Push notifications
+- Comprehensive test coverage
+- SkyPilot / K8s strategies
+- npm publishing
+- CI/CD pipeline
 
 ---
 
-## 13. Risk Assessment
-
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Server/local separation introduces regressions | High | High | Write tests (Phase 2) in parallel with migration |
-| Relay protocol changes break existing agent runners | Medium | High | Version the protocol; backward-compatible field additions |
-| Supabase sync fails under load | Medium | Medium | Stress-test before beta; IndexedDB serves as safety net |
-| npm publish delays | Low | Medium | Can distribute agent runner as tarball if needed |
-| Chat quality degrades through relay (extra serialization hop) | Low | Medium | Test chat quality before/after migration |
-| Users can't set up rented VMs | Medium | Medium | Good documentation + quick-setup flow (Phase 3) |
-
----
-
-## 14. What "Beta Ready" Means
+## 8. What "Beta Ready" Means (Full Release)
 
 A beta user should be able to:
 
-1. **Install and start** Astro backend locally (`npm run dev`)
-2. **Install and connect** an agent runner (`npx astro-agent setup && astro-agent start -f`)
-3. **Create a project** from the UI (title + repo URL)
-4. **Generate an AI plan** that produces a task graph
-5. **Execute tasks** from the plan (auto-dispatched through relay to agent runner)
-6. **See real-time output** (terminal, tool traces, file changes)
-7. **Get PRs created** automatically for completed tasks
-8. **Chat** about plans and tasks
-9. **Set up rented VMs** (Lambda Labs, Hyperbolic AI) by installing agent runners via SSH
-10. **Dispatch tasks to remote machines** from the UI
-11. **Not encounter crashes** or data loss in normal use
+1. **Server mode (team)**: Deploy backend → invite team → each member connects agent runner → collaborate on plans
+2. **Local mode (solo)**: `npm run dev` → `npx astro-agent start` → create project → generate plan → execute tasks
+3. Generate AI plans, execute tasks, see real-time output
+4. Get PRs created automatically
+5. Chat about plans and tasks
+6. Not encounter crashes or data loss
 
-### What's NOT needed for beta
+### Not needed for beta
 
-- Supabase/multi-user (local mode is sufficient for beta)
 - SkyPilot cloud provisioning
 - Native AWS/GCP/Azure strategies
 - K8s batch Job strategy
-- Comprehensive test coverage (but core path tests are needed)
-- CI/CD (nice to have, not blocking)
+- Comprehensive test coverage (core path tests sufficient)
 
 ---
 
-## 15. Current Work In Progress
+## 9. Risk Assessment
 
-As of 2026-02-21, the server/local mode separation is actively being worked on (branch: `zhuoran/server-local-mode-separation`). Current status:
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Removing local fallback breaks users with no agent runner | High | High | Clear 503 error message + documentation (Plan 10) |
+| Chat quality differs when routed through relay | Low | Medium | Same Claude SDK on agent runner; test before/after |
+| `dispatchLocal()` deletion misses edge cases | Medium | Medium | Thorough `npm run build` after deletion; existing tests catch regressions |
+| Agent runner not auto-starting with `npm run dev` | Medium | Medium | Add to `concurrently` in package.json dev script |
 
-| Step | Status | Notes |
-|------|--------|-------|
-| Create `dispatchToRunner()` helper | Done | General-purpose relay dispatch helper |
-| Convert `/generate-plan` to relay-only | Done | Local fallback removed |
-| Convert `/chat` and `/task-chat` to relay-only | In Progress | Requires protocol changes |
-| Convert `/dispatch` and `/summarize` to relay-only | Pending | Depends on protocol changes |
-| Convert `/api/dispatch/task` to relay-only | Pending | Delete `dispatchLocal()` |
-| Delete provider adapters | Pending | After all endpoints converted |
-| Frontend machine auto-selection | Pending | After backend conversion |
-| Build verification | Pending | Final step |
+---
+
+## 10. Post-Beta Roadmap
+
+After beta, these are the next priorities:
+
+| Feature | Effort | Notes |
+|---------|--------|-------|
+| K8s Job strategy (batch workloads) | M | `kubectl apply -f job.yaml` + polling |
+| SSH host classification in Environments | S | HPC vs compute vs storage labels |
+| "Install Agent Runner" button | M | Wire to `ssh-installer.ts` |
+| Rented VM setup wizard | M | Guided flow in UI |
+| CI/CD pipeline (GitHub Actions) | M | Build + lint + test on PRs |
+| npm publish `@astro/agent` | S | Package on npm registry |
+| Supabase stress testing | M | Multi-device concurrent load |
+| SkyPilot strategy completion | L | Experimental → stable |

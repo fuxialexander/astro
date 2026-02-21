@@ -42,14 +42,16 @@ Here is what happens, in order:
 
 4. **Load skills** -- `skillManager.loadSkills()`. Skills are reusable capabilities (like "generate a commit message" or "review code") that can be composed into workflows. This step discovers and loads all available skill definitions.
 
-5. **Register event hooks** -- 7 hooks are registered on the `astroEventTransport` singleton (skipped in test mode so tests run cleanly without side effects):
+5. **Register event hooks** -- 8+ hooks are registered on the `astroEventTransport` singleton (skipped in test mode so tests run cleanly without side effects):
    - `sse-notification` -- Forward events to SSE clients (so the browser sees real-time updates)
    - `audit-log` -- Log user actions for accountability and debugging
    - `usage-metrics` -- Track token counts and cost (how much AI usage is happening)
    - `pr-creation` -- Automatically create GitHub pull requests when tasks finish
+   - `merge-queue` -- Automatically manage merge queues for completed PRs
    - `git-pull` -- Automatically commit and push code changes
    - `channel-notification` -- Send notifications to Slack, Linear, or Telegram via webhooks
    - `observability` -- Send tracing data to Langfuse (a tool for monitoring AI application behavior)
+   - `langfuse-export` -- (conditional) Export trace data to Langfuse for external observability
 
 6. **Load channel plugins** -- Webhook plugin loading. This loads any configured integrations with external notification services.
 
@@ -114,7 +116,7 @@ This pattern applies to all request types, though the specifics vary: a health c
 
 ## 3. Routes
 
-Routes are the Backend's "departments" -- each one handles a specific category of requests. There are 22 route files in `server/routes/`, mounted in `server/index.ts` at lines 148-166.
+Routes are the Backend's "departments" -- each one handles a specific category of requests. There are 20 route files in `server/routes/`, mounted in `server/index.ts` at lines 148-166.
 
 When the browser sends a request to a URL like `/api/agent/generate-plan`, the Backend looks at the path (`/api/agent/generate-plan`) and forwards the request to the matching route handler (`agent.ts`), which knows how to process that specific type of request.
 
@@ -407,7 +409,7 @@ The primary permanent storage is a PostgreSQL database, accessed through Drizzle
 - Default connection string: `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (the local Supabase instance)
 - Pool: max 10 connections, 20-second idle timeout, 10-second connect timeout. "Connection pooling" means the Backend keeps a small set of open connections to the database and reuses them, rather than opening a new connection for every single query (which would be slow).
 
-**Schema** (`server/lib/db/schema.ts`, ~300 lines, 24 tables):
+**Schema** (`server/lib/db/schema.ts`, ~300 lines, 27+ tables):
 
 The schema defines the structure of all database tables -- what columns they have, what types of data they hold, and how they relate to each other. Here is an overview grouped by purpose:
 
@@ -459,7 +461,7 @@ The central event bus for cross-cutting concerns (things that affect multiple pa
 - `emitEvent(event)` -- Announce an event to all listeners. Runs all registered hooks in parallel (simultaneously) so one slow hook does not block the others.
 - `setEnabled(enabled)` -- Toggle the event system on or off. Disabled in test mode to prevent tests from triggering real side effects (like sending actual Slack messages).
 
-The 7 hooks registered on startup (see section 2) are the primary consumers of this bus.
+The 8+ hooks registered on startup (see section 2) are the primary consumers of this bus.
 
 ### 6.2 Execution Event Bus (`server/lib/execution-event-bus.ts`, 32 lines)
 
@@ -497,7 +499,7 @@ The following diagram shows the complete path an event takes from an Agent Runne
 │       │                              ├──► realtime-store          │
 │       │                              └──► execution-store         │
 │       │                                                          │
-│       └──► AstroEventTransport (7 hooks)                         │
+│       └──► AstroEventTransport (8+ hooks)                        │
 │                 │                                                 │
 │                 ├──► SSE notification (push to browser)           │
 │                 ├──► Audit log (record user actions)              │
@@ -753,3 +755,97 @@ The Backend's behavior is controlled by environment variables -- settings that a
 | `FRONTEND_URL` | Additional CORS origin (alternative to CORS_ORIGIN, used in some deployment configs) | (none) |
 
 **Production validation**: When running in production mode, all JWT secrets must be unique (not sharing the same key, which would be a security vulnerability) and at least 256 bits long (64 hexadecimal characters). This prevents weak secrets that could be guessed or brute-forced.
+
+---
+
+## Addendum: Recent Additions (audited 2026-02-21)
+
+This section documents subsystems, routes, and infrastructure added since the original document was written. The main sections above remain accurate for the features they describe; this addendum covers what's new.
+
+### New Route Endpoints
+
+**Dispatch route** now has 14 endpoints (was 7):
+- `POST /approval` — Approval flow for dynamic approvals
+- `POST /request-dynamic-approval` — Request dynamic approval from user
+- `GET /status` — Get dispatch engine status
+- `GET /ready/:projectId` — Check if project is ready for dispatch
+- `POST /engine/start` — Start dispatch engine
+- `POST /engine/stop` — Stop dispatch engine
+
+**Teams route** (`server/routes/teams.ts`) — NEW:
+- Team CRUD, invitation management, member role management
+
+**Connected accounts route** (`server/routes/connected-accounts.ts`) — 5 endpoints:
+- OAuth integration with GitHub, Linear, and other external services
+
+### New Subsystems
+
+**Teams & Collaboration** (`server/routes/teams.ts`, `server/lib/email-service.ts`):
+- Team creation, membership management, email-based invitations with tokens
+- Team member roles: owner, admin, member
+- Database tables: `teams`, `teamMembers`, `inviteTokens`, `projectMembers`
+
+**Channel Notification System** (`server/lib/channel/`):
+- `channel-config-manager.ts` — Channel configuration
+- `channel-router.ts` — Route notifications to correct platform
+- `channel-formatter.ts` — Format messages for Slack, Linear, Telegram
+- `channel-types.ts` — Type definitions
+- `webhook-verifier.ts` — Webhook signature verification
+
+**Access Control** (`server/lib/access/user-access-control.ts`):
+- Global and per-project allowlist/blocklist
+- Hierarchical access control rules
+
+**Push Notifications** (`server/routes/notifications.ts`, `server/lib/push-notifications.ts`):
+- Browser push notification registration and delivery
+- Database table: `pushTokens`
+
+**Merge Queue** (`server/lib/events/hooks/merge-queue-hook.ts`):
+- Automatic merge queue management for completed PRs
+- Configurable merge strategy (squash, merge, rebase)
+
+**Chat Session Pool** (`server/lib/chat-session-pool.ts`):
+- Session pooling and reuse for chat conversations
+- Cleanup scheduler (every 10 minutes) removes expired sessions
+
+**Machine Selector** (`server/lib/dispatch/machine-selector.ts`):
+- Intelligent machine selection for task dispatch
+- Considers machine load, capabilities, and proximity
+
+### New Library Files (selected)
+
+| File | Purpose |
+|------|---------|
+| `email-service.ts` | Email sending for team invitations |
+| `push-notifications.ts` | Browser push notification delivery |
+| `github-client.ts` | GitHub API wrapper |
+| `github-store.ts` | GitHub state persistence |
+| `chat-session-pool.ts` | Session pooling with auto-cleanup |
+| `worktree-manager.ts` | Git worktree lifecycle management |
+| `worktree-registry.ts` | Worktree tracking |
+| `signal-processor.ts` | Signal handling (graceful shutdown) |
+| `error-utils.ts` | Error handling utilities |
+| `local-backends.ts` | Local provider detection |
+| `repo-context.ts` | Repository context assembly for prompts |
+| `repo-setup.ts` | Repository setup utilities |
+
+### Provider Subsystem Additions
+
+| File | Purpose |
+|------|---------|
+| `providers/cache-utils.ts` | Provider response caching |
+| `providers/context.ts` | Context assembly for provider calls |
+| `providers/session-logger.ts` | Session logging for debugging |
+| `providers/mcp-loader.ts` | MCP tool dynamic loading |
+
+### New Middleware
+
+- `server/middleware/audit.ts` — Audit logging middleware for request tracking
+
+### Startup Sequence Addition
+
+- **Chat pool cleanup scheduler** runs every 10 minutes to remove expired chat sessions (added after step 11)
+
+### Safety Rails
+
+- `server/lib/observability/safety-rails.ts` — Safety guardrails for AI execution, including approval gates and risk assessment

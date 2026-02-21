@@ -112,7 +112,7 @@ Managing state well is one of the hardest problems in building a user interface.
 
 Astro uses a library called **Zustand** (German for "state") to manage application state. Zustand lets you create **stores** -- think of each store as a dedicated notebook for one topic. The "project store" is the notebook where all project data lives. The "execution store" is the notebook for task execution state. Any part of the UI can read from or write to these notebooks, and when the data changes, every part of the UI that is looking at that data automatically updates.
 
-All stores live in the `src/stores/` directory. There are 18 of them in total, each responsible for a specific domain of data.
+All stores live in the `src/stores/` directory. There are 27 of them in total, each responsible for a specific domain of data.
 
 ### How Data Gets Saved (The Three-Layer Write Pattern)
 
@@ -128,7 +128,7 @@ Think of it this way: you write a note on your whiteboard (instant feedback), tu
 
 ### 2.1 DataLoader -- Getting Everything Ready at Startup
 
-Before the user can interact with the app, all the stores need to load their data. This is handled by a component called `DataLoader` (`src/components/data-loader.tsx`).
+Before the user can interact with the app, all the stores need to load their data. This is handled by the `DataLoader` logic embedded in `src/app.tsx` (lines 68-150).
 
 Here is what happens when you open Astro:
 
@@ -335,8 +335,13 @@ These stores handle more focused concerns:
 - **`auth-store`** -- Manages the Supabase authentication session (login state, tokens). Completely skipped in local mode since there is no authentication.
 - **`slurm-store`** -- State for HPC (High-Performance Computing) clusters. SLURM is a job scheduler used in scientific computing environments -- this store tracks cluster status, jobs, and queue information.
 - **`session-store`**, **`observation-store`**, **`plugin-store`**, **`skill-store`**, **`sidebar-store`**, **`github-store`**, **`connected-accounts-store`** -- Additional stores for session management, observability traces, plugin integrations, skill definitions, sidebar UI state, GitHub integration, and connected third-party accounts.
+- **`api-keys-store`** -- Manages encrypted API keys for AI providers (Anthropic, Bedrock, etc.).
+- **`team-store`** -- Team management: team creation, membership, invitation state. Used in multi-user server mode.
+- **`toast-store`** -- Toast notification state (success/error/info messages displayed as transient popups).
+- **`keyboard-nav-store`** -- Keyboard navigation state for accessible UI traversal (arrow keys, vim-style bindings).
+- **`ui-store`** -- General UI state (sidebar collapsed, command palette open, active view). Separate from `sidebar-store`.
 
-**Total: 18 stores.**
+**Total: 27 stores.**
 
 ---
 
@@ -344,7 +349,7 @@ These stores handle more focused concerns:
 
 ### Why We Need an API Client
 
-The frontend cannot directly access the database or call AI models -- it runs in the user's browser, which is a sandboxed environment. So whenever it needs data from the server or wants to trigger an action (like generating a plan), it sends an HTTP request to the backend. The **API client** (`src/lib/api-client.ts`, 327 lines) is the module that encapsulates all of these requests, providing typed functions so the rest of the frontend code does not need to know the details of URL paths, HTTP methods, or request formatting.
+The frontend cannot directly access the database or call AI models -- it runs in the user's browser, which is a sandboxed environment. So whenever it needs data from the server or wants to trigger an action (like generating a plan), it sends an HTTP request to the backend. The **API client** (`src/lib/api-client.ts`, ~360 lines) is the module that encapsulates all of these requests, providing typed functions so the rest of the frontend code does not need to know the details of URL paths, HTTP methods, or request formatting.
 
 Think of the API client as the frontend's "phone" for calling the backend. Instead of every component having to know the backend's phone number (URL) and speak its language (HTTP protocol), they just call a function like `generatePlan()` and the API client handles the rest.
 
@@ -361,7 +366,7 @@ Some operations take a long time (generating a plan, executing a task) and produ
 
 All SSE functions accept an `AbortSignal` for cancellation -- this is how the "Cancel" button works. When the user clicks cancel, the AbortSignal tells the browser to drop the connection, and the backend cleans up.
 
-Parsing of the SSE event streams is handled by dedicated parsers: `parseSSEStream()`, `parseChatSSE()`, and `parseExecutionSSE()` from `src/lib/sse-parser.ts`.
+Parsing of the SSE event streams is handled inline within `api-client.ts` using the streaming fetch API and text decoding. SSE responses are parsed line by line as `data:` events arrive.
 
 ### 3.2 REST Endpoints (Request-Response)
 
@@ -428,7 +433,7 @@ When you drill into a specific task, you see its full execution history. These c
 
 ### 4.4 Agent Chat (`src/components/agent/`)
 
-- **`generation-overlay.tsx`** -- A modal overlay (a dialog that covers the screen) shown during AI plan generation. Displays the AI's streaming output so the user can watch the plan being created in real-time.
+- **`generation-toasts.tsx`** -- Toast-based notifications during AI plan generation. Displays streaming progress so the user can watch the plan being created in real-time without blocking the UI with a modal overlay.
 
 - **`chat-panel.tsx`** -- A sidebar chat panel for refining the plan through conversation. The user can ask the AI to modify the plan, and the AI responds with both explanatory text and structured plan modifications that get applied automatically.
 
@@ -754,4 +759,93 @@ All shared types are defined in `src/types/index.ts` (365 lines). Here are the k
 
 - **`ProviderStatus`**: Describes an AI provider's availability. Fields: `id`, `name`, `installed` (is the provider software present?), `authStatus` (is the user authenticated with this provider?), `available` (is it ready to use?), `capabilities` (what can this provider do?).
 
-See `src/types/index.ts` for the complete type definitions including all fields, optional flags, and nested types.
+See `src/types/index.ts` for the complete type definitions including all fields, optional flags, and nested types. Additional types are modularized into `src/types/observations.ts` (observability/trace types), `src/types/plugin.ts` (plugin system types), and `src/types/skill.ts` (skill system types).
+
+---
+
+## Addendum: Recent Additions (audited 2026-02-21)
+
+This section documents components, pages, hooks, and libraries added since the original document was written. The main sections above remain accurate for the features they describe; this addendum covers what's new.
+
+### New Pages (2)
+
+| Route | Page | Purpose |
+|-------|------|---------|
+| `/invite/:token` | `team-invite.tsx` | Team invitation acceptance flow (public route) |
+| `/workflows` | `workflows.tsx` | Workflow management and automation |
+
+### Routing Changes
+
+- Default route (`/`) now redirects to `/tasks` (My Tasks) instead of Dashboard
+- Plan view expanded to multiple sub-routes: `/project/:id/graph`, `/project/:id/list`, `/project/:id/timeline`, `/project/:id/board`, `/project/:id/overview` — all handled by `plan-view.tsx` with view mode switching
+- `project-overview.tsx` exists but is no longer used in routing (superseded by plan-view overview mode)
+
+### New Component Directories (6)
+
+| Directory | Purpose |
+|-----------|---------|
+| `src/components/board/` | Kanban board view (board-view.tsx, board-column.tsx, board-card.tsx) |
+| `src/components/command-palette/` | Refactored command palette with sub-components (breadcrumbs, categories, items, quick-actions) |
+| `src/components/mobile/` | Mobile-responsive components (status-bar.tsx) |
+| `src/components/sharing/` | Import/export features (import-preview-dialog.tsx) |
+| `src/components/views/` | Reusable view patterns (filter-select.tsx, item-list-view.tsx, item-timeline-view.tsx) |
+| `src/components/task-detail/trace-viewer/` | Observability trace viewer (turn-list, trace-summary-card, tool-call-item, turn-detail) |
+
+### New Top-Level Components (selected)
+
+- `generation-toasts.tsx` — Toast-based plan generation UI (replaced `generation-overlay.tsx`)
+- `auth-guard.tsx` — Authentication guard for protected routes
+- `color-icon-picker.tsx` — Color and icon selection for projects/initiatives
+- `dynamic-approval-dialog.tsx` — Dynamic approval prompts from agents
+- `git-init-dialog.tsx` — Git repository initialization dialog
+- `github-connect-button.tsx` — GitHub OAuth connection button
+- `repo-config-dialog.tsx` — Repository configuration settings
+- `session-dialog.tsx` — Session management dialog
+- `team-selector-dialog.tsx` — Team selection for multi-user mode
+- `plugin-loader.tsx`, `plugin-routes.tsx`, `plugin-settings.tsx`, `plugin-error-boundary.tsx` — Plugin system UI
+- `skill-settings.tsx` — Skill configuration panel
+- `toast-container.tsx` — Toast notification container
+
+### Custom Hooks (5)
+
+| Hook | Purpose |
+|------|---------|
+| `use-keyboard-nav.ts` | Keyboard navigation (arrow keys, vim bindings) |
+| `use-bar-drag-resize.ts` | Drag-to-resize for panels and sidebars |
+| `use-voice-transcription.ts` | Voice input transcription |
+| `use-welcome-form-persistence.ts` | Welcome form state persistence across page reloads |
+| `use-repo-setup.ts` | Repository setup logic for project creation |
+
+### New Library Files (15)
+
+| File | Purpose |
+|------|---------|
+| `api-url.ts` | API URL resolution utilities |
+| `color-icon-utils.ts` | Color and icon utility functions |
+| `commands.ts` | Command palette command definitions |
+| `crypto-utils.ts` | Cryptographic utilities (API key encryption) |
+| `data-client.ts` | Server data fetching client |
+| `date-utils.ts` | Date manipulation and formatting |
+| `git-url-utils.ts` | Git URL parsing (HTTPS, SSH formats) |
+| `path-utils.ts` | Path manipulation (getBrowserHostname) |
+| `plugin-context.ts` | Plugin execution context |
+| `plugin-loader.ts` | Dynamic plugin loading system |
+| `realtime-sync.ts` | Supabase realtime data synchronization |
+| `skill-loader.ts` | Skill loading and discovery |
+| `status-config.ts` | Task status configuration and colors |
+| `supabase-client.ts` | Supabase client initialization |
+| `app-mode.ts` | Local vs server mode detection |
+
+### New Subsystems
+
+**Plugin System**: Dynamic plugin loading with error boundaries, routes, and settings UI. Plugins can extend the app with custom views and capabilities.
+
+**Skill System**: Skill loading and management for reusable AI capabilities. Skills are discoverable and configurable.
+
+**Team & Collaboration**: Team creation, membership, email invitations, and team-scoped project access. Foundation for multi-user server mode.
+
+**Observability Trace Viewer**: Rich trace visualization with turn-by-turn analysis, tool call inspection, and summary cards.
+
+**Board View**: Kanban-style board view for plan nodes, complementing the existing graph, list, and timeline views.
+
+**Mobile Layout**: Responsive layout with mobile-specific components for smaller screens.
