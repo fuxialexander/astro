@@ -9,9 +9,10 @@
  */
 
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, statSync, readFileSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
+import { validateGitUrl } from './git-url-utils.js'
 
 /** Common ignore patterns for .gitignore generation */
 const COMMON_IGNORES = [
@@ -72,8 +73,19 @@ export interface DataMapEntry {
 export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
   const { projectId, projectName, projectDescription, workingDirectory, repository } = options
 
+  // Validate repository URL if provided - ensure it's in SSH format
+  let validatedRepository = repository
+  if (repository) {
+    const validation = validateGitUrl(repository)
+    if (!validation.isValid) {
+      throw new Error(validation.error || 'Invalid Git URL')
+    }
+    // Use SSH URL
+    validatedRepository = validation.sshUrl
+  }
+
   // Case 1: No directory and no repository — create a fresh project dir
-  if (!workingDirectory && !repository) {
+  if (!workingDirectory && !validatedRepository) {
     const dir = join(homedir(), '.astro', 'projects', projectId)
     mkdirSync(dir, { recursive: true })
     gitInit(dir)
@@ -86,11 +98,11 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
   }
 
   // Case 2: Repository URL provided — clone it
-  if (repository && !workingDirectory) {
-    const dir = cloneRepo(repository, projectId)
+  if (validatedRepository && !workingDirectory) {
+    const dir = cloneRepo(validatedRepository, projectId)
     const fileTree = getFileTree(dir)
     const keyFiles = readKeyFiles(dir)
-    return { workingDirectory: dir, fileTree, keyFiles }
+    return { workingDirectory: dir, fileTree, keyFiles, repository: validatedRepository }
   }
 
   // Case 3/4: Local directory provided

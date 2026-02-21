@@ -108,6 +108,8 @@ function readKeyFiles(dir: string): RepoKeyFiles {
 /**
  * Clone a git repository to ~/.astro/repos/<projectId>/.
  * If already cloned, fetch latest. Returns the local path.
+ *
+ * SECURITY: Uses execFileSync with git arguments to prevent command injection
  */
 function cloneRepository(repoUrl: string, projectId: string): string {
   const repoDir = join(homedir(), '.astro', 'repos', projectId);
@@ -115,15 +117,19 @@ function cloneRepository(repoUrl: string, projectId: string): string {
   if (existsSync(join(repoDir, '.git'))) {
     // Already cloned — fetch latest
     try {
-      execSync('git fetch --all', { cwd: repoDir, stdio: 'ignore', timeout: 30_000 });
+      execFileSync('git', ['fetch', '--all'], {
+        cwd: repoDir,
+        stdio: 'ignore',
+        timeout: 30_000,
+      });
     } catch {
       // Non-fatal: proceed with stale clone
     }
   } else {
     // Ensure parent directory exists
     mkdirSync(join(homedir(), '.astro', 'repos'), { recursive: true });
-    // Clone the repo
-    execSync(`git clone ${JSON.stringify(repoUrl)} ${JSON.stringify(repoDir)}`, {
+    // Clone the repo using execFileSync to prevent command injection
+    execFileSync('git', ['clone', repoUrl, repoDir], {
       stdio: 'ignore',
       timeout: 120_000,
     });
