@@ -20,8 +20,8 @@ function loadConfig(): TelegramChannelConfig | null {
   const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET
   const mappingsJson = process.env.TELEGRAM_CHAT_MAPPINGS
 
-  if (!botToken || !webhookSecret || !mappingsJson) {
-    console.warn('[channel-telegram] Missing required env vars (TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TELEGRAM_CHAT_MAPPINGS)')
+  if (!botToken || !mappingsJson) {
+    console.warn('[channel-telegram] Missing required env vars (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_MAPPINGS)')
     return null
   }
 
@@ -57,10 +57,12 @@ const telegramPlugin: AstroServerPlugin = {
         return c.json({ error: 'Telegram plugin not configured' }, 503)
       }
 
-      // Verify secret token header
-      const secretHeader = c.req.header('X-Telegram-Bot-Api-Secret-Token') ?? ''
-      if (!verifySimpleToken(secretHeader, config.webhookSecret)) {
-        return c.json({ error: 'Invalid secret token' }, 401)
+      // Verify secret token header if webhook secret is configured
+      if (config.webhookSecret) {
+        const secretHeader = c.req.header('X-Telegram-Bot-Api-Secret-Token') ?? ''
+        if (!verifySimpleToken(secretHeader, config.webhookSecret)) {
+          return c.json({ error: 'Invalid secret token' }, 401)
+        }
       }
 
       const update = await c.req.json()

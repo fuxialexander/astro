@@ -1331,7 +1331,7 @@ function ConnectedAccountsContent() {
         description="Connect a Telegram bot to interact with Astro from Telegram chats."
         fields={[
           { key: 'botToken', label: 'Bot Token', placeholder: '123456:ABC-DEF...', type: 'password', required: true },
-          { key: 'webhookSecret', label: 'Webhook Secret', placeholder: 'Enter webhook secret', type: 'password', required: true },
+          { key: 'webhookSecret', label: 'Webhook Secret (Optional)', placeholder: 'Enter webhook secret for additional security', type: 'password', required: false },
         ]}
         mappingLabel="Chat ID → Project"
         mappingKeyPlaceholder="-1001234567890"

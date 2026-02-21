@@ -14,7 +14,7 @@ interface TelegramSendMessageParams {
 
 interface TelegramSetWebhookParams {
   url: string
-  secret_token: string
+  secret_token?: string
 }
 
 interface TelegramApiResponse {
@@ -45,15 +45,16 @@ export async function sendTelegramMessage(
 
 /**
  * Set the webhook URL for the Telegram bot.
+ * @param secret - Optional secret token for webhook verification
  */
 export async function setTelegramWebhook(
   token: string,
   url: string,
-  secret: string
+  secret?: string
 ): Promise<TelegramApiResponse> {
-  const params: TelegramSetWebhookParams = {
-    url,
-    secret_token: secret,
+  const params: TelegramSetWebhookParams = { url }
+  if (secret) {
+    params.secret_token = secret
   }
 
   const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
