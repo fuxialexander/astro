@@ -220,6 +220,13 @@ export const registeredMachines = pgTable('registered_machines', {
   platform: text('platform').notNull(),
   environmentType: text('environment_type').notNull().default('local'),
   providers: text('providers').array().notNull().default([]),
+  providerConfigs: jsonb('provider_configs').$type<Array<{
+    provider: string
+    apiKey?: string
+    defaultModel?: string
+    enabled: boolean
+    settings?: Record<string, unknown>
+  }>>().default([]),
   workspaceId: text('workspace_id'),
   isConnected: boolean('is_connected').notNull().default(false),
   isRevoked: boolean('is_revoked').notNull().default(false),

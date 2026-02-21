@@ -56,6 +56,7 @@ import {
   getUserMachines,
   revokeMachine,
   updateMachineName,
+  updateMachineProviderConfigs,
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
@@ -695,6 +696,7 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
       platform: row.platform as string,
       environmentType: row.environment_type as string,
       providers: row.providers as string[],
+      providerConfigs: row.provider_configs ?? [],
       userId: row.user_id as string,
       registeredAt: new Date(row.registered_at as string),
       lastSeenAt: new Date(row.last_seen_at as string),
@@ -720,6 +722,7 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
         platform: m.platform,
         environmentType: m.environmentType,
         providers: m.providers,
+        providerConfigs: m.providerConfigs ?? [],
         userId: m.userId,
         registeredAt: m.registeredAt,
         lastSeenAt: m.lastSeenAt,
@@ -812,15 +815,24 @@ deviceAuthRoute.get('/machines/:id', requireAuth, async (c) => {
 
 /**
  * PATCH /device/machines/:id
- * Update a machine (e.g., rename)
+ * Update a machine (e.g., rename, update provider configs)
  */
 deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
   const user = c.get('user') as { id: string };
   const id = c.req.param('id');
-  const body = await c.req.json() as { name?: string };
+  const body = await c.req.json() as {
+    name?: string
+    providerConfigs?: Array<{
+      provider: string
+      apiKey?: string
+      defaultModel?: string
+      enabled: boolean
+      settings?: Record<string, unknown>
+    }>
+  };
 
-  if (!body.name) {
-    return c.json({ error: 'Missing name field' }, 400);
+  if (!body.name && !body.providerConfigs) {
+    return c.json({ error: 'Missing update fields (name or providerConfigs)' }, 400);
   }
 
   if (isServerMode()) {
@@ -836,11 +848,17 @@ deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
     }
 
     const userSupabase = createUserClient(token);
+
+    // Build update object
+    const updates: Record<string, unknown> = {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.providerConfigs !== undefined) updates.provider_configs = body.providerConfigs;
+
     const { data, error } = await userSupabase
       .from('registered_machines')
-      .update({ name: body.name })
+      .update(updates)
       .eq('id', id)
-      .select('id, name')
+      .select('id, name, provider_configs')
       .single();
 
     if (error) {
@@ -856,6 +874,7 @@ deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
       machine: {
         id: data.id,
         name: data.name,
+        providerConfigs: data.provider_configs,
       },
     });
   } else {
@@ -871,16 +890,28 @@ deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
       return c.json({ error: 'Not authorized to update this machine' }, 403);
     }
 
-    const updated = await updateMachineName(id, body.name);
-    if (!updated) {
-      return c.json({ error: 'Failed to update machine name' }, 500);
+    // Update name if provided
+    if (body.name !== undefined) {
+      const updated = await updateMachineName(id, body.name);
+      if (!updated) {
+        return c.json({ error: 'Failed to update machine name' }, 500);
+      }
+    }
+
+    // Update provider configs if provided
+    if (body.providerConfigs !== undefined) {
+      const updated = await updateMachineProviderConfigs(id, body.providerConfigs);
+      if (!updated) {
+        return c.json({ error: 'Failed to update provider configs' }, 500);
+      }
     }
 
     return c.json({
       success: true,
       machine: {
         id: machine.id,
-        name: body.name,
+        name: body.name || machine.name,
+        providerConfigs: body.providerConfigs || machine.providerConfigs,
       },
     });
   }

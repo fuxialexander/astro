@@ -10,6 +10,14 @@ import { isServerMode } from '@/lib/app-mode'
 import { loadState, saveState, getBrowserUserId } from '@/lib/db'
 import { useRealtimeStore } from './realtime-store'
 
+export interface ProviderConfig {
+  provider: string
+  apiKey?: string
+  defaultModel?: string
+  enabled: boolean
+  settings?: Record<string, unknown>
+}
+
 export interface RegisteredMachine {
   id: string
   name: string
@@ -17,6 +25,7 @@ export interface RegisteredMachine {
   platform: string
   environmentType: 'local' | 'remote' | 'hpc' | 'cloud'
   providers: string[]
+  providerConfigs?: ProviderConfig[]
   registeredAt: string
   lastSeenAt: string
   isConnected: boolean
@@ -32,6 +41,7 @@ interface MachinesState {
   fetchMachines: () => Promise<void>
   revokeMachine: (machineId: string) => Promise<boolean>
   renameMachine: (machineId: string, name: string) => Promise<boolean>
+  updateMachineProviderConfigs: (machineId: string, configs: ProviderConfig[]) => Promise<boolean>
   updateMachineStatus: (machineId: string, isConnected: boolean) => void
 }
 
@@ -185,6 +195,54 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         updatedMachines.set(machineId, { ...liveMachine, name })
         useRealtimeStore.setState({ machines: updatedMachines })
       }
+      return true
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Unknown error' })
+      return false
+    }
+  },
+
+  updateMachineProviderConfigs: async (machineId: string, configs: ProviderConfig[]): Promise<boolean> => {
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+
+      if (isServerMode()) {
+        const supabase = getSupabase()
+        if (!supabase) {
+          throw new Error('Supabase not configured')
+        }
+        const { data: { session } } = await supabase.auth.getSession()
+
+        if (!session?.access_token) {
+          throw new Error('Not authenticated')
+        }
+
+        headers['Authorization'] = `Bearer ${session.access_token}`
+      } else {
+        // IndexedDB mode: use browser user ID
+        const browserUserId = await getBrowserUserId()
+        headers['X-User-Id'] = browserUserId
+      }
+
+      const response = await fetch(`/api/device/machines/${machineId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ providerConfigs: configs }),
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update provider configs')
+      }
+      // Update local state
+      set((state) => {
+        const nextMachines = state.machines.map((m) =>
+          m.id === machineId ? { ...m, providerConfigs: configs } : m
+        )
+        // Update IndexedDB cache
+        saveState('astro-machines', nextMachines)
+        return { machines: nextMachines }
+      })
       return true
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error' })
