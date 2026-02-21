@@ -294,7 +294,7 @@ Legend: ✅ Implemented | ⚠️ Stub | - Not tested
 
 ## Approval System Testing
 
-See `scripts/TESTING_APPROVAL.md` for the complete approval testing guide, including CLI tests, E2E integration, visual demos, and manual UI testing.
+See `docs/testing/approval-testing-guide.md` for the complete approval testing guide, including CLI tests, E2E integration, visual demos, and manual UI testing.
 
 ## Future Enhancements
 

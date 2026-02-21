@@ -117,7 +117,7 @@ Response:
 ## Documentation
 
 - `docs/features/approval-system.md` - Complete architecture
-- `scripts/TESTING_APPROVAL.md` - Testing guide
+- `docs/testing/approval-testing-guide.md` - Testing guide
 
 ## Common Issues
 

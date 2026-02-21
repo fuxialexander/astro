@@ -124,4 +124,4 @@ These files remain at the project root by convention:
 ## Other
 
 - `scripts/README.md` - Test scripts documentation
-- `scripts/TESTING_APPROVAL.md` - Approval testing scripts (canonical source)
+- `docs/testing/approval-testing-guide.md` - Approval testing guide (canonical source)

@@ -489,7 +489,7 @@ Agent runners store data in `~/.astro/`:
 **Testing:**
 - `docs/testing/testing.md` — Testing strategy
 - `docs/testing/approval-testing.md` — Approval system tests
-- `scripts/TESTING_APPROVAL.md` — Approval testing scripts
+- `docs/testing/approval-testing-guide.md` — Approval testing scripts
 
 ## MCP Tools for Agents
 

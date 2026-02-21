@@ -372,4 +372,4 @@ This gives users control over critical decisions while letting agents use their 
 
 ## Testing
 
-See `scripts/TESTING_APPROVAL.md` for the complete approval testing guide, including unit tests, E2E integration, and manual UI testing.
+See `docs/testing/approval-testing-guide.md` for the complete approval testing guide, including unit tests, E2E integration, and manual UI testing.
