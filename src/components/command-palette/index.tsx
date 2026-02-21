@@ -113,6 +113,54 @@ export function CommandPalette() {
       if (cmd.id === "action-new-project") {
         return { ...cmd, action: () => navigate("/projects/new") }
       }
+      if (cmd.id === "action-new-task") {
+        // Create nested commands for each project
+        const children: CommandItemType[] = projects
+          .filter((p) => p.status === "active")
+          .map((project) => ({
+            id: `add-task-${project.id}`,
+            label: project.name,
+            description: `Add task to ${project.name}`,
+            icon: undefined,
+            category: "actions" as CommandCategory,
+            keywords: ["task", project.name.toLowerCase()],
+            action: () => navigate(`/project/${project.id}/plan?addTask=true`),
+            preview: {
+              title: `Add Task to ${project.name}`,
+              content: project.description,
+              metadata: {
+                Action: "Create new task",
+                ...(project.health && { Health: project.health.replace(/_/g, ' ') }),
+                ...(project.progress !== undefined && { Progress: `${project.progress}%` }),
+              },
+            },
+          }))
+        return { ...cmd, children }
+      }
+      if (cmd.id === "action-open-plan-chat") {
+        // Create nested commands for each project
+        const children: CommandItemType[] = projects
+          .filter((p) => p.status === "active")
+          .map((project) => ({
+            id: `plan-chat-${project.id}`,
+            label: project.name,
+            description: `Open plan chat for ${project.name}`,
+            icon: undefined,
+            category: "actions" as CommandCategory,
+            keywords: ["chat", "plan", project.name.toLowerCase()],
+            action: () => navigate(`/project/${project.id}/plan?chat=open`),
+            preview: {
+              title: `Plan Chat - ${project.name}`,
+              content: project.description,
+              metadata: {
+                Action: "Open AI plan chat",
+                ...(project.health && { Health: project.health.replace(/_/g, ' ') }),
+                ...(project.progress !== undefined && { Progress: `${project.progress}%` }),
+              },
+            },
+          }))
+        return { ...cmd, children }
+      }
       if (cmd.id === "action-toggle-theme") {
         // Cycle through all available themes
         const themeIds = availableThemes.map((t) => t.id)
@@ -127,28 +175,38 @@ export function CommandPalette() {
 
       return cmd
     })
-  }, [allCommands, navigate, theme, setTheme, availableThemes])
+  }, [allCommands, navigate, theme, setTheme, availableThemes, projects])
 
   // Fuzzy search setup
   const fuse = useMemo(
     () =>
-      new Fuse(commandsWithActions, {
+      new Fuse(displayCommands, {
         keys: ["label", "description", "keywords"],
         threshold: 0.3,
         includeScore: true,
         includeMatches: true,
       }),
-    [commandsWithActions]
+    [displayCommands]
   )
+
+  // Get commands to display (either root commands or children of current breadcrumb)
+  const displayCommands = useMemo(() => {
+    if (breadcrumbs.length > 0) {
+      // Show children of the last breadcrumb
+      const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
+      return lastBreadcrumb.children ?? []
+    }
+    return commandsWithActions
+  }, [breadcrumbs, commandsWithActions])
 
   // Filter and search commands
   const filteredCommands = useMemo(() => {
     if (searchQuery.length < 2) {
       // No search - show recent and all commands
-      const recent = getRecentCommands(commandsWithActions, commandHistory)
+      const recent = getRecentCommands(displayCommands, commandHistory)
       return {
         recent,
-        byCategory: groupByCategory(commandsWithActions),
+        byCategory: groupByCategory(displayCommands),
       }
     }
 
@@ -163,7 +221,7 @@ export function CommandPalette() {
       recent: [],
       byCategory: { search: scored },
     }
-  }, [searchQuery, commandsWithActions, commandHistory, fuse])
+  }, [searchQuery, displayCommands, commandHistory, fuse])
 
   // Flatten commands for virtualization
   const flatCommands = useMemo(() => {
@@ -202,9 +260,11 @@ export function CommandPalette() {
         setOpen(false)
         clearCommandSelection()
         setBreadcrumbs([])
+        setSearchQuery("")
       } else if (item.children && item.children.length > 0) {
         // Navigate into nested commands
         setBreadcrumbs([...breadcrumbs, item])
+        setSearchQuery("") // Clear search when entering nested view
       }
     },
     [addCommandToHistory, setOpen, clearCommandSelection, breadcrumbs, setBreadcrumbs]
@@ -218,6 +278,7 @@ export function CommandPalette() {
       } else {
         setBreadcrumbs(breadcrumbs.slice(0, index + 1))
       }
+      setSearchQuery("") // Clear search when navigating back
     },
     [breadcrumbs, setBreadcrumbs]
   )
