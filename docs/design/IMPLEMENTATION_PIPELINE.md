@@ -77,291 +77,164 @@ All documented features present plus: SSH discovery/installer, 4-tier safety sys
 
 ---
 
-## 3. The 2 Remaining Blockers
+## 3. The Core Problem: Server Mode Calls AI Directly
 
-### Blocker A: Server Still Calls AI Directly
+### Evidence
 
-The backend calls AI providers directly for chat, task-chat, summarize, and parts of plan generation / dispatch. The target architecture routes ALL AI through relay → agent runner.
+`server/routes/agent.ts` has 7 direct AI calls via `provider.stream()` / `provider.execute()`:
 
-**Status of the fix**: PR #115 (`zhuoran/relay-protocol-fix`) adds the 4 missing protocol fields (`type`, `systemPrompt`, `messages`, `model`). Once merged, the endpoint conversions can proceed.
+| Line | Endpoint | Call |
+|------|----------|------|
+| 208 | `/generate-plan` | `provider.stream(task)` |
+| 709 | `/chat` | `provider.stream(task)` |
+| 860 | `/task-chat` | `provider.stream(task)` |
+| 991 | `/compact` | `provider.stream(task)` |
+| 1141 | `/dispatch` | `provider.stream(task)` |
+| 1303 | `/summarize` | `provider.execute(task)` |
 
-### Blocker B: No Error Recovery Path When Agent Runner Is Down
+`server/routes/dispatch.ts` has 1 more at line 521 in `dispatchLocal()`.
 
-When no agent runner is connected, chat/plan/dispatch endpoints currently fall back to calling AI locally. After removing that fallback, we need clean error handling so users get a clear message instead of a crash.
+**None of these check `isServerMode()`.** You can verify with:
+```bash
+grep -n 'isServerMode\|isLocalMode' server/routes/agent.ts   # → 0 matches
+grep -n 'provider\.stream\|provider\.execute' server/routes/agent.ts  # → 7 matches
+```
+
+On Fly.io (server mode), the `providerRegistry` finds no providers (no CLI tools installed, no API keys) and every endpoint returns "No agent provider available."
+
+### How It Should Work
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  EVERY ENDPOINT THAT NEEDS AI                                   │
+│                                                                 │
+│  if (isServerMode()) {                                          │
+│    → route through relay → agent runner (user's machine)        │
+│    → Fly.io VM never touches AI credentials                     │
+│  } else {                                                       │
+│    → call provider locally (local dev, single-user)             │
+│    → user's own machine has CLI tools + API keys                │
+│  }                                                              │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### Two-Phase Fix
+
+**Phase A (Quick Fix — Alpha):** Add `isServerMode()` guards to all 7 endpoints in `agent.ts` + the 1 in `dispatch.ts`. In server mode, build a relay `TaskDispatch` and stream results back. Keep local path untouched.
+
+**Phase B (Long-Term — Beta):** Introduce a proper mode-aware architecture where `isServerMode()` / `isLocalMode()` is checked at the route level across all backend files, not just AI endpoints. Every file in the backend should follow the same pattern. Eventually, local mode may also route through a localhost relay for consistency.
 
 ---
 
 ## 4. Concrete Implementation Plans
 
-Each plan below is self-contained and can be vibe-coded independently. They are in dependency order.
+### Phase 0: Merge Relay Protocol Fix (PR #115)
+
+**Status**: ✅ DONE — merged into main (commit `4f81d69`).
+
+Added `type`, `systemPrompt`, `messages`, `model` to `TaskDispatch` in `server/types/relay.ts`, mirrored in `packages/agent-runner/src/types.ts`, forwarded in `server/lib/relay-server.ts`, consumed in `packages/agent-runner/src/providers/claude-sdk-adapter.ts`. 25 unit tests pass.
 
 ---
 
-### Plan 0: Merge Relay Protocol Fix (PR #115)
+### Phase A: Quick Fix — `isServerMode()` Guards (Alpha)
 
-**Status**: PR open, ready to merge.
-
-**What to do**: Merge PR #115 into main. This adds `type`, `systemPrompt`, `messages`, `model` to `TaskDispatch` in `server/types/relay.ts`, mirrors them in `packages/agent-runner/src/types.ts`, forwards them in `server/lib/relay-server.ts`, and consumes them in `packages/agent-runner/src/providers/claude-sdk-adapter.ts`.
-
-**Verify**: `npm run build && npx vitest run tests/relay-protocol-fields.test.ts`
-
----
-
-### Plan 1: Convert `/api/agent/chat` to relay-only
-
-**Goal**: Remove local AI calls from the chat endpoint. All chat goes through relay → agent runner.
+**Goal**: In server mode, all 7 AI-calling endpoints route through relay instead of calling providers locally. Local mode is untouched.
 
 **Files to modify**:
-1. `server/routes/agent.ts` — the `/chat` endpoint handler
+1. `server/routes/agent.ts` — 6 endpoints
+2. `server/routes/dispatch.ts` — 1 endpoint
 
-**Current behavior** (what to find in agent.ts):
-- The `/chat` endpoint builds a prompt from conversation history
-- It calls `getChatProvider()` → `provider.stream()` to get a response
-- It streams the response back via SSE
+**Approach**: Add a shared `streamViaRelay()` helper that builds a relay `TaskDispatch`, dispatches it, subscribes to relay events, and streams them back as SSE. Then wrap each endpoint's local path with `if (isServerMode()) { return streamViaRelay(...) }`.
 
-**What to change**:
-1. Open `server/routes/agent.ts`
-2. Find the `/chat` POST handler (search for `'/chat'`)
-3. Instead of calling `getChatProvider()` / `provider.stream()`, build a `TaskDispatch` object:
-   ```typescript
-   const task: TaskDispatch = {
-     taskId: `chat-${Date.now()}`,
-     projectId: req.body.projectId,
-     nodeId: '',  // chat has no specific node
-     title: 'Chat',
-     description: lastUserMessage,
-     environment: 'local',
-     type: 'chat',
-     systemPrompt: buildChatSystemPrompt(project),  // reuse existing prompt from prompt-templates.ts
-     messages: req.body.messages,  // pass conversation history
-     model: req.body.model,
-     maxTurns: 1,  // single-turn response
-     workingDirectory: project.workingDirectory,
-   };
-   ```
-4. Dispatch via relay: `relayServer.dispatchTask(task, targetMachineId)`
-5. Stream relay events back to the client via SSE (reuse the pattern from `generatePlanViaRelay()`)
-6. If no agent runner is connected, return `{ error: "No agent runner connected. Start one with: npx astro-agent start" }` with HTTP 503
+**The helper pattern** (add to `agent.ts`):
+```typescript
+import { isServerMode } from '../lib/app-mode.js'
 
-**Key function to reuse**: Look at how `generatePlanViaRelay()` in agent.ts dispatches and streams — the chat endpoint should follow the same pattern.
+// Shared relay streaming helper for server mode
+async function streamViaRelay(c, opts: {
+  taskId: string, projectId: string, nodeId: string,
+  prompt: string, systemPrompt?: string, maxTurns?: number,
+  type?: 'chat' | 'plan' | 'execution' | 'summarize',
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  workingDirectory?: string, targetMachineId?: string,
+}) {
+  const task: RelayTaskDispatch = {
+    taskId: opts.taskId,
+    projectId: opts.projectId,
+    nodeId: opts.nodeId,
+    title: opts.type || 'task',
+    description: opts.prompt.slice(0, 200),
+    environment: 'remote',
+    prompt: opts.prompt,
+    systemPrompt: opts.systemPrompt,
+    type: opts.type,
+    messages: opts.messages,
+    maxTurns: opts.maxTurns,
+    workingDirectory: opts.workingDirectory,
+  }
+  // Dispatch, subscribe to relay events, stream as SSE
+  // Pattern: same as generatePlanViaRelay() but generalized
+}
+```
 
-**Error case**: If `machineRegistry.findBestMachine()` returns null, respond with 503 and a clear message. Do NOT fall back to local AI.
+**Per-endpoint changes** (each ~5 lines added):
 
-**Test**: Start backend without agent runner → POST to `/api/agent/chat` → should get 503 error, not a crash.
+| Endpoint | Guard location | What the guard does |
+|----------|---------------|-------------------|
+| `/generate-plan` (line 115) | Change `useRelay` condition | `const useRelay = isServerMode() \|\| (!!targetMachineId && !isLocalDir)` |
+| `/chat` (line 644) | Add before `getChatProvider()` | `if (isServerMode()) return streamViaRelay(c, { type: 'chat', ... })` |
+| `/task-chat` (line 791) | Add before `getChatProvider()` | `if (isServerMode()) return streamViaRelay(c, { type: 'chat', ... })` |
+| `/compact` (line 950) | Add before `getChatProvider()` | `if (isServerMode()) return streamViaRelay(c, { type: 'summarize', ... })` |
+| `/dispatch` (line 1068) | Add before `getProvider()` | `if (isServerMode()) return streamViaRelay(c, { type: 'execution', ... })` |
+| `/summarize` (line 1279) | Add before `getChatProvider()` | `if (isServerMode()) return summarizeViaRelay(...)` |
+
+For `dispatch.ts`, the guard goes at the top of the `/task` handler — in server mode, always `dispatchViaRelay()`.
+
+**Error handling**: When `relayServer.dispatchTask()` returns false (no machine connected), return 503:
+```json
+{ "error": "No agent runner connected", "hint": "Run: npx astro-agent start --relay wss://..." }
+```
 
 **Verify**: `npm run build && npm run lint`
 
 ---
 
-### Plan 2: Convert `/api/agent/task-chat` to relay-only
+### Phase B: Proper Mode Separation (Long-Term / Beta)
 
-**Goal**: Same as Plan 1 but for task-specific chat.
+**Goal**: Every file in the backend checks `isServerMode()` / `isLocalMode()` and follows the appropriate workflow. This is not just about AI endpoints — it's about the entire backend architecture.
 
-**Files to modify**: `server/routes/agent.ts` — the `/task-chat` endpoint
+**Scope**: All backend files should be mode-aware:
+- Routes: AI dispatch, data persistence, auth middleware, events
+- Libs: Session management, provider registry, dispatch engine
+- Entry point: `server/index.ts` startup sequence
 
-**What to change**: Nearly identical to Plan 1, but:
-- The `nodeId` comes from the request body (it's chat about a specific task)
-- The system prompt should include task context (execution output, tool traces)
-- Use `type: 'chat'` on the TaskDispatch
+**What changes**:
+1. **Remove local provider adapters entirely** — `anthropic-direct.ts`, `claude-code.ts`, `codex.ts`, `registry.ts`, `context.ts` — server never needs them
+2. **Remove `initializeProviders()`** from startup — no provider detection in server mode
+3. **Remove `chat-session-pool.ts`** — dead code once chat goes through relay
+4. **Remove `procedure-classifier.ts`** direct AI call — move to agent runner or remove
+5. **Local mode routes through localhost relay** — even local mode uses relay for consistency, with agent runner on localhost
+6. **Single code path** — no `if/else` branching, just one relay-based architecture
+7. **Frontend machine auto-selection** — when no `targetMachineId`, auto-select from connected machines
 
-**Implementation**: Follow the exact same pattern as Plan 1. The only difference is the system prompt construction — task-chat includes task output context.
-
----
-
-### Plan 3: Convert `/api/agent/summarize` to relay-only
-
-**Goal**: Remove the direct Anthropic API call for summarization.
-
-**Files to modify**: `server/routes/agent.ts` — the `/summarize` endpoint
-
-**Current behavior**: Calls Anthropic Messages API directly with a summarization prompt.
-
-**What to change**:
-1. Find the `/summarize` POST handler in agent.ts
-2. Build a TaskDispatch:
-   ```typescript
-   const task: TaskDispatch = {
-     taskId: `summarize-${Date.now()}`,
-     projectId,
-     nodeId,
-     title: 'Summarize task output',
-     description: 'Generate a concise summary of the task execution output.',
-     environment: 'local',
-     type: 'summarize',
-     systemPrompt: 'Summarize the following task execution output concisely...',
-     prompt: taskOutput,  // the text to summarize
-     maxTurns: 1,
-     model: 'claude-haiku',  // use fast model for summarization
-   };
-   ```
-3. Dispatch via relay, collect result, return summary text
-4. If no agent runner, return 503
-
-**Note**: This is the simplest conversion — single-turn, no streaming needed, just collect the result.
+**This is the Option A approach** from the design doc — remove local paths entirely, require agent runner for everyone. Phase A (quick fix) is Option B — keep both paths, guard with `isServerMode()`.
 
 ---
 
-### Plan 4: Convert `/api/agent/generate-plan` local fallback to relay-only
-
-**Goal**: Remove the local execution path from plan generation. Currently, if no `targetMachineId` is provided, it calls AI locally.
-
-**Files to modify**: `server/routes/agent.ts` — the `/generate-plan` endpoint
-
-**Current behavior**: Has two paths:
-- If `targetMachineId` → `generatePlanViaRelay()` (correct)
-- Else → `providerRegistry.getProvider()` → `provider.stream()` (wrong)
-
-**What to change**:
-1. Find the `/generate-plan` handler in agent.ts
-2. Remove the local execution path (the `else` branch that calls provider.stream)
-3. When no `targetMachineId`, auto-select: `machineRegistry.findBestMachine('local')`
-4. If no machine found, return 503 with message
-5. Always call `generatePlanViaRelay()` with the auto-selected or provided machineId
-6. Add `type: 'plan'` and `systemPrompt` to the TaskDispatch inside `generatePlanViaRelay()`
-
-**The relay path already works** — this is just deleting the fallback and adding auto-selection.
-
----
-
-### Plan 5: Convert `/api/dispatch/task` to relay-only
-
-**Goal**: Remove `dispatchLocal()` from dispatch.ts. All task execution goes through relay.
-
-**Files to modify**: `server/routes/dispatch.ts`
-
-**Current behavior**: Has two paths:
-- If relay has a machine → `dispatchViaRelay()` (correct)
-- Else → `dispatchLocal()` (wrong — ~480 lines of local execution code)
-
-**What to change**:
-1. Find the `/task` POST handler in dispatch.ts
-2. Remove the `dispatchLocal()` function call entirely
-3. Always call `dispatchViaRelay()`
-4. If no agent runner connected, return 503
-5. Delete the `dispatchLocal()` function (large block, ~480 lines)
-6. Delete the `classifyTask()` call if it calls Anthropic API directly
-7. Remove imports that are only used by `dispatchLocal()`
-
-**This is the biggest deletion** — removing ~480 lines of local execution code. Be careful to preserve the relay path.
-
-**Verify**: `npm run build` (many imports may become unused — clean them up)
-
----
-
-### Plan 6: Convert `/api/agent/dispatch` to relay-only
-
-**Goal**: The agent.ts dispatch endpoint also has a local path.
-
-**Files to modify**: `server/routes/agent.ts`
-
-**What to change**: Same pattern as Plans 1-5. Find the dispatch handler, remove local path, always use relay.
-
----
-
-### Plan 7: Delete server-side provider adapters
-
-**Goal**: Remove all code that allows the server to call AI directly.
-
-**Files to delete**:
+**Phase B files to delete** (after Phase A is stable):
 - `server/lib/providers/adapters/anthropic-direct.ts`
 - `server/lib/providers/adapters/claude-code.ts`
 - `server/lib/providers/adapters/codex.ts`
 - `server/lib/providers/registry.ts`
 - `server/lib/providers/context.ts`
+- `server/lib/chat-session-pool.ts`
+- `server/lib/dispatch/procedure-classifier.ts`
 
-**Files to keep**:
-- `server/lib/providers/types.ts` (StreamEvent, TaskDispatch types used by relay)
-- `server/lib/providers/cache-utils.ts` (if used elsewhere)
-- `server/lib/providers/session-logger.ts` (if used elsewhere)
-
-**Files to modify**:
-- `server/index.ts` — Remove `initializeProviders()` call and import
-- `server/routes/agent.ts` — Remove all imports from providers (getProvider, providerRegistry, etc.)
-- `server/routes/dispatch.ts` — Remove provider imports
-- `server/lib/dispatch/procedure-classifier.ts` — If this calls Anthropic API directly, either delete the file or move the classification to the agent runner
-
-**How to verify nothing breaks**: After deletion, run `npm run build`. Any remaining references to deleted files will show as TypeScript errors. Fix each one by either removing the import or replacing with relay dispatch.
-
-**Verify**: `npm run build && npm run lint`
-
----
-
-### Plan 8: Frontend machine auto-selection
-
-**Goal**: When user dispatches a task without selecting a machine, frontend auto-selects.
-
-**Files to modify**:
-1. `src/stores/execution-store.ts` — Add auto-selection logic before dispatch
-2. `src/stores/agent-store.ts` — Same for plan generation
-3. `src/components/execution/execution-panel.tsx` — Show "No agent runner connected" state
-
-**What to change in execution-store.ts**:
-1. Find the `dispatchTask()` or equivalent function
-2. Before making the API call, if no `targetMachineId`:
-   ```typescript
-   if (!targetMachineId) {
-     const res = await fetch('/api/relay/best-machine');
-     const data = await res.json();
-     if (!data.machine) {
-       // Show error: "No agent runner connected"
-       return;
-     }
-     targetMachineId = data.machine.machineId;
-   }
-   ```
-
-**What to change in execution-panel.tsx**:
-- When machine list is empty, show a banner: "No agent runner connected. Run `npx astro-agent start` to connect."
-- Use `useMachinesStore()` to check connected machines
-
----
-
-### Plan 9: Clean up `chat-session-pool.ts` and `procedure-classifier.ts`
-
-**Goal**: These files call AI directly from the server process.
-
-**`server/lib/chat-session-pool.ts`**: This pools Claude SDK sessions for chat. After Plans 1-2 (chat via relay), this becomes dead code.
-- **Action**: Delete the file
-- **Update**: Remove import from any file that references it
-
-**`server/lib/dispatch/procedure-classifier.ts`**: Calls Anthropic Haiku to classify tasks into procedure types.
-- **Option A**: Delete it entirely — let the agent runner handle procedure classification as part of task execution
-- **Option B**: Move the classification call into the agent runner's task executor, so it runs on the user's machine with their credentials
-- **Recommendation**: Option A is simpler. The procedure system can still work — just don't auto-classify. Let the user or the plan generation choose the procedure type.
-
----
-
-### Plan 10: Add "no agent runner" error handling across all endpoints
-
-**Goal**: After removing all local fallbacks, every endpoint that needs an agent runner should return a clear 503 error.
-
-**Files to modify**: `server/routes/agent.ts`, `server/routes/dispatch.ts`
-
-**What to add**: A shared helper function:
-
-```typescript
-// server/lib/require-runner.ts
-import { machineRegistry } from './machine-registry';
-
-export function requireRunner(environment: string = 'local', provider?: string) {
-  const machine = machineRegistry.findBestMachine(environment, provider);
-  if (!machine) {
-    return null;
-  }
-  return machine;
-}
-```
-
-Then in each endpoint:
-```typescript
-const machine = requireRunner();
-if (!machine) {
-  return c.json({
-    error: 'No agent runner connected',
-    hint: 'Start one with: npx astro-agent start',
-  }, 503);
-}
-```
+**Phase B files to modify**:
+- `server/index.ts` — Remove `initializeProviders()` call
+- `server/routes/agent.ts` — Remove all provider imports, remove local paths entirely
+- `server/routes/dispatch.ts` — Remove `dispatchLocal()` (~480 lines)
+- Frontend: auto-select machines, show "no runner" state
 
 ---
 
@@ -401,18 +274,28 @@ if (!machine) {
 ### 5.2 Architecture: Server/Local Mode Separation
 
 ```
-[x] Fix relay protocol: add messages, systemPrompt, type, model (PR #115)
-[!] Convert /api/agent/chat to relay-only (Plan 1)
-[!] Convert /api/agent/task-chat to relay-only (Plan 2)
-[!] Convert /api/agent/summarize to relay-only (Plan 3)
-[!] Convert /api/agent/generate-plan local fallback (Plan 4)
-[!] Convert /api/dispatch/task — delete dispatchLocal (Plan 5)
-[!] Convert /api/agent/dispatch to relay-only (Plan 6)
-[ ] Delete server-side provider adapters (Plan 7)
-[ ] Delete procedure-classifier direct AI call (Plan 9)
-[ ] Remove chat-session-pool (Plan 9)
-[ ] Frontend machine auto-selection (Plan 8)
-[ ] Add 503 error handling for no runner (Plan 10)
+Phase 0:
+[x] Fix relay protocol: add messages, systemPrompt, type, model (PR #115, merged)
+
+Phase A (Quick Fix — Alpha):
+[!] Add isServerMode() guards + streamViaRelay() helper to agent.ts
+[!]   → /generate-plan: force relay in server mode
+[!]   → /chat: route through relay in server mode
+[!]   → /task-chat: route through relay in server mode
+[!]   → /compact: route through relay in server mode
+[!]   → /dispatch: route through relay in server mode
+[!]   → /summarize: route through relay in server mode
+[!] Add isServerMode() guard to dispatch.ts /task endpoint
+[!] 503 error handling when no agent runner connected
+
+Phase B (Long-Term — Beta):
+[ ] Delete server-side provider adapters (anthropic-direct, claude-code, codex)
+[ ] Delete chat-session-pool.ts
+[ ] Delete procedure-classifier direct AI call
+[ ] Remove initializeProviders() from server/index.ts
+[ ] Remove dispatchLocal() from dispatch.ts (~480 lines)
+[ ] Frontend machine auto-selection
+[ ] Local mode also routes through localhost relay
 ```
 
 ### 5.3 Agent Runner
@@ -496,24 +379,27 @@ if (!machine) {
 ## 6. Implementation Order
 
 ```
-Plan 0:  Merge PR #115 (relay protocol fix)     ← do first
+Phase 0:  Merge PR #115 (relay protocol fix)    ← DONE ✅
    │
-   ├─→ Plan 1:  Convert /chat to relay-only
-   ├─→ Plan 2:  Convert /task-chat to relay-only
-   ├─→ Plan 3:  Convert /summarize to relay-only
-   ├─→ Plan 4:  Convert /generate-plan (remove local fallback)
-   ├─→ Plan 5:  Convert /dispatch/task (delete dispatchLocal)
-   └─→ Plan 6:  Convert /agent/dispatch to relay-only
+   └─→ Phase A:  Quick Fix for Alpha (ONE PR)
          │
-         ├─→ Plan 7:  Delete provider adapters + registry
-         ├─→ Plan 9:  Delete chat-session-pool + procedure-classifier
-         └─→ Plan 10: Add 503 error handling
+         │  1. Add isServerMode() import + relay type imports
+         │  2. Add streamViaRelay() shared helper
+         │  3. Guard all 7 endpoints with isServerMode()
+         │  4. 503 error when no runner connected
+         │
+         └─→ Deploy to Fly.io, test multi-user
                │
-               └─→ Plan 8: Frontend machine auto-selection
+               └─→ Phase B: Long-Term Cleanup (later)
+                     │
+                     ├─→ Delete provider adapters + registry
+                     ├─→ Delete chat-session-pool + procedure-classifier
+                     ├─→ Remove initializeProviders()
+                     ├─→ Remove dispatchLocal()
+                     └─→ Frontend machine auto-selection
 
-Plans 1-6 can be done in any order (all depend only on Plan 0).
-Plans 7, 9, 10 can be done after Plans 1-6 are all complete.
-Plan 8 can be done after Plan 10.
+Phase A is a single PR — one shared helper + guards on 7 endpoints.
+Phase B is deferred until after alpha testing validates the approach.
 ```
 
 ---

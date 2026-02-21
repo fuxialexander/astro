@@ -25,6 +25,7 @@ import type { ProviderType } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { errorMessage, isAbortError } from '../lib/error-utils.js'
+import { isServerMode } from '../lib/app-mode.js'
 import {
   createServerWorktree,
   getDefaultBranch,
@@ -195,7 +196,9 @@ dispatchRoute.post('/task', async (c) => {
   const executionId = `exec-${nodeId}-${Date.now()}`
 
   // Determine dispatch target
-  const useRelay = environment !== 'local' || targetMachineId
+  // In server mode, always use relay — the server has no AI providers.
+  // In local mode, use relay only for remote environments or explicit machine targeting.
+  const useRelay = isServerMode() || environment !== 'local' || targetMachineId
 
   console.log(`[dispatch] ${executionId}: ${useRelay ? 'relay' : 'local'} dispatch, workingDirectory=${workingDirectory}`)
 

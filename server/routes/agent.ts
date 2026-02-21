@@ -15,6 +15,8 @@ import { relayServer } from '../lib/relay-server.js'
 import { requireAuth } from '../middleware/auth.js'
 import { errorMessage, isAbortError } from '../lib/error-utils.js'
 import * as chatSessionPool from '../lib/chat-session-pool.js'
+import { isServerMode } from '../lib/app-mode.js'
+import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage } from '../types/relay.js'
 
 // Validation schemas
 const generatePlanSchema = z.object({
@@ -85,6 +87,227 @@ function getChatProvider(requestedProviderId?: string): AgentProvider | null {
     : providerRegistry.getDefaultProvider()
 }
 
+/**
+ * Stream a task via relay in server mode.
+ * Dispatches a RelayTaskDispatch to an agent runner and streams relay events
+ * back to the browser as SSE. Used by all AI endpoints when isServerMode().
+ */
+async function streamChatViaRelay(
+  c: Parameters<Parameters<Hono['post']>[1]>[0],
+  opts: {
+    taskId: string
+    projectId: string
+    nodeId: string
+    prompt: string
+    systemPrompt?: string
+    maxTurns?: number
+    type?: 'chat' | 'plan' | 'execution' | 'summarize'
+    messages?: Array<{ role: 'user' | 'assistant'; content: string }>
+    workingDirectory?: string
+    targetMachineId?: string
+  }
+) {
+  const task: RelayTaskDispatch = {
+    taskId: opts.taskId,
+    projectId: opts.projectId,
+    nodeId: opts.nodeId,
+    title: opts.type || 'chat',
+    description: opts.prompt.slice(0, 200),
+    environment: 'remote',
+    prompt: opts.prompt,
+    systemPrompt: opts.systemPrompt,
+    type: opts.type,
+    messages: opts.messages,
+    maxTurns: opts.maxTurns ?? 50,
+    workingDirectory: opts.workingDirectory,
+  }
+
+  return streamSSE(c, async (stream) => {
+    let alive = true
+    let lastActivity = Date.now()
+    const ACTIVITY_TIMEOUT_MS = 300_000
+
+    const onText = (msg: TaskTextMessage) => {
+      if (!alive || msg.taskId !== opts.taskId) return
+      lastActivity = Date.now()
+      stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
+    }
+
+    const onResult = (msg: TaskResultMessage) => {
+      if (!alive || msg.result.taskId !== opts.taskId) return
+      lastActivity = Date.now()
+      stream.writeSSE({
+        event: 'done',
+        data: JSON.stringify({ sessionId: opts.taskId }),
+      }).catch(() => {})
+      alive = false
+    }
+
+    const onToolTrace = (msg: TaskToolTraceMessage) => {
+      if (!alive || msg.taskId !== opts.taskId) return
+      lastActivity = Date.now()
+      stream.writeSSE({
+        event: 'tool_use',
+        data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
+      }).catch(() => { alive = false })
+      if (msg.toolResult !== undefined) {
+        stream.writeSSE({
+          event: 'tool_result',
+          data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
+        }).catch(() => { alive = false })
+      }
+    }
+
+    const onFileChange = (msg: TaskFileChangeMessage) => {
+      if (!alive || msg.taskId !== opts.taskId) return
+      lastActivity = Date.now()
+      stream.writeSSE({
+        event: 'file_change',
+        data: JSON.stringify({ path: msg.path, action: msg.action }),
+      }).catch(() => { alive = false })
+    }
+
+    const onSessionInit = (msg: TaskSessionInitMessage) => {
+      if (!alive || msg.taskId !== opts.taskId) return
+      lastActivity = Date.now()
+      stream.writeSSE({
+        event: 'session_init',
+        data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
+      }).catch(() => { alive = false })
+    }
+
+    const onMachineDisconnected = () => {
+      if (!alive) return
+      stream.writeSSE({
+        event: 'error',
+        data: 'Remote machine disconnected during task execution',
+      }).catch(() => {})
+      alive = false
+    }
+
+    relayServer.on('task:text', onText)
+    relayServer.on('task:result', onResult)
+    relayServer.on('task:tool_trace', onToolTrace)
+    relayServer.on('task:file_change', onFileChange)
+    relayServer.on('task:session_init', onSessionInit)
+    relayServer.on('machine:disconnected', onMachineDisconnected)
+
+    const cleanup = () => {
+      relayServer.off('task:text', onText)
+      relayServer.off('task:result', onResult)
+      relayServer.off('task:tool_trace', onToolTrace)
+      relayServer.off('task:file_change', onFileChange)
+      relayServer.off('task:session_init', onSessionInit)
+      relayServer.off('machine:disconnected', onMachineDisconnected)
+    }
+
+    // Dispatch after listeners are registered
+    const dispatched = relayServer.dispatchTask(task, opts.targetMachineId)
+
+    if (!dispatched) {
+      cleanup()
+      await stream.writeSSE({
+        event: 'error',
+        data: 'No agent runner connected. Start one with: npx astro-agent start --relay wss://<your-relay-url>',
+      })
+      return
+    }
+
+    // Keepalive + activity timeout
+    const heartbeat = setInterval(() => {
+      if (!alive) { clearInterval(heartbeat); return }
+      if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
+        stream.writeSSE({ event: 'error', data: 'Activity timeout — agent runner stopped responding' }).catch(() => {})
+        alive = false
+        clearInterval(heartbeat)
+        return
+      }
+      stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
+    }, 15000)
+
+    stream.onAbort(() => {
+      alive = false
+      clearInterval(heartbeat)
+      cleanup()
+      relayServer.cancelTask(opts.taskId, opts.targetMachineId || '')
+    })
+
+    // Wait for completion
+    await new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (!alive) { clearInterval(check); clearInterval(heartbeat); cleanup(); resolve() }
+      }, 500)
+    })
+  })
+}
+
+/**
+ * Non-streaming relay dispatch for server mode.
+ * Dispatches task, waits for result, returns output as JSON.
+ * Used by /summarize which is non-streaming.
+ */
+async function executeViaRelay(opts: {
+  taskId: string
+  projectId: string
+  nodeId: string
+  prompt: string
+  systemPrompt?: string
+  maxTurns?: number
+  type?: 'chat' | 'plan' | 'execution' | 'summarize'
+}): Promise<{ success: boolean; output?: string; error?: string }> {
+  const task: RelayTaskDispatch = {
+    taskId: opts.taskId,
+    projectId: opts.projectId,
+    nodeId: opts.nodeId,
+    title: opts.type || 'summarize',
+    description: opts.prompt.slice(0, 200),
+    environment: 'remote',
+    prompt: opts.prompt,
+    systemPrompt: opts.systemPrompt,
+    type: opts.type,
+    maxTurns: opts.maxTurns ?? 1,
+  }
+
+  return new Promise((resolve) => {
+    let output = ''
+    const timeout = setTimeout(() => {
+      cleanup()
+      resolve({ success: false, error: 'Relay task timed out' })
+    }, 120_000)
+
+    const onText = (msg: TaskTextMessage) => {
+      if (msg.taskId !== opts.taskId) return
+      output += msg.text
+    }
+
+    const onResult = (msg: TaskResultMessage) => {
+      if (msg.result.taskId !== opts.taskId) return
+      clearTimeout(timeout)
+      cleanup()
+      resolve({
+        success: msg.result.status === 'completed',
+        output: msg.result.output || output,
+        error: msg.result.error,
+      })
+    }
+
+    const cleanup = () => {
+      relayServer.off('task:text', onText)
+      relayServer.off('task:result', onResult)
+    }
+
+    relayServer.on('task:text', onText)
+    relayServer.on('task:result', onResult)
+
+    const dispatched = relayServer.dispatchTask(task)
+    if (!dispatched) {
+      clearTimeout(timeout)
+      cleanup()
+      resolve({ success: false, error: 'No agent runner connected' })
+    }
+  })
+}
+
 const agentRoute = new Hono()
 
 // All agent routes require authentication
@@ -112,7 +335,9 @@ agentRoute.post('/generate-plan', async (c) => {
   const isLocalDir = workingDirectory ? existsSync(workingDirectory) : false
 
   // Determine if we should dispatch via relay (remote machine)
-  const useRelay = !!targetMachineId && !isLocalDir
+  // In server mode, always use relay — the server has no AI providers.
+  // In local mode, use relay only when a remote machine is explicitly targeted.
+  const useRelay = isServerMode() || (!!targetMachineId && !isLocalDir)
 
   if (useRelay) {
     console.log(`[plan-gen] Routing to relay: machineId=${targetMachineId}`)
@@ -639,6 +864,22 @@ agentRoute.post('/chat', async (c) => {
 
   const { message, sessionId: existingSessionId, projectId, visionDoc, model, providerId, planNodes, planEdges, messages: historyMessages } = body
   const taskId = existingSessionId || `chat-${projectId}-${Date.now()}`
+
+  // Server mode: route through relay — server has no AI providers
+  if (isServerMode()) {
+    const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
+    return streamChatViaRelay(c, {
+      taskId,
+      projectId,
+      nodeId: '',
+      prompt: message,
+      systemPrompt,
+      type: 'chat',
+      messages: historyMessages,
+      maxTurns: 50,
+    })
+  }
+
   const abortController = createSession(taskId, providerId)
 
   return streamSSE(c, async (stream) => {
@@ -786,6 +1027,27 @@ agentRoute.post('/task-chat', async (c) => {
   } = body
 
   const taskId = existingSessionId || `task-chat-${nodeId}-${Date.now()}`
+
+  // Server mode: route through relay — server has no AI providers
+  if (isServerMode()) {
+    const systemPrompt = buildTaskChatSystemPrompt({
+      taskTitle,
+      taskDescription,
+      taskOutput,
+      visionDoc,
+    })
+    return streamChatViaRelay(c, {
+      taskId,
+      projectId,
+      nodeId,
+      prompt: message,
+      systemPrompt,
+      type: 'chat',
+      messages: historyMessages,
+      maxTurns: 50,
+    })
+  }
+
   const abortController = createSession(taskId, providerId)
 
   return streamSSE(c, async (stream) => {
@@ -945,6 +1207,37 @@ agentRoute.post('/compact', async (c) => {
   }
 
   const taskId = `compact-${projectId}-${Date.now()}`
+
+  // Server mode: route through relay — server has no AI providers
+  if (isServerMode()) {
+    const transcript = messages
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+      .join('\n\n')
+
+    const compactPrompt = `Summarize the following conversation into a concise but comprehensive context document. Preserve all important decisions, key facts, action items, and technical details. The summary will be used as context for future messages in the same session.
+
+Focus on:
+- Decisions made and their rationale
+- Technical details and specifications discussed
+- Action items and their status
+- Key constraints or requirements mentioned
+- Any plan modifications or task updates
+
+Conversation:
+${transcript}
+
+Provide a structured summary that captures the essential context needed to continue this conversation effectively.`
+
+    return streamChatViaRelay(c, {
+      taskId,
+      projectId,
+      nodeId: '',
+      prompt: compactPrompt,
+      type: 'chat',
+      maxTurns: 1,
+    })
+  }
+
   const abortController = createSession(taskId, providerId)
 
   return streamSSE(c, async (stream) => {
@@ -1060,6 +1353,27 @@ agentRoute.post('/dispatch', async (c) => {
   } = body
 
   const executionId = `exec-${nodeId}-${Date.now()}`
+
+  // Server mode: route through relay — server has no AI providers
+  if (isServerMode()) {
+    const prompt = buildTaskExecutionPrompt({
+      taskTitle,
+      taskDescription,
+      visionDoc,
+      dependencyOutputs,
+      workingDirectory,
+    })
+    return streamChatViaRelay(c, {
+      taskId: executionId,
+      projectId,
+      nodeId,
+      prompt,
+      type: 'execution',
+      workingDirectory,
+      maxTurns: maxTurns,
+    })
+  }
+
   const abortController = createSession(executionId, providerId, {
     taskType,
     projectId,
@@ -1275,6 +1589,41 @@ agentRoute.post('/summarize', async (c) => {
   }>()
 
   console.log(`[summarize] Summary generation requested for task: ${body.taskTitle} (status: ${body.status})`)
+
+  // Server mode: route through relay — server has no AI providers
+  if (isServerMode()) {
+    const prompt = buildSummaryPrompt(body)
+    const taskId = `summary-${Date.now()}`
+    const result = await executeViaRelay({
+      taskId,
+      projectId: '',
+      nodeId: '',
+      prompt,
+      type: 'summarize',
+      maxTurns: 1,
+    })
+
+    if (result.success && result.output) {
+      try {
+        const jsonMatch = result.output.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const summary = JSON.parse(jsonMatch[0])
+          return c.json({ summary })
+        }
+      } catch {
+        return c.json({
+          summary: {
+            workCompleted: result.output.slice(0, 200),
+            filesChanged: body.fileChanges.map((f) => f.path),
+            status: body.status,
+            followUps: [],
+          },
+        })
+      }
+    }
+
+    return c.json({ error: result.error || 'Failed to generate summary via relay' }, 500)
+  }
 
   try {
     // Get provider — prefer anthropic-direct for this lightweight task
