@@ -569,6 +569,10 @@ async function installOnRemoteHosts(
     try {
       // Register each remote host as a separate machine with its own ID
       spinner.text = `${hostName}: Registering machine...`;
+      console.log();
+      console.log(chalk.dim(`[setup] Registering ${hostName} (${host.hostname}) at ${remoteApiUrl}`));
+      console.log(chalk.dim(`[setup] Using access token: ${localAccessToken.slice(0, 20)}...`));
+
       const regResponse = await registerMachine(remoteApiUrl, localAccessToken, {
         hostname: host.hostname,
         name: hostName,
@@ -576,6 +580,11 @@ async function installOnRemoteHosts(
         environmentType: 'remote',
         providers: [],
       });
+
+      console.log(chalk.dim(`[setup] ✓ Machine registered with ID: ${regResponse.machineId}`));
+      console.log(chalk.dim(`[setup]   Access token: ${regResponse.accessToken.slice(0, 20)}...`));
+      console.log(chalk.dim(`[setup]   Refresh token: ${regResponse.refreshToken.slice(0, 20)}...`));
+      console.log(chalk.dim(`[setup]   WS token: ${regResponse.wsToken.slice(0, 20)}...`));
 
       await packAndInstall(
         {
@@ -595,6 +604,9 @@ async function installOnRemoteHosts(
     } catch (err) {
       spinner.fail(`${hostName}: Installation failed`);
       console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
+      if (err instanceof Error && err.stack) {
+        console.error(chalk.dim(`[setup] Stack trace: ${err.stack}`));
+      }
     }
   }
   console.log();

@@ -180,6 +180,14 @@ export async function registerMachine(params: {
 
   if (isServerMode()) {
     const supabase = getServiceClient()
+
+    console.log(`[machines-store] 📝 Inserting machine to Supabase:`)
+    console.log(`[machines-store]   - ID: ${machine.id}`)
+    console.log(`[machines-store]   - Name: ${machine.name}`)
+    console.log(`[machines-store]   - Hostname: ${machine.hostname}`)
+    console.log(`[machines-store]   - User ID: ${machine.userId}`)
+    console.log(`[machines-store]   - Environment: ${machine.environmentType}`)
+
     const { error } = await supabase.from('registered_machines').insert({
       id: machine.id,
       user_id: machine.userId,
@@ -195,6 +203,10 @@ export async function registerMachine(params: {
 
     if (error) {
       console.error(`[machines-store] ❌ Failed to register machine ${machine.id} to Supabase:`, error)
+      console.error(`[machines-store]   Error code: ${error.code}`)
+      console.error(`[machines-store]   Error message: ${error.message}`)
+      console.error(`[machines-store]   Error details:`, error.details)
+      console.error(`[machines-store]   Error hint:`, error.hint)
 
       // Special handling for foreign key violations (user not found)
       if (error.code === '23503' && error.message.includes('user_id')) {
