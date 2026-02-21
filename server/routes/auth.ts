@@ -293,7 +293,8 @@ authRoute.post('/webauthn/register-verify', async (c) => {
       user_id: userId,
       public_key: Buffer.from(regCredential.publicKey).toString('base64'),
       counter: regCredential.counter,
-      transports: credential.response.transports,
+      // Filter out 'hybrid' to prevent QR code prompts on future logins
+      transports: credential.response.transports?.filter((t: string) => t !== 'hybrid'),
       device_name: credentialDeviceType || 'passkey',
     })
 
@@ -381,9 +382,12 @@ authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
     rpID: RP_ID,
     allowCredentials: allowCredentials.map((c) => ({
       id: c.id,
-      transports: c.transports as AuthenticatorTransport[] | undefined,
+      // Filter out 'hybrid' transport to prevent QR code prompt — keep only 'internal'
+      // for platform authenticators (Touch ID/Face ID/Windows Hello)
+      transports: (c.transports as AuthenticatorTransport[] | undefined)
+        ?.filter((t) => t !== 'hybrid'),
     })),
-    userVerification: 'required', // REQUIRE biometric/PIN verification (no QR code fallback)
+    userVerification: 'required',
   })
 
   // Store challenge
