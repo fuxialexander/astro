@@ -402,6 +402,8 @@ export interface DispatchEngineConfig {
   maxDependencyOutputSize: number
   /** Poll interval for ready tasks (ms) */
   pollIntervalMs: number
+  /** Machine selection policy for multi-machine environments */
+  machineSelectionPolicy: 'round-robin' | 'priority' | 'least-loaded' | 'manual'
 }
 
 /**
@@ -418,6 +420,7 @@ export const DEFAULT_DISPATCH_CONFIG: DispatchEngineConfig = {
   dryRunMode: false,
   maxDependencyOutputSize: 10000,
   pollIntervalMs: 2000,
+  machineSelectionPolicy: 'priority',
 }
 
 // ============================================================================

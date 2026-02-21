@@ -239,6 +239,7 @@ export const pushTokens = pgTable('push_tokens', {
 export const registeredMachines = pgTable('registered_machines', {
   id: text('id').primaryKey(),
   userId: uuid('user_id').notNull(),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
   name: text('name').notNull(),
   hostname: text('hostname').notNull(),
   platform: text('platform').notNull(),
@@ -405,4 +406,19 @@ export const connectedAccounts = pgTable('connected_accounts', {
   enabled: boolean('enabled').notNull().default(true),
   connectedAt: timestamp('connected_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// ── Machine Usage Logs ───────────────────────────────────────────
+export const machineUsageLogs = pgTable('machine_usage_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  machineId: text('machine_id').notNull().references(() => registeredMachines.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  nodeId: text('node_id').notNull(),
+  executionId: text('execution_id').notNull(),
+  startedAt: timestamp('started_at').notNull().defaultNow(),
+  completedAt: timestamp('completed_at'),
+  durationMs: integer('duration_ms'),
+  status: text('status').notNull(), // 'success' | 'failure' | 'cancelled'
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 })
