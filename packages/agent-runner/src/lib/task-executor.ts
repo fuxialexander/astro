@@ -600,10 +600,12 @@ export class TaskExecutor {
     cleanup: (options?: { keepBranch?: boolean }) => Promise<void>;
   }> {
     if (!this.useWorktree) {
+      console.warn(`[executor] Task ${task.id}: worktree disabled, using raw workdir: ${task.workingDirectory}`);
       return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
     }
 
     try {
+      console.log(`[executor] Task ${task.id}: creating worktree for workdir=${task.workingDirectory}`);
       const worktree = await createWorktree({
         workingDirectory: task.workingDirectory,
         taskId: task.id,
@@ -614,11 +616,14 @@ export class TaskExecutor {
         stderr: stream.stderr,
       });
       if (!worktree) {
+        console.warn(`[executor] Task ${task.id}: createWorktree returned null, falling back to raw workdir: ${task.workingDirectory}`);
         return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
       }
+      console.log(`[executor] Task ${task.id}: worktree created at ${worktree.workingDirectory} (branch: ${worktree.branchName})`);
       return worktree;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[executor] Task ${task.id}: worktree creation FAILED: ${errorMsg} — falling back to raw workdir: ${task.workingDirectory}`);
       this.wsClient.sendTaskStatus(task.id, 'running', 0, `Worktree setup failed: ${errorMsg}`);
       return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
     }

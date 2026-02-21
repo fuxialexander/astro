@@ -194,23 +194,13 @@ dispatchRoute.post('/task', async (c) => {
 
   const executionId = `exec-${nodeId}-${Date.now()}`
 
-  // Resolve working directory (clone repo if needed) — applies to both local and relay dispatch
-  let resolvedDir = workingDirectory
-  try {
-    resolvedDir = resolveWorkingDirectory(workingDirectory, projectId)
-  } catch (e) {
-    const msg = errorMessage(e)
-    return c.json(
-      { success: false, error: `Failed to resolve working directory: ${msg}` },
-      500
-    )
-  }
-
   // Determine dispatch target
   const useRelay = environment !== 'local' || targetMachineId
 
+  console.log(`[dispatch] ${executionId}: ${useRelay ? 'relay' : 'local'} dispatch, workingDirectory=${workingDirectory}`)
+
   if (useRelay) {
-    // Dispatch via relay server for remote execution
+    // Relay dispatch: pass raw workingDirectory — agent-runner handles resolution
     return await dispatchViaRelay(c, {
       nodeId,
       projectId,
@@ -223,9 +213,25 @@ dispatchRoute.post('/task', async (c) => {
       preferredProvider,
       targetMachineId,
       priority,
-      workingDirectory: resolvedDir,
+      workingDirectory,
       computeBackend,
     })
+  }
+
+  // Local dispatch: resolve working directory (clone repo if needed)
+  let resolvedDir = workingDirectory
+  try {
+    resolvedDir = resolveWorkingDirectory(workingDirectory, projectId)
+    if (resolvedDir !== workingDirectory) {
+      console.log(`[dispatch] ${executionId}: resolved git URL to ${resolvedDir}`)
+    }
+  } catch (e) {
+    const msg = errorMessage(e)
+    console.error(`[dispatch] ${executionId}: resolveWorkingDirectory failed: ${msg}`)
+    return c.json(
+      { success: false, error: `Failed to resolve working directory: ${msg}` },
+      500
+    )
   }
 
   // Auto-classify task to determine procedure pipeline
@@ -290,7 +296,7 @@ function resolveWorkingDirectory(value: string, projectId: string): string {
         timeout: 30_000,
       })
     } catch {
-      // Non-fatal: proceed with stale clone
+      console.warn(`[dispatch] git fetch failed for ${repoDir} (non-fatal)`)
     }
   } else {
     // Clone the repo (CRITICAL-004: use execFileSync to prevent injection)
@@ -298,6 +304,7 @@ function resolveWorkingDirectory(value: string, projectId: string): string {
       stdio: 'ignore',
       timeout: 120_000,
     })
+    console.log(`[dispatch] Cloned ${value} to ${repoDir}`)
   }
   return repoDir
 }
@@ -376,37 +383,47 @@ async function dispatchLocal(
 
       // Create worktree for isolation if the directory is a git repo with a remote
       let effectiveWorkDir = workingDirectory
-      if (workingDirectory && await isGitRepo(workingDirectory) && await hasRemoteOrigin(workingDirectory)) {
-        try {
-          worktreeSetup = await createServerWorktree({
-            repoPath: workingDirectory,
-            taskId: executionId,
-            nodeId,
-          })
-          effectiveWorkDir = worktreeSetup.worktreePath
-          // Register worktree for post-execution persistence
-          worktreeRegistry.register({
-            executionId,
-            nodeId,
-            projectId,
-            worktreePath: worktreeSetup.worktreePath,
-            branchName: worktreeSetup.branchName,
-            repoPath: workingDirectory!,
-            cleanup: worktreeSetup.cleanup,
-            createdAt: new Date(),
-          })
-          console.log(`[dispatch] Created worktree for ${executionId}: ${worktreeSetup.worktreePath} (branch: ${worktreeSetup.branchName})`)
-        } catch (wtErr) {
-          const wtErrMsg = errorMessage(wtErr)
-          console.error(`[dispatch] Worktree creation failed for ${executionId}: ${wtErrMsg}`)
-          await stream.writeSSE({
-            event: 'error',
-            data: JSON.stringify({
-              error: 'Worktree creation failed',
-              message: `Failed to create isolated worktree for task execution. The task will NOT run in the project directory to prevent contamination. Error: ${wtErrMsg}`,
-            }),
-          })
-          return
+      if (workingDirectory) {
+        const gitRepoCheck = await isGitRepo(workingDirectory)
+        if (gitRepoCheck) {
+          const remoteOriginCheck = await hasRemoteOrigin(workingDirectory)
+          if (remoteOriginCheck) {
+            try {
+              worktreeSetup = await createServerWorktree({
+                repoPath: workingDirectory,
+                taskId: executionId,
+                nodeId,
+              })
+              effectiveWorkDir = worktreeSetup.worktreePath
+              // Register worktree for post-execution persistence
+              worktreeRegistry.register({
+                executionId,
+                nodeId,
+                projectId,
+                worktreePath: worktreeSetup.worktreePath,
+                branchName: worktreeSetup.branchName,
+                repoPath: workingDirectory!,
+                cleanup: worktreeSetup.cleanup,
+                createdAt: new Date(),
+              })
+              console.log(`[dispatch] ${executionId}: worktree created at ${worktreeSetup.worktreePath} (branch: ${worktreeSetup.branchName})`)
+            } catch (wtErr) {
+              const wtErrMsg = errorMessage(wtErr)
+              console.error(`[dispatch] ${executionId}: worktree creation failed: ${wtErrMsg}`)
+              await stream.writeSSE({
+                event: 'error',
+                data: JSON.stringify({
+                  error: 'Worktree creation failed',
+                  message: `Failed to create isolated worktree for task execution. The task will NOT run in the project directory to prevent contamination. Error: ${wtErrMsg}`,
+                }),
+              })
+              return
+            }
+          } else {
+            console.warn(`[dispatch] ${executionId}: skipping worktree (no remote origin)`)
+          }
+        } else {
+          console.warn(`[dispatch] ${executionId}: skipping worktree (not a git repo)`)
         }
       }
 
@@ -476,6 +493,8 @@ The user can review your reasoning in the task output and provide guidance if th
         },
         abortController,
       }
+
+      console.log(`[dispatch] ${executionId}: executing with ${provider.id}, cwd=${effectiveWorkDir}`)
 
       // Send init event
       await stream.writeSSE({

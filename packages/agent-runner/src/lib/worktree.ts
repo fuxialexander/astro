@@ -200,13 +200,16 @@ async function hasCommits(gitRoot: string): Promise<boolean> {
 }
 
 /**
- * Validate that taskId is a valid UUID format before using in paths
- * Prevents command injection via malicious taskIds
+ * Validate that taskId is safe for use in paths.
+ * Accepts both UUID format and execution ID format (exec-{uuid-prefix}-{nodeId}-{timestamp}).
+ * Command injection is not a risk because we use execFileAsync (not shell),
+ * and the sanitize() function handles path safety.
  */
 function validateTaskId(taskId: string): void {
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidPattern.test(taskId)) {
-    throw new Error(`Invalid taskId format: ${taskId}. Expected UUID.`);
+  // Allow: alphanumeric, hyphens, underscores, dots (same chars as sanitize keeps)
+  const safePattern = /^[a-zA-Z0-9._-]+$/;
+  if (!safePattern.test(taskId) || taskId.length > 200) {
+    throw new Error(`Invalid taskId format: ${taskId}. Must be alphanumeric with hyphens/underscores/dots, max 200 chars.`);
   }
 }
 

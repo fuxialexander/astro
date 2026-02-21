@@ -629,6 +629,7 @@ export class ClaudeCodeProvider implements AgentProvider {
 
     try {
       const options = this.buildQueryOptions(task, abortController)
+      console.log(`[claude-code] stream() taskId=${task.taskId} cwd=${task.context.workingDirectory ?? 'none'}`)
       const gen = query({ prompt: task.prompt, options })
 
       let assistantText = ''

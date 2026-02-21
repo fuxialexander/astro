@@ -177,7 +177,7 @@ export async function createServerWorktree(options: {
       timeout: 10_000,
     })
   } catch {
-    // May fail if there are uncommitted changes; non-fatal
+    // May have uncommitted changes — proceed anyway
   }
 
   // Create worktree from origin/<defaultBranch> — NOT from HEAD.
@@ -189,6 +189,7 @@ export async function createServerWorktree(options: {
     ['-C', gitRoot, 'worktree', 'add', '-b', branchName, worktreePath, `origin/${defaultBranch}`],
     { env: withGitEnv(), timeout: 30_000 }
   )
+  console.log(`[worktree-manager] Created worktree: ${worktreePath} (branch: ${branchName}, base: origin/${defaultBranch})`)
 
   return {
     worktreePath,
