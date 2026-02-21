@@ -8,6 +8,25 @@ import type { TaskCompletedEvent } from '../../types.js'
 import type { PlanNode } from '../../../../../src/types/index.js'
 import type { TaskResult } from '../../../providers/types.js'
 
+// Mock the database module
+vi.mock('../../../db/index.js', () => ({
+  db: {
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue(undefined),
+      })),
+    })),
+  },
+}))
+
+vi.mock('../../../db/schema.js', () => ({
+  planNodes: { clientId: 'client_id' },
+}))
+
+vi.mock('drizzle-orm', () => ({
+  eq: vi.fn((col, val) => ({ col, val })),
+}))
+
 describe('PR Creation Hook', () => {
   let originalFetch: typeof global.fetch
   let originalGithubToken: string | undefined
@@ -35,12 +54,18 @@ describe('PR Creation Hook', () => {
   const createMockEvent = (overrides: Partial<TaskCompletedEvent> = {}): TaskCompletedEvent => {
     const node: PlanNode = {
       id: 'node-1',
+      projectId: 'proj-1',
       title: 'Test Task',
       description: 'Test description',
       status: 'auto_verified',
       type: 'task',
       position: { x: 0, y: 0 },
-      autoPR: true,
+      parentId: null,
+      dependencies: [],
+      verification: 'auto',
+      autoPr: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     }
 
     const result: TaskResult = {
@@ -96,9 +121,9 @@ describe('PR Creation Hook', () => {
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
-  it('should skip if node does not have autoPR enabled', async () => {
+  it('should skip if node does not have autoPr enabled', async () => {
     const event = createMockEvent()
-    event.node.autoPR = false
+    event.node.autoPr = false
 
     await prCreationHook(event)
 
@@ -134,7 +159,7 @@ describe('PR Creation Hook', () => {
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
-  it('should create PR via GitHub API', async () => {
+  it('should create PR via GitHub API and update node in-place', async () => {
     const mockResponse = {
       ok: true,
       json: async () => ({ html_url: 'https://github.com/owner/repo/pull/123', number: 123 }),
@@ -163,6 +188,10 @@ describe('PR Creation Hook', () => {
         }),
       }
     )
+
+    // Verify node was mutated in-place with PR data
+    expect(event.node.prUrl).toBe('https://github.com/owner/repo/pull/123')
+    expect(event.node.prNumber).toBe(123)
   })
 
   it('should use node title if prTitle not provided', async () => {
@@ -220,6 +249,10 @@ describe('PR Creation Hook', () => {
 
     // Should not throw
     await expect(prCreationHook(event)).resolves.not.toThrow()
+
+    // Node should NOT be updated on failure
+    expect(event.node.prUrl).toBeUndefined()
+    expect(event.node.prNumber).toBeUndefined()
   })
 
   it('should handle fetch errors gracefully', async () => {
@@ -257,6 +290,25 @@ describe('PR Creation Hook', () => {
 
     expect(global.fetch).toHaveBeenCalledWith(
       'https://api.github.com/repos/owner/repo/pulls',
+      expect.any(Object)
+    )
+  })
+
+  it('should parse GitHub URL format for repository', async () => {
+    const mockResponse = {
+      ok: true,
+      json: async () => ({ html_url: 'https://github.com/myorg/myrepo/pull/1', number: 1 }),
+    }
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse)
+
+    const event = createMockEvent({
+      project: { id: 'proj-1', name: 'Test Project', repository: 'https://github.com/myorg/myrepo.git' },
+    })
+
+    await prCreationHook(event)
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.github.com/repos/myorg/myrepo/pulls',
       expect.any(Object)
     )
   })

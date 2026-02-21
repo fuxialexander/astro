@@ -267,7 +267,7 @@ const result = userAccessControl.checkAccess('user-123', 'user@example.com', 'pr
 
 **Features**:
 - Triggers on `task.completed` events
-- Checks `node.autoPR` flag
+- Checks `node.autoPr` flag
 - Reads PR metadata from task result (`prBranch`, `prTitle`, `prBody`)
 - Creates PR via GitHub API using `GITHUB_TOKEN` env var
 - Logs PR URL on success
@@ -275,7 +275,7 @@ const result = userAccessControl.checkAccess('user-123', 'user@example.com', 'pr
 **Example Workflow**:
 ```typescript
 // Mark node for auto-PR creation
-node.autoPR = true
+node.autoPr = true
 
 // Task result includes PR metadata
 result.metadata = {

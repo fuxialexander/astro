@@ -759,11 +759,12 @@ function handleRealtimeEvent(
       const nodeId = data.nodeId as string
       const projectId = data.projectId as string
 
-      // Update plan node merge queue status
+      // Update plan node merge queue status and mark task completed
       const planStore = usePlanStore.getState()
       const node = planStore.nodes.find((n) => n.id === nodeId && n.projectId === projectId)
       if (node) {
         planStore.updateNode(nodeId, {
+          status: 'completed',
           mergeQueueStatus: 'merged',
         })
       }

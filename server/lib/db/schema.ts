@@ -74,6 +74,7 @@ export const planNodes = pgTable('plan_nodes', {
   prUrl: text('pr_url'),
   prNumber: integer('pr_number'),
   mergeQueueStatus: text('merge_queue_status'),
+  autoPr: boolean('auto_pr').default(false),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

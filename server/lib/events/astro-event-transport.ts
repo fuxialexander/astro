@@ -72,8 +72,10 @@ export class AstroEventTransport extends EventEmitter {
     // Emit to EventEmitter listeners first (synchronous)
     this.emit('event', event)
 
-    // Run all registered hooks in parallel
-    const hookPromises = Array.from(this.hooks.entries()).map(async ([name, hook]) => {
+    // Run hooks sequentially (insertion order) so earlier hooks can mutate
+    // event data for later hooks (e.g., pr-creation-hook sets prNumber
+    // on the node before merge-queue-hook reads it).
+    for (const [name, hook] of this.hooks.entries()) {
       try {
         await hook(event)
       } catch (error) {
@@ -84,9 +86,7 @@ export class AstroEventTransport extends EventEmitter {
         console.error(err)
         this.emit('error', err as Error)
       }
-    })
-
-    await Promise.allSettled(hookPromises)
+    }
   }
 
   /**

@@ -2,29 +2,20 @@
  * PR Creation Hook
  *
  * Automatically creates GitHub pull requests when tasks complete successfully.
- * Triggered by task.completed events with PR metadata.
+ * Triggered by task.completed events when the node has autoPr enabled.
+ *
+ * After creating a PR, this hook:
+ * 1. Mutates event.node in-place (prUrl, prNumber) so downstream hooks
+ *    (e.g., merge-queue-hook) can see the PR data when hooks run sequentially.
+ * 2. Updates the database to persist the PR metadata.
  */
 
-import type { EventHook } from '../types.js'
+import type { AstroEvent, EventHook } from '../types.js'
+import { db } from '../../db/index.js'
+import { planNodes } from '../../db/schema.js'
+import { eq } from 'drizzle-orm'
 
-/**
- * GitHub PR creation hook
- *
- * Creates a PR when:
- * - Task completes successfully
- * - Task result includes PR metadata (branch, title, body)
- * - GITHUB_TOKEN environment variable is set
- *
- * Example task result metadata:
- * {
- *   prBranch: 'feature/add-login',
- *   prTitle: 'Add user login functionality',
- *   prBody: 'Implements #123\n\n- Add login form\n- Add auth middleware',
- *   prBaseBranch: 'main',
- *   repository: 'owner/repo'
- * }
- */
-export const prCreationHook: EventHook = async (event) => {
+export const prCreationHook: EventHook = async (event: AstroEvent) => {
   if (event.type !== 'task.completed') return
 
   const { result, node, project } = event
@@ -33,7 +24,7 @@ export const prCreationHook: EventHook = async (event) => {
   if (result.status !== 'success') return
 
   // Check if node has auto-PR enabled
-  if (!node.autoPR) return
+  if (!node.autoPr) return
 
   // Get GitHub token
   const githubToken = process.env.GITHUB_TOKEN
@@ -49,8 +40,21 @@ export const prCreationHook: EventHook = async (event) => {
     return
   }
 
-  // Parse repository (format: owner/repo)
-  const [owner, repo] = repository.split('/')
+  // Parse repository (format: owner/repo or URL)
+  let owner: string
+  let repo: string
+  if (repository.includes('/') && !repository.includes('://')) {
+    ;[owner, repo] = repository.split('/')
+  } else {
+    const match = repository.match(/github\.com[/:]([^/]+)\/([^/.]+)/)
+    if (!match) {
+      console.warn('[pr-creation-hook] Could not parse repository URL:', repository)
+      return
+    }
+    owner = match[1]
+    repo = match[2]
+  }
+
   if (!owner || !repo) {
     console.warn('[pr-creation-hook] Invalid repository format, expected owner/repo')
     return
@@ -96,8 +100,24 @@ export const prCreationHook: EventHook = async (event) => {
 
     console.log(`[pr-creation-hook] Created PR #${pr.number}: ${pr.html_url}`)
 
-    // TODO: Update node with PR URL (requires nodeUpdateCallback integration)
-    // For now, just log success
+    // Mutate event.node in-place so downstream hooks (merge-queue-hook) see the PR data
+    node.prUrl = pr.html_url
+    node.prNumber = pr.number
+
+    // Persist PR metadata to the database
+    try {
+      await db.update(planNodes)
+        .set({
+          prUrl: pr.html_url,
+          prNumber: pr.number,
+          updatedAt: new Date(),
+        })
+        .where(eq(planNodes.clientId, node.id))
+    } catch (dbError) {
+      // Database update is best-effort — the in-place mutation already
+      // ensures the merge-queue-hook can proceed in this same event cycle.
+      console.error('[pr-creation-hook] Failed to persist PR data to database:', dbError)
+    }
   } catch (error) {
     console.error('[pr-creation-hook] Error creating PR:', error)
   }

@@ -140,6 +140,7 @@ export interface PlanNode {
   prUrl?: string;
   prNumber?: number;
   mergeQueueStatus?: 'queued' | 'testing' | 'merged' | 'failed';
+  autoPr?: boolean;
   // Soft-delete metadata
   deletedAt?: Date;
   deletionActionId?: string;

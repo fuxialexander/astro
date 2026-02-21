@@ -418,6 +418,7 @@ app.put('/plan/:projectId', async (c) => {
         prUrl: (n.prUrl as string) ?? null,
         prNumber: (n.prNumber as number) ?? null,
         mergeQueueStatus: (n.mergeQueueStatus as string) ?? null,
+        autoPr: (n.autoPr as boolean) ?? false,
         createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
         updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
@@ -478,6 +479,7 @@ app.post('/plan/nodes', async (c) => {
     prUrl: body.prUrl ?? null,
     prNumber: body.prNumber ?? null,
     mergeQueueStatus: body.mergeQueueStatus ?? null,
+    autoPr: body.autoPr ?? false,
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   })
@@ -528,6 +530,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.prUrl !== undefined) patch.prUrl = body.prUrl || null
   if (body.prNumber !== undefined) patch.prNumber = body.prNumber || null
   if (body.mergeQueueStatus !== undefined) patch.mergeQueueStatus = body.mergeQueueStatus || null
+  if (body.autoPr !== undefined) patch.autoPr = body.autoPr ?? false
   if (body.type !== undefined) patch.type = body.type
   if (body.deletedAt !== undefined) patch.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
   if (body.deletionActionId !== undefined) patch.deletionActionId = body.deletionActionId || null
