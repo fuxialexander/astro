@@ -17,11 +17,13 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Textarea } from "@/components/ui/textarea"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { MilestoneDialog } from "@/components/milestone-dialog"
 import { ActivityDialog } from "@/components/activity-dialog"
 import { ColorIconBadge } from "@/components/color-icon-picker"
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { PlanListView } from "@/pages/plan-view"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -86,8 +88,15 @@ export function OverviewTab({
   const [editingStartDate, setEditingStartDate] = useState(false)
   const [editingTargetDate, setEditingTargetDate] = useState(false)
   const [editingInitiative, setEditingInitiative] = useState(false)
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [descriptionDraft, setDescriptionDraft] = useState(project.description)
   const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
   const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
+
+  // Sync description draft when project changes
+  useEffect(() => {
+    setDescriptionDraft(project.description)
+  }, [project.description])
 
   // Check if repo setup is in progress for this project
   const generationSession = useAgentStore((s) => s.sessions.get(project.id))
@@ -185,6 +194,29 @@ export function OverviewTab({
     }
   }
 
+  // Handle description editing
+  const handleDescriptionEdit = () => {
+    setDescriptionDraft(project.description)
+    setEditingDescription(true)
+  }
+
+  const handleDescriptionSave = () => {
+    if (descriptionDraft.trim() !== project.description) {
+      updateProject(project.id, { description: descriptionDraft.trim() })
+      addActivity({
+        projectId: project.id,
+        type: "project.updated",
+        title: "Updated project description",
+      })
+    }
+    setEditingDescription(false)
+  }
+
+  const handleDescriptionCancel = () => {
+    setDescriptionDraft(project.description)
+    setEditingDescription(false)
+  }
+
   // Generate editor URL (Cursor/VSCode) with local/remote protocol
   // Use project's assigned machine, or fall back to the only available machine
   const defaultMachine = project.defaultMachineId
@@ -228,11 +260,57 @@ export function OverviewTab({
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">Description</h3>
-            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+            {!editingDescription && (
+              <Pencil
+                className="h-3.5 w-3.5 text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={handleDescriptionEdit}
+              />
+            )}
           </div>
-          <p className="text-sm leading-relaxed">
-            {project.description}
-          </p>
+          {editingDescription ? (
+            <div className="flex flex-col gap-2">
+              <Textarea
+                value={descriptionDraft}
+                onChange={(e) => setDescriptionDraft(e.target.value)}
+                placeholder="Enter project description (Markdown supported)..."
+                className="min-h-[200px] font-mono text-sm"
+                autoFocus
+                onKeyDown={(e) => {
+                  // Save on Cmd/Ctrl+Enter
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    handleDescriptionSave()
+                  }
+                  // Cancel on Escape
+                  if (e.key === 'Escape') {
+                    handleDescriptionCancel()
+                  }
+                }}
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  Markdown supported • Cmd/Ctrl+Enter to save • Esc to cancel
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDescriptionCancel}
+                    className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDescriptionSave}
+                    className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+              <MarkdownRenderer content={project.description} />
+            </div>
+          )}
         </div>
 
         {/* Milestones Section */}
