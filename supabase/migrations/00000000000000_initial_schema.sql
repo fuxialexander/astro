@@ -56,9 +56,11 @@ create table user_profiles (
   bio text default '',
   domains text[] not null default '{}',
   experience_level text not null default 'intermediate',
-  preferred_environments text[] not null default '{local}',
+  preferred_machines text[] not null default '{}',
   notifications_enabled boolean not null default true,
   email_notifications boolean not null default false,
+  default_machine_id text,
+  default_provider text,
   api_keys jsonb not null default '[]',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

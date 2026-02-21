@@ -137,6 +137,8 @@ export const userProfiles = pgTable('user_profiles', {
   preferredMachines: text('preferred_machines').array().notNull().default([]),
   notificationsEnabled: boolean('notifications_enabled').notNull().default(true),
   emailNotifications: boolean('email_notifications').notNull().default(false),
+  defaultMachineId: text('default_machine_id'),
+  defaultProvider: text('default_provider'),
   apiKeys: jsonb('api_keys').$type<Array<{ id: string; provider: string; name: string; maskedKey: string }>>().notNull().default([]),
   sidebarConfig: jsonb('sidebar_config').$type<Array<{
     id: string; to: string; icon: string; label: string; visible: boolean; protected: boolean

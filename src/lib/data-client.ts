@@ -136,6 +136,8 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
     preferredMachines: (r.preferredMachines ?? []) as UserProfile["preferredMachines"],
     notificationsEnabled: (r.notificationsEnabled ?? true) as boolean,
     emailNotifications: (r.emailNotifications ?? false) as boolean,
+    defaultMachineId: r.defaultMachineId as string | undefined,
+    defaultProvider: r.defaultProvider as string | undefined,
     apiKeys: ((r.apiKeys as Record<string, unknown>[]) ?? []).map(mapApiKey),
     sidebarConfig: r.sidebarConfig as UserProfile["sidebarConfig"],
     createdAt: toDate(r.createdAt),
