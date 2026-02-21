@@ -6,7 +6,7 @@ Comprehensive testing documentation for the Astro platform.
 
 Astro uses two testing systems:
 
-1. **Vitest** (primary) — 24 test files, 402 tests, all passing. Run with `npm test`.
+1. **Vitest** (primary) — 29 test files, all passing. Run with `npm test`.
 2. **Shell scripts** (supplementary) — curl-based API tests and E2E scripts requiring a running server. Run with `./scripts/test-runner.sh`.
 
 ## Vitest Test Structure
@@ -14,7 +14,7 @@ Astro uses two testing systems:
 Config: `vitest.config.ts` — discovers `**/__tests__/**/*.test.ts` and `tests/**/*.test.ts`.
 
 ```
-tests/                                          # Root-level vitest tests (11 files)
+tests/                                          # Root-level vitest tests (16 files)
 ├── relay-protocol-fields.test.ts               # Relay protocol extension (25 tests)
 ├── sse-parser.test.ts                          # SSE stream parsing
 ├── chat-api-route.test.ts                      # Chat API route
@@ -26,6 +26,11 @@ tests/                                          # Root-level vitest tests (11 fi
 ├── execution-strategy.test.ts                  # Execution strategies + registry (29 tests)
 ├── local-server-mode.test.ts                   # App mode detection
 ├── smoke-trace-viewer.test.ts                  # Trace viewer smoke tests
+├── dispatch-engine.test.ts                     # Dispatch queue, context assembler, result router, branch manager
+├── codex-provider.test.ts                      # Codex provider adapter (capabilities, context, detection)
+├── claude-code-provider.test.ts                # Claude Code provider (dotenv, cache utils, session logger, config)
+├── claude-code-sdk-integration.test.ts         # SDK integration (skipped without API key)
+├── relay-server-integration.test.ts            # Relay server integration (skipped without running server)
 └── test-local-execution.ts                     # Manual integration (NOT vitest — run with npx tsx)
 
 server/lib/*/__tests__/                         # Co-located server tests (10 files)
@@ -65,7 +70,7 @@ npx vitest run tests/execution-strategy.test.ts
 npx vitest run --reporter=verbose chat
 ```
 
-No server or prerequisites needed — vitest tests are self-contained with mocks.
+No server or prerequisites needed — vitest tests are self-contained with mocks. Integration tests that require external services (API keys, running server) use `describe.skipIf()` guards and auto-skip gracefully.
 
 ## Shell Script Tests
 
@@ -74,6 +79,17 @@ These require a running backend and test via HTTP/curl. They are supplementary t
 ```
 scripts/
 ├── test-runner.sh              # Orchestrator (parallel/sequential)
+├── test-approval-automated.ts  # Approval system automated tests (npm run test:approval)
+├── test-approval-integration.ts # Approval integration tests (npm run test:approval:integration, test:approval:interactive)
+├── test-approval-quick.sh      # Quick approval unit tests (npm run test:approval:quick)
+├── test-approval-e2e.sh        # Comprehensive E2E approval tests
+├── test-e2e-with-approval.sh   # Full E2E superset
+├── test-github-oauth.ts        # GitHub OAuth testing
+├── test-injection-fixes.js     # Security injection validation
+├── test-preserve-worktrees.sh  # Worktree preservation tests
+├── test-security-fixes.sh      # Security posture validation
+├── test-token-validation.sh    # Token validation tests
+├── test-trace-viewer.sh        # Observability pipeline tests
 └── tests/
     ├── test-api-health.sh           # API health check
     ├── test-database-mode.sh        # Database mode detection
@@ -82,7 +98,6 @@ scripts/
     ├── test-auth-flow.sh            # Authentication flow
     ├── test-relay-connectivity.sh   # Relay server availability
     ├── test-device-auth-flow.sh     # Device authorization flow
-    ├── test-task-execution.sh       # Task dispatch and execution
     └── test-realtime-events.sh      # SSE event streaming
 ```
 
@@ -107,18 +122,6 @@ USE_INDEXEDDB_ONLY=true npm run dev:backend
 | `RELAY_WS_URL` | Relay WebSocket URL | `ws://localhost:3002` |
 | `AUTH_TOKEN` | Authentication token (Supabase mode) | - |
 
-## Server Integration Tests (Manual)
-
-Five integration test files in `server/test/` are NOT discovered by vitest. They require a running server and are run manually:
-
-```bash
-npx tsx server/test/relay-server.test.ts
-npx tsx server/test/dispatch-engine.test.ts
-npx tsx server/test/claude-code-provider.test.ts
-npx tsx server/test/claude-code-sdk-integration.test.ts
-npx tsx server/test/codex-provider.test.ts
-```
-
 ## Approval System Testing
 
 See `docs/testing/approval-testing-guide.md` for the complete guide. Quick reference:
@@ -131,27 +134,31 @@ npm run test:approval:quick        # Quick unit tests
 
 ## Test Coverage by Area
 
-| Area | Vitest | Shell | Manual |
-|------|--------|-------|--------|
-| Relay protocol | 25 tests | connectivity check | relay-server integration |
-| Chat (API, session, resume, mutations) | 5 files | - | - |
-| Session management | 1 file | - | - |
-| Execution strategies (Direct, Slurm, Docker, K8s, SkyPilot) | 29 tests | - | - |
-| Claude Code adapter (tool streaming) | 7 tests | - | provider + SDK integration |
-| Event transport + hooks | 5 files | - | - |
-| Access control | 1 file | - | - |
-| Procedure executor | 1 file | - | - |
-| Observation collector | 1 file | - | - |
-| MCP loader | 1 file | - | - |
-| Frontend (path-utils, stores) | 3 files | - | - |
-| App mode detection | 1 file | database-mode check | - |
-| API health | - | health check | - |
-| Project/Task CRUD | - | CRUD scripts | - |
-| Auth flow | - | auth check | - |
-| Device auth | - | device-auth flow | - |
-| Task execution | - | execution script | - |
-| SSE events | SSE parser | realtime-events | - |
-| Approval system | - | 10 scripts | - |
+| Area | Vitest | Shell |
+|------|--------|-------|
+| Relay protocol | 25 tests | connectivity check |
+| Relay server integration | integration test (skipIf) | - |
+| Chat (API, session, resume, mutations) | 5 files | - |
+| Session management | 1 file | - |
+| Execution strategies (Direct, Slurm, Docker, K8s, SkyPilot) | 29 tests | - |
+| Dispatch engine (queue, context, routing, branches) | 1 file | - |
+| Claude Code adapter (tool streaming) | 7 tests | - |
+| Claude Code provider (dotenv, cache, logger, config) | 1 file | - |
+| Claude Code SDK integration | 1 file (skipIf) | - |
+| Codex provider | 1 file | - |
+| Event transport + hooks | 5 files | - |
+| Access control | 1 file | - |
+| Procedure executor | 1 file | - |
+| Observation collector | 1 file | - |
+| MCP loader | 1 file | - |
+| Frontend (path-utils, stores) | 3 files | - |
+| App mode detection | 1 file | database-mode check |
+| API health | - | health check |
+| Project/Task CRUD | - | CRUD scripts |
+| Auth flow | - | auth check |
+| Device auth | - | device-auth flow |
+| SSE events | SSE parser | realtime-events |
+| Approval system | - | 4 scripts |
 
 ## Writing New Tests
 
@@ -178,12 +185,7 @@ describe('MyFeature', () => {
 3. **Deterministic**: Same input, same result
 4. **Co-located**: Put tests near the code they test (`__tests__/` directory)
 5. **Descriptive**: Test names should read as behavior specifications
-
-## Known Issues
-
-- `server/test/` (5 files) is outside vitest's include pattern — should be migrated to `tests/integration/`
-- Shell scripts in `scripts/test-*` overlap with vitest coverage — should be consolidated
-- 10 approval test scripts (`scripts/test-approval-*`) are redundant — should be consolidated into 2-3
+6. **Guard external deps**: Use `describe.skipIf()` for tests needing API keys or running servers
 
 ## CI/CD Integration
 
@@ -204,13 +206,13 @@ jobs:
 
 ## Future Enhancements
 
-- [ ] Consolidate all tests under `tests/` directory
-- [ ] Migrate `server/test/` to vitest-discoverable location
 - [ ] CI/CD pipeline (GitHub Actions)
 - [ ] E2E smoke test (vitest-based)
 - [ ] Load/stress testing
 - [ ] Visual regression testing (frontend)
 - [ ] API contract testing
+- [x] Consolidate server/test/ into tests/ directory (vitest)
+- [x] Clean up redundant scripts/test-* files
 - [x] Approval system CLI tests
 - [x] Execution strategy unit tests
 - [x] Event transport tests

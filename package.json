@@ -34,7 +34,7 @@
     "test:ui": "vitest --ui",
     "test:approval": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-approval-automated.ts",
     "test:approval:integration": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-approval-integration.ts",
-    "test:approval:interactive": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-approval-system.ts",
+    "test:approval:interactive": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/test-approval-integration.ts",
     "test:approval:quick": "bash scripts/test-approval-quick.sh",
     "demo:approval": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/demo-approval-flow.ts",
     "db:reset": "bash scripts/reset-database.sh --all",
