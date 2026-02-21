@@ -171,14 +171,16 @@ class ChannelConfigManager {
         const botToken = process.env.TELEGRAM_BOT_TOKEN
         const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET
         const mappingsJson = process.env.TELEGRAM_CHAT_MAPPINGS
-        if (!botToken || !webhookSecret) return null
+        if (!botToken) return null
         let chatMappings: Record<string, string> = {}
         try { if (mappingsJson) chatMappings = JSON.parse(mappingsJson) } catch { /* ignore */ }
+        const credentials: Record<string, unknown> = { botToken }
+        if (webhookSecret) credentials.webhookSecret = webhookSecret
         return {
           userId: 'env',
           accountId: 'env-telegram',
           channel: 'telegram',
-          credentials: { botToken, webhookSecret },
+          credentials,
           mappings: chatMappings,
           settings: {},
         }

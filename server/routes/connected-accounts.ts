@@ -37,7 +37,7 @@ const VALID_CHANNELS: ChannelType[] = ['slack', 'telegram', 'github_webhook', 'l
 
 const REQUIRED_FIELDS: Record<ChannelType, string[]> = {
   slack: ['botToken', 'signingSecret'],
-  telegram: ['botToken', 'webhookSecret'],
+  telegram: ['botToken'],
   github_webhook: ['authToken', 'webhookSecret'],
   linear: ['apiToken', 'webhookSecret'],
 }

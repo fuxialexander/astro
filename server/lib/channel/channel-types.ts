@@ -106,7 +106,7 @@ export interface SlackChannelConfig {
 
 export interface TelegramChannelConfig {
   botToken: string
-  webhookSecret: string
+  webhookSecret?: string
   /** Map of Telegram chat ID → Astro project ID */
   chatMappings: Record<string, string>
 }
