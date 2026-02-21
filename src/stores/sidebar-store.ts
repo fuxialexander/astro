@@ -32,6 +32,7 @@ const defaultItems: SidebarItem[] = [
   { id: "tasks", to: "/", icon: "CheckSquare", label: "Tasks", visible: true, protected: true },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Terminal", label: "Environments", visible: true, protected: true },
+  { id: "workflows", to: "/workflows", icon: "BookOpen", label: "Workflows", visible: true, protected: false },
   { id: "dashboard", to: "/dashboard", icon: "Radio", label: "Dashboard", visible: false, protected: false },
   { id: "initiatives", to: "/initiatives", icon: "Target", label: "Initiatives", visible: false, protected: false },
   { id: "agents", to: "/agents", icon: "Cpu", label: "Agents", visible: false, protected: false },
