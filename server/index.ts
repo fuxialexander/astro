@@ -75,11 +75,14 @@ app.use('/*', secureHeaders({
 }))
 
 // Explicit allowed origins list
+// CORS_ORIGIN and FRONTEND_URL can be set to add production origins
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'https://astro.fuxialexander.work',
-  process.env.CORS_ORIGIN || 'https://astro.pages.dev',
-].filter(Boolean)
+  'https://astro.pages.dev',
+  process.env.CORS_ORIGIN,
+  process.env.FRONTEND_URL,
+].filter(Boolean) as string[]
 
 app.use('/*', cors({
   origin: (origin) => {

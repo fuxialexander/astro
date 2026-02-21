@@ -1,0 +1,52 @@
+# Dependencies (installed fresh in builder)
+node_modules/
+
+# Build outputs (built fresh in builder)
+dist/
+build/
+
+# Environment files (secrets set via Fly.io secrets)
+.env
+.env.*
+!.env.example
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Logs
+logs/
+*.log
+
+# Temp
+tmp/
+temp/
+
+# Dev tools
+.husky/
+.wrangler/
+
+# CI/CD
+.github/
+
+# Project-specific dev files
+.plan.md
+UI.pen
+.nexus-worktrees/
+NexusApp/

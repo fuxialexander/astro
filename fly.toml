@@ -1,11 +1,15 @@
 # Fly.io configuration for Astro backend + relay server
 # Deploy with: fly deploy
+#
+# Single app exposes two services:
+#   - HTTPS on 443 → Hono API (port 3001)
+#   - TLS on 3002  → WebSocket relay (port 3002)
 
-app = "astro-backend"
+app = "astro-backend-platform"
 primary_region = "sjc"
 
 [build]
-  builder = "heroku/builder:22"
+  dockerfile = "docker/Dockerfile"
 
 [env]
   NODE_ENV = "production"
@@ -15,7 +19,7 @@ primary_region = "sjc"
 [[services]]
   internal_port = 3001
   protocol = "tcp"
-  auto_stop_machines = true
+  auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
 
@@ -60,4 +64,4 @@ primary_region = "sjc"
 [vm]
   cpu_kind = "shared"
   cpus = 1
-  memory_mb = 512
+  memory_mb = 1024
