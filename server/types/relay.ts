@@ -111,6 +111,27 @@ export interface MachineRegistryEntry extends MachineInfo {
 // Task Types
 // ============================================================================
 
+/**
+ * Dispatch task type — tells the agent runner what kind of work this is.
+ *
+ * - 'execution': Standard task execution (code changes, tests, etc.). Default.
+ * - 'plan': Plan generation — produces structured JSON output (task graph).
+ * - 'chat': Conversational exchange — multi-turn chat about a plan or project.
+ * - 'summarize': Single-turn summarization of task output.
+ */
+export type TaskDispatchType = 'execution' | 'plan' | 'chat' | 'summarize';
+
+/**
+ * A single message in a conversation history.
+ *
+ * Used by chat/task-chat endpoints to send multi-turn conversation context
+ * through the relay to the agent runner, preserving role structure.
+ */
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 /** Task dispatch request */
 export interface TaskDispatch {
   taskId: string;
@@ -134,6 +155,53 @@ export interface TaskDispatch {
   maxTurns?: number;
   /** Force structured JSON output matching a schema */
   outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> };
+
+  // ── New fields (relay protocol extension) ──────────────────────────────
+
+  /**
+   * Task type — tells the agent runner what kind of work this is.
+   * Defaults to 'execution' if omitted (backward-compatible).
+   */
+  type?: TaskDispatchType;
+
+  /**
+   * System prompt — injected as the system-level instruction for the AI session.
+   *
+   * For 'plan' tasks: planning instructions + JSON schema constraints.
+   * For 'chat' tasks: conversational context instructions.
+   * For 'execution' tasks: usually omitted (agent runner uses its defaults).
+   * For 'summarize' tasks: summarization instructions.
+   *
+   * When provided, the agent runner passes this to the Claude SDK's
+   * `options.systemPrompt` parameter, keeping it separate from user content.
+   */
+  systemPrompt?: string;
+
+  /**
+   * Conversation history — multi-turn message array for chat tasks.
+   *
+   * For 'chat' and 'task-chat' endpoints, this carries the full conversation
+   * history (user/assistant turns) so the agent runner can resume the
+   * conversation with proper role structure.
+   *
+   * When provided, the agent runner uses this to build the prompt as an
+   * AsyncIterable<SDKUserMessage> instead of a flat string, preserving
+   * the multi-turn structure that the Claude SDK expects.
+   *
+   * When omitted, `prompt` is used as a single-turn string (backward-compatible).
+   */
+  messages?: ConversationMessage[];
+
+  /**
+   * Explicit model selection — e.g. 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'.
+   *
+   * The frontend allows users to select models. This field passes that choice
+   * through the relay to the agent runner, which passes it to the SDK's
+   * `options.model` parameter.
+   *
+   * When omitted, the agent runner uses its configured default model.
+   */
+  model?: string;
 }
 
 /** Task result from agent runner */

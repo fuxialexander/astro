@@ -87,6 +87,21 @@ export type TaskStatus =
   | 'cancelled'
   | 'timeout';
 
+/**
+ * Dispatch task type — tells the agent runner what kind of work this is.
+ * Matches TaskDispatchType in server/types/relay.ts.
+ */
+export type TaskDispatchType = 'execution' | 'plan' | 'chat' | 'summarize';
+
+/**
+ * A single message in a conversation history.
+ * Matches ConversationMessage in server/types/relay.ts.
+ */
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -100,6 +115,18 @@ export interface Task {
   outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> }; // Force structured JSON output
   executionStrategy?: ExecutionStrategyType;
   createdAt: string;
+
+  /** Task type: 'execution' | 'plan' | 'chat' | 'summarize'. Defaults to 'execution'. */
+  type?: TaskDispatchType;
+
+  /** System prompt — passed to Claude SDK's options.systemPrompt */
+  systemPrompt?: string;
+
+  /** Conversation history for multi-turn chat tasks */
+  messages?: ConversationMessage[];
+
+  /** Explicit model selection — e.g. 'claude-sonnet-4-20250514' */
+  model?: string;
 }
 
 export interface TaskResult {
