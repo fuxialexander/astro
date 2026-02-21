@@ -1064,10 +1064,14 @@ function handleSSEEvent(
           }
           return { executions: newExecutions }
         })
+        const now = new Date()
+        const node = planStore.nodes.find((n) => n.id === nodeId)
         planStore.updateNode(nodeId, {
           status: "in_progress",
           executionId: parsed.executionId,
-          executionStartedAt: new Date(),
+          executionStartedAt: now,
+          // Set actualStartDate only on first execution attempt (if not already set)
+          ...(node && !node.actualStartDate ? { actualStartDate: now } : {}),
         })
       } catch {
         // Ignore parse errors
@@ -1294,10 +1298,13 @@ function handleSSEEvent(
           }
         }
 
+        const completionTime = new Date()
         planStore.updateNode(nodeId, {
           status: finalStatus,
           executionOutput: execution?.streamText || parsed.output,
-          executionCompletedAt: new Date(),
+          executionCompletedAt: completionTime,
+          // Set actualEndDate to capture final execution completion timestamp
+          actualEndDate: completionTime,
           // Persist PR/branch metadata on the plan node
           ...(parsed.branchName && { branchName: parsed.branchName }),
           ...(parsed.prUrl && { prUrl: parsed.prUrl }),
@@ -1344,20 +1351,23 @@ function handleSSEEvent(
       try {
         const parsed = JSON.parse(data)
         const errorMessage = typeof parsed === 'string' ? parsed : parsed.error || 'Unknown error'
+        const errorTime = new Date()
         set((state) => {
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
             exec.status = "failure"
             exec.error = errorMessage
-            exec.completedAt = new Date()
-            exec.activityEvents = [...exec.activityEvents, { type: 'error' as const, error: errorMessage, timestamp: new Date() }]
+            exec.completedAt = errorTime
+            exec.activityEvents = [...exec.activityEvents, { type: 'error' as const, error: errorMessage, timestamp: errorTime }]
           }
           return { executions: newExecutions }
         })
         planStore.updateNode(nodeId, {
           status: "awaiting_judgment",
           executionError: errorMessage,
+          // Set actualEndDate even on error to track when task stopped
+          actualEndDate: errorTime,
         })
 
         // Persist failed execution to IndexedDB and Supabase

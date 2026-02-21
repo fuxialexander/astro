@@ -70,6 +70,8 @@ export const planNodes = pgTable('plan_nodes', {
   executionError: text('execution_error'),
   executionStartedAt: timestamp('execution_started_at'),
   executionCompletedAt: timestamp('execution_completed_at'),
+  actualStartDate: timestamp('actual_start_date'),
+  actualEndDate: timestamp('actual_end_date'),
   branchName: text('branch_name'),
   prUrl: text('pr_url'),
   prNumber: integer('pr_number'),
