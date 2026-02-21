@@ -70,7 +70,9 @@ export function calculateChildPosition(
 
 /**
  * Auto-layout a set of nodes and edges as a top-to-bottom hierarchy.
- * Uses topological sort to assign ranks, then centers children under parents.
+ * Uses topological sort to assign ranks, then arranges nodes to prefer
+ * vertical distribution for dependent nodes (showing clear sequential flow)
+ * while keeping independent nodes horizontal.
  * Returns a map of nodeId → new position.
  */
 export function layoutGraph(
@@ -137,10 +139,52 @@ export function layoutGraph(
     ranks.get(r)!.push(n)
   }
 
-  // Assign positions: each rank is a row, nodes centered horizontally
-  const positions = new Map<string, { x: number; y: number }>()
+  // Identify dependency chains: nodes that have exactly one child and that child has exactly one parent
+  // These form linear chains that should be in the same column
+  const chainColumn = new Map<string, number>() // nodeId → column index
+  let nextColumn = 0
+
+  // Assign columns to nodes
+  const assignedToColumn = new Set<string>()
+
+  // Process ranks top-down to assign columns
   const maxRank = Math.max(...ranks.keys())
+
+  for (let r = 0; r <= maxRank; r++) {
+    const row = ranks.get(r) ?? []
+
+    for (const node of row) {
+      if (assignedToColumn.has(node.id)) continue
+
+      const nodeChildren = children.get(node.id) ?? []
+      const nodeInDegree = inDegree.get(node.id) ?? 0
+
+      // If this node has a parent that assigned it a column, use that
+      let assignedColumn: number | undefined
+      for (const [nodeId, col] of chainColumn) {
+        const nodeChildrenList = children.get(nodeId) ?? []
+        if (nodeChildrenList.includes(node.id)) {
+          // Check if this is a linear chain (parent has only one child, this node has only one parent)
+          if (nodeChildrenList.length === 1 && nodeInDegree === 1) {
+            assignedColumn = col
+            break
+          }
+        }
+      }
+
+      if (assignedColumn === undefined) {
+        assignedColumn = nextColumn++
+      }
+
+      chainColumn.set(node.id, assignedColumn)
+      assignedToColumn.add(node.id)
+    }
+  }
+
+  // Assign positions based on rank and column
+  const positions = new Map<string, { x: number; y: number }>()
   const margin = 40
+  const columnWidth = NODE_WIDTH + HORIZONTAL_GAP
 
   for (let r = 0; r <= maxRank; r++) {
     const row = ranks.get(r)
@@ -148,26 +192,18 @@ export function layoutGraph(
 
     const y = margin + r * (NODE_HEIGHT + VERTICAL_GAP)
 
-    // Sort nodes within a rank by their parent's x position for stable ordering
+    // Sort nodes by column for consistent left-to-right ordering
     row.sort((a, b) => {
-      const parentA = getParentX(a.id, validEdges, positions)
-      const parentB = getParentX(b.id, validEdges, positions)
-      return parentA - parentB
+      const colA = chainColumn.get(a.id) ?? 0
+      const colB = chainColumn.get(b.id) ?? 0
+      return colA - colB
     })
 
-    // Calculate total width of this row
-    const totalWidth = row.reduce((sum, n) => {
-      const w = n.type === "milestone" ? MILESTONE_WIDTH : NODE_WIDTH
-      return sum + w
-    }, 0) + (row.length - 1) * HORIZONTAL_GAP
-
-    // Center the row
-    let x = margin + Math.max(0, (getMaxRowWidth(ranks) - totalWidth) / 2)
-
     for (const n of row) {
+      const col = chainColumn.get(n.id) ?? 0
       const w = n.type === "milestone" ? MILESTONE_WIDTH : NODE_WIDTH
+      const x = margin + col * columnWidth
       positions.set(n.id, { x, y })
-      x += w + HORIZONTAL_GAP
     }
   }
 
@@ -237,19 +273,4 @@ function getParentX(
   if (parentEdges.length === 0) return 0
   const sum = parentEdges.reduce((s, e) => s + (positions.get(e.source)?.x ?? 0), 0)
   return sum / parentEdges.length
-}
-
-/** Get the widest row's total width (for centering). */
-function getMaxRowWidth(
-  ranks: Map<number, PlanNode[]>,
-): number {
-  let maxWidth = 0
-  for (const row of ranks.values()) {
-    const totalWidth = row.reduce((sum, n) => {
-      const w = n.type === "milestone" ? MILESTONE_WIDTH : NODE_WIDTH
-      return sum + w
-    }, 0) + (row.length - 1) * HORIZONTAL_GAP
-    maxWidth = Math.max(maxWidth, totalWidth)
-  }
-  return maxWidth
 }
