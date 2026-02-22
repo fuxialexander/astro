@@ -161,13 +161,6 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   console.log(chalk.dim(`Log level: ${logLevel}`));
   console.log();
 
-  // Set Claude OAuth token if configured (from `claude setup-token`)
-  const claudeOauthToken = config.getClaudeOauthToken();
-  if (claudeOauthToken && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    process.env.CLAUDE_CODE_OAUTH_TOKEN = claudeOauthToken;
-    console.log(chalk.dim('Using stored Claude OAuth token'));
-  }
-  console.log();
 
   // Detect resources
   const resourceSpinner = ora('Detecting machine resources...').start();
