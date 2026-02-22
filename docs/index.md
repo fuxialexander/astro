@@ -22,6 +22,7 @@ The design docs in `docs/design/` are the authoritative reference for the system
 | [DATA_MODEL](./design/DATA_MODEL.md) | All types: Project, PlanNode, PlanEdge, etc. |
 | [USER_WORKFLOWS](./design/USER_WORKFLOWS.md) | End-to-end data flows for all user journeys |
 | [IMPLEMENTATION_PIPELINE](./design/IMPLEMENTATION_PIPELINE.md) | Implementation priorities and pipeline |
+| [COLLABORATION](./design/COLLABORATION.md) | Teams, public projects, content model, community review |
 | [CURRENT_CONFLICT_VIEW](./design/CURRENT_CONFLICT_VIEW.md) | Known conflicts between design and code |
 
 ## Technical Documentation
