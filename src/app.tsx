@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { BrowserRouter, Routes, Route } from "react-router"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -66,6 +66,28 @@ function ResponsiveLayout() {
   )
 }
 
+/**
+ * Reset all data stores' loaded flags so DataLoader re-fetches everything.
+ * Called when the authenticated user changes (sign-out → sign-in as different user).
+ */
+function resetAllStores() {
+  useProjectStore.setState({ loaded: false })
+  usePlanStore.setState({ loaded: false })
+  useSettingsStore.setState({ loaded: false })
+  useUserProfileStore.setState({ loaded: false })
+  useDisplaySettingsStore.setState({ loaded: false })
+  useTaskChatStore.setState({ loaded: false })
+  useUsageStore.setState({ loaded: false })
+  useSessionStore.setState({ loaded: false })
+  useInitiativeStore.setState({ loaded: false })
+  useExecutionStore.setState({ loaded: false })
+  useAgentStore.setState({ loaded: false })
+  useActivityStore.setState({ loaded: false })
+  useSidebarStore.setState({ loaded: false })
+  usePluginStore.setState({ loaded: false })
+  useSkillStore.setState({ loaded: false })
+}
+
 function DataLoader({ children }: { children: React.ReactNode }) {
   const session = useAuthStore((s) => s.session)
   const authInitialized = useAuthStore((s) => s.initialized)
@@ -104,9 +126,19 @@ function DataLoader({ children }: { children: React.ReactNode }) {
 
   // Only load data if authenticated or in local mode
   const shouldLoadData = isLocalMode() || !!(authInitialized && session)
+  const userId = session?.user?.id ?? null
+
+  // Track the last user ID to detect user changes (sign-out → sign-in as different user)
+  const lastUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!shouldLoadData) return
+
+    // If the user changed, reset all stores so we fetch fresh data
+    if (lastUserIdRef.current !== null && lastUserIdRef.current !== userId) {
+      resetAllStores()
+    }
+    lastUserIdRef.current = userId
 
     // Only load if not already loaded (prevents duplicate API calls on re-renders)
     if (!projectsLoaded) loadProjects()
@@ -133,8 +165,8 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     })
 
     return () => disconnectRealtime()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run once when shouldLoadData becomes true
-  }, [shouldLoadData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Re-run when auth state or user changes
+  }, [shouldLoadData, userId])
 
   // After projects load, background-refresh file trees for @ autocomplete
   useEffect(() => {

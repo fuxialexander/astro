@@ -1,12 +1,12 @@
 # Local/Server Mode Refactoring Plan
 
-This document is a step-by-step implementation guide for the architecture described in `SERVER_ARCHITECTURE_V2.md`. It is written so that an AI coding agent can read it and execute each phase independently.
+This document is a step-by-step implementation guide for the architecture described in [`ARCHITECTURE.md`](./ARCHITECTURE.md) (previously `SERVER_ARCHITECTURE_V2.md`, now consolidated). It is written so that an AI coding agent can read it and execute each phase independently.
 
 ---
 
 ## Implementation Status
 
-> **Last updated: 2026-02-21**
+> **Last updated: 2026-02-22**
 
 ### Summary
 
@@ -14,8 +14,9 @@ This document is a step-by-step implementation guide for the architecture descri
 |-------|--------|-------|
 | **Phase 1: Unified Database Layer** | **DONE** | PGlite + Drizzle dual-driver, migrations, local bootstrap, team-scoped auth middleware |
 | **Phase 2: Frontend Cleanup** | **DONE** | All IndexedDB removed, stores use fetch-only, `idb-keyval` deleted, `X-Team-Id` header added |
-| **Phase 3: Stateless Backend** | Pending | In-memory Maps (session-manager, machine-registry, event-buffer, stdout-throttle) not yet moved to Postgres |
-| **Phase 4: Backend Mode Simplification** | Partially done | Conditional route loading in server/index.ts is done; some mode detection cleanup remains |
+| **Phase 2b: Frontend Hardening** | **DONE** | User-switch store reset, ephemeral auto-fetch for file trees + skills |
+| **Phase 3: Stateless Backend** | **NOT STARTED** | In-memory Maps (session-manager, machine-registry, event-buffer, stdout-throttle, dispatch-queue, device-code-store, challenge-store) not yet moved to Postgres. Backend cannot run multiple instances safely. |
+| **Phase 4: Backend Mode Simplification** | Partially done | Conditional route loading in server/index.ts is done; some `isServerMode()`/`isLocalMode()` references remain in backend code |
 | **Phase 5: Verification** | Partially done | Build passes, unit tests created; manual testing checklist not fully exercised |
 
 ### Completed work (detail)
@@ -34,6 +35,12 @@ This document is a step-by-step implementation guide for the architecture descri
 - Step 2.4: Added `X-Team-Id` header to frontend API clients
 - Step 2.5: Removed dead Supabase data-path references
 
+**Phase 2b — Frontend Hardening (post-deploy fixes):**
+- User-switch bug: `DataLoader` now tracks `session.user.id` via ref and calls `resetAllStores()` when the user changes — prevents stale data from previous user's session leaking to a new sign-in
+- File tree autocomplete: `useFileTreeRefresh` hook auto-fetches file trees from API on page load (5-min staleness TTL, machine-mismatch detection); `refreshAllFileTrees()` runs in background after DataLoader completes
+- Skill store: `load()` wired to `GET /api/skills` (was a no-op stub)
+- All ephemeral data (file trees, skills) stored in Zustand memory only, auto-fetched on load — no persistence needed
+
 **Additional completed work:**
 - `teamId` added to initiatives schema
 - Data routes updated with `teamScopeFilter` (team-scoped queries)
@@ -41,11 +48,27 @@ This document is a step-by-step implementation guide for the architecture descri
 - `registered-machines-store.ts` rewritten to Drizzle-only
 - `server/index.ts` — conditional route loading for server-only routes
 - Unit tests created (`db-pglite`, `bootstrap-local`, `auth-middleware`, `data-routes`)
+- Architecture docs consolidated into single `docs/design/ARCHITECTURE.md`
+- Deployment docs updated with branch deploy workflow (CORS + WebAuthn origin)
 
 ### Remaining work
 
-- **Phase 3 (Stateless Backend):** In-memory Maps not yet moved to Postgres — `session-manager.ts`, `machine-registry.ts`, `event-buffer.ts`, `stdout-throttle.ts`, `dispatch-queue.ts`, `device-code-store.ts`
-- **Phase 4 (Backend Mode Simplification):** Conditional route loading is done, but some `isServerMode()`/`isLocalMode()` references remain in backend code
+- **Phase 3 (Stateless Backend):** 12+ in-memory Maps not yet moved to Postgres. This blocks horizontal scaling (multiple backend instances). See Phase 3 section below for the full list and migration patterns.
+  - `challengeStore` — `server/routes/auth.ts` (WebAuthn challenges, 5min TTL)
+  - `deviceCodeStore` + `deviceCodeIndex` — `server/lib/device-code-store.ts` (device auth codes)
+  - `pool` — `server/lib/chat-session-pool.ts` (chat SDK sessions, 30min TTL)
+  - `activeSessions` — `server/lib/session-manager.ts` (agent sessions + abort controllers)
+  - `entries` + `nodeToEntry` + `activePerProject` — `server/lib/dispatch/dispatch-queue.ts` (task queue)
+  - `activeExecutions` — `server/lib/dispatch/dispatch-engine.ts` (running executions)
+  - `machines` + `sessionToMachine` — `server/lib/machine-registry.ts` (WebSocket connections)
+  - `shareStore` — `server/routes/share.ts` (shared plan bundles)
+  - `buffer` — `server/lib/event-buffer.ts` (SSE ring buffer)
+- **Phase 4 (Backend Mode Simplification):** Conditional route loading is done, but some `isServerMode()`/`isLocalMode()` references remain in:
+  - `server/routes/agent.ts` — relay dispatch in server mode, local execution otherwise
+  - `server/routes/dispatch.ts` — relay dispatch in server mode
+  - `server/routes/health.ts` — blocks /backends in server mode
+  - `server/routes/device-auth.ts` — mode check
+  - `server/routes/teams.ts` — blocks in local mode
 
 ---
 
@@ -1275,3 +1298,94 @@ grep -r "teamId\|team_id" server/routes/data.ts
 
 ### Added dependencies
 - `@electric-sql/pglite` — In-process Postgres for local mode
+
+---
+
+## Release Strategy
+
+### What we release (open source)
+
+The initial public release is **local-mode only**: a single user runs everything on their own machine. No cloud account, no Supabase, no Fly.io required.
+
+**Released components:**
+
+| Component | Package | What it does |
+|-----------|---------|-------------|
+| **Agent Runner** | `packages/agent-runner/` → `@astro/agent` (npm) | CLI tool. Receives tasks, executes them locally using the user's own Claude credentials, streams output. |
+| **Local Server** | `server/` (bundled with agent runner or run via `npm run dev`) | Hono API + PGlite. Serves the frontend, stores data on disk (`~/.astro/`), runs AI plan generation. Single process, no network dependencies. |
+| **Frontend** | `src/` → `dist/` (static files) | React app. Served by the local server at `http://localhost:5173` (dev) or bundled for production. |
+
+**What this looks like for the user:**
+
+```
+npm install -g @astro/agent    # or: npx @astro/agent
+astro-agent start              # starts local server + opens browser
+
+# Everything runs locally:
+#   - Hono API on localhost:3001
+#   - PGlite database in ~/.astro/data/
+#   - Frontend on localhost:5173
+#   - AI calls use the user's own ANTHROPIC_API_KEY
+#   - No auth, no login page, no team management
+```
+
+### What we do NOT release (kept private)
+
+Server-mode infrastructure that only matters for the hosted multi-user product:
+
+| Component | Why private |
+|-----------|------------|
+| WebAuthn/passkey auth (`server/routes/auth.ts`) | Only needed for multi-user hosted service |
+| Team management (`server/routes/teams.ts`) | Multi-user feature, no value for single-user local |
+| Device auth flow (`server/routes/device-auth.ts`) | Machine registration for remote relay, not needed locally |
+| Fly.io deployment (`fly.toml`, `docker/Dockerfile`) | Hosted infra |
+| Supabase migrations (`supabase/migrations/`) | Cloud Postgres schema, not needed with PGlite |
+| Relay scaling (Redis pub/sub, multi-instance) | Horizontal scaling for hosted service |
+| Cloudflare Pages config | CDN deployment for hosted frontend |
+
+### How the code separates
+
+The codebase already supports this split via `isLocalMode()`:
+
+```
+server/index.ts
+│
+├── Always loaded (open source):
+│   ├── /api/health
+│   ├── /api/data/*          ← Drizzle → PGlite
+│   ├── /api/agent/*         ← plan generation, chat (direct, not via relay)
+│   ├── /api/dispatch/*      ← local execution (no relay needed)
+│   ├── /api/events/*        ← SSE to browser
+│   ├── /api/relay/*         ← machine registry (local machine only)
+│   ├── /api/skills
+│   ├── /api/repo/*          ← file tree, git operations
+│   └── /api/fs/*            ← file system access
+│
+└── Conditionally loaded (private, server-only):
+    ├── /api/auth/*           ← WebAuthn, passkey login
+    ├── /api/teams/*          ← team CRUD, invites
+    └── /api/device/*         ← device code auth flow
+```
+
+In local mode, `server/index.ts` skips loading the server-only routes entirely (they're behind `if (isServerMode()) { ... }`). The open-source release just never sets `DATABASE_URL` or Supabase env vars, so these routes are never loaded.
+
+### Release packaging
+
+For the initial release, the local server and agent runner can be the **same process**:
+
+```
+@astro/agent (npm package)
+├── Agent runner loop (receives tasks, calls Claude, streams output)
+├── Hono API server (serves frontend + API on localhost)
+├── PGlite (embedded Postgres, data in ~/.astro/data/)
+└── Frontend dist/ (pre-built static files, served by Hono)
+```
+
+The user runs `astro-agent start` and gets the full experience: planning UI in the browser, AI plan generation, task execution — all local, all their own credentials.
+
+### Why this works
+
+- **No feature gates needed.** Local mode and server mode share the same code paths. The difference is just which database driver loads and whether auth routes are registered. The open-source version is literally the full app running in local mode.
+- **No degraded experience.** Local mode isn't a "lite" version. It has full plan generation, task execution, file tree autocomplete, skills — everything except multi-user collaboration.
+- **Upgrade path to hosted.** If a user outgrows local mode (needs collaboration, remote machines, team management), they can sign up for the hosted service. Their data model is already team-scoped, so the transition is seamless.
+- **Phase 3 is server-only.** Moving in-memory Maps to Postgres (stateless backend) only matters for horizontal scaling of the hosted service. Local mode runs a single process — in-memory state is fine. This means Phase 3 is not a blocker for the open-source release.

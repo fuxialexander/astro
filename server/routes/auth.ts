@@ -38,11 +38,18 @@ const CHALLENGE_TTL_MS = parseInt(process.env.CHALLENGE_TTL_MS || '300000') // 5
 const CLEANUP_INTERVAL_MS = parseInt(process.env.CLEANUP_INTERVAL_MS || '60000') // 1 minute default
 
 // Rate limiting: Prevent enumeration and DoS attacks
+// A full login flow uses 2 rate-limited endpoints (check-user + login-options),
+// registration uses 2 (check-user + register-options). With 30/15min limit,
+// a user can do ~15 login attempts per window.
 const authLimiter = rateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 10, // Max 10 requests per windowMs per IP
+  limit: 30, // Max 30 requests per windowMs per IP
   standardHeaders: 'draft-6',
-  keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+  keyGenerator: (c) =>
+    c.req.header('fly-client-ip') ||  // Fly.io sets this
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    c.req.header('x-real-ip') ||
+    'unknown',
 })
 
 // In-memory challenge store (short-lived, per-request)
