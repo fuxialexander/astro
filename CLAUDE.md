@@ -209,6 +209,7 @@ server/
 │   ├── device-code-store.ts      # Device code state management
 │   ├── token-manager.ts          # JWT token lifecycle (create, verify, refresh, revoke)
 │   ├── registered-machines-store.ts # Machine registration persistence
+│   ├── ensure-user-profile.ts    # Self-heal auth.users ↔ user_profiles desync
 │   ├── events/
 │   │   └── astro-event-transport.ts # Singleton event transport (SSE, audit log, usage metrics hooks)
 │   ├── providers/                # Pluggable agent provider system

@@ -161,7 +161,7 @@ planEdges {
 
 ### User Profiles
 
-Extended user data beyond Supabase `auth.users`.
+Extended user data beyond Supabase `auth.users`. Auto-created by the `handle_new_user` trigger when a user is inserted into `auth.users`. The trigger uses `ON CONFLICT DO NOTHING` + exception handling to never block auth signup. A `find_auth_user_by_email` RPC function provides efficient email lookup in `auth.users` for self-healing when profiles are missing.
 
 ```typescript
 userProfiles {

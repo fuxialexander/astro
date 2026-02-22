@@ -19,6 +19,8 @@ import {
 import { eq, and, or, sql, desc } from 'drizzle-orm'
 import { requireAuth } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
+import { isServerMode } from '../lib/app-mode.js'
+import { getServiceClient } from '../lib/supabase.js'
 
 const app = new Hono()
 
@@ -681,6 +683,25 @@ app.put('/profile', async (c) => {
     target: userProfiles.id,
     set: { ...profile, id: undefined } as typeof profile,
   })
+
+  // Sync name/email back to auth.users metadata (non-fatal on failure)
+  if (isServerMode() && (body.name !== undefined || body.email !== undefined)) {
+    try {
+      const supabase = getServiceClient()
+      const updatePayload: { user_metadata?: Record<string, string>; email?: string } = {}
+
+      if (body.name !== undefined) {
+        updatePayload.user_metadata = { name: body.name }
+      }
+      if (body.email !== undefined) {
+        updatePayload.email = body.email
+      }
+
+      await supabase.auth.admin.updateUserById(userId, updatePayload)
+    } catch (err) {
+      console.warn('[data] Failed to sync profile to auth.users:', err)
+    }
+  }
 
   const [updated] = await db.select().from(userProfiles).where(eq(userProfiles.id, userId))
   return c.json(updated)

@@ -24,6 +24,7 @@ import type {
 import { getServiceClient } from '../lib/supabase.js'
 import { isLocalMode } from '../lib/app-mode.js'
 import { errorMessage } from '../lib/error-utils.js'
+import { ensureUserProfile } from '../lib/ensure-user-profile.js'
 
 const authRoute = new Hono()
 
@@ -34,7 +35,6 @@ const ORIGIN = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173'
 
 // Security configuration
 const CHALLENGE_TTL_MS = parseInt(process.env.CHALLENGE_TTL_MS || '300000') // 5 minutes default
-const SESSION_VERIFY_DELAY_MS = parseInt(process.env.SESSION_VERIFY_DELAY_MS || '100') // 100ms default
 const CLEANUP_INTERVAL_MS = parseInt(process.env.CLEANUP_INTERVAL_MS || '60000') // 1 minute default
 
 // Rate limiting: Prevent enumeration and DoS attacks
@@ -118,9 +118,19 @@ authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
     .eq('email', email)
     .limit(1)
 
-  return c.json({
-    exists: !!(existingUsers && existingUsers.length > 0),
-  })
+  if (existingUsers && existingUsers.length > 0) {
+    return c.json({ exists: true })
+  }
+
+  // Fallback: check auth.users directly (profile may be missing due to trigger failure)
+  const { data: authUsers } = await supabase.rpc('find_auth_user_by_email', { p_email: email })
+  if (authUsers && authUsers.length > 0) {
+    // Self-heal: create the missing profile
+    await ensureUserProfile(supabase, authUsers[0].id)
+    return c.json({ exists: true })
+  }
+
+  return c.json({ exists: false })
 })
 
 /**
@@ -142,11 +152,24 @@ authRoute.post('/webauthn/register-options', authLimiter, async (c) => {
 
   // Check if user already exists
   const supabase = getServiceClient()
-  const { data: existingUsers } = await supabase
+  let existingUsers: Array<{ id: string }> | null = null
+
+  const { data: profileUsers } = await supabase
     .from('user_profiles')
     .select('id')
     .eq('email', email)
     .limit(1)
+
+  existingUsers = profileUsers
+
+  // Fallback: check auth.users if profile lookup missed
+  if (!existingUsers || existingUsers.length === 0) {
+    const { data: authUsers } = await supabase.rpc('find_auth_user_by_email', { p_email: email })
+    if (authUsers && authUsers.length > 0) {
+      await ensureUserProfile(supabase, authUsers[0].id)
+      existingUsers = [{ id: authUsers[0].id }]
+    }
+  }
 
   // Get existing credentials to exclude
   let existingCredentials: Array<{ id: string; transports?: string[] }> = []
@@ -251,38 +274,28 @@ authRoute.post('/webauthn/register-verify', async (c) => {
       })
 
       if (authError || !authUser.user) {
-        console.error('[auth] Failed to create user:', authError)
-        return c.json({ error: `Failed to create user: ${authError?.message || 'unknown error'}` }, 500)
+        // If user already exists in auth but not in user_profiles, look them up via RPC
+        if (authError?.message?.includes('already been registered') || authError?.message?.includes('email_exists')) {
+          const { data: authUsers } = await supabase.rpc('find_auth_user_by_email', { p_email: email })
+          if (authUsers && authUsers.length > 0) {
+            userId = authUsers[0].id
+            console.log('[auth] Found existing auth user without profile:', userId)
+          } else {
+            console.error('[auth] User reported as existing but not found via RPC:', authError)
+            return c.json({ error: 'User lookup failed' }, 500)
+          }
+        } else {
+          console.error('[auth] Failed to create user:', authError)
+          return c.json({ error: `Failed to create user: ${authError?.message || 'unknown error'}` }, 500)
+        }
+      } else {
+        userId = authUser.user.id
       }
 
-      userId = authUser.user.id
-
-      // Note: User profile is auto-created by Postgres trigger (handle_new_user)
-      // from supabase/migrations/20260209000000_initial_schema.sql
-      // Wait with exponential backoff for trigger to complete
-      let profile = null
-      let profileError = null
-      const maxRetries = 3
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        const delay = SESSION_VERIFY_DELAY_MS * Math.pow(2, attempt) // 100ms, 200ms, 400ms
-        await new Promise(resolve => setTimeout(resolve, delay))
-
-        const result = await supabase
-          .from('user_profiles')
-          .select('id')
-          .eq('id', userId)
-          .single()
-
-        profile = result.data
-        profileError = result.error
-
-        if (profile && !profileError) break
-      }
-
-      if (profileError || !profile) {
-        console.error('[auth] User profile creation failed after retries:', profileError)
-        // Clean up auth user if profile creation failed
-        await supabase.auth.admin.deleteUser(userId)
+      // Ensure user_profiles row exists (trigger may have created it, or we self-heal)
+      const profile = await ensureUserProfile(supabase, userId)
+      if (!profile) {
+        console.error('[auth] User profile creation failed for:', userId)
         return c.json({ error: 'Failed to create user profile' }, 500)
       }
     }
@@ -357,6 +370,8 @@ authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
 
   if (email) {
     // Get user's credentials
+    let userId: string | null = null
+
     const { data: users } = await supabase
       .from('user_profiles')
       .select('id')
@@ -364,10 +379,21 @@ authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
       .limit(1)
 
     if (users && users.length > 0) {
+      userId = users[0].id
+    } else {
+      // Fallback: check auth.users directly
+      const { data: authUsers } = await supabase.rpc('find_auth_user_by_email', { p_email: email })
+      if (authUsers && authUsers.length > 0) {
+        userId = authUsers[0].id
+        await ensureUserProfile(supabase, authUsers[0].id)
+      }
+    }
+
+    if (userId) {
       const { data: creds } = await supabase
         .from('passkey_credentials')
         .select('id, transports')
-        .eq('user_id', users[0].id)
+        .eq('user_id', userId)
 
       if (creds) {
         allowCredentials = creds.map((cred) => ({
@@ -465,6 +491,9 @@ authRoute.post('/webauthn/login-verify', async (c) => {
         last_used_at: new Date().toISOString(),
       })
       .eq('id', credential.id)
+
+    // Ensure profile exists (self-heal on login)
+    await ensureUserProfile(supabase, storedCred.user_id)
 
     // Get user info
     const { data: userProfile } = await supabase

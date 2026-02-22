@@ -365,6 +365,18 @@ if (assertion.counter <= stored.counter) {
 await updateCredentialCounter(credentialId, assertion.counter)
 ```
 
+## Auth ↔ Profile Sync
+
+Supabase `auth.users` is the source of truth for user existence. A Postgres trigger (`handle_new_user`) auto-creates a `user_profiles` row on signup, but if the trigger fails (constraint error, timeout), the two tables can desync.
+
+**Safety mechanisms:**
+- **Hardened trigger**: Uses `ON CONFLICT DO NOTHING` + exception handler so it never blocks `auth.users` insert
+- **`find_auth_user_by_email` RPC**: Efficient email lookup in `auth.users` (avoids expensive `admin.listUsers()`)
+- **`ensureUserProfile()` helper** (`server/lib/ensure-user-profile.ts`): Called by auth endpoints to self-heal — if `user_profiles` is missing for a known `auth.users` entry, it creates the row via upsert
+- **Profile sync on update**: `PUT /api/data/profile` syncs name/email back to `auth.users.user_metadata`
+
+All auth endpoints (`check-user`, `register-options`, `register-verify`, `login-options`, `login-verify`) fall back to the RPC when `user_profiles` lookup misses, then call `ensureUserProfile()` to repair the desync.
+
 ## Fallback Authentication
 
 For environments where WebAuthn is unavailable, consider:
