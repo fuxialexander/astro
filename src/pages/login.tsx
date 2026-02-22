@@ -7,9 +7,9 @@ import { isLocalMode } from "@/lib/app-mode"
 import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight } from "lucide-react"
+import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight, Mail } from "lucide-react"
 
-type AuthStep = "email" | "name" | "authenticating" | "registering"
+type AuthStep = "email" | "name" | "authenticating" | "registering" | "magic_link_sent"
 
 // Map technical errors to user-friendly messages
 function getFriendlyErrorMessage(message: string): string {
@@ -251,6 +251,38 @@ export function Login() {
     }
   }, [email, name, from, navigate])
 
+  // Send magic link email for cross-device login
+  const handleMagicLink = useCallback(async () => {
+    if (!email) return
+
+    setLoading(true)
+    setError("")
+
+    try {
+      const supabase = getSupabase()
+      if (!supabase) {
+        throw new Error("Authentication service not configured")
+      }
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${window.location.origin}${from}`,
+        },
+      })
+
+      if (error) throw error
+
+      setStep("magic_link_sent")
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [email, from])
+
   // Handle Enter key on email field
   const handleEmailKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -327,6 +359,7 @@ export function Login() {
             {step === "name" && "Welcome! Let's create your account"}
             {step === "authenticating" && "Authenticating..."}
             {step === "registering" && "Creating your account..."}
+            {step === "magic_link_sent" && "Check your email"}
           </p>
         </div>
 
@@ -407,6 +440,42 @@ export function Login() {
                 Passkey authentication requires Face ID, Touch ID, or Windows Hello
               </p>
             )}
+
+            {platformAuthAvailable === false && email && (
+              <>
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-background px-2 text-muted-foreground">or</span>
+                  </div>
+                </div>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  variant="outline"
+                  onClick={handleMagicLink}
+                  disabled={loading}
+                >
+                  <Mail className="mr-2 h-4 w-4" />
+                  Sign in with email link
+                </Button>
+              </>
+            )}
+
+            {platformAuthAvailable !== false && email && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={handleMagicLink}
+                disabled={loading}
+              >
+                <Mail className="mr-2 h-4 w-4" />
+                Sign in with email link instead
+              </Button>
+            )}
           </div>
         )}
 
@@ -459,22 +528,63 @@ export function Login() {
               </p>
             )}
 
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex-1"
+                onClick={() => {
+                  setStep("email")
+                  setName("")
+                }}
+                disabled={loading}
+              >
+                Different email
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex-1"
+                onClick={handleMagicLink}
+                disabled={loading}
+              >
+                <Mail className="mr-1.5 h-3.5 w-3.5" />
+                Email link instead
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground text-center">
+              You'll use Face ID, Touch ID, or Windows Hello
+            </p>
+          </div>
+        )}
+
+        {/* Magic Link Sent */}
+        {step === "magic_link_sent" && (
+          <div className="space-y-4 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+              <Mail className="h-8 w-8 text-primary" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                We sent a sign-in link to
+              </p>
+              <p className="text-sm font-medium">{email}</p>
+              <p className="text-xs text-muted-foreground">
+                Click the link in the email to sign in. You can close this tab.
+              </p>
+            </div>
             <Button
               variant="ghost"
               size="sm"
               className="w-full"
               onClick={() => {
                 setStep("email")
-                setName("")
+                setError("")
               }}
-              disabled={loading}
             >
               Use a different email
             </Button>
-
-            <p className="text-xs text-muted-foreground text-center">
-              You'll use Face ID, Touch ID, or Windows Hello
-            </p>
           </div>
         )}
 

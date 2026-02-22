@@ -1,5 +1,7 @@
 # Server/Local Mode Separation — Detailed Design
 
+> **Status (2026-02-22):** Core goals **ACHIEVED**. The server is a thin web host — all AI execution routes through the relay to agent runners. Provider code deleted from server (~3500 lines). Relay protocol extended with `messages`, `systemPrompt`, `model`, `type` fields. The procedure pipeline (§3) was intentionally dropped rather than moved — the agent runner uses its own task execution approach without subroutine pipelines.
+
 ## 1. Guiding Principles
 
 1. **The agent contains all AI logic.** The agent runner (packages/agent-runner/) holds providers, tools, prompt construction, execution strategies, worktree management, PR creation, and task steering. It is the only process that calls Claude.

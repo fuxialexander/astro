@@ -15,6 +15,13 @@
       "when": 1771748330967,
       "tag": "0001_even_rictor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771787117721,
+      "tag": "0002_good_nuke",
+      "breakpoints": true
     }
   ]
 }

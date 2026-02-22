@@ -56,7 +56,7 @@ export function TaskRow({ task, projectName, showProject = false, onClick, class
 
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col gap-1">
-        <h3 className="font-semibold text-base truncate">{task.title}</h3>
+        <h3 className="font-semibold text-base truncate">{task.number != null && <span className="text-muted-foreground font-normal mr-1.5">#{task.number}</span>}{task.title}</h3>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {task.estimate && (
             <>

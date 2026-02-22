@@ -8,7 +8,7 @@
  */
 
 import type { PlanNode } from '../../../src/types/index.js'
-import type { TaskResult, VerificationHints } from '../providers/types.js'
+import type { TaskResult, VerificationHints } from './types.js'
 import type {
   RoutingDecision,
   JudgmentContext,

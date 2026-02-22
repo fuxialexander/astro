@@ -4,325 +4,283 @@
 
 Astro sits above execution tools (coding agents, analysis tools) to help users decompose complex goals into dependency graphs, dispatch tasks across environments (local, HPC, cloud), and focus human attention on strategic decisions.
 
-## Features
-
-- **Smart Task Planning**: AI-powered task decomposition with dependency graphs
-- **Multi-Environment Execution**: Dispatch tasks to local machines, HPC clusters (SLURM), or cloud instances
-- **Real-time Monitoring**: Live task progress tracking via Server-Sent Events
-- **Provider Abstraction**: Pluggable execution adapters (Claude Code, Codex, SLURM)
-- **Device Authentication**: OAuth2 device code flow (RFC 8628) for secure machine registration
-- **Visual Planning**: Interactive directed graph visualization with React Flow
-- **Context-Aware Execution**: Automatic injection of project vision doc and dependency context per task
-
 ## Architecture
 
+Astro has four components. The server never calls AI directly — all AI work flows through the relay to agent runners.
+
 ```
-┌─────────────────────────────────────────────────┐
-│           Frontend (React 19 + Vite 7)          │
-│   Zustand stores ←→ IndexedDB (offline cache)   │
-│   EventSource ← SSE ← Backend                   │
-└────────────────────┬────────────────────────────┘
-                     │ HTTP / SSE
-┌────────────────────┴────────────────────────────┐
-│           Backend (Hono + Node.js)               │
-│   Supabase (PostgreSQL + Auth)                    │
-│   Claude Agent SDK (AI plan generation)          │
-│   Dispatch Engine → Provider Adapters            │
-│   WebSocket Relay (port 3002)                    │
-└────────────────────┬────────────────────────────┘
-                     │ WebSocket
-              ┌──────┴──────┐
-              │Agent Runners │
-              │(user machines)│
-              └─────────────┘
+                     BROWSER                          SERVER (Hono + Relay)
+              ┌────────────────────┐          ┌──────────────────────────────┐
+              │                    │          │                              │
+              │  React 19 SPA      │  HTTP/   │  Hono API Server (:3001)    │
+              │  Zustand stores    │  SSE     │  ┌────────────────────────┐ │
+              │  React Flow graph  │ ◄──────► │  │ /api/agent/*           │ │
+              │                    │          │  │ /api/dispatch/*        │ │
+              │  No AI. No DB.     │          │  │ /api/data/*            │ │
+              │  Pure UI.          │          │  │ /api/events/stream     │ │
+              │                    │          │  └─────────┬──────────────┘ │
+              └────────────────────┘          │            │                │
+                                              │  ┌─────────▼──────────────┐ │
+                                              │  │ Relay (WS Hub, :3002)  │ │
+                                              │  │ Machine Registry       │ │
+                                              │  └─────────┬──────────────┘ │
+                                              │            │                │
+                                              │  Postgres (PGlite local,   │
+                                              │   Supabase/RDS server)     │
+                                              └────────────┼────────────────┘
+                                                           │ WebSocket
+                                    ┌──────────────────────┼──────────────────────┐
+                                    │                      │                      │
+                             ┌──────▼──────┐        ┌──────▼──────┐        ┌──────▼──────┐
+                             │ Agent Runner│        │ Agent Runner│        │ Agent Runner│
+                             │ (laptop)    │        │ (HPC login) │        │ (cloud VM)  │
+                             │             │        │             │        │             │
+                             │ Claude SDK  │        │ Claude SDK  │        │ Claude CLI  │
+                             │ Git worktree│        │ SLURM       │        │ Docker      │
+                             │ PR creation │        │ strategy    │        │ strategy    │
+                             └─────────────┘        └─────────────┘        └─────────────┘
 ```
 
-### Key Patterns
+### What Each Component Does
 
-- **SSE Bridge**: Relay events → EventEmitter → SSE endpoint → EventSource → Zustand store
-- **Dual Dispatch**: Local (direct provider SSE) vs relay (WebSocket → SSE bridge)
-- **Provider Abstraction**: Pluggable adapters in `server/lib/providers/` (Claude Code, Codex, SLURM)
-- **Context Assembly**: Vision doc + dependency outputs injected per task
+| Component | Saves | Computes | Does NOT do |
+|-----------|-------|----------|-------------|
+| **Frontend** (Browser) | Nothing (pure UI) | Renders pages, graphs, chat panels | Call AI, persist data |
+| **Backend** (Hono API) | All data (Postgres via Drizzle ORM) | Prompt assembly, dispatch coordination, context injection, SSE broadcasting | Call AI directly |
+| **Relay** (WebSocket Hub) | Nothing (in-memory registry) | Task routing, machine selection, heartbeat monitoring | Store data, call AI |
+| **Agent Runner** (Worker) | Execution artifacts (worktrees, PRs) | AI execution, git worktrees, safety checks, PR creation | Serve HTTP, store app data |
+
+### Data Flow: Task Execution
+
+```
+User clicks "Run"
+       │
+       ▼
+Frontend: POST /api/dispatch/task
+       │
+       ▼
+Backend: Validate → Assemble context (vision doc + deps) → Build prompt
+       │
+       ▼
+Relay: Find best machine → Send task via WebSocket
+       │
+       ▼
+Agent Runner: Safety check → Create worktree → Run AI → Stream results back
+       │
+       ▼
+Relay → Backend: Convert WS events to SSE → Push to browser
+       │
+       ▼
+Agent Runner: Auto-commit → Push branch → Create PR → Cleanup worktree
+```
+
+### Data Flow: Plan Generation
+
+```
+User creates project with description
+       │
+       ▼
+Frontend: POST /api/agent/generate-plan
+       │
+       ▼
+Backend: Build system prompt (with plan JSON schema) → Dispatch via relay
+       │
+       ▼
+Agent Runner: Run Claude with structured output → Stream plan JSON back
+       │
+       ▼
+Backend: Parse plan JSON → SSE stream to browser
+       │
+       ▼
+Frontend: Render dependency graph in React Flow
+```
+
+## Features
+
+- **AI-Powered Planning**: Decompose goals into dependency graphs with AI
+- **Multi-Environment Execution**: Local, Docker, HPC (SLURM), Kubernetes, cloud
+- **Real-time Streaming**: Live task output, tool traces, file changes via SSE
+- **Git Worktree Isolation**: Each task runs on its own branch in an isolated worktree
+- **Automatic PR Creation**: Completed tasks push branches and create pull requests
+- **Safety System**: Git state checks prevent unsafe concurrent execution
+- **Device Authentication**: OAuth2 device code flow (RFC 8628) for secure machine registration
+- **Visual Planning**: Interactive directed graph with React Flow
+- **Context Injection**: Vision doc + dependency outputs injected into every AI session
 
 ## Prerequisites
 
 - **Node.js** 25.6.0+ (managed via `.nvmrc` — use `nvm use`)
 - **npm** 11.8.0+
 - **Git**
-- **Claude CLI** authenticated (`claude login` — the Claude Agent SDK reads credentials from `~/.claude/`)
+- **Claude CLI** authenticated (`claude login` — credentials in `~/.claude/`)
 
-Redis is **not required** for local development. It's only needed for horizontal scaling in production.
+Redis is **not required** for local development.
 
 ## Getting Started
 
-### For End Users
-
-1. Clone and install the repository (see Developer Setup below)
-2. Run `npm run dev` to start the local server
-3. Visit http://localhost:5173 in your browser
-4. Complete the onboarding flow to create your first project
-
-**External Access / Multi-User**: Use Cloudflare Tunnel for HTTPS + Touch ID on a custom domain. See [Setup Guide](docs/DEVELOPER_SETUP.md) for details.
-
-### For Developers
-
 ```bash
-# Clone the repository
+# Clone and install
 git clone git@github.com:fuxialexander/astro.git
 cd astro
 
-# install nodejs and npm if not already installed
+# Install Node.js if needed
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 nvm install 25.6.0
 nvm use 25.6.0
+
 # Install dependencies
 npm install
 
-# Copy environment template (optional — no API keys needed)
+# Copy environment template (optional)
 cp env.example .env
 ```
 
-The database is created automatically on first server start.
-
-### Running the Dev Server
+### Running Locally
 
 ```bash
-# Start frontend (port 5173) + backend (port 3001) + relay (port 3002)
+# Start everything: frontend + backend + relay + agent runner
 npm run dev
 ```
 
-Or run them separately:
+This starts:
+- **Vite dev server** on port 5173 (frontend)
+- **Hono API server** on port 3001 (backend)
+- **WebSocket relay** on port 3002
+- **Agent runner** subprocess (connects to relay after 2s delay)
+
+Open http://localhost:5173 — Vite proxies `/api` to the backend.
+
+Or run components separately:
 
 ```bash
-npm run dev:frontend   # Vite dev server (port 5173)
-npm run dev:backend    # Hono API (port 3001) + WebSocket relay (port 3002)
+npm run dev:frontend   # Vite only (port 5173)
+npm run dev:backend    # Hono + relay only (ports 3001, 3002)
+npm run dev:agent      # Agent runner only (connects to ws://localhost:3002)
 ```
 
-Open http://localhost:5173 — Vite proxies `/api` requests to the backend automatically.
-
-### Verify Setup For Local Development
+### Verify Setup
 
 ```bash
-npm run verify    # Check Node version, dependencies, port availability, config
+npm run verify    # Check Node version, deps, ports, config
 ```
 
 ### Environment Variables
 
-No environment variables are required for local development. The Claude Agent SDK authenticates via `~/.claude/` credentials (from `claude login`). See `.env.example` for optional variables:
+No environment variables are required for local development.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `PORT` | No | Backend port (default: 3001) |
-| `RELAY_PORT` | No | WebSocket relay port (default: 3002) |
-| `REDIS_URL` | No | Redis URL for horizontal scaling (not needed locally) |
-| `CLOUDFLARED_DOMAIN` | No | Domain for Cloudflare tunnel (remote agent connectivity) |
+| `RELAY_PORT` | No | Relay port (default: 3002) |
+| `REDIS_URL` | No | Redis for horizontal scaling (not needed locally) |
+| `CLOUDFLARED_DOMAIN` | No | Domain for Cloudflare tunnel |
 
-### Agent Setup
+## Database Modes
 
-Local agent should directly work if you have already set up `claude` or `codex` locally. For `claude`, authenticate via `claude login` (credentials are stored in `~/.claude/` and picked up automatically by the SDK). For `codex`, it reads credentials from its own environment variables (`OPENAI_API_KEY`).
+### Local Mode (default)
 
-To connect to a remote machine (e.g. HPC cluster, SSH server) to your local Astro server:
+PGlite (Postgres compiled to WASM) runs in-process. No Docker, no external DB. Data stored in `~/.astro/data/`.
 
-**Prerequisites**: [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) installed on the server machine, a Cloudflare domain configured. Then in your local machine run `cloudflared tunnel login` to login to your Cloudflare account. And set your domain in `.env` as `CLOUDFLARED_DOMAIN=yourdomain.com`.
-
-**1. Local Server — start the tunnel**
-
-Set your domain in `.env`:
-```
-CLOUDFLARED_DOMAIN=yourdomain.com
+```bash
+npm run dev              # Auto-detected if no Supabase env vars
+npm run dev:indexeddb    # Explicit local mode
 ```
 
-Then start the tunnel (creates it on first run):
+### Server Mode (multi-user)
+
+External Postgres (Supabase, Fly.io Postgres, AWS RDS). WebAuthn/passkey authentication.
+
+```bash
+npm run dev:supabase     # Local Supabase via Docker
+```
+
+Requires: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+
+### Mode Detection
+
+1. `USE_INDEXEDDB_ONLY=true` → Local mode
+2. No Supabase env vars → Local mode
+3. Supabase env vars set → Server mode
+
+The backend code is identical in both modes — Drizzle ORM queries work against any Postgres.
+
+| Aspect | Local Mode | Server Mode |
+|--------|-----------|-------------|
+| Database | PGlite (in-process) | External Postgres |
+| Auth | None (single user) | WebAuthn/passkeys |
+| Relay | ws://localhost:3002 | wss:// with JWT |
+| Agent runners | Local subprocess | Any machine via internet |
+
+## Agent Runner Setup
+
+The local agent runner starts automatically with `npm run dev`. For remote machines:
+
+**1. Start tunnel** (if connecting remote machines):
 ```bash
 bash ./scripts/start-tunnel.sh
 ```
 
-This exposes `astro.yourdomain.com` (frontend + backend) and `astro-relay.yourdomain.com` (WebSocket relay) via Cloudflare Tunnel.
-
-**2. Setup and start the agent**
-
+**2. Setup and start agent on remote machine**:
 ```bash
-bash ./scripts/agent-setup.sh 
+bash ./scripts/agent-setup.sh
 ```
 
-This builds the agent runner, runs the device auth flow (you approve in your browser), and starts the agent locally. The machine will appear in the Environments page. The setup will also detect remote machines in your ssh config and prompt you to install the agent on them. Note that you need to ssh into the remote machine and run the following command to start the agent:
-
-```bash
-# you can also add `~/.local/bin` to your PATH for easy access
-~/.local/bin/astro-agent start --foreground # add --foreground to run in foreground for easy interruption
-```
-
-After that you approve the machine in the browser, you will be directed to the welcome page, where you can create a project on local or remote machine (if you have already started the agent on the remote machine).
-
-
-## Database Modes
-
-Astro supports two database modes:
-
-### 1. IndexedDB Mode (Local, Offline-first)
-
-**Default mode for local development** — No authentication required, all data stored client-side.
-
-**Setup:**
-```bash
-# Option A: Auto-detected (no Supabase env vars set)
-npm run dev
-
-# Option B: Explicit override (even if Supabase is configured)
-npm run dev:indexeddb
-
-# Or manually:
-USE_INDEXEDDB_ONLY=true VITE_USE_INDEXEDDB_ONLY=true npm run dev
-```
-
-**Features:**
-- ✅ No authentication required
-- ✅ All data stored in browser IndexedDB
-- ✅ Works completely offline
-- ✅ Faster iteration (no network latency)
-- ✅ Single-user only
-- ✅ Perfect for rapid prototyping
-
-**Use Cases:**
-- Local development without Supabase setup
-- Testing and comparison between modes
-- Offline-first scenarios
-- Avoiding WebAuthn/Touch ID constraints on localhost
-
-**Environment Variables:**
-```bash
-# Backend
-USE_INDEXEDDB_ONLY=true
-
-# Frontend
-VITE_USE_INDEXEDDB_ONLY=true
-```
-
-### 2. Supabase Mode (Multi-user, Server-backed)
-
-**Production mode** — Multi-user with authentication, PostgreSQL database, real-time collaboration.
-
-**Setup:**
-```bash
-# Local Supabase (Docker)
-bash ./scripts/setup-supabase-local.sh
-npm run dev
-
-# Or use convenience script:
-npm run dev:supabase
-```
-
-**Features:**
-- ✅ Multi-user with WebAuthn/passkey authentication
-- ✅ Server-side PostgreSQL database with RLS
-- ✅ Real-time collaboration
-- ✅ Data synced across devices
-- ✅ User isolation and access control
-- ✅ Push notifications (iOS app)
-
-**Environment Variables:**
-- `SUPABASE_URL` — Supabase API endpoint
-- `SUPABASE_SERVICE_ROLE_KEY` — Admin key (backend only)
-- `SUPABASE_ANON_KEY` — Public key (backend)
-- `VITE_SUPABASE_URL` — Frontend Supabase URL
-- `VITE_SUPABASE_ANON_KEY` — Frontend anon key
-
-**WebAuthn/Touch ID Requirements:**
-- ⚠️ Touch ID/Face ID only works with HTTPS or registered localhost
-- For external access: Use `npm run dev:tunnel` (sets `WEBAUTHN_RP_ID` to your tunnel domain)
-
-See [Setup Guide](docs/DEVELOPER_SETUP.md) for full details.
-
-### Mode Switching
-
-The system automatically detects which mode to use:
-
-1. **Auto-detection**: If Supabase env vars are not set → IndexedDB mode
-2. **Explicit override**: If `USE_INDEXEDDB_ONLY=true` → IndexedDB mode (even if Supabase is configured)
-3. **Supabase mode**: If Supabase env vars are set and no override → Supabase mode
-
-**Visual Indicator**: The sidebar shows "IndexedDB Mode (Local Only)" badge when running in IndexedDB mode.
-
-### Trade-offs
-
-| Feature | IndexedDB Mode | Supabase Mode |
-|---------|---------------|---------------|
-| Authentication | None | WebAuthn/Passkeys |
-| Users | Single-user | Multi-user |
-| Data Storage | Browser only | PostgreSQL + IndexedDB cache |
-| Offline Support | Full | Partial (with cache) |
-| Collaboration | None | Real-time |
-| Deployment | Static site | Requires backend + DB |
-| Dev Speed | Fast | Slower (network latency) |
-| Production Ready | No | Yes |
-
-### Database Reset & Cleanup
-
-```bash
-supabase db reset          # Drop and recreate all tables
-npm run clear-data:force   # Clear user data only (preserves schema)
-npm run db:reset           # Reset everything
-```
-
+This builds the agent runner, runs device auth, and starts the agent. See [packages/agent-runner/](packages/agent-runner/) for details.
 
 ## Project Structure
 
 ```
 astro/
-├── src/                          # Frontend React application
-│   ├── pages/                    # Route pages (dashboard, projects, plan-view, etc.)
-│   ├── components/               # React components
-│   │   ├── ui/                   # shadcn/ui primitives (Radix-based)
-│   │   ├── layout/               # App shell, sidebar, header
-│   │   ├── plan-graph/           # React Flow graph components
-│   │   ├── task-detail/          # Task output, tool traces, file changes
-│   │   └── execution/            # Execution panel, provider status
-│   ├── stores/                   # Zustand state stores (IndexedDB-backed)
-│   ├── lib/                      # Client utilities (API client, SSE, graph utils)
+├── src/                          # Frontend (React 19 + Vite 7)
+│   ├── pages/                    # Route pages (16 pages)
+│   ├── components/               # UI components (shadcn/ui pattern)
+│   ├── stores/                   # Zustand state stores (27 stores)
+│   ├── lib/                      # API client, SSE parser, utilities
 │   └── types/                    # TypeScript type definitions
-├── server/                       # Backend Hono application
-│   ├── routes/                   # API routes (agent, dispatch, events, data, device-auth)
+│
+├── server/                       # Backend (Hono API + Relay)
+│   ├── routes/                   # API routes (agent, dispatch, events, data, relay)
+│   ├── middleware/                # Auth middleware
 │   └── lib/
-│       ├── db/                   # Database migrations and connection
-│       ├── providers/            # Execution provider adapters (Claude Code, Codex, SLURM)
-│       ├── dispatch/             # Task dispatch engine, queue, context assembler
-│       └── slurm/                # HPC job management, SBATCH generation
+│       ├── db/                   # Drizzle ORM schema (28 tables) + migrations
+│       ├── relay-server.ts       # WebSocket relay server
+│       ├── machine-registry.ts   # Connected machine tracking
+│       ├── dispatch/             # Dispatch engine, queue, context assembler
+│       ├── events/               # Event transport + hooks
+│       ├── prompt-templates.ts   # System prompts for AI tasks
+│       └── repo-context.ts       # Repository context reading
+│
 ├── packages/
-│   └── agent-runner/             # Agent runner for remote machines
-├── scripts/                      # Setup and tunnel scripts
-├── docs/                         # Architecture and protocol documentation
+│   └── agent-runner/             # Agent Runner (npm: @astro/agent, CLI: astro-agent)
+│       └── src/
+│           ├── cli.ts            # CLI entry (10 commands)
+│           ├── lib/              # Task executor, worktree, git-pr, safety
+│           ├── providers/        # Claude SDK, Claude CLI, Codex adapters
+│           ├── execution/        # Direct, Docker, SLURM, K8s strategies
+│           └── mcp/              # MCP server for Claude Code integration
+│
+├── tests/                        # Vitest test suite (34+ files, 550+ tests)
+├── docs/design/                  # Architecture documentation
+├── skills/                       # Skill definitions (SKILL.md files)
 └── drizzle/                      # Database migration files
 ```
 
 ## API Endpoints
 
-### Device Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/device/authorize` | Request device code |
-| POST | `/api/device/token` | Poll/exchange for tokens |
-| POST | `/api/device/register` | Register authenticated machine |
-| POST | `/api/device/refresh` | Refresh access token |
-| POST | `/api/device/revoke` | Revoke token |
-
-### AI Agent
+### AI Agent (relay-only)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/agent/generate-plan` | Generate plan via AI (SSE stream) |
 | POST | `/api/agent/chat` | Chat for plan refinement (SSE stream) |
-| POST | `/api/agent/abort` | Abort running AI session |
+| POST | `/api/agent/task-chat` | Task-level chat (SSE stream) |
+| POST | `/api/agent/summarize` | Generate execution summary |
 
 ### Task Dispatch
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/dispatch/task` | Dispatch task to agent runner |
+| POST | `/api/dispatch/task` | Dispatch task to agent runner (SSE stream) |
 | POST | `/api/dispatch/cancel` | Cancel running task |
 | POST | `/api/dispatch/steer` | Send guidance to running agent |
-
-### Real-time Events
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/events/stream` | SSE stream for real-time updates |
 
 ### Data (CRUD)
 | Method | Endpoint | Description |
@@ -331,74 +289,52 @@ astro/
 | GET/PATCH/DELETE | `/api/data/projects/:id` | Get/update/delete project |
 | GET/PUT | `/api/data/projects/:id/plan` | Get/set plan nodes + edges |
 
-### Health
+### Real-time
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/health` | Backend health check |
+| GET | `/api/events/stream` | SSE for real-time updates |
+| GET | `/api/health` | Health check + relay status |
+
+### Device Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/device/authorize` | Request device code |
+| POST | `/api/device/token` | Poll/exchange for tokens |
+| POST | `/api/device/register` | Register machine |
 
 ## Tech Stack
 
-- **Frontend**: React 19, Vite 7, TypeScript (strict), Tailwind CSS v4, React Router v7, Zustand 5, @xyflow/react
-- **UI**: shadcn/ui pattern (Radix primitives), lucide-react icons, cmdk command palette
-- **Backend**: Hono.js, Supabase (PostgreSQL + Auth), @anthropic-ai/claude-agent-sdk
-- **Relay**: WebSocket server for agent runner communication
-- **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend, production)
+- **Frontend**: React 19, Vite 7, TypeScript, Tailwind CSS v4, Zustand 5, @xyflow/react, shadcn/ui
+- **Backend**: Hono.js, Drizzle ORM, PGlite / Postgres
+- **Relay**: WebSocket (ws library), Redis pub/sub (optional)
+- **Agent Runner**: @anthropic-ai/claude-agent-sdk, Claude CLI, Codex
+- **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend)
 
 ## Testing
 
-Astro includes comprehensive CLI-testable workflows for automated testing:
-
 ```bash
-# Run all tests
-./scripts/test-runner.sh
-
-# Run unit tests only (fast, parallel)
-./scripts/test-runner.sh --unit
-
-# Run integration tests
-./scripts/test-runner.sh --integration
-
-# Run end-to-end workflow test
-./scripts/test-runner.sh --e2e
+npm test              # Run all tests (vitest)
+npm run test:watch    # Watch mode
+npm run build         # TypeScript check + Vite build
+npm run lint          # ESLint
 ```
-
-**Test Coverage:**
-- ✅ User authentication (WebAuthn + IndexedDB modes)
-- ✅ Device authorization flow (OAuth2 RFC 8628)
-- ✅ Project/task CRUD operations
-- ✅ Machine registration and management
-- ✅ Task dispatch and execution
-- ✅ Real-time events (SSE)
-- ✅ Database mode detection
-
-See [TESTING.md](TESTING.md) for complete testing guide.
 
 ## Building & Deployment
 
 ```bash
-npm run build     # TypeScript check + Vite production build → dist/
-npm run deploy    # Build + deploy to Cloudflare Pages
-npm run lint      # ESLint
+npm run build              # TypeScript check + Vite production build
+npm run build:all          # Build everything including agent runner
+npm run deploy             # Deploy backend (Fly.io) + frontend (Cloudflare Pages)
 ```
 
-### Deployment Considerations
+## Documentation
 
-See [Setup Guide](docs/DEVELOPER_SETUP.md) for complete dev, tunnel, and production deployment instructions.
-
-## Known Issues
-
-- Pre-existing lint errors in `packages/agent-runner` — do not attempt to fix
-- `@radix-ui/react-tabs` must be installed separately (not included by default)
-- Tailwind v4 uses `@tailwindcss/vite` plugin, NOT `@tailwindcss/postcss`
-- React Router v7 uses `react-router` package, not `react-router-dom`
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, coding standards, and pull request guidelines.
-
-## Support
-
-For questions or issues, please open an issue on [GitHub](https://github.com/fuxialexander/astro/issues).
+Complete documentation is in `docs/`:
+- [Architecture](docs/design/ARCHITECTURE.md) — System design, data flow, scaling
+- [Agent Runner](docs/design/AGENT_RUNNER.md) — CLI, providers, safety, worktrees
+- [Relay Protocol](docs/design/RELAY.md) — WebSocket message types
+- [Data Model](docs/design/DATA_MODEL.md) — Database schema (28 tables)
+- [Full Index](docs/index.md) — All documentation
 
 ## Acknowledgments
 

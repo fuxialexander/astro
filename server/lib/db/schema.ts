@@ -4,6 +4,7 @@ import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, pr
 export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').notNull(),
+  number: integer('number'),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   visionDoc: text('vision_doc').notNull().default(''),
@@ -19,6 +20,7 @@ export const projects = pgTable('projects', {
   color: text('color').default('#3b82f6'),
   icon: text('icon').default('📋'),
   workingDirectory: text('working_directory'),
+  sourceDirectory: text('source_directory'),
   repository: text('repository'),
   defaultEnvironment: text('default_environment'),
   defaultMachineId: text('default_machine_id'),
@@ -83,6 +85,7 @@ export const planNodes = pgTable('plan_nodes', {
   id: uuid('id').primaryKey().defaultRandom(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   clientId: text('client_id').notNull(), // Preserve client-generated IDs for compatibility
+  number: integer('number'),
   type: text('type').notNull(), // 'milestone' | 'task' | 'branch' | 'decision'
   title: text('title').notNull(),
   description: text('description').notNull().default(''),

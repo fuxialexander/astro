@@ -510,4 +510,222 @@ teamsRoute.delete('/:teamId/members/:memberId', async (c) => {
   }
 })
 
+/**
+ * GET /api/teams
+ *
+ * List all teams the current user belongs to.
+ */
+teamsRoute.get('/', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+
+    const rows = await db
+      .select({
+        id: teams.id,
+        name: teams.name,
+        description: teams.description,
+        createdAt: teams.createdAt,
+        updatedAt: teams.updatedAt,
+        role: teamMembers.role,
+      })
+      .from(teamMembers)
+      .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+      .where(eq(teamMembers.userId, user.id))
+
+    return c.json(rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      memberRole: r.role,
+    })))
+  } catch (err) {
+    console.error('[teams] List teams error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * POST /api/teams
+ *
+ * Create a new team. The creating user becomes the owner.
+ */
+teamsRoute.post('/', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const body = await c.req.json<{ name: string; description?: string }>()
+
+    if (!body.name?.trim()) {
+      return c.json({ error: 'Team name is required' }, 400)
+    }
+
+    const teamId = crypto.randomUUID()
+    const now = new Date()
+
+    await db.insert(teams).values({
+      id: teamId,
+      name: body.name.trim(),
+      description: body.description?.trim() ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    await db.insert(teamMembers).values({
+      teamId,
+      userId: user.id,
+      role: 'owner',
+      joinedAt: now,
+    })
+
+    return c.json({
+      id: teamId,
+      name: body.name.trim(),
+      description: body.description?.trim() ?? null,
+      createdAt: now,
+      updatedAt: now,
+      memberRole: 'owner',
+    }, 201)
+  } catch (err) {
+    console.error('[teams] Create team error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * PATCH /api/teams/:teamId
+ *
+ * Update team name/description. Requires admin or owner role.
+ */
+teamsRoute.patch('/:teamId', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const teamId = c.req.param('teamId')
+    const body = await c.req.json<{ name?: string; description?: string }>()
+
+    // Check permission
+    const [membership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
+
+    if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+      return c.json({ error: 'Only team admins and owners can update team settings' }, 403)
+    }
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() }
+    if (body.name !== undefined) updates.name = body.name.trim()
+    if (body.description !== undefined) updates.description = body.description.trim()
+
+    await db.update(teams).set(updates).where(eq(teams.id, teamId))
+
+    const [updated] = await db.select().from(teams).where(eq(teams.id, teamId))
+    return c.json(updated)
+  } catch (err) {
+    console.error('[teams] Update team error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * DELETE /api/teams/:teamId
+ *
+ * Delete a team. Only the owner can delete. Cannot delete personal team.
+ */
+teamsRoute.delete('/:teamId', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const teamId = c.req.param('teamId')
+
+    // Check ownership
+    const [membership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
+
+    if (!membership || membership.role !== 'owner') {
+      return c.json({ error: 'Only team owners can delete teams' }, 403)
+    }
+
+    // Check it's not the user's personal (auto-created) team
+    const [team] = await db.select().from(teams).where(eq(teams.id, teamId))
+    if (team && team.name === 'Personal') {
+      return c.json({ error: 'Cannot delete your personal team' }, 400)
+    }
+
+    // Delete members first, then team
+    await db.delete(teamMembers).where(eq(teamMembers.teamId, teamId))
+    await db.delete(inviteTokens).where(eq(inviteTokens.teamId, teamId))
+    await db.delete(teams).where(eq(teams.id, teamId))
+
+    return c.json({ success: true })
+  } catch (err) {
+    console.error('[teams] Delete team error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * PATCH /api/teams/:teamId/members/:userId
+ *
+ * Change a member's role. Requires owner role.
+ */
+teamsRoute.patch('/:teamId/members/:userId', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const teamId = c.req.param('teamId')
+    const targetUserId = c.req.param('userId')
+    const body = await c.req.json<{ role: 'owner' | 'admin' | 'member' }>()
+
+    if (!['owner', 'admin', 'member'].includes(body.role)) {
+      return c.json({ error: 'Invalid role. Must be owner, admin, or member' }, 400)
+    }
+
+    // Check requester is owner
+    const [membership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
+
+    if (!membership || membership.role !== 'owner') {
+      return c.json({ error: 'Only team owners can change member roles' }, 403)
+    }
+
+    // Cannot change own role
+    if (targetUserId === user.id) {
+      return c.json({ error: 'Cannot change your own role' }, 400)
+    }
+
+    await db
+      .update(teamMembers)
+      .set({ role: body.role })
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)))
+
+    return c.json({ success: true })
+  } catch (err) {
+    console.error('[teams] Change role error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
 export { teamsRoute }

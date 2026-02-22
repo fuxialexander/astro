@@ -140,7 +140,7 @@ export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
       {selectedNode && !chatOpen && (
         <div className="flex w-[400px] shrink-0 flex-col gap-5 border-l border-border bg-card p-6 overflow-auto">
           <div className="flex items-center justify-between">
-            <h3 className="font-semibold">{selectedNode.title}</h3>
+            <h3 className="font-semibold">{selectedNode.number != null && <span className="text-muted-foreground font-normal mr-1.5">#{selectedNode.number}</span>}{selectedNode.title}</h3>
             <Badge variant={statusVariant[selectedNode.status] ?? "secondary"}>
               {statusLabels[selectedNode.status]}
             </Badge>

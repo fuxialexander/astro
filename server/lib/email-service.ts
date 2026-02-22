@@ -6,7 +6,7 @@
  */
 
 const BASE_URL = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
-const NOREPLY_EMAIL = process.env.ASTRO_NOREPLY_EMAIL || 'noreply@astro.app'
+const _NOREPLY_EMAIL = process.env.ASTRO_NOREPLY_EMAIL || 'noreply@astro.app'
 
 export interface InvitationEmailData {
   to: string
@@ -34,7 +34,7 @@ export async function sendInvitationEmail(data: InvitationEmailData): Promise<bo
     console.log('[email] Sending team invitation email:')
     console.log({
       to: data.to,
-      from: '${NOREPLY_EMAIL}',
+      from: _NOREPLY_EMAIL,
       subject: `You've been invited to join ${data.teamName} on Astro`,
       teamName: data.teamName,
       inviterName: data.inviterName,
@@ -48,7 +48,7 @@ export async function sendInvitationEmail(data: InvitationEmailData): Promise<bo
     // In production, replace with actual email sending:
     // const result = await emailProvider.send({
     //   to: data.to,
-    //   from: '${NOREPLY_EMAIL}',
+    //   from: '${_NOREPLY_EMAIL}',
     //   subject: `You've been invited to join ${data.teamName} on Astro`,
     //   html: emailContent,
     // })

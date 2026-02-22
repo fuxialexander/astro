@@ -28,7 +28,6 @@ import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
 import { skillManager } from './lib/skill-manager.js'
 import { runMigrations } from './lib/db/migrate.js'
-import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
@@ -48,7 +47,6 @@ import { loadAndActivateChannelPlugins } from './lib/plugin-loader.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
 import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
-import { cleanupExpired as cleanupChatPool } from './lib/chat-session-pool.js'
 import { cleanupExpiredChallenges } from './lib/challenge-store.js'
 import { cleanupExpiredDeviceCodes } from './lib/device-code-store.js'
 
@@ -210,7 +208,6 @@ const port = 3001
 const relayPort = getRelayConfig().port
 
 let httpServer: ReturnType<typeof serve> | null = null
-let chatPoolCleanup: ReturnType<typeof setInterval> | null = null
 let challengeCleanup: ReturnType<typeof setInterval> | null = null
 let deviceCodeCleanup: ReturnType<typeof setInterval> | null = null
 
@@ -253,21 +250,9 @@ async function start() {
     }
   }
 
-  console.log('[backend] initializing provider registry...')
+  console.log('[backend] initializing server (relay-only mode)...')
 
   const app = createApp()
-
-  try {
-    // Timeout provider detection after 15 seconds so server starts even if detection hangs
-    await Promise.race([
-      initializeProviders(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Provider detection timed out')), 15_000)),
-    ])
-    console.log('[backend] provider registry initialized')
-  } catch (error) {
-    console.warn('[backend] provider initialization warning:', error)
-    // Continue even if initialization fails - providers can be detected on-demand
-  }
 
   // Load skills
   try {
@@ -423,15 +408,8 @@ async function start() {
     console.log('[cleanup] Cleanup scheduler started')
   }
 
-  // Clean expired chat session pool entries every 10 minutes
+  // Periodic cleanup tasks
   if (!isTest()) {
-    chatPoolCleanup = setInterval(async () => {
-      const cleaned = await cleanupChatPool(30 * 60 * 1000)
-      if (cleaned > 0) {
-        console.log(`[chat-pool] Cleaned ${cleaned} expired session(s)`)
-      }
-    }, 10 * 60 * 1000)
-
     // Clean expired WebAuthn challenges every minute
     challengeCleanup = setInterval(async () => {
       try {
@@ -498,7 +476,6 @@ async function shutdown(signal: string) {
   }, 3_000)
   timer.unref()
 
-  if (chatPoolCleanup) clearInterval(chatPoolCleanup)
   if (challengeCleanup) clearInterval(challengeCleanup)
   if (deviceCodeCleanup) clearInterval(deviceCodeCleanup)
 

@@ -445,7 +445,7 @@ export function Sidebar() {
                           : "text-muted-foreground font-medium"
                       )}
                     >
-                      {project.name}
+                      {project.number != null && <span className="text-muted-foreground font-normal mr-1">#{project.number}</span>}{project.name}
                     </span>
                   )}
 

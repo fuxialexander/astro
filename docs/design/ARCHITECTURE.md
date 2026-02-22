@@ -41,7 +41,6 @@ Astro consists of four logical components. Depending on the operating mode, they
  │  │  • Dispatch coordination (queue, routing, context assembly)       │  │
  │  │  • Observability (Langfuse tracing, audit logs, usage metrics)    │  │
  │  │  • Compute backend detection (Docker, SSH, K8s, SLURM)           │  │
- │  │  • Provider detection (AI providers available on server)          │  │
  │  └──────────────────────┬───────────────────────────────────────────┘  │
  │                         │ In-process function calls + EventEmitter     │
  │                         ▼                                              │
@@ -76,13 +75,15 @@ Astro consists of four logical components. Depending on the operating mode, they
 | Component | Responsibility | Does NOT do |
 |-----------|---------------|-------------|
 | **Frontend** (Browser) | UI rendering, local state (Zustand stores), SSE event consumption, user interactions | Call AI directly, persist to Postgres |
-| **Backend** (Hono API Server) | HTTP API, auth, data persistence (Postgres), SSE event broadcasting, dispatch coordination, observability, compute backend detection | Execute AI tasks (target architecture) |
+| **Backend** (Hono API Server) | HTTP API, auth, data persistence (Postgres), SSE event broadcasting, dispatch coordination, observability, compute backend detection | Execute AI tasks, call AI SDKs directly |
 | **Relay** (WebSocket Hub) | Machine registry, task routing, heartbeat monitoring, JWT auth (server mode) | Store data, make AI calls, detect backends |
 | **Agent Runner** (Execution Engine) | AI execution (Claude SDK/CLI/Codex), worktree management, safety checks, PR creation, execution strategies | Serve HTTP, persist application data, detect SSH backends |
 
-### 1.3 Current vs Target State
+### 1.3 Unified Execution Path
 
-Currently, the Backend **does** call AI directly for several endpoints (`/chat`, `/task-chat`, `/dispatch` local path, `/summarize`, `/generate-plan` local path). The target architecture moves all AI calls to the Agent Runner, routing through the Relay. See `SERVER_LOCAL_MODE_SEPARATION.md` for the migration plan.
+All AI execution flows through the Relay to Agent Runners. The Backend **never** calls AI directly — it builds prompts and dispatches them via the relay. There is no `if (useRelay) ... else ...` branching; every endpoint unconditionally uses relay dispatch.
+
+This was achieved by the Execution Path Unification (see `EXECUTION_PATH_DUPLICATION.md` §9). The server's provider adapters, worktree manager, session manager, and local dispatch paths were deleted. `npm run dev` starts an agent runner subprocess alongside the server.
 
 ---
 
@@ -106,7 +107,7 @@ The backend keeps nothing persistent in memory between requests. All data that m
 |-------|----------|---------|
 | `webauthn_challenges` | `challengeStore` Map in `auth.ts` | WebAuthn challenge storage with 5-min TTL |
 | `device_codes` | `deviceCodeStore` + index Maps in `device-code-store.ts` | OAuth2 device authorization codes |
-| `chat_sessions` | `pool` Map in `chat-session-pool.ts` | Chat SDK session metadata with 30-min TTL |
+| `chat_sessions` | ~~`pool` Map in `chat-session-pool.ts`~~ | Chat SDK session metadata (table retained in schema; server-side pool deleted — agent runner manages sessions directly) |
 | `shared_bundles` | `shareStore` Map in `share.ts` | Shared plan bundles |
 | `dispatch_queue_entries` | `entries` + `nodeToEntry` + `activePerProject` Maps in `dispatch-queue.ts` | Task dispatch queue |
 
@@ -455,27 +456,28 @@ Same Node.js process (`server/index.ts`). Communicate via function calls (`relay
 ## 7. Event System
 
 ```
-Agent Runner (via Relay)          Local Provider (via executionEventBus)
-          │                                     │
-          ▼                                     ▼
-    Relay Server                        executionEventBus
-          │                                     │
-          └──────── both feed into ────────┬────┘
-                                           │
-                                           ▼
-                                  /api/events/stream (SSE)
-                                           │
-                                           ▼
-                                  AstroEventTransport
-                                    (7 hooks)
-                                           │
-          ┌──────┬──────┬──────┬───────────┼──────┬──────┐
-          ▼      ▼      ▼      ▼           ▼      ▼      ▼
-        SSE   Audit  Usage    PR       Git-Pull Channel Observability
-       Notif   Log  Metrics Creation    Hook    Notif   (Langfuse)
+Agent Runner (via Relay)
+          │
+          ▼
+    Relay Server
+          │
+          ▼
+    executionEventBus
+          │
+          ▼
+    /api/events/stream (SSE)
+          │
+          ▼
+    AstroEventTransport
+      (7 hooks)
+          │
+    ┌──────┬──────┬──────┬──────┬──────┬──────┐
+    ▼      ▼      ▼      ▼      ▼      ▼      ▼
+  SSE   Audit  Usage    PR   Git-Pull Channel Observability
+ Notif   Log  Metrics Create  Hook    Notif   (Langfuse)
 ```
 
-The `executionEventBus` is a Node.js `EventEmitter` singleton (survives tsx watch reloads via `globalThis`). Both the local execution path and the relay path emit events to it.
+All events flow from agent runners through the relay to the `executionEventBus`, a Node.js `EventEmitter` singleton (survives tsx watch reloads via `globalThis`). There is no local provider path — all AI execution produces events via the relay.
 
 **Streaming event types:** `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
 
@@ -613,7 +615,6 @@ astro/
 │   │   ├── machine-registry.ts    # [RELAY] Connected machine tracking
 │   │   ├── local-backends.ts      # Compute backend detection
 │   │   ├── dispatch/              # Dispatch engine, queue, context, routing
-│   │   ├── providers/             # AI provider adapters (current, target: remove)
 │   │   ├── events/                # Event transport + hooks
 │   │   ├── observability/         # Langfuse tracing, observation collector
 │   │   ├── db/                    # Drizzle ORM + Postgres schema (28 tables)
@@ -752,7 +753,7 @@ All blockers to horizontal scaling have been resolved. In-memory Maps that held 
 - **Tiered verification**: `auto` (tests pass → complete) or `human` (manual judgment required).
 - **Multi-environment dispatch**: Tasks target local, remote, HPC, or cloud environments.
 - **Branch pruning**: Cancelling a task cascades cancellation to all downstream dependents.
-- **Procedure pipeline**: Multi-step execution workflows (implement → verify → commit → PR → summarize).
+- **Procedure pipeline**: ~~Multi-step execution workflows (implement → verify → commit → PR → summarize)~~ — Removed in execution path unification. The server-side procedure system was deleted. Agent runners handle single-step execution with agent-driven commits. Multi-step workflows may be re-added as an agent runner feature in the future.
 - **Context assembly**: Vision doc + dependency outputs + graph position + skills injected into every dispatch prompt.
 - **Session preservation**: Completed agent sessions are preserved for 10 minutes to enable post-completion steering.
 
@@ -791,7 +792,8 @@ All blockers to horizontal scaling have been resolved. In-memory Maps that held 
 | `AGENT_RUNNER.md` | CLI, providers, safety system, execution strategies, MCP, worktrees |
 | `EXECUTION_STRATEGIES.md` | Strategy interface, Direct/Docker/SLURM/K8s/SkyPilot details |
 | `USER_WORKFLOWS.md` | End-to-end workflow traces through all components |
-| `SERVER_LOCAL_MODE_SEPARATION.md` | Migration plan: move AI calls from server to agent runner |
+| `SERVER_LOCAL_MODE_SEPARATION.md` | Migration plan: move AI calls from server to agent runner (**COMPLETE**) |
+| `EXECUTION_PATH_DUPLICATION.md` | Analysis of dual execution paths and resolution (§9) |
 | `LOCAL_SERVER_REFACTOR.md` | PGlite + Drizzle migration steps with code examples |
 | `IMPLEMENTATION_PIPELINE.md` | Blocker identification, alpha/beta readiness criteria |
 | `CURRENT_CONFLICT_VIEW.md` | Known discrepancies between design docs and code |

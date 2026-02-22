@@ -72,7 +72,10 @@ app.post('/projects', async (c) => {
     labels: body.labels ?? [],
     color: body.color ?? '#3b82f6',
     icon: body.icon ?? '📋',
+    number: body.number ?? null,
     workingDirectory: body.workingDirectory ?? null,
+    sourceDirectory: body.sourceDirectory ?? null,
+    repository: body.repository ?? null,
     mergeQueueEnabled: body.mergeQueueEnabled ?? false,
     mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
@@ -139,7 +142,9 @@ app.patch('/projects/:id', async (c) => {
   if (body.labels !== undefined) patch.labels = body.labels
   if (body.color !== undefined) patch.color = body.color
   if (body.icon !== undefined) patch.icon = body.icon
+  if (body.number !== undefined) patch.number = body.number
   if (body.workingDirectory !== undefined) patch.workingDirectory = body.workingDirectory || null
+  if (body.sourceDirectory !== undefined) patch.sourceDirectory = body.sourceDirectory || null
   if (body.repository !== undefined) patch.repository = body.repository || null
   if (body.defaultEnvironment !== undefined) patch.defaultEnvironment = body.defaultEnvironment || null
   if (body.defaultMachineId !== undefined) patch.defaultMachineId = body.defaultMachineId || null
@@ -430,6 +435,7 @@ app.put('/plan/:projectId', async (c) => {
       const row = {
         clientId: n.id as string, // Use client ID for compatibility
         projectId,
+        number: (n.number as number) ?? null,
         type: n.type as string,
         title: n.title as string,
         description: (n.description as string) ?? '',
@@ -493,6 +499,7 @@ app.post('/plan/nodes', async (c) => {
   await db.insert(planNodes).values({
     clientId: body.id,
     projectId: body.projectId,
+    number: body.number ?? null,
     type: body.type,
     title: body.title,
     description: body.description ?? '',
@@ -542,6 +549,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   const body = await c.req.json()
   const patch: Record<string, unknown> = { updatedAt: new Date() }
 
+  if (body.number !== undefined) patch.number = body.number
   if (body.title !== undefined) patch.title = body.title
   if (body.description !== undefined) patch.description = body.description
   if (body.status !== undefined) patch.status = body.status

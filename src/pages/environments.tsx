@@ -60,7 +60,6 @@ const backendStyleMap: Record<string, { color: string; bg: string }> = {
   slurm: { color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30" },
   docker: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30" },
   "k8s-exec": { color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-100 dark:bg-sky-900/30" },
-  skypilot: { color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-100 dark:bg-orange-900/30" },
   ssh: { color: "text-teal-700 dark:text-teal-400", bg: "bg-teal-50 dark:bg-teal-900/25" },
 }
 
@@ -642,10 +641,12 @@ export function Environments() {
   const liveMachines = Array.from(machines.values())
 
   // Connected: all machines with a live relay WebSocket connection.
-  // Previously filtered out environmentType === 'local', but relay-connected
-  // machines should always show here regardless of their type — a user's
-  // laptop connecting via the agent runner is still a "connected" machine.
-  const connectedLiveMachines = liveMachines
+  // In multi-tenant mode, filter to only show machines that belong to
+  // the current user's team (registered machines are already team-scoped).
+  const registeredMachineIds = new Set(registeredMachines.filter((m) => !m.isRevoked).map((m) => m.id))
+  const connectedLiveMachines = isMultiTenant
+    ? liveMachines.filter((m) => registeredMachineIds.has(m.machineId))
+    : liveMachines
   const liveMachineIds = new Set(connectedLiveMachines.map((m) => m.machineId))
 
   // Count registered-but-offline machines
@@ -877,7 +878,7 @@ export function Environments() {
                 <EmptyState
                   icon={Container}
                   title="No compute backends detected"
-                  description="Connect a machine with the agent runner. It auto-detects available backends (SLURM, Docker, Kubernetes, SkyPilot) and reports them here."
+                  description="Connect a machine with the agent runner. It auto-detects available backends (SLURM, Docker, Kubernetes) and reports them here."
                   action={{
                     label: "Add Environment",
                     onClick: () => setDialogOpen(true),
@@ -898,7 +899,7 @@ export function Environments() {
                 <EmptyState
                   icon={Container}
                   title="No compute backends detected"
-                  description="Connect a machine with SLURM, Docker, Kubernetes, or SkyPilot. The agent runner auto-detects available backends and injects environment context into Claude sessions."
+                  description="Connect a machine with SLURM, Docker, or Kubernetes. The agent runner auto-detects available backends and injects environment context into Claude sessions."
                   action={{
                     label: "Add Environment",
                     onClick: () => setDialogOpen(true),

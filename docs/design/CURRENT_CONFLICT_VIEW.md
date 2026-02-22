@@ -18,17 +18,17 @@ This document tracks discrepancies between design documents (in `docs/design/`),
 
 **Resolution needed:** Update §3 evidence, Phase A status, and component percentages.
 
-### 3. ARCHITECTURE.md §1.3 — Backend AI Calls
+### 3. ~~ARCHITECTURE.md §1.3 — Backend AI Calls~~ ✅ RESOLVED
 
-States the backend calls AI directly for several endpoints. Since `a11b35e`, server mode routes through relay.
+~~States the backend calls AI directly for several endpoints.~~
 
-**Resolution needed:** Clarify backend calls AI directly only in local mode.
+**Resolved (2026-02-22):** §1.3 rewritten to state that all AI execution flows through the relay to agent runners. The backend never calls AI directly. This was achieved by the Execution Path Unification — see `EXECUTION_PATH_DUPLICATION.md` §9.
 
-### 4. `docs/SERVER_LOCAL_MODE_SEPARATION.md` — Missing
+### 4. ~~`docs/SERVER_LOCAL_MODE_SEPARATION.md` — Missing~~ ✅ RESOLVED
 
-Referenced in `docs/design/README.md`, `ARCHITECTURE.md`, and `RELAY.md` but never created. Content partially covered by `IMPLEMENTATION_PIPELINE.md` §3-4.
+~~Referenced in docs but never created.~~
 
-**Resolution needed:** Create the file or update references to point to IMPLEMENTATION_PIPELINE.md.
+**Resolved (2026-02-22):** The migration described in this plan has been **completed** by the Execution Path Unification. ARCHITECTURE.md §1.3 now documents the completed state. The reference in ARCHITECTURE.md has been updated to mark the plan as COMPLETE.
 
 ### 5. Agent Runner Config vs. Data Directory
 
@@ -64,8 +64,8 @@ Inconsistent across docs: `astro.fuxialexander.work` (dev tunnel), `astroanywher
 
 | Category | Count |
 |----------|-------|
-| Design doc issues (open) | 5 |
-| Design doc issues (resolved) | 2 |
+| Design doc issues (open) | 3 |
+| Design doc issues (resolved) | 4 |
 | Other open issues | 1 |
-| **Total open** | **6** |
-| **Total resolved** | **2** |
+| **Total open** | **4** |
+| **Total resolved** | **4** |

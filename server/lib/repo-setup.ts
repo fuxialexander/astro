@@ -97,12 +97,19 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
     return { workingDirectory: dir, fileTree, keyFiles, claudeMdCreated, gitignoreCreated }
   }
 
-  // Case 2: Repository URL provided — clone it
-  if (validatedRepository && !workingDirectory) {
-    const dir = cloneRepo(validatedRepository, projectId)
+  // Case 2: Repository URL + working directory — clone into user-specified dir
+  if (validatedRepository && workingDirectory) {
+    const repoName = extractRepoName(validatedRepository)
+    const cloneTarget = join(workingDirectory, repoName)
+    const dir = cloneRepo(validatedRepository, cloneTarget)
     const fileTree = getFileTree(dir)
     const keyFiles = readKeyFiles(dir)
     return { workingDirectory: dir, fileTree, keyFiles, repository: validatedRepository }
+  }
+
+  // Case 2b: Repository URL, no working directory — error
+  if (validatedRepository && !workingDirectory) {
+    throw new Error('Working directory required for git URL projects. Specify a local folder where the repository will be cloned.')
   }
 
   // Case 3/4: Local directory provided
@@ -248,18 +255,27 @@ function gitInit(dir: string): void {
 }
 
 /**
- * Clone a git repository to the local cache directory.
+ * Extract repository name from a git URL.
+ * e.g., "git@github.com:user/repo.git" → "repo"
+ *       "https://github.com/user/repo.git" → "repo"
+ */
+function extractRepoName(url: string): string {
+  const name = basename(url).replace(/\.git$/, '')
+  return name || 'repo'
+}
+
+/**
+ * Clone a git repository to the specified target directory.
  *
  * SECURITY (CRITICAL-005): Uses execFileSync instead of execSync to prevent
  * command injection via malicious git URLs.
  */
-function cloneRepo(url: string, projectId: string): string {
-  const repoDir = join(homedir(), '.astro', 'repos', projectId)
-  if (existsSync(join(repoDir, '.git'))) {
+function cloneRepo(url: string, targetDir: string): string {
+  if (existsSync(join(targetDir, '.git'))) {
     // Already cloned — fetch latest
     try {
       execFileSync('git', ['fetch', '--all'], {
-        cwd: repoDir,
+        cwd: targetDir,
         stdio: 'ignore',
         timeout: 30_000,
       })
@@ -267,14 +283,14 @@ function cloneRepo(url: string, projectId: string): string {
       // Non-fatal
     }
   } else {
-    mkdirSync(join(homedir(), '.astro', 'repos'), { recursive: true })
+    mkdirSync(join(targetDir, '..'), { recursive: true })
     // Use execFileSync to prevent command injection (CRITICAL-005)
-    execFileSync('git', ['clone', url, repoDir], {
+    execFileSync('git', ['clone', url, targetDir], {
       stdio: 'ignore',
       timeout: 120_000,
     })
   }
-  return repoDir
+  return targetDir
 }
 
 function initialCommit(dir: string): void {

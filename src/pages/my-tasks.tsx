@@ -550,7 +550,7 @@ export function MyTasks() {
                     const StatusIcon = status.icon
                     return <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", status.color)} />
                   })()}
-                  <span className="text-sm truncate">{node.title}</span>
+                  <span className="text-sm truncate">{node.number != null && <span className="text-muted-foreground font-normal mr-1">#{node.number}</span>}{node.title}</span>
                 </div>
               )}
               onItemClick={(node) => handleNodeSelect(node)}

@@ -2,16 +2,10 @@
  * Channel Router
  *
  * Central message coordinator that routes inbound chat messages
- * to the AI agent and fans out notifications to registered channels.
- *
- * Uses provider.execute() directly (non-streaming) following the same
- * getChatProvider() pattern from server/routes/agent.ts.
+ * to the AI agent via relay and fans out notifications to registered channels.
  */
 
-import {
-  providerRegistry,
-  type TaskDispatch,
-} from '../providers/index.js'
+import { relayServer } from '../relay-server.js'
 import { buildChatSystemPrompt } from '../prompt-templates.js'
 import type {
   InboundMessage,
@@ -24,24 +18,13 @@ import type {
 } from './channel-types.js'
 import { formatForChannel } from './channel-formatter.js'
 import type { ChannelFormat } from './channel-types.js'
+import type { TaskTextMessage, TaskResultMessage } from '../../types/relay.js'
 
 const FORMAT_MAP: Record<ChannelType, ChannelFormat> = {
   slack: 'slack_mrkdwn',
   telegram: 'telegram_html',
   github: 'github_gfm',
   linear: 'linear_markdown',
-}
-
-/**
- * Get the best provider for channel chat.
- * Mirrors getChatProvider() from server/routes/agent.ts.
- */
-function getChatProvider() {
-  const directReg = providerRegistry.getRegisteredProvider('anthropic-direct')
-  if (directReg?.available) {
-    return directReg.provider
-  }
-  return providerRegistry.getDefaultProvider()
 }
 
 class ChannelRouterImpl implements IChannelRouter {
@@ -52,38 +35,64 @@ class ChannelRouterImpl implements IChannelRouter {
   private notificationSenders = new Map<string, Map<ChannelType, NotificationSenderFn>>()
 
   /**
-   * Route an inbound chat message through the AI agent.
-   * Calls provider.execute() (non-streaming) and returns the formatted response.
+   * Route an inbound chat message through the AI agent via relay.
    */
   async routeMessage(message: InboundMessage): Promise<OutboundResponse> {
-    const provider = getChatProvider()
-
-    if (!provider) {
-      return {
-        text: 'No AI provider is currently available. Please check your Astro server configuration.',
-        conversationRef: message.conversationRef,
-      }
-    }
-
     const systemPrompt = buildChatSystemPrompt()
     const taskId = `channel-${message.channel}-${Date.now()}`
 
-    const task: TaskDispatch = {
+    const task = {
       taskId,
-      type: 'chat',
+      projectId: message.projectId || '',
+      nodeId: '',
+      title: 'Channel chat',
+      description: message.text.slice(0, 200),
+      environment: 'remote' as const,
       prompt: message.text,
       systemPrompt,
+      type: 'chat' as const,
       maxTurns: 1,
-      context: {
-        projectId: message.projectId,
-      },
     }
 
     try {
-      const result = await provider.execute(task)
-      const rawText = result.stdout || 'I was unable to generate a response.'
+      // Dispatch via relay and collect result
+      const result = await new Promise<string>((resolve) => {
+        let output = ''
+        const timeout = setTimeout(() => {
+          cleanup()
+          resolve(output || 'Request timed out.')
+        }, 60_000)
+
+        const onText = (msg: TaskTextMessage) => {
+          if (msg.taskId !== taskId) return
+          output += msg.text
+        }
+
+        const onResult = (msg: TaskResultMessage) => {
+          if (msg.result.taskId !== taskId) return
+          clearTimeout(timeout)
+          cleanup()
+          resolve(msg.result.output || output || 'I was unable to generate a response.')
+        }
+
+        const cleanup = () => {
+          relayServer.off('task:text', onText)
+          relayServer.off('task:result', onResult)
+        }
+
+        relayServer.on('task:text', onText)
+        relayServer.on('task:result', onResult)
+
+        const dispatched = relayServer.dispatchTask(task)
+        if (!dispatched) {
+          clearTimeout(timeout)
+          cleanup()
+          resolve('No AI agent runner is currently available.')
+        }
+      })
+
       const format = FORMAT_MAP[message.channel]
-      const formattedText = formatForChannel(rawText, format)
+      const formattedText = formatForChannel(result, format)
 
       return {
         text: formattedText,
@@ -131,7 +140,6 @@ class ChannelRouterImpl implements IChannelRouter {
     console.log(`[channel-router] Registered notification sender for ${channel} on project ${projectId}`)
   }
 
-  /** Get the response sender for a channel (used by plugins to post responses) */
   getResponseSender(channel: ChannelType): ResponseSenderFn | undefined {
     return this.responseSenders.get(channel)
   }

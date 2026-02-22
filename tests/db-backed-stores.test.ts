@@ -5,8 +5,7 @@
  * 1. Challenge Store — WebAuthn challenge storage (fixes multi-instance auth bug)
  * 2. Device Code Store — OAuth2 device authorization codes
  * 3. Share Route — Shared plan bundles
- * 4. Chat Session Pool — SDK session pool (already has its own test file, we add edge cases)
- * 5. Dispatch Queue — Task dispatch queue (already has its own test file, we add edge cases)
+ * 4. Dispatch Queue — Task dispatch queue (already has its own test file, we add edge cases)
  *
  * Uses an in-memory PGlite instance so tests are fast and isolated.
  */
@@ -28,7 +27,6 @@ import {
   webauthnChallenges,
   deviceCodes,
   sharedBundles,
-  chatSessions,
   dispatchQueueEntries,
 } from '../server/lib/db/schema.js'
 import { eq } from 'drizzle-orm'
@@ -52,15 +50,6 @@ import {
   cleanupExpiredDeviceCodes,
   getDeviceCodeStats,
 } from '../server/lib/device-code-store.js'
-
-import {
-  storeSession,
-  getSession,
-  removeSession,
-  cleanupExpired,
-  poolSize,
-  clearAll,
-} from '../server/lib/chat-session-pool.js'
 
 import { createDispatchQueue } from '../server/lib/dispatch/dispatch-queue.js'
 
@@ -463,57 +452,7 @@ describe('Shared Bundles (DB layer)', () => {
 })
 
 // ============================================================================
-// 4. Chat Session Pool — Additional Edge Case Tests
-// ============================================================================
-
-describe('Chat Session Pool (edge cases)', () => {
-  beforeEach(async () => {
-    await clearAll()
-  })
-
-  it('handles rapid sequential operations', async () => {
-    for (let i = 0; i < 10; i++) {
-      await storeSession(`key-${i}`, `sid-${i}`, 'claude-code')
-    }
-    const size = await poolSize()
-    expect(size).toBe(10)
-  })
-
-  it('upsert updates sdkSessionId and providerId', async () => {
-    await storeSession('proj:plan-chat', 'old-sid', 'old-provider')
-    await storeSession('proj:plan-chat', 'new-sid', 'new-provider')
-
-    const entry = await getSession('proj:plan-chat')
-    expect(entry!.sdkSessionId).toBe('new-sid')
-    expect(entry!.providerId).toBe('new-provider')
-
-    const size = await poolSize()
-    expect(size).toBe(1)
-  })
-
-  it('cleanupExpired with 0ms TTL removes all entries', async () => {
-    await storeSession('k1', 'sid1', 'p')
-    await storeSession('k2', 'sid2', 'p')
-
-    // Set lastUsedAt to 1 second ago so it's definitely expired with 0ms TTL
-    await db.update(chatSessions)
-      .set({ lastUsedAt: new Date(Date.now() - 1000) })
-
-    const cleaned = await cleanupExpired(0)
-    expect(cleaned).toBe(2)
-  })
-
-  it('removeSession is idempotent', async () => {
-    await storeSession('rm-key', 'sid', 'p')
-    await removeSession('rm-key')
-    await removeSession('rm-key') // Should not throw
-    const entry = await getSession('rm-key')
-    expect(entry).toBeUndefined()
-  })
-})
-
-// ============================================================================
-// 5. Dispatch Queue — Additional Edge Case Tests
+// 4. Dispatch Queue — Additional Edge Case Tests
 // ============================================================================
 
 describe('Dispatch Queue (edge cases)', () => {

@@ -35,6 +35,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   addProject: (project) => {
+    // Auto-assign display number if not set
+    if (project.number == null) {
+      const existing = get().projects
+      const maxNumber = existing.reduce((max, p) => Math.max(max, p.number ?? 0), 0)
+      project = { ...project, number: maxNumber + 1 }
+    }
     const next = [...get().projects, project]
     set({ projects: next })
     dataClient.createProject(project).catch(() => {})

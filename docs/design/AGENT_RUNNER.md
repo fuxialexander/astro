@@ -55,14 +55,11 @@ This section provides the full bird's-eye view of how a user's action (creating 
 │  │ (plan gen)     │  │ (task exec)    │  │ (machine mgmt│                  │
 │  └────────┬───────┘  └────────┬───────┘  └──────────────┘                  │
 │           │                   │                                             │
-│           │   ┌───────────────┤                                             │
-│           │   │ LOCAL?        │ RELAY?                                      │
-│           ▼   ▼               ▼                                             │
-│  ┌────────────────┐  ┌────────────────────────────────┐                    │
-│  │ Provider        │  │ Relay Server (WS, port 3002)   │                    │
-│  │ (claude-code)   │  │ + Machine Registry              │                    │
-│  │ runs locally    │  │                                │                    │
-│  └────────────────┘  └────────────┬───────────────────┘                    │
+│           └───────────────────┤  ALL → Relay dispatch                       │
+│                               ▼                                             │
+│  ┌────────────────────────────────────────────────────┐                    │
+│  │ Relay Server (WS, port 3002) + Machine Registry    │                    │
+│  └────────────────────────┬───────────────────────────┘                    │
 └──────────────────────────────────┼──────────────────────────────────────────┘
                                    │ WebSocket
                                    ▼
@@ -82,13 +79,11 @@ This section provides the full bird's-eye view of how a user's action (creating 
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 The Two Dispatch Paths
+### 2.2 Unified Dispatch Path
 
-The system has **two fundamentally different execution paths**:
+> **Note:** The system previously had two dispatch paths (local and relay). The local dispatch path was removed in the Execution Path Unification. See `EXECUTION_PATH_DUPLICATION.md` §9 for the full history.
 
-**Path A: Local Dispatch** — Server has a provider (Claude SDK/Code) available locally. The server itself runs the AI and manages the worktree. No agent runner involved.
-
-**Path B: Relay Dispatch** — Server sends the task over WebSocket to a remote agent runner. The agent runner manages the worktree, runs the AI, and streams results back through the relay.
+All task dispatch now flows through a single path:
 
 ```
                     ┌──────────────────┐
@@ -97,25 +92,26 @@ The system has **two fundamentally different execution paths**:
                     └────────┬─────────┘
                              │
                     ┌────────▼─────────┐
-                    │  isServerMode()  │
-                    │  OR remote env   │
-                    │  OR targetMachine│
+                    │  ALWAYS RELAY    │
+                    │  DISPATCH        │
                     └────────┬─────────┘
-                      yes ┌──┴──┐ no
-                          │     │
-               ┌──────────▼┐   ┌▼──────────────┐
-               │   RELAY    │   │    LOCAL       │
-               │  DISPATCH  │   │   DISPATCH     │
-               │            │   │                │
-               │ Pass raw   │   │ Server clones  │
-               │ workingDir │   │ repo if git URL│
-               │ to agent   │   │ Creates worktree│
-               │ runner via │   │ Runs provider  │
-               │ WebSocket  │   │ Streams SSE    │
-               └────────────┘   └────────────────┘
+                             │
+               ┌─────────────▼──────────────┐
+               │   Build prompt, find       │
+               │   machine, dispatch via    │
+               │   WebSocket relay          │
+               └─────────────┬──────────────┘
+                             │
+               ┌─────────────▼──────────────┐
+               │   AGENT RUNNER             │
+               │   Resolve working dir,     │
+               │   create worktree,         │
+               │   run AI, create PR,       │
+               │   stream results back      │
+               └────────────────────────────┘
 ```
 
-**This split is the source of most redundancy** (see Section 15 for critique).
+The server is a pure API + DB + relay hub. It **never** calls AI directly.
 
 ---
 
@@ -192,7 +188,7 @@ STEP  COMPONENT          ACTION                           WHERE CODE LIVES
 
 ### 3.3 Workflow C: Dispatch a Task for Execution
 
-This is the most complex flow. Here is the full step-by-step:
+All tasks are dispatched via the relay to agent runners. There is no local dispatch path.
 
 ```
 STEP  COMPONENT          ACTION
@@ -203,87 +199,50 @@ STEP  COMPONENT          ACTION
                            environment, targetMachineId?, preferredProvider?,
                            visionDoc?, dependencyOutputs[] }
 
- 2    Server             Validates input. Checks dependencies are met.
-      dispatch.ts        Decides: local or relay dispatch?
-                         (see decision logic in 2.2)
+ 2    Server             Validates input (Zod). Checks dependencies are met.
+      dispatch.ts        Assembles execution context (vision doc + deps).
+                         Dispatches via relay — always.
 
-     ╔══════════════════════════════════════════════════════════════╗
-     ║  PATH A: LOCAL DISPATCH (server runs the AI)                ║
-     ╠══════════════════════════════════════════════════════════════╣
-     ║                                                              ║
-     ║  3a  Server           Resolve workingDirectory:              ║
-     ║      dispatch.ts      - If git URL → clone to               ║
-     ║                         ~/.astro/repos/{projectId}/          ║
-     ║                       - If local path → use as-is            ║
-     ║                                                              ║
-     ║  4a  Server           Create git worktree:                   ║
-     ║      worktree-        ~/.astro/worktrees/{repo}/{taskId}/   ║
-     ║      manager.ts       Branch: astro/{nodeId}                ║
-     ║                                                              ║
-     ║  5a  Server           Build execution prompt:                ║
-     ║      dispatch.ts      [vision doc] + [dependency outputs]    ║
-     ║                       + [task description] + [instructions]  ║
-     ║                                                              ║
-     ║  6a  Server           Run provider.stream(task) with         ║
-     ║      providers/       workingDirectory = worktree path       ║
-     ║      claude-code.ts   (NOT the original repo dir)           ║
-     ║                                                              ║
-     ║  7a  Server           Forward StreamEvents as SSE:           ║
-     ║                       text, tool_use, tool_result,           ║
-     ║                       file_change, progress, result, done    ║
-     ║                                                              ║
-     ║  8a  Server           On success:                            ║
-     ║      dispatch.ts      - Auto-commit changes                  ║
-     ║                       - Push branch, create PR               ║
-     ║                       - Clean up worktree (keep branch       ║
-     ║                         if PR created)                       ║
-     ╚══════════════════════════════════════════════════════════════╝
+ 3    Server             Find target machine in registry.
+      dispatch.ts        Build prompt. Send task_dispatch via WebSocket relay.
+                         workingDirectory passed as-is (git URL or local path).
 
-     ╔══════════════════════════════════════════════════════════════╗
-     ║  PATH B: RELAY DISPATCH (agent runner runs the AI)          ║
-     ╠══════════════════════════════════════════════════════════════╣
-     ║                                                              ║
-     ║  3b  Server           Find target machine in registry.       ║
-     ║      dispatch.ts      Build prompt. Send task_dispatch       ║
-     ║                       via WebSocket relay.                   ║
-     ║                       workingDirectory passed as-is          ║
-     ║                       (git URL or local path).               ║
-     ║                                                              ║
-     ║  4b  Agent Runner     Receive task_dispatch message.         ║
-     ║      task-executor    Run safety checks on directory.        ║
-     ║                                                              ║
-     ║  5b  Agent Runner     Resolve workingDirectory:              ║
-     ║      task-executor    - If git URL → clone to                ║
-     ║                         ~/.astro/repos/{projectId}/          ║
-     ║                       - If empty → process.cwd()             ║
-     ║                       - If local path → use as-is            ║
-     ║                                                              ║
-     ║  6b  Agent Runner     Create git worktree:                   ║
-     ║      worktree.ts      ~/.astro/worktrees/{repo}/{taskId}/   ║
-     ║                       Branch: astro/{taskId}                ║
-     ║                                                              ║
-     ║  7b  Agent Runner     Run adapter.execute(task, stream,      ║
-     ║      providers/       signal) with workingDirectory =       ║
-     ║                       worktree path.                         ║
-     ║                                                              ║
-     ║  8b  Agent Runner     Stream events back via WebSocket:      ║
-     ║      websocket-       task_text, task_tool_use,              ║
-     ║      client.ts        task_tool_result, task_file_change,    ║
-     ║                       task_result                            ║
-     ║                                                              ║
-     ║  9b  Server           Relay receives WS events, converts     ║
-     ║      relay-server     to internal format, emits to event     ║
-     ║                       bus.                                   ║
-     ║                                                              ║
-     ║ 10b  Server           dispatch.ts listeners forward relay    ║
-     ║      dispatch.ts      events as SSE to browser.              ║
-     ║                                                              ║
-     ║ 11b  Agent Runner     On success:                            ║
-     ║      task-executor    - Auto-create PR via pushAndCreatePR() ║
-     ║                       - Clean up worktree (keep if PR)       ║
-     ║                       - Send task_result with prUrl,         ║
-     ║                         branchName                           ║
-     ╚══════════════════════════════════════════════════════════════╝
+ 4    Agent Runner       Receive task_dispatch message.
+      task-executor      Run safety checks on directory.
+
+ 5    Agent Runner       Resolve workingDirectory:
+      task-executor      - If git URL → clone to ~/.astro/repos/{projectId}/
+                           (validates projectId, disables git hooks)
+                         - If empty → process.cwd()
+                         - If local path → use as-is
+
+ 6    Agent Runner       Create git worktree:
+      worktree.ts        ~/.astro/worktrees/{repo}/{taskId}/
+                         Branch: astro/{taskId}
+                         - Parses porcelain output for lingering worktrees
+                         - Deletes remote branch if exists (prevents non-fast-forward)
+                         - Fetches latest from origin
+                         - Runs .astro/.setup if exists
+
+ 7    Agent Runner       Run adapter.execute(task, stream, signal) with
+      providers/         workingDirectory = worktree path.
+
+ 8    Agent Runner       Stream events back via WebSocket:
+      websocket-         task_text, task_tool_use, task_tool_result,
+      client.ts          task_file_change, task_result
+
+ 9    Server             Relay receives WS events, converts to internal
+      relay-server       format, emits to event bus.
+
+10    Server             dispatch.ts listeners forward relay events as
+      dispatch.ts        SSE to browser.
+
+11    Agent Runner       On success:
+      task-executor      - Auto-commit if agent didn't commit
+                         - Check branch has commits ahead of base
+                         - Push branch, create PR via pushAndCreatePR()
+                         - Clean up worktree (keep branch if PR created)
+                         - Send task_result with prUrl, branchName
 ```
 
 ### 3.4 Where Code Actually Lives During Execution
@@ -792,7 +751,7 @@ Each task gets its own worktree (branch + working copy) so:
 
 ### Worktree Lifecycle
 
-`src/lib/worktree.ts` (agent runner) and `server/lib/worktree-manager.ts` (server)
+`packages/agent-runner/src/lib/worktree.ts` — the **only** worktree implementation (server-side `worktree-manager.ts` was deleted).
 
 ```
 createWorktree(taskId, workingDirectory)
@@ -802,15 +761,19 @@ createWorktree(taskId, workingDirectory)
        ├── Verify commits exist: git rev-parse --verify HEAD
        │
        ├── Base dir: ~/.astro/worktrees/{repoName}/
-       ├── Branch: astro/{sanitized-taskId}  (or astro/{nodeId} on server)
+       ├── Branch: astro/{sanitized-taskId}
        ├── Path: ~/.astro/worktrees/{repoName}/{sanitized-taskId}/
        │
-       ├── Clean up stale: rm + git worktree prune
-       ├── Delete old branch: git branch -D {branchName}
-       ├── Create: git worktree add -b {branch} {path}
+       ├── Remove lingering worktrees (porcelain parsing)
+       │   └── git worktree list --porcelain → find matching branch → force-remove
+       ├── Delete remote branch if exists: git push origin --delete {branch}
+       ├── Delete old local branch: git branch -D {branchName}
+       ├── Fetch latest: git fetch origin (with hook disabling)
+       ├── Detect default branch: origin/HEAD → origin/main → origin/master
+       ├── Create: git worktree add -b {branch} {path} {defaultBranch}
        │
-       ├── (agent-runner only) Apply .astro/include/ files
-       ├── (agent-runner only) Run .astro/.setup script
+       ├── Apply .astro/include/ files (copy into worktree)
+       ├── Run .astro/.setup script (if exists)
        │
        └── Return { worktreePath, branchName, cleanup() }
 
@@ -820,6 +783,12 @@ On cleanup:
        ├── rm -rf {path}
        └── (unless keepBranch) git branch -D {branchName}
 ```
+
+**Features backported from server:**
+- Porcelain parsing to find and remove lingering worktrees by branch name (prevents "branch already checked out" errors on re-execution)
+- Remote branch pre-deletion before worktree creation (prevents non-fast-forward errors)
+- Fetch before worktree creation (ensures latest code)
+- Default branch detection (checkout from correct base)
 
 **Subdirectory preservation**: If the task's working directory is a subdirectory of the repo (e.g., `repo/packages/web/`), the worktree preserves this: the returned working directory becomes `worktree-path/packages/web/`.
 
@@ -967,113 +936,57 @@ interface TaskResult {
 
 ## 15. Architectural Critique and Known Redundancies
 
-This section documents the actual problems with the current architecture. These are not theoretical — they cause real confusion and maintenance burden.
+> **Update (2026-02-22):** Issues 15.1–15.3 have been **fully resolved** by the Execution Path Unification. The server no longer has a local dispatch path. See `EXECUTION_PATH_DUPLICATION.md` §9.
 
-### 15.1 Duplicated Working Directory Resolution
+### 15.1 ~~Duplicated Working Directory Resolution~~ ✅ RESOLVED
 
-**The same logic exists in three places:**
+~~The same logic existed in three places.~~
 
-| Location | Function | Triggered by |
-|----------|----------|-------------|
-| `server/routes/dispatch.ts:283` | `resolveWorkingDirectory()` | Local dispatch |
-| `packages/agent-runner/src/lib/task-executor.ts:682` | `resolveWorkingDirectory()` | Relay dispatch (task executor) |
-| `packages/agent-runner/src/lib/repo-utils.ts:114` | `cloneRepository()` | Repo setup request |
+**Resolution:** The server's `resolveWorkingDirectory()` in `dispatch.ts` was deleted. The agent runner's version in `task-executor.ts` now includes the security hardening (projectId validation, git hook disabling) that was previously server-only. Two implementations remain in the agent runner for different contexts:
+- `task-executor.ts:resolveWorkingDirectory()` — used during task dispatch
+- `repo-utils.ts:cloneRepository()` — used during repo setup requests
 
-All three do the same thing: if the input is a git URL, clone to `~/.astro/repos/{projectId}/`. If it's a local path, use as-is.
+### 15.2 ~~Duplicated Worktree Management~~ ✅ RESOLVED
 
-**Problem**: These have slightly different implementations. The server version uses `execFileSync` with hooks disabled (`-c core.hooksPath=/dev/null`); the agent runner version does not. The server version validates projectId format; the agent runner version does not. They use different timeouts (30s vs 120s). This divergence will grow over time.
+~~Two separate implementations existed.~~
 
-**Recommendation**: Extract a shared `resolveWorkingDirectory()` function into a common package, or clearly document that the server and agent runner versions are intentionally different (and why).
+**Resolution:** `server/lib/worktree-manager.ts` was deleted. The agent runner's `worktree.ts` is now the only implementation. Server-specific features (porcelain parsing, remote branch deletion, fetch before worktree, default branch detection) were backported to the agent runner before deletion.
 
-### 15.2 Duplicated Worktree Management
+### 15.3 ~~The "Who Manages the Workspace" Problem~~ ✅ RESOLVED
 
-**Two separate implementations:**
+~~The answer was "both, depending on the dispatch path."~~
 
-| Location | Function | Triggered by |
-|----------|----------|-------------|
-| `server/lib/worktree-manager.ts` | `createServerWorktree()` | Local dispatch |
-| `packages/agent-runner/src/lib/worktree.ts` | `createWorktree()` | Relay dispatch |
+**Resolution:** The answer is now unambiguously **the agent runner**. The server passes the raw `workingDirectory` value via relay, and the agent runner handles everything: cloning, worktree creation, AI execution, PR creation, and cleanup.
 
-Both create worktrees at `~/.astro/worktrees/{repoName}/`, both prune stale worktrees, both clean up afterward.
+### 15.4 ~~Missing Working Directory Specification in Task Schema~~ ✅ RESOLVED
 
-**Differences that cause bugs:**
-- Server uses `astro/{nodeId}` as branch name. Agent runner uses `astro/{taskId}`. These are different values — nodeId is the plan graph node ID, taskId is the execution ID. This means the same plan node dispatched twice will have different branches on the server vs agent runner.
-- Server requires remote origin (throws if missing). Agent runner does not.
-- Agent runner runs `.astro/.setup` and `.astro/include/` after worktree creation. Server does not.
+~~The `Task` interface had a `workingDirectory: string` field with ambiguous semantics depending on dispatch path.~~
 
-**Recommendation**: Either unify into a single worktree manager (used by both server and agent runner), or formalize the differences as intentional and document them.
+**Resolution:** Added `sourceDirectory` field to `Project` type (`src/types/index.ts`) and `TaskDispatch` (`server/types/relay.ts`). `sourceDirectory` always means "the resolved local path where the project repo lives." All consumers use `project.sourceDirectory ?? project.workingDirectory` for backward compatibility. New projects set `sourceDirectory` on creation. `workingDirectory` is deprecated but kept for old projects.
 
-### 15.3 The "Who Manages the Workspace" Problem
+### 15.5 ~~Repo Setup vs Task Dispatch Overlap~~ ✅ RESOLVED
 
-The fundamental architectural question: **should the server or the agent runner be responsible for workspace preparation?**
+~~When a project is created, `/api/repo/setup` cloned the repo and built the file tree. Then `resolveWorkingDirectory()` in `task-executor.ts` could clone the same repo again.~~
 
-Currently, the answer is "both, depending on the dispatch path":
+**Resolution:** `resolveWorkingDirectory()` in `task-executor.ts` no longer handles git URLs. If a git URL reaches dispatch time, it throws an error — repo setup must have resolved it to a local path first. Clones now go to user-specified directories (not `~/.astro/repos/`). Worktrees are created at `{gitRoot}/.astro-tasks/{taskId}/` instead of `~/.astro/worktrees/`. `~/.astro/` is now metadata-only (DB, logs, config).
 
-```
-LOCAL DISPATCH:    Server clones repo → Server creates worktree → Server runs AI
-RELAY DISPATCH:    Server passes raw path → Agent runner clones → Agent runner creates worktree → Agent runner runs AI
-```
+### 15.6 ~~`process.chdir()` in SDK Adapter~~ ✅ RESOLVED
 
-This means:
-1. When running locally, the server must have git installed and understand worktree management.
-2. When running via relay, the agent runner must have the same capabilities.
-3. Both must handle PR creation.
-4. The `workingDirectory` field means different things: for local dispatch it's already resolved; for relay dispatch it might be a git URL that still needs resolution.
+~~The Claude SDK adapter changed the Node.js process's working directory with `process.chdir()`.~~
 
-**This is the core design tension.** The system tries to support both "server does everything" and "agent runner does everything" without a clean abstraction layer.
+**Resolution:** The code intentionally does NOT use `process.chdir()`. The Claude SDK adapter passes `cwd` via `options.cwd` (see `claude-sdk-adapter.ts`). Claude Code and Codex adapters pass `cwd` to `spawn()`. An explicit comment in `claude-sdk-adapter.ts` documents the design decision.
 
-### 15.4 Missing Working Directory Specification in Task Schema
+### 15.7 Summary
 
-The `Task` interface has a `workingDirectory: string` field but:
-- It does not specify whether this is the **original repo path** or the **worktree path**.
-- For local dispatch, the task's `workingDirectory` is set to the worktree path by the server before calling the provider.
-- For relay dispatch, the task's `workingDirectory` is the raw value from the frontend (could be a git URL), and the agent runner resolves it before creating a worktree.
-
-**The same field has different semantics depending on the dispatch path.** This is confusing and error-prone.
-
-**Recommendation**: Split into explicit fields:
-```typescript
-interface Task {
-  repository?: string;       // Git URL (if any)
-  sourceDirectory?: string;  // Original local path
-  // workingDirectory is set internally to worktree path before execution
-}
-```
-
-### 15.5 Repo Setup vs Task Dispatch Overlap
-
-When a project is created, `/api/repo/setup` clones the repo and builds the file tree. Then when a task is dispatched, `resolveWorkingDirectory()` may clone the same repo again (or fetch it). This is redundant — the repo was already set up.
-
-The repo setup step is necessary for plan generation (to read CLAUDE.md, README, etc.), but task dispatch should be able to use the already-cloned directory.
-
-**Currently**: The server stores the resolved `workingDirectory` (a local path) in the project record. When dispatching, it passes this path. If it's still a git URL (which it shouldn't be after setup), it re-clones. This works but is fragile — the "already resolved" invariant is not enforced.
-
-### 15.6 `process.chdir()` in SDK Adapter
-
-The Claude SDK adapter changes the Node.js process's working directory:
-
-```typescript
-const originalDir = process.cwd();
-process.chdir(worktreePath);
-try {
-  // ... run Claude SDK query
-} finally {
-  process.chdir(originalDir);
-}
-```
-
-`process.chdir()` is a process-global operation. If multiple tasks run concurrently (max concurrent = 4), they could race on `process.cwd()`. This is a latent bug if the SDK adapter ever supports true concurrent execution. Currently, the adapter serializes executions, but this is not enforced by the type system.
-
-### 15.7 Summary of Recommendations
-
-| Issue | Severity | Recommendation |
-|-------|----------|----------------|
-| Duplicated `resolveWorkingDirectory()` | Medium | Extract to shared utility or eliminate one path |
-| Duplicated worktree management | Medium | Unify or formalize the differences |
-| Branch naming inconsistency (nodeId vs taskId) | High | Standardize on one naming scheme |
-| `workingDirectory` field semantics | High | Split into `repository` + `sourceDirectory` |
-| `process.chdir()` race condition | Low (latent) | Pass cwd to SDK query instead of global chdir |
-| Repo setup / dispatch overlap | Low | Enforce "workingDirectory is always a local path after setup" |
+| Issue | Status | Notes |
+|-------|--------|-------|
+| Duplicated `resolveWorkingDirectory()` | ✅ RESOLVED | Server version deleted |
+| Duplicated worktree management | ✅ RESOLVED | Server version deleted, features backported to agent runner |
+| Branch naming inconsistency (nodeId vs taskId) | ✅ RESOLVED | Always `astro/{taskId}` (only agent runner path remains) |
+| "Who manages the workspace" | ✅ RESOLVED | Always the agent runner |
+| `workingDirectory` field semantics | ✅ RESOLVED | Added `sourceDirectory` field, `workingDirectory` deprecated |
+| `process.chdir()` race condition | ✅ RESOLVED | Code uses `options.cwd`, never `process.chdir()` |
+| Repo setup / dispatch overlap | ✅ RESOLVED | Dispatch throws on git URLs; repo setup always resolves to local path first |
 
 ---
 
@@ -1109,6 +1022,8 @@ try {
 | `slurm-executor.ts` | ~250 | SLURM job submit + monitor |
 | `slurm-job-monitor.ts` | — | SLURM job tracking |
 | `streaming-prompt.ts` | — | Prompt assembly |
+| `prompt-templates.ts` | ~450 | Plan/chat/execution/summary prompt builders (from server) |
+| `repo-context.ts` | ~200 | Reads CLAUDE.md, README, package files, file tree (from server) |
 | `ssh-discovery.ts` | — | SSH host discovery |
 | `ssh-installer.ts` | — | Remote agent installation |
 | **Providers** (`providers/`) | | |
@@ -1131,10 +1046,17 @@ try {
 | `tools.ts` | ~200 | Tool definitions |
 | `types.ts` | — | MCP types |
 
-### Server-side counterparts
+### Server-side counterparts (historical)
 
-| Server File | Agent Runner Equivalent | Notes |
+> **Note:** As of the Execution Path Unification, the server no longer has provider adapters, worktree management, or local dispatch. These files were deleted.
+
+| Former Server File | Agent Runner Equivalent | Status |
 |-------------|------------------------|-------|
-| `server/lib/worktree-manager.ts` | `src/lib/worktree.ts` | **Duplicated** |
-| `server/routes/dispatch.ts` `resolveWorkingDirectory()` | `src/lib/task-executor.ts` `resolveWorkingDirectory()` | **Duplicated** |
-| `server/lib/providers/adapters/claude-code.ts` | `src/providers/claude-sdk-adapter.ts` | Different interfaces, same SDK |
+| ~~`server/lib/worktree-manager.ts`~~ | `src/lib/worktree.ts` | Server version **deleted** — features backported to agent runner |
+| ~~`server/routes/dispatch.ts` `resolveWorkingDirectory()`~~ | `src/lib/task-executor.ts` `resolveWorkingDirectory()` | Server version **deleted** — security hardening backported |
+| ~~`server/lib/providers/adapters/claude-code.ts`~~ | `src/providers/claude-sdk-adapter.ts` | Server version **deleted** |
+| ~~`server/lib/providers/` (entire directory)~~ | `src/providers/` | Server version **deleted** |
+| ~~`server/lib/session-manager.ts`~~ | N/A | **Deleted** — agent runner manages sessions inline |
+| ~~`server/lib/chat-session-pool.ts`~~ | N/A | **Deleted** — agent runner manages sessions inline |
+| `server/lib/prompt-templates.ts` | `src/lib/prompt-templates.ts` | Both exist — server pre-builds prompts for relay, agent runner has copies as fallback |
+| `server/lib/repo-context.ts` | `src/lib/repo-context.ts` | Both exist — server reads context for prompt building, agent runner has copies for standalone use |

@@ -64,10 +64,10 @@ export function useRepoSetup() {
         return null
       }
 
-      // Update project with resolved working directory and auto-detected repository
+      // Update project with resolved source directory and auto-detected repository
       if (data.workingDirectory || data.repository) {
         updateProject(params.projectId, {
-          ...(data.workingDirectory ? { workingDirectory: data.workingDirectory } : {}),
+          ...(data.workingDirectory ? { sourceDirectory: data.workingDirectory, workingDirectory: data.workingDirectory } : {}),
           ...(data.repository ? { repository: data.repository } : {}),
         })
       }
@@ -104,7 +104,7 @@ export function useRepoSetup() {
       if (!res.ok) return
       const data = await res.json()
       if (data.workingDirectory) {
-        updateProject(projectId, { workingDirectory: data.workingDirectory })
+        updateProject(projectId, { sourceDirectory: data.workingDirectory, workingDirectory: data.workingDirectory })
       }
       if (data.fileTree) {
         updateFileTree(projectId, data.fileTree)

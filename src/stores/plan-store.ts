@@ -121,6 +121,13 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     // Skip if a node with this ID already exists
     if (get().nodes.some((n) => n.id === node.id)) return
 
+    // Auto-assign display number per project if not set
+    if (node.number == null) {
+      const projectNodes = get().nodes.filter((n) => n.projectId === node.projectId)
+      const maxNumber = projectNodes.reduce((max, n) => Math.max(max, n.number ?? 0), 0)
+      node = { ...node, number: maxNumber + 1 }
+    }
+
     const nextNodes = [...get().nodes, node]
     set({ nodes: nextNodes })
     dataClient.addNode(node).catch((err) => {
@@ -209,6 +216,13 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   setProjectPlan: (projectId, newNodes, newEdges) => {
     console.log(`[plan-store] setProjectPlan called: projectId=${projectId}, ${newNodes.length} nodes, ${newEdges.length} edges`)
+    // Auto-assign display numbers to nodes that don't have them
+    const existingProjectNodes = get().nodes.filter((n) => n.projectId === projectId)
+    let nextNumber = existingProjectNodes.reduce((max, n) => Math.max(max, n.number ?? 0), 0) + 1
+    newNodes = newNodes.map((node) => {
+      if (node.number != null) return node
+      return { ...node, number: nextNumber++ }
+    })
     const otherNodes = get().nodes.filter((n) => n.projectId !== projectId)
     const otherEdges = get().edges.filter((e) => {
       const nodeIds = new Set(get().nodes.filter((n) => n.projectId === projectId).map((n) => n.id))

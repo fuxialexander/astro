@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search, ListTodo, GitBranch, ArrowLeft, Plus, Users } from "lucide-react"
+import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, ListTodo, GitBranch, ArrowLeft, Plus, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {
@@ -154,6 +154,7 @@ export function ProjectNew() {
       teamId: teamIdParam || undefined,
       color: getRandomColor(),
       icon: getRandomProjectIcon(),
+      sourceDirectory: workingDir.trim() || undefined,
       workingDirectory: workingDir.trim() || undefined,
       repository: repoUrl.trim() || undefined,
       defaultEnvironment: isRemote ? selectedEnvironment : undefined,
@@ -240,6 +241,7 @@ export function ProjectNew() {
       })
 
       // Create project with resolved working directory from backend
+      const resolvedDir = repoResult?.workingDirectory || workingDir.trim() || undefined
       addProject({
         id,
         name: projectName,
@@ -249,7 +251,8 @@ export function ProjectNew() {
         teamId: teamIdParam || undefined,
         color: getRandomColor(),
         icon: getRandomProjectIcon(),
-        workingDirectory: repoResult?.workingDirectory || workingDir.trim() || undefined,
+        sourceDirectory: resolvedDir,
+        workingDirectory: resolvedDir,
         defaultEnvironment: isRemote ? selectedEnvironment : undefined,
         defaultMachineId: selectedMachine?.machineId || undefined,
         createdAt: new Date(),
@@ -288,6 +291,7 @@ export function ProjectNew() {
       })
 
       // Create project with resolved working directory from backend
+      const resolvedDir = repoResult?.workingDirectory || workingDir.trim() || undefined
       addProject({
         id,
         name: projectName,
@@ -297,7 +301,8 @@ export function ProjectNew() {
         teamId: teamIdParam || undefined,
         color: getRandomColor(),
         icon: getRandomProjectIcon(),
-        workingDirectory: repoResult?.workingDirectory || workingDir.trim() || undefined,
+        sourceDirectory: resolvedDir,
+        workingDirectory: resolvedDir,
         repository: repoUrl.trim() || undefined,
         defaultEnvironment: isRemote ? selectedEnvironment : undefined,
         defaultMachineId: selectedMachine?.machineId || undefined,
@@ -526,6 +531,71 @@ export function ProjectNew() {
     </div>
   ) : null
 
+  // Safety note component for directory input
+  const ProjectSafetyNote = ({ hasRepo }: { hasRepo: boolean }) => {
+    if (hasRepo) {
+      return (
+        <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 px-3 py-2.5">
+          <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-xs leading-relaxed text-blue-700 dark:text-blue-300">
+            The repository will be cloned into your chosen folder. AI agents work on isolated branches and create pull requests for review. Ensure you have enough disk space.
+          </p>
+        </div>
+      )
+    }
+    return (
+      <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2.5">
+        <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+        <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+          AI agents work on isolated git branches in a sibling directory (<code className="font-mono text-[11px] bg-amber-100 dark:bg-amber-900/40 px-1 rounded">your-project.astro-worktrees/</code>). Your project directory is not modified directly. Untracked files (data, models) are accessible via absolute paths. Back up sensitive data that isn't under version control.
+        </p>
+      </div>
+    )
+  }
+
+  // Help tooltip state
+  const [showDirHelp, setShowDirHelp] = useState(false)
+
+  const WorkingDirectoryHelp = () => (
+    <>
+      <button
+        type="button"
+        onClick={() => setShowDirHelp(!showDirHelp)}
+        className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+        title="How Astro uses your working directory"
+      >
+        <HelpCircle className="h-3.5 w-3.5" />
+      </button>
+      {showDirHelp && (
+        <div className="rounded-lg border border-border bg-card p-4 text-xs leading-relaxed space-y-3">
+          <p className="font-medium text-sm text-foreground">How Astro uses your working directory</p>
+          <div className="space-y-2.5">
+            <div>
+              <p className="font-medium text-foreground">Scenario A: Data-only directory</p>
+              <p className="text-muted-foreground">Your folder has datasets, documents, or supporting materials but no code. Agents can read these files using absolute paths. The directory itself is not modified.</p>
+            </div>
+            <div>
+              <p className="font-medium text-foreground">Scenario B: Data directory + Git repo URL</p>
+              <p className="text-muted-foreground">The repository is cloned into a subfolder inside your directory (e.g., <code className="font-mono bg-muted px-1 rounded">your-folder/repo-name/</code>). Agents work on isolated git branches in <code className="font-mono bg-muted px-1 rounded">repo-name.astro-worktrees/</code>. Your data files stay untouched and accessible.</p>
+            </div>
+            <div>
+              <p className="font-medium text-foreground">Scenario C: Existing Git project</p>
+              <p className="text-muted-foreground">Agents work on isolated branches in a sibling directory (<code className="font-mono bg-muted px-1 rounded">your-project.astro-worktrees/</code>). Your project directory is never modified directly. All changes happen on the worktree branch and are submitted as pull requests.</p>
+            </div>
+          </div>
+          <div className="border-t border-border pt-2.5 space-y-1.5">
+            <p className="font-medium text-foreground">Safety</p>
+            <ul className="text-muted-foreground space-y-1 list-disc pl-4">
+              <li>Back up data that isn't under version control before running tasks</li>
+              <li>Agents write code using absolute paths to reference data files</li>
+              <li>Git worktrees are automatically cleaned up after tasks complete</li>
+            </ul>
+          </div>
+        </div>
+      )}
+    </>
+  )
+
   // Get team name if creating team project
   const selectedTeam = teamIdParam ? teams.find(t => t.id === teamIdParam) : null
 
@@ -637,23 +707,25 @@ export function ProjectNew() {
                 </div>
               </div>
 
-              {/* Optional working directory */}
+              {/* Working directory */}
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-foreground">
-                  Working directory <span className="text-muted-foreground font-normal">(optional)</span>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                  Working directory
+                  <WorkingDirectoryHelp />
                 </label>
                 <input
                   type="text"
                   value={workingDir}
                   onChange={(e) => setWorkingDir(e.target.value)}
-                  placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project (leave empty for default)"}
+                  placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project"}
                   className="h-10 rounded-lg border border-border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Leave empty to create a new project directory automatically
+                  Choose a folder on your machine where this project will live
                 </p>
               </div>
 
+              {workingDir.trim() && <ProjectSafetyNote hasRepo={false} />}
               <ErrorAlert />
               <EnvironmentSelector />
             </div>
@@ -814,6 +886,24 @@ export function ProjectNew() {
                 )}
               </div>
 
+              {/* Working directory for repo projects */}
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                  Working directory
+                  <WorkingDirectoryHelp />
+                </label>
+                <input
+                  type="text"
+                  value={workingDir}
+                  onChange={(e) => setWorkingDir(e.target.value)}
+                  placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project"}
+                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {repoUrl.trim() ? "Where to clone the repo on your machine" : "Choose a folder on your machine where this project will live"}
+                </p>
+              </div>
+
               {/* First Task */}
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium text-foreground">
@@ -831,6 +921,7 @@ export function ProjectNew() {
                 </p>
               </div>
 
+              {(workingDir.trim() || repoUrl.trim()) && <ProjectSafetyNote hasRepo={!!repoUrl.trim()} />}
               <ErrorAlert />
               <EnvironmentSelector />
             </div>

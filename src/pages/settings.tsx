@@ -56,6 +56,7 @@ import { SkillSettingsContent } from "@/components/skill-settings"
 import { ChannelAccountCard } from "@/components/channel-account-card"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import type { DomainExpertise, ExperienceLevel } from "@/types"
+import { dataClient } from "@/lib/data-client"
 
 const domainOptions: { value: DomainExpertise; label: string; description: string }[] = [
   { value: "computational-biology", label: "Computational Biology", description: "Bioinformatics, genomics, protein analysis" },
@@ -1218,9 +1219,16 @@ function TeamsContent() {
   useEffect(() => {
     const fetchTeams = async () => {
       try {
-        // TODO: Implement API call to fetch user's teams
-        // For now, mock empty state
-        setTeams([])
+        const { teams: loaded } = await dataClient.listTeams()
+        setTeams(loaded.map((t) => ({
+          id: t.id,
+          name: t.name,
+          role: (t as unknown as Record<string, unknown>).memberRole as string ?? 'member',
+        })))
+        // Auto-select first team
+        if (loaded.length > 0 && !selectedTeamId) {
+          setSelectedTeamId(loaded[0]!.id)
+        }
         setLoading(false)
       } catch (error) {
         console.error('[settings] Failed to fetch teams:', error)
@@ -1228,7 +1236,7 @@ function TeamsContent() {
       }
     }
     fetchTeams()
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch team members and invites when a team is selected
   useEffect(() => {
@@ -1240,9 +1248,24 @@ function TeamsContent() {
 
     const fetchTeamData = async () => {
       try {
-        // TODO: Implement API calls to fetch members and invites
-        setMembers([])
-        setPendingInvites([])
+        const membersData = await dataClient.getTeamMembers(selectedTeamId)
+        setMembers(membersData.map((m) => ({
+          user_id: m.userId,
+          role: m.role,
+          joined_at: m.joinedAt instanceof Date ? m.joinedAt.toISOString() : String(m.joinedAt),
+          user: {
+            name: m.userName ?? 'Unknown',
+            email: m.userEmail ?? '',
+          },
+        })))
+        const invitesData = await dataClient.getPendingInvites(selectedTeamId)
+        setPendingInvites(invitesData.map((inv) => ({
+          id: inv.id,
+          email: inv.email,
+          role: inv.role,
+          expires_at: inv.expiresAt instanceof Date ? inv.expiresAt.toISOString() : String(inv.expiresAt),
+          created_at: inv.createdAt instanceof Date ? inv.createdAt.toISOString() : String(inv.createdAt),
+        })))
       } catch (error) {
         console.error('[settings] Failed to fetch team data:', error)
       }
@@ -1255,12 +1278,17 @@ function TeamsContent() {
 
     setInviting(true)
     try {
-      // TODO: Implement API call to send invitation
-      console.log('[settings] Sending invite:', { teamId: selectedTeamId, email: inviteEmail, role: inviteRole })
+      await dataClient.sendTeamInvite(selectedTeamId, inviteEmail, inviteRole)
       setShowInviteDialog(false)
       setInviteEmail('')
       setInviteRole('member')
       // Refresh invites list
+      const invitesData = await dataClient.getPendingInvites(selectedTeamId)
+      setPendingInvites(invitesData.map((inv) => ({
+        id: inv.id, email: inv.email, role: inv.role,
+        expires_at: inv.expiresAt instanceof Date ? inv.expiresAt.toISOString() : String(inv.expiresAt),
+        created_at: inv.createdAt instanceof Date ? inv.createdAt.toISOString() : String(inv.createdAt),
+      })))
     } catch (error) {
       console.error('[settings] Failed to send invite:', error)
       alert(`Failed to send invitation: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -1272,9 +1300,8 @@ function TeamsContent() {
   const handleRevokeInvite = async (inviteId: string) => {
     setRevoking(inviteId)
     try {
-      // TODO: Implement API call to revoke invitation
-      console.log('[settings] Revoking invite:', inviteId)
-      // Refresh invites list
+      await dataClient.revokeInvite(inviteId)
+      setPendingInvites((prev) => prev.filter((inv) => inv.id !== inviteId))
     } catch (error) {
       console.error('[settings] Failed to revoke invite:', error)
       alert(`Failed to revoke invitation: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -1288,9 +1315,8 @@ function TeamsContent() {
 
     setRemoving(userId)
     try {
-      // TODO: Implement API call to remove member
-      console.log('[settings] Removing member:', { teamId: selectedTeamId, userId })
-      // Refresh members list
+      await dataClient.removeTeamMember(selectedTeamId, userId)
+      setMembers((prev) => prev.filter((m) => m.user_id !== userId))
     } catch (error) {
       console.error('[settings] Failed to remove member:', error)
       alert(`Failed to remove member: ${error instanceof Error ? error.message : 'Unknown error'}`)

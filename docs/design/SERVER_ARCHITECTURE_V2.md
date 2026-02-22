@@ -2,15 +2,15 @@
 
 # Server Architecture V2: Server-Centric Design
 
-## Current Status (2026-02-21)
+## Current Status (2026-02-22)
 
-The PGlite unification refactor described in this document has been **partially implemented**:
+The PGlite unification refactor described in this document has been **fully implemented** through Phase 3:
 
 - **Phases 1-2 (Unified Data Layer + Frontend Cleanup): COMPLETE.** PGlite is the local-mode database, Drizzle ORM provides a unified query layer, all IndexedDB usage has been removed, all frontend stores use `fetch('/api/...')` with `loading`/`error` state, `idb-keyval` has been uninstalled, and the `X-Team-Id` header enables team-scoped queries.
-- **Phase 3 (Stateless Backend): NOT YET STARTED.** In-memory Maps (`challengeStore`, `deviceCodeStore`, `activeSessions`, `dispatchQueue`, etc.) still exist. The backend cannot safely run multiple instances.
-- **Phase 4+ (Scaling): NOT YET STARTED.** Horizontal scaling, cross-instance relay, and production launch depend on Phase 3.
+- **Phase 3 (Stateless Backend): COMPLETE.** All cross-request in-memory Maps moved to Postgres: `webauthn_challenges`, `device_codes`, `chat_sessions`, `dispatch_queue_entries`, `shared_bundles`. Redis pub/sub (`redis-pubsub.ts`) handles cross-instance relay routing (machine state sync, task dispatch/cancel forwarding). The backend can safely run 2+ instances with `REDIS_URL` configured.
+- **Phase 4+ (Scaling): READY.** With `REDIS_URL` set, Fly.io autoscaling works. WebSocket connections are inherently per-machine; Redis handles routing dispatches to the correct instance.
 
-See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed implementation plan with per-step status tracking.
+See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed implementation plan and `ARCHITECTURE.md` for the consolidated reference.
 
 ---
 
@@ -637,18 +637,18 @@ Consider at this point:
 - **CDN caching** for read-heavy API responses
 - **Queue service** (SQS) for dispatch queue
 
-### What blocks horizontal scaling today
+### ~~What blocks horizontal scaling today~~ RESOLVED (2026-02-22)
 
-| Blocker | Fix (Phase 3) |
-|---------|---------------|
-| `challengeStore` in-memory Map | Postgres table |
-| `deviceCodeStore` in-memory Map | Postgres table |
-| `activeSessions` in-memory Map | DB cancellation flag |
-| `dispatchQueue` in-memory Map | Postgres table with `SELECT ... FOR UPDATE SKIP LOCKED` |
-| `machineRegistry` in-memory only | DB-authoritative with in-memory read cache |
-| No cross-instance relay routing | Postgres `LISTEN/NOTIFY` |
+| Blocker | Resolution |
+|---------|------------|
+| `challengeStore` in-memory Map | ✅ `webauthn_challenges` Postgres table (`challenge-store.ts`) |
+| `deviceCodeStore` in-memory Map | ✅ `device_codes` Postgres table (`device-code-store.ts`) |
+| `activeSessions` in-memory Map | ✅ `chat_sessions` Postgres table; session manager deleted |
+| `dispatchQueue` in-memory Map | ✅ `dispatch_queue_entries` Postgres table with priority ordering |
+| `machineRegistry` in-memory only | ✅ In-memory per-instance + Redis pub/sub for cross-instance sync |
+| No cross-instance relay routing | ✅ Redis pub/sub (`redis-pubsub.ts`) for dispatch/cancel forwarding |
 
-**Until Phase 3 is complete, running >1 machine causes data loss and auth failures.** *(Phase 3 has not yet been started as of 2026-02-21.)*
+**Horizontal scaling is now supported.** Set `REDIS_URL` to enable cross-instance relay routing. Without Redis, single-instance deployment still works (the default for local dev).
 
 ---
 
@@ -660,15 +660,15 @@ See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed step-by-step refacto
 
 | Phase | Goal | Key deliverable | Status |
 |-------|------|-----------------|--------|
-| 1. Stabilize alpha | Make current deployment reliable on 1 machine | Move in-memory challenges/device codes to Postgres | Pending (merged into Phase 3) |
+| 1. Stabilize alpha | Make current deployment reliable on 1 machine | Move in-memory challenges/device codes to Postgres | **DONE** (merged into Phase 4) |
 | 2. Unified data layer | Drizzle ORM + PGlite for local, Postgres for server | `server/lib/db/` with shared schema, `createDb()` | **DONE** |
 | 3. Frontend cleanup | Remove all IndexedDB and mode branching from frontend | Stores call `fetch('/api/...')` only, loading skeletons | **DONE** |
-| 4. Stateless backend | Move all in-memory Maps to Postgres tables | Enables Fly.io autoscaling, multi-machine | Pending |
-| 5. Cross-instance relay | Postgres LISTEN/NOTIFY for relay routing | Enables horizontal scaling | Pending |
-| 6. Beta launch | 2-3 machines, autoscaling, monitoring | Load-tested for 100-500 users | Pending |
+| 4. Stateless backend | Move all in-memory Maps to Postgres tables | `webauthn_challenges`, `device_codes`, `chat_sessions`, `dispatch_queue_entries` tables | **DONE** |
+| 5. Cross-instance relay | Redis pub/sub for relay routing | `redis-pubsub.ts`: machine state sync, dispatch/cancel forwarding | **DONE** (Redis, not Postgres LISTEN/NOTIFY) |
+| 6. Beta launch | 2+ machines, autoscaling, monitoring | Set `REDIS_URL`, deploy 2 Fly.io machines | **READY** |
 | 7. Production launch | Supabase Enterprise, multi-region | 1K+ users | Pending |
 
-> **Note:** The phases in this document (numbered 1-7) do not map 1:1 to the phases in `LOCAL_SERVER_REFACTOR.md`. The refactor plan's Phase 1 (Unified Database Layer) and Phase 2 (Frontend Cleanup) correspond to phases 2 and 3 in this table. Both are now complete.
+> **Note:** Cross-instance relay routing uses Redis pub/sub (not Postgres LISTEN/NOTIFY as originally planned). Redis is a better fit for high-throughput real-time message routing. Postgres LISTEN/NOTIFY remains an option for low-traffic deployments that want to avoid the Redis dependency.
 
 ---
 

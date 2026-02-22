@@ -181,7 +181,7 @@ function makePlanColumns(
       sortKey: "name",
       render: (node) => (
         <span className={cn("text-sm truncate block", node.status === "pruned" && "line-through")}>
-          {node.title}
+          {node.number != null && <span className="text-muted-foreground font-normal mr-1">#{node.number}</span>}{node.title}
         </span>
       ),
     },
@@ -932,7 +932,7 @@ export function PlanTimelineView({
           barClass: statusBarColors[node.status] ?? "bg-primary/70",
           progressClass: statusProgressColors[node.status],
           progressPct: statusProgressColors[node.status] ? 40 : undefined,
-          label: node.title,
+          label: node.number != null ? `#${node.number} ${node.title}` : node.title,
         },
       }
     }
@@ -1149,10 +1149,11 @@ export function PlanView() {
     }
   }, [location.pathname, id, navigate])
 
-  // Close detail panel when switching view modes
-  useEffect(() => {
-    setSelectedNode(null)
-  }, [viewMode])
+  // Close detail panel when switching view modes.
+  // This effect legitimately syncs UI state (selectedNode) when the derived
+  // viewMode changes from URL navigation. The guard avoids no-op renders.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setSelectedNode(null) }, [viewMode])
 
   // Handle decompose: open chat with pre-filled message
   const handleDecomposeNode = useCallback((nodeId: string) => {

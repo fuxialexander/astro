@@ -136,7 +136,7 @@ export interface ExecutionOptions {
   environment?: 'local' | 'remote' | 'hpc' | 'cloud'
   targetMachineId?: string
   preferredProvider?: string
-  /** Selected compute backend (direct, slurm, docker, k8s-exec, skypilot) */
+  /** Selected compute backend (direct, slurm, docker, k8s-exec) */
   computeBackend?: string
   model?: string
   maxTurns?: number

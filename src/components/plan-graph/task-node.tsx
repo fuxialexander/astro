@@ -27,6 +27,7 @@ const neutralHighlight = { bg: "bg-card", border: "border-border" }
 
 type TaskNodeData = Node<{
   title: string
+  number?: number
   status: string
   nodeType: string
   executionId?: string
@@ -157,7 +158,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         "truncate text-xs font-medium relative z-10",
         data.status === "pruned" ? "text-muted-foreground line-through" : "text-foreground"
       )}>
-        {data.title}
+        {data.number != null && <span className="text-muted-foreground font-normal mr-1">#{data.number}</span>}{data.title}
       </span>
 
       {/* Progress percentage for running tasks */}

@@ -6,9 +6,38 @@
  */
 
 import type { PlanNode, PlanEdge } from '../../../src/types/index.js'
-import type { ExecutionEnvironment, TaskResult } from '../providers/types.js'
 import type { ProviderType } from '../../types/relay.js'
-import type { ProcedureState } from './procedure-types.js'
+
+/** Execution environments for task dispatch */
+export type ExecutionEnvironment = 'local' | 'remote' | 'hpc' | 'cloud'
+
+/** Minimal task result interface (formerly from providers/types.ts) */
+export interface TaskResult {
+  taskId: string
+  status: 'success' | 'failure' | 'cancelled'
+  stdout?: string
+  stderr?: string
+  errorMessage?: string
+  sessionId?: string
+  metrics?: {
+    durationMs?: number
+    inputTokens?: number
+    outputTokens?: number
+    totalCost?: number
+    model?: string
+    numTurns?: number
+  }
+  verification?: Record<string, unknown>
+  branchName?: string
+  prUrl?: string
+  prNumber?: number
+}
+
+/** Stream event interface (formerly from providers/types.ts) */
+export interface StreamEvent {
+  type: 'init' | 'text' | 'tool_use' | 'tool_result' | 'file_change' | 'progress' | 'result' | 'error' | 'aborted'
+  [key: string]: unknown
+}
 
 // ============================================================================
 // Dispatch State
@@ -78,8 +107,6 @@ export interface DispatchQueueEntry {
   executionId?: string
   /** Session ID for resumption */
   sessionId?: string
-  /** Procedure state (if using procedure-based workflow) */
-  procedureState?: ProcedureState
 }
 
 // ============================================================================
@@ -102,6 +129,8 @@ export interface AssembledContext {
   graphPosition: GraphPosition
   /** Working directory for execution */
   workingDirectory?: string
+  /** Original project directory (for data access from worktrees) */
+  originalProjectDirectory?: string
   /** Additional resource folders (data, configs, docs) */
   resourcePaths?: string[]
   /** Additional environment variables */

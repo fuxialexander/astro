@@ -17,9 +17,8 @@ import type {
   DispatchPriority,
   DispatchEngineConfig,
 } from './types.js'
-import type { ExecutionEnvironment } from '../providers/types.js'
+import type { ExecutionEnvironment } from './types.js'
 import type { ProviderType } from '../../types/relay.js'
-import type { ProcedureState } from './procedure-types.js'
 
 /**
  * Terminal statuses — entries with these statuses are considered finished.
@@ -57,7 +56,7 @@ function rowToEntry(row: typeof dispatchQueueEntries.$inferSelect): DispatchQueu
     lastError: row.lastError ?? undefined,
     executionId: row.executionId ?? undefined,
     sessionId: row.sessionId ?? undefined,
-    procedureState: (row.procedureState ?? undefined) as ProcedureState | undefined,
+    procedureState: undefined,
   }
 }
 

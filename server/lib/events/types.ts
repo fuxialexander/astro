@@ -5,8 +5,7 @@
  */
 
 import type { PlanNode, Project } from '../../../src/types/index.js'
-import type { TaskResult } from '../providers/types.js'
-import type { SubroutineDefinition } from '../dispatch/procedure-types.js'
+import type { TaskResult } from '../dispatch/types.js'
 
 /**
  * Events emitted by task execution lifecycle
@@ -95,7 +94,7 @@ export interface ApprovalRequestedEvent {
   nodeId: string
   projectId: string
   executionId: string
-  subroutine?: SubroutineDefinition // Optional for dynamic approvals from MCP tool
+  subroutine?: { name: string; approvalMessage?: string; approvalOptions?: string[] } // Optional for dynamic approvals
   message: string
   options?: string[] // If present, multi-choice; if absent, binary approve/reject
   timestamp: Date

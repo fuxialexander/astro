@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { applyWorktreeInclude } from './worktree-include.js';
@@ -54,19 +55,45 @@ export async function createWorktree(
     throw new Error(`Git repository has no commits: ${gitRoot}. Create an initial commit first.`);
   }
 
-  const repoName = sanitize(basename(gitRoot));
-  const baseRoot = rootOverride ?? join(homedir(), '.astro', 'worktrees', repoName);
-  await mkdir(baseRoot, { recursive: true });
+  const baseRoot = rootOverride ?? await resolveWorktreeRoot(gitRoot);
 
   const branchName = `astro/${sanitize(taskId)}`;
   const worktreePath = join(baseRoot, sanitize(taskId));
   await rm(worktreePath, { recursive: true, force: true });
   await pruneWorktrees(gitRoot);
+
+  // Find and remove any existing worktree that uses this branch (porcelain parsing).
+  // Without this, `git branch -D` fails because the branch is checked out
+  // by a lingering worktree from a previous execution.
+  await removeLingeringWorktrees(gitRoot, branchName);
+
   await ensureBranchAvailable(gitRoot, branchName);
 
+  // Delete remote branch if it exists — prevents non-fast-forward push
+  // failures when re-executing a task whose previous branch was already pushed
+  await deleteRemoteBranch(gitRoot, branchName);
+
+  // Fetch latest so we branch from up-to-date origin
+  try {
+    await execFileAsync(
+      'git',
+      ['-C', gitRoot, '-c', 'core.hooksPath=/dev/null', 'fetch', 'origin'],
+      { env: withGitEnv(), timeout: 30_000 }
+    );
+  } catch {
+    // Non-fatal: proceed with potentially stale refs
+  }
+
+  // Detect the default branch to use as start point
+  const defaultBranch = await getDefaultBranch(gitRoot);
+
+  // Create worktree from origin/<defaultBranch> — NOT from HEAD.
+  // Using HEAD is dangerous because it could be on a stale task branch
+  // (from a previous execution that fell back to the repo directly),
+  // which would cause cross-task commit contamination.
   await execFileAsync(
     'git',
-    ['-C', gitRoot, 'worktree', 'add', '-b', branchName, worktreePath],
+    ['-C', gitRoot, 'worktree', 'add', '-b', branchName, worktreePath, `origin/${defaultBranch}`],
     { env: withGitEnv(), timeout: 30_000 }
   );
 
@@ -108,6 +135,138 @@ export async function createWorktree(
       await cleanupWorktree(gitRoot, worktreePath, branchName, options?.keepBranch);
     },
   };
+}
+
+/**
+ * Parse `git worktree list --porcelain` and remove any worktree
+ * that has the target branch checked out. This prevents
+ * "branch already checked out" errors on re-execution.
+ */
+export async function removeLingeringWorktrees(gitRoot: string, branchName: string): Promise<void> {
+  let wtList: string;
+  try {
+    const result = await execFileAsync(
+      'git',
+      ['-C', gitRoot, 'worktree', 'list', '--porcelain'],
+      { env: withGitEnv(), timeout: 10_000 }
+    );
+    wtList = result.stdout;
+  } catch {
+    return; // Can't list — nothing to clean
+  }
+
+  // Parse porcelain output: blocks separated by blank lines,
+  // each block has "worktree <path>" and "branch refs/heads/<name>"
+  let currentWorktreePath: string | null = null;
+  for (const line of wtList.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      currentWorktreePath = line.slice('worktree '.length);
+    } else if (line.startsWith('branch ') && currentWorktreePath) {
+      const ref = line.slice('branch '.length);
+      if (ref === `refs/heads/${branchName}`) {
+        console.log(`[worktree] Removing lingering worktree at ${currentWorktreePath} (branch: ${branchName})`);
+        // Try git worktree remove first, fall back to force-removing the directory + prune
+        try {
+          await execFileAsync(
+            'git',
+            ['-C', gitRoot, 'worktree', 'remove', '--force', currentWorktreePath],
+            { env: withGitEnv(), timeout: 30_000 }
+          );
+        } catch {
+          // Fallback: force-remove the directory and prune to deregister
+          await rm(currentWorktreePath, { recursive: true, force: true });
+          await execFileAsync('git', ['-C', gitRoot, 'worktree', 'prune'], {
+            env: withGitEnv(),
+            timeout: 30_000,
+          });
+        }
+        // Clean up directory if it still exists after either path
+        if (existsSync(currentWorktreePath)) {
+          await rm(currentWorktreePath, { recursive: true, force: true });
+        }
+      }
+    } else if (line.trim() === '') {
+      currentWorktreePath = null;
+    }
+  }
+}
+
+/**
+ * Delete remote branch if it exists.
+ * Prevents non-fast-forward push failures when re-executing a task
+ * whose previous branch was already pushed.
+ */
+async function deleteRemoteBranch(gitRoot: string, branchName: string): Promise<void> {
+  try {
+    await execFileAsync(
+      'git',
+      ['-C', gitRoot, 'push', 'origin', '--delete', branchName],
+      { env: withGitEnv(), timeout: 15_000 }
+    );
+    console.log(`[worktree] Deleted remote branch ${branchName}`);
+  } catch {
+    // Remote branch didn't exist — that's fine
+  }
+}
+
+/**
+ * Detect the default branch (main/master) for the repo.
+ */
+async function getDefaultBranch(gitRoot: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', gitRoot, 'symbolic-ref', 'refs/remotes/origin/HEAD'],
+      { env: withGitEnv(), timeout: 5_000 }
+    );
+    const parts = stdout.trim().split('/');
+    return parts[parts.length - 1];
+  } catch {
+    // Fallback
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', gitRoot, 'branch', '-r', '--list', 'origin/main', 'origin/master'],
+      { env: withGitEnv(), timeout: 5_000 }
+    );
+    const branches = stdout.trim().split('\n').map((b) => b.trim());
+    if (branches.includes('origin/main')) return 'main';
+    if (branches.includes('origin/master')) return 'master';
+  } catch {
+    // Fallback
+  }
+
+  return 'main';
+}
+
+/**
+ * Resolve the worktree root directory.
+ *
+ * Uses a sibling directory next to the project: {gitRoot}.astro-worktrees/
+ * e.g., /home/user/my-project/ → /home/user/my-project.astro-worktrees/
+ *
+ * This follows the VS Code convention ({project}.worktree/) and keeps zero
+ * footprint inside the user's project — no .gitignore entry needed.
+ *
+ * Falls back to ~/.astro/worktrees/{repoName}/ if the parent dir is read-only.
+ */
+async function resolveWorktreeRoot(gitRoot: string): Promise<string> {
+  // Strip trailing slash for consistent path joining
+  const normalizedRoot = gitRoot.replace(/\/+$/, '');
+  const siblingDir = `${normalizedRoot}.astro-worktrees`;
+  try {
+    await mkdir(siblingDir, { recursive: true });
+    return siblingDir;
+  } catch {
+    // Parent directory is read-only — fall back to home dir
+    const repoName = sanitize(basename(gitRoot));
+    const fallback = join(homedir(), '.astro', 'worktrees', repoName);
+    await mkdir(fallback, { recursive: true });
+    console.log(`[worktree] Parent dir read-only, using fallback: ${fallback}`);
+    return fallback;
+  }
 }
 
 async function getGitRoot(workingDirectory: string): Promise<string | null> {

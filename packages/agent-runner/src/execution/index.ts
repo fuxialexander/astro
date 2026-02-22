@@ -21,12 +21,10 @@ export { DirectStrategy } from './direct-strategy.js';
 export { SlurmStrategy } from './slurm-strategy.js';
 export { DockerStrategy } from './docker-strategy.js';
 export { K8sExecStrategy } from './kubernetes-exec-strategy.js';
-export { SkyPilotStrategy } from './skypilot-strategy.js';
 
 // Strategy-specific option types
 export type { DockerExecOptions } from './docker-strategy.js';
 export type { K8sExecOptions } from './kubernetes-exec-strategy.js';
-export type { SkyPilotExecOptions } from './skypilot-strategy.js';
 
 // Registry
 export { ExecutionStrategyRegistry, executionStrategyRegistry } from './registry.js';

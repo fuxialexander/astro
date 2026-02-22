@@ -8,7 +8,6 @@
 
 import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export function isGitRepo(dir: string): boolean {
@@ -106,19 +105,27 @@ function readKeyFiles(dir: string): RepoKeyFiles {
 }
 
 /**
- * Clone a git repository to ~/.astro/repos/<projectId>/.
+ * Extract repository name from a git URL.
+ * e.g., "git@github.com:user/repo.git" → "repo"
+ */
+function extractRepoName(url: string): string {
+  const parts = url.split('/');
+  const last = parts[parts.length - 1];
+  return last.replace(/\.git$/, '') || 'repo';
+}
+
+/**
+ * Clone a git repository to the specified target directory.
  * If already cloned, fetch latest. Returns the local path.
  *
  * SECURITY: Uses execFileSync with git arguments to prevent command injection
  */
-function cloneRepository(repoUrl: string, projectId: string): string {
-  const repoDir = join(homedir(), '.astro', 'repos', projectId);
-
-  if (existsSync(join(repoDir, '.git'))) {
+function cloneRepository(repoUrl: string, targetDir: string): string {
+  if (existsSync(join(targetDir, '.git'))) {
     // Already cloned — fetch latest
     try {
       execFileSync('git', ['fetch', '--all'], {
-        cwd: repoDir,
+        cwd: targetDir,
         stdio: 'ignore',
         timeout: 30_000,
       });
@@ -127,14 +134,14 @@ function cloneRepository(repoUrl: string, projectId: string): string {
     }
   } else {
     // Ensure parent directory exists
-    mkdirSync(join(homedir(), '.astro', 'repos'), { recursive: true });
+    mkdirSync(join(targetDir, '..'), { recursive: true });
     // Clone the repo using execFileSync to prevent command injection
-    execFileSync('git', ['clone', repoUrl, repoDir], {
+    execFileSync('git', ['clone', repoUrl, targetDir], {
       stdio: 'ignore',
       timeout: 120_000,
     });
   }
-  return repoDir;
+  return targetDir;
 }
 
 /**
@@ -170,10 +177,12 @@ export function localRepoSetup(options: {
     }
   }
 
-  // If only a repo URL is provided, clone it locally
-  if (repository && !workingDirectory) {
+  // If repo URL + working directory, clone into the working directory
+  if (repository && workingDirectory) {
     try {
-      const clonedDir = cloneRepository(repository, projectId || crypto.randomUUID().slice(0, 8));
+      const repoName = extractRepoName(repository);
+      const cloneTarget = join(workingDirectory, repoName);
+      const clonedDir = cloneRepository(repository, cloneTarget);
       const fileTree = getFileTree(clonedDir);
       const keyFiles = readKeyFiles(clonedDir);
       return {
@@ -186,6 +195,14 @@ export function localRepoSetup(options: {
     } catch (error) {
       return { success: false, error: `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}` };
     }
+  }
+
+  // If only a repo URL is provided (no working directory) — error
+  if (repository && !workingDirectory) {
+    return {
+      success: false,
+      error: 'Working directory required for git URL projects. Specify a local folder where the repository will be cloned.',
+    };
   }
 
   if (workingDirectory) {

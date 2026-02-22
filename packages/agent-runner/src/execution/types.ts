@@ -3,15 +3,15 @@
  *
  * Core interfaces for the execution strategy abstraction. Execution strategies
  * are orthogonal to agent models (Claude, Codex): a strategy defines HOW a
- * command runs (direct spawn, SLURM batch, Docker container, K8s pod, SkyPilot
- * cloud VM), while a provider defines WHAT reasons about the task.
+ * command runs (direct spawn, SLURM batch, Docker container, K8s pod),
+ * while a provider defines WHAT reasons about the task.
  */
 
 // ============================================================================
 // Strategy Identification
 // ============================================================================
 
-export type ExecutionStrategyType = 'direct' | 'slurm' | 'docker' | 'k8s-exec' | 'skypilot';
+export type ExecutionStrategyType = 'direct' | 'slurm' | 'docker' | 'k8s-exec';
 
 // ============================================================================
 // Core Interface
@@ -24,7 +24,7 @@ export interface ExecutionStrategy {
   /** Human-readable name */
   readonly name: string;
 
-  /** True for submit-and-monitor strategies (SLURM, SkyPilot) */
+  /** True for submit-and-monitor strategies (SLURM) */
   readonly isAsync: boolean;
 
   /** Capability 1: Detection — probe environment for availability and metadata */
