@@ -769,6 +769,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 
   loadLocalBackends: async () => {
+    // Local backend detection is only available in local mode;
+    // server mode blocks this endpoint (403) since it exposes server infrastructure
+    if (isServerMode()) {
+      set({ localBackendsLoaded: true })
+      return
+    }
     try {
       const headers = await getAuthHeaders()
       const response = await fetch(apiUrl("/api/backends"), { headers })
@@ -824,7 +830,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   respondToApproval: async (approvalId: string, approved: boolean, selectedOption?: string) => {
     const headers = await getAuthHeaders()
 
-    const response = await fetch('/api/dispatch/approve', {
+    const response = await fetch(apiUrl('/api/dispatch/approve'), {
       method: 'POST',
       headers,
       body: JSON.stringify({ approvalId, approved, selectedOption }),
@@ -1316,7 +1322,7 @@ function handleSSEEvent(
           (p) => p.id === execution?.projectId
         )
         if (projectForRefresh?.workingDirectory) {
-          fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(projectForRefresh.workingDirectory)}`)
+          fetch(apiUrl(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(projectForRefresh.workingDirectory)}`))
             .then((r) => r.json())
             .then((data) => {
               if (data.files?.length) {

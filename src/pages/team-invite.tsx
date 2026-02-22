@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/stores/auth-store"
 import { isServerMode } from "@/lib/app-mode"
-import { cn } from "@/lib/utils"
+import { apiUrl } from "@/lib/api-url"
 
 interface InviteDetails {
   email: string
@@ -35,7 +35,7 @@ export function TeamInvite() {
       }
 
       try {
-        const response = await fetch(`/api/teams/invite/${token}`)
+        const response = await fetch(apiUrl(`/api/teams/invite/${token}`))
 
         if (!response.ok) {
           const data = await response.json()
@@ -64,7 +64,7 @@ export function TeamInvite() {
 
     setAccepting(true)
     try {
-      const response = await fetch(`/api/teams/accept/${token}`, {
+      const response = await fetch(apiUrl(`/api/teams/accept/${token}`), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,

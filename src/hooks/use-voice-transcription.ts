@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { apiUrl } from '@/lib/api-url'
 
 export interface UseVoiceTranscriptionOptions {
   /** Callback when transcription is complete */
@@ -58,7 +59,7 @@ export function useVoiceTranscription(
 
       // Check backend availability
       try {
-        const response = await fetch('/api/transcribe/status')
+        const response = await fetch(apiUrl('/api/transcribe/status'))
         const data = await response.json() as { available: boolean }
         setIsAvailable(data.available)
       } catch {
@@ -171,7 +172,7 @@ export function useVoiceTranscription(
           const formData = new FormData()
           formData.append('audio', audioBlob, `recording.${extension}`)
 
-          const response = await fetch('/api/transcribe', {
+          const response = await fetch(apiUrl('/api/transcribe'), {
             method: 'POST',
             body: formData,
           })

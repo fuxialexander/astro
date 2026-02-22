@@ -24,6 +24,7 @@ import type {
   SessionEvent,
 } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { getMachine } from '../lib/registered-machines-store.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import type { ApprovalRequestedEvent, ApprovalRespondedEvent } from '../lib/events/types.js'
@@ -73,17 +74,25 @@ eventsRoute.get('/stream', async (c) => {
     }
 
     // Send initial machine list (filtered by authenticated user)
+    // Cross-reference with persistent store to prefer user-set names
     const allMachines = machineRegistry.getAll()
     const machines = allMachines.filter(m => !m.userId || m.userId === user?.id || m.userId === 'dev-user')
-    const machineData = machines.map((m) => ({
-      machineId: m.machineId,
-      name: m.name,
-      environmentType: m.environmentType,
-      connectionStatus: m.connectionStatus,
-      providers: m.providers,
-      executionStrategies: m.executionStrategies,
-      resources: m.resources,
-      load: m.load,
+    const machineData = await Promise.all(machines.map(async (m) => {
+      const dbMachine = await getMachine(m.machineId)
+      // Prefer user-set name from DB if it differs from hostname (i.e., user renamed it)
+      const name = (dbMachine?.name && dbMachine.name !== dbMachine.hostname && dbMachine.name !== m.machineId)
+        ? dbMachine.name
+        : m.name
+      return {
+        machineId: m.machineId,
+        name,
+        environmentType: m.environmentType,
+        connectionStatus: m.connectionStatus,
+        providers: m.providers,
+        executionStrategies: m.executionStrategies,
+        resources: m.resources,
+        load: m.load,
+      }
     }))
     await stream.writeSSE({
       event: 'machines:snapshot',
@@ -193,15 +202,20 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
     }
 
-    const onMachineConnected = (machineId: string, machineUserId: string) => {
+    const onMachineConnected = async (machineId: string, machineUserId: string) => {
       if (!alive) return
       // Filter: only send events for machines owned by this user
       if (machineUserId && machineUserId !== 'dev-user' && user?.id && machineUserId !== user.id) return
       const entry = machineRegistry.get(machineId)
+      // Cross-reference with persistent store for user-set name
+      const dbMachine = await getMachine(machineId)
+      const name = (dbMachine?.name && dbMachine.name !== dbMachine.hostname && dbMachine.name !== machineId)
+        ? dbMachine.name
+        : entry?.name
       const data = JSON.stringify({
         machineId,
         userId: machineUserId,
-        name: entry?.name,
+        name,
         environmentType: entry?.environmentType,
         providers: entry?.providers,
         executionStrategies: entry?.executionStrategies,

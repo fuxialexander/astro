@@ -32,6 +32,7 @@ import { useActivityStore } from "@/stores/activity-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { cn } from "@/lib/utils"
+import { apiUrl } from "@/lib/api-url"
 import type { Project, PlanNode } from "@/types"
 
 const healthLabels: Record<string, string> = {
@@ -92,11 +93,6 @@ export function OverviewTab({
   const [descriptionDraft, setDescriptionDraft] = useState(project.description)
   const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
   const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
-
-  // Sync description draft when project changes
-  useEffect(() => {
-    setDescriptionDraft(project.description)
-  }, [project.description])
 
   // Check if repo setup is in progress for this project
   const generationSession = useAgentStore((s) => s.sessions.get(project.id))
@@ -789,14 +785,14 @@ export function ProjectOverview() {
 
     if (machineId) {
       const params = new URLSearchParams({ projectId: project.id, machineId, workingDirectory: project.workingDirectory })
-      fetch(`/api/fs/files?${params}`)
+      fetch(apiUrl(`/api/fs/files?${params}`))
         .then((r) => r.json())
         .then((data) => {
           if (data.files?.length) updateFileTree(project.id, data.files, machineId)
         })
         .catch(() => {})
     } else {
-      fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`)
+      fetch(apiUrl(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`))
         .then((r) => r.json())
         .then((data) => {
           if (data.files?.length) updateFileTree(project.id, data.files)

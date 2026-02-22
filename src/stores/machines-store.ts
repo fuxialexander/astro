@@ -8,6 +8,7 @@ import { create } from 'zustand'
 import { getSupabase } from '@/lib/supabase-client'
 import { isServerMode } from '@/lib/app-mode'
 import { loadState, saveState, getBrowserUserId } from '@/lib/db'
+import { apiUrl } from '@/lib/api-url'
 import { useRealtimeStore } from './realtime-store'
 
 export interface ProviderConfig {
@@ -74,7 +75,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         headers['X-User-Id'] = browserUserId
       }
 
-      const response = await fetch('/api/device/machines', { headers })
+      const response = await fetch(apiUrl('/api/device/machines'), { headers })
 
       if (!response.ok) {
         throw new Error('Failed to fetch machines')
@@ -125,7 +126,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         headers['X-User-Id'] = browserUserId
       }
 
-      const response = await fetch(`/api/device/machines/${machineId}`, {
+      const response = await fetch(apiUrl(`/api/device/machines/${machineId}`), {
         method: 'DELETE',
         headers,
       })
@@ -170,7 +171,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         headers['X-User-Id'] = browserUserId
       }
 
-      const response = await fetch(`/api/device/machines/${machineId}`, {
+      const response = await fetch(apiUrl(`/api/device/machines/${machineId}`), {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ name }),
@@ -226,7 +227,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         headers['X-User-Id'] = browserUserId
       }
 
-      const response = await fetch(`/api/device/machines/${machineId}`, {
+      const response = await fetch(apiUrl(`/api/device/machines/${machineId}`), {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ providerConfigs: configs }),

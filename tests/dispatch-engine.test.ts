@@ -1,77 +1,24 @@
 /**
  * Dispatch Engine Tests
  *
- * Standalone tests for the task execution dispatch framework.
- * Run with: npx tsx server/test/dispatch-engine.test.ts
+ * Tests for the task execution dispatch framework:
+ * - ContextAssembler: dependency resolution, output gathering, prompt building
+ * - DispatchQueue: enqueue, dequeue, priority, concurrency, retries
+ * - ResultRouter: auto-close, human verification, failure routing
+ * - BranchManager: branch detection, downstream nodes, pruning
+ * - DispatchEngine: start/stop, stats
  */
 
-import type { PlanNode, PlanEdge } from '../../src/types/index.js'
+import { describe, it, expect } from 'vitest'
+import type { PlanNode, PlanEdge } from '../src/types/index.js'
 import {
   createDispatchEngine,
   createDispatchQueue,
   createContextAssembler,
   createResultRouter,
   createBranchManager,
-} from '../lib/dispatch/index.js'
-import type { TaskResult } from '../lib/providers/types.js'
-
-// ============================================================================
-// Test Utilities
-// ============================================================================
-
-let testsPassed = 0
-let testsFailed = 0
-
-function assert(condition: boolean, message: string): void {
-  if (condition) {
-    console.log(`  ✅ ${message}`)
-    testsPassed++
-  } else {
-    console.log(`  ❌ ${message}`)
-    testsFailed++
-  }
-}
-
-function assertEqual<T>(actual: T, expected: T, message: string): void {
-  const pass = actual === expected
-  if (pass) {
-    console.log(`  ✅ ${message}`)
-    testsPassed++
-  } else {
-    console.log(`  ❌ ${message}`)
-    console.log(`     Expected: ${JSON.stringify(expected)}`)
-    console.log(`     Actual:   ${JSON.stringify(actual)}`)
-    testsFailed++
-  }
-}
-
-function assertContains<T>(array: T[], item: T, message: string): void {
-  const pass = array.includes(item)
-  if (pass) {
-    console.log(`  ✅ ${message}`)
-    testsPassed++
-  } else {
-    console.log(`  ❌ ${message}`)
-    console.log(`     Array does not contain: ${JSON.stringify(item)}`)
-    testsFailed++
-  }
-}
-
-function describe(name: string, fn: () => void): void {
-  console.log(`\n📦 ${name}`)
-  fn()
-}
-
-function it(name: string, fn: () => void): void {
-  console.log(`\n  🧪 ${name}`)
-  try {
-    fn()
-  } catch (error) {
-    console.log(`  ❌ ${name} - threw error`)
-    console.log(`     ${error}`)
-    testsFailed++
-  }
-}
+} from '../server/lib/dispatch/index.js'
+import type { TaskResult } from '../server/lib/providers/types.js'
 
 // ============================================================================
 // Test Fixtures
@@ -229,7 +176,7 @@ function createFailureResult(taskId: string, error: string): TaskResult {
 }
 
 // ============================================================================
-// Context Assembler Tests
+// ContextAssembler Tests
 // ============================================================================
 
 describe('ContextAssembler', () => {
@@ -241,35 +188,35 @@ describe('ContextAssembler', () => {
     const node = nodes.find((n) => n.id === 'n3')!
     const resolution = assembler.resolveDependencies(node, nodes)
 
-    assertEqual(resolution.allMet, true, 'all dependencies met')
-    assertContains(resolution.completed, 'n2', 'n2 in completed')
-    assertEqual(resolution.pending.length, 0, 'no pending dependencies')
+    expect(resolution.allMet).toBe(true)
+    expect(resolution.completed).toContain('n2')
+    expect(resolution.pending).toHaveLength(0)
   })
 
   it('should detect pending dependencies', () => {
     const node = nodes.find((n) => n.id === 'n4')!
     const resolution = assembler.resolveDependencies(node, nodes)
 
-    assertEqual(resolution.allMet, false, 'dependencies not met')
-    assertContains(resolution.pending, 'n3', 'n3 is pending')
+    expect(resolution.allMet).toBe(false)
+    expect(resolution.pending).toContain('n3')
   })
 
   it('should gather dependency outputs', () => {
     const node = nodes.find((n) => n.id === 'n3')!
     const outputs = assembler.gatherDependencyOutputs(node, nodes)
 
-    assertEqual(outputs.length, 1, 'one dependency output')
-    assertEqual(outputs[0].nodeId, 'n2', 'correct dependency node')
-    assertEqual(outputs[0].title, 'Authentication', 'correct title')
+    expect(outputs).toHaveLength(1)
+    expect(outputs[0].nodeId).toBe('n2')
+    expect(outputs[0].title).toBe('Authentication')
   })
 
   it('should calculate graph position', () => {
     const node = nodes.find((n) => n.id === 'n3')!
     const position = assembler.calculateGraphPosition(node, nodes, edges)
 
-    assertEqual(position.depth, 2, 'depth is 2')
-    assert(position.upstreamCount > 0, 'has upstream dependencies')
-    assert(position.downstreamCount > 0, 'has downstream dependents')
+    expect(position.depth).toBe(2)
+    expect(position.upstreamCount).toBeGreaterThan(0)
+    expect(position.downstreamCount).toBeGreaterThan(0)
   })
 
   it('should build execution prompt', () => {
@@ -286,15 +233,15 @@ describe('ContextAssembler', () => {
 
     const prompt = assembler.buildExecutionPrompt(context)
 
-    assert(prompt.includes('Project Vision'), 'includes vision section')
-    assert(prompt.includes('Build a great product'), 'includes vision content')
-    assert(prompt.includes('Previous Task Outputs'), 'includes dependency outputs')
-    assert(prompt.includes('Database Schema'), 'includes task title')
+    expect(prompt).toContain('Project Vision')
+    expect(prompt).toContain('Build a great product')
+    expect(prompt).toContain('Previous Task Outputs')
+    expect(prompt).toContain('Database Schema')
   })
 })
 
 // ============================================================================
-// Dispatch Queue Tests
+// DispatchQueue Tests
 // ============================================================================
 
 describe('DispatchQueue', () => {
@@ -310,9 +257,9 @@ describe('DispatchQueue', () => {
       projectId: 'proj-1',
     })
 
-    assertEqual(entry.nodeId, 'n1', 'correct nodeId')
-    assertEqual(entry.status, 'ready', 'status is ready')
-    assertEqual(queue.getStats().total, 1, 'queue has 1 entry')
+    expect(entry.nodeId).toBe('n1')
+    expect(entry.status).toBe('ready')
+    expect(queue.getStats().total).toBe(1)
   })
 
   it('should dequeue in priority order', () => {
@@ -326,7 +273,7 @@ describe('DispatchQueue', () => {
     queue.enqueue({ nodeId: 'n3', projectId: 'proj-1', priority: 'normal' })
 
     const first = queue.dequeue()
-    assertEqual(first?.nodeId, 'n2', 'high priority first')
+    expect(first?.nodeId).toBe('n2')
   })
 
   it('should respect project concurrency limits', () => {
@@ -346,11 +293,11 @@ describe('DispatchQueue', () => {
     queue.markDispatched(e2.id, 'exec-2')
 
     const e3 = queue.dequeue()
-    assertEqual(e3, null, 'blocked by concurrency limit')
+    expect(e3).toBeNull()
 
     queue.markCompleted(e1.id)
     const e3Retry = queue.dequeue()
-    assertEqual(e3Retry?.nodeId, 'n3', 'can dequeue after completion')
+    expect(e3Retry?.nodeId).toBe('n3')
   })
 
   it('should handle retries', () => {
@@ -365,14 +312,14 @@ describe('DispatchQueue', () => {
     queue.markDispatched(entry.id, 'exec-1')
     const failResult = queue.markFailed(entry.id, 'Network error')
 
-    assertEqual(failResult?.retry, true, 'should retry')
-    assertEqual(failResult?.entry.retryCount, 1, 'retry count is 1')
-    assertEqual(failResult?.entry.status, 'ready', 'status reset to ready')
+    expect(failResult?.retry).toBe(true)
+    expect(failResult?.entry.retryCount).toBe(1)
+    expect(failResult?.entry.status).toBe('ready')
   })
 })
 
 // ============================================================================
-// Result Router Tests
+// ResultRouter Tests
 // ============================================================================
 
 describe('ResultRouter', () => {
@@ -385,10 +332,10 @@ describe('ResultRouter', () => {
 
     const decision = router.route(node, result, ['n4'])
 
-    assertEqual(decision.autoClose, true, 'auto close')
-    assertEqual(decision.targetStatus, 'auto_verified', 'status is auto_verified')
-    assertEqual(decision.triggerDownstream, true, 'triggers downstream')
-    assertContains(decision.downstreamNodes || [], 'n4', 'n4 in downstream')
+    expect(decision.autoClose).toBe(true)
+    expect(decision.targetStatus).toBe('auto_verified')
+    expect(decision.triggerDownstream).toBe(true)
+    expect(decision.downstreamNodes).toContain('n4')
   })
 
   it('should route successful human-verification task', () => {
@@ -397,9 +344,9 @@ describe('ResultRouter', () => {
 
     const decision = router.route(node, result)
 
-    assertEqual(decision.autoClose, false, 'no auto close')
-    assertEqual(decision.targetStatus, 'awaiting_judgment', 'status is awaiting_judgment')
-    assertEqual(decision.surfaceToJudgment, true, 'surfaces to judgment')
+    expect(decision.autoClose).toBe(false)
+    expect(decision.targetStatus).toBe('awaiting_judgment')
+    expect(decision.surfaceToJudgment).toBe(true)
   })
 
   it('should route failed task to judgment', () => {
@@ -408,9 +355,9 @@ describe('ResultRouter', () => {
 
     const decision = router.route(node, result)
 
-    assertEqual(decision.autoClose, false, 'no auto close')
-    assertEqual(decision.targetStatus, 'awaiting_judgment', 'status is awaiting_judgment')
-    assertEqual(decision.surfaceToJudgment, true, 'surfaces to judgment')
+    expect(decision.autoClose).toBe(false)
+    expect(decision.targetStatus).toBe('awaiting_judgment')
+    expect(decision.surfaceToJudgment).toBe(true)
   })
 
   it('should detect test failures in verification hints', () => {
@@ -420,19 +367,19 @@ describe('ResultRouter', () => {
       verification: {
         testsRun: true,
         testsPassed: 3,
-        testsFailed: 2, // Some tests failed
+        testsFailed: 2,
       },
     }
 
     const decision = router.route(node, result)
 
-    assertEqual(decision.targetStatus, 'awaiting_judgment', 'requires human review')
-    assertEqual(decision.surfaceToJudgment, true, 'surfaces to judgment')
+    expect(decision.targetStatus).toBe('awaiting_judgment')
+    expect(decision.surfaceToJudgment).toBe(true)
   })
 })
 
 // ============================================================================
-// Branch Manager Tests
+// BranchManager Tests
 // ============================================================================
 
 describe('BranchManager', () => {
@@ -443,20 +390,20 @@ describe('BranchManager', () => {
   it('should find branches in graph', () => {
     const branches = manager.findBranches(nodes, edges)
 
-    assertEqual(branches.size, 1, 'one branch point')
-    assert(branches.has('n4'), 'n4 is branch point')
+    expect(branches.size).toBe(1)
+    expect(branches.has('n4')).toBe(true)
 
     const branchInfo = branches.get('n4')!
-    assertContains(branchInfo.directChildren, 'n5', 'n5 is direct child')
-    assertContains(branchInfo.directChildren, 'n6', 'n6 is direct child')
+    expect(branchInfo.directChildren).toContain('n5')
+    expect(branchInfo.directChildren).toContain('n6')
   })
 
   it('should find downstream nodes', () => {
     const downstream = manager.findDownstreamNodes('n4', edges)
 
-    assertContains(downstream, 'n5', 'n5 is downstream')
-    assertContains(downstream, 'n6', 'n6 is downstream')
-    assertContains(downstream, 'n7', 'n7 is downstream')
+    expect(downstream).toContain('n5')
+    expect(downstream).toContain('n6')
+    expect(downstream).toContain('n7')
   })
 
   it('should find nodes to cancel', () => {
@@ -466,8 +413,8 @@ describe('BranchManager', () => {
 
     const toCancel = manager.findNodesToCancel(['n5', 'n6', 'n7'], updatedNodes)
 
-    assertContains(toCancel, 'n5', 'n5 should be cancelled')
-    assert(!toCancel.includes('n6'), 'n6 should not be cancelled')
+    expect(toCancel).toContain('n5')
+    expect(toCancel).not.toContain('n6')
   })
 
   it('should validate prune requests', () => {
@@ -476,19 +423,19 @@ describe('BranchManager', () => {
       nodes,
       edges
     )
-    assertEqual(valid.valid, true, 'valid prune request')
+    expect(valid.valid).toBe(true)
 
     const invalid = manager.validatePruneRequest(
       { branchNodeId: 'n1', projectId: 'proj-1' },
       nodes,
       edges
     )
-    assertEqual(invalid.valid, false, 'invalid prune request (not branch point)')
+    expect(invalid.valid).toBe(false)
   })
 })
 
 // ============================================================================
-// Dispatch Engine Tests
+// DispatchEngine Tests
 // ============================================================================
 
 describe('DispatchEngine', () => {
@@ -500,9 +447,9 @@ describe('DispatchEngine', () => {
 
     const stats = engine.getStats()
 
-    assertEqual(stats.running, false, 'engine not running')
-    assertEqual(stats.total, 0, 'queue is empty')
-    assertEqual(stats.activeExecutions, 0, 'no active executions')
+    expect(stats.running).toBe(false)
+    expect(stats.total).toBe(0)
+    expect(stats.activeExecutions).toBe(0)
   })
 
   it('should start and stop', () => {
@@ -511,41 +458,9 @@ describe('DispatchEngine', () => {
     })
 
     engine.start()
-    assertEqual(engine.getStats().running, true, 'engine is running')
+    expect(engine.getStats().running).toBe(true)
 
     engine.stop()
-    assertEqual(engine.getStats().running, false, 'engine stopped')
+    expect(engine.getStats().running).toBe(false)
   })
 })
-
-// ============================================================================
-// Run Tests
-// ============================================================================
-
-console.log('\n🧪 Dispatch Engine Tests\n')
-console.log('=' .repeat(60))
-
-// Run all test suites
-describe('ContextAssembler', () => {
-  const assembler = createContextAssembler({ maxDependencyOutputSize: 1000 })
-  const nodes = createTestNodes()
-  // Note: edges are created by createTestEdges() but not directly used in these tests
-  void createTestEdges()
-
-  it('should resolve dependencies correctly', () => {
-    const node = nodes.find((n) => n.id === 'n3')!
-    const resolution = assembler.resolveDependencies(node, nodes)
-    assertEqual(resolution.allMet, true, 'all dependencies met')
-  })
-})
-
-// Print summary
-console.log('\n' + '=' .repeat(60))
-console.log(`\n📊 Test Summary: ${testsPassed} passed, ${testsFailed} failed`)
-
-if (testsFailed > 0) {
-  console.log('\n❌ Some tests failed!')
-  process.exit(1)
-} else {
-  console.log('\n✅ All tests passed!')
-}

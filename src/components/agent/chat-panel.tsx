@@ -189,8 +189,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const clearActiveSessionId = useSessionStore((s) => s.clearActiveSessionId)
   // Subscribe to sessions and activeSessionIds so we re-render on changes
-  const sessions = useSessionStore((s) => s.sessions)
-  const activeSessionIds = useSessionStore((s) => s.activeSessionIds)
+  useSessionStore((s) => s.sessions)
+  useSessionStore((s) => s.activeSessionIds)
 
   // State for session dialog and dropdown
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false)
@@ -207,13 +207,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   // Get all plan-chat sessions for this project (re-evaluates when sessions map changes)
   const planChatSessions = useMemo(
     () => getSessionsForProject(projectId, "plan-chat"),
-    [sessions, getSessionsForProject, projectId]
+    [getSessionsForProject, projectId]
   )
 
   // Get the active session ID (re-evaluates when activeSessionIds changes)
   const activeSessionId = useMemo(
     () => getActiveSessionId(projectId, "plan-chat"),
-    [activeSessionIds, getActiveSessionId, projectId]
+    [getActiveSessionId, projectId]
   )
   const currentSession: Session | undefined = useMemo(() => {
     // If we have an active session ID, try to get that session

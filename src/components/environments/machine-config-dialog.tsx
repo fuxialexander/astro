@@ -2,7 +2,6 @@ import { useState, useEffect } from "react"
 import { Plus, Trash2, Eye, EyeOff, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
@@ -13,7 +12,6 @@ import {
 } from "@/components/ui/dialog"
 import type { RegisteredMachine, ProviderConfig } from "@/stores/machines-store"
 import { useMachinesStore } from "@/stores/machines-store"
-import { cn } from "@/lib/utils"
 
 const AVAILABLE_PROVIDERS = [
   { id: "anthropic", name: "Anthropic", models: ["claude-sonnet-4-5-20250929", "claude-opus-4-6", "claude-haiku-4-5-20251001"] },

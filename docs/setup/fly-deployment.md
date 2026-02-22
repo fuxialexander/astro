@@ -149,6 +149,7 @@ The frontend build step bakes in `VITE_API_BASE_URL` — this tells the React ap
 - **Single backend process**: The Hono API and WebSocket relay share in-memory state (`machineRegistry`, `dispatchEngine`, `astroEventTransport`). Splitting them into two processes would require Redis for all shared state — complexity for zero gain at our scale.
 - **No AI on server**: In server mode, every AI endpoint checks `isServerMode()` and dispatches through the relay to agent runners on user machines. The Fly.io VM never calls Claude directly — it has no API keys, no providers. This keeps the server lightweight and means users bring their own AI credentials.
 - **Relay on port 3002**: Fly.io exposes it with TLS directly. Agent runners connect to `wss://astro-backend-platform.fly.dev:3002`. Some corporate firewalls block non-443 ports; this is a known limitation for beta.
+- **Monorepo is fine**: The three components share no runtime code. The only coupling is one git repo and one root `package.json`. The Docker image for the backend carries frontend npm dependencies (React, Radix, etc.) in `node_modules/` — needed at build time but dead weight at runtime. This makes the image ~200MB larger than it could be, but not worth restructuring for beta.
 
 ---
 

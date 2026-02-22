@@ -8,8 +8,6 @@ import {
   Shield,
   Link as LinkIcon,
   Server,
-  Bot,
-  Brain,
   Keyboard,
   Puzzle,
   Zap,
@@ -24,18 +22,14 @@ import {
   Github,
   MessageSquare,
   Send,
-  RefreshCw,
-  Terminal,
   Eye,
   EyeOff,
   Lock,
   Users,
   Mail,
-  Copy,
   Clock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useMachinesStore } from "@/stores/machines-store"
@@ -43,6 +37,7 @@ import { useGitHubStore } from "@/stores/github-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { clearAllData } from "@/lib/db"
 import { getSupabase } from "@/lib/supabase-client"
+import { apiUrl } from "@/lib/api-url"
 import { isServerMode } from "@/lib/app-mode"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -62,12 +57,6 @@ import { SkillSettingsContent } from "@/components/skill-settings"
 import { ChannelAccountCard } from "@/components/channel-account-card"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import type { DomainExpertise, ExperienceLevel } from "@/types"
-
-const models = [
-  { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
-  { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
-  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-]
 
 const domainOptions: { value: DomainExpertise; label: string; description: string }[] = [
   { value: "computational-biology", label: "Computational Biology", description: "Bioinformatics, genomics, protein analysis" },
@@ -386,8 +375,6 @@ function ProfileContent() {
     setEmailNotifications,
     setDefaultMachineId,
     setDefaultProvider,
-    addApiKey,
-    removeApiKey,
   } = useUserProfileStore()
 
   const {
@@ -402,10 +389,6 @@ function ProfileContent() {
 
   const { machines } = useMachinesStore()
 
-  const [newKeyProvider, setNewKeyProvider] = useState("")
-  const [newKeyName, setNewKeyName] = useState("")
-  const [newKeyValue, setNewKeyValue] = useState("")
-  const [showAddKey, setShowAddKey] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeletingAccount, setIsDeletingAccount] = useState(false)
 
@@ -440,21 +423,6 @@ function ProfileContent() {
 
   const onlineMachines = execMachines.filter((m) => m.status !== 'offline')
   const availableProviders = providers.filter((p) => p.available)
-
-  const handleAddApiKey = () => {
-    if (newKeyProvider && newKeyName && newKeyValue) {
-      // Mask the key for storage (show first 4 and last 4 chars)
-      const masked =
-        newKeyValue.length > 8
-          ? `${newKeyValue.slice(0, 4)}${"*".repeat(newKeyValue.length - 8)}${newKeyValue.slice(-4)}`
-          : "*".repeat(newKeyValue.length)
-      addApiKey(newKeyProvider, newKeyName, masked)
-      setNewKeyProvider("")
-      setNewKeyName("")
-      setNewKeyValue("")
-      setShowAddKey(false)
-    }
-  }
 
   const handleAddEncryptedKey = async () => {
     if (!newService || !newApiKey) return
@@ -541,7 +509,7 @@ function ProfileContent() {
           throw new Error('Not authenticated')
         }
 
-        const response = await fetch('/api/auth/delete-account', {
+        const response = await fetch(apiUrl('/api/auth/delete-account'), {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${session.access_token}`
@@ -1078,257 +1046,6 @@ function ProfileContent() {
   )
 }
 
-function ModelsContent() {
-  const { model, setModel, connectionStatus, checkConnection } = useSettingsStore()
-
-  return (
-    <div className="flex flex-col gap-8">
-      <h1 className="text-[28px] font-semibold">Models</h1>
-
-      {/* Connection Status */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Claude API Connection</h2>
-        <div className="rounded-xl border border-border bg-card">
-          <div className="flex items-center justify-between px-4 py-3.5">
-            <div className="flex items-center gap-3">
-              <div
-                className={cn(
-                  "h-2.5 w-2.5 rounded-full",
-                  connectionStatus === "connected"
-                    ? "bg-success"
-                    : connectionStatus === "checking"
-                      ? "bg-warning animate-pulse"
-                      : "bg-destructive"
-                )}
-              />
-              <span className="text-sm">
-                {connectionStatus === "connected"
-                  ? "Connected"
-                  : connectionStatus === "checking"
-                    ? "Checking..."
-                    : "Disconnected"}
-              </span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={checkConnection}
-              disabled={connectionStatus === "checking"}
-            >
-              <RefreshCw
-                className={cn("h-3.5 w-3.5", connectionStatus === "checking" && "animate-spin")}
-              />
-              Retry
-            </Button>
-          </div>
-        </div>
-        {connectionStatus === "disconnected" && (
-          <div className="flex items-start gap-3 rounded-lg border border-border bg-muted p-4">
-            <Terminal className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium">Authentication required</span>
-              <span className="text-xs text-muted-foreground">
-                Run{" "}
-                <code className="rounded bg-background px-1.5 py-0.5 font-primary text-foreground">
-                  claude login
-                </code>{" "}
-                in your terminal to authenticate with your Max plan or set an API key.
-              </span>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Model Selection */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Model</h2>
-        <div className="rounded-xl border border-border bg-card">
-          <div className="px-4 py-3.5">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm">Default model</span>
-                <span className="text-[13px] text-muted-foreground">
-                  Model used for plan generation and chat
-                </span>
-              </div>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="h-8 rounded-md border border-border bg-card px-2.5 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                {models.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Sonnet is recommended for most tasks. Opus provides the highest quality for complex
-          planning.
-        </p>
-      </section>
-    </div>
-  )
-}
-
-function AgentsContent() {
-  const providers = useExecutionStore((s) => s.providers)
-  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
-  const loadProviders = useExecutionStore((s) => s.loadProviders)
-  const redetectProviders = useExecutionStore((s) => s.redetectProviders)
-  const { defaultProvider, setDefaultProvider } = useSettingsStore()
-  const [detecting, setDetecting] = useState(false)
-
-  useEffect(() => {
-    if (!providersLoaded) {
-      loadProviders()
-    }
-  }, [providersLoaded, loadProviders])
-
-  const handleRedetect = async () => {
-    setDetecting(true)
-    await redetectProviders()
-    setDetecting(false)
-  }
-
-  const authStatusConfig: Record<string, { label: string; variant: "success" | "warning" | "destructive" | "secondary" }> = {
-    authenticated: { label: "Authenticated", variant: "success" },
-    unauthenticated: { label: "Not authenticated", variant: "warning" },
-    expired: { label: "Expired", variant: "destructive" },
-    unknown: { label: "Unknown", variant: "secondary" },
-  }
-
-  return (
-    <div className="flex flex-col gap-8">
-      <h1 className="text-[28px] font-semibold">Agents</h1>
-
-      {/* Default Provider */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Default Agent</h2>
-        <p className="text-[13px] text-muted-foreground">
-          Choose which agent to use by default for task execution and plan generation.
-        </p>
-        <div className="rounded-xl border border-border bg-card">
-          <div className="px-4 py-3.5">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm">Default provider</span>
-                <span className="text-[13px] text-muted-foreground">
-                  Used when no specific provider is selected
-                </span>
-              </div>
-              <select
-                value={defaultProvider}
-                onChange={(e) => setDefaultProvider(e.target.value)}
-                className="h-8 rounded-md border border-border bg-card px-2.5 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                <option value="">Auto (first available)</option>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id} disabled={!p.available}>
-                    {p.name}{!p.available ? " (unavailable)" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Provider List */}
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Registered Providers</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRedetect}
-            disabled={detecting}
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", detecting && "animate-spin")} />
-            Re-detect
-          </Button>
-        </div>
-        <p className="text-[13px] text-muted-foreground">
-          Agent providers detected on your system. Re-detect to refresh status.
-        </p>
-
-        {!providersLoaded ? (
-          <div className="flex items-center justify-center rounded-xl border border-border bg-card py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : providers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-12">
-            <Bot className="mb-2 h-8 w-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No providers detected</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Install Claude Code or Codex CLI, then click Re-detect
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-border bg-card">
-            {providers.map((provider, idx) => {
-              const authConfig = authStatusConfig[provider.authStatus] || authStatusConfig.unknown
-              return (
-                <div
-                  key={provider.id}
-                  className={cn(
-                    "flex items-center justify-between px-4 py-3.5",
-                    idx !== providers.length - 1 && "border-b border-border"
-                  )}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={cn(
-                      "flex h-9 w-9 items-center justify-center rounded-lg",
-                      provider.available ? "bg-primary/10" : "bg-muted"
-                    )}>
-                      <Bot className={cn("h-4.5 w-4.5", provider.available ? "text-primary" : "text-muted-foreground")} />
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{provider.name}</span>
-                        {provider.available ? (
-                          <Badge variant="success" className="gap-1 text-[10px]">
-                            <CheckCircle2 className="h-2.5 w-2.5" />
-                            Available
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="gap-1 text-[10px]">
-                            <XCircle className="h-2.5 w-2.5" />
-                            Unavailable
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                        <span>{provider.installed ? "Installed" : "Not installed"}</span>
-                        <span>&middot;</span>
-                        <Badge variant={authConfig.variant} className="text-[10px] py-0 h-4">
-                          {authConfig.label}
-                        </Badge>
-                        {provider.capabilities?.availableModels && (
-                          <>
-                            <span>&middot;</span>
-                            <span>{provider.capabilities.availableModels.length} models</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {defaultProvider === provider.id && (
-                    <Badge variant="outline" className="text-[10px]">Default</Badge>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </section>
-    </div>
-  )
-}
-
 function ConnectedAccountsContent() {
   const { connected, user, repos, selectedRepoIds, fetchStatus, disconnect } = useGitHubStore()
   const { load: loadAccounts, loaded: accountsLoaded } = useConnectedAccountsStore()
@@ -1497,7 +1214,7 @@ function TeamsContent() {
   const [inviting, setInviting] = useState(false)
   const [revoking, setRevoking] = useState<string | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
-  const [copiedToken, setCopiedToken] = useState(false)
+  const [, setCopiedToken] = useState(false)
 
   // Fetch user's teams
   useEffect(() => {
@@ -1590,6 +1307,8 @@ function TeamsContent() {
     setCopiedToken(true)
     setTimeout(() => setCopiedToken(false), 2000)
   }
+  // Ensure copyInviteLink is available for future template usage
+  void copyInviteLink
 
   if (!isServerMode()) {
     return (

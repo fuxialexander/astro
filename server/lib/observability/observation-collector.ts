@@ -28,7 +28,7 @@
  */
 
 import { randomUUID } from 'crypto'
-import { eq, and, asc, desc } from 'drizzle-orm'
+import { eq, and, asc } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { observationEvents, taskExecutions, planNodes } from '../db/schema.js'
 import { executionEventBus } from '../execution-event-bus.js'

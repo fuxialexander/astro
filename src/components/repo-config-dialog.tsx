@@ -9,7 +9,7 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
 import { validateAbsolutePath } from "@/lib/path-utils"
-import { validateGitUrl, convertToSshUrl } from "@/lib/git-url-utils"
+import { validateGitUrl } from "@/lib/git-url-utils"
 import { isServerMode } from "@/lib/app-mode"
 import type { Project } from "@/types"
 

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search, ListTodo, GitBranch, ArrowLeft, Plus } from "lucide-react"
+import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Github, Search, ListTodo, GitBranch, ArrowLeft, Plus, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {

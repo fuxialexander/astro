@@ -7,6 +7,7 @@
 
 import { create } from 'zustand'
 import { realtimeClient, type RealtimeEvent } from '@/lib/realtime-client'
+import { apiUrl } from '@/lib/api-url'
 import { usePlanStore } from './plan-store'
 import { useExecutionStore } from './execution-store'
 import { useMachinesStore } from './machines-store'
@@ -261,7 +262,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
 
     try {
-      const response = await fetch('/api/dispatch/approval', {
+      const response = await fetch(apiUrl('/api/dispatch/approval'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -336,7 +337,13 @@ function handleRealtimeEvent(
     case 'machines:snapshot': {
       const machineList = event.data as MachineEntry[]
       const machines = new Map<string, MachineEntry>()
+      const registeredMachines = useMachinesStore.getState().machines
       for (const m of machineList) {
+        // Cross-reference with registered machines store for user-set names
+        const registered = registeredMachines.find(rm => rm.id === m.machineId)
+        if (registered?.name && registered.name !== registered.hostname) {
+          m.name = registered.name
+        }
         machines.set(m.machineId, m)
       }
       set(() => ({ machines }))

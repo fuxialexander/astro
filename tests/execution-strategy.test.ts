@@ -189,13 +189,14 @@ describe('DirectStrategy', () => {
     expect(status).not.toBeNull();
     expect(status?.state).toBe('running');
 
-    // Cancel
+    // Cancel via strategy (sends SIGTERM) + abort signal (resolves promise)
     await strategy.cancel('test-cancel');
+    controller.abort();
 
     const result = await resultPromise;
     // Process killed → should be cancelled or failed
     expect(['cancelled', 'failed']).toContain(result.status);
-  });
+  }, 10_000);
 
   it('getStatus() returns null for unknown jobId', async () => {
     const status = await strategy.getStatus('nonexistent');

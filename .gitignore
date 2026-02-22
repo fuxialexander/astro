@@ -1,5 +1,8 @@
 # Dependencies
 node_modules/
+
+# Fly.io setup (contains secrets)
+scripts/setup-fly.sh
 .pnp
 .pnp.js
 
@@ -117,7 +120,8 @@ dist
 
 # Gatsby files
 .cache/
-public
+public/*
+!public/landing/
 
 # Vite
 *.local
@@ -168,6 +172,8 @@ dump.rdb
 .astro-worktrees/
 .plan.md
 UI.pen
+docs/xi_fu_deployment.md
+docs/setup/xi-fu-deployment.md
 
 # Swift build artifacts
 .build/

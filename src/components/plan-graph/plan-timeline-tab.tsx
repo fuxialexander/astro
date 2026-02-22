@@ -252,8 +252,8 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
             const end = hasActualDates
               ? node.actualEndDate
               : parseDate(node.endDate!)
-            const barLeft = diffDays(timelineStart, start) * DAY_WIDTH
-            const barWidth = Math.max(diffDays(start, end) * DAY_WIDTH, 6)
+            const barLeft = diffDays(timelineStart, start!) * DAY_WIDTH
+            const barWidth = Math.max(diffDays(start!, end!) * DAY_WIDTH, 6)
 
             // Due date marker
             const hasDueDate = !!node.dueDate
@@ -288,13 +288,13 @@ export function PlanTimelineTab({ projectId }: PlanTimelineTabProps) {
                     <>
                       <div
                         className="drag-handle absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
-                        onMouseDown={(e) => handleDragMouseDown(e, "left", node.id, e.currentTarget.parentElement!, fmtDate(start), fmtDate(end))}
+                        onMouseDown={(e) => handleDragMouseDown(e, "left", node.id, e.currentTarget.parentElement!, fmtDate(start!), fmtDate(end!))}
                       >
                         <div className="w-0.5 h-3 rounded-full bg-white/60" />
                       </div>
                       <div
                         className="drag-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
-                        onMouseDown={(e) => handleDragMouseDown(e, "right", node.id, e.currentTarget.parentElement!, fmtDate(start), fmtDate(end))}
+                        onMouseDown={(e) => handleDragMouseDown(e, "right", node.id, e.currentTarget.parentElement!, fmtDate(start!), fmtDate(end!))}
                       >
                         <div className="w-0.5 h-3 rounded-full bg-white/60" />
                       </div>
