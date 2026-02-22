@@ -340,7 +340,7 @@ export class ContextAssembler {
 
     // Data access note for worktree-based execution
     if (context.originalProjectDirectory) {
-      parts.push(`## Data Access\n\nYour working directory is a git worktree (isolated branch) in a sibling directory next to the project.\nThe original project directory is: ${context.originalProjectDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
+      parts.push(`## Data Access\n\nYour working directory is a git worktree (isolated branch) inside .astro-tasks/ in the project.\nThe original project directory is: ${context.originalProjectDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
     }
 
     // Resource paths

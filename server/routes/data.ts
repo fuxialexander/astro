@@ -663,7 +663,10 @@ app.delete('/plan/edges/:id', async (c) => {
 // ── User Profile ──────────────────────────────────────────────────────
 
 app.get('/profile', async (c) => {
-  const [row] = await db.select().from(userProfiles).where(eq(userProfiles.id, c.get('user')!.id))
+  const userId = c.get('user')!.id
+  console.log('[data] GET /profile for user:', userId)
+  const [row] = await db.select().from(userProfiles).where(eq(userProfiles.id, userId))
+  console.log('[data] GET /profile result:', row ? { id: row.id, name: row.name, email: row.email } : 'null')
   if (!row) return c.json(null)
   return c.json(row)
 })

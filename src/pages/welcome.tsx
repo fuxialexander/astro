@@ -589,6 +589,18 @@ export function Welcome() {
                   </p>
                 </div>
 
+                {/* Safety note */}
+                {workingDirectory.trim() && !pathError && (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/30 p-3">
+                    <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {repoUrl.trim()
+                        ? "The repository will be cloned into your chosen folder. AI agents work on isolated git branches inside .astro-tasks/ in your project and create pull requests for review."
+                        : "AI agents work on isolated git branches inside .astro-tasks/ in your project directory. Untracked files (data, models) are accessible but not modified by git operations. Back up sensitive data that isn't under version control."}
+                    </p>
+                  </div>
+                )}
+
                 {/* First Task */}
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-medium text-foreground">

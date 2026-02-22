@@ -97,21 +97,24 @@ authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
   const supabase = getServiceClient()
   const { data: existingUsers } = await supabase
     .from('user_profiles')
-    .select('id')
+    .select('id, name')
     .eq('email', email)
     .limit(1)
 
   let userId: string | null = null
+  let userName: string | null = null
 
   if (existingUsers && existingUsers.length > 0) {
     userId = existingUsers[0].id
+    userName = existingUsers[0].name
   } else {
     // Fallback: check auth.users directly (profile may be missing due to trigger failure)
     const { data: authUsers } = await supabase.rpc('find_auth_user_by_email', { p_email: email })
     if (authUsers && authUsers.length > 0) {
       // Self-heal: create the missing profile
-      await ensureUserProfile(supabase, authUsers[0].id)
+      const profile = await ensureUserProfile(supabase, authUsers[0].id)
       userId = authUsers[0].id
+      userName = profile?.name ?? null
     }
   }
 
@@ -130,7 +133,8 @@ authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
 
   const hasCredentials = !!(creds && creds.length > 0)
 
-  return c.json({ exists: true, hasCredentials })
+  // Return user's name so the frontend can skip the name step for existing users
+  return c.json({ exists: true, hasCredentials, name: userName })
 })
 
 /**

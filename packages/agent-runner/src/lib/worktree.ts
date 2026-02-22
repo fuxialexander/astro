@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, readFile, appendFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -244,28 +244,50 @@ async function getDefaultBranch(gitRoot: string): Promise<string> {
 /**
  * Resolve the worktree root directory.
  *
- * Uses a sibling directory next to the project: {gitRoot}.astro-worktrees/
- * e.g., /home/user/my-project/ → /home/user/my-project.astro-worktrees/
+ * Creates `.astro-tasks/` inside the git root so worktrees live alongside
+ * the project (easy access to untracked data files, no bloat in ~/.astro/).
  *
- * This follows the VS Code convention ({project}.worktree/) and keeps zero
- * footprint inside the user's project — no .gitignore entry needed.
+ * Automatically adds `.astro-tasks/` to the repo's `.gitignore` if missing.
  *
- * Falls back to ~/.astro/worktrees/{repoName}/ if the parent dir is read-only.
+ * Falls back to `~/.astro/worktrees/{repoName}/` if the git root is read-only.
  */
 async function resolveWorktreeRoot(gitRoot: string): Promise<string> {
-  // Strip trailing slash for consistent path joining
-  const normalizedRoot = gitRoot.replace(/\/+$/, '');
-  const siblingDir = `${normalizedRoot}.astro-worktrees`;
+  const tasksDir = join(gitRoot, '.astro-tasks');
   try {
-    await mkdir(siblingDir, { recursive: true });
-    return siblingDir;
+    await mkdir(tasksDir, { recursive: true });
+    await ensureGitignoreEntry(gitRoot, '.astro-tasks/');
+    return tasksDir;
   } catch {
-    // Parent directory is read-only — fall back to home dir
+    // Git root is read-only — fall back to home dir
     const repoName = sanitize(basename(gitRoot));
     const fallback = join(homedir(), '.astro', 'worktrees', repoName);
     await mkdir(fallback, { recursive: true });
-    console.log(`[worktree] Parent dir read-only, using fallback: ${fallback}`);
+    console.log(`[worktree] Git root read-only, using fallback: ${fallback}`);
     return fallback;
+  }
+}
+
+/**
+ * Ensure a pattern is present in the repo's .gitignore.
+ * Appends if missing; creates the file if it doesn't exist.
+ */
+async function ensureGitignoreEntry(gitRoot: string, pattern: string): Promise<void> {
+  const gitignorePath = join(gitRoot, '.gitignore');
+  try {
+    if (existsSync(gitignorePath)) {
+      const content = await readFile(gitignorePath, 'utf-8');
+      // Check if already present (exact line match)
+      const lines = content.split('\n').map((l) => l.trim());
+      if (lines.includes(pattern)) return;
+      // Append with a preceding newline if the file doesn't end with one
+      const prefix = content.endsWith('\n') ? '' : '\n';
+      await appendFile(gitignorePath, `${prefix}\n# Astro task worktrees\n${pattern}\n`);
+    } else {
+      await appendFile(gitignorePath, `# Astro task worktrees\n${pattern}\n`);
+    }
+  } catch {
+    // Non-fatal: .gitignore update failed (e.g., permissions)
+    console.log(`[worktree] Could not update .gitignore at ${gitignorePath}`);
   }
 }
 

@@ -31,6 +31,7 @@ const COMMON_IGNORES = [
   '.DS_Store',
   '.env',
   '.env.local',
+  '.astro-tasks/',
 ]
 
 /** Size threshold for auto-ignoring files (1 MB) */

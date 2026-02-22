@@ -52,6 +52,7 @@ export function Login() {
   const [step, setStep] = useState<AuthStep>("email")
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
+  const [isReturningUser, setIsReturningUser] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [platformAuthAvailable, setPlatformAuthAvailable] = useState<boolean | null>(null)
@@ -138,16 +139,23 @@ export function Login() {
         throw new Error("Failed to check user")
       }
 
-      const { exists, hasCredentials } = await checkRes.json()
+      const { exists, hasCredentials, name: existingName } = await checkRes.json()
 
       if (exists && hasCredentials) {
         // Existing user with passkeys on this domain - proceed with authentication
         setStep("authenticating")
         await authenticateUser()
         // Success - authenticateUser navigates away
+      } else if (exists && !hasCredentials && existingName) {
+        // Existing user without passkeys (e.g., credentials were reset, or new device).
+        // Name is already on file — pre-fill and show confirmation step.
+        setName(existingName)
+        setIsReturningUser(true)
+        setStep("name")
+        setLoading(false)
       } else {
-        // Either new user, or existing user without passkeys on this domain.
-        // Show name field to register a new passkey.
+        // New user — show name field to create account.
+        setIsReturningUser(false)
         setStep("name")
         setLoading(false)
       }
@@ -390,7 +398,7 @@ export function Login() {
           <h1 className="text-2xl font-semibold tracking-tight">Astro</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {step === "email" && "Enter your email to continue"}
-            {step === "name" && "Welcome! Let's create your account"}
+            {step === "name" && (isReturningUser ? "Welcome back! Register a new passkey" : "Welcome! Let's create your account")}
             {step === "authenticating" && "Authenticating..."}
             {step === "registering" && "Creating your account..."}
             {step === "magic_link_sent" && "Check your email"}
@@ -538,7 +546,7 @@ export function Login() {
                 autoFocus
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Press Enter to create account with passkey
+                {isReturningUser ? "Press Enter to register a new passkey" : "Press Enter to create account with passkey"}
               </p>
             </div>
 
@@ -553,7 +561,7 @@ export function Login() {
               ) : (
                 <Fingerprint className="mr-2 h-4 w-4" />
               )}
-              Create Account
+              {isReturningUser ? "Register Passkey" : "Create Account"}
             </Button>
 
             {platformAuthAvailable === false && (

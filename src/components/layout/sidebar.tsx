@@ -53,6 +53,7 @@ export function Sidebar() {
   const { theme, setTheme } = useTheme()
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const profile = useUserProfileStore((s) => s.profile)
+  const authUser = useAuthStore((s) => s.user)
   const projects = useProjectStore((s) => s.projects)
   const updateProject = useProjectStore((s) => s.updateProject)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
@@ -502,15 +503,15 @@ export function Sidebar() {
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Avatar className="h-8 w-8 shrink-0">
             <AvatarImage src={profile.avatarUrl} />
-            <AvatarFallback className="text-[13px] font-bold">{getInitials(profile.name)}</AvatarFallback>
+            <AvatarFallback className="text-[13px] font-bold">{getInitials(profile.name || authUser?.email || "")}</AvatarFallback>
           </Avatar>
           <div className="flex flex-col items-start gap-0.5 min-w-0">
             <span className="text-[13px] font-semibold text-foreground truncate w-full">
-              {getDisplayName(profile.name)}
+              {getDisplayName(profile.name || authUser?.email || "")}
             </span>
-            {profile.email && (
+            {(profile.email || authUser?.email) && (
               <span className="text-[11px] text-muted-foreground truncate w-full">
-                {profile.email}
+                {profile.email || authUser?.email}
               </span>
             )}
           </div>

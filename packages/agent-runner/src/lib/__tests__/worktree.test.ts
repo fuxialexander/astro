@@ -8,6 +8,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockExecFileAsync = vi.hoisted(() => vi.fn());
 const mockMkdir = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mockRm = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockReadFile = vi.hoisted(() => vi.fn().mockResolvedValue(''));
+const mockAppendFile = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
@@ -18,6 +20,8 @@ vi.mock('node:util', () => ({
 vi.mock('node:fs/promises', () => ({
   mkdir: mockMkdir,
   rm: mockRm,
+  readFile: mockReadFile,
+  appendFile: mockAppendFile,
 }));
 vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
@@ -167,7 +171,7 @@ describe('createWorktree', () => {
     (existsSync as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('should create worktree at sibling {gitRoot}.astro-worktrees/', async () => {
+  it('should create worktree at {gitRoot}/.astro-tasks/', async () => {
     // Setup mocks for the full createWorktree flow
     mockExecFileAsync
       .mockResolvedValueOnce({ stdout: '/project\n' })        // getGitRoot (rev-parse)
@@ -179,7 +183,7 @@ describe('createWorktree', () => {
       .mockResolvedValueOnce({ stdout: 'refs/remotes/origin/HEAD\nrefs/remotes/origin/main' }) // getDefaultBranch
       .mockResolvedValueOnce({ stdout: '' });                  // git worktree add
 
-    // mkdir should succeed (sibling .astro-worktrees)
+    // mkdir should succeed (.astro-tasks inside project)
     mockMkdir.mockResolvedValue(undefined);
 
     const result = await createWorktree({
@@ -188,20 +192,20 @@ describe('createWorktree', () => {
     });
 
     expect(result).not.toBeNull();
-    // Verify mkdir was called with the sibling path
-    expect(mockMkdir).toHaveBeenCalledWith('/project.astro-worktrees', { recursive: true });
-    // Verify worktree path is under .astro-worktrees sibling
+    // Verify mkdir was called with the inside-project path
+    expect(mockMkdir).toHaveBeenCalledWith('/project/.astro-tasks', { recursive: true });
+    // Verify worktree path is under .astro-tasks inside project
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       'git',
       expect.arrayContaining([
         'worktree', 'add', '-b', 'astro/test-task-123',
-        '/project.astro-worktrees/test-task-123',
+        '/project/.astro-tasks/test-task-123',
       ]),
       expect.any(Object),
     );
   });
 
-  it('should fall back to ~/.astro/worktrees/ when parent dir is read-only', async () => {
+  it('should fall back to ~/.astro/worktrees/ when git root is read-only', async () => {
     // Setup mocks
     mockExecFileAsync
       .mockResolvedValueOnce({ stdout: '/readonly-project\n' }) // getGitRoot
@@ -213,7 +217,7 @@ describe('createWorktree', () => {
       .mockResolvedValueOnce({ stdout: 'refs/remotes/origin/HEAD\nrefs/remotes/origin/main' }) // getDefaultBranch
       .mockResolvedValueOnce({ stdout: '' });                   // git worktree add
 
-    // First mkdir call fails (read-only parent), second succeeds (fallback)
+    // First mkdir call fails (read-only git root), second succeeds (fallback)
     mockMkdir
       .mockRejectedValueOnce(new Error('EACCES: permission denied'))
       .mockResolvedValue(undefined);
@@ -250,7 +254,7 @@ describe('createWorktree', () => {
     });
 
     expect(result).not.toBeNull();
-    // Should strip trailing slash before adding suffix
-    expect(mockMkdir).toHaveBeenCalledWith('/project.astro-worktrees', { recursive: true });
+    // Trailing slash is resolved by path.resolve(), .astro-tasks goes inside git root
+    expect(mockMkdir).toHaveBeenCalledWith('/project/.astro-tasks', { recursive: true });
   });
 });

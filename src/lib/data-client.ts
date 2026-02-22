@@ -34,6 +34,7 @@ async function getAuthHeaders(): Promise<HeadersInit> {
   if (teamId) {
     headers["X-Team-Id"] = teamId
   }
+  console.log('[data-client] getAuthHeaders:', { hasToken: !!token, tokenPrefix: token ? token.substring(0, 20) + '...' : 'none', teamId: teamId || 'none' })
   return headers
 }
 
@@ -269,9 +270,16 @@ export const dataClient = {
 
   // ── Profile ─────────────────────────────────────────────────────────
   async getProfile(): Promise<UserProfile | null> {
-    const row = await json<Record<string, unknown> | null>(`${BASE}/profile`)
-    if (!row) return null
-    return mapProfile(row)
+    console.log('[data-client] getProfile() called')
+    try {
+      const row = await json<Record<string, unknown> | null>(`${BASE}/profile`)
+      console.log('[data-client] getProfile() raw response:', row ? { id: row.id, name: row.name, display_name: row.display_name } : null)
+      if (!row) return null
+      return mapProfile(row)
+    } catch (err) {
+      console.error('[data-client] getProfile() error:', (err as Error).message)
+      throw err
+    }
   },
 
   async updateProfile(profile: Partial<UserProfile> & { apiKeys?: ApiKey[] }): Promise<UserProfile> {

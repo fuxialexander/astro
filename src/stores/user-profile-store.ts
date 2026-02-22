@@ -49,21 +49,31 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
   error: null,
 
   load: async () => {
+    console.log('[user-profile-store] load() called')
     set({ loading: true, error: null })
-    try {
-      console.log('[user-profile-store] Loading profile from API...')
-      const profile = await dataClient.getProfile()
-      if (profile) {
-        console.log('[user-profile-store] Profile loaded from API')
-        set({ profile, loaded: true, loading: false })
-        return
+
+    // Retry up to 2 times with a short delay — the first call after registration
+    // can fail if the Supabase session hasn't fully propagated yet.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        console.log('[user-profile-store] Attempt', attempt + 1, 'calling dataClient.getProfile()...')
+        const profile = await dataClient.getProfile()
+        console.log('[user-profile-store] Attempt', attempt + 1, 'result:', profile ? { id: profile.id, name: profile.name, email: profile.email } : null)
+        if (profile) {
+          set({ profile, loaded: true, loading: false })
+          console.log('[user-profile-store] Profile loaded successfully:', { name: profile.name, email: profile.email })
+          return
+        }
+        console.warn('[user-profile-store] Attempt', attempt + 1, 'returned null profile')
+      } catch (error) {
+        console.warn('[user-profile-store] Profile load attempt', attempt + 1, 'failed:', (error as Error).message)
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+        }
       }
-    } catch (error) {
-      console.debug('[user-profile-store] API unavailable:', (error as Error).message)
-      set({ loading: false, error: (error as Error).message })
     }
 
-    console.log('[user-profile-store] No profile found, using default')
+    console.warn('[user-profile-store] All profile load attempts failed, using default')
     set({ loaded: true, loading: false })
   },
 
