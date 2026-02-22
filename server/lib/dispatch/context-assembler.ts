@@ -39,6 +39,7 @@ export class ContextAssembler {
       dependencyOutputs,
       graphPosition,
       workingDirectory: project?.workingDirectory ?? project?.repository,
+      resourcePaths: project?.resourcePaths,
     }
   }
 
@@ -332,6 +333,12 @@ export class ContextAssembler {
     // Working directory
     if (context.workingDirectory) {
       parts.push(`## Working Directory\n\n${context.workingDirectory}`)
+    }
+
+    // Resource paths
+    if (context.resourcePaths && context.resourcePaths.length > 0) {
+      const pathList = context.resourcePaths.map((p) => `- ${p}`).join('\n')
+      parts.push(`## Additional Resource Folders\n\nThe following additional folders are available on this machine:\n${pathList}`)
     }
 
     // Current task

@@ -102,6 +102,8 @@ export interface AssembledContext {
   graphPosition: GraphPosition
   /** Working directory for execution */
   workingDirectory?: string
+  /** Additional resource folders (data, configs, docs) */
+  resourcePaths?: string[]
   /** Additional environment variables */
   environmentVariables?: Record<string, string>
 }

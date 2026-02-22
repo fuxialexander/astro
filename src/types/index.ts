@@ -110,6 +110,7 @@ export interface Project {
   icon?: string;          // emoji icon
   workingDirectory?: string; // Absolute path for task execution (cwd for agents)
   repository?: string;       // Git SSH URL (e.g., git@github.com:user/repo.git)
+  resourcePaths?: string[];  // Additional local folders (data, configs, docs) besides workingDirectory
   fileTree?: string[];           // Cached git ls-files output (relative paths)
   fileTreeUpdatedAt?: string;    // ISO timestamp for staleness check
   fileTreeMachineId?: string;    // Which machine the cached fileTree belongs to ("local" or machineId)
