@@ -10,7 +10,7 @@ export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'slurm' | 'c
 
 // Re-export from the canonical source
 export type { ExecutionStrategyType, ExecutionStrategyInfo } from './execution/types.js';
-import type { ExecutionStrategyType } from './execution/types.js';
+import type { ExecutionStrategyType, ExecutionStrategyInfo } from './execution/types.js';
 
 export interface HpcCapability {
   clusterName?: string;

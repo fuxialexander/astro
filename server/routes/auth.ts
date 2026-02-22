@@ -237,6 +237,24 @@ authRoute.post('/webauthn/register-verify', async (c) => {
 
     if (existingUsers && existingUsers.length > 0) {
       userId = existingUsers[0].id
+
+      // Security: if this user already has passkey credentials, refuse registration.
+      // They should log in instead. Only allow adding a passkey to accounts that
+      // were created via magic link and don't have a passkey yet.
+      const { data: existingCreds } = await supabase
+        .from('passkey_credentials')
+        .select('id')
+        .eq('user_id', userId)
+        .limit(1)
+
+      if (existingCreds && existingCreds.length > 0) {
+        return c.json({
+          error: 'An account with this email already exists. Please log in instead.',
+          existingUser: true,
+        }, 409)
+      }
+
+      console.log('[auth] Adding passkey to existing magic-link user:', userId)
     } else {
       // Create user in Supabase Auth
       const { data: authUser, error: authError } = await supabase.auth.admin.createUser({

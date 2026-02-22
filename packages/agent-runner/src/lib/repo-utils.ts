@@ -8,6 +8,7 @@
 
 import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export function isGitRepo(dir: string): boolean {
