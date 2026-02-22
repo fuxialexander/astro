@@ -37,21 +37,37 @@ export interface AuthUser {
  */
 async function resolveTeams(userId: string, requestedTeamId?: string): Promise<{ teamId: string; teamIds: string[] }> {
   const { db } = await import('../lib/db/index.js')
-  const { teamMembers } = await import('../lib/db/schema.js')
+  const { teamMembers, teams } = await import('../lib/db/schema.js')
   const { eq } = await import('drizzle-orm')
 
-  const memberships = await db.select({ teamId: teamMembers.teamId })
+  let memberships = await db.select({ teamId: teamMembers.teamId })
     .from(teamMembers)
     .where(eq(teamMembers.userId, userId))
+
+  // Auto-create a personal team if user has no team memberships.
+  // This handles users who registered before team auto-creation was added.
+  if (memberships.length === 0) {
+    console.log('[auth] No team found for user', userId, '— auto-creating personal team')
+    const [team] = await db.insert(teams).values({
+      name: 'Personal',
+      description: 'Auto-created personal workspace',
+    }).returning()
+
+    await db.insert(teamMembers).values({
+      teamId: team.id,
+      userId,
+      role: 'owner',
+    })
+
+    memberships = [{ teamId: team.id }]
+  }
 
   const teamIds = memberships.map(m => m.teamId)
 
   // Determine active team: prefer X-Team-Id header, fall back to first team
-  let teamId = ''
+  let teamId = teamIds[0]
   if (requestedTeamId && teamIds.includes(requestedTeamId)) {
     teamId = requestedTeamId
-  } else if (teamIds.length > 0) {
-    teamId = teamIds[0]
   }
 
   return { teamId, teamIds }

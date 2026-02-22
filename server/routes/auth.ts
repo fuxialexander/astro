@@ -305,6 +305,25 @@ authRoute.post('/webauthn/register-verify', async (c) => {
         console.error('[auth] User profile creation failed for:', userId)
         return c.json({ error: 'Failed to create user profile' }, 500)
       }
+
+      // Auto-create a personal team for the new user
+      try {
+        const { db } = await import('../lib/db/index.js')
+        const { teams, teamMembers } = await import('../lib/db/schema.js')
+        const [team] = await db.insert(teams).values({
+          name: `${name || email}'s workspace`,
+          description: 'Personal workspace',
+        }).returning()
+        await db.insert(teamMembers).values({
+          teamId: team.id,
+          userId,
+          role: 'owner',
+        })
+        console.log('[auth] Created personal team for user:', userId, 'team:', team.id)
+      } catch (teamErr) {
+        // Non-fatal: resolveTeams will auto-create on next login if this fails
+        console.error('[auth] Failed to create personal team (will retry on login):', teamErr)
+      }
     }
 
     // Store passkey credential (as base64 for bytea column)
