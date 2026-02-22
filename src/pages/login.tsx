@@ -158,9 +158,9 @@ export function Login() {
           setError("Authentication cancelled")
           setStep("email")
         } else if (err.name === "NotAllowedError") {
-          // Passkey not found on this device — offer to register a new one
-          setError("No passkey found on this device. Register a new passkey below.")
-          setStep("name")
+          // Passkey not found or cancelled — offer alternatives (magic link, new passkey)
+          setError("Passkey login failed. Try signing in with an email link, or register a new passkey.")
+          setStep("email")
         } else {
           setError(getFriendlyErrorMessage(err.message))
           setStep("email")
