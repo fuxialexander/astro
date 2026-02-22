@@ -3,9 +3,14 @@
  *
  * Manages the queue of tasks waiting for dispatch.
  * Handles priority ordering, concurrency limits, and retry logic.
+ *
+ * Backed by Postgres via Drizzle ORM (dispatchQueueEntries table).
  */
 
 import { EventEmitter } from 'events'
+import { db } from '../db/index.js'
+import { dispatchQueueEntries } from '../db/schema.js'
+import { eq, and, notInArray, inArray, sql, asc, lt, count } from 'drizzle-orm'
 import type {
   DispatchQueueEntry,
   DispatchStatus,
@@ -14,15 +19,46 @@ import type {
 } from './types.js'
 import type { ExecutionEnvironment } from '../providers/types.js'
 import type { ProviderType } from '../../types/relay.js'
+import type { ProcedureState } from './procedure-types.js'
 
 /**
- * Priority order (lower number = higher priority)
+ * Terminal statuses — entries with these statuses are considered finished.
  */
-const PRIORITY_ORDER: Record<DispatchPriority, number> = {
-  critical: 0,
-  high: 1,
-  normal: 2,
-  low: 3,
+const TERMINAL_STATUSES: DispatchStatus[] = ['completed', 'failed', 'cancelled']
+
+/**
+ * Priority SQL CASE expression for ordering (lower = higher priority).
+ */
+const priorityOrderExpr = sql<number>`CASE
+  WHEN ${dispatchQueueEntries.priority} = 'critical' THEN 0
+  WHEN ${dispatchQueueEntries.priority} = 'high'     THEN 1
+  WHEN ${dispatchQueueEntries.priority} = 'normal'   THEN 2
+  WHEN ${dispatchQueueEntries.priority} = 'low'      THEN 3
+  ELSE 4
+END`
+
+/**
+ * Convert a raw DB row to the typed DispatchQueueEntry interface.
+ */
+function rowToEntry(row: typeof dispatchQueueEntries.$inferSelect): DispatchQueueEntry {
+  return {
+    id: row.id,
+    nodeId: row.nodeId,
+    projectId: row.projectId,
+    status: row.status as DispatchStatus,
+    priority: row.priority as DispatchPriority,
+    environment: row.environment as ExecutionEnvironment,
+    preferredProvider: (row.preferredProvider ?? undefined) as ProviderType | undefined,
+    targetMachineId: row.targetMachineId ?? undefined,
+    retryCount: row.retryCount,
+    maxRetries: row.maxRetries,
+    createdAt: row.createdAt,
+    lastDispatchAttempt: row.lastDispatchAttempt ?? undefined,
+    lastError: row.lastError ?? undefined,
+    executionId: row.executionId ?? undefined,
+    sessionId: row.sessionId ?? undefined,
+    procedureState: (row.procedureState ?? undefined) as ProcedureState | undefined,
+  }
 }
 
 /**
@@ -37,17 +73,9 @@ export interface DispatchQueueEvents {
 }
 
 /**
- * Dispatch queue implementation
+ * Dispatch queue implementation backed by Postgres.
  */
 export class DispatchQueue extends EventEmitter {
-  /** Queue entries by ID */
-  private entries = new Map<string, DispatchQueueEntry>()
-  /** Node ID to entry ID mapping */
-  private nodeToEntry = new Map<string, string>()
-  /** Active execution count per project */
-  private activePerProject = new Map<string, number>()
-  /** Total active executions */
-  private activeTotal = 0
   /** Entry counter for unique IDs */
   private entryCounter = 0
 
@@ -56,9 +84,10 @@ export class DispatchQueue extends EventEmitter {
   }
 
   /**
-   * Add a task to the dispatch queue
+   * Add a task to the dispatch queue.
+   * If the node already has a non-terminal entry, returns it instead.
    */
-  enqueue(params: {
+  async enqueue(params: {
     nodeId: string
     projectId: string
     priority?: DispatchPriority
@@ -66,17 +95,33 @@ export class DispatchQueue extends EventEmitter {
     preferredProvider?: ProviderType
     targetMachineId?: string
     maxRetries?: number
-  }): DispatchQueueEntry {
-    // Check if already in queue
-    const existingId = this.nodeToEntry.get(params.nodeId)
-    if (existingId) {
-      const existing = this.entries.get(existingId)
-      if (existing && !this.isTerminalStatus(existing.status)) {
-        return existing
-      }
+  }): Promise<DispatchQueueEntry> {
+    // Check if already in queue with a non-terminal status
+    const existing = await this.getByNodeId(params.nodeId)
+    if (existing) {
+      return existing
     }
 
     const entryId = `dq-${++this.entryCounter}-${Date.now()}`
+    const now = new Date()
+
+    const values = {
+      id: entryId,
+      nodeId: params.nodeId,
+      projectId: params.projectId,
+      status: 'ready' as const,
+      priority: (params.priority ?? this.config.defaultPriority) as string,
+      environment: (params.environment ?? 'local') as string,
+      preferredProvider: params.preferredProvider ?? null,
+      targetMachineId: params.targetMachineId ?? null,
+      retryCount: 0,
+      maxRetries: params.maxRetries ?? this.config.defaultMaxRetries,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    await db.insert(dispatchQueueEntries).values(values)
+
     const entry: DispatchQueueEntry = {
       id: entryId,
       nodeId: params.nodeId,
@@ -88,42 +133,42 @@ export class DispatchQueue extends EventEmitter {
       targetMachineId: params.targetMachineId,
       retryCount: 0,
       maxRetries: params.maxRetries ?? this.config.defaultMaxRetries,
-      createdAt: new Date(),
+      createdAt: now,
     }
 
-    this.entries.set(entryId, entry)
-    this.nodeToEntry.set(params.nodeId, entryId)
     this.emit('entry:added', entry)
-
     return entry
   }
 
   /**
-   * Get the next task ready for dispatch (respecting concurrency limits)
+   * Get the next task ready for dispatch (respecting concurrency limits).
+   * Atomically marks it as 'queued' and returns it.
    */
-  dequeue(): DispatchQueueEntry | null {
+  async dequeue(): Promise<DispatchQueueEntry | null> {
     // Check total concurrency
-    if (this.activeTotal >= this.config.maxConcurrentTotal) {
+    const totalActive = await this.getActiveConcurrencyTotal()
+    if (totalActive >= this.config.maxConcurrentTotal) {
       return null
     }
 
-    // Get all ready entries sorted by priority
-    const readyEntries = Array.from(this.entries.values())
-      .filter((e) => e.status === 'ready')
-      .sort((a, b) => {
-        // Sort by priority first
-        const priorityDiff = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
-        if (priorityDiff !== 0) return priorityDiff
-        // Then by creation time (FIFO within same priority)
-        return a.createdAt.getTime() - b.createdAt.getTime()
-      })
+    // Get all ready entries sorted by priority then creation time
+    const readyRows = await db
+      .select()
+      .from(dispatchQueueEntries)
+      .where(eq(dispatchQueueEntries.status, 'ready'))
+      .orderBy(priorityOrderExpr, asc(dispatchQueueEntries.createdAt))
 
-    // Find first entry that can be dispatched (project concurrency not exceeded)
-    for (const entry of readyEntries) {
-      const projectActive = this.activePerProject.get(entry.projectId) ?? 0
+    // Find first entry whose project concurrency is not exceeded
+    for (const row of readyRows) {
+      const projectActive = await this.getActiveConcurrency(row.projectId)
       if (projectActive < this.config.maxConcurrentPerProject) {
         // Mark as queued
-        entry.status = 'queued'
+        await db
+          .update(dispatchQueueEntries)
+          .set({ status: 'queued', updatedAt: new Date() })
+          .where(eq(dispatchQueueEntries.id, row.id))
+
+        const entry = rowToEntry({ ...row, status: 'queued' })
         this.emit('entry:updated', entry)
         return entry
       }
@@ -133,160 +178,309 @@ export class DispatchQueue extends EventEmitter {
   }
 
   /**
-   * Mark an entry as dispatched
+   * Mark an entry as dispatched.
    */
-  markDispatched(entryId: string, executionId: string): boolean {
-    const entry = this.entries.get(entryId)
-    if (!entry) return false
+  async markDispatched(entryId: string, executionId: string): Promise<boolean> {
+    const now = new Date()
+    const result = await db
+      .update(dispatchQueueEntries)
+      .set({
+        status: 'dispatched',
+        executionId,
+        lastDispatchAttempt: now,
+        updatedAt: now,
+      })
+      .where(eq(dispatchQueueEntries.id, entryId))
+      .returning()
 
-    entry.status = 'dispatched'
-    entry.executionId = executionId
-    entry.lastDispatchAttempt = new Date()
+    if (result.length === 0) return false
 
-    // Update concurrency tracking
-    const projectActive = this.activePerProject.get(entry.projectId) ?? 0
-    this.activePerProject.set(entry.projectId, projectActive + 1)
-    this.activeTotal++
-
-    this.emit('entry:updated', entry)
+    this.emit('entry:updated', rowToEntry(result[0]))
     return true
   }
 
   /**
-   * Mark an entry as in progress
+   * Mark an entry as in progress.
    */
-  markInProgress(entryId: string, sessionId?: string): boolean {
-    const entry = this.entries.get(entryId)
-    if (!entry) return false
-
-    entry.status = 'in_progress'
+  async markInProgress(entryId: string, sessionId?: string): Promise<boolean> {
+    const updates: Record<string, unknown> = {
+      status: 'in_progress',
+      updatedAt: new Date(),
+    }
     if (sessionId) {
-      entry.sessionId = sessionId
+      updates.sessionId = sessionId
     }
 
-    this.emit('entry:updated', entry)
+    const result = await db
+      .update(dispatchQueueEntries)
+      .set(updates)
+      .where(eq(dispatchQueueEntries.id, entryId))
+      .returning()
+
+    if (result.length === 0) return false
+
+    this.emit('entry:updated', rowToEntry(result[0]))
     return true
   }
 
   /**
-   * Mark an entry as completed
+   * Mark an entry as completed.
    */
-  markCompleted(entryId: string): boolean {
-    const entry = this.entries.get(entryId)
-    if (!entry) return false
+  async markCompleted(entryId: string): Promise<boolean> {
+    const result = await db
+      .update(dispatchQueueEntries)
+      .set({ status: 'completed', updatedAt: new Date() })
+      .where(eq(dispatchQueueEntries.id, entryId))
+      .returning()
 
-    entry.status = 'completed'
-    this.decrementActive(entry.projectId)
-    this.emit('entry:updated', entry)
-    this.checkDrained()
+    if (result.length === 0) return false
 
+    this.emit('entry:updated', rowToEntry(result[0]))
+    await this.checkDrained()
     return true
   }
 
   /**
-   * Mark an entry as failed
+   * Mark an entry as failed. If retries remain, re-queues as 'ready'.
    */
-  markFailed(entryId: string, error: string): { retry: boolean; entry: DispatchQueueEntry } | null {
-    const entry = this.entries.get(entryId)
-    if (!entry) return null
+  async markFailed(
+    entryId: string,
+    error: string
+  ): Promise<{ retry: boolean; entry: DispatchQueueEntry } | null> {
+    // Fetch current entry
+    const rows = await db
+      .select()
+      .from(dispatchQueueEntries)
+      .where(eq(dispatchQueueEntries.id, entryId))
 
-    entry.lastError = error
-    entry.retryCount++
-    this.decrementActive(entry.projectId)
+    if (rows.length === 0) return null
 
-    // Check if should retry
-    if (entry.retryCount <= entry.maxRetries) {
-      // Re-queue with delay
-      entry.status = 'ready'
+    const row = rows[0]
+    const newRetryCount = row.retryCount + 1
+    const now = new Date()
+
+    if (newRetryCount <= row.maxRetries) {
+      // Re-queue for retry
+      const updated = await db
+        .update(dispatchQueueEntries)
+        .set({
+          status: 'ready',
+          retryCount: newRetryCount,
+          lastError: error,
+          updatedAt: now,
+        })
+        .where(eq(dispatchQueueEntries.id, entryId))
+        .returning()
+
+      const entry = rowToEntry(updated[0])
       this.emit('entry:updated', entry)
       return { retry: true, entry }
     }
 
     // Max retries exceeded
-    entry.status = 'failed'
-    this.emit('entry:updated', entry)
-    this.checkDrained()
+    const updated = await db
+      .update(dispatchQueueEntries)
+      .set({
+        status: 'failed',
+        retryCount: newRetryCount,
+        lastError: error,
+        updatedAt: now,
+      })
+      .where(eq(dispatchQueueEntries.id, entryId))
+      .returning()
 
+    const entry = rowToEntry(updated[0])
+    this.emit('entry:updated', entry)
+    await this.checkDrained()
     return { retry: false, entry }
   }
 
   /**
-   * Mark an entry as cancelled
+   * Mark an entry as cancelled.
    */
-  markCancelled(entryId: string): boolean {
-    const entry = this.entries.get(entryId)
-    if (!entry) return false
+  async markCancelled(entryId: string): Promise<boolean> {
+    const result = await db
+      .update(dispatchQueueEntries)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(eq(dispatchQueueEntries.id, entryId))
+      .returning()
 
-    const wasActive = entry.status === 'dispatched' || entry.status === 'in_progress'
-    entry.status = 'cancelled'
+    if (result.length === 0) return false
 
-    if (wasActive) {
-      this.decrementActive(entry.projectId)
-    }
-
-    this.emit('entry:updated', entry)
-    this.checkDrained()
-
+    this.emit('entry:updated', rowToEntry(result[0]))
+    await this.checkDrained()
     return true
   }
 
   /**
-   * Cancel entry by node ID
+   * Cancel entry by node ID (only non-terminal entries).
    */
-  cancelByNodeId(nodeId: string): boolean {
-    const entryId = this.nodeToEntry.get(nodeId)
-    if (!entryId) return false
-    return this.markCancelled(entryId)
+  async cancelByNodeId(nodeId: string): Promise<boolean> {
+    const result = await db
+      .update(dispatchQueueEntries)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(
+        and(
+          eq(dispatchQueueEntries.nodeId, nodeId),
+          notInArray(dispatchQueueEntries.status, TERMINAL_STATUSES)
+        )
+      )
+      .returning()
+
+    if (result.length === 0) return false
+
+    for (const row of result) {
+      this.emit('entry:updated', rowToEntry(row))
+    }
+    await this.checkDrained()
+    return true
   }
 
   /**
-   * Get entry by ID
+   * Cancel all non-terminal entries for a project.
    */
-  get(entryId: string): DispatchQueueEntry | undefined {
-    return this.entries.get(entryId)
+  async cancelByProject(projectId: string): Promise<number> {
+    const result = await db
+      .update(dispatchQueueEntries)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(
+        and(
+          eq(dispatchQueueEntries.projectId, projectId),
+          notInArray(dispatchQueueEntries.status, TERMINAL_STATUSES)
+        )
+      )
+      .returning()
+
+    for (const row of result) {
+      this.emit('entry:updated', rowToEntry(row))
+    }
+    return result.length
   }
 
   /**
-   * Get entry by node ID
+   * Get entry by ID.
    */
-  getByNodeId(nodeId: string): DispatchQueueEntry | undefined {
-    const entryId = this.nodeToEntry.get(nodeId)
-    if (!entryId) return undefined
-    return this.entries.get(entryId)
+  async get(entryId: string): Promise<DispatchQueueEntry | undefined> {
+    const rows = await db
+      .select()
+      .from(dispatchQueueEntries)
+      .where(eq(dispatchQueueEntries.id, entryId))
+
+    return rows.length > 0 ? rowToEntry(rows[0]) : undefined
   }
 
   /**
-   * Get all entries for a project
+   * Get the active (non-terminal) entry for a node ID.
    */
-  getByProject(projectId: string): DispatchQueueEntry[] {
-    return Array.from(this.entries.values()).filter((e) => e.projectId === projectId)
+  async getByNodeId(nodeId: string): Promise<DispatchQueueEntry | undefined> {
+    const rows = await db
+      .select()
+      .from(dispatchQueueEntries)
+      .where(
+        and(
+          eq(dispatchQueueEntries.nodeId, nodeId),
+          notInArray(dispatchQueueEntries.status, TERMINAL_STATUSES)
+        )
+      )
+
+    return rows.length > 0 ? rowToEntry(rows[0]) : undefined
   }
 
   /**
-   * Get all active entries (dispatched or in_progress)
+   * Get all entries for a project.
    */
-  getActive(): DispatchQueueEntry[] {
-    return Array.from(this.entries.values()).filter(
-      (e) => e.status === 'dispatched' || e.status === 'in_progress'
-    )
+  async getByProject(projectId: string): Promise<DispatchQueueEntry[]> {
+    const rows = await db
+      .select()
+      .from(dispatchQueueEntries)
+      .where(eq(dispatchQueueEntries.projectId, projectId))
+
+    return rows.map(rowToEntry)
   }
 
   /**
-   * Get all ready entries
+   * Get all active entries (dispatched or in_progress).
    */
-  getReady(): DispatchQueueEntry[] {
-    return Array.from(this.entries.values()).filter((e) => e.status === 'ready')
+  async getActive(): Promise<DispatchQueueEntry[]> {
+    const rows = await db
+      .select()
+      .from(dispatchQueueEntries)
+      .where(inArray(dispatchQueueEntries.status, ['dispatched', 'in_progress']))
+
+    return rows.map(rowToEntry)
   }
 
   /**
-   * Get queue statistics
+   * Get all ready entries.
    */
-  getStats(): {
+  async getReady(): Promise<DispatchQueueEntry[]> {
+    const rows = await db
+      .select()
+      .from(dispatchQueueEntries)
+      .where(eq(dispatchQueueEntries.status, 'ready'))
+
+    return rows.map(rowToEntry)
+  }
+
+  /**
+   * Get all non-terminal entries.
+   */
+  async getAll(): Promise<DispatchQueueEntry[]> {
+    const rows = await db
+      .select()
+      .from(dispatchQueueEntries)
+      .where(notInArray(dispatchQueueEntries.status, TERMINAL_STATUSES))
+
+    return rows.map(rowToEntry)
+  }
+
+  /**
+   * Count active (dispatched + in_progress) entries for a specific project.
+   */
+  async getActiveConcurrency(projectId: string): Promise<number> {
+    const result = await db
+      .select({ value: count() })
+      .from(dispatchQueueEntries)
+      .where(
+        and(
+          eq(dispatchQueueEntries.projectId, projectId),
+          inArray(dispatchQueueEntries.status, ['dispatched', 'in_progress'])
+        )
+      )
+
+    return result[0]?.value ?? 0
+  }
+
+  /**
+   * Count total active (dispatched + in_progress) entries across all projects.
+   */
+  private async getActiveConcurrencyTotal(): Promise<number> {
+    const result = await db
+      .select({ value: count() })
+      .from(dispatchQueueEntries)
+      .where(inArray(dispatchQueueEntries.status, ['dispatched', 'in_progress']))
+
+    return result[0]?.value ?? 0
+  }
+
+  /**
+   * Get queue statistics.
+   */
+  async getStats(): Promise<{
     total: number
     byStatus: Record<DispatchStatus, number>
     activeTotal: number
     activePerProject: Record<string, number>
-  } {
+  }> {
+    // Count by status
+    const statusCounts = await db
+      .select({
+        status: dispatchQueueEntries.status,
+        value: count(),
+      })
+      .from(dispatchQueueEntries)
+      .groupBy(dispatchQueueEntries.status)
+
     const byStatus: Record<DispatchStatus, number> = {
       pending: 0,
       ready: 0,
@@ -298,23 +492,37 @@ export class DispatchQueue extends EventEmitter {
       cancelled: 0,
     }
 
-    for (const entry of this.entries.values()) {
-      byStatus[entry.status]++
+    let total = 0
+    for (const row of statusCounts) {
+      const status = row.status as DispatchStatus
+      byStatus[status] = row.value
+      total += row.value
     }
 
-    return {
-      total: this.entries.size,
-      byStatus,
-      activeTotal: this.activeTotal,
-      activePerProject: Object.fromEntries(this.activePerProject),
+    // Active per project
+    const activeRows = await db
+      .select({
+        projectId: dispatchQueueEntries.projectId,
+        value: count(),
+      })
+      .from(dispatchQueueEntries)
+      .where(inArray(dispatchQueueEntries.status, ['dispatched', 'in_progress']))
+      .groupBy(dispatchQueueEntries.projectId)
+
+    const activePerProject: Record<string, number> = {}
+    let activeTotal = 0
+    for (const row of activeRows) {
+      activePerProject[row.projectId] = row.value
+      activeTotal += row.value
     }
+
+    return { total, byStatus, activeTotal, activePerProject }
   }
 
   /**
-   * Calculate retry delay for an entry
+   * Calculate retry delay for an entry (exponential backoff with jitter).
    */
   calculateRetryDelay(entry: DispatchQueueEntry): number {
-    // Exponential backoff with jitter
     const baseDelay = this.config.retryDelayBase
     const maxDelay = this.config.retryDelayMax
     const exponentialDelay = baseDelay * Math.pow(2, entry.retryCount - 1)
@@ -323,68 +531,72 @@ export class DispatchQueue extends EventEmitter {
   }
 
   /**
-   * Remove completed/failed/cancelled entries older than specified age
+   * Remove completed/failed/cancelled entries older than specified age.
    */
-  cleanup(maxAgeMs: number = 3600000): number {
-    const cutoff = Date.now() - maxAgeMs
-    let removed = 0
+  async cleanup(maxAgeMs: number = 3600000): Promise<number> {
+    const threshold = new Date(Date.now() - maxAgeMs)
 
-    for (const [id, entry] of this.entries) {
-      if (this.isTerminalStatus(entry.status) && entry.createdAt.getTime() < cutoff) {
-        this.entries.delete(id)
-        this.nodeToEntry.delete(entry.nodeId)
-        this.emit('entry:removed', id)
-        removed++
-      }
+    const deleted = await db
+      .delete(dispatchQueueEntries)
+      .where(
+        and(
+          inArray(dispatchQueueEntries.status, TERMINAL_STATUSES),
+          lt(dispatchQueueEntries.createdAt, threshold)
+        )
+      )
+      .returning()
+
+    for (const row of deleted) {
+      this.emit('entry:removed', row.id)
     }
 
-    return removed
+    return deleted.length
   }
 
   /**
-   * Clear all entries (for testing)
+   * Clear all entries (for testing).
    */
-  clear(): void {
-    this.entries.clear()
-    this.nodeToEntry.clear()
-    this.activePerProject.clear()
-    this.activeTotal = 0
+  async clear(): Promise<void> {
+    await db.delete(dispatchQueueEntries)
   }
 
   /**
-   * Check if status is terminal
+   * Update the status of an entry.
    */
-  private isTerminalStatus(status: DispatchStatus): boolean {
-    return status === 'completed' || status === 'failed' || status === 'cancelled'
+  async updateStatus(entryId: string, status: DispatchStatus): Promise<boolean> {
+    const result = await db
+      .update(dispatchQueueEntries)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(dispatchQueueEntries.id, entryId))
+      .returning()
+
+    if (result.length === 0) return false
+
+    this.emit('entry:updated', rowToEntry(result[0]))
+    return true
   }
 
   /**
-   * Decrement active count for a project
+   * Check if queue is drained (no active or ready entries).
    */
-  private decrementActive(projectId: string): void {
-    const current = this.activePerProject.get(projectId) ?? 0
-    if (current > 0) {
-      this.activePerProject.set(projectId, current - 1)
-    }
-    if (this.activeTotal > 0) {
-      this.activeTotal--
-    }
-  }
+  private async checkDrained(): Promise<void> {
+    const activeCount = await this.getActiveConcurrencyTotal()
+    if (activeCount > 0) return
 
-  /**
-   * Check if queue is drained (no active or ready entries)
-   */
-  private checkDrained(): void {
-    const hasActive = this.activeTotal > 0
-    const hasReady = Array.from(this.entries.values()).some((e) => e.status === 'ready')
-    if (!hasActive && !hasReady) {
+    const readyRows = await db
+      .select({ value: count() })
+      .from(dispatchQueueEntries)
+      .where(eq(dispatchQueueEntries.status, 'ready'))
+
+    const readyCount = readyRows[0]?.value ?? 0
+    if (readyCount === 0) {
       this.emit('queue:drained')
     }
   }
 }
 
 /**
- * Create a dispatch queue with default configuration
+ * Create a dispatch queue with default configuration.
  */
 export function createDispatchQueue(config?: Partial<DispatchEngineConfig>): DispatchQueue {
   const fullConfig: DispatchEngineConfig = {
@@ -398,6 +610,7 @@ export function createDispatchQueue(config?: Partial<DispatchEngineConfig>): Dis
     dryRunMode: config?.dryRunMode ?? false,
     maxDependencyOutputSize: config?.maxDependencyOutputSize ?? 10000,
     pollIntervalMs: config?.pollIntervalMs ?? 2000,
+    machineSelectionPolicy: config?.machineSelectionPolicy ?? 'priority',
   }
 
   return new DispatchQueue(fullConfig)

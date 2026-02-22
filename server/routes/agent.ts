@@ -912,7 +912,7 @@ agentRoute.post('/chat', async (c) => {
 
       if (supportsResume && historyMessages && historyMessages.length > 0) {
         // Provider supports SDK resume — try pool-based resume first
-        const poolEntry = chatSessionPool.getSession(poolKey)
+        const poolEntry = await chatSessionPool.getSession(poolKey)
         if (poolEntry && poolEntry.providerId === provider.id) {
           // Resume from pool — no need to embed history
           chatSessionId = poolEntry.sdkSessionId
@@ -956,7 +956,7 @@ agentRoute.post('/chat', async (c) => {
           case 'result':
             // Store SDK session for future resume
             if (supportsResume && event.result.sessionId) {
-              chatSessionPool.storeSession(poolKey, event.result.sessionId, provider.id)
+              await chatSessionPool.storeSession(poolKey, event.result.sessionId, provider.id)
             }
             await stream.writeSSE({
               event: 'done',
@@ -979,7 +979,7 @@ agentRoute.post('/chat', async (c) => {
     } catch (e: unknown) {
       if (resumedPoolKey) {
         // Resume failed — remove stale pool entry
-        chatSessionPool.removeSession(resumedPoolKey)
+        await chatSessionPool.removeSession(resumedPoolKey)
       }
       if (isAbortError(e)) {
         await stream.writeSSE({ event: 'aborted', data: '' })
@@ -1082,7 +1082,7 @@ agentRoute.post('/task-chat', async (c) => {
 
       if (supportsResume && historyMessages && historyMessages.length > 0) {
         // Provider supports SDK resume — try pool-based resume first
-        const poolEntry = chatSessionPool.getSession(poolKey)
+        const poolEntry = await chatSessionPool.getSession(poolKey)
         if (poolEntry && poolEntry.providerId === provider.id) {
           // Resume from pool — no need to embed history
           chatSessionId = poolEntry.sdkSessionId
@@ -1128,7 +1128,7 @@ agentRoute.post('/task-chat', async (c) => {
           case 'result':
             // Store SDK session for future resume
             if (supportsResume && event.result.sessionId) {
-              chatSessionPool.storeSession(poolKey, event.result.sessionId, provider.id)
+              await chatSessionPool.storeSession(poolKey, event.result.sessionId, provider.id)
             }
             await stream.writeSSE({
               event: 'done',
@@ -1151,7 +1151,7 @@ agentRoute.post('/task-chat', async (c) => {
     } catch (e: unknown) {
       if (resumedPoolKey) {
         // Resume failed — remove stale pool entry
-        chatSessionPool.removeSession(resumedPoolKey)
+        await chatSessionPool.removeSession(resumedPoolKey)
       }
       if (isAbortError(e)) {
         await stream.writeSSE({ event: 'aborted', data: '' })

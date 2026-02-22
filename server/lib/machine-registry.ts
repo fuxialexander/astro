@@ -4,6 +4,28 @@
  * Maintains a live registry of connected machines, their status,
  * resources, and available providers. Supports horizontal scaling
  * via Redis pub/sub.
+ *
+ * ## Hybrid Architecture — In-Memory WebSocket Map + DB Persistence
+ *
+ * The in-memory `machines` Map tracks live WebSocket connections, which
+ * are inherently per-process — a WebSocket handle cannot be serialized
+ * or shared across server instances. This registry is therefore scoped
+ * to the connections owned by the current process and is used exclusively
+ * for real-time WebSocket message routing (dispatching tasks, sending
+ * heartbeats, streaming events to connected agent runners).
+ *
+ * The authoritative, durable source of truth for registered machines is
+ * the `registered_machines` table in the database. DB operations for
+ * machine registration, revocation, and listing are handled by
+ * `server/lib/registered-machines-store.ts` (and the corresponding
+ * `/api/device/*` route handlers). That store persists machine metadata
+ * independently of whether a WebSocket connection is currently active.
+ *
+ * In a multi-instance deployment, each instance maintains its own
+ * in-memory registry of the WebSocket connections it owns. Cross-instance
+ * task dispatch is coordinated via Redis pub/sub (`redis-pubsub.ts`),
+ * which fans out dispatch requests to the instance that holds the
+ * target machine's WebSocket connection.
  */
 
 import type {

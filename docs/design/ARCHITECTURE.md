@@ -1,8 +1,8 @@
 # Astro — Architecture
 
-> **Last updated:** 2026-02-21
+> **Last updated:** 2026-02-22
 > **Consolidates:** Previous `ARCHITECTURE.md` (operational) + `SERVER_ARCHITECTURE_V2.md` (strategic)
-> **Status:** PGlite + team-scoped data refactor **complete**. IndexedDB fully removed. Phase 3 (stateless backend) pending.
+> **Status:** PGlite + team-scoped data refactor **complete**. IndexedDB fully removed. Phase 3 (stateless backend) **complete** — all persistent in-memory Maps moved to Postgres.
 
 ---
 
@@ -98,15 +98,21 @@ There is exactly one place that knows the answer to any data question. In server
 
 If the API is down, the UI shows a loading error state with `error: string | null` in every store. No silent fallbacks to stale cached data.
 
-### 2.3 The backend is stateless (Phase 3 — pending)
+### 2.3 The backend is stateless (Phase 3 — DONE)
 
-**Target:** The backend keeps nothing in memory between requests. Any data that must survive between requests goes to Postgres.
+The backend keeps nothing persistent in memory between requests. All data that must survive between requests is stored in Postgres via 5 new tables added in Phase 3:
 
-**Current:** WebAuthn challenges, device codes, active sessions, dispatch queues, and rate limits are still stored in JavaScript `Map`s. This blocks horizontal scaling. See Section 13 for the migration plan.
+| Table | Replaces | Purpose |
+|-------|----------|---------|
+| `webauthn_challenges` | `challengeStore` Map in `auth.ts` | WebAuthn challenge storage with 5-min TTL |
+| `device_codes` | `deviceCodeStore` + index Maps in `device-code-store.ts` | OAuth2 device authorization codes |
+| `chat_sessions` | `pool` Map in `chat-session-pool.ts` | Chat SDK session metadata with 30-min TTL |
+| `shared_bundles` | `shareStore` Map in `share.ts` | Shared plan bundles |
+| `dispatch_queue_entries` | `entries` + `nodeToEntry` + `activePerProject` Maps in `dispatch-queue.ts` | Task dispatch queue |
 
-**What CAN stay in memory:** Single-request local variables, read-only caches.
-**What CANNOT stay in memory:** Anything that request B needs to read that request A wrote.
-**Exception:** WebSocket connections are inherently in-memory (relay holds live connections). For cross-instance routing, use Postgres `LISTEN/NOTIFY`.
+**What stays in memory (by design):** Runtime objects that cannot be serialized — `AbortController` instances (session-manager), WebSocket connections (machine-registry), SSE ring buffer (event-buffer). See `LOCAL_SERVER_REFACTOR.md` "Intentionally Hybrid Components" for details.
+
+**Result:** Running 2+ Fly.io machines no longer causes auth failures or data loss. WebAuthn challenges on Machine A are visible to Machine B.
 
 ### 2.4 Postgres everywhere — same code, different connection string
 
@@ -629,7 +635,7 @@ astro/
 │
 ├── skills/                        # Skill definitions (SKILL.md files)
 ├── docs/design/                   # Design documentation
-└── tests/                         # Vitest test suite (35 files, 624+ tests)
+└── tests/                         # Vitest test suite (35 files, 661+ tests)
 ```
 
 ---
@@ -707,18 +713,21 @@ if (isServerMode()) {
 | Production | 1K-10K | 3-10 machines, Supabase Enterprise | ~$200-500/mo | Read replicas, multi-region |
 | Scale | 10K+ | Add Redis for relay pub/sub, database partitioning | Custom | Separate relay app, CDN caching |
 
-### 13.3 What Blocks Horizontal Scaling (Phase 3)
+### 13.3 Horizontal Scaling (Phase 3 — DONE)
 
-| Blocker | Current | Target |
-|---------|---------|--------|
-| WebAuthn challenges | In-memory Map | Postgres table (5min TTL) |
-| Device codes | In-memory Map | Postgres table |
-| Active sessions | In-memory Map | DB cancellation flag |
-| Dispatch queue | In-memory Map | Postgres `SELECT ... FOR UPDATE SKIP LOCKED` |
-| Machine registry | In-memory only | DB-authoritative + in-memory read cache |
-| Cross-instance relay | None | Postgres `LISTEN/NOTIFY` |
+All blockers to horizontal scaling have been resolved. In-memory Maps that held persistent state have been moved to Postgres:
 
-**Until Phase 3 is complete, running >1 machine causes data loss and auth failures.**
+| Component | Before (in-memory) | After (Postgres) | Status |
+|-----------|-------------------|------------------|--------|
+| WebAuthn challenges | `Map` in `auth.ts` | `webauthn_challenges` table (5-min TTL) | DONE |
+| Device codes | `Map` in `device-code-store.ts` | `device_codes` table | DONE |
+| Chat sessions | `Map` in `chat-session-pool.ts` | `chat_sessions` table (30-min TTL) | DONE |
+| Shared bundles | `Map` in `share.ts` | `shared_bundles` table | DONE |
+| Dispatch queue | 3 `Map`s in `dispatch-queue.ts` | `dispatch_queue_entries` table | DONE |
+| Machine registry | DB-authoritative | Already uses `registered_machines` table | N/A |
+| Cross-instance relay | N/A | Postgres `LISTEN/NOTIFY` (future, not yet needed) | Deferred |
+
+**Running 2+ Fly.io machines is now safe.** The production WebAuthn auth bug (challenge on Machine A invisible to Machine B) is fixed.
 
 ---
 
@@ -730,8 +739,8 @@ if (isServerMode()) {
 | 2. Frontend cleanup | Remove IndexedDB, stores use `fetch('/api/...')` only | **DONE** |
 | 3. Team-scoped data | All queries filter by `teamId`, bootstrap local team | **DONE** |
 | 4. Agent runner integration | settingSources, session preservation, relay prompt parity | **DONE** |
-| 5. Stateless backend | Move in-memory Maps to Postgres tables | Pending |
-| 6. Cross-instance relay | Postgres LISTEN/NOTIFY | Pending |
+| 5. Stateless backend | Move in-memory Maps to Postgres tables | **DONE** |
+| 6. Cross-instance relay | Postgres LISTEN/NOTIFY | Deferred (not needed at current scale) |
 | 7. Beta launch | 2-3 machines, autoscaling, monitoring | Pending |
 
 ---

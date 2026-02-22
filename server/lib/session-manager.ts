@@ -3,6 +3,29 @@
  *
  * Manages active agent sessions, including abort controllers and provider metadata.
  * Extended to support the provider abstraction layer.
+ *
+ * ## Hybrid Architecture — In-Memory + DB
+ *
+ * The `activeSessions` Map below is intentionally kept in-memory because
+ * `AbortController` is a process-local construct — it cannot be serialized
+ * or shared across processes. Each server instance owns the AbortControllers
+ * for sessions it is currently executing.
+ *
+ * Session metadata (creation time, status, associated project/task) is
+ * persisted to the `sessions` table in the database by other parts of the
+ * codebase (e.g., the dispatch engine and route handlers). This module does
+ * NOT duplicate those DB writes; it only manages the in-memory abort
+ * lifecycle.
+ *
+ * ### Multi-Instance Cancellation
+ *
+ * In horizontally-scaled deployments where multiple server instances run
+ * behind a load balancer, a cancel request may arrive at an instance that
+ * does not own the target session's AbortController. Cross-instance
+ * cancellation is handled via the dispatch engine's DB-backed `cancelledAt`
+ * field on task executions — the owning instance polls or observes this
+ * field and aborts locally. This module's `abortSession()` handles the
+ * local (same-instance) fast path.
  */
 
 /**

@@ -49,6 +49,8 @@ import { observabilityHook, observationCollector } from './lib/observability/obs
 import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
 import { cleanupExpired as cleanupChatPool } from './lib/chat-session-pool.js'
+import { cleanupExpiredChallenges } from './lib/challenge-store.js'
+import { cleanupExpiredDeviceCodes } from './lib/device-code-store.js'
 
 // Validate environment variables on startup
 try {
@@ -203,6 +205,8 @@ const relayPort = getRelayConfig().port
 
 let httpServer: ReturnType<typeof serve> | null = null
 let chatPoolCleanup: ReturnType<typeof setInterval> | null = null
+let challengeCleanup: ReturnType<typeof setInterval> | null = null
+let deviceCodeCleanup: ReturnType<typeof setInterval> | null = null
 
 /**
  * Kill any stale processes listening on a port.
@@ -413,12 +417,36 @@ async function start() {
 
   // Clean expired chat session pool entries every 10 minutes
   if (!isTest()) {
-    chatPoolCleanup = setInterval(() => {
-      const cleaned = cleanupChatPool(30 * 60 * 1000)
+    chatPoolCleanup = setInterval(async () => {
+      const cleaned = await cleanupChatPool(30 * 60 * 1000)
       if (cleaned > 0) {
         console.log(`[chat-pool] Cleaned ${cleaned} expired session(s)`)
       }
     }, 10 * 60 * 1000)
+
+    // Clean expired WebAuthn challenges every minute
+    challengeCleanup = setInterval(async () => {
+      try {
+        const cleaned = await cleanupExpiredChallenges()
+        if (cleaned > 0) {
+          console.log(`[auth] Cleaned ${cleaned} expired challenge(s)`)
+        }
+      } catch (err) {
+        console.warn('[auth] Challenge cleanup failed:', (err as Error).message)
+      }
+    }, 60 * 1000)
+
+    // Clean expired device codes every 5 minutes
+    deviceCodeCleanup = setInterval(async () => {
+      try {
+        const cleaned = await cleanupExpiredDeviceCodes()
+        if (cleaned > 0) {
+          console.log(`[device-auth] Cleaned ${cleaned} expired device code(s)`)
+        }
+      } catch (err) {
+        console.warn('[device-auth] Device code cleanup failed:', (err as Error).message)
+      }
+    }, 5 * 60 * 1000)
   }
 
   httpServer = serve({ fetch: app.fetch, port })
@@ -462,9 +490,9 @@ async function shutdown(signal: string) {
   }, 3_000)
   timer.unref()
 
-  if (chatPoolCleanup) {
-    clearInterval(chatPoolCleanup)
-  }
+  if (chatPoolCleanup) clearInterval(chatPoolCleanup)
+  if (challengeCleanup) clearInterval(challengeCleanup)
+  if (deviceCodeCleanup) clearInterval(deviceCodeCleanup)
 
   try {
     stopCleanupScheduler()

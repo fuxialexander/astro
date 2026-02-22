@@ -3,6 +3,24 @@
  *
  * Stores recent events with sequential IDs so that when a client
  * reconnects with Last-Event-ID, we can replay missed events.
+ *
+ * ## Architecture — Intentionally In-Memory, No DB Needed
+ *
+ * This ring buffer is intentionally kept entirely in-memory. SSE clients
+ * establish a persistent HTTP connection to a specific server instance,
+ * so the replay buffer only needs to serve reconnections to the same
+ * instance. Per-instance buffering is the correct architecture choice:
+ *
+ * - SSE connections are inherently instance-affine (the client reconnects
+ *   to the same backend via sticky sessions or direct connection).
+ * - The buffer is small (default 500 events, 5-minute TTL) and ephemeral
+ *   by design — it exists solely to bridge brief network interruptions.
+ * - Events that matter for long-term consistency (task status changes,
+ *   execution results) are persisted to the database by their respective
+ *   stores; the SSE stream is a real-time notification layer, not a
+ *   durable log.
+ *
+ * No database migration is needed for this module.
  */
 
 export interface BufferedEvent {

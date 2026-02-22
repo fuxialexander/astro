@@ -422,6 +422,77 @@ export const connectedAccounts = pgTable('connected_accounts', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+// ── WebAuthn Challenges ─────────────────────────────────────────
+// Stores short-lived WebAuthn challenges for cross-instance verification.
+// Fixes production auth bug: challenges created on Machine A are now
+// visible to Machine B during verification.
+export const webauthnChallenges = pgTable('webauthn_challenges', {
+  key: text('key').primaryKey(),
+  challenge: text('challenge').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// ── Device Codes ────────────────────────────────────────────────
+// OAuth2 device authorization codes (RFC 8628).
+// Previously in-memory — now persistent for multi-instance support.
+export const deviceCodes = pgTable('device_codes', {
+  userCode: text('user_code').primaryKey(),
+  deviceCode: text('device_code').notNull().unique(),
+  scopes: text('scopes').array().notNull().default([]),
+  machineInfo: jsonb('machine_info'),
+  status: text('status').notNull().default('pending'), // 'pending' | 'authorized' | 'denied' | 'expired' | 'used'
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  authorizedBy: text('authorized_by'),
+  authorizedAt: timestamp('authorized_at'),
+  lastPolledAt: timestamp('last_polled_at'),
+})
+
+// ── Chat Sessions ───────────────────────────────────────────────
+// Server-side SDK session pool for hybrid resume/fallback.
+// Previously in-memory TTL map — now persistent for multi-instance support.
+export const chatSessions = pgTable('chat_sessions', {
+  key: text('key').primaryKey(),
+  sdkSessionId: text('sdk_session_id').notNull(),
+  providerId: text('provider_id').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at').notNull().defaultNow(),
+})
+
+// ── Shared Bundles ──────────────────────────────────────────────
+// Stores shared plan export bundles for the /api/share endpoints.
+// Previously in-memory Map — now persistent.
+export const sharedBundles = pgTable('shared_bundles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bundle: jsonb('bundle').notNull(),
+  downloads: integer('downloads').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// ── Dispatch Queue Entries ──────────────────────────────────────
+// Persisted dispatch queue for multi-instance consistency.
+// Previously a complex multi-Map in-memory structure.
+export const dispatchQueueEntries = pgTable('dispatch_queue_entries', {
+  id: text('id').primaryKey(),
+  nodeId: text('node_id').notNull(),
+  projectId: uuid('project_id').notNull(),
+  status: text('status').notNull().default('ready'), // DispatchStatus
+  priority: text('priority').notNull().default('normal'), // DispatchPriority
+  environment: text('environment').notNull().default('local'),
+  preferredProvider: text('preferred_provider'),
+  targetMachineId: text('target_machine_id'),
+  retryCount: integer('retry_count').notNull().default(0),
+  maxRetries: integer('max_retries').notNull().default(2),
+  executionId: text('execution_id'),
+  sessionId: text('session_id'),
+  lastDispatchAttempt: timestamp('last_dispatch_attempt'),
+  lastError: text('last_error'),
+  procedureState: jsonb('procedure_state'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
 // ── Machine Usage Logs ───────────────────────────────────────────
 export const machineUsageLogs = pgTable('machine_usage_logs', {
   id: uuid('id').primaryKey().defaultRandom(),

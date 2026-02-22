@@ -25,6 +25,7 @@ import { getServiceClient } from '../lib/supabase.js'
 import { isLocalMode } from '../lib/app-mode.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { ensureUserProfile } from '../lib/ensure-user-profile.js'
+import { storeChallenge, getAndDeleteChallenge } from '../lib/challenge-store.js'
 
 const authRoute = new Hono()
 
@@ -32,10 +33,6 @@ const authRoute = new Hono()
 const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'Astro'
 const RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost'
 const ORIGIN = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173'
-
-// Security configuration
-const CHALLENGE_TTL_MS = parseInt(process.env.CHALLENGE_TTL_MS || '300000') // 5 minutes default
-const CLEANUP_INTERVAL_MS = parseInt(process.env.CLEANUP_INTERVAL_MS || '60000') // 1 minute default
 
 // Rate limiting: Prevent enumeration and DoS attacks
 // A full login flow uses 2 rate-limited endpoints (check-user + login-options),
@@ -51,55 +48,6 @@ const authLimiter = rateLimiter({
     c.req.header('x-real-ip') ||
     'unknown',
 })
-
-// In-memory challenge store (short-lived, per-request)
-// In production, use Redis or a database with TTL
-const MAX_CHALLENGE_STORE_SIZE = 1000
-const challengeStore = new Map<string, { challenge: string; expiresAt: number }>()
-
-function storeChallenge(key: string, challenge: string) {
-  // Prevent DoS: enforce size limit on challenge store
-  if (challengeStore.size >= MAX_CHALLENGE_STORE_SIZE) {
-    // Emit warning in production
-    if (process.env.NODE_ENV === 'production') {
-      console.warn('[auth] Challenge store size limit reached. Cleaning expired entries.')
-    }
-    // Clean expired entries before rejecting
-    const now = Date.now()
-    for (const [k, entry] of challengeStore) {
-      if (now > entry.expiresAt) challengeStore.delete(k)
-    }
-    // If still at limit after cleanup, reject oldest entries (FIFO)
-    if (challengeStore.size >= MAX_CHALLENGE_STORE_SIZE) {
-      const oldestKey = challengeStore.keys().next().value
-      if (oldestKey) challengeStore.delete(oldestKey)
-    }
-  }
-
-  challengeStore.set(key, {
-    challenge,
-    expiresAt: Date.now() + CHALLENGE_TTL_MS,
-  })
-}
-
-function getChallenge(key: string): string | null {
-  const entry = challengeStore.get(key)
-  if (!entry) return null
-  if (Date.now() > entry.expiresAt) {
-    challengeStore.delete(key)
-    return null
-  }
-  challengeStore.delete(key) // One-time use
-  return entry.challenge
-}
-
-// Periodic cleanup of expired challenges
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, entry] of challengeStore) {
-    if (now > entry.expiresAt) challengeStore.delete(key)
-  }
-}, CLEANUP_INTERVAL_MS)
 
 /**
  * POST /api/auth/webauthn/check-user
@@ -125,19 +73,36 @@ authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
     .eq('email', email)
     .limit(1)
 
+  let userId: string | null = null
+
   if (existingUsers && existingUsers.length > 0) {
-    return c.json({ exists: true })
+    userId = existingUsers[0].id
+  } else {
+    // Fallback: check auth.users directly (profile may be missing due to trigger failure)
+    const { data: authUsers } = await supabase.rpc('find_auth_user_by_email', { p_email: email })
+    if (authUsers && authUsers.length > 0) {
+      // Self-heal: create the missing profile
+      await ensureUserProfile(supabase, authUsers[0].id)
+      userId = authUsers[0].id
+    }
   }
 
-  // Fallback: check auth.users directly (profile may be missing due to trigger failure)
-  const { data: authUsers } = await supabase.rpc('find_auth_user_by_email', { p_email: email })
-  if (authUsers && authUsers.length > 0) {
-    // Self-heal: create the missing profile
-    await ensureUserProfile(supabase, authUsers[0].id)
-    return c.json({ exists: true })
+  if (!userId) {
+    return c.json({ exists: false, hasCredentials: false })
   }
 
-  return c.json({ exists: false })
+  // Check if user has any passkey credentials registered.
+  // If the user exists but has no credentials (e.g., accessing from a new domain/device
+  // where RP_ID differs), the frontend should route to registration, not login.
+  const { data: creds } = await supabase
+    .from('passkey_credentials')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1)
+
+  const hasCredentials = !!(creds && creds.length > 0)
+
+  return c.json({ exists: true, hasCredentials })
 })
 
 /**
@@ -215,8 +180,8 @@ authRoute.post('/webauthn/register-options', authLimiter, async (c) => {
     },
   })
 
-  // Store challenge for verification
-  storeChallenge(`reg:${email}`, options.challenge)
+  // Store challenge for verification (DB-backed for multi-instance)
+  await storeChallenge(`reg:${email}`, options.challenge)
 
   return c.json({
     options,
@@ -241,7 +206,7 @@ authRoute.post('/webauthn/register-verify', async (c) => {
     credential: RegistrationResponseJSON
   }>()
 
-  const expectedChallenge = getChallenge(`reg:${email}`)
+  const expectedChallenge = await getAndDeleteChallenge(`reg:${email}`)
   if (!expectedChallenge) {
     return c.json({ error: 'Challenge expired or not found' }, 400)
   }
@@ -304,6 +269,17 @@ authRoute.post('/webauthn/register-verify', async (c) => {
       if (!profile) {
         console.error('[auth] User profile creation failed for:', userId)
         return c.json({ error: 'Failed to create user profile' }, 500)
+      }
+
+      // Explicitly set the name from the registration form if the profile has an empty/email-like name.
+      // ensureUserProfile may have created the row with name from user_metadata (which can be empty
+      // for users created before user_metadata was populated, or if a DB trigger created the row first).
+      if (name && (!profile.name || profile.name.includes('@'))) {
+        await supabase
+          .from('user_profiles')
+          .update({ name })
+          .eq('id', userId)
+        console.log('[auth] Updated profile name for user:', userId, 'to:', name)
       }
 
       // Auto-create a personal team for the new user
@@ -442,9 +418,9 @@ authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
     userVerification: 'required',
   })
 
-  // Store challenge
+  // Store challenge (DB-backed for multi-instance)
   const challengeKey = email ? `auth:${email}` : `auth:${options.challenge}`
-  storeChallenge(challengeKey, options.challenge)
+  await storeChallenge(challengeKey, options.challenge)
 
   return c.json({ options, challengeKey })
 })
@@ -464,7 +440,7 @@ authRoute.post('/webauthn/login-verify', async (c) => {
     challengeKey: string
   }>()
 
-  const expectedChallenge = getChallenge(challengeKey)
+  const expectedChallenge = await getAndDeleteChallenge(challengeKey)
   if (!expectedChallenge) {
     return c.json({ error: 'Challenge expired or not found' }, 400)
   }
@@ -530,6 +506,19 @@ authRoute.post('/webauthn/login-verify', async (c) => {
 
     // Generate Supabase session via admin
     const { data: authUser } = await supabase.auth.admin.getUserById(storedCred.user_id)
+
+    // Self-heal: if profile name is empty but user_metadata has a name, update it
+    if (userProfile && (!userProfile.name || userProfile.name.includes('@')) && authUser?.user?.user_metadata?.name) {
+      const metaName = authUser.user.user_metadata.name
+      if (metaName && !metaName.includes('@')) {
+        await supabase
+          .from('user_profiles')
+          .update({ name: metaName })
+          .eq('id', storedCred.user_id)
+        userProfile.name = metaName
+        console.log('[auth] Self-healed profile name on login for user:', storedCred.user_id)
+      }
+    }
 
     if (!authUser?.user?.email) {
       return c.json({ error: 'User not found' }, 500)

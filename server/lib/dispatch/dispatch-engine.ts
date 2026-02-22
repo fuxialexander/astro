@@ -4,6 +4,30 @@
  * The core orchestrator that bridges the plan graph and agent execution.
  * Watches for ready tasks, manages dispatch queue, routes results,
  * and handles branch operations.
+ *
+ * ## Hybrid Architecture — In-Memory Maps + DB Persistence
+ *
+ * This module maintains two in-memory Maps that MUST stay in-memory:
+ *
+ * ### `activeExecutions` (Map<nodeId, { abortController, ... }>)
+ * Kept in-memory because `AbortController` is a process-local construct
+ * that cannot be serialized or shared across processes. Each server
+ * instance owns the AbortControllers for executions it is running.
+ * Task execution status is separately persisted to the `task_executions`
+ * table in the database by the dispatch and route layers. Cross-instance
+ * cancellation works via the dispatch queue's DB state: when a task is
+ * cancelled on a different instance, its status is set to 'cancelled'
+ * in the DB, and the owning instance observes this and aborts locally.
+ *
+ * ### `pendingApprovals` (Map<approvalId, { resolve, reject, ... }>)
+ * Kept fully in-memory because Promise `resolve`/`reject` callbacks
+ * cannot be serialized or transferred between processes. When a user
+ * responds to an approval request, the response must be routed to the
+ * specific server instance that holds the pending Promise. In a
+ * multi-instance deployment, approval responses are routed to the
+ * owning instance via sticky sessions or a pub/sub fan-out mechanism
+ * (e.g., Redis). If the owning instance has restarted, the approval
+ * times out and the user is asked again.
  */
 
 import { EventEmitter } from 'events'
@@ -23,6 +47,7 @@ import {
   type TaskFailedEvent,
   type BranchPrunedEvent,
   type AssembledContext,
+  type DispatchRequest,
 } from './types.js'
 import { DispatchQueue, createDispatchQueue } from './dispatch-queue.js'
 import { ContextAssembler, createContextAssembler } from './context-assembler.js'
@@ -220,7 +245,7 @@ export class DispatchEngine extends EventEmitter {
     }
 
     // Add to queue
-    const queueEntry = this.queue.enqueue({
+    const queueEntry = await this.queue.enqueue({
       nodeId: request.nodeId,
       projectId: request.projectId,
       priority: request.priority,
@@ -240,7 +265,7 @@ export class DispatchEngine extends EventEmitter {
    */
   async cancel(nodeId: string): Promise<boolean> {
     // Cancel in queue
-    this.queue.cancelByNodeId(nodeId)
+    await this.queue.cancelByNodeId(nodeId)
 
     // Abort active execution
     const execution = this.activeExecutions.get(nodeId)
@@ -340,12 +365,12 @@ export class DispatchEngine extends EventEmitter {
   /**
    * Get queue statistics
    */
-  getStats(): ReturnType<DispatchQueue['getStats']> & {
+  async getStats(): Promise<Awaited<ReturnType<DispatchQueue['getStats']>> & {
     activeExecutions: number
     running: boolean
-  } {
+  }> {
     return {
-      ...this.queue.getStats(),
+      ...(await this.queue.getStats()),
       activeExecutions: this.activeExecutions.size,
       running: this.running,
     }
@@ -388,13 +413,13 @@ export class DispatchEngine extends EventEmitter {
   ): Promise<void> {
     if (!this.executionCallback || !this.nodeUpdateCallback) {
       console.error('[dispatch] Execution callback not configured')
-      this.queue.markFailed(queueEntry.id, 'Execution callback not configured')
+      await this.queue.markFailed(queueEntry.id, 'Execution callback not configured')
       return
     }
 
     const node = nodes.find((n) => n.id === queueEntry.nodeId)
     if (!node) {
-      this.queue.markFailed(queueEntry.id, 'Node not found')
+      await this.queue.markFailed(queueEntry.id, 'Node not found')
       return
     }
 
@@ -413,7 +438,7 @@ export class DispatchEngine extends EventEmitter {
     })
 
     // Update queue and node status
-    this.queue.markDispatched(queueEntry.id, executionId)
+    await this.queue.markDispatched(queueEntry.id, executionId)
     await this.nodeUpdateCallback(queueEntry.nodeId, {
       status: 'dispatched',
       executionId,
@@ -436,7 +461,7 @@ export class DispatchEngine extends EventEmitter {
       let result: TaskResult | undefined
 
       // Update to in_progress
-      this.queue.markInProgress(queueEntry.id)
+      await this.queue.markInProgress(queueEntry.id)
       await this.nodeUpdateCallback(queueEntry.nodeId, {
         status: 'in_progress',
         executionStartedAt: new Date(),
@@ -531,7 +556,7 @@ export class DispatchEngine extends EventEmitter {
 
       if (isAbort) {
         // Handle cancellation
-        this.queue.markCancelled(queueEntry.id)
+        await this.queue.markCancelled(queueEntry.id)
         await this.nodeUpdateCallback(queueEntry.nodeId, { status: 'planned' })
         this.emit('task:cancelled', queueEntry.nodeId, queueEntry.projectId)
 
@@ -548,7 +573,7 @@ export class DispatchEngine extends EventEmitter {
       } else {
         // Handle error
         const errMsg = errorMessage(error)
-        const failResult = this.queue.markFailed(queueEntry.id, errMsg)
+        const failResult = await this.queue.markFailed(queueEntry.id, errMsg)
 
         if (failResult?.retry) {
           // Will retry
@@ -617,11 +642,11 @@ export class DispatchEngine extends EventEmitter {
 
     // Update queue
     if (routing.targetStatus === 'auto_verified' || routing.targetStatus === 'completed') {
-      this.queue.markCompleted(queueEntry.id)
+      await this.queue.markCompleted(queueEntry.id)
     } else if (result.status === 'cancelled') {
-      this.queue.markCancelled(queueEntry.id)
+      await this.queue.markCancelled(queueEntry.id)
     } else {
-      this.queue.markFailed(queueEntry.id, result.errorMessage || 'Unknown error')
+      await this.queue.markFailed(queueEntry.id, result.errorMessage || 'Unknown error')
     }
 
     // Update node

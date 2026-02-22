@@ -8,6 +8,13 @@
       "when": 1771736730139,
       "tag": "0000_superb_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1771748330967,
+      "tag": "0001_even_rictor",
+      "breakpoints": true
     }
   ]
 }

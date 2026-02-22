@@ -134,28 +134,32 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!shouldLoadData) return
 
-    // If the user changed, reset all stores so we fetch fresh data
-    if (lastUserIdRef.current !== null && lastUserIdRef.current !== userId) {
+    // If the user changed, reset all stores so we fetch fresh data.
+    // After reset, load unconditionally because the captured *Loaded flags
+    // are stale (they reflect the pre-reset render and still read as true).
+    const userChanged = lastUserIdRef.current !== null && lastUserIdRef.current !== userId
+    if (userChanged) {
       resetAllStores()
     }
     lastUserIdRef.current = userId
 
-    // Only load if not already loaded (prevents duplicate API calls on re-renders)
-    if (!projectsLoaded) loadProjects()
-    if (!planLoaded) loadPlan()
-    if (!settingsLoaded) loadSettings()
-    if (!userProfileLoaded) loadUserProfile()
-    if (!displaySettingsLoaded) loadDisplaySettings()
-    if (!taskChatLoaded) loadTaskChat()
-    if (!usageLoaded) loadUsage()
-    if (!sessionsLoaded) loadSessions()
-    if (!initiativesLoaded) loadInitiatives()
-    if (!executionsLoaded) loadExecutions()
-    if (!agentLoaded) loadAgent()
-    if (!activitiesLoaded) loadActivities()
-    if (!sidebarLoaded) loadSidebar()
-    if (!pluginsLoaded) loadPlugins()
-    if (!skillsLoaded) loadSkills()
+    // On user switch, force-load all stores (stale closure has old loaded=true).
+    // On normal renders, skip if already loaded to prevent duplicate API calls.
+    if (userChanged || !projectsLoaded) loadProjects()
+    if (userChanged || !planLoaded) loadPlan()
+    if (userChanged || !settingsLoaded) loadSettings()
+    if (userChanged || !userProfileLoaded) loadUserProfile()
+    if (userChanged || !displaySettingsLoaded) loadDisplaySettings()
+    if (userChanged || !taskChatLoaded) loadTaskChat()
+    if (userChanged || !usageLoaded) loadUsage()
+    if (userChanged || !sessionsLoaded) loadSessions()
+    if (userChanged || !initiativesLoaded) loadInitiatives()
+    if (userChanged || !executionsLoaded) loadExecutions()
+    if (userChanged || !agentLoaded) loadAgent()
+    if (userChanged || !activitiesLoaded) loadActivities()
+    if (userChanged || !sidebarLoaded) loadSidebar()
+    if (userChanged || !pluginsLoaded) loadPlugins()
+    if (userChanged || !skillsLoaded) loadSkills()
 
     connectRealtime()
 

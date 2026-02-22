@@ -4,6 +4,7 @@ import { startRegistration, startAuthentication, browserSupportsWebAuthn, platfo
 import { apiUrl } from "@/lib/api-url"
 import { getSupabase } from "@/lib/supabase-client"
 import { isLocalMode } from "@/lib/app-mode"
+import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight } from "lucide-react"
@@ -31,6 +32,7 @@ export function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
+  const session = useAuthStore((s) => s.session)
 
   // Support both ?redirect=/device and location.state.from for redirect
   const redirectParam = searchParams.get('redirect')
@@ -86,7 +88,23 @@ export function Login() {
           type: "magiclink",
         })
         if (error) throw error
-        await new Promise(resolve => setTimeout(resolve, 100))
+
+        // Wait for Supabase session to be fully established before navigating.
+        // The auth state change listener in auth-store needs to fire so that
+        // DataLoader sees session !== null and loads all stores with the token.
+        await new Promise<void>((resolve) => {
+          const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+              subscription.unsubscribe()
+              resolve()
+            }
+          })
+          // Safety timeout in case the event already fired before we subscribed
+          setTimeout(() => {
+            subscription.unsubscribe()
+            resolve()
+          }, 2000)
+        })
       }
     }
 
@@ -112,15 +130,16 @@ export function Login() {
         throw new Error("Failed to check user")
       }
 
-      const { exists } = await checkRes.json()
+      const { exists, hasCredentials } = await checkRes.json()
 
-      if (exists) {
-        // Existing user - proceed with authentication
+      if (exists && hasCredentials) {
+        // Existing user with passkeys on this domain - proceed with authentication
         setStep("authenticating")
         await authenticateUser()
         // Success - authenticateUser navigates away
       } else {
-        // New user - show name field
+        // Either new user, or existing user without passkeys on this domain.
+        // Show name field to register a new passkey.
         setStep("name")
         setLoading(false)
       }
@@ -129,13 +148,18 @@ export function Login() {
         // Handle WebAuthn-specific errors
         if (err.name === "AbortError") {
           setError("Authentication cancelled")
+          setStep("email")
         } else if (err.name === "NotAllowedError") {
-          setError("Face ID/Touch ID was cancelled or not recognized. Please try again.")
+          // Passkey not found on this device — offer to register a new one
+          setError("No passkey found on this device. Register a new passkey below.")
+          setStep("name")
         } else {
           setError(getFriendlyErrorMessage(err.message))
+          setStep("email")
         }
+      } else {
+        setStep("email")
       }
-      setStep("email")
       setLoading(false)
     }
   }, [email, authenticateUser])
@@ -193,7 +217,20 @@ export function Login() {
             type: "magiclink",
           })
           if (error) throw error
-          await new Promise(resolve => setTimeout(resolve, 100))
+
+          // Wait for Supabase session to be fully established before navigating
+          await new Promise<void>((resolve) => {
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+              if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                subscription.unsubscribe()
+                resolve()
+              }
+            })
+            setTimeout(() => {
+              subscription.unsubscribe()
+              resolve()
+            }, 2000)
+          })
         }
       }
 
@@ -250,6 +287,14 @@ export function Login() {
     checkPlatformAuth()
   }, [])
 
+  // If session already exists (e.g. login just completed and component remounted),
+  // redirect immediately instead of briefly flashing the login form.
+  useEffect(() => {
+    if (session && !devMode) {
+      navigate(from, { replace: true })
+    }
+  }, [session, devMode, from, navigate])
+
   // In dev mode, redirect to app immediately (no auth needed)
   useEffect(() => {
     if (devMode) {
@@ -260,6 +305,13 @@ export function Login() {
   const handleDevModeSkip = useCallback(() => {
     navigate(from, { replace: true })
   }, [from, navigate])
+
+  // Already authenticated — show nothing while the redirect effect fires
+  if (session && !devMode) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background" />
+    )
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
