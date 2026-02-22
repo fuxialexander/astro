@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { OpenClawSkill } from "@/types/skill"
+import { apiUrl } from "@/lib/api-url"
 
 interface SkillStore {
   skills: Map<string, OpenClawSkill>
@@ -23,7 +24,31 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   loaded: false,
 
   load: async () => {
-    set({ loaded: true })
+    try {
+      const res = await fetch(apiUrl('/api/skills'))
+      if (res.ok) {
+        const data = await res.json()
+        const skills = new Map<string, OpenClawSkill>()
+        for (const s of data.skills ?? []) {
+          skills.set(s.name, {
+            name: s.name,
+            description: s.description ?? '',
+            instructions: s.instructions ?? '',
+            source: s.source ?? 'builtin',
+            enabled: s.enabled ?? true,
+            userInvocable: s.userInvocable ?? true,
+            pluginId: s.pluginId,
+            config: s.config,
+          })
+        }
+        set({ skills, loaded: true })
+      } else {
+        set({ loaded: true })
+      }
+    } catch {
+      // Server may not be ready yet — mark loaded so app doesn't block
+      set({ loaded: true })
+    }
   },
 
   addSkill: (skill) => {

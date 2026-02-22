@@ -1,3 +1,5 @@
+> **SUPERSEDED:** This document has been consolidated into [`ARCHITECTURE.md`](./ARCHITECTURE.md), which is now the single comprehensive architecture reference. This file is kept for historical context only.
+
 # Server Architecture V2: Server-Centric Design
 
 ## Current Status (2026-02-21)

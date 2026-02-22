@@ -34,6 +34,7 @@ import { useSkillStore } from "@/stores/skill-store"
 import { PluginLoader } from "@/components/plugin-loader"
 import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
+import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
@@ -134,6 +135,11 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     return () => disconnectRealtime()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run once when shouldLoadData becomes true
   }, [shouldLoadData])
+
+  // After projects load, background-refresh file trees for @ autocomplete
+  useEffect(() => {
+    if (projectsLoaded) refreshAllFileTrees()
+  }, [projectsLoaded])
 
   const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && sidebarLoaded && pluginsLoaded && skillsLoaded
 

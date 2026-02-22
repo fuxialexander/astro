@@ -47,7 +47,7 @@ import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColor
 import { formatDueDateShort } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
-import { apiUrl } from "@/lib/api-url"
+import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import type { PlanNode, Priority } from "@/types"
 
@@ -1096,15 +1096,12 @@ export function PlanBoardView({
 // --- Main Plan View Page ---
 const VALID_VIEWS = new Set<ViewMode>(["graph", "list", "timeline", "board"])
 
-const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
-
 export function PlanView() {
   const { id } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
   const updateProject = useProjectStore((s) => s.updateProject)
-  const updateFileTree = useProjectStore((s) => s.updateFileTree)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
@@ -1167,37 +1164,8 @@ export function PlanView() {
     setSelectedNode(null)
   }, [planNodes])
 
-  // Refresh file tree cache if stale, missing, or from a different machine
-  useEffect(() => {
-    if (!project?.workingDirectory) return
-    const machineId = project.defaultMachineId
-    const cachedForMachine = project.fileTreeMachineId || 'local'
-    const currentMachine = machineId || 'local'
-    const updatedAt = project.fileTreeUpdatedAt ? new Date(project.fileTreeUpdatedAt).getTime() : 0
-    const isStale = Date.now() - updatedAt >= FILE_TREE_STALE_MS || !project.fileTree?.length
-    const isMachineMismatch = cachedForMachine !== currentMachine
-    if (!isStale && !isMachineMismatch) return
-
-    if (machineId) {
-      // Remote machine: fetch via relay
-      const params = new URLSearchParams({ projectId: project.id, machineId, workingDirectory: project.workingDirectory })
-      fetch(apiUrl(`/api/fs/files?${params}`))
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.files?.length) updateFileTree(project.id, data.files, machineId)
-        })
-        .catch(() => {})
-    } else {
-      // Local: fetch directly
-      fetch(apiUrl(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`))
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.files?.length) updateFileTree(project.id, data.files)
-        })
-        .catch(() => {})
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, project?.workingDirectory, project?.defaultMachineId])
+  // Auto-fetch file tree in the background when stale or missing
+  useFileTreeRefresh(project)
 
   if (!project) {
     return (
