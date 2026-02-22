@@ -36,6 +36,7 @@ import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from 
 import { ItemTimelineView, TimelineAddTaskFooter, type TimelineRow } from "@/components/views/item-timeline-view"
 import { PropertyPicker } from "@/components/property-picker"
 import { ColorIconBadge } from "@/components/color-icon-picker"
+import { InlineRenameInput } from "@/components/inline-rename-input"
 import { OverviewTab } from "@/pages/project-overview"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -1122,6 +1123,7 @@ export function PlanView() {
   }, [planNodes, handleNodeSelect])
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
+  const [isRenamingProject, setIsRenamingProject] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
 
   // Determine view mode and active tab from URL path
@@ -1228,7 +1230,30 @@ export function PlanView() {
             onColorChange={(color) => updateProject(project.id, { color })}
             onIconChange={(icon) => updateProject(project.id, { icon })}
           />
-          <span className="text-lg font-semibold shrink-0">{project.name}</span>
+          {isRenamingProject ? (
+            <InlineRenameInput
+              value={project.name}
+              onSave={(newName) => {
+                updateProject(project.id, { name: newName })
+                setIsRenamingProject(false)
+              }}
+              onCancel={() => setIsRenamingProject(false)}
+              validate={(name) => {
+                if (!name.trim()) return "Project name cannot be empty"
+                if (name.length > 100) return "Project name is too long (max 100 characters)"
+                return null
+              }}
+              className="text-lg font-semibold"
+            />
+          ) : (
+            <span
+              className="text-lg font-semibold shrink-0 cursor-pointer hover:text-accent-foreground"
+              onDoubleClick={() => setIsRenamingProject(true)}
+              title="Double-click to rename"
+            >
+              {project.name}
+            </span>
+          )}
           <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
         </div>
 
