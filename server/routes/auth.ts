@@ -25,74 +25,57 @@ import { getServiceClient } from '../lib/supabase.js'
 import { isLocalMode } from '../lib/app-mode.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { ensureUserProfile } from '../lib/ensure-user-profile.js'
+import { storeChallenge, getAndDeleteChallenge } from '../lib/challenge-store.js'
 
 const authRoute = new Hono()
 
-// Configuration from environment
+// Configuration from environment.
+// CRITICAL: RP_ID and ORIGIN must match the FRONTEND domain (where the browser
+// runs the WebAuthn ceremony), NOT the backend domain. If WEBAUTHN_* vars are
+// not set, derive from CORS_ORIGIN / FRONTEND_URL (which point to the frontend).
 const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'Astro'
-const RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost'
-const ORIGIN = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173'
 
-// Security configuration
-const CHALLENGE_TTL_MS = parseInt(process.env.CHALLENGE_TTL_MS || '300000') // 5 minutes default
-const CLEANUP_INTERVAL_MS = parseInt(process.env.CLEANUP_INTERVAL_MS || '60000') // 1 minute default
+function resolveWebAuthnConfig() {
+  // Explicit config takes priority
+  if (process.env.WEBAUTHN_RP_ID && process.env.WEBAUTHN_ORIGIN) {
+    return {
+      rpId: process.env.WEBAUTHN_RP_ID,
+      origin: process.env.WEBAUTHN_ORIGIN,
+    }
+  }
+
+  // Derive from CORS_ORIGIN or FRONTEND_URL (these point to the frontend)
+  const frontendUrl = process.env.CORS_ORIGIN || process.env.FRONTEND_URL
+  if (frontendUrl) {
+    try {
+      const url = new URL(frontendUrl)
+      return { rpId: url.hostname, origin: url.origin }
+    } catch {
+      console.warn('[auth] Invalid CORS_ORIGIN/FRONTEND_URL for WebAuthn derivation:', frontendUrl)
+    }
+  }
+
+  // Local development defaults
+  return { rpId: 'localhost', origin: 'http://localhost:5173' }
+}
+
+const { rpId: RP_ID, origin: ORIGIN } = resolveWebAuthnConfig()
+console.log('[auth] WebAuthn config — RP_ID:', RP_ID, 'ORIGIN:', ORIGIN)
 
 // Rate limiting: Prevent enumeration and DoS attacks
+// A full login flow uses 2 rate-limited endpoints (check-user + login-options),
+// registration uses 2 (check-user + register-options). With 30/15min limit,
+// a user can do ~15 login attempts per window.
 const authLimiter = rateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 10, // Max 10 requests per windowMs per IP
+  limit: 30, // Max 30 requests per windowMs per IP
   standardHeaders: 'draft-6',
-  keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+  keyGenerator: (c) =>
+    c.req.header('fly-client-ip') ||  // Fly.io sets this
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    c.req.header('x-real-ip') ||
+    'unknown',
 })
-
-// In-memory challenge store (short-lived, per-request)
-// In production, use Redis or a database with TTL
-const MAX_CHALLENGE_STORE_SIZE = 1000
-const challengeStore = new Map<string, { challenge: string; expiresAt: number }>()
-
-function storeChallenge(key: string, challenge: string) {
-  // Prevent DoS: enforce size limit on challenge store
-  if (challengeStore.size >= MAX_CHALLENGE_STORE_SIZE) {
-    // Emit warning in production
-    if (process.env.NODE_ENV === 'production') {
-      console.warn('[auth] Challenge store size limit reached. Cleaning expired entries.')
-    }
-    // Clean expired entries before rejecting
-    const now = Date.now()
-    for (const [k, entry] of challengeStore) {
-      if (now > entry.expiresAt) challengeStore.delete(k)
-    }
-    // If still at limit after cleanup, reject oldest entries (FIFO)
-    if (challengeStore.size >= MAX_CHALLENGE_STORE_SIZE) {
-      const oldestKey = challengeStore.keys().next().value
-      if (oldestKey) challengeStore.delete(oldestKey)
-    }
-  }
-
-  challengeStore.set(key, {
-    challenge,
-    expiresAt: Date.now() + CHALLENGE_TTL_MS,
-  })
-}
-
-function getChallenge(key: string): string | null {
-  const entry = challengeStore.get(key)
-  if (!entry) return null
-  if (Date.now() > entry.expiresAt) {
-    challengeStore.delete(key)
-    return null
-  }
-  challengeStore.delete(key) // One-time use
-  return entry.challenge
-}
-
-// Periodic cleanup of expired challenges
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, entry] of challengeStore) {
-    if (now > entry.expiresAt) challengeStore.delete(key)
-  }
-}, CLEANUP_INTERVAL_MS)
 
 /**
  * POST /api/auth/webauthn/check-user
@@ -114,23 +97,44 @@ authRoute.post('/webauthn/check-user', authLimiter, async (c) => {
   const supabase = getServiceClient()
   const { data: existingUsers } = await supabase
     .from('user_profiles')
-    .select('id')
+    .select('id, name')
     .eq('email', email)
     .limit(1)
 
+  let userId: string | null = null
+  let userName: string | null = null
+
   if (existingUsers && existingUsers.length > 0) {
-    return c.json({ exists: true })
+    userId = existingUsers[0].id
+    userName = existingUsers[0].name
+  } else {
+    // Fallback: check auth.users directly (profile may be missing due to trigger failure)
+    const { data: authUsers } = await supabase.rpc('find_auth_user_by_email', { p_email: email })
+    if (authUsers && authUsers.length > 0) {
+      // Self-heal: create the missing profile
+      const profile = await ensureUserProfile(supabase, authUsers[0].id)
+      userId = authUsers[0].id
+      userName = profile?.name ?? null
+    }
   }
 
-  // Fallback: check auth.users directly (profile may be missing due to trigger failure)
-  const { data: authUsers } = await supabase.rpc('find_auth_user_by_email', { p_email: email })
-  if (authUsers && authUsers.length > 0) {
-    // Self-heal: create the missing profile
-    await ensureUserProfile(supabase, authUsers[0].id)
-    return c.json({ exists: true })
+  if (!userId) {
+    return c.json({ exists: false, hasCredentials: false })
   }
 
-  return c.json({ exists: false })
+  // Check if user has any passkey credentials registered.
+  // If the user exists but has no credentials (e.g., accessing from a new domain/device
+  // where RP_ID differs), the frontend should route to registration, not login.
+  const { data: creds } = await supabase
+    .from('passkey_credentials')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1)
+
+  const hasCredentials = !!(creds && creds.length > 0)
+
+  // Return user's name so the frontend can skip the name step for existing users
+  return c.json({ exists: true, hasCredentials, name: userName })
 })
 
 /**
@@ -208,8 +212,8 @@ authRoute.post('/webauthn/register-options', authLimiter, async (c) => {
     },
   })
 
-  // Store challenge for verification
-  storeChallenge(`reg:${email}`, options.challenge)
+  // Store challenge for verification (DB-backed for multi-instance)
+  await storeChallenge(`reg:${email}`, options.challenge)
 
   return c.json({
     options,
@@ -234,7 +238,7 @@ authRoute.post('/webauthn/register-verify', async (c) => {
     credential: RegistrationResponseJSON
   }>()
 
-  const expectedChallenge = getChallenge(`reg:${email}`)
+  const expectedChallenge = await getAndDeleteChallenge(`reg:${email}`)
   if (!expectedChallenge) {
     return c.json({ error: 'Challenge expired or not found' }, 400)
   }
@@ -265,6 +269,24 @@ authRoute.post('/webauthn/register-verify', async (c) => {
 
     if (existingUsers && existingUsers.length > 0) {
       userId = existingUsers[0].id
+
+      // Security: if this user already has passkey credentials, refuse registration.
+      // They should log in instead. Only allow adding a passkey to accounts that
+      // were created via magic link and don't have a passkey yet.
+      const { data: existingCreds } = await supabase
+        .from('passkey_credentials')
+        .select('id')
+        .eq('user_id', userId)
+        .limit(1)
+
+      if (existingCreds && existingCreds.length > 0) {
+        return c.json({
+          error: 'An account with this email already exists. Please log in instead.',
+          existingUser: true,
+        }, 409)
+      }
+
+      console.log('[auth] Adding passkey to existing magic-link user:', userId)
     } else {
       // Create user in Supabase Auth
       const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
@@ -298,6 +320,36 @@ authRoute.post('/webauthn/register-verify', async (c) => {
         console.error('[auth] User profile creation failed for:', userId)
         return c.json({ error: 'Failed to create user profile' }, 500)
       }
+
+      // Explicitly set the name from the registration form if the profile has an empty/email-like name.
+      // ensureUserProfile may have created the row with name from user_metadata (which can be empty
+      // for users created before user_metadata was populated, or if a DB trigger created the row first).
+      if (name && (!profile.name || profile.name.includes('@'))) {
+        await supabase
+          .from('user_profiles')
+          .update({ name })
+          .eq('id', userId)
+        console.log('[auth] Updated profile name for user:', userId, 'to:', name)
+      }
+
+      // Auto-create a personal team for the new user
+      try {
+        const { db } = await import('../lib/db/index.js')
+        const { teams, teamMembers } = await import('../lib/db/schema.js')
+        const [team] = await db.insert(teams).values({
+          name: `${name || email}'s workspace`,
+          description: 'Personal workspace',
+        }).returning()
+        await db.insert(teamMembers).values({
+          teamId: team.id,
+          userId,
+          role: 'owner',
+        })
+        console.log('[auth] Created personal team for user:', userId, 'team:', team.id)
+      } catch (teamErr) {
+        // Non-fatal: resolveTeams will auto-create on next login if this fails
+        console.error('[auth] Failed to create personal team (will retry on login):', teamErr)
+      }
     }
 
     // Store passkey credential (as base64 for bytea column)
@@ -315,28 +367,21 @@ authRoute.post('/webauthn/register-verify', async (c) => {
       return c.json({ error: 'Failed to store credential' }, 500)
     }
 
-    // Generate session tokens
+    // Generate session tokens via admin magic link.
+    // This produces a hashed_token the frontend exchanges for a real Supabase session.
     const { data: session, error: sessionError } = await supabase.auth.admin.generateLink({
       type: 'magiclink',
       email,
+      options: { redirectTo: ORIGIN },
     })
 
-    if (sessionError) {
-      console.error('[auth] Session generation failed:', sessionError)
-      // Fallback: create session directly
-      const { data: signIn } = await supabase.auth.admin.generateLink({
-        type: 'magiclink',
-        email,
-        options: { redirectTo: ORIGIN },
-      })
-
-      console.log('[auth] Registration successful, user:', userId)
-
+    if (sessionError || !session?.properties?.hashed_token) {
+      console.error('[auth] Session generation failed:', sessionError || 'no hashed_token in response')
       return c.json({
+        error: 'Account created but session generation failed. Please log in.',
         verified: true,
         userId,
-        session: signIn,
-      })
+      }, 500)
     }
 
     console.log('[auth] Registration successful, user:', userId)
@@ -416,9 +461,9 @@ authRoute.post('/webauthn/login-options', authLimiter, async (c) => {
     userVerification: 'required',
   })
 
-  // Store challenge
+  // Store challenge (DB-backed for multi-instance)
   const challengeKey = email ? `auth:${email}` : `auth:${options.challenge}`
-  storeChallenge(challengeKey, options.challenge)
+  await storeChallenge(challengeKey, options.challenge)
 
   return c.json({ options, challengeKey })
 })
@@ -438,7 +483,7 @@ authRoute.post('/webauthn/login-verify', async (c) => {
     challengeKey: string
   }>()
 
-  const expectedChallenge = getChallenge(challengeKey)
+  const expectedChallenge = await getAndDeleteChallenge(challengeKey)
   if (!expectedChallenge) {
     return c.json({ error: 'Challenge expired or not found' }, 400)
   }
@@ -504,6 +549,19 @@ authRoute.post('/webauthn/login-verify', async (c) => {
 
     // Generate Supabase session via admin
     const { data: authUser } = await supabase.auth.admin.getUserById(storedCred.user_id)
+
+    // Self-heal: if profile name is empty but user_metadata has a name, update it
+    if (userProfile && (!userProfile.name || userProfile.name.includes('@')) && authUser?.user?.user_metadata?.name) {
+      const metaName = authUser.user.user_metadata.name
+      if (metaName && !metaName.includes('@')) {
+        await supabase
+          .from('user_profiles')
+          .update({ name: metaName })
+          .eq('id', storedCred.user_id)
+        userProfile.name = metaName
+        console.log('[auth] Self-healed profile name on login for user:', storedCred.user_id)
+      }
+    }
 
     if (!authUser?.user?.email) {
       return c.json({ error: 'User not found' }, 500)

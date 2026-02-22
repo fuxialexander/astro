@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { BrowserRouter, Routes, Route } from "react-router"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -31,9 +31,13 @@ import { useSidebarStore } from "@/stores/sidebar-store"
 import { isLocalMode } from "@/lib/app-mode"
 import { usePluginStore } from "@/stores/plugin-store"
 import { useSkillStore } from "@/stores/skill-store"
+import { useTeamStore } from "@/stores/team-store"
+import { setActiveTeamId } from "@/lib/data-client"
+import { setActiveTeamId as setApiActiveTeamId } from "@/lib/api-client"
 import { PluginLoader } from "@/components/plugin-loader"
 import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
+import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
@@ -65,9 +69,36 @@ function ResponsiveLayout() {
   )
 }
 
+/**
+ * Reset all data stores' loaded flags so DataLoader re-fetches everything.
+ * Called when the authenticated user changes (sign-out → sign-in as different user).
+ */
+function resetAllStores() {
+  // Reset team store FIRST — clears stale team ID from API headers
+  useTeamStore.setState({ teams: [], teamMembers: {}, loaded: false })
+  setActiveTeamId(undefined)
+  setApiActiveTeamId(undefined)
+  useProjectStore.setState({ loaded: false })
+  usePlanStore.setState({ loaded: false })
+  useSettingsStore.setState({ loaded: false })
+  useUserProfileStore.setState({ loaded: false })
+  useDisplaySettingsStore.setState({ loaded: false })
+  useTaskChatStore.setState({ loaded: false })
+  useUsageStore.setState({ loaded: false })
+  useSessionStore.setState({ loaded: false })
+  useInitiativeStore.setState({ loaded: false })
+  useExecutionStore.setState({ loaded: false })
+  useAgentStore.setState({ loaded: false })
+  useActivityStore.setState({ loaded: false })
+  useSidebarStore.setState({ loaded: false })
+  usePluginStore.setState({ loaded: false })
+  useSkillStore.setState({ loaded: false })
+}
+
 function DataLoader({ children }: { children: React.ReactNode }) {
   const session = useAuthStore((s) => s.session)
   const authInitialized = useAuthStore((s) => s.initialized)
+  const loadTeams = useTeamStore((s) => s.load)
   const loadProjects = useProjectStore((s) => s.load)
   const loadPlan = usePlanStore((s) => s.load)
   const loadSettings = useSettingsStore((s) => s.load)
@@ -85,6 +116,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadSkills = useSkillStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
+  const teamsLoaded = useTeamStore((s) => s.loaded)
   const projectsLoaded = useProjectStore((s) => s.loaded)
   const planLoaded = usePlanStore((s) => s.loaded)
   const settingsLoaded = useSettingsStore((s) => s.loaded)
@@ -101,13 +133,32 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const pluginsLoaded = usePluginStore((s) => s.loaded)
   const skillsLoaded = useSkillStore((s) => s.loaded)
 
-  // Only load data if authenticated or in IndexedDB-only mode
+  // Only load data if authenticated or in local mode
   const shouldLoadData = isLocalMode() || !!(authInitialized && session)
+  const userId = session?.user?.id ?? null
 
+  // Track the last user ID to detect user changes (sign-out → sign-in as different user)
+  const lastUserIdRef = useRef<string | null>(null)
+
+  // Phase 1: Load teams first (sets X-Team-Id header for all subsequent API calls)
   useEffect(() => {
     if (!shouldLoadData) return
 
-    // Only load if not already loaded (prevents duplicate API calls on re-renders)
+    const userChanged = lastUserIdRef.current !== null && lastUserIdRef.current !== userId
+    if (userChanged) {
+      resetAllStores()
+    }
+    lastUserIdRef.current = userId
+
+    // Teams must load first — they set the X-Team-Id header used by all other API calls
+    if (userChanged || !teamsLoaded) loadTeams()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Re-run when auth state or user changes
+  }, [shouldLoadData, userId])
+
+  // Phase 2: Load all other stores once teams are loaded (so X-Team-Id is correct)
+  useEffect(() => {
+    if (!shouldLoadData || !teamsLoaded) return
+
     if (!projectsLoaded) loadProjects()
     if (!planLoaded) loadPlan()
     if (!settingsLoaded) loadSettings()
@@ -132,10 +183,15 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     })
 
     return () => disconnectRealtime()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run once when shouldLoadData becomes true
-  }, [shouldLoadData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Re-run when teams loaded or auth changes
+  }, [shouldLoadData, teamsLoaded])
 
-  const allLoaded = projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && sidebarLoaded && pluginsLoaded && skillsLoaded
+  // After projects load, background-refresh file trees for @ autocomplete
+  useEffect(() => {
+    if (projectsLoaded) refreshAllFileTrees()
+  }, [projectsLoaded])
+
+  const allLoaded = teamsLoaded && projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && sidebarLoaded && pluginsLoaded && skillsLoaded
 
   // Show loading state only if we should load data and it's not loaded yet
   if (shouldLoadData && !allLoaded) {

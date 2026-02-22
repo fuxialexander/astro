@@ -99,11 +99,22 @@ export function buildContextString(backend: LocalBackendInfo): string {
       const totalCPU = meta.totalCPU ?? 0
       const totalMemoryGi = meta.totalMemoryGi ?? 0
       const totalGPUs = meta.totalGPUs ?? 0
+      const podCount = meta.podCount as number | undefined
+      const podsByNamespace = meta.podsByNamespace as Record<string, number> | undefined
 
       let str = `You have kubectl access to cluster "${context || 'default'}".`
-      str += ` ${totalNodes} node(s) (${totalCPU} CPUs, ${totalMemoryGi}Gi RAM, ${totalGPUs} GPUs).`
-      if (namespaces && namespaces.length > 0) {
-        str += ` Namespaces: ${namespaces.join(', ')}.`
+      if (totalNodes === 0 && podCount && podCount > 0) {
+        const nsCount = podsByNamespace ? Object.keys(podsByNamespace).length : 0
+        str += ` No nodes visible (cluster may use autoscaling or node listing is restricted), but ${podCount} pods running across ${nsCount} namespaces.`
+        if (podsByNamespace) {
+          const nsList = Object.keys(podsByNamespace).slice(0, 20).join(', ')
+          str += ` Namespaces: ${nsList}.`
+        }
+      } else {
+        str += ` ${totalNodes} node(s) (${totalCPU} CPUs, ${totalMemoryGi}Gi RAM, ${totalGPUs} GPUs).`
+        if (namespaces && namespaces.length > 0) {
+          str += ` Namespaces: ${namespaces.join(', ')}.`
+        }
       }
       str += ` Use \`kubectl exec -n <ns> <pod> -- <cmd>\` to run commands on pods.`
       return str
@@ -373,6 +384,32 @@ async function detectKubernetes(): Promise<LocalBackendInfo | null> {
 
     totalMemoryGi = Math.round(totalMemoryGi * 10) / 10
 
+    // Pod fallback: when nodes are empty (RBAC denied or autoscaler scaled to 0),
+    // count pods by namespace to show the cluster is still active
+    let podCount = 0
+    let podsByNamespace: Record<string, number> = {}
+
+    if (nodes.length === 0) {
+      try {
+        const { stdout: podOut } = await execAsync(
+          'kubectl get pods --all-namespaces --no-headers -o custom-columns=NS:.metadata.namespace --request-timeout=10s 2>/dev/null',
+          { timeout: 15_000 },
+        )
+        const lines = podOut.trim().split('\n').filter(Boolean)
+        podCount = lines.length
+        const nsCounts: Record<string, number> = {}
+        for (const line of lines) {
+          const ns = line.trim()
+          if (ns) {
+            nsCounts[ns] = (nsCounts[ns] ?? 0) + 1
+          }
+        }
+        podsByNamespace = nsCounts
+      } catch {
+        // Ignore — pod listing may also be restricted
+      }
+    }
+
     return {
       id: 'k8s-exec',
       name: 'Kubernetes Exec',
@@ -382,7 +419,8 @@ async function detectKubernetes(): Promise<LocalBackendInfo | null> {
         ...(urlMatch?.[0] ? { clusterUrl: urlMatch[0] } : {}),
         ...(namespaces.length > 0 ? { namespaces } : {}),
         ...(context ? { context } : {}),
-        ...(nodes.length > 0 ? { nodes, totalNodes: nodes.length, totalCPU, totalMemoryGi, totalGPUs } : {}),
+        nodes, totalNodes: nodes.length, totalCPU, totalMemoryGi, totalGPUs,
+        ...(podCount > 0 ? { podCount, podsByNamespace } : {}),
       },
     }
   } catch {

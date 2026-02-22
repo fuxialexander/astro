@@ -7,7 +7,6 @@ import { useUsageStore } from "./usage-store"
 import { getAccessToken } from "@/lib/supabase-client"
 import { isServerMode } from "@/lib/app-mode"
 import type { ApprovalRequest } from "@/components/approval-card"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
@@ -137,7 +136,7 @@ export interface ExecutionOptions {
   environment?: 'local' | 'remote' | 'hpc' | 'cloud'
   targetMachineId?: string
   preferredProvider?: string
-  /** Selected compute backend (direct, slurm, docker, k8s-exec, skypilot) */
+  /** Selected compute backend (direct, slurm, docker, k8s-exec) */
   computeBackend?: string
   model?: string
   maxTurns?: number
@@ -233,81 +232,6 @@ interface ExecutionState {
 
 // Abort controllers for active executions
 const abortControllers = new Map<string, AbortController>()
-
-// Max number of completed executions to keep in IndexedDB
-const MAX_STORED_EXECUTIONS = 100
-
-// Helper: Serialize execution for storage (convert Map to Record and Date to ISO strings)
-function serializeExecutions(executions: Map<string, TaskExecution>): Record<string, SerializedTaskExecution> {
-  const record: Record<string, SerializedTaskExecution> = {}
-  for (const [nodeId, execution] of executions) {
-    // Only persist completed executions (success, failure, cancelled)
-    if (execution.status === 'success' || execution.status === 'failure' || execution.status === 'cancelled') {
-      record[nodeId] = {
-        ...execution,
-        startedAt: execution.startedAt.toISOString(),
-        completedAt: execution.completedAt?.toISOString(),
-        toolTraces: execution.toolTraces.map((t) => ({
-          ...t,
-          timestamp: t.timestamp.toISOString(),
-        })),
-        fileChanges: execution.fileChanges.map((f) => ({
-          ...f,
-          timestamp: f.timestamp.toISOString(),
-        })),
-        activityEvents: execution.activityEvents.map((e) => ({
-          ...e,
-          timestamp: e.timestamp.toISOString(),
-        })),
-      }
-    }
-  }
-  return record
-}
-
-// Helper: Deserialize execution from storage (convert Record to Map and ISO strings to Date)
-function deserializeExecutions(record: Record<string, SerializedTaskExecution>): Map<string, TaskExecution> {
-  const map = new Map<string, TaskExecution>()
-  for (const [nodeId, execution] of Object.entries(record)) {
-    map.set(nodeId, {
-      ...execution,
-      startedAt: new Date(execution.startedAt),
-      completedAt: execution.completedAt ? new Date(execution.completedAt) : undefined,
-      toolTraces: execution.toolTraces.map((t) => ({
-        ...t,
-        timestamp: new Date(t.timestamp),
-      })),
-      fileChanges: execution.fileChanges.map((f) => ({
-        ...f,
-        timestamp: new Date(f.timestamp),
-      })),
-      activityEvents: execution.activityEvents.map((e) => ({
-        ...e,
-        timestamp: new Date(e.timestamp),
-      })),
-    })
-  }
-  return map
-}
-
-// Serialized type with ISO date strings for storage
-type SerializedTaskActivityEvent =
-  | { type: 'text'; content: string; timestamp: string }
-  | { type: 'tool_use'; id: string; toolName: string; toolInput: unknown; timestamp: string }
-  | { type: 'tool_result'; id: string; toolName: string; toolResult?: unknown; success?: boolean; duration?: number; timestamp: string }
-  | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; interrupted?: boolean; timestamp: string }
-  | { type: 'chat_user'; message: string; timestamp: string }
-  | { type: 'chat_assistant'; content: string; timestamp: string }
-  | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: string }
-  | { type: 'error'; error: string; timestamp: string }
-
-interface SerializedTaskExecution extends Omit<TaskExecution, 'startedAt' | 'completedAt' | 'toolTraces' | 'fileChanges' | 'activityEvents'> {
-  startedAt: string
-  completedAt?: string
-  toolTraces: Array<Omit<ToolTrace, 'timestamp'> & { timestamp: string }>
-  fileChanges: Array<Omit<FileChange, 'timestamp'> & { timestamp: string }>
-  activityEvents: SerializedTaskActivityEvent[]
-}
 
 export const useExecutionStore = create<ExecutionState>((set, get) => ({
   executions: new Map(),
@@ -500,7 +424,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           executionError: message,
         })
 
-        // Persist failed execution to IndexedDB and Supabase
+        // Persist failed execution to database
         get().persist()
       }
     } finally {
@@ -962,30 +886,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   load: async () => {
     try {
-      // Try loading from Supabase first (if enabled)
-      if (isServerMode()) {
-        try {
-          const executionsRecord = await dataClient.getExecutions()
-          // dataClient already deserializes dates, just convert Record to Map
-          const executions = new Map<string, TaskExecution>(Object.entries(executionsRecord))
-          set({ executions, loaded: true })
-          console.log('[execution-store] Loaded executions from Supabase:', executions.size)
-          return
-        } catch (err) {
-          console.warn('[execution-store] Failed to load from Supabase, falling back to IndexedDB:', err)
-        }
-      }
-
-      // Fall back to IndexedDB
-      const stored = await loadState<Record<string, SerializedTaskExecution>>('astro-executions')
-      if (stored) {
-        const executions = deserializeExecutions(stored)
-        set({ executions, loaded: true })
-        console.log('[execution-store] Loaded executions from IndexedDB:', executions.size)
-      } else {
-        set({ loaded: true })
-        console.log('[execution-store] No stored executions found')
-      }
+      const executionsRecord = await dataClient.getExecutions()
+      // dataClient already deserializes dates, just convert Record to Map
+      const executions = new Map<string, TaskExecution>(Object.entries(executionsRecord))
+      set({ executions, loaded: true })
+      console.log('[execution-store] Loaded executions from API:', executions.size)
     } catch (error) {
       console.error('[execution-store] Failed to load executions:', error)
       set({ loaded: true })
@@ -995,34 +900,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   persist: async () => {
     const { executions } = get()
     try {
-      // Serialize and apply cleanup (keep last 100 completed executions)
-      const completedExecutions = Array.from(executions.entries())
-        .filter(([, exec]) => exec.status === 'success' || exec.status === 'failure' || exec.status === 'cancelled')
-        .sort((a, b) => {
-          const aTime = a[1].completedAt?.getTime() ?? 0
-          const bTime = b[1].completedAt?.getTime() ?? 0
-          return bTime - aTime // Most recent first
+      // Sync completed executions to API
+      const completedExecutions = Array.from(executions.values())
+        .filter((exec) => exec.status === 'success' || exec.status === 'failure' || exec.status === 'cancelled')
+
+      for (const execution of completedExecutions) {
+        dataClient.saveExecution(execution).catch((err) => {
+          console.warn('[execution-store] Failed to sync execution to API:', err)
         })
-        .slice(0, MAX_STORED_EXECUTIONS)
-
-      const toStore = new Map(completedExecutions)
-      const serialized = serializeExecutions(toStore)
-
-      // Save to IndexedDB
-      await saveState('astro-executions', serialized)
-      console.log('[execution-store] Persisted', Object.keys(serialized).length, 'executions to IndexedDB')
-
-      // Fire-and-forget: sync to Supabase (if enabled)
-      if (isServerMode()) {
-        // Only sync newly completed executions (not already in DB)
-        for (const [, execution] of completedExecutions) {
-          if (execution.status === 'success' || execution.status === 'failure' || execution.status === 'cancelled') {
-            dataClient.saveExecution(execution).catch((err) => {
-              console.warn('[execution-store] Failed to sync execution to Supabase:', err)
-            })
-          }
-        }
       }
+      console.log('[execution-store] Persisted', completedExecutions.length, 'executions to API')
     } catch (error) {
       console.error('[execution-store] Failed to persist executions:', error)
     }
@@ -1346,7 +1233,7 @@ function handleSSEEvent(
           requestExecutionSummary(nodeId, execution, node)
         }
 
-        // Persist completed execution to IndexedDB and Supabase
+        // Persist completed execution to database
         useExecutionStore.getState().persist()
       } catch {
         // Ignore parse errors
@@ -1385,7 +1272,7 @@ function handleSSEEvent(
           requestExecutionSummary(nodeId, execution, node)
         }
 
-        // Persist failed execution to IndexedDB and Supabase
+        // Persist failed execution to database
         useExecutionStore.getState().persist()
       } catch {
         // Ignore parse errors
@@ -1405,7 +1292,7 @@ function handleSSEEvent(
       })
       planStore.updateNode(nodeId, { status: "planned" })
 
-      // Persist cancelled execution to IndexedDB and Supabase
+      // Persist cancelled execution to database
       useExecutionStore.getState().persist()
       break
     }

@@ -1,13 +1,7 @@
 import { Hono } from 'hono'
-
-interface StoredBundle {
-  bundle: unknown
-  createdAt: Date
-  downloads: number
-}
-
-// In-memory store for shared bundles (no database needed for initial implementation)
-const shareStore = new Map<string, StoredBundle>()
+import { db } from '../lib/db/index.js'
+import { sharedBundles } from '../lib/db/schema.js'
+import { eq, sql } from 'drizzle-orm'
 
 export const shareRoute = new Hono()
 
@@ -20,28 +14,35 @@ shareRoute.post('/', async (c) => {
       return c.json({ error: 'Invalid bundle: must be an Astro export bundle' }, 400)
     }
 
-    const id = crypto.randomUUID()
-    shareStore.set(id, {
-      bundle,
-      createdAt: new Date(),
-      downloads: 0,
-    })
+    const rows = await db
+      .insert(sharedBundles)
+      .values({ bundle })
+      .returning({ id: sharedBundles.id })
 
-    return c.json({ id })
+    return c.json({ id: rows[0].id })
   } catch {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 })
 
 // GET /api/share/:id — retrieve a shared bundle
-shareRoute.get('/:id', (c) => {
+shareRoute.get('/:id', async (c) => {
   const id = c.req.param('id')
-  const entry = shareStore.get(id)
 
-  if (!entry) {
+  const rows = await db
+    .select({ bundle: sharedBundles.bundle })
+    .from(sharedBundles)
+    .where(eq(sharedBundles.id, id))
+
+  if (rows.length === 0) {
     return c.json({ error: 'Share not found' }, 404)
   }
 
-  entry.downloads++
-  return c.json(entry.bundle)
+  // Atomically increment download count
+  await db
+    .update(sharedBundles)
+    .set({ downloads: sql`${sharedBundles.downloads} + 1` })
+    .where(eq(sharedBundles.id, id))
+
+  return c.json(rows[0].bundle)
 })

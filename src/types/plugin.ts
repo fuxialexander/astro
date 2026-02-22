@@ -55,7 +55,7 @@ export interface PluginContext {
   config: Record<string, unknown>
   /** Update plugin configuration (persisted) */
   updateConfig: (config: Record<string, unknown>) => void
-  /** Namespaced IndexedDB storage for plugin data */
+  /** Namespaced storage for plugin data */
   storage: PluginStorage
   /** Subscribe to frontend events, returns unsubscribe */
   onEvent: (handler: (event: PluginEvent) => void) => () => void
@@ -148,7 +148,7 @@ export interface PluginEntry {
   error?: string
 }
 
-// --- Serializable plugin data for IndexedDB ---
+// --- Serializable plugin data for persistence ---
 
 export interface PluginPersistData {
   id: string

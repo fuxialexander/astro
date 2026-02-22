@@ -9,7 +9,13 @@
  * - DispatchEngine: start/stop, stats
  */
 
-import { describe, it, expect } from 'vitest'
+// Must be set BEFORE any server/ imports so PGlite is used instead of Supabase
+process.env.USE_INDEXEDDB_ONLY = 'true'
+
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
+import { runMigrations } from '../server/lib/db/migrate.js'
+import { db } from '../server/lib/db/index.js'
+import { dispatchQueueEntries } from '../server/lib/db/schema.js'
 import type { PlanNode, PlanEdge } from '../src/types/index.js'
 import {
   createDispatchEngine,
@@ -20,16 +26,23 @@ import {
 } from '../server/lib/dispatch/index.js'
 import type { TaskResult } from '../server/lib/providers/types.js'
 
+beforeAll(async () => {
+  await runMigrations()
+})
+
 // ============================================================================
 // Test Fixtures
 // ============================================================================
+
+// Valid UUID for use as projectId in DB-backed dispatch queue tests
+const TEST_PROJECT_UUID = '00000000-0000-4000-8000-000000000001'
 
 function createTestNodes(): PlanNode[] {
   const now = new Date()
   return [
     {
       id: 'n1',
-      projectId: 'proj-1',
+      projectId: TEST_PROJECT_UUID,
       type: 'task',
       title: 'Project Setup',
       description: 'Initialize repo',
@@ -45,7 +58,7 @@ function createTestNodes(): PlanNode[] {
     },
     {
       id: 'n2',
-      projectId: 'proj-1',
+      projectId: TEST_PROJECT_UUID,
       type: 'task',
       title: 'Authentication',
       description: 'Implement JWT auth',
@@ -61,7 +74,7 @@ function createTestNodes(): PlanNode[] {
     },
     {
       id: 'n3',
-      projectId: 'proj-1',
+      projectId: TEST_PROJECT_UUID,
       type: 'task',
       title: 'Database Schema',
       description: 'Design database',
@@ -76,7 +89,7 @@ function createTestNodes(): PlanNode[] {
     },
     {
       id: 'n4',
-      projectId: 'proj-1',
+      projectId: TEST_PROJECT_UUID,
       type: 'milestone',
       title: 'Core Infrastructure',
       description: 'All core services ready',
@@ -90,7 +103,7 @@ function createTestNodes(): PlanNode[] {
     },
     {
       id: 'n5',
-      projectId: 'proj-1',
+      projectId: TEST_PROJECT_UUID,
       type: 'task',
       title: 'REST API',
       description: 'RESTful endpoints',
@@ -105,7 +118,7 @@ function createTestNodes(): PlanNode[] {
     },
     {
       id: 'n6',
-      projectId: 'proj-1',
+      projectId: TEST_PROJECT_UUID,
       type: 'task',
       title: 'GraphQL API',
       description: 'GraphQL schema',
@@ -120,7 +133,7 @@ function createTestNodes(): PlanNode[] {
     },
     {
       id: 'n7',
-      projectId: 'proj-1',
+      projectId: TEST_PROJECT_UUID,
       type: 'task',
       title: 'Downstream Task',
       description: 'Depends on both APIs',
@@ -222,7 +235,7 @@ describe('ContextAssembler', () => {
   it('should build execution prompt', () => {
     const node = nodes.find((n) => n.id === 'n3')!
     const context = assembler.assembleContext(node, nodes, edges, {
-      id: 'proj-1',
+      id: TEST_PROJECT_UUID,
       name: 'Test Project',
       description: 'Test',
       visionDoc: 'Build a great product.',
@@ -245,72 +258,76 @@ describe('ContextAssembler', () => {
 // ============================================================================
 
 describe('DispatchQueue', () => {
-  it('should enqueue tasks', () => {
+  beforeEach(async () => {
+    await db.delete(dispatchQueueEntries)
+  })
+
+  it('should enqueue tasks', async () => {
     const queue = createDispatchQueue({
       maxConcurrentPerProject: 2,
       maxConcurrentTotal: 5,
       defaultPriority: 'normal',
     })
 
-    const entry = queue.enqueue({
+    const entry = await queue.enqueue({
       nodeId: 'n1',
-      projectId: 'proj-1',
+      projectId: TEST_PROJECT_UUID,
     })
 
     expect(entry.nodeId).toBe('n1')
     expect(entry.status).toBe('ready')
-    expect(queue.getStats().total).toBe(1)
+    expect((await queue.getStats()).total).toBe(1)
   })
 
-  it('should dequeue in priority order', () => {
+  it('should dequeue in priority order', async () => {
     const queue = createDispatchQueue({
       maxConcurrentPerProject: 5,
       maxConcurrentTotal: 10,
     })
 
-    queue.enqueue({ nodeId: 'n1', projectId: 'proj-1', priority: 'low' })
-    queue.enqueue({ nodeId: 'n2', projectId: 'proj-1', priority: 'high' })
-    queue.enqueue({ nodeId: 'n3', projectId: 'proj-1', priority: 'normal' })
+    await queue.enqueue({ nodeId: 'n1', projectId: TEST_PROJECT_UUID, priority: 'low' })
+    await queue.enqueue({ nodeId: 'n2', projectId: TEST_PROJECT_UUID, priority: 'high' })
+    await queue.enqueue({ nodeId: 'n3', projectId: TEST_PROJECT_UUID, priority: 'normal' })
 
-    const first = queue.dequeue()
+    const first = await queue.dequeue()
     expect(first?.nodeId).toBe('n2')
   })
 
-  it('should respect project concurrency limits', () => {
+  it('should respect project concurrency limits', async () => {
     const queue = createDispatchQueue({
       maxConcurrentPerProject: 2,
       maxConcurrentTotal: 10,
     })
 
-    queue.enqueue({ nodeId: 'n1', projectId: 'proj-1' })
-    queue.enqueue({ nodeId: 'n2', projectId: 'proj-1' })
-    queue.enqueue({ nodeId: 'n3', projectId: 'proj-1' })
+    await queue.enqueue({ nodeId: 'n1', projectId: TEST_PROJECT_UUID })
+    await queue.enqueue({ nodeId: 'n2', projectId: TEST_PROJECT_UUID })
+    await queue.enqueue({ nodeId: 'n3', projectId: TEST_PROJECT_UUID })
 
-    const e1 = queue.dequeue()!
-    queue.markDispatched(e1.id, 'exec-1')
+    const e1 = (await queue.dequeue())!
+    await queue.markDispatched(e1.id, 'exec-1')
 
-    const e2 = queue.dequeue()!
-    queue.markDispatched(e2.id, 'exec-2')
+    const e2 = (await queue.dequeue())!
+    await queue.markDispatched(e2.id, 'exec-2')
 
-    const e3 = queue.dequeue()
+    const e3 = await queue.dequeue()
     expect(e3).toBeNull()
 
-    queue.markCompleted(e1.id)
-    const e3Retry = queue.dequeue()
+    await queue.markCompleted(e1.id)
+    const e3Retry = await queue.dequeue()
     expect(e3Retry?.nodeId).toBe('n3')
   })
 
-  it('should handle retries', () => {
+  it('should handle retries', async () => {
     const queue = createDispatchQueue({ defaultMaxRetries: 2 })
 
-    const entry = queue.enqueue({
+    const entry = await queue.enqueue({
       nodeId: 'n1',
-      projectId: 'proj-1',
+      projectId: TEST_PROJECT_UUID,
       maxRetries: 2,
     })
 
-    queue.markDispatched(entry.id, 'exec-1')
-    const failResult = queue.markFailed(entry.id, 'Network error')
+    await queue.markDispatched(entry.id, 'exec-1')
+    const failResult = await queue.markFailed(entry.id, 'Network error')
 
     expect(failResult?.retry).toBe(true)
     expect(failResult?.entry.retryCount).toBe(1)
@@ -419,14 +436,14 @@ describe('BranchManager', () => {
 
   it('should validate prune requests', () => {
     const valid = manager.validatePruneRequest(
-      { branchNodeId: 'n4', projectId: 'proj-1' },
+      { branchNodeId: 'n4', projectId: TEST_PROJECT_UUID },
       nodes,
       edges
     )
     expect(valid.valid).toBe(true)
 
     const invalid = manager.validatePruneRequest(
-      { branchNodeId: 'n1', projectId: 'proj-1' },
+      { branchNodeId: 'n1', projectId: TEST_PROJECT_UUID },
       nodes,
       edges
     )
@@ -439,28 +456,32 @@ describe('BranchManager', () => {
 // ============================================================================
 
 describe('DispatchEngine', () => {
-  it('should get queue stats', () => {
+  beforeEach(async () => {
+    await db.delete(dispatchQueueEntries)
+  })
+
+  it('should get queue stats', async () => {
     const engine = createDispatchEngine({
       autoDispatch: false,
       dryRunMode: true,
     })
 
-    const stats = engine.getStats()
+    const stats = await engine.getStats()
 
     expect(stats.running).toBe(false)
     expect(stats.total).toBe(0)
     expect(stats.activeExecutions).toBe(0)
   })
 
-  it('should start and stop', () => {
+  it('should start and stop', async () => {
     const engine = createDispatchEngine({
       autoDispatch: false,
     })
 
     engine.start()
-    expect(engine.getStats().running).toBe(true)
+    expect((await engine.getStats()).running).toBe(true)
 
     engine.stop()
-    expect(engine.getStats().running).toBe(false)
+    expect((await engine.getStats()).running).toBe(false)
   })
 })

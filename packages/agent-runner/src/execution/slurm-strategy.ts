@@ -165,11 +165,8 @@ export class SlurmStrategy implements ExecutionStrategy {
     // Also try scancel with the slurm job ID
     const slurmJobId = this.jobMap.get(jobId);
     if (slurmJobId) {
-      if (!isValidSlurmJobId(slurmJobId)) {
-        throw new Error(`Invalid SLURM job ID: ${slurmJobId}`);
-      }
       try {
-        await execAsync(`scancel ${slurmJobId}`, { timeout: 10000 });
+        await execAsync(`scancel ${sanitizedSlurmJobId(slurmJobId)}`, { timeout: 10000 });
       } catch {
         // Job may have already finished
       }
@@ -181,14 +178,12 @@ export class SlurmStrategy implements ExecutionStrategy {
     const slurmJobId = this.jobMap.get(jobId);
     if (!slurmJobId) return null;
 
-    if (!isValidSlurmJobId(slurmJobId)) {
-      throw new Error(`Invalid SLURM job ID: ${slurmJobId}`);
-    }
+    const safeJobId = sanitizedSlurmJobId(slurmJobId);
 
     // Try squeue first (running jobs)
     try {
       const { stdout } = await execAsync(
-        `squeue -j ${slurmJobId} -h -o "%T|%r" 2>/dev/null`,
+        `squeue -j ${safeJobId} -h -o "%T|%r" 2>/dev/null`,
         { timeout: 10000 },
       );
       const trimmed = stdout.trim();
@@ -208,7 +203,7 @@ export class SlurmStrategy implements ExecutionStrategy {
     // Try sacct (completed jobs)
     try {
       const { stdout } = await execAsync(
-        `sacct -j ${slurmJobId} --parsable2 --noheader -o State,ExitCode 2>/dev/null`,
+        `sacct -j ${safeJobId} --parsable2 --noheader -o State,ExitCode 2>/dev/null`,
         { timeout: 10000 },
       );
       const lines = stdout.trim().split('\n');
@@ -241,4 +236,12 @@ export class SlurmStrategy implements ExecutionStrategy {
 /** SLURM job IDs are always numeric (optionally with array syntax like 12345_1) */
 function isValidSlurmJobId(id: string): boolean {
   return /^\d+(_\d+)?$/.test(id);
+}
+
+/** Validate and return a safe SLURM job ID, or throw. Prevents command injection. */
+function sanitizedSlurmJobId(id: string): string {
+  if (!isValidSlurmJobId(id)) {
+    throw new Error(`Invalid SLURM job ID (possible command injection): ${id}`);
+  }
+  return id;
 }

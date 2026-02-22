@@ -1,9 +1,7 @@
 import { create } from "zustand"
-import { loadState, saveState } from "@/lib/db"
 import type {
   PluginManifest,
   PluginEntry,
-  PluginPersistData,
   PluginContributions,
   AstroPlugin,
   SidebarItemContribution,
@@ -13,8 +11,6 @@ import type {
   SignalContribution,
   NodeMetadataFieldContribution,
 } from "@/types/plugin"
-
-const IDB_KEY = "astro-plugins"
 
 interface PluginStore {
   plugins: Map<string, PluginEntry>
@@ -39,49 +35,12 @@ interface PluginStore {
   getAllNodeMetadataFields: () => NodeMetadataFieldContribution[]
 }
 
-/** Serialize plugin map to persistable array (strips runtime-only fields) */
-function serializePlugins(plugins: Map<string, PluginEntry>): PluginPersistData[] {
-  const result: PluginPersistData[] = []
-  for (const [, entry] of plugins) {
-    result.push({
-      id: entry.manifest.id,
-      manifest: entry.manifest,
-      enabled: entry.enabled,
-      config: entry.config,
-    })
-  }
-  return result
-}
-
-/** Deserialize persisted array back to plugin map (without runtime fields) */
-function deserializePlugins(data: PluginPersistData[]): Map<string, PluginEntry> {
-  const map = new Map<string, PluginEntry>()
-  for (const item of data) {
-    map.set(item.id, {
-      manifest: item.manifest,
-      enabled: item.enabled,
-      config: item.config,
-    })
-  }
-  return map
-}
-
 export const usePluginStore = create<PluginStore>((set, get) => ({
   plugins: new Map(),
   loaded: false,
 
   load: async () => {
-    try {
-      const stored = await loadState<PluginPersistData[]>(IDB_KEY)
-      if (stored && Array.isArray(stored)) {
-        set({ plugins: deserializePlugins(stored), loaded: true })
-      } else {
-        set({ loaded: true })
-      }
-    } catch (error) {
-      console.error("[PluginStore] Failed to load:", error)
-      set({ loaded: true })
-    }
+    set({ loaded: true })
   },
 
   registerPlugin: (manifest, config = {}) => {
@@ -92,14 +51,12 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
       config,
     })
     set({ plugins })
-    saveState(IDB_KEY, serializePlugins(plugins))
   },
 
   unregisterPlugin: (id) => {
     const plugins = new Map(get().plugins)
     plugins.delete(id)
     set({ plugins })
-    saveState(IDB_KEY, serializePlugins(plugins))
   },
 
   enablePlugin: (id) => {
@@ -108,7 +65,6 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
     if (entry) {
       plugins.set(id, { ...entry, enabled: true })
       set({ plugins })
-      saveState(IDB_KEY, serializePlugins(plugins))
     }
   },
 
@@ -122,7 +78,6 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
       })
       plugins.set(id, { ...entry, enabled: false, instance: undefined, contributions: undefined })
       set({ plugins })
-      saveState(IDB_KEY, serializePlugins(plugins))
     }
   },
 
@@ -132,7 +87,6 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
     if (entry) {
       plugins.set(id, { ...entry, config })
       set({ plugins })
-      saveState(IDB_KEY, serializePlugins(plugins))
     }
   },
 

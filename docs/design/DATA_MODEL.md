@@ -11,7 +11,7 @@ This document describes all data types, their relationships, where they are defi
 ### 2.1 Project
 
 **Definition**: `src/types/index.ts` (lines 80-104)
-**Storage**: IndexedDB `"astro-projects"` (local mode), Postgres `projects` table (server mode)
+**Storage**: Postgres `projects` table via Drizzle ORM (PGlite in local mode, postgres-js in server mode)
 
 ```typescript
 interface Project {
@@ -50,7 +50,7 @@ interface Project {
 ### 2.2 PlanNode (Task)
 
 **Definition**: `src/types/index.ts` (lines 106-144)
-**Storage**: IndexedDB `"astro-plan-nodes"` (local mode), Postgres `planNodes` table (server mode)
+**Storage**: Postgres `planNodes` table via Drizzle ORM (PGlite in local mode, postgres-js in server mode)
 
 ```typescript
 interface PlanNode {
@@ -160,7 +160,7 @@ planned → dispatched → in_progress → auto_verified → completed
 ### 2.3 PlanEdge
 
 **Definition**: `src/types/index.ts` (lines 250-260)
-**Storage**: IndexedDB `"astro-plan-edges"` (local mode), Postgres `planEdges` table (server mode)
+**Storage**: Postgres `planEdges` table via Drizzle ORM (PGlite in local mode, postgres-js in server mode)
 
 ```typescript
 interface PlanEdge {
@@ -179,7 +179,7 @@ interface PlanEdge {
 ### 2.4 TaskExecution
 
 **Definition**: `src/types/index.ts` (lines 190-235)
-**Storage**: IndexedDB `"astro-executions"` (local mode, max 100), Postgres `taskExecutions` table (server mode)
+**Storage**: Postgres `taskExecutions` table via Drizzle ORM (PGlite in local mode, postgres-js in server mode)
 
 ```typescript
 interface TaskExecution {
@@ -238,7 +238,7 @@ interface TaskExecution {
 ### 2.5 Initiative
 
 **Definition**: `src/types/index.ts` (lines 65-78)
-**Storage**: IndexedDB (local mode), Postgres `initiatives` table (server mode)
+**Storage**: Postgres `initiatives` table via Drizzle ORM (PGlite in local mode, postgres-js in server mode)
 
 ```typescript
 interface Initiative {
@@ -343,7 +343,7 @@ interface UsageMetrics {
 ### 4.1 UserProfile
 
 **Definition**: `src/types/index.ts` (lines 291-310)
-**Storage**: IndexedDB `"astro-user-profile"`, Postgres `userProfiles` table
+**Storage**: Postgres `userProfiles` table via Drizzle ORM (PGlite in local mode, postgres-js in server mode)
 
 ```typescript
 interface UserProfile {
@@ -641,32 +641,16 @@ Defined in `server/lib/db/schema.ts` (~300 lines, 27+ tables):
 
 ---
 
-## 9. IndexedDB Keys
+## 9. Data Persistence
 
-| Key | Store | Format |
-|-----|-------|--------|
-| `astro-projects` | project-store | `Project[]` |
-| `astro-plan-nodes` | plan-store | `PlanNode[]` |
-| `astro-plan-edges` | plan-store | `PlanEdge[]` |
-| `astro-executions` | execution-store | `Record<string, TaskExecution>` (max 100) |
-| `astro-agent-sessions` | agent-store | `Record<string, GenerationSession>` |
-| `astro-settings` | settings-store | `{ model, defaultProvider }` |
-| `astro-user-profile` | user-profile-store | `UserProfile` |
-| `astro-task-chats` | task-chat-store | `Record<string, TaskChatSession>` |
-| `astro-usage-metrics` | usage-store | `SessionMetrics` |
-| `astro:activities` | activity-store | `Activity[]` (max 1000) |
-| `astro-display-settings` | display-settings-store | `Record<string, DisplaySettings>` |
-| `astro-sessions` | session-store | `Record<string, Session>` |
-| `astro-active-sessions` | session-store | Active session ID tracking |
-| `astro-initiatives` | initiative-store | `Initiative[]` |
-| `astro-teams` | team-store | `Team[]` |
-| `astro-team-members` | team-store | `Record<string, TeamMember[]>` |
-| `astro-machines` | machines-store | `RegisteredMachine[]` |
-| `astro-slurm-clusters` | slurm-store | `SlurmCluster[]` |
-| `astro-slurm-jobs` | slurm-store | `SlurmJob[]` |
-| `astro-plugins` | plugin-store | Plugin data |
-| `astro-skills` | skill-store | Skill data |
-| `astro-connected-accounts` | connected-accounts-store | Connected account data |
+All data is stored in Postgres via Drizzle ORM. The same schema and queries work in both modes:
+
+| Mode | Driver | Storage Location |
+|------|--------|-----------------|
+| **Local mode** | PGlite (Postgres in WASM) | `~/.astro/pglite/` on disk |
+| **Server mode** | postgres-js | External Postgres (Supabase, Fly.io, etc.) |
+
+Frontend stores fetch data via `fetch('/api/...')` in both modes. There is no browser-side database (IndexedDB was removed in the PGlite refactor).
 | `astro:command-history` | command-palette | Command history |
 
 **Serialization**: Dates stored as ISO strings. Maps serialized as Records. Reconstructed on load.

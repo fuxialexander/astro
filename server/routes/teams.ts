@@ -2,6 +2,7 @@
  * Teams Routes — Team Management & Invitations
  *
  * Handles team CRUD operations and email-based invitation flow.
+ * Now uses Drizzle ORM directly (no Supabase SDK dependency).
  *
  * Flow:
  * 1. Team admin sends invite → generates token, sends email
@@ -11,11 +12,13 @@
 
 import { Hono } from 'hono'
 import { randomBytes } from 'crypto'
-import { getServiceClient } from '../lib/supabase.js'
 import { isLocalMode } from '../lib/app-mode.js'
 import { errorMessage } from '../lib/error-utils.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { sendInvitationEmail } from '../lib/email-service.js'
+import { db } from '../lib/db/index.js'
+import { teams, teamMembers, userProfiles, inviteTokens } from '../lib/db/schema.js'
+import { eq, and, sql, gt, isNull, count } from 'drizzle-orm'
 
 const teamsRoute = new Hono()
 
@@ -33,7 +36,7 @@ teamsRoute.post('/invite', async (c) => {
   }
 
   try {
-    const userId = c.get('userId')
+    const user = c.get('user') as AuthUser
     const { teamId, email, role = 'member' } = await c.req.json<{
       teamId: string
       email: string
@@ -50,47 +53,40 @@ teamsRoute.post('/invite', async (c) => {
       return c.json({ error: 'Invalid email format' }, 400)
     }
 
-    const supabase = getServiceClient()
-
     // Verify user is admin/owner of the team
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('role')
-      .eq('team_id', teamId)
-      .eq('user_id', userId)
-      .single()
+    const [membership] = await db.select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
 
     if (!membership || !['owner', 'admin'].includes(membership.role)) {
       return c.json({ error: 'Insufficient permissions' }, 403)
     }
 
-    // Check if user is already a member
-    const { data: existingMember } = await supabase
-      .from('team_members')
-      .select('user_id')
-      .eq('team_id', teamId)
-      .eq('user_id', (
-        await supabase
-          .from('user_profiles')
-          .select('id')
-          .eq('email', email)
-          .single()
-      ).data?.id || '')
-      .single()
+    // Check if user is already a member (by email → profile → membership)
+    const [profileByEmail] = await db.select({ id: userProfiles.id })
+      .from(userProfiles)
+      .where(eq(userProfiles.email, email))
 
-    if (existingMember) {
-      return c.json({ error: 'User is already a team member' }, 400)
+    if (profileByEmail) {
+      const [existingMember] = await db.select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, profileByEmail.id)))
+
+      if (existingMember) {
+        return c.json({ error: 'User is already a team member' }, 400)
+      }
     }
 
     // Check for existing pending invites to this email
-    const { data: existingInvite } = await supabase
-      .from('invite_tokens')
-      .select('id, expires_at')
-      .eq('team_id', teamId)
-      .eq('email', email)
-      .is('used_at', null)
-      .gte('expires_at', new Date().toISOString())
-      .single()
+    const now = new Date()
+    const [existingInvite] = await db.select({ id: inviteTokens.id })
+      .from(inviteTokens)
+      .where(and(
+        eq(inviteTokens.teamId, teamId),
+        eq(inviteTokens.email, email),
+        isNull(inviteTokens.usedAt),
+        gt(inviteTokens.expiresAt, now),
+      ))
 
     if (existingInvite) {
       return c.json({ error: 'An active invitation already exists for this email' }, 400)
@@ -101,37 +97,24 @@ teamsRoute.post('/invite', async (c) => {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
 
     // Create invite token
-    const { data: invite, error: inviteError } = await supabase
-      .from('invite_tokens')
-      .insert({
-        token,
-        team_id: teamId,
-        email,
-        invited_by: userId,
-        role,
-        expires_at: expiresAt.toISOString(),
-      })
-      .select()
-      .single()
-
-    if (inviteError) {
-      console.error('[teams] Failed to create invite:', inviteError)
-      return c.json({ error: 'Failed to create invitation' }, 500)
-    }
+    const [invite] = await db.insert(inviteTokens).values({
+      token,
+      teamId,
+      email,
+      invitedBy: user.id,
+      role,
+      expiresAt,
+    }).returning()
 
     // Get team details for email
-    const { data: team } = await supabase
-      .from('teams')
-      .select('name')
-      .eq('id', teamId)
-      .single()
+    const [team] = await db.select({ name: teams.name })
+      .from(teams)
+      .where(eq(teams.id, teamId))
 
     // Get inviter details
-    const { data: inviter } = await supabase
-      .from('user_profiles')
-      .select('name, email')
-      .eq('id', userId)
-      .single()
+    const [inviter] = await db.select({ name: userProfiles.name, email: userProfiles.email })
+      .from(userProfiles)
+      .where(eq(userProfiles.id, user.id))
 
     // Send invitation email
     const inviteUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/invite/${token}`
@@ -140,7 +123,7 @@ teamsRoute.post('/invite', async (c) => {
       to: email,
       teamName: team?.name || 'Unknown Team',
       inviterName: inviter?.name || 'Team Admin',
-      inviterEmail: inviter?.email || 'noreply@astro.fuxialexander.work',
+      inviterEmail: inviter?.email || (process.env.ASTRO_NOREPLY_EMAIL || 'noreply@astro.app'),
       inviteUrl,
       role,
       expiresAt,
@@ -159,14 +142,13 @@ teamsRoute.post('/invite', async (c) => {
       emailSent,
     })
 
-    // Return success with invite details
     return c.json({
       success: true,
       invite: {
         id: invite.id,
         email: invite.email,
         role: invite.role,
-        expiresAt: invite.expires_at,
+        expiresAt: invite.expiresAt,
         emailSent,
       },
     })
@@ -187,49 +169,49 @@ teamsRoute.get('/:teamId/invites', async (c) => {
   }
 
   try {
-    const userId = c.get('userId')
+    const user = c.get('user') as AuthUser
     const teamId = c.req.param('teamId')
 
-    const supabase = getServiceClient()
-
     // Verify user is admin/owner of the team
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('role')
-      .eq('team_id', teamId)
-      .eq('user_id', userId)
-      .single()
+    const [membership] = await db.select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
 
     if (!membership || !['owner', 'admin'].includes(membership.role)) {
       return c.json({ error: 'Insufficient permissions' }, 403)
     }
 
     // Get pending invites
-    const { data: invites, error } = await supabase
-      .from('invite_tokens')
-      .select('id, email, role, expires_at, created_at, invited_by')
-      .eq('team_id', teamId)
-      .is('used_at', null)
-      .gte('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('[teams] Failed to fetch invites:', error)
-      return c.json({ error: 'Failed to fetch invitations' }, 500)
-    }
+    const now = new Date()
+    const invites = await db.select({
+      id: inviteTokens.id,
+      email: inviteTokens.email,
+      role: inviteTokens.role,
+      expiresAt: inviteTokens.expiresAt,
+      createdAt: inviteTokens.createdAt,
+      invitedBy: inviteTokens.invitedBy,
+    })
+      .from(inviteTokens)
+      .where(and(
+        eq(inviteTokens.teamId, teamId),
+        isNull(inviteTokens.usedAt),
+        gt(inviteTokens.expiresAt, now),
+      ))
+      .orderBy(sql`${inviteTokens.createdAt} DESC`)
 
     // Get inviter details
-    const inviterIds = [...new Set(invites.map((inv) => inv.invited_by))]
-    const { data: inviters } = await supabase
-      .from('user_profiles')
-      .select('id, name, email')
-      .in('id', inviterIds)
+    const inviterIds = [...new Set(invites.map((inv) => inv.invitedBy))]
+    const inviters = inviterIds.length > 0
+      ? await db.select({ id: userProfiles.id, name: userProfiles.name, email: userProfiles.email })
+          .from(userProfiles)
+          .where(sql`${userProfiles.id} IN (${sql.join(inviterIds.map(id => sql`${id}`), sql`, `)})`)
+      : []
 
-    const inviterMap = new Map(inviters?.map((u) => [u.id, u]) || [])
+    const inviterMap = new Map(inviters.map((u) => [u.id, u]))
 
     const enrichedInvites = invites.map((inv) => ({
       ...inv,
-      inviter: inviterMap.get(inv.invited_by),
+      inviter: inviterMap.get(inv.invitedBy),
     }))
 
     return c.json({ invites: enrichedInvites })
@@ -250,44 +232,29 @@ teamsRoute.delete('/invites/:inviteId', async (c) => {
   }
 
   try {
-    const userId = c.get('userId')
+    const user = c.get('user') as AuthUser
     const inviteId = c.req.param('inviteId')
 
-    const supabase = getServiceClient()
-
     // Get invite to verify team ownership
-    const { data: invite } = await supabase
-      .from('invite_tokens')
-      .select('team_id')
-      .eq('id', inviteId)
-      .single()
+    const [invite] = await db.select({ teamId: inviteTokens.teamId })
+      .from(inviteTokens)
+      .where(eq(inviteTokens.id, inviteId))
 
     if (!invite) {
       return c.json({ error: 'Invitation not found' }, 404)
     }
 
     // Verify user is admin/owner of the team
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('role')
-      .eq('team_id', invite.team_id)
-      .eq('user_id', userId)
-      .single()
+    const [membership] = await db.select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, invite.teamId), eq(teamMembers.userId, user.id)))
 
     if (!membership || !['owner', 'admin'].includes(membership.role)) {
       return c.json({ error: 'Insufficient permissions' }, 403)
     }
 
     // Delete the invite
-    const { error: deleteError } = await supabase
-      .from('invite_tokens')
-      .delete()
-      .eq('id', inviteId)
-
-    if (deleteError) {
-      console.error('[teams] Failed to delete invite:', deleteError)
-      return c.json({ error: 'Failed to revoke invitation' }, 500)
-    }
+    await db.delete(inviteTokens).where(eq(inviteTokens.id, inviteId))
 
     return c.json({ success: true })
   } catch (err) {
@@ -308,35 +275,37 @@ teamsRoute.get('/invite/:token', async (c) => {
 
   try {
     const token = c.req.param('token')
-
-    const supabase = getServiceClient()
+    const now = new Date()
 
     // Get invite by token
-    const { data: invite, error } = await supabase
-      .from('invite_tokens')
-      .select('*, teams(name)')
-      .eq('token', token)
-      .is('used_at', null)
-      .gte('expires_at', new Date().toISOString())
-      .single()
+    const [invite] = await db.select()
+      .from(inviteTokens)
+      .where(and(
+        eq(inviteTokens.token, token),
+        isNull(inviteTokens.usedAt),
+        gt(inviteTokens.expiresAt, now),
+      ))
 
-    if (error || !invite) {
+    if (!invite) {
       return c.json({ error: 'Invalid or expired invitation' }, 404)
     }
 
+    // Get team name
+    const [team] = await db.select({ name: teams.name })
+      .from(teams)
+      .where(eq(teams.id, invite.teamId))
+
     // Check if user already exists with this email
-    const { data: existingUser } = await supabase
-      .from('user_profiles')
-      .select('id')
-      .eq('email', invite.email)
-      .single()
+    const [existingUser] = await db.select({ id: userProfiles.id })
+      .from(userProfiles)
+      .where(eq(userProfiles.email, invite.email))
 
     return c.json({
       invite: {
         email: invite.email,
         role: invite.role,
-        teamName: invite.teams?.name || 'Unknown Team',
-        expiresAt: invite.expires_at,
+        teamName: team?.name || 'Unknown Team',
+        expiresAt: invite.expiresAt,
         userExists: !!existingUser,
       },
     })
@@ -357,80 +326,63 @@ teamsRoute.post('/accept/:token', async (c) => {
   }
 
   try {
-    const userId = c.get('userId')
+    const user = c.get('user') as AuthUser
     const token = c.req.param('token')
 
-    const supabase = getServiceClient()
-
     // Get user's email
-    const { data: userProfile } = await supabase
-      .from('user_profiles')
-      .select('email')
-      .eq('id', userId)
-      .single()
+    const [userProfile] = await db.select({ email: userProfiles.email })
+      .from(userProfiles)
+      .where(eq(userProfiles.id, user.id))
 
     if (!userProfile) {
       return c.json({ error: 'User profile not found' }, 404)
     }
 
     // Get invite by token and verify it matches user's email
-    const { data: invite, error: inviteError } = await supabase
-      .from('invite_tokens')
-      .select('*')
-      .eq('token', token)
-      .eq('email', userProfile.email)
-      .is('used_at', null)
-      .gte('expires_at', new Date().toISOString())
-      .single()
+    const now = new Date()
+    const [invite] = await db.select()
+      .from(inviteTokens)
+      .where(and(
+        eq(inviteTokens.token, token),
+        eq(inviteTokens.email, userProfile.email),
+        isNull(inviteTokens.usedAt),
+        gt(inviteTokens.expiresAt, now),
+      ))
 
-    if (inviteError || !invite) {
+    if (!invite) {
       return c.json({ error: 'Invalid or expired invitation' }, 404)
     }
 
     // Check if already a member
-    const { data: existingMember } = await supabase
-      .from('team_members')
-      .select('user_id')
-      .eq('team_id', invite.team_id)
-      .eq('user_id', userId)
-      .single()
+    const [existingMember] = await db.select({ userId: teamMembers.userId })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, invite.teamId), eq(teamMembers.userId, user.id)))
 
     if (existingMember) {
       // Mark invite as used even though they're already a member
-      await supabase
-        .from('invite_tokens')
-        .update({ used_at: new Date().toISOString() })
-        .eq('id', invite.id)
+      await db.update(inviteTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(inviteTokens.id, invite.id))
 
       return c.json({ error: 'You are already a member of this team' }, 400)
     }
 
     // Add user to team
-    const { error: memberError } = await supabase
-      .from('team_members')
-      .insert({
-        team_id: invite.team_id,
-        user_id: userId,
-        role: invite.role,
-      })
-
-    if (memberError) {
-      console.error('[teams] Failed to add team member:', memberError)
-      return c.json({ error: 'Failed to join team' }, 500)
-    }
+    await db.insert(teamMembers).values({
+      teamId: invite.teamId,
+      userId: user.id,
+      role: invite.role,
+    })
 
     // Mark invite as used
-    await supabase
-      .from('invite_tokens')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', invite.id)
+    await db.update(inviteTokens)
+      .set({ usedAt: new Date() })
+      .where(eq(inviteTokens.id, invite.id))
 
     // Get team details
-    const { data: team } = await supabase
-      .from('teams')
-      .select('*')
-      .eq('id', invite.team_id)
-      .single()
+    const [team] = await db.select()
+      .from(teams)
+      .where(eq(teams.id, invite.teamId))
 
     return c.json({
       success: true,
@@ -453,47 +405,46 @@ teamsRoute.get('/:teamId/members', async (c) => {
   }
 
   try {
-    const userId = c.get('userId')
+    const user = c.get('user') as AuthUser
     const teamId = c.req.param('teamId')
 
-    const supabase = getServiceClient()
-
     // Verify user is a member of the team
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('role')
-      .eq('team_id', teamId)
-      .eq('user_id', userId)
-      .single()
+    const [membership] = await db.select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
 
     if (!membership) {
       return c.json({ error: 'Not a team member' }, 403)
     }
 
-    // Get all team members with their profiles
-    const { data: members, error } = await supabase
-      .from('team_members')
-      .select('user_id, role, joined_at')
-      .eq('team_id', teamId)
-      .order('joined_at', { ascending: true })
-
-    if (error) {
-      console.error('[teams] Failed to fetch members:', error)
-      return c.json({ error: 'Failed to fetch team members' }, 500)
-    }
+    // Get all team members
+    const members = await db.select({
+      userId: teamMembers.userId,
+      role: teamMembers.role,
+      joinedAt: teamMembers.joinedAt,
+    })
+      .from(teamMembers)
+      .where(eq(teamMembers.teamId, teamId))
+      .orderBy(teamMembers.joinedAt)
 
     // Get user profiles
-    const userIds = members.map((m) => m.user_id)
-    const { data: profiles } = await supabase
-      .from('user_profiles')
-      .select('id, name, email, avatar_url')
-      .in('id', userIds)
+    const userIds = members.map((m) => m.userId)
+    const profiles = userIds.length > 0
+      ? await db.select({
+          id: userProfiles.id,
+          name: userProfiles.name,
+          email: userProfiles.email,
+          avatarUrl: userProfiles.avatarUrl,
+        })
+          .from(userProfiles)
+          .where(sql`${userProfiles.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`)
+      : []
 
-    const profileMap = new Map(profiles?.map((p) => [p.id, p]) || [])
+    const profileMap = new Map(profiles.map((p) => [p.id, p]))
 
     const enrichedMembers = members.map((m) => ({
       ...m,
-      user: profileMap.get(m.user_id),
+      user: profileMap.get(m.userId),
     }))
 
     return c.json({ members: enrichedMembers })
@@ -514,23 +465,18 @@ teamsRoute.delete('/:teamId/members/:memberId', async (c) => {
   }
 
   try {
-    const userId = c.get('userId')
+    const user = c.get('user') as AuthUser
     const teamId = c.req.param('teamId')
     const memberId = c.req.param('memberId')
 
-    const supabase = getServiceClient()
-
     // Check if removing self
-    const isSelfRemoval = userId === memberId
+    const isSelfRemoval = user.id === memberId
 
     if (!isSelfRemoval) {
       // Verify user is admin/owner of the team
-      const { data: membership } = await supabase
-        .from('team_members')
-        .select('role')
-        .eq('team_id', teamId)
-        .eq('user_id', userId)
-        .single()
+      const [membership] = await db.select({ role: teamMembers.role })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
 
       if (!membership || !['owner', 'admin'].includes(membership.role)) {
         return c.json({ error: 'Insufficient permissions' }, 403)
@@ -538,40 +484,246 @@ teamsRoute.delete('/:teamId/members/:memberId', async (c) => {
     }
 
     // Prevent removing the last owner
-    const { data: targetMember } = await supabase
-      .from('team_members')
-      .select('role')
-      .eq('team_id', teamId)
-      .eq('user_id', memberId)
-      .single()
+    const [targetMember] = await db.select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, memberId)))
 
     if (targetMember?.role === 'owner') {
-      const { count } = await supabase
-        .from('team_members')
-        .select('*', { count: 'exact', head: true })
-        .eq('team_id', teamId)
-        .eq('role', 'owner')
+      const [ownerCount] = await db.select({ cnt: count() })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, 'owner')))
 
-      if (count === 1) {
+      if (ownerCount.cnt === 1) {
         return c.json({ error: 'Cannot remove the last owner' }, 400)
       }
     }
 
     // Remove member
-    const { error: deleteError } = await supabase
-      .from('team_members')
-      .delete()
-      .eq('team_id', teamId)
-      .eq('user_id', memberId)
-
-    if (deleteError) {
-      console.error('[teams] Failed to remove member:', deleteError)
-      return c.json({ error: 'Failed to remove team member' }, 500)
-    }
+    await db.delete(teamMembers).where(
+      and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, memberId))
+    )
 
     return c.json({ success: true })
   } catch (err) {
     console.error('[teams] Remove member error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * GET /api/teams
+ *
+ * List all teams the current user belongs to.
+ */
+teamsRoute.get('/', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+
+    const rows = await db
+      .select({
+        id: teams.id,
+        name: teams.name,
+        description: teams.description,
+        createdAt: teams.createdAt,
+        updatedAt: teams.updatedAt,
+        role: teamMembers.role,
+      })
+      .from(teamMembers)
+      .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+      .where(eq(teamMembers.userId, user.id))
+
+    return c.json(rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      memberRole: r.role,
+    })))
+  } catch (err) {
+    console.error('[teams] List teams error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * POST /api/teams
+ *
+ * Create a new team. The creating user becomes the owner.
+ */
+teamsRoute.post('/', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const body = await c.req.json<{ name: string; description?: string }>()
+
+    if (!body.name?.trim()) {
+      return c.json({ error: 'Team name is required' }, 400)
+    }
+
+    const teamId = crypto.randomUUID()
+    const now = new Date()
+
+    await db.insert(teams).values({
+      id: teamId,
+      name: body.name.trim(),
+      description: body.description?.trim() ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    await db.insert(teamMembers).values({
+      teamId,
+      userId: user.id,
+      role: 'owner',
+      joinedAt: now,
+    })
+
+    return c.json({
+      id: teamId,
+      name: body.name.trim(),
+      description: body.description?.trim() ?? null,
+      createdAt: now,
+      updatedAt: now,
+      memberRole: 'owner',
+    }, 201)
+  } catch (err) {
+    console.error('[teams] Create team error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * PATCH /api/teams/:teamId
+ *
+ * Update team name/description. Requires admin or owner role.
+ */
+teamsRoute.patch('/:teamId', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const teamId = c.req.param('teamId')
+    const body = await c.req.json<{ name?: string; description?: string }>()
+
+    // Check permission
+    const [membership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
+
+    if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+      return c.json({ error: 'Only team admins and owners can update team settings' }, 403)
+    }
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() }
+    if (body.name !== undefined) updates.name = body.name.trim()
+    if (body.description !== undefined) updates.description = body.description.trim()
+
+    await db.update(teams).set(updates).where(eq(teams.id, teamId))
+
+    const [updated] = await db.select().from(teams).where(eq(teams.id, teamId))
+    return c.json(updated)
+  } catch (err) {
+    console.error('[teams] Update team error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * DELETE /api/teams/:teamId
+ *
+ * Delete a team. Only the owner can delete. Cannot delete personal team.
+ */
+teamsRoute.delete('/:teamId', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const teamId = c.req.param('teamId')
+
+    // Check ownership
+    const [membership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
+
+    if (!membership || membership.role !== 'owner') {
+      return c.json({ error: 'Only team owners can delete teams' }, 403)
+    }
+
+    // Check it's not the user's personal (auto-created) team
+    const [team] = await db.select().from(teams).where(eq(teams.id, teamId))
+    if (team && team.name === 'Personal') {
+      return c.json({ error: 'Cannot delete your personal team' }, 400)
+    }
+
+    // Delete members first, then team
+    await db.delete(teamMembers).where(eq(teamMembers.teamId, teamId))
+    await db.delete(inviteTokens).where(eq(inviteTokens.teamId, teamId))
+    await db.delete(teams).where(eq(teams.id, teamId))
+
+    return c.json({ success: true })
+  } catch (err) {
+    console.error('[teams] Delete team error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * PATCH /api/teams/:teamId/members/:userId
+ *
+ * Change a member's role. Requires owner role.
+ */
+teamsRoute.patch('/:teamId/members/:userId', async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Teams not available in local mode' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const teamId = c.req.param('teamId')
+    const targetUserId = c.req.param('userId')
+    const body = await c.req.json<{ role: 'owner' | 'admin' | 'member' }>()
+
+    if (!['owner', 'admin', 'member'].includes(body.role)) {
+      return c.json({ error: 'Invalid role. Must be owner, admin, or member' }, 400)
+    }
+
+    // Check requester is owner
+    const [membership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, user.id)))
+
+    if (!membership || membership.role !== 'owner') {
+      return c.json({ error: 'Only team owners can change member roles' }, 403)
+    }
+
+    // Cannot change own role
+    if (targetUserId === user.id) {
+      return c.json({ error: 'Cannot change your own role' }, 400)
+    }
+
+    await db
+      .update(teamMembers)
+      .set({ role: body.role })
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)))
+
+    return c.json({ success: true })
+  } catch (err) {
+    console.error('[teams] Change role error:', err)
     return c.json({ error: errorMessage(err) }, 500)
   }
 })

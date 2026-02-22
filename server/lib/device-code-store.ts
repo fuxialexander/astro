@@ -1,53 +1,64 @@
 /**
  * Device Code Storage
  *
- * In-memory storage for device authorization codes.
- * In production, this should be backed by Redis or a database.
+ * Persistent storage for device authorization codes using Drizzle ORM
+ * against the `device_codes` table in Postgres/PGlite.
  */
 
 import type {
   DeviceCodeEntry,
   DeviceAuthRequest,
-} from '../types/device-auth';
+} from '../types/device-auth.js';
 import {
   generateDeviceCode,
   generateUserCode,
-} from './token-manager';
-import { TOKEN_EXPIRY, DEFAULT_POLL_INTERVAL } from '../types/device-auth';
+} from './token-manager.js';
+import { TOKEN_EXPIRY, DEFAULT_POLL_INTERVAL } from '../types/device-auth.js';
+import { db } from './db/index.js';
+import { deviceCodes } from './db/schema.js';
+import { eq, and, gt, lt, or } from 'drizzle-orm';
 
-// In-memory store for device codes
-// Key: userCode (internal identifier for polling)
-const deviceCodeStore = new Map<string, DeviceCodeEntry>();
-
-// Index: deviceCode -> userCode for quick lookup
-const deviceCodeIndex = new Map<string, string>();
+/**
+ * Map a database row to a DeviceCodeEntry interface object.
+ */
+function rowToEntry(row: typeof deviceCodes.$inferSelect): DeviceCodeEntry {
+  return {
+    deviceCode: row.deviceCode,
+    userCode: row.userCode,
+    scopes: row.scopes,
+    machineInfo: row.machineInfo as DeviceCodeEntry['machineInfo'],
+    status: row.status as DeviceCodeEntry['status'],
+    expiresAt: row.expiresAt,
+    createdAt: row.createdAt,
+    authorizedBy: row.authorizedBy ?? undefined,
+    authorizedAt: row.authorizedAt ?? undefined,
+    lastPolledAt: row.lastPolledAt ?? undefined,
+  };
+}
 
 /**
  * Create a new device authorization code
  */
-export function createDeviceCode(request: DeviceAuthRequest): {
+export async function createDeviceCode(request: DeviceAuthRequest): Promise<{
   deviceCode: string;
   userCode: string;
   expiresIn: number;
   interval: number;
-} {
+}> {
   const deviceCode = generateDeviceCode();
   const userCode = generateUserCode();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + TOKEN_EXPIRY.DEVICE_CODE * 1000);
 
-  const entry: DeviceCodeEntry = {
-    deviceCode,
+  await db.insert(deviceCodes).values({
     userCode,
+    deviceCode,
     scopes: request.scopes || [],
-    machineInfo: request.machineInfo,
+    machineInfo: request.machineInfo ?? null,
     status: 'pending',
     expiresAt,
     createdAt: now,
-  };
-
-  deviceCodeStore.set(userCode, entry);
-  deviceCodeIndex.set(deviceCode, userCode);
+  });
 
   return {
     deviceCode,
@@ -60,43 +71,88 @@ export function createDeviceCode(request: DeviceAuthRequest): {
 /**
  * Get device code entry by user code (for polling)
  */
-export function getDeviceCodeByUserCode(userCode: string): DeviceCodeEntry | null {
-  const entry = deviceCodeStore.get(userCode);
-  if (!entry) {
+export async function getDeviceCodeByUserCode(userCode: string): Promise<DeviceCodeEntry | null> {
+  const rows = await db
+    .select()
+    .from(deviceCodes)
+    .where(eq(deviceCodes.userCode, userCode))
+    .limit(1);
+
+  if (rows.length === 0) {
     return null;
   }
 
-  // Check if expired
-  if (entry.expiresAt < new Date()) {
-    entry.status = 'expired';
-    return entry;
+  const row = rows[0];
+
+  // Check if expired (pending code past its expiry)
+  if (row.expiresAt < new Date() && row.status === 'pending') {
+    // Update status to expired in the DB
+    await db
+      .update(deviceCodes)
+      .set({ status: 'expired' })
+      .where(eq(deviceCodes.userCode, userCode));
+
+    return {
+      ...rowToEntry(row),
+      status: 'expired',
+    };
   }
 
-  return entry;
+  return rowToEntry(row);
 }
 
 /**
  * Get device code entry by device code (for user authorization page)
  */
-export function getDeviceCodeByDeviceCode(deviceCode: string): DeviceCodeEntry | null {
-  const userCode = deviceCodeIndex.get(deviceCode);
-  if (!userCode) {
+export async function getDeviceCodeByDeviceCode(deviceCode: string): Promise<DeviceCodeEntry | null> {
+  const rows = await db
+    .select()
+    .from(deviceCodes)
+    .where(eq(deviceCodes.deviceCode, deviceCode))
+    .limit(1);
+
+  if (rows.length === 0) {
     return null;
   }
-  return getDeviceCodeByUserCode(userCode);
+
+  const row = rows[0];
+
+  // Check if expired (pending code past its expiry)
+  if (row.expiresAt < new Date() && row.status === 'pending') {
+    await db
+      .update(deviceCodes)
+      .set({ status: 'expired' })
+      .where(eq(deviceCodes.userCode, row.userCode));
+
+    return {
+      ...rowToEntry(row),
+      status: 'expired',
+    };
+  }
+
+  return rowToEntry(row);
 }
 
 /**
  * Check if polling is too fast (rate limiting)
+ * Returns true if polling too fast, false otherwise.
+ * Also updates lastPolledAt.
  */
-export function checkPollRate(userCode: string): boolean {
-  const entry = deviceCodeStore.get(userCode);
-  if (!entry) {
+export async function checkPollRate(userCode: string): Promise<boolean> {
+  const rows = await db
+    .select()
+    .from(deviceCodes)
+    .where(eq(deviceCodes.userCode, userCode))
+    .limit(1);
+
+  if (rows.length === 0) {
     return false;
   }
 
-  if (entry.lastPolledAt) {
-    const timeSinceLastPoll = Date.now() - entry.lastPolledAt.getTime();
+  const row = rows[0];
+
+  if (row.lastPolledAt) {
+    const timeSinceLastPoll = Date.now() - row.lastPolledAt.getTime();
     // Allow polling at minimum interval (with 500ms tolerance)
     if (timeSinceLastPoll < (DEFAULT_POLL_INTERVAL - 0.5) * 1000) {
       return true; // Too fast
@@ -104,15 +160,19 @@ export function checkPollRate(userCode: string): boolean {
   }
 
   // Update last poll time
-  entry.lastPolledAt = new Date();
+  await db
+    .update(deviceCodes)
+    .set({ lastPolledAt: new Date() })
+    .where(eq(deviceCodes.userCode, userCode));
+
   return false;
 }
 
 /**
  * Authorize a device code (called when user approves)
  */
-export function authorizeDeviceCode(deviceCode: string, userId: string): boolean {
-  const entry = getDeviceCodeByDeviceCode(deviceCode);
+export async function authorizeDeviceCode(deviceCode: string, userId: string): Promise<boolean> {
+  const entry = await getDeviceCodeByDeviceCode(deviceCode);
   if (!entry) {
     return false;
   }
@@ -122,21 +182,46 @@ export function authorizeDeviceCode(deviceCode: string, userId: string): boolean
   }
 
   if (entry.expiresAt < new Date()) {
-    entry.status = 'expired';
     return false;
   }
 
-  entry.status = 'authorized';
-  entry.authorizedBy = userId;
-  entry.authorizedAt = new Date();
-  return true;
+  const now = new Date();
+  await db
+    .update(deviceCodes)
+    .set({
+      status: 'authorized',
+      authorizedBy: userId,
+      authorizedAt: now,
+    })
+    .where(
+      and(
+        eq(deviceCodes.deviceCode, deviceCode),
+        eq(deviceCodes.status, 'pending'),
+        gt(deviceCodes.expiresAt, new Date()),
+      )
+    );
+
+  // Drizzle update returns the result; check rowCount if available
+  // For safety, re-read to confirm the update took effect
+  const updated = await db
+    .select()
+    .from(deviceCodes)
+    .where(
+      and(
+        eq(deviceCodes.deviceCode, deviceCode),
+        eq(deviceCodes.status, 'authorized'),
+      )
+    )
+    .limit(1);
+
+  return updated.length > 0;
 }
 
 /**
  * Deny a device code (called when user denies)
  */
-export function denyDeviceCode(deviceCode: string): boolean {
-  const entry = getDeviceCodeByDeviceCode(deviceCode);
+export async function denyDeviceCode(deviceCode: string): Promise<boolean> {
+  const entry = await getDeviceCodeByDeviceCode(deviceCode);
   if (!entry) {
     return false;
   }
@@ -145,68 +230,111 @@ export function denyDeviceCode(deviceCode: string): boolean {
     return false;
   }
 
-  entry.status = 'denied';
-  return true;
+  await db
+    .update(deviceCodes)
+    .set({ status: 'denied' })
+    .where(
+      and(
+        eq(deviceCodes.deviceCode, deviceCode),
+        eq(deviceCodes.status, 'pending'),
+      )
+    );
+
+  const updated = await db
+    .select()
+    .from(deviceCodes)
+    .where(
+      and(
+        eq(deviceCodes.deviceCode, deviceCode),
+        eq(deviceCodes.status, 'denied'),
+      )
+    )
+    .limit(1);
+
+  return updated.length > 0;
 }
 
 /**
  * Mark device code as used (after token is issued)
  */
-export function markDeviceCodeUsed(userCode: string): boolean {
-  const entry = deviceCodeStore.get(userCode);
-  if (!entry) {
-    return false;
-  }
+export async function markDeviceCodeUsed(userCode: string): Promise<boolean> {
+  await db
+    .update(deviceCodes)
+    .set({ status: 'used' })
+    .where(eq(deviceCodes.userCode, userCode));
 
-  entry.status = 'used';
-  return true;
+  const updated = await db
+    .select()
+    .from(deviceCodes)
+    .where(
+      and(
+        eq(deviceCodes.userCode, userCode),
+        eq(deviceCodes.status, 'used'),
+      )
+    )
+    .limit(1);
+
+  return updated.length > 0;
 }
 
 /**
  * Get pending device codes (for admin/debug)
  */
-export function getPendingDeviceCodes(): DeviceCodeEntry[] {
-  const pending: DeviceCodeEntry[] = [];
+export async function getPendingDeviceCodes(): Promise<DeviceCodeEntry[]> {
   const now = new Date();
 
-  for (const [, entry] of deviceCodeStore) {
-    if (entry.status === 'pending' && entry.expiresAt > now) {
-      pending.push(entry);
-    }
-  }
+  const rows = await db
+    .select()
+    .from(deviceCodes)
+    .where(
+      and(
+        eq(deviceCodes.status, 'pending'),
+        gt(deviceCodes.expiresAt, now),
+      )
+    );
 
-  return pending;
+  return rows.map(rowToEntry);
 }
 
 /**
  * Clean up expired device codes (should be called periodically)
  */
-export function cleanupExpiredDeviceCodes(): number {
-  let count = 0;
+export async function cleanupExpiredDeviceCodes(): Promise<number> {
   const now = new Date();
 
-  for (const [userCode, entry] of deviceCodeStore) {
-    // Remove expired or used codes
-    if (entry.expiresAt < now || entry.status === 'used') {
-      deviceCodeStore.delete(userCode);
-      deviceCodeIndex.delete(entry.deviceCode);
-      count++;
-    }
-  }
+  // Delete expired or used codes
+  const result = await db
+    .delete(deviceCodes)
+    .where(
+      or(
+        lt(deviceCodes.expiresAt, now),
+        eq(deviceCodes.status, 'used'),
+      )
+    )
+    .returning();
 
-  return count;
+  return result.length;
 }
 
 /**
  * Get statistics about device codes
  */
-export function getDeviceCodeStats(): {
+export async function getDeviceCodeStats(): Promise<{
   total: number;
   pending: number;
   authorized: number;
   expired: number;
   used: number;
-} {
+}> {
+  const now = new Date();
+
+  const rows = await db
+    .select({
+      status: deviceCodes.status,
+      expiresAt: deviceCodes.expiresAt,
+    })
+    .from(deviceCodes);
+
   const stats = {
     total: 0,
     pending: 0,
@@ -215,15 +343,13 @@ export function getDeviceCodeStats(): {
     used: 0,
   };
 
-  const now = new Date();
-
-  for (const [, entry] of deviceCodeStore) {
+  for (const row of rows) {
     stats.total++;
 
-    if (entry.expiresAt < now && entry.status === 'pending') {
+    if (row.expiresAt < now && row.status === 'pending') {
       stats.expired++;
     } else {
-      switch (entry.status) {
+      switch (row.status) {
         case 'pending':
           stats.pending++;
           break;
@@ -242,9 +368,3 @@ export function getDeviceCodeStats(): {
 
   return stats;
 }
-
-// Export for testing
-export const __testing = {
-  deviceCodeStore,
-  deviceCodeIndex,
-};

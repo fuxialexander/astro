@@ -4,11 +4,12 @@ import { startRegistration, startAuthentication, browserSupportsWebAuthn, platfo
 import { apiUrl } from "@/lib/api-url"
 import { getSupabase } from "@/lib/supabase-client"
 import { isLocalMode } from "@/lib/app-mode"
+import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight } from "lucide-react"
+import { Fingerprint, Loader2, AlertCircle, Code2, ArrowRight, Mail } from "lucide-react"
 
-type AuthStep = "email" | "name" | "authenticating" | "registering"
+type AuthStep = "email" | "name" | "authenticating" | "registering" | "magic_link_sent"
 
 // Map technical errors to user-friendly messages
 function getFriendlyErrorMessage(message: string): string {
@@ -24,6 +25,14 @@ function getFriendlyErrorMessage(message: string): string {
   if (message.includes("Authentication service not configured")) {
     return message // Keep specific config errors
   }
+  // Surface server-side error messages directly (e.g. "Account already exists")
+  if (message.includes("already exists") || message.includes("Please log in") || message.includes("Account created")) {
+    return message
+  }
+  // SecurityError often means RP ID mismatch (WebAuthn domain config wrong)
+  if (message.includes("SecurityError") || message.includes("relying party")) {
+    return "Passkey configuration error. The server's domain settings don't match this site."
+  }
   return "Something went wrong. Please try again."
 }
 
@@ -31,6 +40,7 @@ export function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
+  const session = useAuthStore((s) => s.session)
 
   // Support both ?redirect=/device and location.state.from for redirect
   const redirectParam = searchParams.get('redirect')
@@ -42,6 +52,7 @@ export function Login() {
   const [step, setStep] = useState<AuthStep>("email")
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
+  const [isReturningUser, setIsReturningUser] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [platformAuthAvailable, setPlatformAuthAvailable] = useState<boolean | null>(null)
@@ -86,7 +97,23 @@ export function Login() {
           type: "magiclink",
         })
         if (error) throw error
-        await new Promise(resolve => setTimeout(resolve, 100))
+
+        // Wait for Supabase session to be fully established before navigating.
+        // The auth state change listener in auth-store needs to fire so that
+        // DataLoader sees session !== null and loads all stores with the token.
+        await new Promise<void>((resolve) => {
+          const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+              subscription.unsubscribe()
+              resolve()
+            }
+          })
+          // Safety timeout in case the event already fired before we subscribed
+          setTimeout(() => {
+            subscription.unsubscribe()
+            resolve()
+          }, 2000)
+        })
       }
     }
 
@@ -112,15 +139,23 @@ export function Login() {
         throw new Error("Failed to check user")
       }
 
-      const { exists } = await checkRes.json()
+      const { exists, hasCredentials, name: existingName } = await checkRes.json()
 
-      if (exists) {
-        // Existing user - proceed with authentication
+      if (exists && hasCredentials) {
+        // Existing user with passkeys on this domain - proceed with authentication
         setStep("authenticating")
         await authenticateUser()
         // Success - authenticateUser navigates away
+      } else if (exists && !hasCredentials && existingName) {
+        // Existing user without passkeys (e.g., credentials were reset, or new device).
+        // Name is already on file — pre-fill and show confirmation step.
+        setName(existingName)
+        setIsReturningUser(true)
+        setStep("name")
+        setLoading(false)
       } else {
-        // New user - show name field
+        // New user — show name field to create account.
+        setIsReturningUser(false)
         setStep("name")
         setLoading(false)
       }
@@ -129,13 +164,18 @@ export function Login() {
         // Handle WebAuthn-specific errors
         if (err.name === "AbortError") {
           setError("Authentication cancelled")
+          setStep("email")
         } else if (err.name === "NotAllowedError") {
-          setError("Face ID/Touch ID was cancelled or not recognized. Please try again.")
+          // Passkey not found or cancelled — offer alternatives (magic link, new passkey)
+          setError("Passkey login failed. Try signing in with an email link, or register a new passkey.")
+          setStep("email")
         } else {
           setError(getFriendlyErrorMessage(err.message))
+          setStep("email")
         }
+      } else {
+        setStep("email")
       }
-      setStep("email")
       setLoading(false)
     }
   }, [email, authenticateUser])
@@ -152,6 +192,12 @@ export function Login() {
     setStep("registering")
 
     try {
+      // Clear any stale session before registration to prevent identity conflicts
+      const supabase = getSupabase()
+      if (supabase) {
+        await supabase.auth.signOut()
+      }
+
       const optionsRes = await fetch(apiUrl("/api/auth/webauthn/register-options"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -162,7 +208,8 @@ export function Login() {
         if (optionsRes.status === 503) {
           throw new Error("Authentication service not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.")
         }
-        throw new Error("Failed to get registration options")
+        const data = await optionsRes.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to get registration options")
       }
 
       const { options } = await optionsRes.json()
@@ -179,22 +226,54 @@ export function Login() {
       })
 
       if (!verifyRes.ok) {
-        const data = await verifyRes.json()
+        const data = await verifyRes.json().catch(() => ({}))
+        if (verifyRes.status === 409 && data.existingUser) {
+          // Account already exists — switch to login flow
+          setError("An account with this email already exists. Signing you in instead...")
+          setStep("authenticating")
+          try {
+            await authenticateUser()
+            return
+          } catch {
+            setError("Account exists but login failed. Try signing in from the email step.")
+            setStep("email")
+            setLoading(false)
+            return
+          }
+        }
         throw new Error(data.error || "Registration failed")
       }
 
       const result = await verifyRes.json()
 
       if (result.session?.properties?.hashed_token) {
-        const supabase = getSupabase()
         if (supabase) {
           const { error } = await supabase.auth.verifyOtp({
             token_hash: result.session.properties.hashed_token,
             type: "magiclink",
           })
           if (error) throw error
-          await new Promise(resolve => setTimeout(resolve, 100))
+
+          // Wait for Supabase session to be fully established before navigating
+          await new Promise<void>((resolve) => {
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+              if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                subscription.unsubscribe()
+                resolve()
+              }
+            })
+            setTimeout(() => {
+              subscription.unsubscribe()
+              resolve()
+            }, 2000)
+          })
         }
+      } else {
+        // Session generation failed on backend but account was created
+        setError("Account created. Please sign in with your passkey or email link.")
+        setStep("email")
+        setLoading(false)
+        return
       }
 
       navigate(from, { replace: true })
@@ -212,7 +291,39 @@ export function Login() {
       setStep("name")
       setLoading(false)
     }
-  }, [email, name, from, navigate])
+  }, [email, name, from, navigate, authenticateUser])
+
+  // Send magic link email for cross-device login
+  const handleMagicLink = useCallback(async () => {
+    if (!email) return
+
+    setLoading(true)
+    setError("")
+
+    try {
+      const supabase = getSupabase()
+      if (!supabase) {
+        throw new Error("Authentication service not configured")
+      }
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${window.location.origin}${from}`,
+        },
+      })
+
+      if (error) throw error
+
+      setStep("magic_link_sent")
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [email, from])
 
   // Handle Enter key on email field
   const handleEmailKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -250,6 +361,14 @@ export function Login() {
     checkPlatformAuth()
   }, [])
 
+  // If session already exists (e.g. login just completed and component remounted),
+  // redirect immediately instead of briefly flashing the login form.
+  useEffect(() => {
+    if (session && !devMode) {
+      navigate(from, { replace: true })
+    }
+  }, [session, devMode, from, navigate])
+
   // In dev mode, redirect to app immediately (no auth needed)
   useEffect(() => {
     if (devMode) {
@@ -260,6 +379,13 @@ export function Login() {
   const handleDevModeSkip = useCallback(() => {
     navigate(from, { replace: true })
   }, [from, navigate])
+
+  // Already authenticated — show nothing while the redirect effect fires
+  if (session && !devMode) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background" />
+    )
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -272,9 +398,10 @@ export function Login() {
           <h1 className="text-2xl font-semibold tracking-tight">Astro</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {step === "email" && "Enter your email to continue"}
-            {step === "name" && "Welcome! Let's create your account"}
+            {step === "name" && (isReturningUser ? "Welcome back! Register a new passkey" : "Welcome! Let's create your account")}
             {step === "authenticating" && "Authenticating..."}
             {step === "registering" && "Creating your account..."}
+            {step === "magic_link_sent" && "Check your email"}
           </p>
         </div>
 
@@ -355,6 +482,42 @@ export function Login() {
                 Passkey authentication requires Face ID, Touch ID, or Windows Hello
               </p>
             )}
+
+            {platformAuthAvailable === false && email && (
+              <>
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-background px-2 text-muted-foreground">or</span>
+                  </div>
+                </div>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  variant="outline"
+                  onClick={handleMagicLink}
+                  disabled={loading}
+                >
+                  <Mail className="mr-2 h-4 w-4" />
+                  Sign in with email link
+                </Button>
+              </>
+            )}
+
+            {platformAuthAvailable !== false && email && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={handleMagicLink}
+                disabled={loading}
+              >
+                <Mail className="mr-2 h-4 w-4" />
+                Sign in with email link instead
+              </Button>
+            )}
           </div>
         )}
 
@@ -383,7 +546,7 @@ export function Login() {
                 autoFocus
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Press Enter to create account with passkey
+                {isReturningUser ? "Press Enter to register a new passkey" : "Press Enter to create account with passkey"}
               </p>
             </div>
 
@@ -398,7 +561,7 @@ export function Login() {
               ) : (
                 <Fingerprint className="mr-2 h-4 w-4" />
               )}
-              Create Account
+              {isReturningUser ? "Register Passkey" : "Create Account"}
             </Button>
 
             {platformAuthAvailable === false && (
@@ -407,22 +570,63 @@ export function Login() {
               </p>
             )}
 
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex-1"
+                onClick={() => {
+                  setStep("email")
+                  setName("")
+                }}
+                disabled={loading}
+              >
+                Different email
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex-1"
+                onClick={handleMagicLink}
+                disabled={loading}
+              >
+                <Mail className="mr-1.5 h-3.5 w-3.5" />
+                Email link instead
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground text-center">
+              You'll use Face ID, Touch ID, or Windows Hello
+            </p>
+          </div>
+        )}
+
+        {/* Magic Link Sent */}
+        {step === "magic_link_sent" && (
+          <div className="space-y-4 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+              <Mail className="h-8 w-8 text-primary" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                We sent a sign-in link to
+              </p>
+              <p className="text-sm font-medium">{email}</p>
+              <p className="text-xs text-muted-foreground">
+                Click the link in the email to sign in. You can close this tab.
+              </p>
+            </div>
             <Button
               variant="ghost"
               size="sm"
               className="w-full"
               onClick={() => {
                 setStep("email")
-                setName("")
+                setError("")
               }}
-              disabled={loading}
             >
               Use a different email
             </Button>
-
-            <p className="text-xs text-muted-foreground text-center">
-              You'll use Face ID, Touch ID, or Windows Hello
-            </p>
           </div>
         )}
 

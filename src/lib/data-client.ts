@@ -4,11 +4,23 @@ import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
 import type { Activity } from "@/stores/activity-store"
 import { getAccessToken } from "./supabase-client"
-import { isLocalMode } from "./app-mode"
 import { snakeToCamel } from "./utils"
 import { apiUrl } from "./api-url"
 
 const BASE = "/api/data"
+
+/**
+ * Active team ID setter/getter.
+ * The team store calls setActiveTeamId() after loading teams.
+ * This avoids circular imports between data-client and team-store.
+ */
+let _activeTeamId: string | undefined
+export function setActiveTeamId(teamId: string | undefined) {
+  _activeTeamId = teamId
+}
+function getActiveTeamId(): string | undefined {
+  return _activeTeamId
+}
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const token = await getAccessToken()
@@ -18,15 +30,15 @@ async function getAuthHeaders(): Promise<HeadersInit> {
   if (token) {
     headers["Authorization"] = `Bearer ${token}`
   }
+  const teamId = getActiveTeamId()
+  if (teamId) {
+    headers["X-Team-Id"] = teamId
+  }
+  console.log('[data-client] getAuthHeaders:', { hasToken: !!token, tokenPrefix: token ? token.substring(0, 20) + '...' : 'none', teamId: teamId || 'none' })
   return headers
 }
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  // In IndexedDB-only mode, throw immediately to trigger fallback
-  if (isLocalMode()) {
-    throw new Error('Local mode: skipping API call')
-  }
-
   const headers = await getAuthHeaders()
   const res = await fetch(apiUrl(url), {
     ...init,
@@ -258,9 +270,16 @@ export const dataClient = {
 
   // ── Profile ─────────────────────────────────────────────────────────
   async getProfile(): Promise<UserProfile | null> {
-    const row = await json<Record<string, unknown> | null>(`${BASE}/profile`)
-    if (!row) return null
-    return mapProfile(row)
+    console.log('[data-client] getProfile() called')
+    try {
+      const row = await json<Record<string, unknown> | null>(`${BASE}/profile`)
+      console.log('[data-client] getProfile() raw response:', row ? { id: row.id, name: row.name, display_name: row.display_name } : null)
+      if (!row) return null
+      return mapProfile(row)
+    } catch (err) {
+      console.error('[data-client] getProfile() error:', (err as Error).message)
+      throw err
+    }
   },
 
   async updateProfile(profile: Partial<UserProfile> & { apiKeys?: ApiKey[] }): Promise<UserProfile> {
@@ -500,10 +519,11 @@ export const dataClient = {
     await del(`${BASE}/activities/${projectId}`)
   },
 
-  // ── Teams ───────────────────────────────────────────────────────────
+  // ── Teams (uses /api/teams, not /api/data) ─────────────────────────
   async listTeams(): Promise<{ teams: Team[]; teamMembers: Record<string, TeamMember[]> }> {
-    const data = await json<{ teams: Record<string, unknown>[]; teamMembers: Record<string, Record<string, unknown>[]> }>(`${BASE}/teams`)
-    const teams = data.teams.map(row => {
+    // GET /api/teams returns a flat array of teams with memberRole
+    const rows = await json<Record<string, unknown>[]>('/api/teams')
+    const teams = rows.map(row => {
       const r = snakeToCamel(row)
       return {
         ...r,
@@ -511,21 +531,12 @@ export const dataClient = {
         updatedAt: toDate(r.updatedAt),
       } as Team
     })
-    const teamMembers: Record<string, TeamMember[]> = {}
-    for (const [teamId, members] of Object.entries(data.teamMembers)) {
-      teamMembers[teamId] = members.map(m => {
-        const r = snakeToCamel(m)
-        return {
-          ...r,
-          joinedAt: toDate(r.joinedAt),
-        } as TeamMember
-      })
-    }
-    return { teams, teamMembers }
+    // Members are loaded separately via getTeamMembers()
+    return { teams, teamMembers: {} }
   },
 
-  async createTeam(team: Team): Promise<Team> {
-    const row = await post(`${BASE}/teams`, team) as Record<string, unknown>
+  async createTeam(team: Partial<Team>): Promise<Team> {
+    const row = await post('/api/teams', { name: team.name, description: team.description }) as Record<string, unknown>
     const r = snakeToCamel(row)
     return {
       ...r,
@@ -535,7 +546,7 @@ export const dataClient = {
   },
 
   async updateTeam(id: string, updates: Partial<Team>): Promise<Team> {
-    const row = await patch(`${BASE}/teams/${id}`, updates) as Record<string, unknown>
+    const row = await patch(`/api/teams/${id}`, updates) as Record<string, unknown>
     const r = snakeToCamel(row)
     return {
       ...r,
@@ -545,18 +556,50 @@ export const dataClient = {
   },
 
   async deleteTeam(id: string): Promise<void> {
-    await del(`${BASE}/teams/${id}`)
+    await del(`/api/teams/${id}`)
   },
 
-  async addTeamMember(teamId: string, userId: string, role: TeamMember['role']): Promise<void> {
-    await post(`${BASE}/teams/${teamId}/members`, { userId, role })
+  async getTeamMembers(teamId: string): Promise<Array<TeamMember & { userName?: string; userEmail?: string }>> {
+    const data = await json<{ members: Record<string, unknown>[] }>(`/api/teams/${teamId}/members`)
+    return data.members.map(m => {
+      const r = snakeToCamel(m)
+      const user = r.user as Record<string, unknown> | undefined
+      return {
+        ...r,
+        joinedAt: toDate(r.joinedAt),
+        userName: user?.name as string | undefined,
+        userEmail: user?.email as string | undefined,
+      } as TeamMember & { userName?: string; userEmail?: string }
+    })
+  },
+
+  async sendTeamInvite(teamId: string, email: string, role: TeamMember['role']): Promise<void> {
+    await post('/api/teams/invite', { teamId, email, role })
   },
 
   async removeTeamMember(teamId: string, userId: string): Promise<void> {
-    await del(`${BASE}/teams/${teamId}/members/${userId}`)
+    await del(`/api/teams/${teamId}/members/${userId}`)
   },
 
   async updateTeamMemberRole(teamId: string, userId: string, role: TeamMember['role']): Promise<void> {
-    await patch(`${BASE}/teams/${teamId}/members/${userId}`, { role })
+    await patch(`/api/teams/${teamId}/members/${userId}`, { role })
+  },
+
+  async getPendingInvites(teamId: string): Promise<Array<{ id: string; email: string; role: string; createdAt: Date; expiresAt: Date; inviterName: string }>> {
+    const data = await json<{ invites: Record<string, unknown>[] }>(`/api/teams/${teamId}/invites`)
+    return data.invites.map(r => {
+      const mapped = snakeToCamel(r)
+      const inviter = mapped.inviter as Record<string, unknown> | undefined
+      return {
+        ...mapped,
+        createdAt: toDate(mapped.createdAt),
+        expiresAt: toDate(mapped.expiresAt),
+        inviterName: inviter?.name as string ?? 'Unknown',
+      } as { id: string; email: string; role: string; createdAt: Date; expiresAt: Date; inviterName: string }
+    })
+  },
+
+  async revokeInvite(inviteId: string): Promise<void> {
+    await del(`/api/teams/invites/${inviteId}`)
   },
 }

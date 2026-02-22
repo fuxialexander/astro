@@ -5,7 +5,6 @@
  * read-only store access, and event subscription.
  */
 
-import { loadState, saveState } from "@/lib/db"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useSessionStore } from "@/stores/session-store"
@@ -37,15 +36,18 @@ class PluginEventBus {
 /** Singleton event bus shared across all plugins */
 export const pluginEventBus = new PluginEventBus()
 
-/** Create namespaced IndexedDB storage for a plugin */
+/** In-memory storage for plugins (keyed by pluginId:key) */
+const pluginStorageMap = new Map<string, unknown>()
+
+/** Create namespaced in-memory storage for a plugin */
 function createPluginStorage(pluginId: string): PluginStorage {
   const prefix = `plugin-${pluginId}-`
   return {
     async get<T>(key: string): Promise<T | undefined> {
-      return loadState<T>(`${prefix}${key}`)
+      return pluginStorageMap.get(`${prefix}${key}`) as T | undefined
     },
     async set<T>(key: string, value: T): Promise<void> {
-      await saveState(`${prefix}${key}`, value)
+      pluginStorageMap.set(`${prefix}${key}`, value)
     },
   }
 }

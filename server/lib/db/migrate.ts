@@ -1,8 +1,26 @@
-// Migrations are now handled by Supabase (supabase/migrations/)
-// Run `npx supabase db reset` or `npx supabase migration up` to apply migrations
+import { isLocalMode } from '../app-mode.js'
+import { initDb } from './index.js'
 
-export function runMigrations() {
-  // No-op: Drizzle auto-migrations disabled since we're using Supabase Postgres
-  // All schema changes should be made via Supabase migrations in supabase/migrations/
-  console.log('[db] Using Supabase migrations (managed via npx supabase db)')
+/**
+ * Run database migrations.
+ *
+ * - Local mode: runs Drizzle migrations against PGlite (creates tables on first run, idempotent on restart)
+ * - Server mode: no-op — Supabase manages migrations via supabase/migrations/
+ */
+export async function runMigrations() {
+  // Initialize the database connection first
+  await initDb()
+
+  if (!isLocalMode()) {
+    // Server mode: Supabase manages migrations
+    console.log('[db] Using Supabase migrations (managed via npx supabase db)')
+    return
+  }
+
+  // Local mode: run Drizzle migrations against PGlite
+  console.log('[db] Running Drizzle migrations against PGlite...')
+  const { migrate } = await import('drizzle-orm/pglite/migrator')
+  const { db } = await import('./index.js')
+  await migrate(db as Parameters<typeof migrate>[0], { migrationsFolder: './drizzle' })
+  console.log('[db] PGlite migrations complete')
 }

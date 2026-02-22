@@ -2,8 +2,8 @@
  * Application Mode Detection (Frontend)
  *
  * Wraps the underlying Supabase detection with clearer semantics.
- * - Local Mode: IndexedDB only, no auth, single-user
- * - Server Mode: Supabase-backed, auth required, multi-user
+ * - Local Mode: PGlite database, no auth, single-user
+ * - Server Mode: Postgres database, auth required, multi-user
  */
 
 import { shouldUseSupabase } from './supabase-client'
@@ -15,8 +15,8 @@ export function getAppMode(): AppMode {
 }
 
 /**
- * Returns true when running in local-only mode (IndexedDB, no server).
- * dataClient will throw immediately, stores fall back to IndexedDB.
+ * Returns true when running in local-only mode (PGlite database, no auth).
+ * API calls go through localhost:3001 → Hono → Drizzle → PGlite.
  */
 export function isLocalMode(): boolean {
   return !shouldUseSupabase()

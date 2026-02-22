@@ -14,6 +14,14 @@ import type { TaskResult } from '../types.js';
 
 const execAsync = promisify(exec);
 
+/** SLURM job IDs are numeric (optionally with array syntax like 12345_1). Validates and returns. */
+function sanitizedSlurmJobId(id: string): string {
+  if (!/^\d+(_\d+)?$/.test(id)) {
+    throw new Error(`Invalid SLURM job ID (possible command injection): ${id}`);
+  }
+  return id;
+}
+
 /** Tracked Slurm job */
 interface TrackedJob {
   slurmJobId: string;
@@ -144,7 +152,7 @@ export class SlurmJobMonitor {
 
     try {
       const { stdout } = await execAsync(
-        `sacct -j ${slurmJobId} --format=State,ExitCode,Elapsed -n -P`,
+        `sacct -j ${sanitizedSlurmJobId(slurmJobId)} --format=State,ExitCode,Elapsed -n -P`,
         { timeout: 10_000 },
       );
 

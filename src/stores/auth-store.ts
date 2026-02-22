@@ -2,7 +2,6 @@ import { create } from "zustand"
 import type { Session, User } from "@supabase/supabase-js"
 import { getSupabase } from "@/lib/supabase-client"
 import { isLocalMode } from "@/lib/app-mode"
-import { setCurrentUser, getBrowserUserId } from "@/lib/db"
 import { setupRealtimeSync, teardownRealtimeSync } from "@/lib/realtime-sync"
 
 interface AuthState {
@@ -37,10 +36,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       authSubscription = null
     }
 
-    // If Supabase is not in use (not configured or IndexedDB-only mode), skip auth
+    // If Supabase is not in use (not configured or local mode), skip auth
     if (isLocalMode()) {
-      const browserUserId = await getBrowserUserId()
-      setCurrentUser(browserUserId)
       set({
         session: null,
         user: null,
@@ -61,9 +58,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Get initial session
     const { data: { session } } = await supabase.auth.getSession()
 
-    // Track current user for IndexedDB operations (warns on user switch)
-    setCurrentUser(session?.user?.id ?? null)
-
     set({
       session,
       user: session?.user ?? null,
@@ -78,9 +72,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // Listen for auth changes (single listener, cleaned up on re-initialize)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      // Track current user for IndexedDB operations (warns on user switch)
-      setCurrentUser(session?.user?.id ?? null)
-
       set({
         session,
         user: session?.user ?? null,
@@ -102,9 +93,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (supabase) {
       await supabase.auth.signOut()
     }
-
-    // Clear user tracking
-    setCurrentUser(null)
 
     // Teardown realtime sync
     await teardownRealtimeSync()

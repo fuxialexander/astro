@@ -1,6 +1,5 @@
 import { create } from "zustand"
 import type { CommandItem, CommandHistory } from "@/types"
-import { get as idbGet, set as idbSet } from "idb-keyval"
 
 interface UIState {
   sidebarCollapsed: boolean
@@ -17,8 +16,6 @@ interface UIState {
   toggleCommandSelection: (id: string) => void
   clearCommandSelection: () => void
 }
-
-const COMMAND_HISTORY_KEY = "astro:command-history"
 
 export const useUIStore = create<UIState>((set, get) => ({
   sidebarCollapsed: false,
@@ -57,23 +54,10 @@ export const useUIStore = create<UIState>((set, get) => ({
       .slice(0, 100)
 
     set({ commandHistory: newHistory })
-    await idbSet(COMMAND_HISTORY_KEY, newHistory)
   },
 
   loadCommandHistory: async () => {
-    try {
-      const history = await idbGet<CommandHistory[]>(COMMAND_HISTORY_KEY)
-      if (history) {
-        // Rehydrate dates
-        const rehydrated = history.map((h) => ({
-          ...h,
-          executedAt: new Date(h.executedAt),
-        }))
-        set({ commandHistory: rehydrated })
-      }
-    } catch (error) {
-      console.error("Failed to load command history:", error)
-    }
+    // Command history is now in-memory only (non-critical ephemeral data)
   },
 
   setCommandBreadcrumbs: (breadcrumbs) => set({ commandBreadcrumbs: breadcrumbs }),

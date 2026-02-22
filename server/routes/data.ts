@@ -16,11 +16,23 @@ import {
   teams,
   teamMembers,
 } from '../lib/db/schema.js'
-import { eq, and, or, sql, desc } from 'drizzle-orm'
-import { requireAuth } from '../middleware/auth.js'
+import { eq, and, or, sql, desc, isNull } from 'drizzle-orm'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 import { isServerMode } from '../lib/app-mode.js'
 import { getServiceClient } from '../lib/supabase.js'
+
+/**
+ * Build a team-scoped filter with legacy fallback.
+ * Matches rows where teamId equals the user's active team,
+ * OR where teamId is null and ownerId matches (for legacy data).
+ */
+function teamScopeFilter(table: { teamId: typeof projects.teamId; ownerId: typeof projects.ownerId }, user: AuthUser) {
+  return or(
+    eq(table.teamId, user.teamId),
+    and(isNull(table.teamId), eq(table.ownerId, user.id))
+  )!
+}
 
 const app = new Hono()
 
@@ -30,11 +42,13 @@ app.use('/*', requireAuth)
 // ── Projects ──────────────────────────────────────────────────────────
 
 app.get('/projects', async (c) => {
-  const rows = await db.select().from(projects).where(eq(projects.ownerId, c.get('user')!.id))
+  const user = c.get('user')! as AuthUser
+  const rows = await db.select().from(projects).where(teamScopeFilter(projects, user))
   return c.json(rows)
 })
 
 app.post('/projects', async (c) => {
+  const user = c.get('user')! as AuthUser
   const body = await c.req.json()
   const now = new Date()
 
@@ -43,7 +57,7 @@ app.post('/projects', async (c) => {
 
   const row = {
     id: projectId,
-    ownerId: c.get('user')!.id,
+    ownerId: user.id,
     name: body.name,
     description: body.description ?? '',
     visionDoc: body.visionDoc ?? '',
@@ -53,12 +67,15 @@ app.post('/projects', async (c) => {
     lead: body.lead ?? null,
     health: body.health ?? null,
     initiativeId: body.initiativeId ?? null,
-    teamId: body.teamId ?? null,
+    teamId: user.teamId || body.teamId || null,
     progress: body.progress ?? 0,
     labels: body.labels ?? [],
     color: body.color ?? '#3b82f6',
     icon: body.icon ?? '📋',
+    number: body.number ?? null,
     workingDirectory: body.workingDirectory ?? null,
+    sourceDirectory: body.sourceDirectory ?? null,
+    repository: body.repository ?? null,
     mergeQueueEnabled: body.mergeQueueEnabled ?? false,
     mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
@@ -73,7 +90,7 @@ app.post('/projects', async (c) => {
   // Audit log project creation (only on new projects, not updates)
   if (body.id === undefined || !body.createdAt) {
     await logAuditEvent({
-      userId: c.get('user')!.id,
+      userId: user.id,
       action: AuditActions.PROJECT_CREATE,
       resourceType: ResourceTypes.PROJECT,
       resourceId: projectId,
@@ -90,22 +107,22 @@ app.post('/projects', async (c) => {
 })
 
 app.get('/projects/:id', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const projectId = c.req.param('id')
   const [row] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
   )
   if (!row) return c.json({ error: 'Not found' }, 404)
   return c.json(row)
 })
 
 app.patch('/projects/:id', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
-  // Verify ownership first
+  // Verify team access first
   const [existing] = await db.select().from(projects).where(
-    and(eq(projects.id, id), eq(projects.ownerId, userId))
+    and(eq(projects.id, id), teamScopeFilter(projects, user))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
@@ -125,7 +142,9 @@ app.patch('/projects/:id', async (c) => {
   if (body.labels !== undefined) patch.labels = body.labels
   if (body.color !== undefined) patch.color = body.color
   if (body.icon !== undefined) patch.icon = body.icon
+  if (body.number !== undefined) patch.number = body.number
   if (body.workingDirectory !== undefined) patch.workingDirectory = body.workingDirectory || null
+  if (body.sourceDirectory !== undefined) patch.sourceDirectory = body.sourceDirectory || null
   if (body.repository !== undefined) patch.repository = body.repository || null
   if (body.defaultEnvironment !== undefined) patch.defaultEnvironment = body.defaultEnvironment || null
   if (body.defaultMachineId !== undefined) patch.defaultMachineId = body.defaultMachineId || null
@@ -133,25 +152,25 @@ app.patch('/projects/:id', async (c) => {
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
 
   await db.update(projects).set(patch).where(
-    and(eq(projects.id, id), eq(projects.ownerId, userId))
+    and(eq(projects.id, id), teamScopeFilter(projects, user))
   )
   const [updated] = await db.select().from(projects).where(eq(projects.id, id))
   return c.json(updated)
 })
 
 app.delete('/projects/:id', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const projectId = c.req.param('id')
 
-  // Verify ownership before deletion
+  // Verify team access before deletion
   const [existing] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
   // Audit log project deletion
   await logAuditEvent({
-    userId,
+    userId: user.id,
     action: AuditActions.PROJECT_DELETE,
     resourceType: ResourceTypes.PROJECT,
     resourceId: projectId,
@@ -164,7 +183,7 @@ app.delete('/projects/:id', async (c) => {
   })
 
   await db.delete(projects).where(
-    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
   )
   return c.json({ ok: true })
 })
@@ -172,11 +191,18 @@ app.delete('/projects/:id', async (c) => {
 // ── Initiatives ───────────────────────────────────────────────────────
 
 app.get('/initiatives', async (c) => {
-  const rows = await db.select().from(initiatives).where(eq(initiatives.ownerId, c.get('user')!.id))
+  const user = c.get('user')! as AuthUser
+  const rows = await db.select().from(initiatives).where(
+    or(
+      eq(initiatives.teamId, user.teamId),
+      and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
+    )
+  )
   return c.json(rows)
 })
 
 app.post('/initiatives', async (c) => {
+  const user = c.get('user')! as AuthUser
   const body = await c.req.json()
   const now = new Date()
 
@@ -184,7 +210,8 @@ app.post('/initiatives', async (c) => {
 
   const row = {
     id: initiativeId,
-    ownerId: c.get('user')!.id,
+    ownerId: user.id,
+    teamId: user.teamId || null,
     name: body.name,
     description: body.description ?? '',
     goal: body.goal ?? null,
@@ -206,21 +233,27 @@ app.post('/initiatives', async (c) => {
 })
 
 app.get('/initiatives/:id', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const initiativeId = c.req.param('id')
   const [row] = await db.select().from(initiatives).where(
-    and(eq(initiatives.id, initiativeId), eq(initiatives.ownerId, userId))
+    and(eq(initiatives.id, initiativeId), or(
+      eq(initiatives.teamId, user.teamId),
+      and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
+    ))
   )
   if (!row) return c.json({ error: 'Not found' }, 404)
   return c.json(row)
 })
 
 app.patch('/initiatives/:id', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
   const [existing] = await db.select().from(initiatives).where(
-    and(eq(initiatives.id, id), eq(initiatives.ownerId, userId))
+    and(eq(initiatives.id, id), or(
+      eq(initiatives.teamId, user.teamId),
+      and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
+    ))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
@@ -236,19 +269,20 @@ app.patch('/initiatives/:id', async (c) => {
   if (body.color !== undefined) patch.color = body.color
   if (body.icon !== undefined) patch.icon = body.icon
 
-  await db.update(initiatives).set(patch).where(
-    and(eq(initiatives.id, id), eq(initiatives.ownerId, userId))
-  )
+  await db.update(initiatives).set(patch).where(eq(initiatives.id, id))
   const [updated] = await db.select().from(initiatives).where(eq(initiatives.id, id))
   return c.json(updated)
 })
 
 app.delete('/initiatives/:id', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const initiativeId = c.req.param('id')
 
   const [existing] = await db.select().from(initiatives).where(
-    and(eq(initiatives.id, initiativeId), eq(initiatives.ownerId, userId))
+    and(eq(initiatives.id, initiativeId), or(
+      eq(initiatives.teamId, user.teamId),
+      and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
+    ))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
@@ -257,19 +291,17 @@ app.delete('/initiatives/:id', async (c) => {
     .set({ initiativeId: null })
     .where(eq(projects.initiativeId, initiativeId))
 
-  await db.delete(initiatives).where(
-    and(eq(initiatives.id, initiativeId), eq(initiatives.ownerId, userId))
-  )
+  await db.delete(initiatives).where(eq(initiatives.id, initiativeId))
   return c.json({ ok: true })
 })
 
 // ── Plan (nodes + edges) ──────────────────────────────────────────────
 
 app.get('/plan', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
 
-  // Get user's projects
-  const userProjects = await db.select().from(projects).where(eq(projects.ownerId, userId))
+  // Get team's projects
+  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
   const projectIds = new Set(userProjects.map(p => p.id))
 
   // Get all nodes for user's projects
@@ -321,12 +353,12 @@ app.get('/plan', async (c) => {
 })
 
 app.get('/plan/:projectId', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const projectId = c.req.param('projectId')
 
-  // Verify project ownership
+  // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -376,14 +408,14 @@ app.get('/plan/:projectId', async (c) => {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 app.put('/plan/:projectId', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const projectId = c.req.param('projectId')
 
   if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
-  // Verify project ownership
+  // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -403,6 +435,7 @@ app.put('/plan/:projectId', async (c) => {
       const row = {
         clientId: n.id as string, // Use client ID for compatibility
         projectId,
+        number: (n.number as number) ?? null,
         type: n.type as string,
         title: n.title as string,
         description: (n.description as string) ?? '',
@@ -450,14 +483,14 @@ app.put('/plan/:projectId', async (c) => {
 })
 
 app.post('/plan/nodes', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const body = await c.req.json()
 
   if (!body.projectId || !UUID_RE.test(body.projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
-  // Verify project ownership
+  // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -466,6 +499,7 @@ app.post('/plan/nodes', async (c) => {
   await db.insert(planNodes).values({
     clientId: body.id,
     projectId: body.projectId,
+    number: body.number ?? null,
     type: body.type,
     title: body.title,
     description: body.description ?? '',
@@ -499,22 +533,23 @@ app.post('/plan/nodes', async (c) => {
 })
 
 app.patch('/plan/nodes/:id', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
-  // Get the node to verify project ownership
+  // Get the node to verify project access
   const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, id))
   if (!node) return c.json({ error: 'Node not found' }, 404)
 
-  // Verify project ownership
+  // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, node.projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, node.projectId), teamScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
   const body = await c.req.json()
   const patch: Record<string, unknown> = { updatedAt: new Date() }
 
+  if (body.number !== undefined) patch.number = body.number
   if (body.title !== undefined) patch.title = body.title
   if (body.description !== undefined) patch.description = body.description
   if (body.status !== undefined) patch.status = body.status
@@ -566,16 +601,16 @@ app.patch('/plan/nodes/:id', async (c) => {
 })
 
 app.delete('/plan/nodes/:id', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
-  // Get the node to verify project ownership
+  // Get the node to verify project access
   const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, id))
   if (!node) return c.json({ error: 'Node not found' }, 404)
 
-  // Verify project ownership
+  // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, node.projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, node.projectId), teamScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -588,12 +623,12 @@ app.delete('/plan/nodes/:id', async (c) => {
 })
 
 app.post('/plan/edges', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const body = await c.req.json()
 
-  // Verify project ownership
+  // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -608,16 +643,16 @@ app.post('/plan/edges', async (c) => {
 })
 
 app.delete('/plan/edges/:id', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
-  // Get the edge to verify project ownership
+  // Get the edge to verify project access
   const [edge] = await db.select().from(planEdges).where(eq(planEdges.clientId, id))
   if (!edge) return c.json({ error: 'Edge not found' }, 404)
 
-  // Verify project ownership
+  // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, edge.projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, edge.projectId), teamScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -628,7 +663,10 @@ app.delete('/plan/edges/:id', async (c) => {
 // ── User Profile ──────────────────────────────────────────────────────
 
 app.get('/profile', async (c) => {
-  const [row] = await db.select().from(userProfiles).where(eq(userProfiles.id, c.get('user')!.id))
+  const userId = c.get('user')!.id
+  console.log('[data] GET /profile for user:', userId)
+  const [row] = await db.select().from(userProfiles).where(eq(userProfiles.id, userId))
+  console.log('[data] GET /profile result:', row ? { id: row.id, name: row.name, email: row.email } : 'null')
   if (!row) return c.json(null)
   return c.json(row)
 })
@@ -1031,10 +1069,10 @@ app.post('/sessions/:sessionId/messages', async (c) => {
 // ── Task Executions ───────────────────────────────────────────────────
 
 app.get('/executions', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
 
-  // Get user's projects
-  const userProjects = await db.select().from(projects).where(eq(projects.ownerId, userId))
+  // Get team's projects
+  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
   const projectIds = new Set(userProjects.map(p => p.id))
 
   if (projectIds.size === 0) {
@@ -1070,12 +1108,12 @@ app.get('/executions', async (c) => {
 })
 
 app.post('/executions', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
   const body = await c.req.json()
 
-  // Verify the project belongs to the user
+  // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), eq(projects.ownerId, userId))
+    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
   )
   if (!project) {
     return c.json({ error: 'Project not found or not authorized' }, 404)
@@ -1125,17 +1163,17 @@ app.post('/executions', async (c) => {
 // ── Data Export (GDPR compliance) ────────────────────────────────────
 
 app.get('/export', async (c) => {
-  const userId = c.get('user')!.id
+  const user = c.get('user')! as AuthUser
 
-  console.log('[data] Exporting user data for:', userId)
+  console.log('[data] Exporting user data for:', user.id)
 
   try {
     // Export all user data
-    const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.id, userId))
-    const userProjects = await db.select().from(projects).where(eq(projects.ownerId, userId))
-    const settings = await db.select().from(displaySettings).where(eq(displaySettings.userId, userId))
-    const usage = await db.select().from(usageMetrics).where(eq(usageMetrics.userId, userId))
-    const chatSessions = await db.select().from(taskChatSessions).where(eq(taskChatSessions.userId, userId))
+    const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.id, user.id))
+    const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+    const settings = await db.select().from(displaySettings).where(eq(displaySettings.userId, user.id))
+    const usage = await db.select().from(usageMetrics).where(eq(usageMetrics.userId, user.id))
+    const chatSessions = await db.select().from(taskChatSessions).where(eq(taskChatSessions.userId, user.id))
 
     // Get all plan nodes for user's projects
     const projectIds = userProjects.map((p) => p.id)
@@ -1165,7 +1203,7 @@ app.get('/export', async (c) => {
 
     const exportData = {
       exportedAt: new Date().toISOString(),
-      userId,
+      userId: user.id,
       profile,
       projects: userProjects,
       planNodes: nodes,
@@ -1188,7 +1226,7 @@ app.get('/export', async (c) => {
 
     // Audit log the data export
     await logAuditEvent({
-      userId,
+      userId: user.id,
       action: AuditActions.DATA_EXPORT,
       resourceType: ResourceTypes.DATA,
       details: {

@@ -1,11 +1,6 @@
 import { create } from "zustand"
-import { loadState, saveState } from "@/lib/db"
 import type { OpenClawSkill } from "@/types/skill"
-
-const IDB_KEY = "astro-skills"
-
-/** Serializable skill data for IndexedDB (same as OpenClawSkill) */
-type SkillPersistData = OpenClawSkill
+import { apiUrl } from "@/lib/api-url"
 
 interface SkillStore {
   skills: Map<string, OpenClawSkill>
@@ -24,36 +19,34 @@ interface SkillStore {
   getSkillPromptInjection: () => string
 }
 
-function serializeSkills(skills: Map<string, OpenClawSkill>): SkillPersistData[] {
-  return Array.from(skills.values())
-}
-
-function deserializeSkills(data: SkillPersistData[]): Map<string, OpenClawSkill> {
-  const map = new Map<string, OpenClawSkill>()
-  for (const skill of data) {
-    map.set(skill.name, skill)
-  }
-  return map
-}
-
-function persist(skills: Map<string, OpenClawSkill>) {
-  saveState(IDB_KEY, serializeSkills(skills))
-}
-
 export const useSkillStore = create<SkillStore>((set, get) => ({
   skills: new Map(),
   loaded: false,
 
   load: async () => {
     try {
-      const stored = await loadState<SkillPersistData[]>(IDB_KEY)
-      if (stored && Array.isArray(stored)) {
-        set({ skills: deserializeSkills(stored), loaded: true })
+      const res = await fetch(apiUrl('/api/skills'))
+      if (res.ok) {
+        const data = await res.json()
+        const skills = new Map<string, OpenClawSkill>()
+        for (const s of data.skills ?? []) {
+          skills.set(s.name, {
+            name: s.name,
+            description: s.description ?? '',
+            instructions: s.instructions ?? '',
+            source: s.source ?? 'builtin',
+            enabled: s.enabled ?? true,
+            userInvocable: s.userInvocable ?? true,
+            pluginId: s.pluginId,
+            config: s.config,
+          })
+        }
+        set({ skills, loaded: true })
       } else {
         set({ loaded: true })
       }
-    } catch (error) {
-      console.error("[SkillStore] Failed to load:", error)
+    } catch {
+      // Server may not be ready yet — mark loaded so app doesn't block
       set({ loaded: true })
     }
   },
@@ -62,14 +55,12 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     const skills = new Map(get().skills)
     skills.set(skill.name, skill)
     set({ skills })
-    persist(skills)
   },
 
   removeSkill: (name) => {
     const skills = new Map(get().skills)
     skills.delete(name)
     set({ skills })
-    persist(skills)
   },
 
   enableSkill: (name) => {
@@ -78,7 +69,6 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     if (skill) {
       skills.set(name, { ...skill, enabled: true })
       set({ skills })
-      persist(skills)
     }
   },
 
@@ -88,7 +78,6 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     if (skill) {
       skills.set(name, { ...skill, enabled: false })
       set({ skills })
-      persist(skills)
     }
   },
 
@@ -98,7 +87,6 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     if (skill) {
       skills.set(name, { ...skill, config })
       set({ skills })
-      persist(skills)
     }
   },
 

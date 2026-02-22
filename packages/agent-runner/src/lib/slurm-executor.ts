@@ -13,6 +13,14 @@ import type { SlurmInfo, SlurmJobStatus, SlurmJobConfig } from '../types.js';
 
 const execAsync = promisify(exec);
 
+/** SLURM job IDs are numeric (optionally with array syntax like 12345_1). Validates and returns. */
+function sanitizedSlurmJobId(id: string): string {
+  if (!/^\d+(_\d+)?$/.test(id)) {
+    throw new Error(`Invalid SLURM job ID (possible command injection): ${id}`);
+  }
+  return id;
+}
+
 export interface SlurmTaskInput {
   taskId: string;
   projectId: string;
@@ -126,7 +134,7 @@ export class SlurmExecutor {
 
     // Cancel Slurm job
     try {
-      await execAsync(`scancel ${tracker.slurmJobId}`, { timeout: 10000 });
+      await execAsync(`scancel ${sanitizedSlurmJobId(tracker.slurmJobId)}`, { timeout: 10000 });
     } catch {
       // Failed to cancel — job may have already finished
     }
@@ -408,10 +416,11 @@ export class SlurmExecutor {
    * Get job status from squeue/sacct
    */
   private async getJobStatus(jobId: string): Promise<SlurmJobStatus | null> {
+    const safeJobId = sanitizedSlurmJobId(jobId);
     // Try squeue first (for running jobs)
     try {
       const { stdout } = await execAsync(
-        `squeue -j ${jobId} -h -o "%T|%r|%N|%e" 2>/dev/null`,
+        `squeue -j ${safeJobId} -h -o "%T|%r|%N|%e" 2>/dev/null`,
         { timeout: 10000 }
       );
       const trimmed = stdout.trim();
@@ -431,7 +440,7 @@ export class SlurmExecutor {
     // Try sacct (for completed jobs)
     try {
       const { stdout } = await execAsync(
-        `sacct -j ${jobId} --parsable2 --noheader -o State,ExitCode,NodeList 2>/dev/null`,
+        `sacct -j ${safeJobId} --parsable2 --noheader -o State,ExitCode,NodeList 2>/dev/null`,
         { timeout: 10000 }
       );
       const lines = stdout.trim().split('\n');

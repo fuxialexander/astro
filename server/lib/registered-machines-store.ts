@@ -2,17 +2,15 @@
  * Registered Machines Store
  *
  * Stores information about machines registered through the device auth flow.
- * Uses Supabase as primary storage when configured, falls back to local Postgres (Drizzle).
+ * Uses Drizzle ORM for all queries — works against both PGlite (local) and Postgres (server).
  */
 
 import type { RegisteredMachine } from '../types/device-auth.js'
 import type { ProviderType, EnvironmentType } from '../types/relay.js'
 import crypto from 'crypto'
-import { getServiceClient } from './supabase.js'
-import { isServerMode } from './app-mode.js'
 import { db } from './db/index.js'
-import { registeredMachines, machineUsageLogs } from './db/schema.js'
-import { eq, and, desc } from 'drizzle-orm'
+import { registeredMachines, machineUsageLogs, teamMembers, teams } from './db/schema.js'
+import { eq, and, desc, or, sql } from 'drizzle-orm'
 
 /**
  * Generate a unique machine ID
@@ -45,28 +43,6 @@ function mapRowToMachine(row: typeof registeredMachines.$inferSelect): Registere
   }
 }
 
-// Helper: map a Supabase row to RegisteredMachine
-function mapSupabaseToMachine(row: Record<string, unknown>): RegisteredMachine {
-  return {
-    id: row.id as string,
-    name: row.name as string,
-    hostname: row.hostname as string,
-    platform: row.platform as string,
-    environmentType: row.environment_type as EnvironmentType,
-    providers: row.providers as ProviderType[],
-    providerConfigs: (row.provider_configs ?? []) as import('../types/device-auth.js').ProviderConfig[],
-    userId: row.user_id as string,
-    teamId: row.team_id as string | undefined,
-    workspaceId: row.workspace_id as string | undefined,
-    registeredAt: new Date(row.registered_at as string),
-    lastSeenAt: new Date(row.last_seen_at as string),
-    isConnected: row.is_connected as boolean,
-    refreshTokenHash: row.refresh_token_hash as string,
-    isRevoked: row.is_revoked as boolean,
-    metadata: row.metadata as Record<string, string> | undefined,
-  }
-}
-
 /**
  * Register a new machine
  *
@@ -89,11 +65,14 @@ export async function registerMachine(params: {
 
   // Check for existing machine: first by client-provided ID, then by hostname+platform+user
   let existingMachine: RegisteredMachine | undefined
+  let ownershipTransfer = false
   if (params.id) {
-    existingMachine = await getMachine(params.id)
-    // Verify ownership — don't let a user claim another user's machine
+    existingMachine = (await getMachine(params.id)) ?? undefined
+    // If machine exists under a different user, transfer ownership.
+    // The hardware-based ID proves physical access to the machine.
     if (existingMachine && existingMachine.userId !== params.userId) {
-      existingMachine = undefined
+      console.log(`[machines-store] Transferring machine ${params.id} ownership from ${existingMachine.userId} to ${params.userId}`)
+      ownershipTransfer = true
     }
   }
   if (!existingMachine) {
@@ -106,55 +85,44 @@ export async function registerMachine(params: {
   }
 
   if (existingMachine) {
-    console.log(`[machines-store] 🔄 Machine already registered: ${existingMachine.id}, updating...`)
+    console.log(`[machines-store] Machine already registered: ${existingMachine.id}, updating...${ownershipTransfer ? ' (ownership transfer)' : ''}`)
 
-    // Update the existing machine instead of creating a new one
     // Preserve user-set custom name: if the existing name differs from its
     // hostname (and from the incoming default name), the user renamed it.
-    const preserveName = existingMachine.name
+    // On ownership transfer, always use the new name.
+    const preserveName = !ownershipTransfer
+      && existingMachine.name
       && existingMachine.name !== existingMachine.hostname
       && existingMachine.name !== existingMachine.id
       && existingMachine.name !== params.name
     const updated: RegisteredMachine = {
       ...existingMachine,
+      userId: ownershipTransfer ? params.userId : existingMachine.userId,
       name: preserveName ? existingMachine.name : params.name,
       environmentType: params.environmentType,
       providers: params.providers,
       lastSeenAt: now,
       refreshTokenHash: params.refreshTokenHash,
       metadata: params.metadata,
+      isRevoked: false, // Un-revoke on re-registration
     }
 
-    if (isServerMode()) {
-      const supabase = getServiceClient()
-      const { error } = await supabase
-        .from('registered_machines')
-        .update({
-          name: updated.name,
-          environment_type: updated.environmentType,
-          providers: updated.providers,
-          last_seen_at: now.toISOString(),
-          refresh_token_hash: updated.refreshTokenHash,
-          metadata: updated.metadata,
-        })
-        .eq('id', existingMachine.id)
-
-      if (error) {
-        console.error(`[machines-store] ❌ Failed to update machine ${existingMachine.id}:`, error)
-        throw new Error(`Failed to update machine: ${error.message}`)
-      }
-    } else {
-      await db.update(registeredMachines)
-        .set({
-          name: updated.name,
-          environmentType: updated.environmentType,
-          providers: updated.providers as string[],
-          lastSeenAt: now,
-          refreshTokenHash: updated.refreshTokenHash,
-          metadata: updated.metadata,
-        })
-        .where(eq(registeredMachines.id, existingMachine.id))
+    const updateFields: Partial<typeof registeredMachines.$inferInsert> = {
+      name: updated.name,
+      environmentType: updated.environmentType,
+      providers: updated.providers as string[],
+      lastSeenAt: now,
+      refreshTokenHash: updated.refreshTokenHash,
+      metadata: updated.metadata,
+      isRevoked: false,
     }
+    if (ownershipTransfer) {
+      updateFields.userId = params.userId
+    }
+
+    await db.update(registeredMachines)
+      .set(updateFields)
+      .where(eq(registeredMachines.id, existingMachine.id))
 
     return updated
   }
@@ -180,50 +148,14 @@ export async function registerMachine(params: {
     metadata: params.metadata,
   }
 
-  if (isServerMode()) {
-    const supabase = getServiceClient()
+  console.log(`[machines-store] Inserting machine:`)
+  console.log(`[machines-store]   - ID: ${machine.id}`)
+  console.log(`[machines-store]   - Name: ${machine.name}`)
+  console.log(`[machines-store]   - Hostname: ${machine.hostname}`)
+  console.log(`[machines-store]   - User ID: ${machine.userId}`)
+  console.log(`[machines-store]   - Environment: ${machine.environmentType}`)
 
-    console.log(`[machines-store] 📝 Inserting machine to Supabase:`)
-    console.log(`[machines-store]   - ID: ${machine.id}`)
-    console.log(`[machines-store]   - Name: ${machine.name}`)
-    console.log(`[machines-store]   - Hostname: ${machine.hostname}`)
-    console.log(`[machines-store]   - User ID: ${machine.userId}`)
-    console.log(`[machines-store]   - Environment: ${machine.environmentType}`)
-
-    const { error } = await supabase.from('registered_machines').insert({
-      id: machine.id,
-      user_id: machine.userId,
-      name: machine.name,
-      hostname: machine.hostname,
-      platform: machine.platform,
-      environment_type: machine.environmentType,
-      providers: machine.providers,
-      workspace_id: machine.workspaceId,
-      refresh_token_hash: machine.refreshTokenHash,
-      metadata: machine.metadata,
-    })
-
-    if (error) {
-      console.error(`[machines-store] ❌ Failed to register machine ${machine.id} to Supabase:`, error)
-      console.error(`[machines-store]   Error code: ${error.code}`)
-      console.error(`[machines-store]   Error message: ${error.message}`)
-      console.error(`[machines-store]   Error details:`, error.details)
-      console.error(`[machines-store]   Error hint:`, error.hint)
-
-      // Special handling for foreign key violations (user not found)
-      if (error.code === '23503' && error.message.includes('user_id')) {
-        throw new Error(
-          `User not found in database (userId: ${machine.userId}). ` +
-          `The authentication token may be stale. Please delete your agent config ` +
-          `(~/Library/Preferences/astro-agent-nodejs/config.json) and run device authorization again.`
-        )
-      }
-
-      throw new Error(`Failed to register machine to database: ${error.message}`)
-    }
-
-    console.log(`[machines-store] ✅ Registered machine ${machine.id} to Supabase for user ${machine.userId}`)
-  } else {
+  try {
     await db.insert(registeredMachines).values({
       id: machine.id,
       userId: machine.userId,
@@ -240,8 +172,22 @@ export async function registerMachine(params: {
       registeredAt: now,
       lastSeenAt: now,
     })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+
+    // Special handling for foreign key violations (user not found)
+    if (message.includes('foreign key') || message.includes('23503')) {
+      throw new Error(
+        `User not found in database (userId: ${machine.userId}). ` +
+        `The authentication token may be stale. Please delete your agent config ` +
+        `(~/Library/Preferences/astro-agent-nodejs/config.json) and run device authorization again.`
+      )
+    }
+
+    throw new Error(`Failed to register machine to database: ${message}`)
   }
 
+  console.log(`[machines-store] Registered machine ${machine.id} for user ${machine.userId}`)
   return machine
 }
 
@@ -262,85 +208,22 @@ export async function ensureMachineRegistered(machineId: string, params: {
 
   if (existing) {
     // Machine exists — update connection status + environmentType/providers
-    if (isServerMode()) {
-      const supabase = getServiceClient()
-      const { error } = await supabase
-        .from('registered_machines')
-        .update({
-          is_connected: true,
-          last_seen_at: new Date().toISOString(),
-          environment_type: params.environmentType,
-          providers: params.providers,
-        })
-        .eq('id', machineId)
-
-      if (error) {
-        console.error(`[machines-store] ❌ Failed to update machine ${machineId} in Supabase:`, error)
-      } else {
-        console.log(`[machines-store] ✅ Updated machine ${machineId} connection status in Supabase`)
-      }
-    } else {
-      const now = new Date()
-      await db.update(registeredMachines)
-        .set({
-          isConnected: true,
-          lastSeenAt: now,
-          environmentType: params.environmentType,
-          providers: params.providers as string[],
-        })
-        .where(eq(registeredMachines.id, machineId))
-    }
+    const now = new Date()
+    await db.update(registeredMachines)
+      .set({
+        isConnected: true,
+        lastSeenAt: now,
+        environmentType: params.environmentType,
+        providers: params.providers as string[],
+      })
+      .where(eq(registeredMachines.id, machineId))
     return
   }
 
   // Machine not found — create a new entry
   const now = new Date()
-  const machine: RegisteredMachine = {
-    id: machineId,
-    name: params.name,
-    hostname: params.hostname,
-    platform: params.platform,
-    environmentType: params.environmentType,
-    providers: params.providers,
-    userId: params.userId,
-    registeredAt: now,
-    lastSeenAt: now,
-    isConnected: true,
-    refreshTokenHash: '',
-    isRevoked: false,
-  }
 
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { error } = await supabase.from('registered_machines').insert({
-      id: machine.id,
-      user_id: machine.userId,
-      name: machine.name,
-      hostname: machine.hostname,
-      platform: machine.platform,
-      environment_type: machine.environmentType,
-      providers: machine.providers,
-      is_connected: true,
-      refresh_token_hash: '',
-    })
-
-    if (error) {
-      console.error(`[machines-store] ❌ Failed to auto-register machine ${machineId} to Supabase:`, error)
-
-      // Special handling for foreign key violations (user not found)
-      if (error.code === '23503' && error.message.includes('user_id')) {
-        throw new Error(
-          `User not found in database (userId: ${params.userId}). ` +
-          `The authentication token may be stale. Please delete your agent config ` +
-          `(~/Library/Preferences/astro-agent-nodejs/config.json) and run device authorization again.`
-        )
-      }
-
-      throw new Error(`Failed to register machine to database: ${error.message}`)
-    }
-
-    console.log(`[machines-store] ✅ Auto-registered machine ${machineId} to Supabase for user ${params.userId}`)
-  } else {
+  try {
     await db.insert(registeredMachines).values({
       id: machineId,
       userId: params.userId,
@@ -355,6 +238,19 @@ export async function ensureMachineRegistered(machineId: string, params: {
       registeredAt: now,
       lastSeenAt: now,
     })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+
+    // Special handling for foreign key violations (user not found)
+    if (message.includes('foreign key') || message.includes('23503')) {
+      throw new Error(
+        `User not found in database (userId: ${params.userId}). ` +
+        `The authentication token may be stale. Please delete your agent config ` +
+        `(~/Library/Preferences/astro-agent-nodejs/config.json) and run device authorization again.`
+      )
+    }
+
+    throw new Error(`Failed to register machine to database: ${message}`)
   }
 
   console.log(`[machines-store] Auto-registered machine ${machineId} on reconnect`)
@@ -364,18 +260,6 @@ export async function ensureMachineRegistered(machineId: string, params: {
  * Get a registered machine by ID
  */
 export async function getMachine(machineId: string): Promise<RegisteredMachine | null> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { data } = await supabase
-      .from('registered_machines')
-      .select('*')
-      .eq('id', machineId)
-      .single()
-
-    if (!data) return null
-    return mapSupabaseToMachine(data)
-  }
-
   const [row] = await db.select().from(registeredMachines)
     .where(eq(registeredMachines.id, machineId))
     .limit(1)
@@ -388,18 +272,6 @@ export async function getMachine(machineId: string): Promise<RegisteredMachine |
  * Get all machines for a user
  */
 export async function getUserMachines(userId: string): Promise<RegisteredMachine[]> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { data } = await supabase
-      .from('registered_machines')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_revoked', false)
-      .order('registered_at', { ascending: false })
-
-    return (data || []).map(mapSupabaseToMachine)
-  }
-
   const rows = await db.select().from(registeredMachines)
     .where(and(
       eq(registeredMachines.userId, userId),
@@ -414,15 +286,6 @@ export async function getUserMachines(userId: string): Promise<RegisteredMachine
  * Update machine's last seen timestamp
  */
 export async function updateMachineLastSeen(machineId: string): Promise<boolean> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { error } = await supabase
-      .from('registered_machines')
-      .update({ last_seen_at: new Date().toISOString() })
-      .eq('id', machineId)
-    return !error
-  }
-
   const result = await db.update(registeredMachines)
     .set({ lastSeenAt: new Date() })
     .where(eq(registeredMachines.id, machineId))
@@ -435,35 +298,15 @@ export async function updateMachineLastSeen(machineId: string): Promise<boolean>
  * Prevents stale `is_connected = true` from a previous server session.
  */
 export async function resetAllConnectionStatuses(): Promise<void> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    await supabase
-      .from('registered_machines')
-      .update({ is_connected: false })
-      .eq('is_connected', true)
-  } else {
-    await db.update(registeredMachines)
-      .set({ isConnected: false })
-      .where(eq(registeredMachines.isConnected, true))
-  }
+  await db.update(registeredMachines)
+    .set({ isConnected: false })
+    .where(eq(registeredMachines.isConnected, true))
 }
 
 /**
  * Update machine connection status
  */
 export async function updateMachineConnectionStatus(machineId: string, isConnected: boolean): Promise<boolean> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const update: Record<string, unknown> = { is_connected: isConnected }
-    if (isConnected) update.last_seen_at = new Date().toISOString()
-
-    const { error } = await supabase
-      .from('registered_machines')
-      .update(update)
-      .eq('id', machineId)
-    return !error
-  }
-
   const updates: Partial<typeof registeredMachines.$inferInsert> = { isConnected }
   if (isConnected) updates.lastSeenAt = new Date()
 
@@ -478,15 +321,6 @@ export async function updateMachineConnectionStatus(machineId: string, isConnect
  * Update machine providers
  */
 export async function updateMachineProviders(machineId: string, providers: ProviderType[]): Promise<boolean> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { error } = await supabase
-      .from('registered_machines')
-      .update({ providers })
-      .eq('id', machineId)
-    return !error
-  }
-
   const result = await db.update(registeredMachines)
     .set({ providers: providers as string[] })
     .where(eq(registeredMachines.id, machineId))
@@ -498,15 +332,6 @@ export async function updateMachineProviders(machineId: string, providers: Provi
  * Update machine name
  */
 export async function updateMachineName(machineId: string, name: string): Promise<boolean> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { error } = await supabase
-      .from('registered_machines')
-      .update({ name })
-      .eq('id', machineId)
-    return !error
-  }
-
   const result = await db.update(registeredMachines)
     .set({ name })
     .where(eq(registeredMachines.id, machineId))
@@ -527,15 +352,6 @@ export async function updateMachineProviderConfigs(
     settings?: Record<string, unknown>
   }>
 ): Promise<boolean> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { error } = await supabase
-      .from('registered_machines')
-      .update({ provider_configs: providerConfigs })
-      .eq('id', machineId)
-    return !error
-  }
-
   const result = await db.update(registeredMachines)
     .set({ providerConfigs: providerConfigs as never[] })
     .where(eq(registeredMachines.id, machineId))
@@ -547,15 +363,6 @@ export async function updateMachineProviderConfigs(
  * Revoke a machine
  */
 export async function revokeMachine(machineId: string): Promise<boolean> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { error } = await supabase
-      .from('registered_machines')
-      .update({ is_revoked: true, is_connected: false })
-      .eq('id', machineId)
-    return !error
-  }
-
   const result = await db.update(registeredMachines)
     .set({ isRevoked: true, isConnected: false })
     .where(eq(registeredMachines.id, machineId))
@@ -567,15 +374,6 @@ export async function revokeMachine(machineId: string): Promise<boolean> {
  * Delete a machine
  */
 export async function deleteMachine(machineId: string): Promise<boolean> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { error } = await supabase
-      .from('registered_machines')
-      .delete()
-      .eq('id', machineId)
-    return !error
-  }
-
   const result = await db.delete(registeredMachines)
     .where(eq(registeredMachines.id, machineId))
     .returning({ id: registeredMachines.id })
@@ -594,15 +392,6 @@ export async function isMachineValid(machineId: string): Promise<boolean> {
  * Get all registered machines (for admin)
  */
 export async function getAllMachines(): Promise<RegisteredMachine[]> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { data } = await supabase
-      .from('registered_machines')
-      .select('*')
-      .order('registered_at', { ascending: false })
-    return (data || []).map(mapSupabaseToMachine)
-  }
-
   const rows = await db.select().from(registeredMachines)
     .orderBy(desc(registeredMachines.registeredAt))
   return rows.map(mapRowToMachine)
@@ -612,17 +401,7 @@ export async function getAllMachines(): Promise<RegisteredMachine[]> {
  * Get connected machines count
  */
 export async function getConnectedMachinesCount(): Promise<number> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { count } = await supabase
-      .from('registered_machines')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_connected', true)
-      .eq('is_revoked', false)
-    return count || 0
-  }
-
-  const rows = await db.select().from(registeredMachines)
+  const rows = await db.select({ id: registeredMachines.id }).from(registeredMachines)
     .where(and(
       eq(registeredMachines.isConnected, true),
       eq(registeredMachines.isRevoked, false),
@@ -634,15 +413,6 @@ export async function getConnectedMachinesCount(): Promise<number> {
  * Share a machine with a team (owner only)
  */
 export async function shareMachineWithTeam(machineId: string, teamId: string | null): Promise<boolean> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { error } = await supabase
-      .from('registered_machines')
-      .update({ team_id: teamId })
-      .eq('id', machineId)
-    return !error
-  }
-
   const result = await db.update(registeredMachines)
     .set({ teamId: teamId ?? undefined })
     .where(eq(registeredMachines.id, machineId))
@@ -652,70 +422,58 @@ export async function shareMachineWithTeam(machineId: string, teamId: string | n
 
 /**
  * Get all machines available to a user (owned + team shared)
- * Uses the database function for efficient query
+ *
+ * Returns machines the user owns plus machines shared with any team the user belongs to.
  */
 export async function getAvailableMachines(userId: string): Promise<import('../types/device-auth.js').MachineWithTeamInfo[]> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
+  // Get user's team IDs
+  const memberships = await db.select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
+  const teamIds = memberships.map(m => m.teamId)
 
-    // Call the database function
-    const { data, error } = await supabase.rpc('get_user_available_machines', {
-      p_user_id: userId
-    })
-
-    if (error) {
-      console.error('[machines-store] Error fetching available machines:', error)
-      return []
-    }
-
-    return (data || []).map((row: Record<string, unknown>) => ({
-      id: row.id as string,
-      name: row.name as string,
-      hostname: row.hostname as string,
-      platform: row.platform as string,
-      environmentType: row.environment_type as import('../types/relay.js').EnvironmentType,
-      providers: (row.providers as string[]) as import('../types/relay.js').ProviderType[],
-      providerConfigs: [],
-      userId,
-      teamId: row.team_id as string | undefined,
-      workspaceId: undefined,
-      registeredAt: new Date(),
-      lastSeenAt: new Date(),
-      isConnected: row.is_connected as boolean,
-      refreshTokenHash: '',
-      isRevoked: false,
-      isTeamMachine: row.is_team_machine as boolean,
-      teamName: row.team_name as string | undefined,
-    }))
+  // Query: user's own machines OR machines shared with user's teams
+  const conditions = [
+    and(eq(registeredMachines.userId, userId), eq(registeredMachines.isRevoked, false)),
+  ]
+  if (teamIds.length > 0) {
+    conditions.push(
+      and(
+        sql`${registeredMachines.teamId} IN (${sql.join(teamIds.map(id => sql`${id}`), sql`, `)})`,
+        eq(registeredMachines.isRevoked, false),
+      )
+    )
   }
 
-  // Local mode: query manually
-  const ownMachines = await getUserMachines(userId)
+  const rows = await db.select().from(registeredMachines)
+    .where(or(...conditions))
+    .orderBy(desc(registeredMachines.registeredAt))
 
-  // Map to MachineWithTeamInfo
-  return ownMachines.map(m => ({
-    ...m,
-    isTeamMachine: false,
-    teamName: undefined,
-  }))
+  // Build a teamId → teamName lookup
+  const teamNameMap = new Map<string, string>()
+  if (teamIds.length > 0) {
+    const teamRows = await db.select({ id: teams.id, name: teams.name }).from(teams)
+      .where(sql`${teams.id} IN (${sql.join(teamIds.map(id => sql`${id}`), sql`, `)})`)
+    for (const t of teamRows) {
+      teamNameMap.set(t.id, t.name)
+    }
+  }
+
+  return rows.map(row => {
+    const machine = mapRowToMachine(row)
+    const isTeamMachine = machine.userId !== userId && !!machine.teamId
+    return {
+      ...machine,
+      isTeamMachine,
+      teamName: machine.teamId ? teamNameMap.get(machine.teamId) : undefined,
+    }
+  })
 }
 
 /**
  * Get team machines for a specific team
  */
 export async function getTeamMachines(teamId: string): Promise<RegisteredMachine[]> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { data } = await supabase
-      .from('registered_machines')
-      .select('*')
-      .eq('team_id', teamId)
-      .eq('is_revoked', false)
-      .order('registered_at', { ascending: false })
-
-    return (data || []).map(mapSupabaseToMachine)
-  }
-
   const rows = await db.select().from(registeredMachines)
     .where(and(
       eq(registeredMachines.teamId, teamId),
@@ -742,43 +500,24 @@ export async function logMachineUsageStart(params: {
 }): Promise<string | null> {
   const now = new Date()
 
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { data, error } = await supabase
-      .from('machine_usage_logs')
-      .insert({
-        machine_id: params.machineId,
-        user_id: params.userId,
-        project_id: params.projectId,
-        node_id: params.nodeId,
-        execution_id: params.executionId,
-        started_at: now.toISOString(),
-        status: 'success', // Will be updated on completion
+  try {
+    const [result] = await db.insert(machineUsageLogs)
+      .values({
+        machineId: params.machineId,
+        userId: params.userId,
+        projectId: params.projectId,
+        nodeId: params.nodeId,
+        executionId: params.executionId,
+        startedAt: now,
+        status: 'success',
       })
-      .select('id')
-      .single()
+      .returning({ id: machineUsageLogs.id })
 
-    if (error) {
-      console.error('[machines-store] Failed to log machine usage start:', error)
-      return null
-    }
-
-    return data?.id as string
+    return result?.id ?? null
+  } catch (err) {
+    console.error('[machines-store] Failed to log machine usage start:', err)
+    return null
   }
-
-  const [result] = await db.insert(machineUsageLogs)
-    .values({
-      machineId: params.machineId,
-      userId: params.userId,
-      projectId: params.projectId,
-      nodeId: params.nodeId,
-      executionId: params.executionId,
-      startedAt: now,
-      status: 'success',
-    })
-    .returning({ id: machineUsageLogs.id })
-
-  return result?.id
 }
 
 /**
@@ -791,65 +530,27 @@ export async function logMachineUsageComplete(params: {
 }): Promise<boolean> {
   const now = new Date()
 
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { error } = await supabase
-      .from('machine_usage_logs')
-      .update({
-        completed_at: now.toISOString(),
-        duration_ms: params.durationMs,
+  try {
+    const result = await db.update(machineUsageLogs)
+      .set({
+        completedAt: now,
+        durationMs: params.durationMs,
         status: params.status,
       })
-      .eq('id', params.logId)
+      .where(eq(machineUsageLogs.id, params.logId))
+      .returning({ id: machineUsageLogs.id })
 
-    if (error) {
-      console.error('[machines-store] Failed to log machine usage completion:', error)
-      return false
-    }
-
-    return true
+    return result.length > 0
+  } catch (err) {
+    console.error('[machines-store] Failed to log machine usage completion:', err)
+    return false
   }
-
-  const result = await db.update(machineUsageLogs)
-    .set({
-      completedAt: now,
-      durationMs: params.durationMs,
-      status: params.status,
-    })
-    .where(eq(machineUsageLogs.id, params.logId))
-    .returning({ id: machineUsageLogs.id })
-
-  return result.length > 0
 }
 
 /**
  * Get machine usage logs for a machine
  */
 export async function getMachineUsageLogs(machineId: string, limit = 50): Promise<import('../types/device-auth.js').MachineUsageLog[]> {
-  if (isServerMode()) {
-    const supabase = getServiceClient()
-    const { data } = await supabase
-      .from('machine_usage_logs')
-      .select('*')
-      .eq('machine_id', machineId)
-      .order('started_at', { ascending: false })
-      .limit(limit)
-
-    return (data || []).map((row: Record<string, unknown>) => ({
-      id: row.id as string,
-      machineId: row.machine_id as string,
-      userId: row.user_id as string,
-      projectId: row.project_id as string,
-      nodeId: row.node_id as string,
-      executionId: row.execution_id as string,
-      startedAt: new Date(row.started_at as string),
-      completedAt: row.completed_at ? new Date(row.completed_at as string) : undefined,
-      durationMs: row.duration_ms as number | undefined,
-      status: row.status as 'success' | 'failure' | 'cancelled',
-      createdAt: new Date(row.created_at as string),
-    }))
-  }
-
   const rows = await db.select().from(machineUsageLogs)
     .where(eq(machineUsageLogs.machineId, machineId))
     .orderBy(desc(machineUsageLogs.startedAt))

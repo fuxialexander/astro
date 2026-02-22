@@ -5,10 +5,6 @@
  * and streaming output back over WebSocket
  */
 
-import { execFileSync, type ExecFileSyncOptions } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
 import type { Task, TaskStatus, ProviderType } from '../types.js';
 import type { WebSocketClient } from './websocket-client.js';
 import { createProviderAdapter, type ProviderAdapter } from '../providers/index.js';
@@ -98,7 +94,7 @@ export class TaskExecutor {
   async submitTask(task: Task): Promise<void> {
     const normalizedTask = {
       ...task,
-      workingDirectory: resolveWorkingDirectory(task.workingDirectory, task.projectId),
+      workingDirectory: resolveWorkingDirectory(task.workingDirectory),
     };
 
     // Perform safety check
@@ -235,23 +231,125 @@ export class TaskExecutor {
   /**
    * Steer a running task by injecting a message into the agent session.
    * When interrupt=true, interrupts the current turn before injecting.
+   *
+   * For completed tasks with a preserved session, this triggers a full
+   * resume via the SDK's `resume` option for post-completion follow-up.
    */
   async steerTask(taskId: string, message: string, interrupt = false): Promise<{ accepted: boolean; reason?: string }> {
     const running = this.runningTasks.get(taskId);
-    if (!running) {
-      return { accepted: false, reason: 'Task not found or not running' };
+
+    if (running) {
+      // Task is still running — inject message into the live session
+      if (running.adapter instanceof ClaudeSdkAdapter && typeof running.adapter.injectMessage === 'function') {
+        const injected = await running.adapter.injectMessage(taskId, message, interrupt);
+        if (injected) {
+          return { accepted: true };
+        }
+        return { accepted: false, reason: 'Failed to inject message into running session' };
+      }
+      return { accepted: false, reason: 'Provider does not support mid-execution steering' };
     }
 
-    // Check if the adapter supports message injection
-    if (running.adapter instanceof ClaudeSdkAdapter && typeof running.adapter.injectMessage === 'function') {
-      const injected = await running.adapter.injectMessage(taskId, message, interrupt);
-      if (injected) {
+    // Task is not running — check if we have a preserved session for resume
+    const adapter = this.findAdapterWithSession(taskId);
+    if (adapter) {
+      const context = adapter.getTaskContext(taskId);
+      if (context) {
+        // Launch a resume as a new "task" execution
+        this.resumeCompletedTask(taskId, message, adapter, context);
         return { accepted: true };
       }
-      return { accepted: false, reason: 'Failed to inject message into running session' };
     }
 
-    return { accepted: false, reason: 'Provider does not support mid-execution steering' };
+    return { accepted: false, reason: 'Task not found or session expired' };
+  }
+
+  /**
+   * Find the ClaudeSdkAdapter that has a preserved session for the given task.
+   */
+  private findAdapterWithSession(taskId: string): ClaudeSdkAdapter | null {
+    for (const adapter of this.adapters.values()) {
+      if (adapter instanceof ClaudeSdkAdapter) {
+        const context = adapter.getTaskContext(taskId);
+        if (context) return adapter;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Resume a completed task session for post-completion steering.
+   * Runs in the background, streaming output back through the WebSocket.
+   */
+  private async resumeCompletedTask(
+    taskId: string,
+    message: string,
+    adapter: ClaudeSdkAdapter,
+    context: { sessionId: string; workingDirectory?: string },
+  ): Promise<void> {
+    const abortController = new AbortController();
+    let textSequence = 0;
+
+    const stream = {
+      stdout: (data: string) => {
+        this.wsClient.sendTaskOutput(taskId, 'stdout', data, 0);
+      },
+      stderr: (data: string) => {
+        this.wsClient.sendTaskOutput(taskId, 'stderr', data, 0);
+      },
+      status: (status: TaskStatus, progress?: number, statusMessage?: string) => {
+        this.wsClient.sendTaskStatus(taskId, status, progress, statusMessage);
+      },
+      toolTrace: (toolName: string, toolInput?: unknown, toolResult?: unknown, success?: boolean) => {
+        this.wsClient.sendToolTrace(taskId, toolName, toolInput, toolResult, success);
+      },
+      text: (data: string) => {
+        this.wsClient.sendTaskText(taskId, data, textSequence++);
+      },
+      toolUse: (toolName: string, toolInput: unknown) => {
+        this.wsClient.sendTaskToolUse(taskId, toolName, toolInput);
+      },
+      toolResult: (toolName: string, result: unknown, success: boolean) => {
+        this.wsClient.sendTaskToolResult(taskId, toolName, result, success);
+      },
+      fileChange: (path: string, action: 'created' | 'modified' | 'deleted', linesAdded?: number, linesRemoved?: number, diff?: string) => {
+        this.wsClient.sendTaskFileChange(taskId, path, action, linesAdded, linesRemoved, diff);
+      },
+      sessionInit: (sessionId: string, model?: string) => {
+        this.wsClient.sendTaskSessionInit(taskId, sessionId, model);
+      },
+      approvalRequest: async (question: string, options: string[]) => {
+        return this.wsClient.sendApprovalRequest(taskId, question, options);
+      },
+    };
+
+    try {
+      this.wsClient.sendTaskStatus(taskId, 'running', 0, 'Resuming session...');
+      const result = await adapter.resumeTask(
+        taskId,
+        message,
+        context.workingDirectory ?? process.cwd(),
+        context.sessionId,
+        stream,
+        abortController.signal,
+      );
+
+      this.wsClient.sendTaskResult({
+        taskId,
+        status: result.success ? 'completed' : 'failed',
+        output: result.output,
+        error: result.error,
+        completedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.wsClient.sendTaskResult({
+        taskId,
+        status: 'failed',
+        error: `Resume failed: ${errorMsg}`,
+        completedAt: new Date().toISOString(),
+      });
+    }
   }
 
   // ============================================================================
@@ -675,30 +773,17 @@ export class TaskExecutor {
 
 /**
  * Resolve a working directory value.
- * - Git URL (http/https/git@) → clone to ~/.astro/repos/{projectId}/ and return local path
  * - Empty/missing → process.cwd()
+ * - Git URL → error (repo setup should have resolved this to a local path)
  * - Otherwise → return as-is
  */
-function resolveWorkingDirectory(value: string | undefined, projectId: string): string {
+function resolveWorkingDirectory(value: string | undefined): string {
   if (!value) return process.cwd();
 
   const isGitUrl = value.startsWith('http://') || value.startsWith('https://') || value.startsWith('git@');
-  if (!isGitUrl) return value;
-
-  const repoDir = join(homedir(), '.astro', 'repos', projectId);
-  const execOpts: ExecFileSyncOptions = { stdio: 'ignore', timeout: 120_000 };
-
-  if (existsSync(join(repoDir, '.git'))) {
-    // Already cloned — fetch latest (non-fatal)
-    try {
-      execFileSync('git', ['fetch', '--all'], { ...execOpts, cwd: repoDir });
-    } catch {
-      // Proceed with stale clone
-    }
-  } else {
-    // Clone the repo
-    execFileSync('git', ['clone', value, repoDir], execOpts);
+  if (isGitUrl) {
+    throw new Error(`workingDirectory is still a git URL at dispatch time. Run repo setup first.`);
   }
 
-  return repoDir;
+  return value;
 }

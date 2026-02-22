@@ -431,7 +431,7 @@ When the backend needs to dispatch a task and does not specify a particular mach
 
 **File**: `server/lib/registered-machines-store.ts` (~300 lines)
 
-The in-memory registry (Section 4) is fast but volatile -- it is wiped whenever the server restarts. The **persistent machine store** is the durable counterpart. It saves machine information to Postgres (the database), so the system remembers which machines have been registered even after a server restart.
+The in-memory registry (Section 4) is fast but volatile -- it is wiped whenever the server restarts. The **persistent machine store** is the durable counterpart. It uses Drizzle ORM queries against the unified database (PGlite in local mode, Postgres in server mode), so the system remembers which machines have been registered even after a server restart. The store works identically in both modes -- there is no degraded or missing functionality in local mode.
 
 Think of the relationship this way: the in-memory registry is "who is online right now" (like seeing green dots on a chat app), while the persistent store is "who has an account" (the full member list, including people who are offline).
 
@@ -462,10 +462,6 @@ interface RegisteredMachine {
 - **`revokeMachine(machineId)`** -- Mark a machine as revoked (`isRevoked = true`). A revoked machine is blocked from reconnecting -- this is how a user can de-authorize a machine they no longer trust or use.
 - **`updateMachineConnectionStatus(machineId, isConnected)`** -- Update the online/offline flag
 - **`resetAllConnectionStatuses()`** -- Set all machines to "disconnected." This is called on server startup, because if the server just restarted, no machines are actually connected yet -- any previous "connected" flags are stale.
-
-### Fallback Behavior
-
-In IndexedDB-only mode (local development without Postgres), the persistent store is not available. The in-memory registry works on its own -- you just lose the durability guarantee (machine registrations do not survive server restarts). This is fine for local development where the Agent Runner and server always start together.
 
 ---
 

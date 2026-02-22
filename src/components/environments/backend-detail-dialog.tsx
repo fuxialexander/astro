@@ -203,6 +203,25 @@ function SummarySection({ backend, loading }: { backend: ComputeBackendInfo; loa
       const totalCPU = meta.totalCPU as number ?? 0
       const totalMemoryGi = meta.totalMemoryGi as number ?? 0
       const totalGPUs = meta.totalGPUs as number ?? 0
+      const podCount = meta.podCount as number ?? 0
+      const podsByNamespace = meta.podsByNamespace as Record<string, number> | undefined
+
+      if (totalNodes === 0 && podCount > 0) {
+        const nsCount = podsByNamespace ? Object.keys(podsByNamespace).length : 0
+        return (
+          <div className="flex flex-col gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <MiniStat label="Running Pods" value={podCount} icon={Container} />
+              <MiniStat label="Namespaces" value={nsCount} icon={Network} />
+              <MiniStat label="Nodes" value="N/A" icon={Server} />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Node-level details not available (RBAC restricted or nodes auto-scaled to zero)
+            </p>
+          </div>
+        )
+      }
+
       return (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <MiniStat label="Nodes" value={totalNodes} icon={Server} />
@@ -277,6 +296,9 @@ function K8sDetail({ meta }: { meta: Record<string, unknown> }) {
   }> | undefined
   const namespaces = meta.namespaces as string[] | undefined
   const context = meta.context as string | undefined
+  const podsByNamespace = meta.podsByNamespace as Record<string, number> | undefined
+  const hasNodes = nodes && nodes.length > 0
+  const hasPodFallback = !hasNodes && podsByNamespace && Object.keys(podsByNamespace).length > 0
 
   return (
     <div className="flex flex-col gap-4">
@@ -286,7 +308,18 @@ function K8sDetail({ meta }: { meta: Record<string, unknown> }) {
         </div>
       )}
 
-      {nodes && nodes.length > 0 && (
+      {hasPodFallback && (
+        <div className="flex flex-col gap-2">
+          <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3">
+            <p className="text-xs text-blue-700 dark:text-blue-400">
+              Node listing may be restricted by RBAC or nodes may be auto-scaled to zero.
+              Showing pod-level data instead.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {hasNodes && (
         <div className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">Nodes</h3>
           <Card>
@@ -324,7 +357,37 @@ function K8sDetail({ meta }: { meta: Record<string, unknown> }) {
         </div>
       )}
 
-      {namespaces && namespaces.length > 0 && (
+      {hasPodFallback && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-sm font-semibold">Pods by Namespace</h3>
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b text-muted-foreground">
+                      <th className="text-left font-medium p-2 pl-3">Namespace</th>
+                      <th className="text-right font-medium p-2 pr-3">Pods</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(podsByNamespace)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([ns, count]) => (
+                        <tr key={ns} className="border-b last:border-0">
+                          <td className="p-2 pl-3 font-mono">{ns}</td>
+                          <td className="p-2 pr-3 text-right">{count}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {!hasPodFallback && namespaces && namespaces.length > 0 && (
         <div className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">Namespaces</h3>
           <div className="flex flex-wrap gap-1.5">

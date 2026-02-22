@@ -10,7 +10,6 @@ import { DirectStrategy } from './direct-strategy.js';
 import { SlurmStrategy } from './slurm-strategy.js';
 import { DockerStrategy } from './docker-strategy.js';
 import { K8sExecStrategy } from './kubernetes-exec-strategy.js';
-import { SkyPilotStrategy } from './skypilot-strategy.js';
 
 export class ExecutionStrategyRegistry {
   private strategies = new Map<ExecutionStrategyType, ExecutionStrategy>();
@@ -27,7 +26,6 @@ export class ExecutionStrategyRegistry {
       new SlurmStrategy(),
       new DockerStrategy(),
       new K8sExecStrategy(),
-      new SkyPilotStrategy(),
     ];
 
     const results = await Promise.allSettled(

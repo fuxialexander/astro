@@ -17,9 +17,13 @@ import { config } from '../lib/config.js';
 
 /** Active query state for a running task */
 interface ActiveQuery {
-  query: Query;
+  query: Query | null;  // null after completion (session preserved for resume)
   sessionId: string;
+  workingDirectory?: string;
 }
+
+/** How long to preserve completed session state for potential steering (ms) */
+const SESSION_PRESERVE_MS = 10 * 60 * 1000; // 10 minutes
 
 export class ClaudeSdkAdapter implements ProviderAdapter {
   readonly type = 'claude-sdk';
@@ -134,7 +138,24 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       };
     } finally {
       signal.removeEventListener('abort', abortHandler);
-      this.activeQueries.delete(task.id);
+      // Preserve session state for post-completion steering (mirrors server-side behavior).
+      // The query generator is exhausted, but the sessionId is kept so `injectMessage()`
+      // can still succeed on the SDK side and a `resumeTask()` could be implemented later.
+      const existing = this.activeQueries.get(task.id);
+      if (existing) {
+        this.activeQueries.set(task.id, {
+          query: null,
+          sessionId: existing.sessionId,
+          workingDirectory: task.workingDirectory,
+        });
+        // Auto-cleanup after a timeout to prevent memory leaks
+        setTimeout(() => {
+          const entry = this.activeQueries.get(task.id);
+          if (entry && entry.query === null) {
+            this.activeQueries.delete(task.id);
+          }
+        }, SESSION_PRESERVE_MS);
+      }
       this.activeTasks--;
     }
   }
@@ -148,6 +169,13 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
   async injectMessage(taskId: string, content: string, interrupt = false): Promise<boolean> {
     const active = this.activeQueries.get(taskId);
     if (!active) return false;
+
+    // Session completed — query is null but sessionId is preserved.
+    // Cannot inject into a completed session; caller should use resume instead.
+    if (!active.query) {
+      console.log(`[claude-sdk] Cannot inject into completed session for task ${taskId} (sessionId: ${active.sessionId})`);
+      return false;
+    }
 
     if (interrupt) {
       // Fire interrupt without awaiting — interrupt() may block until the
@@ -186,6 +214,146 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     });
 
     return true;
+  }
+
+  /**
+   * Resume a completed task session to continue execution.
+   * Uses the SDK's `resume` option to reconnect to a previous session.
+   * This enables post-completion steering (follow-up questions after task finishes).
+   */
+  async resumeTask(
+    taskId: string,
+    message: string,
+    workingDirectory: string,
+    sessionId: string,
+    stream: TaskOutputStream,
+    signal: AbortSignal,
+  ): Promise<{ success: boolean; output: string; error?: string }> {
+    const abortController = new AbortController();
+    const abortHandler = () => abortController.abort();
+    signal.addEventListener('abort', abortHandler);
+
+    try {
+      // Ensure CLAUDE_CONFIG_DIR is set
+      if (!process.env.CLAUDE_CONFIG_DIR) {
+        process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
+      }
+
+      const options: Parameters<typeof query>[0]['options'] = {
+        abortController,
+        maxTurns: 100,
+        permissionMode: 'bypassPermissions',
+        sandbox: { enabled: false },
+        settingSources: ['user', 'project', 'local'],
+        persistSession: false,
+        cwd: workingDirectory,
+        additionalDirectories: [workingDirectory],
+        env: {
+          ...process.env,
+          CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+        },
+      };
+
+      // Resume the previous session
+      (options as Record<string, unknown>).resume = sessionId;
+
+      // Load MCP servers from config if available
+      const agentConfig = config.getConfig();
+      if (agentConfig.mcpServers && Object.keys(agentConfig.mcpServers).length > 0) {
+        const mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+        for (const [name, serverConfig] of Object.entries(agentConfig.mcpServers)) {
+          const server = serverConfig as { command: string; args: string[]; env?: Record<string, string> };
+          mcpServers[name] = {
+            ...server,
+            env: {
+              ...server.env,
+              ASTRO_EXECUTION_ID: taskId,
+            },
+          };
+        }
+        (options as Record<string, unknown>).mcpServers = mcpServers;
+        (options as Record<string, unknown>).allowedTools = Object.keys(mcpServers).map(name => `mcp__${name}__*`);
+      }
+
+      const gen = query({ prompt: message, options });
+
+      let output = '';
+      let success = true;
+      let errorMessage: string | undefined;
+      let newSessionId = sessionId;
+
+      for await (const msg of gen) {
+        if (msg.type === 'system' && msg.subtype === 'init') {
+          newSessionId = (msg as unknown as Record<string, unknown>).session_id as string ?? sessionId;
+          this.activeQueries.set(taskId, { query: gen, sessionId: newSessionId, workingDirectory });
+          stream.sessionInit(newSessionId, msg.model);
+        } else if (msg.type === 'assistant') {
+          for (const block of msg.message.content) {
+            if (typeof block === 'string') continue;
+            if (block.type === 'text') {
+              output += block.text;
+              stream.text(block.text);
+            } else if (block.type === 'tool_use') {
+              stream.toolUse(block.name, block.input);
+              if (block.name === 'Write' || block.name === 'Edit') {
+                const input = block.input as Record<string, unknown>;
+                if (input.file_path) {
+                  const action = block.name === 'Write' ? 'created' : 'modified';
+                  stream.fileChange(String(input.file_path), action as 'created' | 'modified' | 'deleted');
+                }
+              }
+            }
+          }
+        } else if (msg.type === 'user') {
+          for (const block of msg.message.content) {
+            if (typeof block === 'string') continue;
+            if (block.type === 'tool_result') {
+              const resultContent = typeof block.content === 'string'
+                ? block.content
+                : JSON.stringify(block.content);
+              const isError = block.is_error ?? false;
+              stream.toolResult(block.tool_use_id ?? 'unknown', resultContent, !isError);
+            }
+          }
+        } else if (msg.type === 'result') {
+          newSessionId = (msg as unknown as Record<string, unknown>).session_id as string ?? newSessionId;
+          if (msg.subtype === 'success') {
+            success = true;
+          } else {
+            success = false;
+            errorMessage = `Resume failed: ${msg.subtype}`;
+          }
+          break;
+        }
+      }
+
+      // Preserve context after resume completes
+      this.activeQueries.set(taskId, {
+        query: null,
+        sessionId: newSessionId,
+        workingDirectory,
+      });
+      setTimeout(() => {
+        const entry = this.activeQueries.get(taskId);
+        if (entry && entry.query === null) {
+          this.activeQueries.delete(taskId);
+        }
+      }, SESSION_PRESERVE_MS);
+
+      return { success, output, error: errorMessage };
+    } finally {
+      signal.removeEventListener('abort', abortHandler);
+    }
+  }
+
+  /**
+   * Get session context for a task (active or recently completed).
+   * Returns sessionId and workingDirectory if available.
+   */
+  getTaskContext(taskId: string): { sessionId: string; workingDirectory?: string } | null {
+    const active = this.activeQueries.get(taskId);
+    if (!active) return null;
+    return { sessionId: active.sessionId, workingDirectory: active.workingDirectory };
   }
 
   async getStatus(): Promise<ProviderStatus> {
@@ -237,7 +405,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       maxTurns: task.maxTurns ?? defaultMaxTurns,
       permissionMode: 'bypassPermissions', // Auto-accept all tool calls
       sandbox: { enabled: false }, // Run on host machine, not in Docker container
-      settingSources: [], // Don't load settings from project - worktree is empty
+      settingSources: ['user', 'project', 'local'], // Load CLAUDE.md from user home, project dir, and cwd
       persistSession: false,
       cwd: task.workingDirectory,
       additionalDirectories: [task.workingDirectory], // Allow file operations in worktree

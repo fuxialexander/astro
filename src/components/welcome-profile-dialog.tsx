@@ -18,6 +18,7 @@ import { User, Sparkles } from "lucide-react"
  */
 export function WelcomeProfileDialog() {
   const profile = useUserProfileStore((s) => s.profile)
+  const loaded = useUserProfileStore((s) => s.loaded)
   const setName = useUserProfileStore((s) => s.setName)
 
   const [open, setOpen] = useState(false)
@@ -29,10 +30,20 @@ export function WelcomeProfileDialog() {
     // Don't show if already dismissed this session
     if (dismissed) return
 
+    // Wait until profile is actually loaded from the API before checking
+    if (!loaded) return
+
+    // Don't show the dialog if the account was just created (within the last 2 minutes).
+    // The user JUST entered their name during registration — no need to ask again.
+    // This also protects against race conditions where the profile API hasn't returned yet.
+    const createdAt = profile.createdAt instanceof Date ? profile.createdAt : new Date(profile.createdAt)
+    const ageMs = Date.now() - createdAt.getTime()
+    if (ageMs < 120_000) return
+
     // Check if name looks like an email or is empty
     const needsName = !profile.name ||
                      profile.name.includes("@") ||
-                     profile.name.includes(".") && !profile.name.includes(" ")
+                     (profile.name.includes(".") && !profile.name.includes(" "))
 
     // Show dialog if name needs improvement
     if (needsName) {
@@ -40,7 +51,7 @@ export function WelcomeProfileDialog() {
       const timer = setTimeout(() => setOpen(true), 1000)
       return () => clearTimeout(timer)
     }
-  }, [profile.name, dismissed])
+  }, [profile.name, profile.createdAt, loaded, dismissed])
 
   const handleSave = () => {
     if (name.trim()) {

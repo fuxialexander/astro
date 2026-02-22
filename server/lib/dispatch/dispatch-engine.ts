@@ -4,11 +4,35 @@
  * The core orchestrator that bridges the plan graph and agent execution.
  * Watches for ready tasks, manages dispatch queue, routes results,
  * and handles branch operations.
+ *
+ * ## Hybrid Architecture — In-Memory Maps + DB Persistence
+ *
+ * This module maintains two in-memory Maps that MUST stay in-memory:
+ *
+ * ### `activeExecutions` (Map<nodeId, { abortController, ... }>)
+ * Kept in-memory because `AbortController` is a process-local construct
+ * that cannot be serialized or shared across processes. Each server
+ * instance owns the AbortControllers for executions it is running.
+ * Task execution status is separately persisted to the `task_executions`
+ * table in the database by the dispatch and route layers. Cross-instance
+ * cancellation works via the dispatch queue's DB state: when a task is
+ * cancelled on a different instance, its status is set to 'cancelled'
+ * in the DB, and the owning instance observes this and aborts locally.
+ *
+ * ### `pendingApprovals` (Map<approvalId, { resolve, reject, ... }>)
+ * Kept fully in-memory because Promise `resolve`/`reject` callbacks
+ * cannot be serialized or transferred between processes. When a user
+ * responds to an approval request, the response must be routed to the
+ * specific server instance that holds the pending Promise. In a
+ * multi-instance deployment, approval responses are routed to the
+ * owning instance via sticky sessions or a pub/sub fan-out mechanism
+ * (e.g., Redis). If the owning instance has restarted, the approval
+ * times out and the user is asked again.
  */
 
 import { EventEmitter } from 'events'
 import type { PlanNode, PlanEdge, Project } from '../../../src/types/index.js'
-import type { TaskResult, StreamEvent } from '../providers/types.js'
+import type { TaskResult, StreamEvent } from './types.js'
 import { executionEventBus } from '../execution-event-bus.js'
 import {
   DEFAULT_DISPATCH_CONFIG,
@@ -23,6 +47,7 @@ import {
   type TaskFailedEvent,
   type BranchPrunedEvent,
   type AssembledContext,
+  type DispatchRequest,
 } from './types.js'
 import { DispatchQueue, createDispatchQueue } from './dispatch-queue.js'
 import { ContextAssembler, createContextAssembler } from './context-assembler.js'
@@ -31,16 +56,6 @@ import { errorMessage } from '../error-utils.js'
 import { BranchManager, createBranchManager } from './branch-manager.js'
 import { astroEventTransport } from '../events/astro-event-transport.js'
 import type { TaskStartedEvent, TaskCompletedEvent as AstroTaskCompletedEvent } from '../events/types.js'
-import type { SubroutineDefinition } from './procedure-types.js'
-import {
-  interpolatePrompt,
-  runValidationCommand,
-  isValidationPassed,
-  buildFixerPrompt,
-  initValidationLoop,
-  recordValidationAttempt,
-  shouldRetryValidation,
-} from './procedure-executor.js'
 
 /**
  * Callback to update plan node status
@@ -220,7 +235,7 @@ export class DispatchEngine extends EventEmitter {
     }
 
     // Add to queue
-    const queueEntry = this.queue.enqueue({
+    const queueEntry = await this.queue.enqueue({
       nodeId: request.nodeId,
       projectId: request.projectId,
       priority: request.priority,
@@ -240,7 +255,7 @@ export class DispatchEngine extends EventEmitter {
    */
   async cancel(nodeId: string): Promise<boolean> {
     // Cancel in queue
-    this.queue.cancelByNodeId(nodeId)
+    await this.queue.cancelByNodeId(nodeId)
 
     // Abort active execution
     const execution = this.activeExecutions.get(nodeId)
@@ -340,12 +355,12 @@ export class DispatchEngine extends EventEmitter {
   /**
    * Get queue statistics
    */
-  getStats(): ReturnType<DispatchQueue['getStats']> & {
+  async getStats(): Promise<Awaited<ReturnType<DispatchQueue['getStats']>> & {
     activeExecutions: number
     running: boolean
-  } {
+  }> {
     return {
-      ...this.queue.getStats(),
+      ...(await this.queue.getStats()),
       activeExecutions: this.activeExecutions.size,
       running: this.running,
     }
@@ -388,13 +403,13 @@ export class DispatchEngine extends EventEmitter {
   ): Promise<void> {
     if (!this.executionCallback || !this.nodeUpdateCallback) {
       console.error('[dispatch] Execution callback not configured')
-      this.queue.markFailed(queueEntry.id, 'Execution callback not configured')
+      await this.queue.markFailed(queueEntry.id, 'Execution callback not configured')
       return
     }
 
     const node = nodes.find((n) => n.id === queueEntry.nodeId)
     if (!node) {
-      this.queue.markFailed(queueEntry.id, 'Node not found')
+      await this.queue.markFailed(queueEntry.id, 'Node not found')
       return
     }
 
@@ -413,7 +428,7 @@ export class DispatchEngine extends EventEmitter {
     })
 
     // Update queue and node status
-    this.queue.markDispatched(queueEntry.id, executionId)
+    await this.queue.markDispatched(queueEntry.id, executionId)
     await this.nodeUpdateCallback(queueEntry.nodeId, {
       status: 'dispatched',
       executionId,
@@ -436,7 +451,7 @@ export class DispatchEngine extends EventEmitter {
       let result: TaskResult | undefined
 
       // Update to in_progress
-      this.queue.markInProgress(queueEntry.id)
+      await this.queue.markInProgress(queueEntry.id)
       await this.nodeUpdateCallback(queueEntry.nodeId, {
         status: 'in_progress',
         executionStartedAt: new Date(),
@@ -531,7 +546,7 @@ export class DispatchEngine extends EventEmitter {
 
       if (isAbort) {
         // Handle cancellation
-        this.queue.markCancelled(queueEntry.id)
+        await this.queue.markCancelled(queueEntry.id)
         await this.nodeUpdateCallback(queueEntry.nodeId, { status: 'planned' })
         this.emit('task:cancelled', queueEntry.nodeId, queueEntry.projectId)
 
@@ -548,7 +563,7 @@ export class DispatchEngine extends EventEmitter {
       } else {
         // Handle error
         const errMsg = errorMessage(error)
-        const failResult = this.queue.markFailed(queueEntry.id, errMsg)
+        const failResult = await this.queue.markFailed(queueEntry.id, errMsg)
 
         if (failResult?.retry) {
           // Will retry
@@ -617,11 +632,11 @@ export class DispatchEngine extends EventEmitter {
 
     // Update queue
     if (routing.targetStatus === 'auto_verified' || routing.targetStatus === 'completed') {
-      this.queue.markCompleted(queueEntry.id)
+      await this.queue.markCompleted(queueEntry.id)
     } else if (result.status === 'cancelled') {
-      this.queue.markCancelled(queueEntry.id)
+      await this.queue.markCancelled(queueEntry.id)
     } else {
-      this.queue.markFailed(queueEntry.id, result.errorMessage || 'Unknown error')
+      await this.queue.markFailed(queueEntry.id, result.errorMessage || 'Unknown error')
     }
 
     // Update node
@@ -678,215 +693,12 @@ export class DispatchEngine extends EventEmitter {
   }
 
   /**
-   * Execute a procedure (sequential subroutines)
-   */
-  private async executeProcedure(
-    queueEntry: DispatchQueueEntry,
-    node: PlanNode,
-    nodes: PlanNode[],
-    edges: PlanEdge[],
-    project?: Project
-  ): Promise<void> {
-    const state = queueEntry.procedureState
-    if (!state) {
-      throw new Error('Procedure state not initialized')
-    }
-
-    const procedure = state.procedure
-    const currentIndex = state.currentSubroutineIndex
-
-    // Check if procedure is complete
-    if (currentIndex >= procedure.subroutines.length) {
-      console.log(`[dispatch] Procedure '${procedure.name}' completed`)
-      return
-    }
-
-    const subroutine = procedure.subroutines[currentIndex]
-    console.log(`[dispatch] Executing subroutine '${subroutine.name}' (${currentIndex + 1}/${procedure.subroutines.length})`)
-
-    // Check if approval required
-    if (subroutine.requiresApproval && !state.awaitingApproval) {
-      const approvalResult = await this.requestApproval(node, subroutine)
-
-      // Check if approval was denied (false for binary, empty for multi-choice)
-      if (approvalResult === false) {
-        console.log(`[dispatch] Approval denied for subroutine '${subroutine.name}'`)
-        await this.nodeUpdateCallback?.(node.id, {
-          status: 'planned',
-          executionError: 'User denied approval',
-        })
-        return
-      }
-
-      // Store approval result for use in subsequent prompts
-      state.approvalResult = approvalResult
-      state.awaitingApproval = false
-    }
-
-    // Build subroutine prompt
-    const prompt = interpolatePrompt(subroutine.promptTemplate, node, state)
-
-    // Execute subroutine
-    const result = await this.executeSubroutine(subroutine, prompt, queueEntry, node, nodes, edges, project)
-
-    // Store result in history
-    state.subroutineHistory.push({
-      subroutine: subroutine.name,
-      completedAt: new Date(),
-      sessionId: result.sessionId ?? null,
-      result: result.stdout,
-    })
-
-    // Check if validation loop needed
-    if (subroutine.usesValidationLoop) {
-      // Initialize validation loop if needed
-      if (!state.validationLoop) {
-        state.validationLoop = initValidationLoop()
-      }
-
-      // Run validation command if specified
-      let validationResult: ReturnType<typeof runValidationCommand> | undefined
-      if (subroutine.validationCommand) {
-        validationResult = runValidationCommand(
-          subroutine.validationCommand,
-          node.workingDirectory
-        )
-      }
-
-      // Check if validation passed
-      const passed = isValidationPassed(result, subroutine, validationResult)
-
-      // Record attempt
-      recordValidationAttempt(
-        state.validationLoop,
-        passed,
-        validationResult?.reason ?? result.errorMessage ?? 'Unknown'
-      )
-
-      if (!passed) {
-        const maxIterations = subroutine.maxValidationIterations ?? 3
-
-        if (shouldRetryValidation(state.validationLoop, maxIterations)) {
-          console.log(`[dispatch] Validation failed, retrying (${state.validationLoop.iteration}/${maxIterations})`)
-
-          // Build fixer prompt
-          const fixerPrompt = buildFixerPrompt(
-            prompt,
-            validationResult ?? {
-              pass: false,
-              reason: result.errorMessage ?? 'Task failed',
-              exitCode: 1,
-            },
-            state.validationLoop.iteration
-          )
-
-          // Increment iteration
-          state.validationLoop.iteration++
-          state.validationLoop.inFixerMode = true
-
-          // Re-run this subroutine with fixer prompt
-          await this.executeSubroutine(subroutine, fixerPrompt, queueEntry, node, nodes, edges, project)
-
-          // Continue with procedure after fix
-          await this.executeProcedure(queueEntry, node, nodes, edges, project)
-          return
-        } else {
-          console.log(`[dispatch] Max validation iterations reached`)
-          await this.nodeUpdateCallback?.(node.id, {
-            status: 'awaiting_judgment',
-            executionError: `Validation failed after ${maxIterations} attempts`,
-          })
-          return
-        }
-      }
-
-      // Validation passed, reset loop state
-      state.validationLoop = undefined
-    }
-
-    // Advance to next subroutine
-    state.currentSubroutineIndex++
-
-    // Continue with next subroutine
-    await this.executeProcedure(queueEntry, node, nodes, edges, project)
-  }
-
-  /**
-   * Execute a single subroutine
-   */
-  private async executeSubroutine(
-    subroutine: SubroutineDefinition,
-    prompt: string,
-    queueEntry: DispatchQueueEntry,
-    node: PlanNode,
-    nodes: PlanNode[],
-    edges: PlanEdge[],
-    project?: Project
-  ): Promise<TaskResult> {
-    if (!this.executionCallback) {
-      throw new Error('Execution callback not configured')
-    }
-
-    // Assemble context
-    const context = this.contextAssembler.assembleContext(node, nodes, edges, project)
-
-    // Create abort controller
-    const abortController = new AbortController()
-    const executionId = `exec-${queueEntry.nodeId}-sub-${subroutine.name}-${Date.now()}`
-
-    // Track active execution
-    this.activeExecutions.set(queueEntry.nodeId, {
-      executionId,
-      abortController,
-      projectId: queueEntry.projectId,
-    })
-
-    try {
-      // Prepare dispatch for subroutine
-      const subroutineDispatch = {
-        ...queueEntry,
-        prompt,
-        maxTurns: subroutine.singleTurn ? 1 : queueEntry.maxTurns,
-        context: {
-          ...context,
-          // Add tool restrictions if specified
-          ...(subroutine.disallowedTools ? { disallowedTools: subroutine.disallowedTools } : {}),
-          ...(subroutine.disallowAllTools ? { allowedTools: [] } : {}),
-        },
-      }
-
-      let result: TaskResult | undefined
-
-      // Stream execution
-      const stream = this.executionCallback(context, subroutineDispatch)
-
-      for await (const event of stream) {
-        if (abortController.signal.aborted) {
-          break
-        }
-
-        if (event.type === 'result') {
-          result = event.result
-        }
-      }
-
-      if (!result) {
-        throw new Error('No result returned from execution')
-      }
-
-      return result
-    } finally {
-      this.activeExecutions.delete(queueEntry.nodeId)
-    }
-  }
-
-  /**
-   * Request user approval for subroutine
+   * Request user approval
    * Returns true/false for binary approval, or selected option string for multi-choice
    */
   private async requestApproval(
     node: PlanNode,
-    subroutine: SubroutineDefinition
+    subroutine: { name: string; approvalMessage?: string; approvalOptions?: string[] }
   ): Promise<boolean | string> {
     const executionId = this.activeExecutions.get(node.id)?.executionId
     if (!executionId) {

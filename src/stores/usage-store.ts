@@ -1,9 +1,6 @@
 import { create } from "zustand"
 import type { UsageMetrics } from "@/types"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
-
-const STORAGE_KEY = "astro-usage-metrics"
 
 export interface SessionMetrics {
   totalCostUsd: number
@@ -44,7 +41,6 @@ export const useUsageStore = create<UsageState>((set) => ({
         tasksCompleted: state.sessionMetrics.tasksCompleted + (success ? 1 : 0),
         tasksFailed: state.sessionMetrics.tasksFailed + (success ? 0 : 1),
       }
-      saveState(STORAGE_KEY, updated)
 
       // Sync incremental usage to API
       dataClient.incrementUsage({
@@ -60,9 +56,7 @@ export const useUsageStore = create<UsageState>((set) => ({
   },
 
   reset: () => {
-    const fresh = { ...defaultMetrics }
-    saveState(STORAGE_KEY, fresh)
-    set({ sessionMetrics: fresh })
+    set({ sessionMetrics: { ...defaultMetrics } })
   },
 
   load: async () => {
@@ -70,19 +64,12 @@ export const useUsageStore = create<UsageState>((set) => ({
       const metrics = await dataClient.getTodayUsage()
       if (metrics) {
         set({ sessionMetrics: metrics, loaded: true })
-        saveState(STORAGE_KEY, metrics)
         return
       }
     } catch {
       // API unavailable
     }
 
-    // Fallback to IndexedDB
-    const stored = await loadState<SessionMetrics>(STORAGE_KEY)
-    if (stored) {
-      set({ sessionMetrics: stored, loaded: true })
-    } else {
-      set({ loaded: true })
-    }
+    set({ loaded: true })
   },
 }))

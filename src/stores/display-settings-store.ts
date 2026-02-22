@@ -1,5 +1,4 @@
 import { create } from "zustand"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 
 export type ViewKey = "projects" | "projects-timeline" | "plan-list" | "plan-graph" | "my-tasks" | "my-tasks-timeline" | "plan-board" | "my-tasks-board"
@@ -90,8 +89,6 @@ interface DisplaySettingsState {
   reset: (view: ViewKey) => void
 }
 
-const DB_KEY = "astro-display-settings"
-
 export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) => ({
   settings: { ...DEFAULTS },
   loaded: false,
@@ -108,26 +105,13 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
           }
         }
         set({ settings: merged, loaded: true })
-        saveState(DB_KEY, merged)
         return
       }
     } catch {
       // API unavailable
     }
 
-    // Fallback to IndexedDB
-    const saved = await loadState<Record<ViewKey, DisplaySettings>>(DB_KEY)
-    if (saved) {
-      const merged = { ...DEFAULTS }
-      for (const key of Object.keys(merged) as ViewKey[]) {
-        if (saved[key]) {
-          merged[key] = { ...DEFAULTS[key], ...saved[key] }
-        }
-      }
-      set({ settings: merged, loaded: true })
-    } else {
-      set({ loaded: true })
-    }
+    set({ loaded: true })
   },
 
   get: (view) => get().settings[view] ?? DEFAULTS[view],
@@ -139,7 +123,6 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
       [view]: { ...current[view], ...partial },
     }
     set({ settings: updated })
-    saveState(DB_KEY, updated)
     dataClient.updateDisplaySetting(view, updated[view]).catch(() => {})
   },
 
@@ -147,7 +130,6 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
     const current = get().settings
     const updated = { ...current, [view]: { ...DEFAULTS[view] } }
     set({ settings: updated })
-    saveState(DB_KEY, updated)
     dataClient.updateDisplaySetting(view, DEFAULTS[view]).catch(() => {})
   },
 }))

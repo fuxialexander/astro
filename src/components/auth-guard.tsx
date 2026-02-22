@@ -22,7 +22,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
     }
   }, [initialized, initialize])
 
-  // Skip auth check if Supabase is not configured or IndexedDB-only mode
+  // Skip auth check if Supabase is not configured or local mode
   if (isLocalMode()) {
     return <>{children}</>
   }

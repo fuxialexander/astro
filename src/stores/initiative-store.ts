@@ -1,11 +1,12 @@
 import { create } from "zustand"
 import type { Initiative } from "@/types"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 
 interface InitiativeState {
   initiatives: Initiative[]
   loaded: boolean
+  loading: boolean
+  error: string | null
   load: () => Promise<void>
   addInitiative: (initiative: Initiative) => void
   updateInitiative: (id: string, updates: Partial<Initiative>) => void
@@ -18,35 +19,22 @@ const SEED_INITIATIVES: Initiative[] = []
 export const useInitiativeStore = create<InitiativeState>((set, get) => ({
   initiatives: [],
   loaded: false,
+  loading: false,
+  error: null,
 
   load: async () => {
+    set({ loading: true, error: null })
     try {
       const initiatives = await dataClient.listInitiatives()
-      set({ initiatives, loaded: true })
-      // Update IndexedDB cache for offline fallback
-      saveState("astro-initiatives", initiatives)
-    } catch {
-      // API unavailable — fall back to IndexedDB cache
-      const saved = await loadState<Initiative[]>("astro-initiatives")
-      if (saved) {
-        set({
-          initiatives: saved.map(i => ({
-            ...i,
-            createdAt: new Date(i.createdAt),
-            updatedAt: new Date(i.updatedAt)
-          })),
-          loaded: true
-        })
-      } else {
-        set({ initiatives: SEED_INITIATIVES, loaded: true })
-      }
+      set({ initiatives, loaded: true, loading: false })
+    } catch (err) {
+      set({ initiatives: SEED_INITIATIVES, loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load initiatives' })
     }
   },
 
   addInitiative: (initiative) => {
     const next = [...get().initiatives, initiative]
     set({ initiatives: next })
-    saveState("astro-initiatives", next)
     dataClient.createInitiative(initiative).catch(() => {})
   },
 
@@ -55,14 +43,12 @@ export const useInitiativeStore = create<InitiativeState>((set, get) => ({
       i.id === id ? { ...i, ...updates, updatedAt: new Date() } : i
     )
     set({ initiatives: next })
-    saveState("astro-initiatives", next)
     dataClient.updateInitiative(id, updates).catch(() => {})
   },
 
   deleteInitiative: (id) => {
     const next = get().initiatives.filter((i) => i.id !== id)
     set({ initiatives: next })
-    saveState("astro-initiatives", next)
     dataClient.deleteInitiative(id).catch(() => {})
   },
 }))

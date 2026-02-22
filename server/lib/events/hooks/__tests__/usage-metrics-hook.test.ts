@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { usageMetricsHook, getUsageStats, resetUsageStats } from '../usage-metrics-hook.js'
 import type { TaskCompletedEvent, TaskStartedEvent, TaskFailedEvent } from '../../types.js'
 import type { PlanNode } from '../../../../../src/types/index.js'
-import type { TaskResult } from '../../../providers/types.js'
+import type { TaskResult } from '../../../dispatch/types.js'
 
 describe('Usage Metrics Hook', () => {
   beforeEach(() => {

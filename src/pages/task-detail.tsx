@@ -104,13 +104,13 @@ export function TaskDetail() {
         </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-            <h1 className="text-base md:text-lg font-semibold truncate">{node.title}</h1>
+            <h1 className="text-base md:text-lg font-semibold truncate">{node.number != null && <span className="text-muted-foreground font-normal mr-1.5">#{node.number}</span>}{node.title}</h1>
             <Badge variant={statusBadgeVariants[node.status] || "secondary"} className="text-[10px]">
               {node.status.replace(/_/g, " ")}
             </Badge>
           </div>
           <p className="text-xs md:text-sm text-muted-foreground truncate mt-0.5">
-            {project?.name} &middot; {node.type}
+            {project?.number != null && <span>#{project.number} </span>}{project?.name} &middot; {node.type}
           </p>
         </div>
       </div>

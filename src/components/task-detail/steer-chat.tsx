@@ -126,7 +126,7 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
                   }
                   return { executions: newExecutions }
                 })
-                // Persist completed execution to IndexedDB and Supabase
+                // Persist completed execution to database
                 useExecutionStore.getState().persist()
               } catch { /* ignore */ }
               break
@@ -134,7 +134,7 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
               try {
                 const parsed = JSON.parse(data)
                 console.error("[steer-chat] Resume error:", parsed.error)
-                // Persist failed execution to IndexedDB and Supabase
+                // Persist failed execution to database
                 useExecutionStore.getState().persist()
               } catch { /* ignore */ }
               break

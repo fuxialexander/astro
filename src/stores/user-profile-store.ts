@@ -1,11 +1,12 @@
 import { create } from "zustand"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 import type { UserProfile, DomainExpertise, ExperienceLevel, ApiKey } from "@/types"
 
 interface UserProfileState {
   profile: UserProfile
   loaded: boolean
+  loading: boolean
+  error: string | null
   load: () => Promise<void>
   updateProfile: (updates: Partial<UserProfile>) => void
   setName: (name: string) => void
@@ -44,43 +45,36 @@ const defaultProfile: UserProfile = {
 export const useUserProfileStore = create<UserProfileState>((set, get) => ({
   profile: defaultProfile,
   loaded: false,
+  loading: false,
+  error: null,
 
   load: async () => {
-    try {
-      console.log('[user-profile-store] Loading profile from API...')
-      const profile = await dataClient.getProfile()
-      if (profile) {
-        console.log('[user-profile-store] Profile loaded from API')
-        set({ profile, loaded: true })
-        saveState("astro-user-profile", profile)
-        return
+    console.log('[user-profile-store] load() called')
+    set({ loading: true, error: null })
+
+    // Retry up to 2 times with a short delay — the first call after registration
+    // can fail if the Supabase session hasn't fully propagated yet.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        console.log('[user-profile-store] Attempt', attempt + 1, 'calling dataClient.getProfile()...')
+        const profile = await dataClient.getProfile()
+        console.log('[user-profile-store] Attempt', attempt + 1, 'result:', profile ? { id: profile.id, name: profile.name, email: profile.email } : null)
+        if (profile) {
+          set({ profile, loaded: true, loading: false })
+          console.log('[user-profile-store] Profile loaded successfully:', { name: profile.name, email: profile.email })
+          return
+        }
+        console.warn('[user-profile-store] Attempt', attempt + 1, 'returned null profile')
+      } catch (error) {
+        console.warn('[user-profile-store] Profile load attempt', attempt + 1, 'failed:', (error as Error).message)
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+        }
       }
-    } catch (error) {
-      console.debug('[user-profile-store] API unavailable, will use IndexedDB:', (error as Error).message)
-      // API unavailable - fall back to IndexedDB
     }
 
-    // Fallback to IndexedDB
-    console.log('[user-profile-store] Falling back to IndexedDB...')
-    const saved = await loadState<UserProfile>("astro-user-profile")
-    if (saved) {
-      console.log('[user-profile-store] Profile loaded from IndexedDB')
-      set({
-        profile: {
-          ...saved,
-          createdAt: new Date(saved.createdAt),
-          updatedAt: new Date(saved.updatedAt),
-          apiKeys: saved.apiKeys.map((key) => ({
-            ...key,
-            createdAt: new Date(key.createdAt),
-          })),
-        },
-        loaded: true,
-      })
-    } else {
-      console.log('[user-profile-store] No profile found, using default')
-      set({ loaded: true })
-    }
+    console.warn('[user-profile-store] All profile load attempts failed, using default')
+    set({ loaded: true, loading: false })
   },
 
   updateProfile: (updates) => {
@@ -90,7 +84,6 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
       updatedAt: new Date(),
     }
     set({ profile })
-    saveState("astro-user-profile", profile)
     dataClient.updateProfile(profile).catch(() => {})
   },
 

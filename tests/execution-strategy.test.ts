@@ -7,7 +7,6 @@ import { DirectStrategy } from '../packages/agent-runner/src/execution/direct-st
 import { SlurmStrategy } from '../packages/agent-runner/src/execution/slurm-strategy.js';
 import { DockerStrategy } from '../packages/agent-runner/src/execution/docker-strategy.js';
 import { K8sExecStrategy } from '../packages/agent-runner/src/execution/kubernetes-exec-strategy.js';
-import { SkyPilotStrategy } from '../packages/agent-runner/src/execution/skypilot-strategy.js';
 import { ExecutionStrategyRegistry } from '../packages/agent-runner/src/execution/registry.js';
 import type { ExecutionCallbacks } from '../packages/agent-runner/src/execution/types.js';
 
@@ -330,29 +329,51 @@ describe('K8sExecStrategy', () => {
   it('detect() returns a boolean available status', async () => {
     const detection = await strategy.detect();
     expect(typeof detection.available).toBe('boolean');
-  }, 10_000);
-});
+    // If available, check metadata
+    if (detection.available) {
+      expect(detection.metadata?.currentContext).toBeDefined();
+    }
+  }, 15_000);
 
-// ============================================================================
-// SkyPilotStrategy
-// ============================================================================
-
-describe('SkyPilotStrategy', () => {
-  let strategy: SkyPilotStrategy;
-
-  beforeEach(() => {
-    strategy = new SkyPilotStrategy();
-  });
-
-  it('has correct id and name', () => {
-    expect(strategy.id).toBe('skypilot');
-    expect(strategy.name).toBe('SkyPilot (Cloud)');
-    expect(strategy.isAsync).toBe(true);
-  });
-
-  it('detect() returns a boolean available status', async () => {
+  it('detect() returns cluster metadata when available', async () => {
     const detection = await strategy.detect();
-    expect(typeof detection.available).toBe('boolean');
+    if (!detection.available) {
+      // Skip on machines without K8s
+      return;
+    }
+    expect(detection.metadata).toBeDefined();
+    expect(detection.metadata?.clusterUrl).toMatch(/^https?:\/\//);
+    expect(Array.isArray(detection.metadata?.namespaces)).toBe(true);
+  }, 15_000);
+
+  it('buildContext() returns K8s-specific context when available', async () => {
+    const detection = await strategy.detect();
+    if (!detection.available) return;
+
+    const context = await strategy.buildContext();
+    expect(context).toContain('Kubernetes');
+    expect(context).toContain('kubectl');
+  }, 15_000);
+
+  it('execute() requires pod option', async () => {
+    const detection = await strategy.detect();
+    if (!detection.available) return;
+
+    const callbacks: ExecutionCallbacks = {
+      onStdout: vi.fn(),
+      onStderr: vi.fn(),
+      onStatus: vi.fn(),
+    };
+    const controller = new AbortController();
+
+    const result = await strategy.execute(
+      { jobId: 'test-no-pod', command: 'echo hello', cwd: process.cwd() },
+      callbacks,
+      controller.signal,
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain('pod');
   }, 10_000);
 });
 
@@ -374,15 +395,14 @@ describe('ExecutionStrategyRegistry', () => {
     expect(direct!.available).toBe(true);
   }, 15_000);
 
-  it('detectAll() includes all 5 strategies', async () => {
+  it('detectAll() includes all 4 strategies', async () => {
     const results = await registry.detectAll();
-    expect(results.length).toBe(5);
+    expect(results.length).toBe(4);
     const ids = results.map((s) => s.id);
     expect(ids).toContain('direct');
     expect(ids).toContain('slurm');
     expect(ids).toContain('docker');
     expect(ids).toContain('k8s-exec');
-    expect(ids).toContain('skypilot');
   }, 15_000);
 
   it('listAvailable() has at least 1 entry (direct)', async () => {
@@ -418,6 +438,6 @@ describe('ExecutionStrategyRegistry', () => {
   it('listAll() returns all strategies after detection', async () => {
     await registry.detectAll();
     const all = registry.listAll();
-    expect(all.length).toBe(5);
+    expect(all.length).toBe(4);
   }, 15_000);
 });

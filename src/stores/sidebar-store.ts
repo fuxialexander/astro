@@ -1,5 +1,4 @@
 import { create } from "zustand"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 
 export interface SidebarItem {
@@ -65,34 +64,18 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
       if (profile?.sidebarConfig) {
         const merged = mergeWithDefaults(profile.sidebarConfig)
         set({ items: merged, loaded: true })
-        // Cache to IndexedDB
-        saveState("sidebar-items", merged)
         return
       }
     } catch {
-      // API unavailable — fall back to IndexedDB
+      // API unavailable
     }
 
-    try {
-      const stored = await loadState<SidebarItem[]>("sidebar-items")
-      if (stored) {
-        const merged = mergeWithDefaults(stored)
-        set({ items: merged, loaded: true })
-      } else {
-        set({ loaded: true })
-      }
-    } catch (error) {
-      console.error("[SidebarStore] Failed to load:", error)
-      set({ loaded: true })
-    }
+    set({ loaded: true })
   },
 
   save: async () => {
     try {
       const items = get().items
-
-      // Save to IndexedDB (always, for offline access)
-      saveState("sidebar-items", items)
 
       // Fire-and-forget: sync to server via profile update
       dataClient.updateProfile({ sidebarConfig: items }).catch(() => {})

@@ -10,7 +10,7 @@ import { ObservationCollector } from '../observation-collector.js'
 import { executionEventBus } from '../../execution-event-bus.js'
 import type { TaskStartedEvent, TaskCompletedEvent, TaskFailedEvent, TaskCancelledEvent } from '../../events/types.js'
 import type { PlanNode, Project } from '../../../../src/types/index.js'
-import type { TaskResult } from '../../providers/types.js'
+import type { TaskResult } from '../../dispatch/types.js'
 
 // Mock the database module — we don't want real DB calls in unit tests
 vi.mock('../../db/index.js', () => ({

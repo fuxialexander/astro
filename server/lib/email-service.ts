@@ -5,6 +5,9 @@
  * In production, integrate with SendGrid, AWS SES, Resend, or similar.
  */
 
+const BASE_URL = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
+const _NOREPLY_EMAIL = process.env.ASTRO_NOREPLY_EMAIL || 'noreply@astro.app'
+
 export interface InvitationEmailData {
   to: string
   teamName: string
@@ -31,7 +34,7 @@ export async function sendInvitationEmail(data: InvitationEmailData): Promise<bo
     console.log('[email] Sending team invitation email:')
     console.log({
       to: data.to,
-      from: 'noreply@astro.fuxialexander.work',
+      from: _NOREPLY_EMAIL,
       subject: `You've been invited to join ${data.teamName} on Astro`,
       teamName: data.teamName,
       inviterName: data.inviterName,
@@ -45,7 +48,7 @@ export async function sendInvitationEmail(data: InvitationEmailData): Promise<bo
     // In production, replace with actual email sending:
     // const result = await emailProvider.send({
     //   to: data.to,
-    //   from: 'noreply@astro.fuxialexander.work',
+    //   from: '${_NOREPLY_EMAIL}',
     //   subject: `You've been invited to join ${data.teamName} on Astro`,
     //   html: emailContent,
     // })
@@ -190,7 +193,7 @@ function generateInvitationEmailHTML(data: InvitationEmailData): string {
 
     <div class="footer">
       <p>
-        This invitation was sent from <a href="https://astro.fuxialexander.work">Astro</a>,
+        This invitation was sent from <a href="${escapeHtml(BASE_URL)}">Astro</a>,
         a planning-first platform for builders and scientists.
       </p>
       <p>
@@ -246,6 +249,6 @@ This invitation will expire on ${expiryDate}.
 ⚠️ This invitation is only valid for ${data.to}. If you didn't expect this invitation, you can safely ignore this email.
 
 ---
-This invitation was sent from Astro (https://astro.fuxialexander.work), a planning-first platform for builders and scientists.
+This invitation was sent from Astro (${BASE_URL}), a planning-first platform for builders and scientists.
   `.trim()
 }

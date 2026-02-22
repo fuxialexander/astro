@@ -94,6 +94,7 @@ export interface TeamMember {
 
 export interface Project {
   id: string;
+  number?: number;      // Auto-incrementing display number (e.g., #3). UUID remains the internal ID.
   name: string;
   description: string;
   visionDoc: string;
@@ -108,8 +109,10 @@ export interface Project {
   labels?: Label[];
   color?: string;         // hex color for visual grouping
   icon?: string;          // emoji icon
-  workingDirectory?: string; // Absolute path for task execution (cwd for agents)
+  workingDirectory?: string; // @deprecated Use sourceDirectory instead. Kept for backward compatibility.
+  sourceDirectory?: string;  // Resolved absolute path where the project repo lives on disk
   repository?: string;       // Git SSH URL (e.g., git@github.com:user/repo.git)
+  resourcePaths?: string[];  // Additional local folders (data, configs, docs) besides workingDirectory
   fileTree?: string[];           // Cached git ls-files output (relative paths)
   fileTreeUpdatedAt?: string;    // ISO timestamp for staleness check
   fileTreeMachineId?: string;    // Which machine the cached fileTree belongs to ("local" or machineId)
@@ -124,6 +127,7 @@ export interface Project {
 
 export interface PlanNode {
   id: string;
+  number?: number;      // Auto-incrementing display number per project (e.g., #7). UUID remains the internal ID.
   projectId: string;
   type: 'milestone' | 'task' | 'branch' | 'decision';
   title: string;

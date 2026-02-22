@@ -1,5 +1,4 @@
 import { create } from "zustand"
-import { loadState, saveState } from "@/lib/db"
 import { apiUrl } from "@/lib/api-url"
 import { dataClient } from "@/lib/data-client"
 
@@ -8,6 +7,8 @@ interface SettingsState {
   defaultProvider: string // '' = auto/first available
   connectionStatus: "connected" | "disconnected" | "checking"
   loaded: boolean
+  loading: boolean
+  error: string | null
   load: () => Promise<void>
   checkConnection: () => Promise<void>
   setModel: (model: string) => void
@@ -19,8 +20,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   defaultProvider: "",
   connectionStatus: "disconnected",
   loaded: false,
+  loading: false,
+  error: null,
 
   load: async () => {
+    set({ loading: true, error: null })
     try {
       const settings = await dataClient.getSettings()
       if (settings.model || settings.defaultProvider) {
@@ -28,19 +32,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           model: settings.model || get().model,
           defaultProvider: settings.defaultProvider || "",
           loaded: true,
+          loading: false,
         })
-        saveState("astro-settings", { model: settings.model, defaultProvider: settings.defaultProvider })
       } else {
-        set({ loaded: true })
+        set({ loaded: true, loading: false })
       }
-    } catch {
-      // API unavailable — fall back to IndexedDB
-      const saved = await loadState<{ model: string; defaultProvider?: string }>("astro-settings")
-      if (saved) {
-        set({ model: saved.model, defaultProvider: saved.defaultProvider || "", loaded: true })
-      } else {
-        set({ loaded: true })
-      }
+    } catch (err) {
+      set({ loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load settings' })
     }
     // Check connection on load
     get().checkConnection()
@@ -60,13 +58,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setModel: (model) => {
     set({ model })
-    saveState("astro-settings", { model, defaultProvider: get().defaultProvider })
     dataClient.updateSettings({ model }).catch(() => {})
   },
 
   setDefaultProvider: (defaultProvider) => {
     set({ defaultProvider })
-    saveState("astro-settings", { model: get().model, defaultProvider })
     dataClient.updateSettings({ defaultProvider }).catch(() => {})
   },
 }))

@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mergeQueueHook } from '../merge-queue-hook.js'
 import type { TaskCompletedEvent } from '../../types.js'
 import type { PlanNode } from '../../../../../src/types/index.js'
-import type { TaskResult } from '../../../providers/types.js'
+import type { TaskResult } from '../../../dispatch/types.js'
 
 describe('Merge Queue Hook', () => {
   let originalFetch: typeof global.fetch

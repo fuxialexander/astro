@@ -51,7 +51,7 @@ For a summary of component responsibilities and mode differences, see `ARCHITECT
 | 9 | **Relay** | Add machine to registry, send `machine.register.ack` |
 | 10 | **Backend** | Broadcast `machine:connected` via `/api/events/stream` SSE |
 | 11 | **User** | Open `http://localhost:5173` in browser |
-| 12 | **Frontend** | `DataLoader` loads all 18 stores from IndexedDB (no auth required) |
+| 12 | **Frontend** | `DataLoader` triggers API fetches for all stores from the Hono backend (no auth required in local mode) |
 | 13 | **Frontend** | `realtime-store` connects to `/api/events/stream`, receives `machine:connected` |
 | 14 | **Frontend** | Dashboard shows connected machine |
 
@@ -100,7 +100,7 @@ For a summary of component responsibilities and mode differences, see `ARCHITECT
 |------|-----------|--------|
 | 1 | **Frontend** | User fills form: description, optional repo URL, optional working directory, optional environment |
 | 2 | **Frontend** | Create `Project` object: `{ id: uuid(), name: "New Project", description, status: "active", color: random, icon: random }` |
-| 3 | **Frontend** | `projectStore.addProject(project)` → Zustand + IndexedDB + API (fire-and-forget) |
+| 3 | **Frontend** | `projectStore.addProject(project)` → Zustand (optimistic) + API call |
 | 4 | **Frontend** | Navigate to `/project/{id}/plan` |
 | 5 | **Frontend** | If repo URL provided: `POST /api/repo/setup` → Relay → Agent Runner clones repo, returns `git ls-files` → update `project.fileTree` |
 | 6 | **Frontend** | `agentStore.startGeneration()` → `POST /api/agent/generate-plan` |
@@ -113,7 +113,7 @@ For a summary of component responsibilities and mode differences, see `ARCHITECT
 | 13 | **Frontend** | Parse nodes/edges. Prefix all node IDs with `projectId[:8]` for global uniqueness. |
 | 14 | **Frontend** | Auto-assign milestones via backward BFS through dependency edges |
 | 15 | **Frontend** | `planStore.setProjectPlan(projectId, nodes, edges)` → `reorganizeProject()` for auto-layout |
-| 16 | **Frontend** | Persist: IndexedDB (`"astro-plan-nodes"`, `"astro-plan-edges"`) + API (fire-and-forget) |
+| 16 | **Frontend** | Persist via API call to Hono backend (Drizzle ORM to PGlite or Postgres) |
 | 17 | **Frontend** | Plan graph rendered in React Flow (`plan-canvas.tsx`) |
 
 ### Plan JSON Format
@@ -270,7 +270,7 @@ When an AI agent needs a user decision during execution (e.g., "Should I delete 
 | 3 | **Backend** | Build prompt: `buildTaskChatSystemPrompt(context)`. Select provider, stream response. |
 | 4 | **Frontend** | Receive `"text"` → append to task chat conversation |
 | 5 | **Frontend** | Receive `"done"` → store `sessionId` for multi-turn |
-| 6 | **Frontend** | Persist: `taskChatStore` → IndexedDB `"astro-task-chats"` → API (fire-and-forget) |
+| 6 | **Frontend** | Persist: `taskChatStore` → API call |
 
 ---
 
@@ -316,8 +316,8 @@ Summary:
 | **Auth (WebSocket)** | None | JWT in `Authorization` header |
 | **Frontend → Backend** | `http://localhost:3001` | `https://astro-api.domain` |
 | **Relay → Agent Runner** | `ws://localhost:3002` | `wss://astro-relay.domain` |
-| **Primary data store** | IndexedDB (browser) | Postgres (Supabase) |
-| **IndexedDB role** | Primary store | Offline cache |
+| **Primary data store** | PGlite (local) or Postgres (server), via Drizzle ORM | Postgres (Supabase) via Drizzle ORM |
+| **IndexedDB** | Not used (removed) | Not used (removed) |
 | **Machine registration** | In-memory only | Persisted to Postgres, device code auth |
 | **Multi-user** | No | Yes, data isolated by Postgres RLS |
 | **Observability hooks** | Enabled | Enabled |

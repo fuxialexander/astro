@@ -32,13 +32,17 @@ export class ContextAssembler {
     const dependencyOutputs = this.gatherDependencyOutputs(node, allNodes)
     const graphPosition = this.calculateGraphPosition(node, allNodes, allEdges)
 
+    const projectDir = project?.sourceDirectory ?? project?.workingDirectory
+
     return {
       node,
       projectId: node.projectId,
       visionDoc: project?.visionDoc,
       dependencyOutputs,
       graphPosition,
-      workingDirectory: project?.workingDirectory ?? project?.repository,
+      workingDirectory: projectDir ?? project?.repository,
+      originalProjectDirectory: projectDir,
+      resourcePaths: project?.resourcePaths,
     }
   }
 
@@ -332,6 +336,17 @@ export class ContextAssembler {
     // Working directory
     if (context.workingDirectory) {
       parts.push(`## Working Directory\n\n${context.workingDirectory}`)
+    }
+
+    // Data access note for worktree-based execution
+    if (context.originalProjectDirectory) {
+      parts.push(`## Data Access\n\nYour working directory is a git worktree (isolated branch) inside .astro-tasks/ in the project.\nThe original project directory is: ${context.originalProjectDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
+    }
+
+    // Resource paths
+    if (context.resourcePaths && context.resourcePaths.length > 0) {
+      const pathList = context.resourcePaths.map((p) => `- ${p}`).join('\n')
+      parts.push(`## Additional Resource Folders\n\nThe following additional folders are available on this machine:\n${pathList}`)
     }
 
     // Current task

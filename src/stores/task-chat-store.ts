@@ -1,5 +1,4 @@
 import { create } from "zustand"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 
 export interface TaskChatMessage {
@@ -43,29 +42,6 @@ function createMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function serializeSessions(sessions: Map<string, TaskChatSession>): Record<string, TaskChatSession> {
-  const obj: Record<string, TaskChatSession> = {}
-  sessions.forEach((session, key) => {
-    obj[key] = session
-  })
-  return obj
-}
-
-function deserializeSessions(obj: Record<string, TaskChatSession>): Map<string, TaskChatSession> {
-  const map = new Map<string, TaskChatSession>()
-  Object.entries(obj).forEach(([key, session]) => {
-    map.set(key, {
-      ...session,
-      createdAt: new Date(session.createdAt),
-      updatedAt: new Date(session.updatedAt),
-      messages: session.messages.map((m) => ({
-        ...m,
-        timestamp: new Date(m.timestamp),
-      })),
-    })
-  })
-  return map
-}
 
 export const useTaskChatStore = create<TaskChatState>((set, get) => ({
   sessions: new Map(),
@@ -83,20 +59,13 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
           })
         }
         set({ sessions, loaded: true })
-        saveState("astro-task-chats", serializeSessions(sessions))
         return
       }
     } catch {
       // API unavailable
     }
 
-    // Fallback to IndexedDB
-    const saved = await loadState<Record<string, TaskChatSession>>("astro-task-chats")
-    if (saved) {
-      set({ sessions: deserializeSessions(saved), loaded: true })
-    } else {
-      set({ loaded: true })
-    }
+    set({ loaded: true })
   },
 
   getSession: (nodeId) => {
@@ -118,7 +87,6 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     const sessions = new Map(get().sessions)
     sessions.set(nodeId, session)
     set({ sessions })
-    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.createChatSession(nodeId, projectId).catch(() => {})
 
     return session
@@ -143,7 +111,6 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
 
     sessions.set(nodeId, updatedSession)
     set({ sessions })
-    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.addChatMessage(nodeId, newMessage).catch(() => {})
   },
 
@@ -169,7 +136,6 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
 
     sessions.set(nodeId, updatedSession)
     set({ sessions })
-    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.addChatMessage(nodeId, updatedMessages[updatedMessages.length - 1]).catch(() => {})
   },
 
@@ -211,7 +177,6 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
 
     sessions.set(nodeId, updatedSession)
     set({ sessions })
-    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.updateChatSessionId(nodeId, sessionId).catch(() => {})
   },
 
@@ -219,7 +184,6 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     const sessions = new Map(get().sessions)
     sessions.delete(nodeId)
     set({ sessions })
-    saveState("astro-task-chats", serializeSessions(sessions))
     dataClient.deleteChatSession(nodeId).catch(() => {})
   },
 }))

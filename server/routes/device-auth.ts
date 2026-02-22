@@ -175,7 +175,7 @@ deviceAuthRoute.post('/authorize', async (c) => {
       }, 400);
     }
 
-    const { deviceCode, userCode, expiresIn, interval } = createDeviceCode(body);
+    const { deviceCode, userCode, expiresIn, interval } = await createDeviceCode(body);
 
     // Verify device code was actually created
     if (!deviceCode || !userCode) {
@@ -236,7 +236,7 @@ deviceAuthRoute.post('/token', async (c) => {
       } as DeviceTokenError, 429);
     }
 
-    const entry = getDeviceCodeByUserCode(body.userCode);
+    const entry = await getDeviceCodeByUserCode(body.userCode);
 
     if (!entry) {
       // Track failed attempt by IP
@@ -257,7 +257,7 @@ deviceAuthRoute.post('/token', async (c) => {
     }
 
     // Check polling rate
-    if (checkPollRate(body.userCode)) {
+    if (await checkPollRate(body.userCode)) {
       return c.json({
         error: 'slow_down',
         errorDescription: 'Polling too fast. Please wait before retrying.',
@@ -303,7 +303,7 @@ deviceAuthRoute.post('/token', async (c) => {
         }
 
         // Mark code as used
-        markDeviceCodeUsed(body.userCode);
+        await markDeviceCodeUsed(body.userCode);
 
         // Create tokens (machine ID will be assigned during registration)
         // For now, create a temporary access token for registration
@@ -381,16 +381,16 @@ deviceAuthRoute.post('/register', async (c) => {
 
       if (!(isDev && isDevUser)) {
         const supabase = getServiceClient();
-        const { data: user, error: userError } = await supabase.auth.admin.getUserById(payload.userId);
+        const { data, error: userError } = await supabase.auth.admin.getUserById(payload.userId);
 
-        if (userError || !user) {
+        if (userError || !data?.user) {
           console.error('[device-auth] User not found in auth.users:', payload.userId, userError);
           return c.json({
             error: 'User not found. Your authentication may be stale. Please log out, log back in, and try device authorization again.',
           }, 400);
         }
 
-        console.log('[device-auth] User validated:', user.id);
+        console.log('[device-auth] User validated:', data.user.id);
       } else {
         console.log('[device-auth] Skipping validation for dev user in test mode');
       }
@@ -578,9 +578,9 @@ deviceAuthRoute.post('/revoke', async (c) => {
  * GET /device/code/:code
  * Get device code info for the authorization page
  */
-deviceAuthRoute.get('/code/:code', (c) => {
+deviceAuthRoute.get('/code/:code', async (c) => {
   const code = c.req.param('code');
-  const entry = getDeviceCodeByDeviceCode(code);
+  const entry = await getDeviceCodeByDeviceCode(code);
 
   if (!entry) {
     return c.json({ error: 'Invalid or expired device code' }, 404);
@@ -616,7 +616,7 @@ deviceAuthRoute.post('/code/:code/authorize', async (c) => {
     return c.json({ error: 'Missing userId' }, 400);
   }
 
-  const success = authorizeDeviceCode(code, body.userId);
+  const success = await authorizeDeviceCode(code, body.userId);
 
   if (!success) {
     return c.json({ error: 'Failed to authorize device code' }, 400);
@@ -632,9 +632,9 @@ deviceAuthRoute.post('/code/:code/authorize', async (c) => {
  * POST /device/code/:code/deny
  * Deny a device code (called from the web UI)
  */
-deviceAuthRoute.post('/code/:code/deny', (c) => {
+deviceAuthRoute.post('/code/:code/deny', async (c) => {
   const code = c.req.param('code');
-  const success = denyDeviceCode(code);
+  const success = await denyDeviceCode(code);
 
   if (!success) {
     return c.json({ error: 'Failed to deny device code' }, 400);
@@ -1101,7 +1101,7 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
  * Get device auth statistics (for admin/debug)
  */
 deviceAuthRoute.get('/stats', async (c) => {
-  const pendingCodes = getPendingDeviceCodes();
+  const pendingCodes = await getPendingDeviceCodes();
 
   return c.json({
     pendingDeviceCodes: pendingCodes.length,
@@ -1132,7 +1132,7 @@ deviceAuthRoute.post('/test/auto-approve', requireAuth, async (c) => {
     const user = c.get('user') as { id: string };
 
     // Auto-approve with the authenticated user's ID
-    const success = authorizeDeviceCode(deviceCode, user.id);
+    const success = await authorizeDeviceCode(deviceCode, user.id);
 
     if (!success) {
       return c.json({ error: 'Failed to approve device code' }, 400);

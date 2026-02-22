@@ -4,6 +4,7 @@ import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, pr
 export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').notNull(),
+  number: integer('number'),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   visionDoc: text('vision_doc').notNull().default(''),
@@ -19,6 +20,7 @@ export const projects = pgTable('projects', {
   color: text('color').default('#3b82f6'),
   icon: text('icon').default('📋'),
   workingDirectory: text('working_directory'),
+  sourceDirectory: text('source_directory'),
   repository: text('repository'),
   defaultEnvironment: text('default_environment'),
   defaultMachineId: text('default_machine_id'),
@@ -41,6 +43,7 @@ export const initiatives = pgTable('initiatives', {
   lead: text('lead'),
   color: text('color').default('#3b82f6'),
   icon: text('icon').default('🎯'),
+  teamId: uuid('team_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
@@ -82,6 +85,7 @@ export const planNodes = pgTable('plan_nodes', {
   id: uuid('id').primaryKey().defaultRandom(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   clientId: text('client_id').notNull(), // Preserve client-generated IDs for compatibility
+  number: integer('number'),
   type: text('type').notNull(), // 'milestone' | 'task' | 'branch' | 'decision'
   title: text('title').notNull(),
   description: text('description').notNull().default(''),
@@ -418,6 +422,77 @@ export const connectedAccounts = pgTable('connected_accounts', {
   externalId: text('external_id'),
   enabled: boolean('enabled').notNull().default(true),
   connectedAt: timestamp('connected_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// ── WebAuthn Challenges ─────────────────────────────────────────
+// Stores short-lived WebAuthn challenges for cross-instance verification.
+// Fixes production auth bug: challenges created on Machine A are now
+// visible to Machine B during verification.
+export const webauthnChallenges = pgTable('webauthn_challenges', {
+  key: text('key').primaryKey(),
+  challenge: text('challenge').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// ── Device Codes ────────────────────────────────────────────────
+// OAuth2 device authorization codes (RFC 8628).
+// Previously in-memory — now persistent for multi-instance support.
+export const deviceCodes = pgTable('device_codes', {
+  userCode: text('user_code').primaryKey(),
+  deviceCode: text('device_code').notNull().unique(),
+  scopes: text('scopes').array().notNull().default([]),
+  machineInfo: jsonb('machine_info'),
+  status: text('status').notNull().default('pending'), // 'pending' | 'authorized' | 'denied' | 'expired' | 'used'
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  authorizedBy: text('authorized_by'),
+  authorizedAt: timestamp('authorized_at'),
+  lastPolledAt: timestamp('last_polled_at'),
+})
+
+// ── Chat Sessions ───────────────────────────────────────────────
+// Server-side SDK session pool for hybrid resume/fallback.
+// Previously in-memory TTL map — now persistent for multi-instance support.
+export const chatSessions = pgTable('chat_sessions', {
+  key: text('key').primaryKey(),
+  sdkSessionId: text('sdk_session_id').notNull(),
+  providerId: text('provider_id').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at').notNull().defaultNow(),
+})
+
+// ── Shared Bundles ──────────────────────────────────────────────
+// Stores shared plan export bundles for the /api/share endpoints.
+// Previously in-memory Map — now persistent.
+export const sharedBundles = pgTable('shared_bundles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bundle: jsonb('bundle').notNull(),
+  downloads: integer('downloads').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// ── Dispatch Queue Entries ──────────────────────────────────────
+// Persisted dispatch queue for multi-instance consistency.
+// Previously a complex multi-Map in-memory structure.
+export const dispatchQueueEntries = pgTable('dispatch_queue_entries', {
+  id: text('id').primaryKey(),
+  nodeId: text('node_id').notNull(),
+  projectId: uuid('project_id').notNull(),
+  status: text('status').notNull().default('ready'), // DispatchStatus
+  priority: text('priority').notNull().default('normal'), // DispatchPriority
+  environment: text('environment').notNull().default('local'),
+  preferredProvider: text('preferred_provider'),
+  targetMachineId: text('target_machine_id'),
+  retryCount: integer('retry_count').notNull().default(0),
+  maxRetries: integer('max_retries').notNull().default(2),
+  executionId: text('execution_id'),
+  sessionId: text('session_id'),
+  lastDispatchAttempt: timestamp('last_dispatch_attempt'),
+  lastError: text('last_error'),
+  procedureState: jsonb('procedure_state'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 

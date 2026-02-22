@@ -119,7 +119,7 @@ function getProjectColumns(
               onClick={(e) => e.stopPropagation()}
               className="text-sm truncate flex-1 hover:underline"
             >
-              {p.name}
+              {p.number != null && <span className="text-muted-foreground font-normal mr-1.5">#{p.number}</span>}{p.name}
             </Link>
           )}
         </div>
@@ -685,7 +685,7 @@ export function Projects() {
                       type="project"
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{proj.name}</div>
+                      <div className="text-sm font-medium truncate">{proj.number != null && <span className="text-muted-foreground font-normal mr-1">#{proj.number}</span>}{proj.name}</div>
                       <div className="text-[11px] text-muted-foreground">
                         {counts?.total ?? 0} tasks &middot; {statusLabel}
                       </div>
@@ -763,7 +763,7 @@ export function Projects() {
                                 icon={project.icon}
                                 type="project"
                               />
-                              <span className="text-sm font-medium leading-snug">{project.name}</span>
+                              <span className="text-sm font-medium leading-snug">{project.number != null && <span className="text-muted-foreground font-normal mr-1">#{project.number}</span>}{project.name}</span>
                             </div>
                             <div className="mb-2">
                               <div className="flex items-center justify-between mb-1">

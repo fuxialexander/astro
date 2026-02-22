@@ -10,7 +10,7 @@ import type { EventHook } from '../types.js'
 import { channelRouter } from '../../channel/channel-router.js'
 import type { ChannelNotification, NotificationType } from '../../channel/channel-types.js'
 
-const BASE_URL = process.env.ASTRO_BASE_URL || 'https://astro.fuxialexander.work'
+const BASE_URL = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
 
 export const channelNotificationHook: EventHook = async (event) => {
   let notification: ChannelNotification | null = null

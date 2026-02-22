@@ -1,12 +1,13 @@
 import { create } from "zustand"
 import type { Project } from "@/types"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 import { usePlanStore } from "@/stores/plan-store"
 
 interface ProjectState {
   projects: Project[]
   loaded: boolean
+  loading: boolean
+  error: string | null
   load: () => Promise<void>
   addProject: (project: Project) => void
   updateProject: (id: string, updates: Partial<Project>) => void
@@ -20,28 +21,28 @@ const SEED_PROJECTS: Project[] = []
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   loaded: false,
+  loading: false,
+  error: null,
 
   load: async () => {
+    set({ loading: true, error: null })
     try {
       const projects = await dataClient.listProjects()
-      set({ projects, loaded: true })
-      // Update IndexedDB cache for offline fallback
-      saveState("astro-projects", projects)
-    } catch {
-      // API unavailable — fall back to IndexedDB cache
-      const saved = await loadState<Project[]>("astro-projects")
-      if (saved) {
-        set({ projects: saved.map(p => ({ ...p, createdAt: new Date(p.createdAt), updatedAt: new Date(p.updatedAt) })), loaded: true })
-      } else {
-        set({ projects: SEED_PROJECTS, loaded: true })
-      }
+      set({ projects, loaded: true, loading: false })
+    } catch (err) {
+      set({ projects: SEED_PROJECTS, loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load projects' })
     }
   },
 
   addProject: (project) => {
+    // Auto-assign display number if not set
+    if (project.number == null) {
+      const existing = get().projects
+      const maxNumber = existing.reduce((max, p) => Math.max(max, p.number ?? 0), 0)
+      project = { ...project, number: maxNumber + 1 }
+    }
     const next = [...get().projects, project]
     set({ projects: next })
-    saveState("astro-projects", next)
     dataClient.createProject(project).catch(() => {})
   },
 
@@ -50,7 +51,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       p.id === id ? { ...p, ...updates, updatedAt: new Date() } : p
     )
     set({ projects: next })
-    saveState("astro-projects", next)
     dataClient.updateProject(id, updates).catch(() => {})
   },
 
@@ -59,14 +59,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       p.id === id ? { ...p, fileTree: files, fileTreeUpdatedAt: new Date().toISOString(), fileTreeMachineId: machineId || 'local', updatedAt: new Date() } : p
     )
     set({ projects: next })
-    saveState("astro-projects", next)
-    // fileTree stays in IndexedDB only — too large for API
   },
 
   deleteProject: (id) => {
     const next = get().projects.filter((p) => p.id !== id)
     set({ projects: next })
-    saveState("astro-projects", next)
     dataClient.deleteProject(id).catch(() => {})
     // Clean up all plan nodes and edges for this project
     usePlanStore.getState().removeProjectPlan(id)

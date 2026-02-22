@@ -28,7 +28,6 @@ import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
 import { skillManager } from './lib/skill-manager.js'
 import { runMigrations } from './lib/db/migrate.js'
-import { initializeProviders } from './lib/providers/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
@@ -48,156 +47,169 @@ import { loadAndActivateChannelPlugins } from './lib/plugin-loader.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
 import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
-import { cleanupExpired as cleanupChatPool } from './lib/chat-session-pool.js'
+import { cleanupExpiredChallenges } from './lib/challenge-store.js'
+import { cleanupExpiredDeviceCodes } from './lib/device-code-store.js'
 
 // Validate environment variables on startup
 try {
   validateEnvironment()
 } catch {
   console.error('❌ Environment validation failed')
-  process.exit(1)
+  if (!isTest()) process.exit(1)
 }
 
-const app = new Hono()
+/**
+ * Create and configure the Hono app with all middleware and routes.
+ * Exported for integration testing via app.request().
+ */
+export function createApp() {
+  const app = new Hono()
 
-// Security headers
-app.use('/*', secureHeaders({
-  contentSecurityPolicy: {
-    defaultSrc: ["'self'"],
-    scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdnjs.cloudflare.com"],
-    styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-    imgSrc: ["'self'", "data:", "https:"],
-    connectSrc: ["'self'", "ws:", "wss:"],
-    fontSrc: ["'self'", "data:", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-  },
-  strictTransportSecurity: "max-age=31536000; includeSubDomains",
-  xFrameOptions: "DENY",
-  xContentTypeOptions: "nosniff",
-}))
-
-// Explicit allowed origins list
-// CORS_ORIGIN and FRONTEND_URL can be set to add production origins
-const ALLOWED_ORIGINS = [
-  'http://localhost:5173',
-  'https://astro.fuxialexander.work',
-  'https://astro.pages.dev',
-  process.env.CORS_ORIGIN,
-  process.env.FRONTEND_URL,
-].filter(Boolean) as string[]
-
-app.use('/*', cors({
-  origin: (origin) => {
-    if (isProduction()) {
-      // In production, require explicit origin match
-      if (!origin) return null
-      return ALLOWED_ORIGINS.includes(origin) ? origin : null
-    }
-    // Dev/test mode: allow localhost and explicit origins only
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
-      return origin || 'http://localhost:5173'
-    }
-    return null
-  },
-  allowHeaders: ['Content-Type', 'Authorization', 'Last-Event-ID'],
-  credentials: true,
-}))
-
-// Global rate limiter (10,000 req/15min per IP) - bypassed in test mode
-if (!isTest()) {
-  app.use('/*', rateLimiter({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    limit: 10000, // 100x from 100 (generous for development)
-    standardHeaders: 'draft-7',
-    keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
-  }))
-}
-
-// Auth endpoints rate limiter (3,000 req/15min per IP) - bypassed in test mode
-// Higher limit to accommodate WebAuthn flows (register-options, login-options, verify)
-if (!isTest()) {
-  app.use('/api/auth/*', rateLimiter({
-    windowMs: 15 * 60 * 1000,
-    limit: 3000, // 100x from 30 - generous for development
-    standardHeaders: 'draft-7',
-    keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+  // Security headers
+  app.use('/*', secureHeaders({
+    contentSecurityPolicy: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdnjs.cloudflare.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+      fontSrc: ["'self'", "data:", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+    },
+    strictTransportSecurity: "max-age=31536000; includeSubDomains",
+    xFrameOptions: "DENY",
+    xContentTypeOptions: "nosniff",
   }))
 
-  // Device endpoints rate limiter - excludes /token which has its own rate limiting
-  app.use('/api/device/*', async (c, next) => {
-    // Skip rate limiting for token polling endpoint (has its own internal rate limiting)
-    if (c.req.path === '/api/device/token') {
-      return next()
-    }
+  // Explicit allowed origins list — all production origins come from env vars.
+  // Set CORS_ORIGIN and/or FRONTEND_URL in deployment config (fly.toml, .env).
+  const ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    process.env.CORS_ORIGIN,
+    process.env.FRONTEND_URL,
+  ].filter(Boolean) as string[]
 
-    return rateLimiter({
-      windowMs: 15 * 60 * 1000,
-      limit: 2000, // 100x from 20 - generous for development
+  app.use('/*', cors({
+    origin: (origin) => {
+      if (isProduction()) {
+        // In production, require explicit origin match
+        if (!origin) return null
+        return ALLOWED_ORIGINS.includes(origin) ? origin : null
+      }
+      // Dev/test mode: allow localhost and explicit origins only
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+        return origin || 'http://localhost:5173'
+      }
+      return null
+    },
+    allowHeaders: ['Content-Type', 'Authorization', 'Last-Event-ID', 'X-Team-Id', 'X-User-Id'],
+    credentials: true,
+  }))
+
+  // Global rate limiter (10,000 req/15min per IP) - bypassed in test mode
+  if (!isTest()) {
+    app.use('/*', rateLimiter({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      limit: 10000, // 100x from 100 (generous for development)
       standardHeaders: 'draft-7',
       keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
-    })(c, next)
+    }))
+  }
+
+  // Auth endpoints rate limiter (3,000 req/15min per IP) - bypassed in test mode
+  // Higher limit to accommodate WebAuthn flows (register-options, login-options, verify)
+  if (!isTest()) {
+    app.use('/api/auth/*', rateLimiter({
+      windowMs: 15 * 60 * 1000,
+      limit: 3000, // 100x from 30 - generous for development
+      standardHeaders: 'draft-7',
+      keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+    }))
+
+    // Device endpoints rate limiter - excludes /token which has its own rate limiting
+    app.use('/api/device/*', async (c, next) => {
+      // Skip rate limiting for token polling endpoint (has its own internal rate limiting)
+      if (c.req.path === '/api/device/token') {
+        return next()
+      }
+
+      return rateLimiter({
+        windowMs: 15 * 60 * 1000,
+        limit: 2000, // 100x from 20 - generous for development
+        standardHeaders: 'draft-7',
+        keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+      })(c, next)
+    })
+  }
+
+  // AI endpoints rate limiter (1,000 req/hour) - bypassed in test mode
+  if (!isTest()) {
+    app.use('/api/agent/*', rateLimiter({
+      windowMs: 60 * 60 * 1000, // 1 hour
+      limit: 1000, // 100x from 10 - generous for development
+      standardHeaders: 'draft-7',
+      keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+    }))
+  }
+
+  // Routes that work in both local and server mode
+  app.route('/.well-known', wellKnownRoute)
+  app.route('/api', healthRoute)
+  app.route('/api/agent', agentRoute)
+  app.route('/api/relay', relayRoute)
+  app.route('/api/dispatch', dispatchRoute)
+  app.route('/api/device', deviceAuthRoute)
+  app.route('/api/events', eventsRoute)
+  app.route('/api/transcribe', transcribeRoute)
+  app.route('/api/fs', fsRoute)
+  app.route('/api/repo', repoRoute)
+  app.route('/api/data', dataRoute)
+  app.route('/api/system', systemRoute)
+  app.route('/api/skills', skillsRoute)
+  app.route('/api/observations', observationsRoute)
+  app.route('/api/teams', teamsRoute)
+
+  // Server-only routes (require Supabase Auth)
+  if (!isIndexedDBMode()) {
+    app.route('/api/auth', authRoute)
+    app.route('/api/notifications', notificationsRoute)
+    app.route('/api/github', githubRoute)
+    app.route('/api/share', shareRoute)
+    app.route('/api/connected-accounts', connectedAccountsRoute)
+  }
+
+  // Landing page route
+  const __filename = fileURLToPath(import.meta.url)
+  const __dirname = dirname(__filename)
+
+  app.get('/landing', (c) => {
+    try {
+      const html = readFileSync(join(__dirname, '../astro-landing.html'), 'utf-8')
+      return c.html(html)
+    } catch (err) {
+      console.error('[landing] Failed to read landing page:', err)
+      return c.text('Landing page not found', 404)
+    }
   })
+
+  app.get('/landing/about', (c) => {
+    try {
+      const html = readFileSync(join(__dirname, '../astro-about.html'), 'utf-8')
+      return c.html(html)
+    } catch (err) {
+      console.error('[landing] Failed to read about page:', err)
+      return c.text('About page not found', 404)
+    }
+  })
+
+  return app
 }
-
-// AI endpoints rate limiter (1,000 req/hour) - bypassed in test mode
-if (process.env.NODE_ENV !== 'test') {
-  app.use('/api/agent/*', rateLimiter({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    limit: 1000, // 100x from 10 - generous for development
-    standardHeaders: 'draft-7',
-    keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
-  }))
-}
-
-app.route('/.well-known', wellKnownRoute)
-app.route('/api', healthRoute)
-app.route('/api/auth', authRoute)
-app.route('/api/agent', agentRoute)
-app.route('/api/relay', relayRoute)
-app.route('/api/dispatch', dispatchRoute)
-app.route('/api/device', deviceAuthRoute)
-app.route('/api/events', eventsRoute)
-app.route('/api/transcribe', transcribeRoute)
-app.route('/api/fs', fsRoute)
-app.route('/api/repo', repoRoute)
-app.route('/api/data', dataRoute)
-app.route('/api/notifications', notificationsRoute)
-app.route('/api/github', githubRoute)
-app.route('/api/system', systemRoute)
-app.route('/api/skills', skillsRoute)
-app.route('/api/share', shareRoute)
-app.route('/api/connected-accounts', connectedAccountsRoute)
-app.route('/api/observations', observationsRoute)
-app.route('/api/teams', teamsRoute)
-
-// Landing page route
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-app.get('/landing', (c) => {
-  try {
-    const html = readFileSync(join(__dirname, '../astro-landing.html'), 'utf-8')
-    return c.html(html)
-  } catch (err) {
-    console.error('[landing] Failed to read landing page:', err)
-    return c.text('Landing page not found', 404)
-  }
-})
-
-app.get('/landing/about', (c) => {
-  try {
-    const html = readFileSync(join(__dirname, '../astro-about.html'), 'utf-8')
-    return c.html(html)
-  } catch (err) {
-    console.error('[landing] Failed to read about page:', err)
-    return c.text('About page not found', 404)
-  }
-})
 
 const port = 3001
 const relayPort = getRelayConfig().port
 
 let httpServer: ReturnType<typeof serve> | null = null
-let chatPoolCleanup: ReturnType<typeof setInterval> | null = null
+let challengeCleanup: ReturnType<typeof setInterval> | null = null
+let deviceCodeCleanup: ReturnType<typeof setInterval> | null = null
 
 /**
  * Kill any stale processes listening on a port.
@@ -221,26 +233,26 @@ async function start() {
   killStalePortProcess(port)
   killStalePortProcess(relayPort)
 
-  // Run database migrations
+  // Run database migrations (initializes DB connection + runs PGlite migrations in local mode)
   try {
-    runMigrations()
+    await runMigrations()
   } catch (err) {
     console.error('[db] Migration failed:', err)
   }
 
-  console.log('[backend] initializing provider registry...')
-
-  try {
-    // Timeout provider detection after 15 seconds so server starts even if detection hangs
-    await Promise.race([
-      initializeProviders(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Provider detection timed out')), 15_000)),
-    ])
-    console.log('[backend] provider registry initialized')
-  } catch (error) {
-    console.warn('[backend] provider initialization warning:', error)
-    // Continue even if initialization fails - providers can be detected on-demand
+  // Bootstrap local-mode team and user (PGlite only)
+  if (isIndexedDBMode()) {
+    try {
+      const { bootstrapLocalMode } = await import('./lib/db/bootstrap-local.js')
+      await bootstrapLocalMode()
+    } catch (err) {
+      console.error('[bootstrap] Local-mode bootstrap failed:', err)
+    }
   }
+
+  console.log('[backend] initializing server (relay-only mode)...')
+
+  const app = createApp()
 
   // Load skills
   try {
@@ -396,14 +408,31 @@ async function start() {
     console.log('[cleanup] Cleanup scheduler started')
   }
 
-  // Clean expired chat session pool entries every 10 minutes
+  // Periodic cleanup tasks
   if (!isTest()) {
-    chatPoolCleanup = setInterval(() => {
-      const cleaned = cleanupChatPool(30 * 60 * 1000)
-      if (cleaned > 0) {
-        console.log(`[chat-pool] Cleaned ${cleaned} expired session(s)`)
+    // Clean expired WebAuthn challenges every minute
+    challengeCleanup = setInterval(async () => {
+      try {
+        const cleaned = await cleanupExpiredChallenges()
+        if (cleaned > 0) {
+          console.log(`[auth] Cleaned ${cleaned} expired challenge(s)`)
+        }
+      } catch (err) {
+        console.warn('[auth] Challenge cleanup failed:', (err as Error).message)
       }
-    }, 10 * 60 * 1000)
+    }, 60 * 1000)
+
+    // Clean expired device codes every 5 minutes
+    deviceCodeCleanup = setInterval(async () => {
+      try {
+        const cleaned = await cleanupExpiredDeviceCodes()
+        if (cleaned > 0) {
+          console.log(`[device-auth] Cleaned ${cleaned} expired device code(s)`)
+        }
+      } catch (err) {
+        console.warn('[device-auth] Device code cleanup failed:', (err as Error).message)
+      }
+    }, 5 * 60 * 1000)
   }
 
   httpServer = serve({ fetch: app.fetch, port })
@@ -447,9 +476,8 @@ async function shutdown(signal: string) {
   }, 3_000)
   timer.unref()
 
-  if (chatPoolCleanup) {
-    clearInterval(chatPoolCleanup)
-  }
+  if (challengeCleanup) clearInterval(challengeCleanup)
+  if (deviceCodeCleanup) clearInterval(deviceCodeCleanup)
 
   try {
     stopCleanupScheduler()
@@ -467,4 +495,8 @@ async function shutdown(signal: string) {
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
-start()
+// Only start the server when not running in test mode.
+// Tests use createApp() + app.request() for in-process testing.
+if (!isTest()) {
+  start()
+}

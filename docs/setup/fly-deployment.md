@@ -131,7 +131,9 @@ YOU (operator, on your dev machine)
 │                                         Fly.io runs it as a VM
 │                                         Backend is live at https://astro-backend-platform.fly.dev
 │
-├── VITE_API_BASE_URL=https://astro-backend-platform.fly.dev \
+├── VITE_API_BASE_URL=... \
+│   VITE_SUPABASE_URL=... \
+│   VITE_SUPABASE_ANON_KEY=... \
 │   npm run build                       → builds src/ into dist/ (static files)
 │   wrangler pages deploy dist          → uploads dist/ to Cloudflare Pages
 │                                         Frontend is live at https://astro-app.pages.dev
@@ -141,7 +143,7 @@ YOU (operator, on your dev machine)
                                           End users install with: npm install -g @astro/agent
 ```
 
-The frontend build step bakes in `VITE_API_BASE_URL` — this tells the React app where the backend is. Without it, the app would try to call `/api/...` on the same domain (which works in local dev via Vite proxy, but not in production where the frontend and backend are on different domains).
+The frontend build step bakes in three `VITE_*` env vars. `VITE_API_BASE_URL` tells the React app where the backend is (without it, the app calls `/api/...` on the same domain — works in local dev via Vite proxy, not in production). `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` enable auth mode — without them, the app detects "local mode" and skips authentication entirely (no login page).
 
 ### Why this architecture
 
@@ -253,9 +255,10 @@ DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supaba
 WEBAUTHN_RP_ID=astro-backend-platform.fly.dev
 WEBAUTHN_ORIGIN=https://astro-backend-platform.fly.dev
 
-# --- CORS ---
-CORS_ORIGIN=https://astro.fuxialexander.work
-FRONTEND_URL=https://astro.fuxialexander.work
+# --- Frontend URLs (set to your actual frontend domain) ---
+ASTRO_BASE_URL=https://your-frontend-domain.com
+CORS_ORIGIN=https://your-frontend-domain.com
+FRONTEND_URL=https://your-frontend-domain.com
 ```
 
 Push secrets to Fly.io:
@@ -325,15 +328,75 @@ Expected response:
 
 ### Step 6: Deploy frontend
 
+The frontend build requires three `VITE_*` env vars baked in at build time:
+
+| Variable | Purpose |
+|----------|---------|
+| `VITE_API_BASE_URL` | Backend API URL (where `fetch('/api/...')` calls go) |
+| `VITE_SUPABASE_URL` | Supabase project URL (enables auth mode — without it, the app runs in local/no-auth mode) |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon key (used by the Supabase JS client for session management) |
+
 ```bash
-# Build with the backend URL baked into the JS bundle
-VITE_API_BASE_URL=https://astro-backend-platform.fly.dev npm run build
+# Build with all three env vars
+VITE_API_BASE_URL=https://astro-backend-platform.fly.dev \
+VITE_SUPABASE_URL=https://<ref>.supabase.co \
+VITE_SUPABASE_ANON_KEY=eyJ... \
+npm run build
 
 # Deploy static files to Cloudflare Pages
 wrangler pages deploy dist --project-name=astro-app
 ```
 
-Verify: open `https://astro-app.pages.dev` (or your custom domain) in a browser. The dashboard should load and the backend health indicator (Settings page) should show connected.
+**Without `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`**, the frontend detects "local mode" (`shouldUseSupabase()` returns false), `AuthGuard` passes through without checking auth, and users see the app directly — no login page, no registration.
+
+Verify: open `https://astro-app.pages.dev` (or your custom domain) in a browser. You should see the login page. The dashboard should load after authentication and the backend health indicator (Settings page) should show connected.
+
+#### Branch deploys
+
+When you deploy from a non-main branch, Cloudflare Pages creates a **branch-specific URL** instead of updating the production URL:
+
+```
+Production (main):  https://astro-app-29q.pages.dev
+Branch deploy:      https://<branch-name>.astro-app-29q.pages.dev
+```
+
+The branch URL is a different origin, so **the backend must be updated to allow it**. Four Fly.io secrets need to match the frontend URL:
+
+| Secret | What it controls | Example value for branch deploy |
+|--------|------------------|---------------------------------|
+| `CORS_ORIGIN` | Which origins can make cross-origin API requests | `https://<branch>.astro-app-29q.pages.dev` |
+| `FRONTEND_URL` | Second allowed CORS origin | `https://<branch>.astro-app-29q.pages.dev` |
+| `WEBAUTHN_ORIGIN` | Expected origin for passkey verification | `https://<branch>.astro-app-29q.pages.dev` |
+| `WEBAUTHN_RP_ID` | Relying Party ID (registrable domain, not the full subdomain) | `astro-app-29q.pages.dev` |
+
+```bash
+# Update backend secrets for a branch deploy
+BRANCH_URL=https://<branch-name>.astro-app-29q.pages.dev
+fly secrets set \
+  CORS_ORIGIN="$BRANCH_URL" \
+  FRONTEND_URL="$BRANCH_URL" \
+  WEBAUTHN_ORIGIN="$BRANCH_URL" \
+  WEBAUTHN_RP_ID="astro-app-29q.pages.dev" \
+  --app astro-backend-platform
+```
+
+Fly.io restarts both machines automatically when secrets change (rolling deploy, no downtime).
+
+**If you skip this step**, users will see "Something went wrong. Please try again." on the login page because:
+1. The browser's `fetch()` to the backend is blocked by CORS (origin not in allowed list)
+2. Even if CORS passed, WebAuthn verification would reject the credential because `expectedOrigin` doesn't match
+
+**When switching back to production**, restore the production values:
+
+```bash
+fly secrets set \
+  ASTRO_BASE_URL="https://your-production-domain.com" \
+  CORS_ORIGIN="https://your-production-domain.com" \
+  FRONTEND_URL="https://your-production-domain.com" \
+  WEBAUTHN_ORIGIN="https://your-production-domain.com" \
+  WEBAUTHN_RP_ID="your-production-domain.com" \
+  --app astro-backend-platform
+```
 
 ### Step 7: Connect an agent runner
 
@@ -445,8 +508,15 @@ git push origin main
 fly deploy --app astro-backend-platform
 # or: bash scripts/deploy-fly.sh
 
-# Frontend
-VITE_API_BASE_URL=https://astro-backend-platform.fly.dev npm run deploy:frontend
+# Frontend (production) — requires all three VITE_* env vars
+VITE_API_BASE_URL=https://astro-backend-platform.fly.dev \
+VITE_SUPABASE_URL=https://<ref>.supabase.co \
+VITE_SUPABASE_ANON_KEY=eyJ... \
+npm run build && wrangler pages deploy dist --project-name=astro-app
+
+# Frontend (branch deploy) — same build, Cloudflare auto-creates branch URL
+# IMPORTANT: After deploying, update Fly.io secrets to allow the branch URL
+# (see "Branch deploys" in Step 6 above)
 
 # Re-run migrations after adding new .sql files
 for f in supabase/migrations/*.sql; do
@@ -559,12 +629,10 @@ Access to fetch at 'https://astro-backend-platform.fly.dev/api/...' from origin
 
 The backend allows these origins:
 - `http://localhost:5173` (always, for local dev)
-- `https://astro.fuxialexander.work` (hardcoded)
-- `https://astro.pages.dev` (hardcoded)
 - Whatever is in `CORS_ORIGIN` env var
 - Whatever is in `FRONTEND_URL` env var
 
-If your frontend URL isn't in that list, add it:
+There are **no hardcoded production domains** in the source code — all production origins must be configured via environment variables. If your frontend URL isn't in that list, add it:
 
 ```bash
 fly secrets set CORS_ORIGIN="https://your-frontend-url.com" --app astro-backend-platform
@@ -703,6 +771,64 @@ fly secrets set \
 
 ---
 
+## Domain Configuration for Release
+
+All production URLs are configured entirely via environment variables — **no hardcoded domains in source code**. This means switching from a staging domain to a final `.com` domain requires only updating Fly.io secrets and rebuilding the frontend.
+
+### URL-related environment variables
+
+| Variable | Used by | Purpose |
+|----------|---------|---------|
+| `ASTRO_BASE_URL` | Device auth, email notifications, channel notifications | Frontend URL in user-facing links (verification pages, emails) |
+| `FRONTEND_URL` | CORS, invite links | CORS allowed origin + team invitation URLs |
+| `CORS_ORIGIN` | CORS | Additional allowed CORS origin (if frontend has multiple URLs) |
+| `WEBAUTHN_RP_ID` | Passkey auth | Registrable domain for WebAuthn (e.g., `yourdomain.com`) |
+| `WEBAUTHN_ORIGIN` | Passkey auth | Full origin URL for WebAuthn verification |
+| `ASTRO_NOREPLY_EMAIL` | Email service | Sender address for invitation emails (default: `noreply@astro.app`) |
+
+### Switching to a new domain
+
+When moving from staging (e.g., `*.pages.dev`) to a final domain (e.g., `https://astro.com`):
+
+```bash
+# 1. Update all Fly.io secrets at once
+fly secrets set \
+  ASTRO_BASE_URL="https://astro.com" \
+  FRONTEND_URL="https://astro.com" \
+  CORS_ORIGIN="https://astro.com" \
+  WEBAUTHN_ORIGIN="https://astro.com" \
+  WEBAUTHN_RP_ID="astro.com" \
+  ASTRO_NOREPLY_EMAIL="noreply@astro.com" \
+  --app astro-backend-platform
+
+# 2. Rebuild and deploy frontend with the new API URL
+VITE_API_BASE_URL=https://api.astro.com \
+VITE_SUPABASE_URL=https://<ref>.supabase.co \
+VITE_SUPABASE_ANON_KEY=eyJ... \
+npm run build && wrangler pages deploy dist --project-name=astro-app
+
+# 3. Update Supabase config (if using self-hosted Supabase)
+# Edit supabase/config.toml: site_url, jwt_issuer
+```
+
+### Files with localhost fallbacks (dev only)
+
+These files use `localhost` as defaults when env vars are unset. This is correct — they only apply during local development:
+
+| File | Default | Env var override |
+|------|---------|-----------------|
+| `server/routes/device-auth.ts` | `http://localhost:5173` | `ASTRO_BASE_URL` |
+| `server/lib/events/hooks/channel-notification-hook.ts` | `http://localhost:5173` | `ASTRO_BASE_URL` |
+| `server/lib/email-service.ts` | `http://localhost:5173` | `ASTRO_BASE_URL` |
+| `server/routes/teams.ts` | `http://localhost:5173` | `FRONTEND_URL` |
+| `packages/agent-runner/src/lib/config.ts` | `http://localhost:3001` | CLI `--api` flag |
+
+### Supabase config (local dev only)
+
+`supabase/config.toml` contains domain references for local Supabase development (Cloudflare Tunnel URLs). These are **not used in production** — production Supabase is a managed cloud instance with its own configuration. If you're setting up a new local dev environment, update the `site_url` and `jwt_issuer` values to match your tunnel domain.
+
+---
+
 ## Environment Variables Reference
 
 ### Required
@@ -721,10 +847,12 @@ fly secrets set \
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WEBAUTHN_RP_ID` | `localhost` | Domain for passkey auth (e.g., `astro-backend-platform.fly.dev`) |
-| `WEBAUTHN_ORIGIN` | `http://localhost:5173` | Full URL for passkey auth (e.g., `https://astro-backend-platform.fly.dev`) |
-| `CORS_ORIGIN` | — | Frontend URL allowed to call backend cross-origin |
-| `FRONTEND_URL` | — | Second frontend URL allowed (e.g., custom domain) |
+| `ASTRO_BASE_URL` | `http://localhost:5173` | Frontend URL used in device auth links, emails, notifications |
+| `FRONTEND_URL` | — | Frontend URL for CORS + invite links |
+| `CORS_ORIGIN` | — | Additional CORS origin (if frontend has multiple URLs) |
+| `WEBAUTHN_RP_ID` | `localhost` | Domain for passkey auth (e.g., `yourdomain.com`) |
+| `WEBAUTHN_ORIGIN` | `http://localhost:5173` | Full URL for passkey auth (e.g., `https://yourdomain.com`) |
+| `ASTRO_NOREPLY_EMAIL` | `noreply@astro.app` | Sender address for invitation emails |
 | `REDIS_URL` | — | Redis for horizontal scaling (multiple backend instances) |
 | `RELAY_PORT` | `3002` | WebSocket relay port |
 
