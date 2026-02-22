@@ -81,6 +81,50 @@ astro-executions, astro-initiatives, astro:command-history, astro-browser-user-i
 
 ## Target State
 
+### How local and server mode use the same code
+
+Both modes use **Postgres** as the database. The difference is where Postgres runs:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     THE UNIFICATION                              │
+│                                                                  │
+│  LOCAL MODE                      SERVER MODE                     │
+│  ──────────                      ───────────                     │
+│  PGlite = Postgres compiled      Supabase = hosted Postgres      │
+│  to WebAssembly. Runs inside     (or Fly.io Postgres, AWS RDS,   │
+│  the Node.js process. No         or any Postgres provider).      │
+│  network, no install, same       Connect via TCP.                │
+│  SQL dialect.                                                    │
+│                                                                  │
+│  ┌──────────────────┐            ┌──────────────────┐           │
+│  │  Hono backend    │            │  Hono backend    │           │
+│  │                  │            │                  │           │
+│  │  Drizzle ORM ────┤            │  Drizzle ORM ────┤           │
+│  │  (generates SQL) │            │  (generates SQL) │           │
+│  └────────┬─────────┘            └────────┬─────────┘           │
+│           │                               │                      │
+│    PGlite driver                   postgres-js driver            │
+│    (in-process WASM)               (TCP connection)              │
+│           │                               │                      │
+│    ┌──────▼──────┐               ┌────────▼────────┐            │
+│    │  PGlite     │               │  Supabase /     │            │
+│    │  (Postgres  │               │  Fly.io / AWS   │            │
+│    │   in WASM)  │               │  (real Postgres) │            │
+│    │  ~/.astro/  │               │  via TCP         │            │
+│    └─────────────┘               └─────────────────┘            │
+│                                                                  │
+│  SAME Drizzle schema. SAME SQL generated. SAME query results.   │
+│  The only difference is the driver (how bytes reach Postgres).   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why this works**: PGlite is not a "Postgres-like" database. It IS Postgres — the actual C code compiled to WASM. JSONB, UUID, TIMESTAMPTZ, array columns, `ON CONFLICT`, `RETURNING` — all work identically. Drizzle ORM uses `drizzle-orm/pg-core` for the schema definition, and the same schema compiles against both the `drizzle-orm/pglite` driver and the `drizzle-orm/postgres-js` driver.
+
+**The switch is one environment variable**:
+- `DATABASE_URL` not set → PGlite (local, in-process, data in `~/.astro/data/`)
+- `DATABASE_URL` set → connect to that Postgres instance (Supabase today, any provider tomorrow)
+
 ### Frontend data flow (unified)
 
 ```
@@ -90,17 +134,367 @@ Store.load() →
   if error: set({ error, loading: false })  →  UI shows error banner
 ```
 
-No `isServerMode()`. No IndexedDB. No fallbacks. Same code in local and server.
+No `isServerMode()`. No IndexedDB. No fallbacks. Same code in local and server. The frontend doesn't know or care which Postgres is behind the API.
 
 ### Backend data flow (unified)
 
 ```
 Route handler →
-  Drizzle ORM query →
-  PGlite (if no DATABASE_URL) OR Postgres (if DATABASE_URL set)
+  const teamId = c.get('teamId')   ← set by auth middleware (fixed UUID local, real UUID server)
+  Drizzle ORM query with WHERE team_id = $teamId →
+  PGlite driver (if no DATABASE_URL) OR postgres-js driver (if DATABASE_URL set)
+  → Same SQL, same results
 ```
 
 No Supabase HTTP API for data operations. Supabase SDK only for auth ceremonies (WebAuthn, magic links) in server mode.
+
+### The `createDb()` factory — the only place modes diverge in the data layer
+
+```typescript
+// server/lib/db/index.ts — this is the ONLY file that knows about PGlite vs Postgres
+
+import * as schema from './schema'   // same schema for both
+
+export async function createDb() {
+  if (process.env.DATABASE_URL) {
+    // SERVER MODE: connect to external Postgres over TCP
+    // Could be Supabase, Fly.io Postgres, AWS RDS — any Postgres provider
+    const postgres = (await import('postgres')).default
+    const { drizzle } = await import('drizzle-orm/postgres-js')
+    const client = postgres(process.env.DATABASE_URL)
+    return drizzle(client, { schema })
+  } else {
+    // LOCAL MODE: start Postgres in-process via PGlite (WebAssembly)
+    // No network, no install, data stored on local disk
+    const { PGlite } = await import('@electric-sql/pglite')
+    const { drizzle } = await import('drizzle-orm/pglite')
+    const dataDir = process.env.ASTRO_DATA_DIR || `${process.env.HOME}/.astro/data`
+    const client = new PGlite(dataDir)
+    return drizzle({ client, schema })
+  }
+}
+```
+
+After this function runs, every route handler gets `db` and uses it the same way. No route ever checks which driver is behind `db`. The abstraction is watertight.
+
+---
+
+## Team-Based Data Scoping
+
+### Design principle
+
+All data is scoped by **team**. The team is the organizational boundary — in local mode it's an invisible singleton, in server mode it's a real entity that users create, invite members to, and pay for.
+
+**Every data query uses `team_id`.** This is the single most important rule. Not `owner_id`, not `user_id` — `team_id`. A team owns projects, not a user. A user is a member of a team and can access the team's projects based on their role.
+
+### Schema changes needed
+
+**Tables that already have `team_id`:**
+- `projects` — `team_id uuid` (currently optional, must become **required**)
+- `registered_machines` — `team_id uuid` (currently optional, must become **required**)
+
+**Tables that need `team_id` added:**
+- `initiatives` — add `team_id uuid NOT NULL` (currently scoped by `owner_id` only)
+
+**Tables that DON'T need `team_id`** (scoped via parent):
+- `plan_nodes`, `plan_edges` — scoped via `project_id` → `projects.team_id`
+- `task_executions`, `tool_traces`, `file_changes` — scoped via `project_id`
+- `sessions`, `task_chat_sessions`, `task_chat_messages` — scoped via `project_id`
+- `activity_events`, `machine_usage_logs` — scoped via `project_id`
+- `observation_events` — scoped via `project_id`
+
+**Tables scoped by user (personal, not team-scoped):**
+- `user_profiles` — personal identity
+- `display_settings` — personal UI preferences
+- `usage_metrics` — personal usage tracking
+- `passkey_credentials` — personal auth
+- `connected_accounts` — personal integrations
+- `audit_logs` — personal audit trail
+- `push_tokens` — personal notifications
+
+**Tables that are team infrastructure:**
+- `teams` — the teams themselves
+- `team_members` — user-to-team mapping with roles
+- `invite_tokens` — team invitation tokens
+
+### Migration SQL
+
+```sql
+-- Make projects.team_id required (currently optional)
+-- First, backfill any NULL team_ids
+UPDATE projects SET team_id = owner_id WHERE team_id IS NULL;
+-- For local mode, this will be the local team UUID after bootstrap
+
+ALTER TABLE projects ALTER COLUMN team_id SET NOT NULL;
+
+-- Add team_id to initiatives
+ALTER TABLE initiatives ADD COLUMN team_id uuid;
+UPDATE initiatives SET team_id = owner_id WHERE team_id IS NULL;
+ALTER TABLE initiatives ALTER COLUMN team_id SET NOT NULL;
+
+-- Make registered_machines.team_id required
+UPDATE registered_machines SET team_id = user_id WHERE team_id IS NULL;
+ALTER TABLE registered_machines ALTER COLUMN team_id SET NOT NULL;
+
+-- Add indexes for team-scoped queries
+CREATE INDEX IF NOT EXISTS idx_projects_team ON projects (team_id);
+CREATE INDEX IF NOT EXISTS idx_initiatives_team ON initiatives (team_id);
+CREATE INDEX IF NOT EXISTS idx_registered_machines_team ON registered_machines (team_id);
+```
+
+### Local mode bootstrap
+
+On first startup (when PGlite database is empty), create the implicit team:
+
+```typescript
+// server/lib/db/bootstrap.ts
+const LOCAL_TEAM_ID = '00000000-0000-0000-0000-000000000000'
+const LOCAL_USER_ID = '00000000-0000-0000-0000-000000000001'
+
+export async function bootstrapLocalMode(db: DrizzleDb) {
+  // Idempotent — safe to call every startup
+  await db.insert(teams).values({
+    id: LOCAL_TEAM_ID,
+    name: 'Local',
+    description: 'Auto-created local team',
+  }).onConflictDoNothing()
+
+  await db.insert(userProfiles).values({
+    id: LOCAL_USER_ID,
+    name: 'Local User',
+    email: 'local@astro.local',
+  }).onConflictDoNothing()
+
+  await db.insert(teamMembers).values({
+    teamId: LOCAL_TEAM_ID,
+    userId: LOCAL_USER_ID,
+    role: 'owner',
+  }).onConflictDoNothing()
+}
+```
+
+Called in `server/index.ts` after `createDb()` when `DATABASE_URL` is not set.
+
+### Auth middleware — team resolution
+
+```typescript
+// server/middleware/auth.ts
+export function authMiddleware() {
+  return async (c: Context, next: Next) => {
+    const db = c.get('db')
+
+    if (!process.env.DATABASE_URL) {
+      // Local mode: fixed user and team
+      c.set('userId', LOCAL_USER_ID)
+      c.set('teamId', LOCAL_TEAM_ID)
+      c.set('teamIds', [LOCAL_TEAM_ID])
+      return next()
+    }
+
+    // Server mode: validate JWT, resolve teams
+    const token = c.req.header('Authorization')?.replace('Bearer ', '')
+    if (!token) return c.json({ error: 'Unauthorized' }, 401)
+
+    const user = await verifyJwt(token)
+    c.set('userId', user.id)
+
+    // Resolve user's teams
+    const memberships = await db.select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, user.id))
+    const teamIds = memberships.map(m => m.teamId)
+
+    if (teamIds.length === 0) {
+      return c.json({ error: 'No team membership' }, 403)
+    }
+
+    // Active team: from header, or default to first team
+    const requestedTeam = c.req.header('X-Team-Id')
+    const activeTeam = requestedTeam && teamIds.includes(requestedTeam)
+      ? requestedTeam
+      : teamIds[0]
+
+    c.set('teamId', activeTeam)
+    c.set('teamIds', teamIds)
+    return next()
+  }
+}
+```
+
+### Data route pattern — team-scoped queries
+
+Every data endpoint uses `teamId` from context:
+
+```typescript
+// GET /api/data/projects — list projects for the active team
+app.get('/projects', async (c) => {
+  const db = c.get('db')
+  const teamId = c.get('teamId')
+  const rows = await db.select().from(projects).where(eq(projects.teamId, teamId))
+  return c.json(rows)
+})
+
+// POST /api/data/projects — create project under the active team
+app.post('/projects', async (c) => {
+  const db = c.get('db')
+  const teamId = c.get('teamId')
+  const userId = c.get('userId')
+  const body = await c.req.json()
+  const [row] = await db.insert(projects).values({
+    ...body,
+    teamId,
+    ownerId: userId,  // track who created it, but team owns it
+  }).returning()
+  return c.json(row)
+})
+
+// GET /api/data/plan-nodes?projectId=... — child entities verified via project's team
+app.get('/plan-nodes', async (c) => {
+  const db = c.get('db')
+  const teamId = c.get('teamId')
+  const projectId = c.req.query('projectId')!
+
+  // Verify the project belongs to this team (prevents cross-team access)
+  const [project] = await db.select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.teamId, teamId)))
+  if (!project) return c.json({ error: 'Not found' }, 404)
+
+  const rows = await db.select().from(planNodes).where(eq(planNodes.projectId, projectId))
+  return c.json(rows)
+})
+```
+
+### What queries change
+
+| Current query | New query |
+|---------------|-----------|
+| `WHERE owner_id = $userId` | `WHERE team_id = $teamId` |
+| `VALUES (..., owner_id: userId)` | `VALUES (..., team_id: teamId, owner_id: userId)` |
+| Child entity: no team check | Child entity: verify parent project's `team_id` matches |
+
+The `owner_id` column is kept as a "created by" audit field, but it's no longer the primary access control filter. `team_id` is.
+
+### Frontend — team context
+
+The frontend sends the active team ID via the `X-Team-Id` header (or relies on the backend default):
+
+```typescript
+// src/lib/api-client.ts
+function getHeaders(): HeadersInit {
+  const headers: HeadersInit = { 'Content-Type': 'application/json' }
+  const token = localStorage.getItem('auth-token')
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const teamId = localStorage.getItem('active-team-id')
+  if (teamId) headers['X-Team-Id'] = teamId
+  return headers
+}
+```
+
+In local mode, no `Authorization` or `X-Team-Id` headers are sent — the backend defaults to the local team.
+
+In server mode, the team switcher (sidebar dropdown) sets `active-team-id` in localStorage.
+
+### Account types and team model
+
+There are two account types:
+
+1. **Personal account** (single user) — the default. Every user gets one on registration. This is what we ship at launch.
+2. **Team account** (multi-user) — a paid upgrade. Multiple users (with different emails) can be added to a team. The team is the billing unit. This ships later.
+
+Under the hood, both account types use the same `teams` table. A personal account IS a team — a team with exactly one member. This keeps the SQL identical: all queries use `WHERE team_id = ?` regardless of whether the team has 1 member or 20.
+
+```
+PERSONAL ACCOUNT (launch):
+  User registers → auto-create team "{Name}'s workspace" → user is sole owner
+  All data scoped to that team_id
+  No invite/member management UI shown
+
+TEAM ACCOUNT (future):
+  User upgrades or creates a new team → invites other users by email
+  Multiple users share the same team_id → see each other's projects
+  Team management UI, billing per team
+```
+
+**For launch: single-user accounts only.** The team infrastructure exists in the DB and queries, but the multi-user team management UI and invite flow are not exposed. Every user has exactly one auto-created team. The UX is indistinguishable from "no teams" — the team layer is invisible.
+
+### Teams backend — what needs to be built
+
+The teams schema exists (`teams`, `team_members`, `invite_tokens` tables) but the backend routes and frontend UI are incomplete.
+
+#### Implementation priority
+
+```
+Phase A (required for launch — personal accounts with implicit teams):
+  1. Auth middleware resolves teamId ← this refactor phase
+  2. All data queries use teamId ← this refactor phase
+  3. Local bootstrap creates implicit team ← this refactor phase
+  4. Server mode: auto-create personal team on user registration ← auth.ts change
+  NO team management UI. NO invite flow. Every user = one team = one member.
+
+Phase B (post-launch — team accounts as paid upgrade):
+  5. Team CRUD endpoints (create, update, delete)
+  6. Member management (add, remove, change role)
+  7. Invite flow (create token by email, accept invite)
+  8. Team switcher UI (sidebar dropdown)
+  9. Team settings page
+  10. Billing integration (Stripe per-team subscription)
+```
+
+Phase A makes the codebase team-aware with zero UX change. Phase B adds the paid multi-user team features.
+
+#### Backend: `server/routes/team-management.ts` (Phase B, server-only)
+
+| Method | Endpoint | Description | Phase |
+|--------|----------|-------------|-------|
+| GET | `/api/teams` | List user's teams | B |
+| POST | `/api/teams` | Create a team | B |
+| GET | `/api/teams/:id` | Get team details | B |
+| PUT | `/api/teams/:id` | Update team name/description | B |
+| DELETE | `/api/teams/:id` | Delete team (owner only) | B |
+| GET | `/api/teams/:id/members` | List team members | B |
+| POST | `/api/teams/:id/members` | Add member (via invite) | B |
+| PUT | `/api/teams/:id/members/:userId` | Change member role | B |
+| DELETE | `/api/teams/:id/members/:userId` | Remove member | B |
+| POST | `/api/teams/:id/invites` | Create invite token | B |
+| GET | `/api/teams/:id/invites` | List pending invites | B |
+| DELETE | `/api/teams/:id/invites/:tokenId` | Revoke invite | B |
+| POST | `/api/invites/accept` | Accept invite (join team) | B |
+
+All endpoints require auth. Team mutation endpoints require `owner` or `admin` role in `team_members`.
+
+#### Frontend: team management pages (Phase B, server-only)
+
+| Page/Component | Route | Description | Phase |
+|----------------|-------|-------------|-------|
+| Team settings | `/settings/team` | Team name, description, danger zone (delete) | B |
+| Team members | `/settings/team/members` | Member list, role badges, remove button | B |
+| Invite members | `/settings/team/invite` | Email invite form, pending invites list | B |
+| Team switcher | sidebar component | Dropdown to switch active team | B |
+| Accept invite | `/invite/:token` | Landing page for invite links | B |
+| Billing | `/settings/billing` | Stripe checkout, plan selection, invoices | B |
+
+#### Auto-create personal team on registration (Phase A)
+
+When a new user registers (server mode), automatically create their personal team:
+
+```typescript
+// In auth.ts, after successful registration
+async function onUserRegistered(userId: string, userName: string) {
+  const [team] = await db.insert(teams).values({
+    name: `${userName}'s workspace`,
+    description: 'Personal workspace',
+  }).returning()
+
+  await db.insert(teamMembers).values({
+    teamId: team.id,
+    userId,
+    role: 'owner',
+  })
+}
+```
+
+This means every user always has at least one team, and `teamIds.length === 0` should never happen in practice (the auth middleware check is a safety net).
 
 ---
 
@@ -116,7 +510,9 @@ npm install @electric-sql/pglite
 
 ### Step 1.2: Modify `server/lib/db/index.ts` to support PGlite
 
-**Current code** connects to Postgres via `postgres-js`:
+Replace the current hardcoded Postgres connection with the `createDb()` factory described in the Target State above.
+
+**Current code** connects to Postgres via `postgres-js` only:
 ```typescript
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
@@ -124,55 +520,30 @@ const client = postgres(process.env.DATABASE_URL || 'postgresql://...')
 export const db = drizzle(client, { schema })
 ```
 
-**New code** — choose driver based on `DATABASE_URL`:
-```typescript
-import * as schema from './schema'
+**New code** — the `createDb()` factory from the Target State section. Key points:
+- `DATABASE_URL` set → `postgres-js` driver → TCP connection to external Postgres (Supabase, Fly.io, AWS RDS, etc.)
+- `DATABASE_URL` not set → `PGlite` driver → Postgres runs in-process via WASM, data in `~/.astro/data/`
+- Both drivers work with the same `drizzle-orm/pg-core` schema — same SQL, same types, same results
+- The factory is `async` because PGlite initialization is async
 
-export async function createDb() {
-  if (process.env.DATABASE_URL) {
-    // Server mode: external Postgres
-    const postgres = (await import('postgres')).default
-    const { drizzle } = await import('drizzle-orm/postgres-js')
-    const client = postgres(process.env.DATABASE_URL, {
-      max: 10,
-      idle_timeout: 20,
-      connect_timeout: 10,
-    })
-    return drizzle(client, { schema })
-  } else {
-    // Local mode: PGlite in-process
-    const { PGlite } = await import('@electric-sql/pglite')
-    const { drizzle } = await import('drizzle-orm/pglite')
-    const dataDir = process.env.ASTRO_DATA_DIR || `${process.env.HOME}/.astro/data`
-    const client = new PGlite(dataDir)
-    return drizzle({ client, schema })
-  }
-}
-
-// Singleton — initialized once at server startup
-let _db: Awaited<ReturnType<typeof createDb>>
-export async function getDb() {
-  if (!_db) _db = await createDb()
-  return _db
-}
-```
-
-**Why async**: PGlite initialization is async. The `getDb()` singleton pattern ensures it's created once.
-
-**Files to update**: Every file that imports `db` from `../lib/db` needs to switch to `await getDb()` or the db must be initialized before routes are registered in `server/index.ts`.
-
-**Simpler alternative**: Initialize `db` in `server/index.ts` before registering routes, then pass it via Hono context:
+**How routes access `db`**: Initialize in `server/index.ts` before registering routes, pass via Hono context:
 
 ```typescript
 // server/index.ts
 const db = await createDb()
+
+// In local mode, bootstrap the implicit team and user
+if (!process.env.DATABASE_URL) {
+  await bootstrapLocalMode(db)
+}
+
 app.use('*', async (c, next) => {
   c.set('db', db)
   await next()
 })
 ```
 
-Routes access via `c.get('db')`. This avoids changing every import.
+Routes access via `c.get('db')`. This avoids changing every import and ensures `db` is initialized once.
 
 ### Step 1.3: Run Drizzle migrations against PGlite on startup
 
@@ -201,61 +572,67 @@ expect(result).toEqual([])  // empty but no error = schema exists
 
 **Target**: All data operations use Drizzle ORM only.
 
-For each endpoint in `data.ts`, replace Supabase calls:
+For each endpoint in `data.ts`, replace Supabase calls with team-scoped Drizzle queries:
 
 ```typescript
-// BEFORE (Supabase HTTP API)
+// BEFORE (Supabase HTTP API, scoped by owner)
 const supabase = getServiceClient()
 const { data, error } = await supabase
   .from('projects')
   .select('*')
   .eq('owner_id', userId)
 
-// AFTER (Drizzle ORM)
+// AFTER (Drizzle ORM, scoped by team)
 const db = c.get('db')
-const data = await db.select().from(projects).where(eq(projects.ownerId, userId))
+const teamId = c.get('teamId')
+const data = await db.select().from(projects).where(eq(projects.teamId, teamId))
 ```
 
 **Endpoints to convert** (all in `server/routes/data.ts`):
-- GET /projects → `db.select().from(projects).where(...)`
-- POST /projects → `db.insert(projects).values(...).returning()`
-- GET /projects/:id → `db.select().from(projects).where(eq(projects.id, id))`
-- PUT /projects/:id → `db.update(projects).set(...).where(...).returning()`
-- DELETE /projects/:id → `db.delete(projects).where(...)`
-- GET /plan-nodes?projectId → `db.select().from(planNodes).where(...)`
-- POST /plan-nodes → `db.insert(planNodes).values(...).returning()`
-- PUT /plan-nodes/:id → `db.update(planNodes).set(...).where(...).returning()`
-- DELETE /plan-nodes/:id → `db.delete(planNodes).where(...)`
-- (same pattern for edges, profile, settings, executions, activities, sessions, initiatives, usage, display-settings, chat)
+- GET /projects → `db.select().from(projects).where(eq(projects.teamId, teamId))`
+- POST /projects → `db.insert(projects).values({ ...body, teamId, ownerId: userId }).returning()`
+- GET /projects/:id → `db.select().from(projects).where(and(eq(projects.id, id), eq(projects.teamId, teamId)))`
+- PUT /projects/:id → `db.update(projects).set(...).where(and(eq(projects.id, id), eq(projects.teamId, teamId))).returning()`
+- DELETE /projects/:id → `db.delete(projects).where(and(eq(projects.id, id), eq(projects.teamId, teamId)))`
+- GET /plan-nodes?projectId → verify project belongs to team first, then `db.select().from(planNodes).where(eq(planNodes.projectId, projectId))`
+- POST /plan-nodes → verify project belongs to team, then insert
+- PUT /plan-nodes/:id → verify via project, then update
+- DELETE /plan-nodes/:id → verify via project, then delete
+- GET /initiatives → `db.select().from(initiatives).where(eq(initiatives.teamId, teamId))`
+- (same team-scoped pattern for machines)
+- (user-scoped entities — profile, display-settings, usage — use `userId` not `teamId`)
 
 **Test for each endpoint**: Call the endpoint, verify the response matches the expected shape. Use both PGlite (no DATABASE_URL) and Postgres (with DATABASE_URL) to ensure both drivers produce the same results.
 
 ```typescript
 describe('GET /api/data/projects', () => {
+  const TEAM_A = 'aaaaaaaa-0000-0000-0000-000000000000'
+  const TEAM_B = 'bbbbbbbb-0000-0000-0000-000000000000'
+
   it('returns empty array when no projects exist', async () => {
     const res = await app.request('/api/data/projects')
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual([])
   })
 
-  it('returns projects for the authenticated user', async () => {
-    // Insert test data via Drizzle
-    await db.insert(projects).values({ id: 'p1', name: 'Test', ownerId: 'user1', ... })
+  it('returns projects for the active team', async () => {
+    await db.insert(projects).values({ id: 'p1', name: 'Test', teamId: TEAM_A, ownerId: 'user1' })
     const res = await app.request('/api/data/projects', {
-      headers: { 'x-user-id': 'user1' }  // or mock auth
+      headers: { 'X-Team-Id': TEAM_A }  // or mock auth that sets teamId
     })
     const body = await res.json()
     expect(body).toHaveLength(1)
     expect(body[0].name).toBe('Test')
   })
 
-  it('does not return other users projects', async () => {
-    await db.insert(projects).values({ id: 'p2', name: 'Other', ownerId: 'user2', ... })
+  it('does not return other team projects', async () => {
+    await db.insert(projects).values({ id: 'p2', name: 'Other Team', teamId: TEAM_B, ownerId: 'user2' })
     const res = await app.request('/api/data/projects', {
-      headers: { 'x-user-id': 'user1' }
+      headers: { 'X-Team-Id': TEAM_A }
     })
     const body = await res.json()
-    expect(body).toHaveLength(0)  // user1 can't see user2's project
+    // Only sees TEAM_A projects, not TEAM_B
+    expect(body.every((p: any) => p.teamId === TEAM_A)).toBe(true)
   })
 })
 ```
@@ -691,26 +1068,55 @@ if (process.env.DATABASE_URL) {
 }
 ```
 
-### Step 4.2: Simplify auth middleware
+### Step 4.2: Simplify auth middleware (with team resolution)
 
 ```typescript
 // server/middleware/auth.ts
+import { LOCAL_TEAM_ID, LOCAL_USER_ID } from '../lib/db/bootstrap'
+
 export function authMiddleware() {
-  return async (c, next) => {
+  return async (c: Context, next: Next) => {
+    const db = c.get('db')
+
     if (!process.env.DATABASE_URL) {
-      // Local mode: no auth, single user
-      c.set('userId', 'local')
+      // Local mode: fixed user and team (created by bootstrap)
+      c.set('userId', LOCAL_USER_ID)
+      c.set('teamId', LOCAL_TEAM_ID)
+      c.set('teamIds', [LOCAL_TEAM_ID])
       return next()
     }
-    // Server mode: validate JWT
+
+    // Server mode: validate JWT, resolve teams
     const token = c.req.header('Authorization')?.replace('Bearer ', '')
     if (!token) return c.json({ error: 'Unauthorized' }, 401)
+
     const user = await verifyJwt(token)
     c.set('userId', user.id)
+
+    // Resolve user's teams from team_members table
+    const memberships = await db.select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, user.id))
+    const teamIds = memberships.map(m => m.teamId)
+
+    if (teamIds.length === 0) {
+      return c.json({ error: 'No team membership' }, 403)
+    }
+
+    // Active team: from X-Team-Id header, or default to first
+    const requestedTeam = c.req.header('X-Team-Id')
+    const activeTeam = requestedTeam && teamIds.includes(requestedTeam)
+      ? requestedTeam
+      : teamIds[0]
+
+    c.set('teamId', activeTeam)
+    c.set('teamIds', teamIds)
     return next()
   }
 }
 ```
+
+**Key**: Every route handler accesses `c.get('teamId')` for data scoping. Same code in local and server mode — only the teamId value differs.
 
 ---
 
@@ -762,6 +1168,14 @@ grep -r "getServiceClient\|supabase\.from" server/routes/data.ts
 # No in-memory Maps for persistent state
 grep -r "new Map()" server/lib/ server/routes/ | grep -v "// read cache" | grep -v test
 # Expected: only Maps explicitly marked as read caches or WebSocket connection tracking
+
+# All top-level entity queries use teamId (not ownerId for access control)
+grep -r "ownerId.*userId\|owner_id.*user_id" server/routes/data.ts
+# Expected: only in INSERT (ownerId as audit field), not in SELECT/WHERE for access control
+
+# Team-scoped queries present
+grep -r "teamId\|team_id" server/routes/data.ts
+# Expected: every GET/PUT/DELETE endpoint references teamId
 ```
 
 ### Unit test count targets
@@ -780,23 +1194,28 @@ grep -r "new Map()" server/lib/ server/routes/ | grep -v "// read cache" | grep 
 ## File Change Summary
 
 ### New files
+- `server/lib/db/bootstrap.ts` — Local mode bootstrap (create implicit team + user)
 - `server/lib/pg-pubsub.ts` — Postgres LISTEN/NOTIFY wrapper
+- `server/routes/team-management.ts` — Team CRUD, invites, member management (server-only, Phase B)
 - `src/components/ui/skeleton.tsx` — Loading skeleton component
 - `src/components/ui/error-banner.tsx` — Error display component
 - New Drizzle migration for: `webauthn_challenges`, `device_codes`, `dispatch_queue` tables
+- New Drizzle migration for: `initiatives.team_id`, `projects.team_id NOT NULL`, `registered_machines.team_id NOT NULL`
 
 ### Modified files (major changes)
 - `server/lib/db/index.ts` — Add PGlite driver, `createDb()` factory
-- `server/routes/data.ts` — Replace Supabase SDK with Drizzle ORM
-- `server/routes/auth.ts` — Replace in-memory `challengeStore` with Postgres table
+- `server/lib/db/schema.ts` — Add `teamId` to `initiatives`, make `teamId` required on `projects` and `registeredMachines`
+- `server/routes/data.ts` — Replace Supabase SDK with Drizzle ORM, all queries scoped by `teamId`
+- `server/routes/auth.ts` — Replace in-memory `challengeStore` with Postgres table; auto-create team on registration
 - `server/lib/device-code-store.ts` — Replace in-memory Map with Postgres table
 - `server/lib/session-manager.ts` — Replace in-memory Map with DB cancellation flag
 - `server/lib/dispatch/dispatch-queue.ts` — Replace in-memory Map with Postgres table
 - `server/lib/machine-registry.ts` — Make DB-authoritative, in-memory as read cache
 - `server/lib/relay-server.ts` — Use Postgres LISTEN/NOTIFY instead of Redis
-- `server/index.ts` — Simplify startup, conditional route loading
-- `server/middleware/auth.ts` — Simplified: local mode returns 'local', server validates JWT
-- `src/lib/data-client.ts` — Remove `isLocalMode()` throw
+- `server/index.ts` — Simplify startup, conditional route loading, call `bootstrapLocalMode()` when no DATABASE_URL
+- `server/middleware/auth.ts` — Local: fixed UUIDs. Server: JWT validation + team resolution from `team_members`
+- `src/lib/data-client.ts` — Remove `isLocalMode()` throw; add `X-Team-Id` header
+- `src/lib/api-client.ts` — Add `X-Team-Id` header from localStorage
 - All 14 stores — Remove IndexedDB, add loading/error states
 
 ### Deleted files

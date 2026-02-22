@@ -91,7 +91,7 @@ Both local and server mode talk to the same backend API. The backend talks to Po
 
 ```
 LOCAL MODE:
-  Browser → localhost:3001 (Hono) → Postgres (inside Docker container)
+  Browser → localhost:3001 (Hono) → PGlite (Postgres compiled to WASM, in-process)
 
 SERVER MODE:
   Browser → Fly.io (Hono) → Postgres (Supabase / Fly.io Postgres / AWS RDS)
@@ -102,8 +102,8 @@ SERVER MODE:
 The backend code is also identical. Drizzle ORM queries work against any Postgres instance. The database driver is chosen by a connection string at startup:
 
 ```bash
-# Local (Docker Compose)
-DATABASE_URL=postgresql://postgres:astro@postgres:5432/astro
+# Local (PGlite — no DATABASE_URL needed, Postgres runs in-process via WASM)
+# Data stored in ~/.astro/data/
 
 # Supabase (beta)
 DATABASE_URL=postgresql://postgres:password@db.abc.supabase.co:5432/postgres
@@ -132,6 +132,63 @@ DELETE FROM webauthn_challenges WHERE expires_at < now();  -- periodic cleanup
 ```
 
 **The stack is: Fly.io + Postgres. Two things to manage.** Only add Redis if Postgres `LISTEN/NOTIFY` becomes a throughput bottleneck (10K+ messages/second), which is a far-future problem.
+
+### 6. Team-scoped data — same query, different team ID
+
+All data is scoped by **team**. There are two account types:
+
+- **Personal account** (launch) — each user gets an auto-created team with one member. The team layer is invisible to the user.
+- **Team account** (post-launch, paid) — multiple users with different emails share a team. The team is the billing unit.
+
+Under the hood, both are the same `teams` table. A personal account IS a team with one member. All top-level data (projects, initiatives, machines) has a `team_id` column. Child data (plan nodes, edges, executions) is scoped via its parent project's `team_id`. The same SQL runs in both modes — only the `team_id` value differs.
+
+**Local mode**: On first startup, the backend creates one implicit team and one implicit user:
+
+```sql
+-- Auto-created during local mode bootstrap
+INSERT INTO teams (id, name) VALUES ('00000000-0000-0000-0000-000000000000', 'Local')
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO user_profiles (id, name, email) VALUES ('00000000-0000-0000-0000-000000000001', 'Local User', 'local@astro')
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO team_members (team_id, user_id, role) VALUES ('00000000-...0000', '00000000-...0001', 'owner')
+  ON CONFLICT DO NOTHING;
+```
+
+The auth middleware sets `userId` and `teamId` to these fixed UUIDs. Every query uses `WHERE team_id = ?` and gets the local team.
+
+**Server mode**: The auth middleware validates the JWT, extracts the `userId`, then resolves their team(s) from the `team_members` table:
+
+```sql
+SELECT team_id FROM team_members WHERE user_id = $1
+```
+
+If a user belongs to one team (most cases), routes use `WHERE team_id = ?`. If a user belongs to multiple teams, the active team is set via a request header or session preference. Billing is per-team — the team is the subscription unit.
+
+**The query is always the same:**
+
+```typescript
+// This query works in BOTH modes — same SQL, different team_id value
+const rows = await db.select().from(projects).where(eq(projects.teamId, teamId))
+```
+
+Local mode: `teamId = '00000000-0000-0000-0000-000000000000'`
+Server mode: `teamId = 'real-uuid-from-team-members'`
+
+**What gets `teamId` directly** (top-level entities):
+- `projects` — already has `team_id` column
+- `initiatives` — needs `team_id` column added
+- `registered_machines` — already has `team_id` column
+
+**What's scoped via project** (child entities — no `team_id` column needed):
+- `plan_nodes`, `plan_edges` — scoped via `project_id`
+- `task_executions`, `tool_traces`, `file_changes` — scoped via `project_id`
+- `sessions`, `task_chat_sessions` — scoped via `project_id`
+- `activity_events` — scoped via `project_id`
+
+**What's scoped by user** (personal entities):
+- `user_profiles` — scoped by `id` (the user themselves)
+- `display_settings`, `usage_metrics` — scoped by `user_id`
+- `passkey_credentials`, `connected_accounts` — scoped by `user_id`
 
 ---
 
@@ -226,13 +283,13 @@ import { db } from '../lib/db'
 import { projects } from '../lib/db/schema'
 
 app.get('/api/data/projects', async (c) => {
-  const userId = c.get('userId')  // 'local' in local mode, real UUID in server mode
-  const rows = await db.select().from(projects).where(eq(projects.ownerId, userId))
+  const teamId = c.get('teamId')  // fixed UUID in local mode, real UUID in server mode
+  const rows = await db.select().from(projects).where(eq(projects.teamId, teamId))
   return c.json(rows)
 })
 ```
 
-Same Drizzle query. PGlite and Postgres both speak the same SQL — because PGlite IS Postgres compiled to WASM. JSONB, TIMESTAMPTZ, UUID — all work.
+Same Drizzle query. PGlite and Postgres both speak the same SQL — because PGlite IS Postgres compiled to WASM. JSONB, TIMESTAMPTZ, UUID — all work. The `teamId` is set by the auth middleware: a fixed well-known UUID in local mode, or the user's active team UUID in server mode.
 
 ### What differs between local and server mode
 
@@ -240,8 +297,10 @@ Same Drizzle query. PGlite and Postgres both speak the same SQL — because PGli
 |--------|-----------|-------------|
 | Database | PGlite (in-process, `~/.astro/data/`) | Postgres (Supabase / Fly.io / AWS RDS) |
 | Install | `npm install` (PGlite bundled, 3MB) | Connection string in env var |
-| Auth middleware | No-op (sets `userId: 'local'`) | Validates JWT, extracts user ID |
-| Server-only routes | Not loaded (auth, teams, device-auth) | Loaded via dynamic import |
+| Auth middleware | Sets `userId` + `teamId` to fixed local UUIDs | Validates JWT, resolves `userId` → `teamId` from `team_members` |
+| Data scoping | `WHERE team_id = 'local-team-uuid'` | `WHERE team_id = 'real-team-uuid'` |
+| Teams | One implicit team (auto-created, invisible to user) | Real teams — create, invite, manage, billing unit |
+| Server-only routes | Not loaded (auth, team-management, device-auth) | Loaded via dynamic import |
 | Realtime updates | Not needed (single user) | Postgres LISTEN/NOTIFY → SSE |
 | Frontend code | **100% identical** | **100% identical** |
 | Backend route logic | **100% identical** | **100% identical** |
@@ -253,11 +312,12 @@ Same Drizzle query. PGlite and Postgres both speak the same SQL — because PGli
 | Code | Shared | Notes |
 |------|--------|-------|
 | Frontend (`src/`) | 100% | No mode branching at all |
-| Backend routes (`server/routes/data.ts`, `agent.ts`, etc.) | 100% | Same Drizzle queries |
-| Drizzle schema (`server/lib/db/schema.ts`) | 100% | One schema, one migration set |
-| Server-only routes (`auth.ts`, `teams.ts`, `device-auth.ts`) | Server only | Dynamically imported |
-| Auth middleware | Differs | Local: no-op. Server: JWT validation |
-| `server/index.ts` startup | Differs slightly | Server loads extra routes + Supabase init |
+| Backend routes (`server/routes/data.ts`, `agent.ts`, etc.) | 100% | Same Drizzle queries, scoped by `teamId` |
+| Drizzle schema (`server/lib/db/schema.ts`) | 100% | One schema, one migration set. Teams table shared. |
+| Team scoping logic | 100% | `WHERE team_id = ?` in all data queries — same code |
+| Server-only routes (`auth.ts`, `team-management.ts`, `device-auth.ts`) | Server only | Team CRUD, invites, billing. Dynamically imported. |
+| Auth middleware | Differs | Local: fixed UUIDs. Server: JWT → resolve `teamId` from `team_members` |
+| `server/index.ts` startup | Differs slightly | Server loads extra routes. Local bootstraps implicit team. |
 
 ---
 
@@ -266,14 +326,16 @@ Same Drizzle query. PGlite and Postgres both speak the same SQL — because PGli
 ### Local mode (open source user)
 
 ```bash
-# User downloads and starts Astro
-docker compose up -d
-# → Postgres container starts
-# → Hono backend starts, connects to Postgres
+# User downloads and starts Astro — no Docker, no external database
+npm install
+npm start
+# → PGlite starts (Postgres in WASM, inside the Node.js process)
+# → Hono backend starts on port 3001
 # → Frontend served on localhost:5173
+# → Implicit team + user auto-created on first run
 ```
 
-The user opens `http://localhost:5173`. No login — single user, `userId = 'local'`. The frontend calls the same API endpoints as server mode. The backend runs the same Drizzle queries against the local Docker Postgres. Data lives in a Docker volume, persists across restarts.
+The user opens `http://localhost:5173`. No login — single user with an auto-created personal team. The frontend calls the same API endpoints as server mode. The backend runs the same Drizzle queries against PGlite (which is real Postgres compiled to WASM). Data lives in `~/.astro/data/`, persists across restarts.
 
 ### Server mode (hosted website)
 
@@ -389,12 +451,13 @@ Same code runs against Docker Postgres (local) or Supabase Postgres (server). No
 | | Open Source (local mode) | Private (server mode) |
 |---|---|---|
 | **Users** | Single developer on their own machine | Multi-user teams via hosted website |
-| **Auth** | None (single user) | WebAuthn passkeys, OAuth (future) |
+| **Auth** | None (single user, implicit team) | WebAuthn passkeys, OAuth (future) |
 | **Data** | PGlite (in-process Postgres, `~/.astro/data/`) | Postgres (Supabase / Fly.io / AWS RDS) |
+| **Teams** | One implicit team (auto-created, invisible) | Real teams: create, invite members, manage roles. Billing unit. |
+| **Data scoping** | `WHERE team_id = 'local-uuid'` (same SQL) | `WHERE team_id = 'real-uuid'` (same SQL) |
 | **Install** | `npm install && npm start` (zero external deps) | We host it on Fly.io |
 | **AI execution** | Agent runner on localhost → relay on localhost | Agent runner on user's machine → relay on Fly.io |
 | **Multi-device** | No | Yes (Postgres LISTEN/NOTIFY) |
-| **Teams** | No | Yes |
 | **Code** | Public GitHub repo | Same repo, server-only routes excluded from release |
 
 ### What gets released (open source)
@@ -437,12 +500,12 @@ server/
 ├── routes/
 │   ├── auth.ts                   # WebAuthn registration/login
 │   ├── device-auth.ts            # Device code OAuth flow
-│   ├── teams.ts                  # Team management
+│   ├── team-management.ts        # Team CRUD, invites, member management, billing
 │   ├── notifications.ts          # Push notifications
 │   ├── github.ts                 # GitHub OAuth integration
 │   └── connected-accounts.ts     # Slack/Linear/Telegram
 ├── middleware/
-│   └── auth.ts                   # JWT validation (server: real auth; local: no-op)
+│   └── auth.ts                   # JWT validation + team resolution (server: real auth; local: fixed UUIDs)
 ├── lib/
 │   ├── supabase.ts               # Supabase client (only for auth ceremonies)
 │   ├── ensure-user-profile.ts    # Auth desync self-heal
@@ -451,6 +514,8 @@ server/
 supabase/
 └── migrations/                   # Supabase-specific migrations (local uses drizzle-kit push)
 ```
+
+**Note on teams**: The `teams` and `team_members` Drizzle schema tables are **shared** (they exist in local mode too — with one auto-created team). What's private is the team **management** UI and API: creating teams, inviting members, assigning roles, billing. In local mode, teams are invisible to the user.
 
 ### Build-time separation
 
@@ -594,8 +659,11 @@ See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed step-by-step refacto
 | Local mode database | **PGlite** (Postgres in WASM, in-process) | Zero install (`npm install`), same SQL dialect as server, Drizzle ORM compatible. Data in `~/.astro/data/`. |
 | Server mode database | **Postgres** (Supabase → Fly.io Postgres → AWS RDS) | Portable via connection string. Pro for beta, Enterprise for launch. |
 | IndexedDB | **Removed entirely.** Not used in any mode. | Frontend is a thin client. Backend + Postgres is the only data layer. |
+| Data scoping | **Team-based.** All top-level queries use `WHERE team_id = ?`. | Same SQL in local (implicit team) and server (real team). Teams are the billing unit. |
+| Local mode teams | **One implicit team**, auto-created at first startup. Invisible to user. | Keeps the single-user experience clean while using the same queries as server mode. |
+| Server mode teams | **Real teams** with members, roles, invites. Billing unit for subscriptions. | Multi-user orgs charge per-team. Users can belong to multiple teams. |
 | Frontend mode branching | **None.** Frontend always calls `fetch('/api/...')`. | 100% identical frontend code in local and server mode. |
-| Backend mode branching | **Minimal.** Only in `server/index.ts` (which routes to load) and auth middleware. | Data routes use Drizzle ORM against PGlite or Postgres — same code. |
+| Backend mode branching | **Minimal.** Only in `server/index.ts` (which routes to load) and auth middleware. | Data routes use Drizzle ORM against PGlite or Postgres — same code, same team-scoped queries. |
 | Cross-instance pub/sub | **Postgres LISTEN/NOTIFY.** No Redis. | Built into Postgres, no extra infrastructure. Add Redis only at Tier 4 if throughput is a bottleneck. |
 | Cache layer | **HTTP cache headers only.** No app-level cache. | Browser-native caching via `Cache-Control`/`ETag`. Loading skeletons for first paint. |
 | Open source distribution | **npm package with PGlite bundled** (`npm start` works out of the box) | No Docker, no external Postgres. Single command to run. |
@@ -608,3 +676,7 @@ See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed step-by-step refacto
 2. **PGlite LISTEN/NOTIFY support?** PGlite supports core Postgres SQL, but LISTEN/NOTIFY may not work in single-connection WASM mode. Verify. Local mode may not need it (single user), but if we want feature parity, may need a polling fallback for local.
 
 3. **Drizzle schema compatibility.** Drizzle uses `drizzle-orm/pg-core` for both PGlite and Postgres drivers. Verify that all column types we use (JSONB, TIMESTAMPTZ, UUID, ARRAY) work in PGlite. Run the full schema migration against PGlite in a test.
+
+4. **Multi-team switching UX.** When a user belongs to multiple teams, how do they switch? Options: (a) team selector dropdown in sidebar, (b) subdomain-based routing (`team-name.astro.app`), (c) query param or session cookie. Decision deferred until team billing is implemented.
+
+5. **Team-level vs user-level settings.** Some settings (display preferences, API keys) are clearly per-user. Others (default machine, default model) could be per-team. Need to decide the scoping for each setting type when teams ship.
