@@ -36,6 +36,18 @@ Referenced in `docs/design/README.md`, `ARCHITECTURE.md`, and `RELAY.md` but nev
 
 **Resolution needed:** Clarify in AGENT_RUNNER.md.
 
+### 7. ~~FRONTEND.md — Stale IndexedDB References~~ ✅ RESOLVED
+
+~~`FRONTEND.md` extensively describes the old dual-source architecture.~~
+
+**Resolved (2026-02-21):** FRONTEND.md rewritten — §2 data flow diagram updated to show API/Drizzle path, §6 persistence section rewritten to describe two-layer pattern (Zustand + API), §6.3 IndexedDB Keys deleted and replaced with Drizzle ORM persistence description.
+
+### 8. ~~BACKEND.md — Minor IndexedDB References~~ ✅ RESOLVED
+
+~~`BACKEND.md` §2 mentions IndexedDB, §11 mentions IndexedDB-only mode.~~
+
+**Resolved (2026-02-21):** BACKEND.md updated — §2 now describes dual-driver architecture (PGlite + postgres-js), §5.1 expanded with PGlite/migration/bootstrap details, §11 says "local mode" instead of "IndexedDB-only mode", auth middleware section updated with teamId resolution.
+
 ---
 
 ## Other Open Issues
@@ -52,6 +64,8 @@ Inconsistent across docs: `astro.fuxialexander.work` (dev tunnel), `astroanywher
 
 | Category | Count |
 |----------|-------|
-| Design doc issues | 5 |
+| Design doc issues (open) | 5 |
+| Design doc issues (resolved) | 2 |
 | Other open issues | 1 |
 | **Total open** | **6** |
+| **Total resolved** | **2** |

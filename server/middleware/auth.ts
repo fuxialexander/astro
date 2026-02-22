@@ -20,10 +20,41 @@ import type { Context, Next } from 'hono'
 import { createClient } from '@supabase/supabase-js'
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase.js'
 import { isLocalMode } from '../lib/app-mode.js'
+import { LOCAL_USER_ID, LOCAL_TEAM_ID } from '../lib/db/bootstrap-local.js'
 
 export interface AuthUser {
   id: string
   email?: string
+  teamId: string      // Active team
+  teamIds: string[]   // All user's teams
+}
+
+/**
+ * Resolve the user's teams and active team.
+ *
+ * In server mode, queries team_members to find all teams and resolves
+ * the active team from the X-Team-Id header (falling back to the first team).
+ */
+async function resolveTeams(userId: string, requestedTeamId?: string): Promise<{ teamId: string; teamIds: string[] }> {
+  const { db } = await import('../lib/db/index.js')
+  const { teamMembers } = await import('../lib/db/schema.js')
+  const { eq } = await import('drizzle-orm')
+
+  const memberships = await db.select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
+
+  const teamIds = memberships.map(m => m.teamId)
+
+  // Determine active team: prefer X-Team-Id header, fall back to first team
+  let teamId = ''
+  if (requestedTeamId && teamIds.includes(requestedTeamId)) {
+    teamId = requestedTeamId
+  } else if (teamIds.length > 0) {
+    teamId = teamIds[0]
+  }
+
+  return { teamId, teamIds }
 }
 
 /**
@@ -35,11 +66,16 @@ export interface AuthUser {
 export async function requireAuth(c: Context, next: Next) {
   // If Supabase is not configured or IndexedDB-only mode, allow unauthenticated access (dev mode)
   if (isLocalMode()) {
-    // In IndexedDB mode, use browser-specific user ID from header for per-browser isolation
+    // In local mode, use fixed local user and team IDs
     const browserUserId = c.req.header('X-User-Id')
-    const userId = browserUserId || '00000000-0000-0000-0000-000000000000' // Fallback to fixed UUID for backward compatibility
+    const userId = browserUserId || LOCAL_USER_ID
 
-    c.set('user', { id: userId, email: 'dev@localhost' } satisfies AuthUser)
+    c.set('user', {
+      id: userId,
+      email: 'dev@localhost',
+      teamId: LOCAL_TEAM_ID,
+      teamIds: [LOCAL_TEAM_ID],
+    } satisfies AuthUser)
     return next()
   }
 
@@ -60,7 +96,12 @@ export async function requireAuth(c: Context, next: Next) {
   // Test token bypass for e2e testing (only in test mode with explicit flag)
   if (process.env.NODE_ENV === 'test' && process.env.ALLOW_E2E_BYPASS === 'true' && token === 'test-e2e-token') {
     console.warn('[auth] ⚠️  WARNING: Using test token bypass - only for testing!')
-    c.set('user', { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' } satisfies AuthUser)
+    c.set('user', {
+      id: LOCAL_USER_ID,
+      email: 'dev@localhost',
+      teamId: LOCAL_TEAM_ID,
+      teamIds: [LOCAL_TEAM_ID],
+    } satisfies AuthUser)
     return next()
   }
 
@@ -78,8 +119,17 @@ export async function requireAuth(c: Context, next: Next) {
       return c.json({ error: 'Invalid or expired token' }, 401)
     }
 
+    // Resolve team memberships
+    const requestedTeamId = c.req.header('X-Team-Id')
+    const { teamId, teamIds } = await resolveTeams(user.id, requestedTeamId || undefined)
+
     // Success - only log errors to reduce noise
-    c.set('user', { id: user.id, email: user.email } satisfies AuthUser)
+    c.set('user', {
+      id: user.id,
+      email: user.email,
+      teamId,
+      teamIds,
+    } satisfies AuthUser)
     return next()
   } catch (err) {
     console.error('[auth] Token validation error:', err)
@@ -92,8 +142,13 @@ export async function requireAuth(c: Context, next: Next) {
  */
 export async function optionalAuth(c: Context, next: Next) {
   if (isLocalMode()) {
-    // Use a fixed UUID for dev-user to satisfy PostgreSQL UUID constraints
-    c.set('user', { id: '00000000-0000-0000-0000-000000000000', email: 'dev@localhost' } satisfies AuthUser)
+    // Use fixed local user and team IDs
+    c.set('user', {
+      id: LOCAL_USER_ID,
+      email: 'dev@localhost',
+      teamId: LOCAL_TEAM_ID,
+      teamIds: [LOCAL_TEAM_ID],
+    } satisfies AuthUser)
     return next()
   }
 
@@ -112,7 +167,15 @@ export async function optionalAuth(c: Context, next: Next) {
 
     const { data: { user } } = await supabase.auth.getUser(token)
     if (user) {
-      c.set('user', { id: user.id, email: user.email } satisfies AuthUser)
+      const requestedTeamId = c.req.header('X-Team-Id')
+      const { teamId, teamIds } = await resolveTeams(user.id, requestedTeamId || undefined)
+
+      c.set('user', {
+        id: user.id,
+        email: user.email,
+        teamId,
+        teamIds,
+      } satisfies AuthUser)
     }
   } catch {
     // Continue without auth

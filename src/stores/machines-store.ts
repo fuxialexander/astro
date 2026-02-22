@@ -2,12 +2,11 @@
  * Machines Store
  *
  * Manages registered machines for the current user.
+ * Uses the same auth pattern as data-client.ts — works in both local and server mode.
  */
 
 import { create } from 'zustand'
-import { getSupabase } from '@/lib/supabase-client'
-import { isServerMode } from '@/lib/app-mode'
-import { loadState, saveState, getBrowserUserId } from '@/lib/db'
+import { getAccessToken } from '@/lib/supabase-client'
 import { apiUrl } from '@/lib/api-url'
 import { useRealtimeStore } from './realtime-store'
 
@@ -46,6 +45,20 @@ interface MachinesState {
   updateMachineStatus: (machineId: string, isConnected: boolean) => void
 }
 
+/**
+ * Build auth headers for device API calls.
+ * In server mode, includes the Supabase access token.
+ * In local mode, the server's requireAuth middleware uses the fixed local user.
+ */
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {}
+  const token = await getAccessToken()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  return headers
+}
+
 export const useMachinesStore = create<MachinesState>((set) => ({
   machines: [],
   loading: false,
@@ -54,27 +67,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
   fetchMachines: async () => {
     set({ loading: true, error: null })
     try {
-      const headers: Record<string, string> = {}
-
-      if (isServerMode()) {
-        // Supabase mode: use access token
-        const supabase = getSupabase()
-        if (!supabase) {
-          throw new Error('Supabase not configured')
-        }
-        const { data: { session } } = await supabase.auth.getSession()
-
-        if (!session?.access_token) {
-          throw new Error('Not authenticated')
-        }
-
-        headers['Authorization'] = `Bearer ${session.access_token}`
-      } else {
-        // IndexedDB mode: use browser user ID
-        const browserUserId = await getBrowserUserId()
-        headers['X-User-Id'] = browserUserId
-      }
-
+      const headers = await getAuthHeaders()
       const response = await fetch(apiUrl('/api/device/machines'), { headers })
 
       if (!response.ok) {
@@ -83,49 +76,14 @@ export const useMachinesStore = create<MachinesState>((set) => ({
       const data = await response.json()
       const machines = data.machines || []
       set({ machines, loading: false })
-      // Update IndexedDB cache for offline fallback
-      saveState('astro-machines', machines)
     } catch (err) {
-      // API unavailable — fall back to IndexedDB cache
-      const cached = await loadState<RegisteredMachine[]>('astro-machines')
-      if (cached) {
-        set({
-          machines: cached.map((m) => ({
-            ...m,
-            registeredAt: m.registeredAt,
-            lastSeenAt: m.lastSeenAt,
-          })),
-          loading: false,
-          error: null, // Clear error on successful cache fallback
-        })
-      } else {
-        set({ error: err instanceof Error ? err.message : 'Unknown error', loading: false })
-      }
+      set({ error: err instanceof Error ? err.message : 'Unknown error', loading: false })
     }
   },
 
   revokeMachine: async (machineId: string): Promise<boolean> => {
     try {
-      const headers: Record<string, string> = {}
-
-      if (isServerMode()) {
-        const supabase = getSupabase()
-        if (!supabase) {
-          throw new Error('Supabase not configured')
-        }
-        const { data: { session } } = await supabase.auth.getSession()
-
-        if (!session?.access_token) {
-          throw new Error('Not authenticated')
-        }
-
-        headers['Authorization'] = `Bearer ${session.access_token}`
-      } else {
-        // IndexedDB mode: use browser user ID
-        const browserUserId = await getBrowserUserId()
-        headers['X-User-Id'] = browserUserId
-      }
-
+      const headers = await getAuthHeaders()
       const response = await fetch(apiUrl(`/api/device/machines/${machineId}`), {
         method: 'DELETE',
         headers,
@@ -136,8 +94,6 @@ export const useMachinesStore = create<MachinesState>((set) => ({
       // Remove from local state
       set((state) => {
         const nextMachines = state.machines.filter((m) => m.id !== machineId)
-        // Update IndexedDB cache
-        saveState('astro-machines', nextMachines)
         return { machines: nextMachines }
       })
       return true
@@ -149,27 +105,8 @@ export const useMachinesStore = create<MachinesState>((set) => ({
 
   renameMachine: async (machineId: string, name: string): Promise<boolean> => {
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-
-      if (isServerMode()) {
-        const supabase = getSupabase()
-        if (!supabase) {
-          throw new Error('Supabase not configured')
-        }
-        const { data: { session } } = await supabase.auth.getSession()
-
-        if (!session?.access_token) {
-          throw new Error('Not authenticated')
-        }
-
-        headers['Authorization'] = `Bearer ${session.access_token}`
-      } else {
-        // IndexedDB mode: use browser user ID
-        const browserUserId = await getBrowserUserId()
-        headers['X-User-Id'] = browserUserId
-      }
+      const headers = await getAuthHeaders()
+      headers['Content-Type'] = 'application/json'
 
       const response = await fetch(apiUrl(`/api/device/machines/${machineId}`), {
         method: 'PATCH',
@@ -184,8 +121,6 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         const nextMachines = state.machines.map((m) =>
           m.id === machineId ? { ...m, name } : m
         )
-        // Update IndexedDB cache
-        saveState('astro-machines', nextMachines)
         return { machines: nextMachines }
       })
       // Also update the realtime store's live machine entry if connected
@@ -205,27 +140,8 @@ export const useMachinesStore = create<MachinesState>((set) => ({
 
   updateMachineProviderConfigs: async (machineId: string, configs: ProviderConfig[]): Promise<boolean> => {
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-
-      if (isServerMode()) {
-        const supabase = getSupabase()
-        if (!supabase) {
-          throw new Error('Supabase not configured')
-        }
-        const { data: { session } } = await supabase.auth.getSession()
-
-        if (!session?.access_token) {
-          throw new Error('Not authenticated')
-        }
-
-        headers['Authorization'] = `Bearer ${session.access_token}`
-      } else {
-        // IndexedDB mode: use browser user ID
-        const browserUserId = await getBrowserUserId()
-        headers['X-User-Id'] = browserUserId
-      }
+      const headers = await getAuthHeaders()
+      headers['Content-Type'] = 'application/json'
 
       const response = await fetch(apiUrl(`/api/device/machines/${machineId}`), {
         method: 'PATCH',
@@ -240,8 +156,6 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         const nextMachines = state.machines.map((m) =>
           m.id === machineId ? { ...m, providerConfigs: configs } : m
         )
-        // Update IndexedDB cache
-        saveState('astro-machines', nextMachines)
         return { machines: nextMachines }
       })
       return true
@@ -261,8 +175,6 @@ export const useMachinesStore = create<MachinesState>((set) => ({
           ? { ...m, isConnected, lastSeenAt: new Date().toISOString() }
           : m
       )
-      // Update IndexedDB cache
-      saveState('astro-machines', nextMachines)
       return { machines: nextMachines }
     })
   },

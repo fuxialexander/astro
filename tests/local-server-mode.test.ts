@@ -54,10 +54,6 @@ describe('sidebar mergeWithDefaults', () => {
     vi.doMock('@/lib/data-client', () => ({
       dataClient: {},
     }))
-    vi.doMock('@/lib/db', () => ({
-      loadState: vi.fn(),
-      saveState: vi.fn(),
-    }))
     const mod = await import('@/stores/sidebar-store')
     mergeWithDefaults = mod.mergeWithDefaults
   })

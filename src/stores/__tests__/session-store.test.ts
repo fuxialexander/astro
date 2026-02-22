@@ -8,11 +8,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 
 // Mock dependencies before importing the store
-vi.mock("@/lib/db", () => ({
-  loadState: vi.fn().mockResolvedValue(null),
-  saveState: vi.fn(),
-}))
-
 vi.mock("@/lib/data-client", () => ({
   dataClient: {
     getAllSessions: vi.fn().mockRejectedValue(new Error("no api")),

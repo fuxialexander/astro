@@ -2,6 +2,53 @@
 
 This document is a step-by-step implementation guide for the architecture described in `SERVER_ARCHITECTURE_V2.md`. It is written so that an AI coding agent can read it and execute each phase independently.
 
+---
+
+## Implementation Status
+
+> **Last updated: 2026-02-21**
+
+### Summary
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| **Phase 1: Unified Database Layer** | **DONE** | PGlite + Drizzle dual-driver, migrations, local bootstrap, team-scoped auth middleware |
+| **Phase 2: Frontend Cleanup** | **DONE** | All IndexedDB removed, stores use fetch-only, `idb-keyval` deleted, `X-Team-Id` header added |
+| **Phase 3: Stateless Backend** | Pending | In-memory Maps (session-manager, machine-registry, event-buffer, stdout-throttle) not yet moved to Postgres |
+| **Phase 4: Backend Mode Simplification** | Partially done | Conditional route loading in server/index.ts is done; some mode detection cleanup remains |
+| **Phase 5: Verification** | Partially done | Build passes, unit tests created; manual testing checklist not fully exercised |
+
+### Completed work (detail)
+
+**Phase 1 — Unified Database Layer:**
+- Step 1.1: PGlite dependency added (`@electric-sql/pglite`), `drizzle.config.ts` fixed to postgresql dialect
+- Step 1.2: Dual-driver DB module (`server/lib/db/index.ts`) — lazy factory with Proxy
+- Step 1.3: Drizzle migrations for PGlite (`server/lib/db/migrate.ts`)
+- Step 1.4: Bootstrap local-mode team and user (`server/lib/db/bootstrap-local.ts`)
+- Step 1.5: `teamId` added to auth middleware (`AuthUser.teamId`, `AuthUser.teamIds`)
+
+**Phase 2 — Frontend Cleanup:**
+- Step 2.1: `data-client.ts` — removed `isLocalMode()` throw
+- Step 2.2: All stores — removed IndexedDB (`loadState`/`saveState`), added `loading`/`error` state
+- Step 2.3: Deleted `src/lib/db.ts`, removed `idb-keyval` dependency
+- Step 2.4: Added `X-Team-Id` header to frontend API clients
+- Step 2.5: Removed dead Supabase data-path references
+
+**Additional completed work:**
+- `teamId` added to initiatives schema
+- Data routes updated with `teamScopeFilter` (team-scoped queries)
+- `teams.ts` converted from Supabase SDK to Drizzle
+- `registered-machines-store.ts` rewritten to Drizzle-only
+- `server/index.ts` — conditional route loading for server-only routes
+- Unit tests created (`db-pglite`, `bootstrap-local`, `auth-middleware`, `data-routes`)
+
+### Remaining work
+
+- **Phase 3 (Stateless Backend):** In-memory Maps not yet moved to Postgres — `session-manager.ts`, `machine-registry.ts`, `event-buffer.ts`, `stdout-throttle.ts`, `dispatch-queue.ts`, `device-code-store.ts`
+- **Phase 4 (Backend Mode Simplification):** Conditional route loading is done, but some `isServerMode()`/`isLocalMode()` references remain in backend code
+
+---
+
 ## Goal
 
 Eliminate all `isServerMode()` / `isLocalMode()` branching, all IndexedDB usage, and all Supabase HTTP API calls from the data layer. Replace with:
@@ -9,7 +56,7 @@ Eliminate all `isServerMode()` / `isLocalMode()` branching, all IndexedDB usage,
 - **Backend**: Drizzle ORM queries that work against PGlite (local) or Postgres (server)
 - **Frontend**: `fetch('/api/...')` calls only — no mode detection, no IndexedDB, no Supabase SDK for data
 
-## Current State (what exists today)
+## Pre-Refactor State (what existed before Phases 1-2 were completed)
 
 ### Frontend data flow (broken)
 
@@ -49,7 +96,7 @@ Store.load() →
 - `server/routes/teams.ts` — blocks in local mode
 - `server/lib/app-mode.ts` — mode detection
 
-### IndexedDB keys used (all will be removed)
+### IndexedDB keys that were used (all have been removed)
 
 ```
 astro-projects, astro-plan-nodes, astro-plan-edges, astro-agent-sessions,
@@ -59,7 +106,7 @@ astro-settings, astro-machines, astro-slurm-clusters, astro-slurm-jobs,
 astro-executions, astro-initiatives, astro:command-history, astro-browser-user-id
 ```
 
-### In-memory Maps (all must move to Postgres)
+### In-memory Maps (must move to Postgres — Phase 3, still pending)
 
 | Variable | File | Purpose |
 |----------|------|---------|
@@ -498,9 +545,9 @@ This means every user always has at least one team, and `teamIds.length === 0` s
 
 ---
 
-## Phase 1: Unified Database Layer (Backend)
+## Phase 1: Unified Database Layer (Backend) — DONE
 
-### Step 1.1: Add PGlite dependency
+### Step 1.1: Add PGlite dependency — DONE
 
 ```bash
 npm install @electric-sql/pglite
@@ -508,7 +555,7 @@ npm install @electric-sql/pglite
 
 **Test**: `import { PGlite } from '@electric-sql/pglite'` compiles without error.
 
-### Step 1.2: Modify `server/lib/db/index.ts` to support PGlite
+### Step 1.2: Modify `server/lib/db/index.ts` to support PGlite — DONE
 
 Replace the current hardcoded Postgres connection with the `createDb()` factory described in the Target State above.
 
@@ -545,7 +592,7 @@ app.use('*', async (c, next) => {
 
 Routes access via `c.get('db')`. This avoids changing every import and ensures `db` is initialized once.
 
-### Step 1.3: Run Drizzle migrations against PGlite on startup
+### Step 1.3: Run Drizzle migrations against PGlite on startup — DONE
 
 ```typescript
 // server/lib/db/migrate.ts
@@ -566,7 +613,7 @@ const result = await db.select().from(projects)
 expect(result).toEqual([])  // empty but no error = schema exists
 ```
 
-### Step 1.4: Migrate `server/routes/data.ts` from Supabase SDK to Drizzle ORM
+### Step 1.4: Migrate `server/routes/data.ts` from Supabase SDK to Drizzle ORM — DONE
 
 **Current**: `data.ts` uses `getServiceClient()` (Supabase HTTP API) for some operations and `db` (Drizzle) for others. This is inconsistent.
 
@@ -637,7 +684,7 @@ describe('GET /api/data/projects', () => {
 })
 ```
 
-### Step 1.5: Verify schema compatibility
+### Step 1.5: Verify schema compatibility — DONE
 
 Run the **existing** Drizzle schema (`server/lib/db/schema.ts`) against PGlite:
 
@@ -672,9 +719,9 @@ describe('Schema compatibility', () => {
 
 ---
 
-## Phase 2: Frontend Cleanup (Remove IndexedDB)
+## Phase 2: Frontend Cleanup (Remove IndexedDB) — DONE
 
-### Step 2.1: Remove `isLocalMode()` throw from `data-client.ts`
+### Step 2.1: Remove `isLocalMode()` throw from `data-client.ts` — DONE
 
 **Current** (`src/lib/data-client.ts`):
 ```typescript
@@ -687,7 +734,7 @@ This makes every store catch the error and fall back to IndexedDB.
 
 **Test**: In local mode (no Supabase env vars), `dataClient.listProjects()` returns `[]` (empty from PGlite), not an error.
 
-### Step 2.2: Refactor stores one by one
+### Step 2.2: Refactor stores one by one — DONE
 
 For each store, apply this transformation:
 
@@ -764,13 +811,13 @@ describe('project-store', () => {
 })
 ```
 
-### Step 2.3: Remove `src/lib/db.ts`
+### Step 2.3: Remove `src/lib/db.ts` — DONE
 
 After all stores are refactored, this file (the idb-keyval wrapper) should have zero imports. Delete it.
 
 **Test**: `npm run build` succeeds with no references to `@/lib/db`.
 
-### Step 2.4: Remove `idb-keyval` dependency
+### Step 2.4: Remove `idb-keyval` dependency — DONE
 
 ```bash
 npm uninstall idb-keyval
@@ -778,7 +825,7 @@ npm uninstall idb-keyval
 
 **Test**: `npm run build` succeeds. No `idb-keyval` in `package.json`.
 
-### Step 2.5: Remove frontend `isServerMode()` / `isLocalMode()`
+### Step 2.5: Remove frontend `isServerMode()` / `isLocalMode()` — DONE
 
 After stores no longer branch on mode, check if `src/lib/app-mode.ts` is still imported anywhere in the frontend.
 
@@ -828,7 +875,7 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
 
 ---
 
-## Phase 3: Stateless Backend (Move In-Memory Maps to Postgres)
+## Phase 3: Stateless Backend (Move In-Memory Maps to Postgres) — PENDING
 
 ### Step 3.1: Move `challengeStore` to Postgres
 
@@ -1039,9 +1086,9 @@ describe('Postgres LISTEN/NOTIFY', () => {
 
 ---
 
-## Phase 4: Backend Mode Simplification
+## Phase 4: Backend Mode Simplification — PARTIALLY DONE
 
-### Step 4.1: Simplify `server/index.ts`
+### Step 4.1: Simplify `server/index.ts` — DONE (conditional route loading implemented)
 
 The server startup currently initializes providers, Supabase, Redis, etc. Simplify:
 
@@ -1068,7 +1115,7 @@ if (process.env.DATABASE_URL) {
 }
 ```
 
-### Step 4.2: Simplify auth middleware (with team resolution)
+### Step 4.2: Simplify auth middleware (with team resolution) — DONE
 
 ```typescript
 // server/middleware/auth.ts
@@ -1219,12 +1266,12 @@ grep -r "teamId\|team_id" server/routes/data.ts
 - All 14 stores — Remove IndexedDB, add loading/error states
 
 ### Deleted files
-- `src/lib/db.ts` — idb-keyval wrapper (no longer needed)
-- `server/lib/redis-pubsub.ts` — Replaced by Postgres LISTEN/NOTIFY
+- `src/lib/db.ts` — idb-keyval wrapper (deleted in Phase 2) **DONE**
+- `server/lib/redis-pubsub.ts` — Replaced by Postgres LISTEN/NOTIFY (Phase 3, pending)
 
 ### Removed dependencies
-- `idb-keyval` — No longer used
-- `ioredis` or `redis` — If present, no longer needed for early tiers
+- `idb-keyval` — Removed **DONE**
+- `ioredis` or `redis` — If present, no longer needed for early tiers (Phase 3, pending)
 
 ### Added dependencies
 - `@electric-sql/pglite` — In-process Postgres for local mode

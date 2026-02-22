@@ -1,12 +1,14 @@
 import { create } from "zustand"
 import type { Team, TeamMember } from "@/types"
-import { loadState, saveState } from "@/lib/db"
-import { dataClient } from "@/lib/data-client"
+import { dataClient, setActiveTeamId } from "@/lib/data-client"
+import { setActiveTeamId as setApiActiveTeamId } from "@/lib/api-client"
 
 interface TeamState {
   teams: Team[]
   teamMembers: Record<string, TeamMember[]> // teamId -> members
   loaded: boolean
+  loading: boolean
+  error: string | null
   load: () => Promise<void>
   addTeam: (team: Team) => void
   updateTeam: (id: string, updates: Partial<Team>) => void
@@ -21,34 +23,26 @@ export const useTeamStore = create<TeamState>((set, get) => ({
   teams: [],
   teamMembers: {},
   loaded: false,
+  loading: false,
+  error: null,
 
   load: async () => {
+    set({ loading: true, error: null })
     try {
       const { teams, teamMembers } = await dataClient.listTeams()
-      set({ teams, teamMembers, loaded: true })
-      // Update IndexedDB cache
-      saveState("astro-teams", teams)
-      saveState("astro-team-members", teamMembers)
-    } catch {
-      // API unavailable — fall back to IndexedDB cache
-      const savedTeams = await loadState<Team[]>("astro-teams")
-      const savedMembers = await loadState<Record<string, TeamMember[]>>("astro-team-members")
-      if (savedTeams) {
-        set({
-          teams: savedTeams.map(t => ({ ...t, createdAt: new Date(t.createdAt), updatedAt: new Date(t.updatedAt) })),
-          teamMembers: savedMembers || {},
-          loaded: true
-        })
-      } else {
-        set({ teams: [], teamMembers: {}, loaded: true })
-      }
+      set({ teams, teamMembers, loaded: true, loading: false })
+      // Sync active team ID to API clients
+      const activeId = teams.length > 0 ? teams[0].id : undefined
+      setActiveTeamId(activeId)
+      setApiActiveTeamId(activeId)
+    } catch (err) {
+      set({ teams: [], teamMembers: {}, loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load teams' })
     }
   },
 
   addTeam: (team) => {
     const next = [...get().teams, team]
     set({ teams: next })
-    saveState("astro-teams", next)
     dataClient.createTeam(team).catch(() => {})
   },
 
@@ -57,7 +51,6 @@ export const useTeamStore = create<TeamState>((set, get) => ({
       t.id === id ? { ...t, ...updates, updatedAt: new Date() } : t
     )
     set({ teams: next })
-    saveState("astro-teams", next)
     dataClient.updateTeam(id, updates).catch(() => {})
   },
 
@@ -66,8 +59,6 @@ export const useTeamStore = create<TeamState>((set, get) => ({
     const nextMembers = { ...get().teamMembers }
     delete nextMembers[id]
     set({ teams: next, teamMembers: nextMembers })
-    saveState("astro-teams", next)
-    saveState("astro-team-members", nextMembers)
     dataClient.deleteTeam(id).catch(() => {})
   },
 

@@ -466,7 +466,7 @@ export function Sidebar() {
       {/* Spacer to push content to bottom */}
       <div className="flex-1" />
 
-      {/* IndexedDB Mode Badge */}
+      {/* Local Mode Badge */}
       {!showAuth && (
         <div className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground border-t border-border dark:border-border">
           <div className="h-2 w-2 rounded-full bg-yellow-500" />

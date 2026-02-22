@@ -17,7 +17,7 @@ Astro consists of four logical components. Depending on the operating mode, they
  │  │  Vite dev: localhost:5173 / Prod: Cloudflare Pages               │  │
  │  │                                                                  │  │
  │  │  • UI rendering (pages, graph, terminal, chat)                   │  │
- │  │  • Local state (18 Zustand stores + IndexedDB)                   │  │
+ │  │  • Local state (18 Zustand stores)                                │  │
  │  │  • SSE event consumption (real-time updates)                     │  │
  │  │  • User inputs: create projects, execute tasks, chat, steer      │  │
  │  └──────────────────────┬────────────────────┬──────────────────────┘  │
@@ -29,7 +29,8 @@ Astro consists of four logical components. Depending on the operating mode, they
  │  │  Dev: localhost:3001 / Prod: Fly.io                              │  │
  │  │                                                                  │  │
  │  │  • HTTP API (22 route files, auth middleware)                     │  │
- │  │  • Data persistence (Postgres via Drizzle, or IndexedDB proxy)   │  │
+ │  │  • Data persistence (Postgres via Drizzle — PGlite local,        │  │
+ │  │    postgres-js server)                                          │  │
  │  │  • SSE event broadcasting (events → browser)                     │  │
  │  │  • Dispatch coordination (queue, routing, context assembly)       │  │
  │  │  • Observability (Langfuse tracing, audit logs, usage metrics)    │  │
@@ -68,7 +69,7 @@ Astro consists of four logical components. Depending on the operating mode, they
 
 | Component | Responsibility | Does NOT do |
 |-----------|---------------|-------------|
-| **Frontend** (Browser) | UI rendering, local state (Zustand + IndexedDB), SSE event consumption, user interactions | Call AI directly, persist to Postgres |
+| **Frontend** (Browser) | UI rendering, local state (Zustand stores), SSE event consumption, user interactions | Call AI directly, persist to Postgres |
 | **Backend** (Hono API Server) | HTTP API, auth, data persistence (Postgres), SSE event broadcasting, dispatch coordination, observability, compute backend detection | Execute AI tasks (target architecture) |
 | **Relay** (WebSocket Hub) | Machine registry, task routing, heartbeat monitoring, JWT auth (server mode) | Store data, make AI calls, detect backends |
 | **Agent Runner** (Execution Engine) | AI execution (Claude SDK/CLI/Codex), worktree management, safety checks, PR creation, execution strategies | Serve HTTP, persist application data, detect SSH backends |
@@ -92,7 +93,6 @@ USER'S MACHINE (all components co-located)
 │  ┌─────────────────────────────┐                                 │
 │  │  [FRONTEND] Browser         │                                 │
 │  │  localhost:5173              │                                 │
-│  │  • IndexedDB = primary store│                                 │
 │  │  • No login required        │                                 │
 │  └──────────┬─────────┬────────┘                                 │
 │             │ HTTP    │ SSE                                       │
@@ -101,8 +101,8 @@ USER'S MACHINE (all components co-located)
 │  ┌──────────────────────────────┐                                │
 │  │  [BACKEND] Hono API Server   │                                │
 │  │  localhost:3001              │                                 │
-│  │  • No Postgres (IndexedDB    │                                │
-│  │    mode, data in browser)    │                                │
+│  │  • PGlite (Postgres in WASM, │                                │
+│  │    data in ~/.astro/pglite/) │                                │
 │  │  • No auth (single user)     │                                │
 │  │  • Detects local backends:   │                                │
 │  │    Docker, SSH*, K8s, SLURM  │                                │
@@ -136,7 +136,7 @@ USER'S MACHINE (all components co-located)
 
 **Key properties:**
 - **Auth**: None. Single user, no login required.
-- **Database**: IndexedDB in the browser is the primary store. No Postgres needed.
+- **Database**: PGlite (Postgres compiled to WASM) stores data locally in `~/.astro/pglite/`. Same Drizzle ORM queries as server mode.
 - **Relay**: Runs on localhost. No TLS, no JWT. Acts as a uniform dispatch interface.
 - **Agent Runner**: Runs on the same machine. Holds the user's Claude credentials (OAuth token or API key).
 - **Detection**: `USE_INDEXEDDB_ONLY=true` env var, or auto-detected when Supabase env vars are absent.
@@ -154,9 +154,8 @@ Frontend is served from a CDN. Backend + Relay run on a cloud VM. Agent Runners 
           │  (Cloudflare     │ ←──────── │  • Postgres (Supabase)   │
           │   Pages CDN)     │    SSE    │  • JWT auth (WebAuthn)   │
           │                  │           │  • Observability          │
-          │  • IndexedDB =   │           │                          │
-          │    offline cache │           │  [RELAY] WebSocket Hub   │
-          │  • WebAuthn login│           │  port 3002               │
+          │  • WebAuthn login│           │  [RELAY] WebSocket Hub   │
+          │                  │           │  port 3002               │
           └──────────────────┘           │  • JWT-authenticated     │
                                          │  • TLS (wss://)          │
                                          │  • Redis pub/sub         │
@@ -178,10 +177,10 @@ Frontend is served from a CDN. Backend + Relay run on a cloud VM. Agent Runners 
 
 **Key properties:**
 - **Auth**: WebAuthn/passkey via Supabase Auth. JWT tokens for API and WebSocket access.
-- **Database**: Supabase/Postgres is the source of truth. IndexedDB serves as browser-side cache for fast startup and offline resilience.
+- **Database**: Supabase/Postgres is the source of truth via Drizzle ORM (postgres-js driver).
 - **Relay**: Handles TLS (wss://), JWT authentication, heartbeat, auto-reconnection.
 - **Agent Runner**: Runs on the user's own machine(s), connects to server relay over the internet. Device code flow (RFC 8628) for initial authentication.
-- **Multi-user**: Data isolated by Postgres RLS. Each user sees only their projects and machines.
+- **Multi-user**: Data isolated by team-scoped access (`team_id` on projects, plan nodes, etc.) and Postgres RLS. Each user sees only their team's projects and machines.
 - **Detection**: Supabase env vars present and `USE_INDEXEDDB_ONLY` not set.
 
 ### 2.3 Mode Detection
@@ -257,7 +256,7 @@ The core workflow is the same in both modes — only the transport security and 
 | 26 | **Backend** | Push `result` SSE event to Frontend | Frontend |
 | 27 | **Frontend** | Update plan node status: `auto_verified` (if success + auto verification) or `awaiting_judgment` | — |
 | 28 | **Frontend** | Accumulate usage metrics in `usageStore` | — |
-| 29 | **Frontend** | Persist execution to IndexedDB (and Supabase API in server mode) | — |
+| 29 | **Frontend** | Persist execution via API (PGlite in local mode, Postgres in server mode) | — |
 | 30 | **Frontend** | If batch mode: check for newly-unblocked tasks, auto-dispatch next wave | — |
 
 ### 3.5 Local vs Server Mode Differences
@@ -270,8 +269,8 @@ The workflow above is identical in both modes. The differences are in transport 
 | Auth on HTTP requests | None (or `X-User-Id` header) | `Authorization: Bearer <JWT>` |
 | Relay → Agent Runner transport | `ws://localhost:3002` | `wss://astro-relay.domain` (TLS) |
 | Auth on WebSocket | None | JWT in `Authorization` header |
-| Backend persistence (step 25) | No database write (IndexedDB mode) | Write to Postgres via Drizzle |
-| Frontend persistence (step 29) | IndexedDB = primary store | IndexedDB = cache, Supabase = primary |
+| Backend persistence (step 25) | PGlite (local Postgres via Drizzle) | Postgres (Supabase) via Drizzle |
+| Frontend persistence (step 29) | API → PGlite (same Drizzle queries) | API → Postgres (same Drizzle queries) |
 | Machine selection (step 7) | Usually one local machine | May route to multiple remote machines |
 | SSE events transport | `/api/events/stream` on localhost | `/api/events/stream` over HTTPS |
 
@@ -337,7 +336,7 @@ astro/
 | Styling | Tailwind CSS v4 | Utility-first CSS |
 | Routing | React Router v7 | Client-side routing |
 | State management | Zustand 5 | Lightweight stores with selectors |
-| Local persistence | idb-keyval (IndexedDB) | Browser-side key-value store |
+| Local persistence | PGlite (Postgres in WASM) | Postgres-compatible local database (`~/.astro/pglite/`) |
 | Graph visualization | @xyflow/react (React Flow) | Plan DAG rendering |
 | UI components | shadcn/ui pattern (Radix primitives) | Accessible, composable UI |
 | Backend framework | Hono.js | Lightweight HTTP framework |
@@ -742,13 +741,13 @@ These would follow the same pattern as SkyPilot: async strategies that provision
 
 | Data | Local Mode | Server Mode |
 |------|-----------|-------------|
-| Projects | IndexedDB (primary) | Postgres (primary), IndexedDB (cache) |
-| Plan nodes/edges | IndexedDB (primary) | Postgres (primary), IndexedDB (cache) |
-| Executions | IndexedDB (max 100) | Postgres |
-| Chat history | IndexedDB | Postgres |
-| User profile | IndexedDB | Postgres |
-| Settings | IndexedDB | Postgres |
-| Usage metrics | IndexedDB | Postgres |
+| Projects | PGlite (via Drizzle) | Postgres (via Drizzle) |
+| Plan nodes/edges | PGlite (via Drizzle) | Postgres (via Drizzle) |
+| Executions | PGlite (via Drizzle) | Postgres (via Drizzle) |
+| Chat history | PGlite (via Drizzle) | Postgres (via Drizzle) |
+| User profile | PGlite (via Drizzle) | Postgres (via Drizzle) |
+| Settings | PGlite (via Drizzle) | Postgres (via Drizzle) |
+| Usage metrics | PGlite (via Drizzle) | Postgres (via Drizzle) |
 | Machine registry | In-memory only | Postgres + in-memory |
 | Sessions | In-memory (ephemeral) | In-memory (ephemeral) |
 | Agent runner config | `~/.config/astro-agent/` | `~/.config/astro-agent/` |

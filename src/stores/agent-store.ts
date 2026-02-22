@@ -3,7 +3,6 @@ import { generatePlan } from "@/lib/api-client"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
-import { loadState, saveState } from "@/lib/db"
 import type { PlanNode, PlanEdge } from "@/types"
 
 export type GenerationPhase = 'idle' | 'repo_setup' | 'generating'
@@ -18,17 +17,6 @@ export interface GenerationSession {
   error: string | null
   startedAt: number
   completedAt: number | null
-}
-
-interface SerializedSession {
-  projectId: string
-  projectName: string
-  phase: GenerationPhase
-  status: GenerationStatus
-  streamText: string
-  error: string | null
-  startedAt: string
-  completedAt: string | null
 }
 
 interface RepoKeyFiles {
@@ -56,10 +44,6 @@ interface AgentState {
 
 const abortControllers = new Map<string, AbortController>()
 
-// Debounce timer for persistence
-let persistTimer: ReturnType<typeof setTimeout> | null = null
-const PERSIST_DEBOUNCE_MS = 500
-
 // Cleanup timer for completed sessions
 let cleanupTimer: ReturnType<typeof setInterval> | null = null
 const CLEANUP_INTERVAL_MS = 60_000 // 1 minute
@@ -77,24 +61,6 @@ function updateSession(
     next.set(projectId, { ...existing, ...updates })
   }
   return next
-}
-
-async function persistSessions(sessions: Map<string, GenerationSession>): Promise<void> {
-  const serialized: SerializedSession[] = Array.from(sessions.values()).map((session) => ({
-    ...session,
-    startedAt: new Date(session.startedAt).toISOString(),
-    completedAt: session.completedAt ? new Date(session.completedAt).toISOString() : null,
-  }))
-  await saveState("astro-agent-sessions", serialized)
-}
-
-function debouncedPersist(sessions: Map<string, GenerationSession>): void {
-  if (persistTimer) clearTimeout(persistTimer)
-  persistTimer = setTimeout(() => {
-    persistSessions(sessions).catch((err) => {
-      console.error("[agent-store] Failed to persist sessions:", err)
-    })
-  }, PERSIST_DEBOUNCE_MS)
 }
 
 function cleanupOldSessions(sessions: Map<string, GenerationSession>): Map<string, GenerationSession> {
@@ -133,9 +99,6 @@ function startCleanupTimer(get: () => AgentState, set: (fn: (s: AgentState) => P
 
     if (cleaned.size !== sessions.size) {
       set(() => ({ sessions: cleaned }))
-      persistSessions(cleaned).catch((err) => {
-        console.error("[agent-store] Failed to persist after cleanup:", err)
-      })
     }
   }, CLEANUP_INTERVAL_MS)
 }
@@ -145,39 +108,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   loaded: false,
 
   load: async () => {
-    try {
-      const stored = await loadState<SerializedSession[]>("astro-agent-sessions")
-      if (!stored || !Array.isArray(stored)) {
-        console.log("[agent-store] No sessions to restore")
-        set({ loaded: true })
-        return
-      }
+    // Generation sessions are ephemeral (in-memory only during active generation).
+    // Nothing to restore on load.
+    set({ loaded: true })
 
-      // Deserialize sessions
-      const sessions = new Map<string, GenerationSession>()
-      for (const session of stored) {
-        // Mark stale active sessions as errors — they have no AbortController
-        // and cannot be resumed after a page reload
-        if (session.status === "active") {
-          console.log(`[agent-store] Marking stale session for ${session.projectId} as error (no live connection)`)
-          sessions.set(session.projectId, {
-            ...session,
-            startedAt: new Date(session.startedAt).getTime(),
-            completedAt: Date.now(),
-            status: "error",
-            error: "Generation interrupted (page was reloaded). Try regenerating the plan.",
-          })
-        }
-      }
-
-      set({ sessions, loaded: true })
-
-      // Start cleanup timer
-      startCleanupTimer(get, set)
-    } catch (err) {
-      console.error("[agent-store] Failed to load sessions:", err)
-      set({ loaded: true })
-    }
+    // Start cleanup timer
+    startCleanupTimer(get, set)
   },
 
   setGenerationPhase: (projectId, phase) => {
@@ -200,7 +136,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       } else {
         sessions = updateSession(s.sessions, projectId, { phase })
       }
-      debouncedPersist(sessions)
       return { sessions }
     })
   },
@@ -230,10 +165,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         error: null,
         startedAt: Date.now(),
         completedAt: null,
-      })
-      // Persist immediately when starting generation
-      persistSessions(sessions).catch((err) => {
-        console.error("[agent-store] Failed to persist on start:", err)
       })
       return { sessions }
     })
@@ -268,8 +199,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                 console.log(`[plan-gen] First stream chunk received for ${projectId}`)
               }
               const sessions = updateSession(s.sessions, projectId, { streamText: session.streamText + text })
-              // Debounced persist for frequent text updates
-              debouncedPersist(sessions)
               return { sessions }
             })
           },
@@ -378,10 +307,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             console.error(`[plan-gen] Error for ${projectId}:`, error)
             set((s) => {
               const sessions = updateSession(s.sessions, projectId, { error, status: "error", completedAt: Date.now() })
-              // Persist immediately on error
-              persistSessions(sessions).catch((err) => {
-                console.error("[agent-store] Failed to persist on error:", err)
-              })
               return { sessions }
             })
           },
@@ -395,10 +320,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                 status: "completed",
                 phase: "idle",
                 completedAt: Date.now(),
-              })
-              // Persist immediately on completion
-              persistSessions(sessions).catch((err) => {
-                console.error("[agent-store] Failed to persist on completion:", err)
               })
               return { sessions }
             })
@@ -414,10 +335,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         console.error(`[plan-gen] Generation failed for ${projectId}:`, msg)
         set((s) => {
           const sessions = updateSession(s.sessions, projectId, { error: msg, status: "error", completedAt: Date.now() })
-          // Persist immediately on error
-          persistSessions(sessions).catch((err) => {
-            console.error("[agent-store] Failed to persist on error:", err)
-          })
           return { sessions }
         })
       }
@@ -431,10 +348,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             status: "completed",
             phase: "idle",
             completedAt: Date.now(),
-          })
-          // Persist immediately on finalization
-          persistSessions(sessions).catch((err) => {
-            console.error("[agent-store] Failed to persist on finalization:", err)
           })
           return { sessions }
         }
@@ -459,10 +372,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set((s) => {
       const sessions = new Map(s.sessions)
       sessions.delete(projectId)
-      // Persist immediately after dismissal
-      persistSessions(sessions).catch((err) => {
-        console.error("[agent-store] Failed to persist after dismissal:", err)
-      })
       return { sessions }
     })
   },

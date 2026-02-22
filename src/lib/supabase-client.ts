@@ -40,7 +40,7 @@ export function getSupabase(): SupabaseClient | null {
  * - VITE_USE_INDEXEDDB_ONLY flag is explicitly set
  */
 export function shouldUseSupabase(): boolean {
-  // Explicit override to force IndexedDB-only mode
+  // Explicit override to force local-only mode
   if (import.meta.env.VITE_USE_INDEXEDDB_ONLY === 'true') {
     return false
   }

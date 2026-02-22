@@ -98,7 +98,7 @@ app.use('/*', cors({
     }
     return null
   },
-  allowHeaders: ['Content-Type', 'Authorization', 'Last-Event-ID'],
+  allowHeaders: ['Content-Type', 'Authorization', 'Last-Event-ID', 'X-Team-Id', 'X-User-Id'],
   credentials: true,
 }))
 
@@ -148,9 +148,9 @@ if (process.env.NODE_ENV !== 'test') {
   }))
 }
 
+// Routes that work in both local and server mode
 app.route('/.well-known', wellKnownRoute)
 app.route('/api', healthRoute)
-app.route('/api/auth', authRoute)
 app.route('/api/agent', agentRoute)
 app.route('/api/relay', relayRoute)
 app.route('/api/dispatch', dispatchRoute)
@@ -160,14 +160,19 @@ app.route('/api/transcribe', transcribeRoute)
 app.route('/api/fs', fsRoute)
 app.route('/api/repo', repoRoute)
 app.route('/api/data', dataRoute)
-app.route('/api/notifications', notificationsRoute)
-app.route('/api/github', githubRoute)
 app.route('/api/system', systemRoute)
 app.route('/api/skills', skillsRoute)
-app.route('/api/share', shareRoute)
-app.route('/api/connected-accounts', connectedAccountsRoute)
 app.route('/api/observations', observationsRoute)
 app.route('/api/teams', teamsRoute)
+
+// Server-only routes (require Supabase Auth)
+if (!isIndexedDBMode()) {
+  app.route('/api/auth', authRoute)
+  app.route('/api/notifications', notificationsRoute)
+  app.route('/api/github', githubRoute)
+  app.route('/api/share', shareRoute)
+  app.route('/api/connected-accounts', connectedAccountsRoute)
+}
 
 // Landing page route
 const __filename = fileURLToPath(import.meta.url)
@@ -221,11 +226,21 @@ async function start() {
   killStalePortProcess(port)
   killStalePortProcess(relayPort)
 
-  // Run database migrations
+  // Run database migrations (initializes DB connection + runs PGlite migrations in local mode)
   try {
-    runMigrations()
+    await runMigrations()
   } catch (err) {
     console.error('[db] Migration failed:', err)
+  }
+
+  // Bootstrap local-mode team and user (PGlite only)
+  if (isIndexedDBMode()) {
+    try {
+      const { bootstrapLocalMode } = await import('./lib/db/bootstrap-local.js')
+      await bootstrapLocalMode()
+    } catch (err) {
+      console.error('[bootstrap] Local-mode bootstrap failed:', err)
+    }
   }
 
   console.log('[backend] initializing provider registry...')

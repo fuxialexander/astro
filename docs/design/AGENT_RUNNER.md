@@ -934,7 +934,9 @@ The Agent Runner stores its working data in two locations on your file system:
 ├── logs/                      # SDK debug logs (for troubleshooting)
 ├── hpc/
 │   └── config.json           # User HPC overrides (custom supercomputer settings)
-└── astro.db                   # SQLite database (Drizzle ORM) — local task history and metadata
+└── astro.db                   # SQLite database (Drizzle ORM) — agent runner's own local task history and metadata
+                               # Note: the Astro *server* uses PGlite at ~/.astro/pglite/ for local mode
+                               # (and Postgres in server mode). The agent runner's SQLite DB is independent.
 
 ~/.config/astro-agent/         # Configuration (platform-dependent location)
 └── config.json               # Agent runner config (see section 12 for all fields)

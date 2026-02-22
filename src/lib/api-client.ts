@@ -4,14 +4,30 @@ import { parseChatSSE, parseExecutionSSE } from "@/lib/sse-parser"
 import { apiUrl } from "@/lib/api-url"
 
 /**
+ * Active team ID setter/getter.
+ * The team store calls setActiveTeamId() after loading teams.
+ */
+let _activeTeamId: string | undefined
+export function setActiveTeamId(teamId: string | undefined) {
+  _activeTeamId = teamId
+}
+function getActiveTeamId(): string | undefined {
+  return _activeTeamId
+}
+
+/**
  * Build headers for authenticated API calls.
- * Includes Supabase access token when available.
+ * Includes Supabase access token and team ID when available.
  */
 async function authHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" }
   const token = await getAccessToken()
   if (token) {
     headers["Authorization"] = `Bearer ${token}`
+  }
+  const teamId = getActiveTeamId()
+  if (teamId) {
+    headers["X-Team-Id"] = teamId
   }
   return headers
 }

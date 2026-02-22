@@ -41,6 +41,7 @@ export const initiatives = pgTable('initiatives', {
   lead: text('lead'),
   color: text('color').default('#3b82f6'),
   icon: text('icon').default('🎯'),
+  teamId: uuid('team_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })

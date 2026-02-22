@@ -11,7 +11,6 @@
  */
 
 import { create } from "zustand"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 import type {
   Session,
@@ -97,145 +96,27 @@ function createMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-// Debounced persistence to avoid thrashing during streaming
-let saveTimeout: ReturnType<typeof setTimeout> | null = null
-function debouncedSave(sessions: Map<string, Session>) {
-  if (saveTimeout) clearTimeout(saveTimeout)
-  saveTimeout = setTimeout(() => {
-    saveState("astro-sessions", serializeSessions(sessions))
-  }, 500)
-}
-
-function immediateSave(sessions: Map<string, Session>) {
-  if (saveTimeout) clearTimeout(saveTimeout)
-  saveState("astro-sessions", serializeSessions(sessions))
-}
-
-function serializeSessions(sessions: Map<string, Session>): Record<string, Session> {
-  const obj: Record<string, Session> = {}
-  sessions.forEach((session, key) => {
-    obj[key] = session
-  })
-  return obj
-}
-
-function deserializeSessions(obj: Record<string, Session>): Map<string, Session> {
-  const map = new Map<string, Session>()
-  Object.entries(obj).forEach(([key, session]) => {
-    map.set(key, {
-      ...session,
-      createdAt: new Date(session.createdAt),
-      updatedAt: new Date(session.updatedAt),
-      completedAt: session.completedAt ? new Date(session.completedAt) : undefined,
-      messages: (session.messages || []).map((m) => ({
-        ...m,
-        timestamp: new Date(m.timestamp),
-      })),
-      steerMessages: (session.steerMessages || []).map((m) => ({
-        ...m,
-        timestamp: new Date(m.timestamp),
-      })),
-      activityEvents: (session.activityEvents || []).map((e) => ({
-        ...e,
-        timestamp: new Date(e.timestamp),
-      })) as TaskActivityEvent[],
-      toolTraces: (session.toolTraces || []).map((t) => ({
-        ...t,
-        timestamp: new Date(t.timestamp),
-      })),
-      fileChanges: (session.fileChanges || []).map((f) => ({
-        ...f,
-        timestamp: new Date(f.timestamp),
-      })),
-    })
-  })
-  return map
-}
-
-// Migration: convert old task-chat-store data to session format
-function migrateTaskChatData(
-  oldData: Record<string, {
-    nodeId: string
-    projectId: string
-    sessionId?: string
-    messages: Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: Date }>
-    createdAt: Date
-    updatedAt: Date
-  }>
-): Map<string, Session> {
-  const sessions = new Map<string, Session>()
-  for (const [nodeId, chat] of Object.entries(oldData)) {
-    if (!chat.messages || chat.messages.length === 0) continue
-    const sessionId = createSessionId()
-    sessions.set(sessionId, {
-      id: sessionId,
-      type: "task-chat",
-      status: "completed",
-      projectId: chat.projectId,
-      nodeId,
-      providerSessionId: chat.sessionId,
-      messages: chat.messages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        timestamp: new Date(m.timestamp),
-      })),
-      createdAt: new Date(chat.createdAt),
-      updatedAt: new Date(chat.updatedAt),
-    })
-  }
-  return sessions
-}
-
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
   loaded: false,
   activeSessionIds: new Map(),
 
   load: async () => {
-    // Load active session IDs from IndexedDB
-    const savedActiveIds = await loadState<Record<string, string>>("astro-active-sessions")
-    const activeSessionIds = new Map<string, string>()
-    if (savedActiveIds) {
-      for (const [key, value] of Object.entries(savedActiveIds)) {
-        activeSessionIds.set(key, value)
-      }
-    }
-
     try {
-      // Try API first
       const apiSessions = await dataClient.getAllSessions()
       if (apiSessions && apiSessions.length > 0) {
         const sessions = new Map<string, Session>()
         for (const session of apiSessions) {
           sessions.set(session.id, session)
         }
-        set({ sessions, loaded: true, activeSessionIds })
-        // Save to IndexedDB for offline cache
-        saveState("astro-sessions", serializeSessions(sessions))
+        set({ sessions, loaded: true })
         return
       }
     } catch {
-      // API unavailable, fall through to IndexedDB
+      // API unavailable
     }
 
-    // Fallback to IndexedDB
-    const saved = await loadState<Record<string, Session>>("astro-sessions")
-    if (saved && Object.keys(saved).length > 0) {
-      set({ sessions: deserializeSessions(saved), loaded: true, activeSessionIds })
-      return
-    }
-
-    // Migration: check for old task-chat-store data
-    const oldChats = await loadState<Record<string, unknown>>("astro-task-chats")
-    if (oldChats && Object.keys(oldChats).length > 0) {
-      const migrated = migrateTaskChatData(oldChats as Parameters<typeof migrateTaskChatData>[0])
-      set({ sessions: migrated, loaded: true, activeSessionIds })
-      immediateSave(migrated)
-      return
-    }
-
-    set({ loaded: true, activeSessionIds })
+    set({ loaded: true })
   },
 
   createSession: (params) => {
@@ -262,7 +143,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const sessions = new Map(get().sessions)
     sessions.set(id, session)
     set({ sessions })
-    immediateSave(sessions)
     // Fire-and-forget API call
     dataClient.createSession(session).catch(() => {})
     return session
@@ -293,7 +173,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     }
     set({ sessions })
-    immediateSave(sessions)
 
     // Create the new session using the existing createSession logic
     return get().createSession(params)
@@ -333,12 +212,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const activeSessionIds = new Map(get().activeSessionIds)
     activeSessionIds.set(key, sessionId)
     set({ activeSessionIds })
-    // Persist active session IDs to IndexedDB
-    const activeIds: Record<string, string> = {}
-    activeSessionIds.forEach((value, k) => {
-      activeIds[k] = value
-    })
-    saveState("astro-active-sessions", activeIds)
   },
 
   clearActiveSessionId: (projectId, type) => {
@@ -346,12 +219,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const activeSessionIds = new Map(get().activeSessionIds)
     activeSessionIds.delete(key)
     set({ activeSessionIds })
-    // Persist active session IDs to IndexedDB
-    const activeIds: Record<string, string> = {}
-    activeSessionIds.forEach((value, k) => {
-      activeIds[k] = value
-    })
-    saveState("astro-active-sessions", activeIds)
   },
 
   addMessage: (sessionId, message) => {
@@ -372,7 +239,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
     sessions.set(sessionId, updated)
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API call
     dataClient.addSessionMessage(sessionId, newMessage).catch(() => {})
   },
@@ -398,7 +265,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })
     set({ sessions })
     // Debounce during streaming for performance
-    debouncedSave(sessions)
+
   },
 
   updateLastAssistantMessage: (sessionId, content, appliedMutations?) => {
@@ -424,7 +291,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { messages: updatedMessages, updatedAt: updated.updatedAt }).catch(() => {})
   },
@@ -442,7 +309,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { providerSessionId, updatedAt: updated.updatedAt }).catch(() => {})
   },
@@ -463,7 +330,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { status, updatedAt: updated.updatedAt, completedAt: updated.completedAt }).catch(() => {})
   },
@@ -481,7 +348,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { summary, updatedAt: updated.updatedAt }).catch(() => {})
   },
@@ -499,7 +366,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    debouncedSave(sessions)
+
     // Fire-and-forget API call (debounced in memory, but API call is immediate)
     dataClient.updateSession(sessionId, { metrics, updatedAt: updated.updatedAt }).catch(() => {})
   },
@@ -517,7 +384,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { title, updatedAt: updated.updatedAt }).catch(() => {})
   },
@@ -535,7 +402,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    debouncedSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { activityEvents: updated.activityEvents, updatedAt: updated.updatedAt }).catch(() => {})
   },
@@ -553,7 +420,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    debouncedSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { toolTraces: updated.toolTraces, updatedAt: updated.updatedAt }).catch(() => {})
   },
@@ -571,7 +438,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    debouncedSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { fileChanges: updated.fileChanges, updatedAt: updated.updatedAt }).catch(() => {})
   },
@@ -589,7 +456,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    debouncedSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { streamText: text, updatedAt: updated.updatedAt }).catch(() => {})
   },
@@ -607,7 +474,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    debouncedSave(sessions)
+
     // No API call during streaming for performance - final state saved via setStreamText
   },
 
@@ -634,7 +501,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, {
       steerMessages: updated.steerMessages,
@@ -673,7 +540,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, {
       steerMessages: updated.steerMessages,
@@ -686,7 +553,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const sessions = new Map(get().sessions)
     sessions.delete(sessionId)
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API call
     dataClient.deleteSession(sessionId).catch(() => {})
   },
@@ -701,7 +568,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     }
     set({ sessions })
-    immediateSave(sessions)
+
     // Fire-and-forget API calls
     for (const id of idsToDelete) {
       dataClient.deleteSession(id).catch(() => {})

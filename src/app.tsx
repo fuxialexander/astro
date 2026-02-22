@@ -101,7 +101,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const pluginsLoaded = usePluginStore((s) => s.loaded)
   const skillsLoaded = useSkillStore((s) => s.loaded)
 
-  // Only load data if authenticated or in IndexedDB-only mode
+  // Only load data if authenticated or in local mode
   const shouldLoadData = isLocalMode() || !!(authInitialized && session)
 
   useEffect(() => {

@@ -1,16 +1,30 @@
 # Server Architecture V2: Server-Centric Design
 
-## Problem Statement
+## Current Status (2026-02-21)
 
-The current architecture was designed local-first: IndexedDB is the primary store, the server is an optional sync layer. This creates fundamental problems for server mode:
+The PGlite unification refactor described in this document has been **partially implemented**:
 
-1. **Two sources of truth** — IndexedDB and Supabase can diverge, with no clear winner
-2. **Silent error masking** — API failures fall back to IndexedDB, hiding real problems from users
-3. **In-memory backend state** — WebAuthn challenges, device codes, sessions stored in JavaScript `Map`s break with multiple backend instances
-4. **Stale cache** — User on device B sees device A's old IndexedDB data mixed with fresh server data
-5. **Unnecessary complexity** — 17 stores each implement their own API-then-IndexedDB fallback pattern
+- **Phases 1-2 (Unified Data Layer + Frontend Cleanup): COMPLETE.** PGlite is the local-mode database, Drizzle ORM provides a unified query layer, all IndexedDB usage has been removed, all frontend stores use `fetch('/api/...')` with `loading`/`error` state, `idb-keyval` has been uninstalled, and the `X-Team-Id` header enables team-scoped queries.
+- **Phase 3 (Stateless Backend): NOT YET STARTED.** In-memory Maps (`challengeStore`, `deviceCodeStore`, `activeSessions`, `dispatchQueue`, etc.) still exist. The backend cannot safely run multiple instances.
+- **Phase 4+ (Scaling): NOT YET STARTED.** Horizontal scaling, cross-instance relay, and production launch depend on Phase 3.
 
-These are not bugs to fix one by one. They are symptoms of a local-first architecture running in server mode.
+See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed implementation plan with per-step status tracking.
+
+---
+
+## Problem Statement (RESOLVED — Phases 1-2 complete)
+
+The previous architecture was designed local-first: IndexedDB was the primary store, the server was an optional sync layer. This created fundamental problems for server mode:
+
+1. **Two sources of truth** — IndexedDB and Supabase could diverge, with no clear winner
+2. **Silent error masking** — API failures fell back to IndexedDB, hiding real problems from users
+3. **In-memory backend state** — WebAuthn challenges, device codes, sessions stored in JavaScript `Map`s break with multiple backend instances *(Phase 3 — still pending)*
+4. **Stale cache** — User on device B saw device A's old IndexedDB data mixed with fresh server data
+5. **Unnecessary complexity** — 17 stores each implemented their own API-then-IndexedDB fallback pattern
+
+These were not bugs to fix one by one. They were symptoms of a local-first architecture running in server mode.
+
+> **Status (2026-02-21):** Problems 1, 2, 4, and 5 have been fully resolved. IndexedDB has been removed entirely. All frontend stores now use `fetch('/api/...')` exclusively, with `loading`/`error` state instead of silent fallbacks. Problem 3 (in-memory backend state) remains — this is Phase 3 work.
 
 ---
 
@@ -28,7 +42,7 @@ Which is right? The code tries Supabase first, falls back to IndexedDB. So somet
 
 ### 2. Failures are visible
 
-Here's what `execution-store.ts` does today (line 966-976):
+Here's what `execution-store.ts` used to do (before the refactor):
 
 ```typescript
 try {
@@ -41,15 +55,17 @@ try {
 // silently loads old IndexedDB data instead
 ```
 
-The user has no idea the server call failed. They see data that might be hours old. They might make decisions based on stale information.
+The user had no idea the server call failed. They saw data that might be hours old. They might make decisions based on stale information.
 
 **Visible failures means**: if the API is down, show a red banner or error state. A blank screen with "Failed to load, retry?" is honest. Showing yesterday's data without telling the user is a lie.
 
-### 3. The backend is stateless
+> **Resolved:** All stores now set `error` state on API failure instead of falling back to IndexedDB. The IndexedDB fallback pattern has been completely removed.
+
+### 3. The backend is stateless *(Phase 3 — not yet implemented)*
 
 **Stateless means: the backend keeps nothing in memory between requests.** After a request handler finishes, the backend forgets everything about it.
 
-Here's what "stateful" looks like — our current code (`auth.ts:51`):
+Here's what "stateful" looks like — what still exists in the current code (`auth.ts:51`):
 
 ```typescript
 // Machine A's memory
@@ -97,7 +113,7 @@ SERVER MODE:
   Browser → Fly.io (Hono) → Postgres (Supabase / Fly.io Postgres / AWS RDS)
 ```
 
-**No IndexedDB anywhere.** No browser-side database. No cache layer. The browser is a thin client that renders what the API returns. The frontend code is identical in both modes — always calls `fetch('/api/...')`, never checks `isServerMode()`.
+**No IndexedDB anywhere.** This target has been achieved. There is no browser-side database and no cache layer. The browser is a thin client that renders what the API returns. The frontend code is identical in both modes — always calls `fetch('/api/...')`, never checks `isServerMode()`. The `idb-keyval` dependency and `src/lib/db.ts` have been deleted.
 
 The backend code is also identical. Drizzle ORM queries work against any Postgres instance. The database driver is chosen by a connection string at startup:
 
@@ -225,10 +241,10 @@ Server mode: `teamId = 'real-uuid-from-team-members'`
    └─────────────────────┘  └──────────────────────┘
 ```
 
-### Frontend stores — zero mode awareness
+### Frontend stores — zero mode awareness (IMPLEMENTED)
 
 ```typescript
-// src/stores/project-store.ts — same code in local and server
+// src/stores/project-store.ts — same code in local and server (this is the current implementation)
 
 export const useProjectStore = create<ProjectStore>((set) => ({
   projects: [],
@@ -249,7 +265,7 @@ export const useProjectStore = create<ProjectStore>((set) => ({
 }))
 ```
 
-### Database initialization — PGlite or Postgres, chosen by env var
+### Database initialization — PGlite or Postgres, chosen by env var (IMPLEMENTED)
 
 ```typescript
 // server/lib/db/index.ts
@@ -274,7 +290,7 @@ export function createDb() {
 export const db = createDb()
 ```
 
-### Backend routes — same Drizzle queries for both modes
+### Backend routes — same Drizzle queries for both modes (IMPLEMENTED)
 
 ```typescript
 // server/routes/data.ts — identical code for local and server
@@ -361,7 +377,7 @@ Browser ──GET──→ Cloudflare CDN (static JS/CSS/HTML)
   │  [React renders]
 ```
 
-**No IndexedDB.** If the API call fails, the user sees a loading error, not stale cached data. Challenges, sessions, device codes — all stored in Postgres tables, so any backend machine can handle any request.
+**No IndexedDB.** IndexedDB has been fully removed from the frontend. If the API call fails, the user sees a loading error, not stale cached data. Challenges, sessions, and device codes are still in-memory Maps (Phase 3 will move these to Postgres tables so any backend machine can handle any request).
 
 ### Data export
 
@@ -375,9 +391,9 @@ This covers plan graphs, execution traces, tool call logs — structured data us
 
 ---
 
-## Backend State Migration
+## Backend State Migration *(Phase 3 — not yet implemented)*
 
-### Current: in-memory Maps (broken with multiple machines)
+### Current: in-memory Maps (still in place, broken with multiple machines)
 
 | State | File | Problem |
 |-------|------|---------|
@@ -517,7 +533,7 @@ supabase/
 
 **Note on teams**: The `teams` and `team_members` Drizzle schema tables are **shared** (they exist in local mode too — with one auto-created team). What's private is the team **management** UI and API: creating teams, inviting members, assigning roles, billing. In local mode, teams are invisible to the user.
 
-### Build-time separation
+### Build-time separation (IMPLEMENTED)
 
 `server/index.ts` conditionally imports server-only routes:
 
@@ -630,7 +646,7 @@ Consider at this point:
 | `machineRegistry` in-memory only | DB-authoritative with in-memory read cache |
 | No cross-instance relay routing | Postgres `LISTEN/NOTIFY` |
 
-**Until Phase 3 is complete, running >1 machine causes data loss and auth failures.**
+**Until Phase 3 is complete, running >1 machine causes data loss and auth failures.** *(Phase 3 has not yet been started as of 2026-02-21.)*
 
 ---
 
@@ -640,15 +656,17 @@ See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed step-by-step refacto
 
 ### Phase summary
 
-| Phase | Goal | Key deliverable |
-|-------|------|-----------------|
-| 1. Stabilize alpha | Make current deployment reliable on 1 machine | Move in-memory challenges/device codes to Postgres |
-| 2. Unified data layer | Drizzle ORM + PGlite for local, Postgres for server | `server/lib/db/` with shared schema, `createDb()` |
-| 3. Frontend cleanup | Remove all IndexedDB and mode branching from frontend | Stores call `fetch('/api/...')` only, loading skeletons |
-| 4. Stateless backend | Move all in-memory Maps to Postgres tables | Enables Fly.io autoscaling, multi-machine |
-| 5. Cross-instance relay | Postgres LISTEN/NOTIFY for relay routing | Enables horizontal scaling |
-| 6. Beta launch | 2-3 machines, autoscaling, monitoring | Load-tested for 100-500 users |
-| 7. Production launch | Supabase Enterprise, multi-region | 1K+ users |
+| Phase | Goal | Key deliverable | Status |
+|-------|------|-----------------|--------|
+| 1. Stabilize alpha | Make current deployment reliable on 1 machine | Move in-memory challenges/device codes to Postgres | Pending (merged into Phase 3) |
+| 2. Unified data layer | Drizzle ORM + PGlite for local, Postgres for server | `server/lib/db/` with shared schema, `createDb()` | **DONE** |
+| 3. Frontend cleanup | Remove all IndexedDB and mode branching from frontend | Stores call `fetch('/api/...')` only, loading skeletons | **DONE** |
+| 4. Stateless backend | Move all in-memory Maps to Postgres tables | Enables Fly.io autoscaling, multi-machine | Pending |
+| 5. Cross-instance relay | Postgres LISTEN/NOTIFY for relay routing | Enables horizontal scaling | Pending |
+| 6. Beta launch | 2-3 machines, autoscaling, monitoring | Load-tested for 100-500 users | Pending |
+| 7. Production launch | Supabase Enterprise, multi-region | 1K+ users | Pending |
+
+> **Note:** The phases in this document (numbered 1-7) do not map 1:1 to the phases in `LOCAL_SERVER_REFACTOR.md`. The refactor plan's Phase 1 (Unified Database Layer) and Phase 2 (Frontend Cleanup) correspond to phases 2 and 3 in this table. Both are now complete.
 
 ---
 
@@ -658,7 +676,7 @@ See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed step-by-step refacto
 |----------|--------|-----------|
 | Local mode database | **PGlite** (Postgres in WASM, in-process) | Zero install (`npm install`), same SQL dialect as server, Drizzle ORM compatible. Data in `~/.astro/data/`. |
 | Server mode database | **Postgres** (Supabase → Fly.io Postgres → AWS RDS) | Portable via connection string. Pro for beta, Enterprise for launch. |
-| IndexedDB | **Removed entirely.** Not used in any mode. | Frontend is a thin client. Backend + Postgres is the only data layer. |
+| IndexedDB | **Removed entirely (DONE).** Not used in any mode. `src/lib/db.ts` deleted, `idb-keyval` uninstalled. | Frontend is a thin client. Backend + Postgres is the only data layer. |
 | Data scoping | **Team-based.** All top-level queries use `WHERE team_id = ?`. | Same SQL in local (implicit team) and server (real team). Teams are the billing unit. |
 | Local mode teams | **One implicit team**, auto-created at first startup. Invisible to user. | Keeps the single-user experience clean while using the same queries as server mode. |
 | Server mode teams | **Real teams** with members, roles, invites. Billing unit for subscriptions. | Multi-user orgs charge per-team. Users can belong to multiple teams. |
@@ -671,12 +689,12 @@ See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed step-by-step refacto
 
 ## Open Questions
 
-1. **React Query vs manual fetching?** TanStack Query handles retries, deduplication, stale-while-revalidate at the HTTP level. Would eliminate store loading boilerplate. Significant refactor but high payoff.
+1. **React Query vs manual fetching?** TanStack Query handles retries, deduplication, stale-while-revalidate at the HTTP level. Would eliminate store loading boilerplate. Significant refactor but high payoff. *(Still open — not yet adopted.)*
 
-2. **PGlite LISTEN/NOTIFY support?** PGlite supports core Postgres SQL, but LISTEN/NOTIFY may not work in single-connection WASM mode. Verify. Local mode may not need it (single user), but if we want feature parity, may need a polling fallback for local.
+2. **PGlite LISTEN/NOTIFY support?** ~~PGlite supports core Postgres SQL, but LISTEN/NOTIFY may not work in single-connection WASM mode.~~ **RESOLVED:** Local mode does not need cross-instance routing (single process, single user). LISTEN/NOTIFY is only relevant for server mode with multiple backend instances — and in that case, real Postgres is used via `DATABASE_URL`. No polling fallback needed for local.
 
-3. **Drizzle schema compatibility.** Drizzle uses `drizzle-orm/pg-core` for both PGlite and Postgres drivers. Verify that all column types we use (JSONB, TIMESTAMPTZ, UUID, ARRAY) work in PGlite. Run the full schema migration against PGlite in a test.
+3. **Drizzle schema compatibility.** ~~Verify that all column types we use (JSONB, TIMESTAMPTZ, UUID, ARRAY) work in PGlite.~~ **RESOLVED: YES.** The full Drizzle schema (`drizzle-orm/pg-core`) works against PGlite. JSONB, TIMESTAMPTZ, UUID, array columns, `ON CONFLICT`, `RETURNING` — all verified. Unit tests (`db-pglite.test.ts`) confirm schema migration and CRUD operations work identically on PGlite and Postgres.
 
-4. **Multi-team switching UX.** When a user belongs to multiple teams, how do they switch? Options: (a) team selector dropdown in sidebar, (b) subdomain-based routing (`team-name.astro.app`), (c) query param or session cookie. Decision deferred until team billing is implemented.
+4. **Multi-team switching UX.** When a user belongs to multiple teams, how do they switch? Options: (a) team selector dropdown in sidebar, (b) subdomain-based routing (`team-name.astro.app`), (c) query param or session cookie. Decision deferred until team billing is implemented. *(Still open — Phase B feature.)*
 
-5. **Team-level vs user-level settings.** Some settings (display preferences, API keys) are clearly per-user. Others (default machine, default model) could be per-team. Need to decide the scoping for each setting type when teams ship.
+5. **Team-level vs user-level settings.** Some settings (display preferences, API keys) are clearly per-user. Others (default machine, default model) could be per-team. Need to decide the scoping for each setting type when teams ship. *(Still open — Phase B feature.)*

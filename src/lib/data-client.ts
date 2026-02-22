@@ -4,11 +4,23 @@ import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
 import type { Activity } from "@/stores/activity-store"
 import { getAccessToken } from "./supabase-client"
-import { isLocalMode } from "./app-mode"
 import { snakeToCamel } from "./utils"
 import { apiUrl } from "./api-url"
 
 const BASE = "/api/data"
+
+/**
+ * Active team ID setter/getter.
+ * The team store calls setActiveTeamId() after loading teams.
+ * This avoids circular imports between data-client and team-store.
+ */
+let _activeTeamId: string | undefined
+export function setActiveTeamId(teamId: string | undefined) {
+  _activeTeamId = teamId
+}
+function getActiveTeamId(): string | undefined {
+  return _activeTeamId
+}
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const token = await getAccessToken()
@@ -18,15 +30,14 @@ async function getAuthHeaders(): Promise<HeadersInit> {
   if (token) {
     headers["Authorization"] = `Bearer ${token}`
   }
+  const teamId = getActiveTeamId()
+  if (teamId) {
+    headers["X-Team-Id"] = teamId
+  }
   return headers
 }
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  // In IndexedDB-only mode, throw immediately to trigger fallback
-  if (isLocalMode()) {
-    throw new Error('Local mode: skipping API call')
-  }
-
   const headers = await getAuthHeaders()
   const res = await fetch(apiUrl(url), {
     ...init,

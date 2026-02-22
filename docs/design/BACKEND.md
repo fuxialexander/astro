@@ -19,7 +19,7 @@ Key technologies used by the Backend:
 
 - **Hono**: A lightweight web framework -- think of it as the scaffolding that lets us define routes, middleware, and request handling. It is like Express.js (a very popular Node.js framework) but faster and smaller.
 - **Drizzle**: A database toolkit that lets us talk to our database using TypeScript code instead of writing raw SQL queries. It handles translating our TypeScript into database operations.
-- **PostgreSQL (Postgres)**: A database that stores data permanently on a server. Unlike the browser's local storage (IndexedDB), data in Postgres survives browser clears, works across multiple users, and can be backed up.
+- **PostgreSQL (Postgres)**: A database that stores all Astro data permanently. In local mode, Astro runs an embedded Postgres via PGlite (Postgres compiled to WASM, data stored on local disk). In server mode, Astro connects to an external Postgres instance (via Supabase). Both paths use the same Drizzle ORM schema, so queries are identical regardless of mode.
 - **Supabase**: A service built on top of Postgres that adds authentication, real-time subscriptions, and an API layer. Astro uses Supabase in "server mode" for multi-user deployments.
 - **Zod**: A validation library. A Zod schema is a set of rules that checks "is this data shaped correctly?" For example: "this field must be a string, under 50,000 characters, and not empty." If data fails validation, the request is rejected before it can cause problems.
 
@@ -66,7 +66,7 @@ Here is what happens, in order:
 
 10. **Start dispatch engine** -- `dispatchEngine.start()`. The dispatch engine watches for tasks whose dependencies are satisfied and automatically sends them out for execution. Think of it as a traffic controller that knows when each task is ready to go.
 
-11. **Start cleanup scheduler** -- A 24-hour cycle that deletes old execution data and chat history to prevent the database from growing indefinitely. This is disabled in test mode and in IndexedDB-only mode (where there is no server-side database to clean).
+11. **Start cleanup scheduler** -- A 24-hour cycle that deletes old execution data and chat history to prevent the database from growing indefinitely. This is disabled in test mode and in local mode (PGlite handles its own cleanup).
 
 12. **Start HTTP server** -- Finally, Hono begins listening on port 3001. The Backend is now ready to accept requests from the browser.
 
@@ -308,6 +308,19 @@ Device Authorization Grant (RFC 8628) for machine registration. This is how Agen
 
 CRUD operations for all persistent entities. "CRUD" stands for Create, Read, Update, Delete -- the four basic operations for stored data. This route is the filing cabinet: it lets the browser store and retrieve projects, plan nodes, user profiles, and other data.
 
+All data queries are **team-scoped** using a `teamScopeFilter` helper function defined at the top of `data.ts`. This ensures users can only see and modify data belonging to their active team:
+
+```ts
+function teamScopeFilter(table, user: AuthUser) {
+  return or(
+    eq(table.teamId, user.teamId),
+    and(isNull(table.teamId), eq(table.ownerId, user.id))
+  )
+}
+```
+
+The `or(...)` with the `isNull(teamId)` branch provides backward compatibility with legacy data created before teams were introduced -- rows where `teamId` is null are still accessible if `ownerId` matches the current user.
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET/POST | `/projects` | List/create projects |
@@ -347,21 +360,31 @@ Middleware functions are checkpoints that every request passes through before re
 
 ### 4.1 Authentication (`server/middleware/auth.ts`, 123 lines)
 
-The authentication middleware answers the question "who is making this request?" It has two strategies depending on which mode the system is running in.
+The authentication middleware answers the question "who is making this request?" It has two strategies depending on which mode the system is running in. Both strategies resolve the user into an `AuthUser` object that includes team context:
+
+```ts
+interface AuthUser {
+  id: string
+  email?: string
+  teamId: string      // Active team (used for scoping all data queries)
+  teamIds: string[]   // All teams the user belongs to
+}
+```
 
 **Local Mode** (single user, no Supabase):
-- Accepts an `X-User-Id` header for per-browser isolation (so multiple browser profiles can have separate data)
-- Falls back to a fixed UUID `00000000-0000-0000-0000-000000000000` (a "default user" when no ID is provided)
+- Uses fixed constants: `LOCAL_USER_ID` (`00000000-...0000`) and `LOCAL_TEAM_ID` (`00000000-...0001`), both imported from `server/lib/db/bootstrap-local.ts`
+- Accepts an `X-User-Id` header for per-browser isolation, but `teamId` and `teamIds` are always the fixed local team
 - No JWT verification -- since there is only one user running locally, there is no need for cryptographic authentication
 
 **Server Mode** (multi-user, with Supabase):
 - Extracts the authentication token from the `Authorization: Bearer <token>` header, or from a query parameter (needed for SSE/EventSource connections, because the browser's built-in EventSource API cannot set custom headers)
 - Verifies the token by calling `supabase.auth.getUser(token)` -- this checks with Supabase that the token is valid and not expired
+- **Team resolution** via `resolveTeams()`: queries the `team_members` table to find all teams the user belongs to (`teamIds`), then resolves the active team from the `X-Team-Id` request header (falling back to the user's first team if the header is absent or invalid)
 - Returns a 401 ("Unauthorized") error if the token is invalid or expired
 - Test bypass: if the token is `'test-e2e-token'` and the environment variable `ALLOW_E2E_BYPASS=true` is set, authentication is skipped. This lets automated tests run without setting up real user accounts.
 
 Functions:
-- `requireAuth(c, next)` -- Enforces authentication. If the user cannot be identified, the request is rejected. On success, attaches an `AuthUser` object to the Hono context so downstream route handlers know who is making the request.
+- `requireAuth(c, next)` -- Enforces authentication. If the user cannot be identified, the request is rejected. On success, attaches an `AuthUser` object (with resolved `teamId` and `teamIds`) to the Hono context so downstream route handlers know who is making the request and which team's data to return.
 - `optionalAuth(c, next)` -- Tries to authenticate but does not reject the request if no token is provided. Used for endpoints that work differently for logged-in vs. anonymous users.
 
 ### 4.2 Security
@@ -405,9 +428,22 @@ The Backend needs to store data permanently (projects, plans, user profiles) and
 The primary permanent storage is a PostgreSQL database, accessed through Drizzle ORM. "ORM" stands for Object-Relational Mapping -- it is a translation layer that lets us write TypeScript code like `db.select().from(projects).where(eq(projects.id, '123'))` instead of raw SQL strings. This makes the code safer (no SQL injection vulnerabilities) and easier to maintain.
 
 **Connection** (`server/lib/db/index.ts`):
-- Driver: `postgres.js` (a fast PostgreSQL client library)
-- Default connection string: `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (the local Supabase instance)
-- Pool: max 10 connections, 20-second idle timeout, 10-second connect timeout. "Connection pooling" means the Backend keeps a small set of open connections to the database and reuses them, rather than opening a new connection for every single query (which would be slow).
+
+The database layer uses a **dual-driver architecture** behind a single Drizzle ORM interface. A lazy-initializing `Proxy` (`export const db`) forwards all property accesses to the real driver instance, which is created on first use. This means no import changes are needed across the 50+ files that use `db` -- they all import the same `db` object, and the Proxy transparently routes to whichever driver was initialized.
+
+- **Local mode**: `@electric-sql/pglite` -- Postgres compiled to WASM, running in-process with no network. Data is stored on local disk at `~/.astro/pglite/` (configurable via `PGLITE_DATA_DIR`). No connection pool needed since it is in-process.
+- **Server mode**: `postgres.js` -- A fast PostgreSQL client library connecting to an external Postgres instance. Default connection string: `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (the local Supabase instance). Pool: max 10 connections, 20-second idle timeout, 10-second connect timeout. "Connection pooling" means the Backend keeps a small set of open connections to the database and reuses them, rather than opening a new connection for every single query (which would be slow).
+
+Both drivers are wrapped in Drizzle ORM with the same schema (`server/lib/db/schema.ts`), so all queries work identically regardless of mode.
+
+**Migrations** (`server/lib/db/migrate.ts`):
+
+- **Local mode**: Runs Drizzle migrations against PGlite on every startup (creates tables on first run, idempotent on restart). Migration files live in `./drizzle/`.
+- **Server mode**: No-op -- Supabase manages migrations via `supabase/migrations/`.
+
+**Local bootstrap** (`server/lib/db/bootstrap-local.ts`):
+
+On first PGlite startup, creates a fixed local team (`LOCAL_TEAM_ID = '00000000-0000-0000-0000-000000000001'`), user profile (`LOCAL_USER_ID = '00000000-0000-0000-0000-000000000000'`), and team membership. This is idempotent and safe to call on every restart. These fixed IDs are used by the auth middleware in local mode (see section 4.1).
 
 **Schema** (`server/lib/db/schema.ts`, ~300 lines, 27+ tables):
 
@@ -738,7 +774,7 @@ The Backend's behavior is controlled by environment variables -- settings that a
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `USE_INDEXEDDB_ONLY` | Force local mode (browser-only storage, no server database) | Auto-detect based on whether Supabase vars are set |
+| `USE_INDEXEDDB_ONLY` | Force local mode (PGlite embedded database, no external Postgres). The name is a legacy holdover from when local mode used browser IndexedDB; it now triggers PGlite instead. | Auto-detect based on whether Supabase vars are set |
 | `DATABASE_URL` | Postgres connection string (where the database lives) | `postgresql://postgres:postgres@127.0.0.1:54322/postgres` |
 | `SUPABASE_URL` | Supabase API URL | (none -- if not set, system auto-detects local mode) |
 | `SUPABASE_ANON_KEY` | Supabase anonymous key (for unauthenticated API access) | (none) |

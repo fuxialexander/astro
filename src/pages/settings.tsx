@@ -35,7 +35,6 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
-import { clearAllData } from "@/lib/db"
 import { getSupabase } from "@/lib/supabase-client"
 import { apiUrl } from "@/lib/api-url"
 import { isServerMode } from "@/lib/app-mode"
@@ -525,8 +524,7 @@ function ProfileContent() {
         await supabase.auth.signOut()
       }
 
-      // Clear all local data (works for both modes)
-      await clearAllData()
+      // No local data to clear — PGlite data lives on server/disk
 
       // Force a full page reload to clear all state and redirect to welcome
       window.location.href = '/welcome'

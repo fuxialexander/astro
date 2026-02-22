@@ -10,7 +10,7 @@ Technically, it is a **React 19 single-page application** built with **Vite 7**.
 
 Astro is split into two major halves: the frontend (this document) and the backend (see `BACKEND.md`). This is a deliberate design choice called **separation of concerns**:
 
-- **The frontend** handles everything the user sees and interacts with: rendering the UI, responding to clicks and keystrokes, showing real-time updates, and keeping a local cache of data so the app feels responsive.
+- **The frontend** handles everything the user sees and interacts with: rendering the UI, responding to clicks and keystrokes, showing real-time updates, and keeping in-memory state so the app feels responsive.
 - **The backend** handles everything that needs to happen "behind the scenes": talking to the AI (Claude), storing data in a database, coordinating task execution across machines, and managing authentication.
 
 Think of it like a restaurant. The frontend is the dining room -- the menus, the tables, the waitstaff who take your order and bring your food. The backend is the kitchen -- the chefs, the pantry, the ovens. Customers interact with the dining room; the kitchen does the heavy lifting. They communicate through a well-defined interface (the order ticket), just as the frontend and backend communicate through API calls.
@@ -31,7 +31,7 @@ The frontend communicates with the backend over HTTP (for regular requests) and 
 
 ### Internal Data Flow
 
-Inside the frontend, data flows through a layered architecture. User actions update Zustand stores (in-memory state), which in turn persist to local and remote storage and receive real-time updates from the server:
+Inside the frontend, data flows through a layered architecture. User actions update Zustand stores (in-memory state), which persist to the backend via API calls and receive real-time updates from the server:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -46,23 +46,29 @@ Inside the frontend, data flows through a layered architecture. User actions upd
 │  │ (renders UI)│ ──────────► │ (in-memory) │                    │
 │  └─────────────┘    write    └──────┬──────┘                    │
 │                                     │                            │
-│                          ┌──────────┼──────────┐                 │
-│                          │ write    │ write    │                 │
-│                          ▼          ▼          ▼                 │
-│                   ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│                   │ IndexedDB│ │ Supabase │ │ SSE      │       │
-│                   │ (browser │ │ API      │ │ Stream   │       │
-│                   │ database)│ │ (server) │ │ (events) │       │
-│                   │ persist  │ │ persist  │ │ receive  │       │
-│                   │ locally  │ │ remotely │ │ updates  │       │
-│                   └──────────┘ └──────────┘ └────┬─────┘       │
-│                                                   │              │
-│                                          ┌────────▼────────┐    │
-│                                          │ realtime-store  │    │
-│                                          │ (machine state, │    │
-│                                          │  task streams,  │    │
-│                                          │  approvals)     │    │
-│                                          └─────────────────┘    │
+│                          ┌──────────┴──────────┐                 │
+│                          │ write               │                 │
+│                          ▼                     ▼                 │
+│                   ┌─────────────┐       ┌──────────┐            │
+│                   │ API Call    │       │ SSE      │            │
+│                   │ (Hono      │       │ Stream   │            │
+│                   │  Backend)  │       │ (events) │            │
+│                   │ persist    │       │ receive  │            │
+│                   │ via Drizzle│       │ updates  │            │
+│                   └──────┬─────┘       └────┬─────┘            │
+│                          │                   │                   │
+│                          ▼                   │                   │
+│                   ┌─────────────┐            │                   │
+│                   │ PGlite     │            │                   │
+│                   │ (local) or │            │                   │
+│                   │ Postgres   │            │                   │
+│                   │ (server)   │            │                   │
+│                   └─────────────┘   ┌───────▼─────────┐         │
+│                                     │ realtime-store  │         │
+│                                     │ (machine state, │         │
+│                                     │  task streams,  │         │
+│                                     │  approvals)     │         │
+│                                     └─────────────────┘         │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -114,17 +120,15 @@ Astro uses a library called **Zustand** (German for "state") to manage applicati
 
 All stores live in the `src/stores/` directory. There are 27 of them in total, each responsible for a specific domain of data.
 
-### How Data Gets Saved (The Three-Layer Write Pattern)
+### How Data Gets Saved (The Two-Layer Write Pattern)
 
-Every time the user does something that changes data (create a project, rename a task, start an execution), the change goes through three layers. This is a critical pattern to understand:
+Every time the user does something that changes data (create a project, rename a task, start an execution), the change goes through two layers. This is a critical pattern to understand:
 
-1. **Zustand store** (immediate) -- Like writing on a whiteboard in front of you. The UI updates instantly because it reads from the Zustand store. This is in-memory -- it only lives as long as the browser tab is open.
+1. **Zustand store** (immediate, optimistic) -- Like writing on a whiteboard in front of you. The UI updates instantly because it reads from the Zustand store. This is in-memory -- it only lives as long as the browser tab is open. The update is "optimistic," meaning the UI assumes the save will succeed.
 
-2. **IndexedDB** (local persistence) -- Like saving a copy in your desk drawer. **IndexedDB is a database built into every web browser** for storing data locally. Even if you close the tab and reopen it, the data is still there. This is managed through `idb-keyval` (a simple key-value wrapper) via `src/lib/db.ts`.
+2. **API call** (server persistence) -- The data is sent to the Hono backend, which persists it through Drizzle ORM to either PGlite (local mode) or Postgres (server mode). If the API call fails, the optimistic update is reverted in the Zustand store so the UI reflects the true state.
 
-3. **Supabase API** (server persistence) -- Like mailing a copy to the office filing cabinet. The data gets sent to the backend database so it is safe even if you switch computers, and so other users can see it. This call is "fire-and-forget" -- the frontend does not wait for the server to confirm before moving on, because the user should not have to wait for a network round-trip just to see their change reflected on screen.
-
-Think of it this way: you write a note on your whiteboard (instant feedback), tuck a copy in your desk drawer (survives closing the browser), and mail a copy to the filing cabinet (survives switching computers). If the mail gets lost, you still have the desk drawer copy; if the building burns down, you still have the filing cabinet copy.
+Think of it this way: you write a note on your whiteboard (instant feedback) and simultaneously send it to the filing cabinet (durable storage). If the filing cabinet rejects the note, you erase the whiteboard entry. There is no intermediate local cache -- the backend (PGlite in local mode, Postgres in server mode) is always the source of truth.
 
 ### 2.1 DataLoader -- Getting Everything Ready at Startup
 
@@ -186,7 +190,7 @@ For example, deleting a project in `project-store` cascades to `plan-store` (rem
 - `projects: Project[]` -- the array of all projects
 - `loaded: boolean` -- whether the store has finished loading from storage
 
-**Where data is saved**: IndexedDB key `"astro-projects"`, plus the Supabase API via `dataClient` in server mode.
+**Where data is saved**: Persisted via API calls to the Hono backend, which writes through Drizzle ORM to PGlite (local mode) or Postgres (server mode).
 
 **Key behavior**: When you delete a project, it also cascades -- meaning it tells the plan store to remove all plan nodes and edges for that project, so you do not end up with orphaned task data. This is done via `usePlanStore.removeProjectPlan()`.
 
@@ -203,13 +207,13 @@ For example, deleting a project in `project-store` cascades to `plan-store` (rem
 - `edges: PlanEdge[]` -- all dependency edges across all projects
 - `loaded: boolean`
 
-**Where data is saved**: IndexedDB keys `"astro-plan-nodes"` and `"astro-plan-edges"`, plus Supabase tables in server mode.
+**Where data is saved**: Persisted via API calls to the Hono backend, which writes through Drizzle ORM to PGlite (local mode) or Postgres (server mode).
 
 **Key behaviors**:
 - **Auto-layout**: When nodes are loaded and some are missing position data (x/y coordinates for where to draw them on the graph), the store automatically calculates positions using `layoutGraph()`.
 - **Edge deduplication**: On load and when adding new edges, duplicates are filtered out.
 - **Soft-delete**: Nodes and edges have `deletedAt` and `deletionActionId` fields. The helper function `isLive(item)` filters out deleted items so the UI only shows active ones. This enables undo/recovery.
-- **Data recovery**: In server mode, the store merges IndexedDB cached data with the data from the API, ensuring nothing gets lost if there were offline changes.
+- **Data recovery**: The store fetches the authoritative data from the API on load. The backend (PGlite or Postgres) is always the source of truth.
 
 ---
 
@@ -221,7 +225,7 @@ For example, deleting a project in `project-store` cascades to `plan-store` (rem
 - `sessions: Map<string, GenerationSession>` -- one entry per active generation session, keyed by project ID
 - `loaded: boolean`
 
-**Where data is saved**: IndexedDB key `"astro-agent-sessions"`. These are ephemeral (short-lived) -- they are not saved to Supabase because generation sessions are only relevant while they are happening.
+**Where data is saved**: These are ephemeral (short-lived) -- they live only in the Zustand store in memory because generation sessions are only relevant while they are happening. They are not persisted to the backend.
 
 **Key behaviors -- the Plan Generation Flow**:
 
@@ -454,10 +458,9 @@ User fills out the form on the "New Project" page (project-new.tsx)
 A Project object is created with a random UUID, a color, and an icon
   |
   v
-addProject() is called, which writes to three places:
-  1. Zustand store (UI updates immediately)
-  2. IndexedDB (persisted locally)
-  3. Supabase API (persisted to server)
+addProject() is called, which writes to two places:
+  1. Zustand store (UI updates immediately via optimistic update)
+  2. API call to Hono backend (persisted via Drizzle ORM to PGlite or Postgres)
   |
   v
 The browser navigates to /project/{id}/plan (the plan view for this project)
@@ -656,82 +659,62 @@ If the user received an approval request:
 
 If the app only kept data in memory (the Zustand store), everything would be lost the moment you closed the browser tab. Persistence means saving data to durable storage so it survives page reloads, browser restarts, and even switching computers.
 
-### 6.1 The Write Pattern (Three-Layer Save)
+### 6.1 The Write Pattern (Two-Layer Save with Optimistic Updates)
 
-Every time the user changes something, the data flows through three layers. This is the same "whiteboard / desk drawer / filing cabinet" analogy from earlier:
+Every time the user changes something, the data flows through two layers:
 
 ```
 User action (click a button, type text, drag a node)
   |
   v
-Layer 1: Zustand state update (immediate, synchronous)
+Layer 1: Zustand state update (immediate, optimistic)
   The in-memory store is updated right away.
   The UI re-renders instantly to reflect the change.
-  Think of this as writing on the whiteboard -- everyone in the room sees it immediately.
+  This is an "optimistic update" -- the UI assumes the save will succeed.
   |
   v
-Layer 2: IndexedDB save (via idb-keyval, effectively synchronous)
-  The data is written to IndexedDB, a database built into every web browser.
-  This survives page reloads and browser restarts.
-  Think of this as saving a copy in your desk drawer -- it's right there
-  when you come back to your desk.
+Layer 2: API call to Hono backend (async)
+  The data is sent via fetch('/api/...') to the Hono backend.
+  The backend writes it through Drizzle ORM to the database:
+    - In local mode: PGlite (Postgres compiled to WASM, runs in-process)
+    - In server mode: Postgres (external database via postgres-js)
   |
   v
-Layer 3: API call to Supabase (async, fire-and-forget)
-  The data is sent to the backend database for server-side persistence.
-  "Fire-and-forget" means the frontend sends the request but does not
-  wait for a response -- it trusts the network will deliver it.
-  Think of this as mailing a copy to the office filing cabinet -- it's the
-  authoritative, shared copy that other users and devices can access.
+If the API call fails:
+  The optimistic update is reverted in the Zustand store.
+  The store's `error` field is set with a descriptive message.
+  The UI reflects the true server state.
 ```
 
-Why three layers? **Resilience and speed.** Layer 1 makes the UI feel instant. Layer 2 ensures nothing is lost if the user refreshes the page. Layer 3 ensures nothing is lost if the user switches devices, and enables multi-user collaboration. If the network is down, Layer 2 still has the data, and it can be synced to Layer 3 when connectivity returns.
+Why two layers? **Speed and simplicity.** Layer 1 makes the UI feel instant. Layer 2 ensures data is durably persisted. The backend is always the single source of truth -- there is no intermediate browser-side cache. Both local mode (PGlite) and server mode (Postgres) use the exact same API endpoints and Drizzle ORM schema, so the frontend code is identical regardless of deployment mode.
 
 ### 6.2 The Load Pattern (How Data Is Restored at Startup)
 
-When the app starts up, each store needs to load its initial data. The logic is:
+When the app starts up, each store needs to load its initial data. The pattern is uniform across all stores:
 
 ```
 Store.load():
 
-  if (isServerMode()):
-    // In server mode, the backend database is the source of truth
-    try:
-      data = await dataClient.fetch()    // Ask the backend for the latest data
-      set({ data, loaded: true })         // Put it in the Zustand store
-      saveState('key', data)              // Update the IndexedDB cache with this fresh data
-      return
-    catch:
-      // If the API call fails (network down, server error),
-      // fall through to load from IndexedDB instead
+  set({ loading: true, error: null })
 
-  // In local mode, or if the API call failed:
-  cached = await loadState('key')         // Read from IndexedDB
-  if (cached):
-    set({ data: cached, loaded: true })   // Use the cached data
-  else:
-    set({ data: SEED_DATA, loaded: true })  // First time ever: use seed/demo data
+  try:
+    data = await fetch('/api/...')       // Ask the Hono backend for the data
+    set({ data, loading: false })        // Populate the Zustand store
+  catch (err):
+    set({ loading: false, error: err.message })  // Surface the error to the UI
 ```
 
-In **local mode** (where IndexedDB is the primary store and there is no server), the load goes straight to IndexedDB. In **server mode**, the backend database is preferred, but IndexedDB serves as a fallback cache for when the network is unavailable.
+The load pattern is the same in both local and server mode -- the frontend always fetches from the API. In local mode, the Hono backend reads from PGlite (an in-process Postgres running in WASM). In server mode, it reads from an external Postgres database. The frontend does not need to know or care which backend database is in use.
 
-### 6.3 IndexedDB Keys
+**Store state fields**: Every store now includes `loading: boolean` and `error: string | null` fields. Components can use these to show loading spinners, error messages, or retry prompts as appropriate.
 
-Each store saves its data under a specific key in IndexedDB. Here is the complete mapping:
+### 6.3 Persistence via Drizzle ORM
 
-| Key | Store | What Is Saved |
-|-----|-------|------|
-| `astro-projects` | project-store | The array of all `Project` objects |
-| `astro-plan-nodes` | plan-store | All `PlanNode` objects across all projects |
-| `astro-plan-edges` | plan-store | All `PlanEdge` objects across all projects |
-| `astro-executions` | execution-store | Completed execution records (capped at 100 to avoid unbounded growth) |
-| `astro-agent-sessions` | agent-store | AI generation session state (ephemeral -- not critical data) |
-| `astro-settings` | settings-store | Model name, default provider selection |
-| `astro-user-profile` | user-profile-store | The `UserProfile` object (name, email, domains, API keys) |
-| `astro-task-chats` | task-chat-store | Chat sessions per task node (conversation history) |
-| `astro-usage-metrics` | usage-store | Accumulated usage numbers (cost, tokens, task counts) |
-| `astro:activities` | activity-store | Activity history events (capped at 1000) |
-| `astro-display-settings` | display-settings-store | Per-view display configuration (grouping, sorting, visible columns) |
+All data persistence is handled through the Hono backend using **Drizzle ORM**. The frontend does not interact with any browser-side database. Instead, each store calls API endpoints (e.g., `fetch('/api/projects')`, `fetch('/api/plan/nodes')`) and the backend handles reading from and writing to the database.
+
+The Drizzle schema defines tables for projects, plan nodes, plan edges, executions, settings, user profiles, task chats, usage metrics, activities, display settings, and more. The same schema is used for both PGlite (local mode) and Postgres (server mode), ensuring data compatibility across environments.
+
+This approach eliminates the complexity of keeping a browser-side cache in sync with the server. The backend is the single source of truth, and the frontend always reflects what the backend has stored.
 
 ---
 

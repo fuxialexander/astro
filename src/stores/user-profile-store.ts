@@ -1,11 +1,12 @@
 import { create } from "zustand"
-import { loadState, saveState } from "@/lib/db"
 import { dataClient } from "@/lib/data-client"
 import type { UserProfile, DomainExpertise, ExperienceLevel, ApiKey } from "@/types"
 
 interface UserProfileState {
   profile: UserProfile
   loaded: boolean
+  loading: boolean
+  error: string | null
   load: () => Promise<void>
   updateProfile: (updates: Partial<UserProfile>) => void
   setName: (name: string) => void
@@ -44,43 +45,26 @@ const defaultProfile: UserProfile = {
 export const useUserProfileStore = create<UserProfileState>((set, get) => ({
   profile: defaultProfile,
   loaded: false,
+  loading: false,
+  error: null,
 
   load: async () => {
+    set({ loading: true, error: null })
     try {
       console.log('[user-profile-store] Loading profile from API...')
       const profile = await dataClient.getProfile()
       if (profile) {
         console.log('[user-profile-store] Profile loaded from API')
-        set({ profile, loaded: true })
-        saveState("astro-user-profile", profile)
+        set({ profile, loaded: true, loading: false })
         return
       }
     } catch (error) {
-      console.debug('[user-profile-store] API unavailable, will use IndexedDB:', (error as Error).message)
-      // API unavailable - fall back to IndexedDB
+      console.debug('[user-profile-store] API unavailable:', (error as Error).message)
+      set({ loading: false, error: (error as Error).message })
     }
 
-    // Fallback to IndexedDB
-    console.log('[user-profile-store] Falling back to IndexedDB...')
-    const saved = await loadState<UserProfile>("astro-user-profile")
-    if (saved) {
-      console.log('[user-profile-store] Profile loaded from IndexedDB')
-      set({
-        profile: {
-          ...saved,
-          createdAt: new Date(saved.createdAt),
-          updatedAt: new Date(saved.updatedAt),
-          apiKeys: saved.apiKeys.map((key) => ({
-            ...key,
-            createdAt: new Date(key.createdAt),
-          })),
-        },
-        loaded: true,
-      })
-    } else {
-      console.log('[user-profile-store] No profile found, using default')
-      set({ loaded: true })
-    }
+    console.log('[user-profile-store] No profile found, using default')
+    set({ loaded: true, loading: false })
   },
 
   updateProfile: (updates) => {
@@ -90,7 +74,6 @@ export const useUserProfileStore = create<UserProfileState>((set, get) => ({
       updatedAt: new Date(),
     }
     set({ profile })
-    saveState("astro-user-profile", profile)
     dataClient.updateProfile(profile).catch(() => {})
   },
 
