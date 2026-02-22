@@ -381,16 +381,16 @@ deviceAuthRoute.post('/register', async (c) => {
 
       if (!(isDev && isDevUser)) {
         const supabase = getServiceClient();
-        const { data: user, error: userError } = await supabase.auth.admin.getUserById(payload.userId);
+        const { data, error: userError } = await supabase.auth.admin.getUserById(payload.userId);
 
-        if (userError || !user) {
+        if (userError || !data?.user) {
           console.error('[device-auth] User not found in auth.users:', payload.userId, userError);
           return c.json({
             error: 'User not found. Your authentication may be stale. Please log out, log back in, and try device authorization again.',
           }, 400);
         }
 
-        console.log('[device-auth] User validated:', user.id);
+        console.log('[device-auth] User validated:', data.user.id);
       } else {
         console.log('[device-auth] Skipping validation for dev user in test mode');
       }

@@ -40,6 +40,7 @@ vi.mock('../server/lib/supabase.js', () => ({
 
 // Mock team resolution DB query
 const mockTeamMemberships = vi.fn()
+const mockInsertReturning = vi.fn()
 vi.mock('../server/lib/db/index.js', () => ({
   db: {
     select: () => ({
@@ -47,11 +48,17 @@ vi.mock('../server/lib/db/index.js', () => ({
         where: mockTeamMemberships,
       }),
     }),
+    insert: () => ({
+      values: () => ({
+        returning: mockInsertReturning,
+      }),
+    }),
   },
 }))
 
 vi.mock('../server/lib/db/schema.js', () => ({
   teamMembers: { teamId: 'team_id', userId: 'user_id' },
+  teams: { id: 'id', name: 'name' },
 }))
 
 vi.mock('drizzle-orm', () => ({
@@ -95,6 +102,10 @@ describe('auth middleware — local mode', () => {
   })
 
   it('requireAuth uses X-User-Id header when provided in local mode', async () => {
+    // Non-default user IDs in local mode now call resolveTeams()
+    mockTeamMemberships.mockResolvedValue([
+      { teamId: 'custom-team' },
+    ])
     const { requireAuth } = await import('../server/middleware/auth.js')
     const c = createMockContext({ 'X-User-Id': 'custom-browser-user' })
     let nextCalled = false
@@ -102,8 +113,10 @@ describe('auth middleware — local mode', () => {
     await requireAuth(c as never, async () => { nextCalled = true })
 
     expect(nextCalled).toBe(true)
-    const user = c._vars.user as { id: string }
+    const user = c._vars.user as { id: string; teamId: string; teamIds: string[] }
     expect(user.id).toBe('custom-browser-user')
+    expect(user.teamId).toBe('custom-team')
+    expect(user.teamIds).toEqual(['custom-team'])
   })
 
   it('optionalAuth sets fixed user in local mode', async () => {
@@ -219,13 +232,15 @@ describe('auth middleware — server mode (corner cases)', () => {
     vi.clearAllMocks()
   })
 
-  it('user with NO team memberships gets empty teamId and teamIds', async () => {
+  it('user with NO team memberships auto-creates a personal team', async () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: 'lonely-user', email: 'lonely@example.com' } },
       error: null,
     })
     // No team memberships at all
     mockTeamMemberships.mockResolvedValue([])
+    // Auto-create returns a team with a generated ID
+    mockInsertReturning.mockResolvedValue([{ id: 'auto-team-id' }])
 
     const { requireAuth } = await import('../server/middleware/auth.js')
     const c = createMockContext({
@@ -238,8 +253,9 @@ describe('auth middleware — server mode (corner cases)', () => {
     expect(nextCalled).toBe(true)
     const user = c._vars.user as { id: string; teamId: string; teamIds: string[] }
     expect(user.id).toBe('lonely-user')
-    expect(user.teamIds).toEqual([])
-    expect(user.teamId).toBe('')
+    // Auto-created personal team
+    expect(user.teamIds).toEqual(['auto-team-id'])
+    expect(user.teamId).toBe('auto-team-id')
   })
 
   it('Supabase getUser returns error → returns 401', async () => {

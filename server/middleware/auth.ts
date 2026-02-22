@@ -86,12 +86,18 @@ export async function requireAuth(c: Context, next: Next) {
     const browserUserId = c.req.header('X-User-Id')
     const userId = browserUserId || LOCAL_USER_ID
 
-    c.set('user', {
-      id: userId,
-      email: 'dev@localhost',
-      teamId: LOCAL_TEAM_ID,
-      teamIds: [LOCAL_TEAM_ID],
-    } satisfies AuthUser)
+    if (browserUserId && browserUserId !== LOCAL_USER_ID) {
+      // Resolve actual team membership for non-default users (enables integration test isolation)
+      const { teamId, teamIds } = await resolveTeams(userId)
+      c.set('user', { id: userId, email: 'dev@localhost', teamId, teamIds } satisfies AuthUser)
+    } else {
+      c.set('user', {
+        id: userId,
+        email: 'dev@localhost',
+        teamId: LOCAL_TEAM_ID,
+        teamIds: [LOCAL_TEAM_ID],
+      } satisfies AuthUser)
+    }
     return next()
   }
 

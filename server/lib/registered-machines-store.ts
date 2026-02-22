@@ -65,11 +65,14 @@ export async function registerMachine(params: {
 
   // Check for existing machine: first by client-provided ID, then by hostname+platform+user
   let existingMachine: RegisteredMachine | undefined
+  let ownershipTransfer = false
   if (params.id) {
     existingMachine = (await getMachine(params.id)) ?? undefined
-    // Verify ownership — don't let a user claim another user's machine
+    // If machine exists under a different user, transfer ownership.
+    // The hardware-based ID proves physical access to the machine.
     if (existingMachine && existingMachine.userId !== params.userId) {
-      existingMachine = undefined
+      console.log(`[machines-store] Transferring machine ${params.id} ownership from ${existingMachine.userId} to ${params.userId}`)
+      ownershipTransfer = true
     }
   }
   if (!existingMachine) {
@@ -82,33 +85,43 @@ export async function registerMachine(params: {
   }
 
   if (existingMachine) {
-    console.log(`[machines-store] Machine already registered: ${existingMachine.id}, updating...`)
+    console.log(`[machines-store] Machine already registered: ${existingMachine.id}, updating...${ownershipTransfer ? ' (ownership transfer)' : ''}`)
 
     // Preserve user-set custom name: if the existing name differs from its
     // hostname (and from the incoming default name), the user renamed it.
-    const preserveName = existingMachine.name
+    // On ownership transfer, always use the new name.
+    const preserveName = !ownershipTransfer
+      && existingMachine.name
       && existingMachine.name !== existingMachine.hostname
       && existingMachine.name !== existingMachine.id
       && existingMachine.name !== params.name
     const updated: RegisteredMachine = {
       ...existingMachine,
+      userId: ownershipTransfer ? params.userId : existingMachine.userId,
       name: preserveName ? existingMachine.name : params.name,
       environmentType: params.environmentType,
       providers: params.providers,
       lastSeenAt: now,
       refreshTokenHash: params.refreshTokenHash,
       metadata: params.metadata,
+      isRevoked: false, // Un-revoke on re-registration
+    }
+
+    const updateFields: Partial<typeof registeredMachines.$inferInsert> = {
+      name: updated.name,
+      environmentType: updated.environmentType,
+      providers: updated.providers as string[],
+      lastSeenAt: now,
+      refreshTokenHash: updated.refreshTokenHash,
+      metadata: updated.metadata,
+      isRevoked: false,
+    }
+    if (ownershipTransfer) {
+      updateFields.userId = params.userId
     }
 
     await db.update(registeredMachines)
-      .set({
-        name: updated.name,
-        environmentType: updated.environmentType,
-        providers: updated.providers as string[],
-        lastSeenAt: now,
-        refreshTokenHash: updated.refreshTokenHash,
-        metadata: updated.metadata,
-      })
+      .set(updateFields)
       .where(eq(registeredMachines.id, existingMachine.id))
 
     return updated

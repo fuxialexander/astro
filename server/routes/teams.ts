@@ -123,7 +123,7 @@ teamsRoute.post('/invite', async (c) => {
       to: email,
       teamName: team?.name || 'Unknown Team',
       inviterName: inviter?.name || 'Team Admin',
-      inviterEmail: inviter?.email || 'noreply@astro.fuxialexander.work',
+      inviterEmail: inviter?.email || (process.env.ASTRO_NOREPLY_EMAIL || 'noreply@astro.app'),
       inviteUrl,
       role,
       expiresAt,

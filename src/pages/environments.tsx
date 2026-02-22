@@ -29,6 +29,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
 import { MachineConfigDialog } from "@/components/environments/machine-config-dialog"
+import { MachineDetailDialog } from "@/components/environments/machine-detail-dialog"
 import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
 
@@ -60,7 +61,7 @@ const backendStyleMap: Record<string, { color: string; bg: string }> = {
   docker: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30" },
   "k8s-exec": { color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-100 dark:bg-sky-900/30" },
   skypilot: { color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-100 dark:bg-orange-900/30" },
-  ssh: { color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30" },
+  ssh: { color: "text-teal-700 dark:text-teal-400", bg: "bg-teal-50 dark:bg-teal-900/25" },
 }
 
 function getBackendStyle(id: string) {
@@ -154,17 +155,18 @@ function InlineMachineName({ machineId, name, fallback }: {
   )
 }
 
-function ConnectedMachinesCard({ machines, onRemove, onConfigure }: {
+function ConnectedMachinesCard({ machines, onRemove, onConfigure, onMachineClick }: {
   machines: MachineEntry[]
   onRemove?: (machineId: string) => void
   onConfigure?: (machineId: string) => void
+  onMachineClick?: (machine: MachineEntry) => void
 }) {
   return (
     <Card>
       <div className="flex items-center justify-between p-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10">
-            <Globe className="h-5 w-5 text-green-500" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-teal-600/8 dark:bg-teal-500/10">
+            <Globe className="h-5 w-5 text-teal-700 dark:text-teal-400" />
           </div>
           <div>
             <p className="font-medium">Connected</p>
@@ -187,12 +189,16 @@ function ConnectedMachinesCard({ machines, onRemove, onConfigure }: {
           return (
             <div
               key={machine.machineId}
-              className="flex flex-col gap-2.5 rounded-lg bg-muted hover:bg-muted/80 transition-colors p-3"
+              className="flex flex-col gap-2.5 rounded-lg bg-muted hover:bg-muted/80 transition-colors p-3 cursor-pointer"
+              onClick={() => onMachineClick?.(machine)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter') onMachineClick?.(machine) }}
             >
               {/* Name + status row */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+                  <div className="h-2 w-2 rounded-full bg-teal-500 shrink-0" />
                   <div className="flex flex-col gap-0 min-w-0">
                     <InlineMachineName machineId={machine.machineId} name={machine.name} fallback={machine.machineId} />
                     {resourceSummary && (
@@ -237,8 +243,8 @@ function ConnectedMachinesCard({ machines, onRemove, onConfigure }: {
                     key={p.type}
                     className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
                       p.status === "available"
-                        ? "text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30"
-                        : "text-muted-foreground bg-background"
+                        ? "text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/30"
+                        : "text-muted-foreground bg-muted/50"
                     }`}
                   >
                     {providerDisplayName[p.type] ?? p.type}
@@ -284,7 +290,7 @@ function RegisteredMachinesCard({ machines, liveMachineIds, onRefresh }: {
           <div>
             <p className="font-medium">Registered</p>
             <p className="text-xs text-muted-foreground">
-              {offlineMachines.length} previously connected machine{offlineMachines.length !== 1 ? "s" : ""} not currently online
+              {offlineMachines.length} registered machine{offlineMachines.length !== 1 ? "s" : ""} not currently online
             </p>
           </div>
         </div>
@@ -294,6 +300,9 @@ function RegisteredMachinesCard({ machines, liveMachineIds, onRefresh }: {
         </Badge>
       </div>
       <div className="flex flex-col gap-2 px-6 pb-6">
+        <p className="text-xs text-muted-foreground px-1">
+          Run <code className="font-mono bg-muted px-1 rounded text-[11px]">astro-agent start</code> on each machine to bring it online.
+        </p>
         {offlineMachines.map((machine) => (
           <div
             key={machine.id}
@@ -558,6 +567,8 @@ export function Environments() {
   const [backendDetailLoading, setBackendDetailLoading] = useState(false)
   const [machineConfigDialogOpen, setMachineConfigDialogOpen] = useState(false)
   const [selectedMachine, setSelectedMachine] = useState<RegisteredMachine | null>(null)
+  const [machineDetailDialogOpen, setMachineDetailDialogOpen] = useState(false)
+  const [detailLiveMachine, setDetailLiveMachine] = useState<MachineEntry | undefined>(undefined)
   const fetchBackendDetail = useExecutionStore((s) => s.fetchBackendDetail)
   const fetchRemoteBackendDetail = useExecutionStore((s) => s.fetchRemoteBackendDetail)
 
@@ -666,6 +677,30 @@ export function Environments() {
     if (isMultiTenant) fetchMachines()
   }
 
+  const handleMachineClick = (liveMachine: MachineEntry) => {
+    // Find registered machine data for this live machine
+    const registered = registeredMachines.find((m) => m.id === liveMachine.machineId)
+    if (registered) {
+      setSelectedMachine(registered)
+    } else {
+      // Build a minimal RegisteredMachine from live data for display
+      setSelectedMachine({
+        id: liveMachine.machineId,
+        name: liveMachine.name || liveMachine.machineId,
+        hostname: liveMachine.machineId,
+        platform: 'unknown',
+        environmentType: (liveMachine.environmentType as 'local' | 'remote' | 'hpc' | 'cloud') || 'local',
+        providers: liveMachine.providers.map((p) => p.type),
+        registeredAt: '',
+        lastSeenAt: new Date().toISOString(),
+        isConnected: true,
+        isRevoked: false,
+      })
+    }
+    setDetailLiveMachine(liveMachine)
+    setMachineDetailDialogOpen(true)
+  }
+
   const handleConfigureMachine = (machineId: string) => {
     const machine = registeredMachines.find((m) => m.id === machineId)
     if (machine) {
@@ -715,8 +750,8 @@ export function Environments() {
           label="Connected"
           value={connectedCount}
           icon={Wifi}
-          iconBg="bg-green-500/10"
-          iconColor="text-green-500"
+          iconBg="bg-teal-600/8 dark:bg-teal-500/10"
+          iconColor="text-teal-700 dark:text-teal-400"
         />
         <StatCard
           label="Active Tasks"
@@ -771,6 +806,7 @@ export function Environments() {
               machines={connectedLiveMachines}
               onRemove={(id) => revokeMachine(id)}
               onConfigure={handleConfigureMachine}
+              onMachineClick={handleMachineClick}
             />
           </div>
         </div>
@@ -888,6 +924,14 @@ export function Environments() {
         backend={selectedBackend}
         contextString={backendContextString}
         loading={backendDetailLoading}
+      />
+
+      {/* Machine Detail Dialog */}
+      <MachineDetailDialog
+        open={machineDetailDialogOpen}
+        onOpenChange={setMachineDetailDialogOpen}
+        machine={selectedMachine}
+        liveMachine={detailLiveMachine}
       />
 
       {/* Machine Config Dialog */}

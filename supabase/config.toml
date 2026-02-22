@@ -146,13 +146,15 @@ max_indexes = 5
 [auth]
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
-# in emails.
+# in emails. CHANGE THIS for your deployment (e.g. https://your-domain.com).
 site_url = "https://astro.fuxialexander.work"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
+# CHANGE THIS for your deployment — add your production frontend URL.
 additional_redirect_urls = ["http://localhost:5173", "astro://auth/callback"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
-# JWT issuer URL. Use the tunneled HTTPS URL for passkey support
+# JWT issuer URL. Use the tunneled HTTPS URL for passkey support.
+# CHANGE THIS for your deployment (e.g. https://your-supabase.example.com/auth/v1).
 jwt_issuer = "https://astro-supabase.fuxialexander.work/auth/v1"
 # Path to JWT signing key. DO NOT commit your signing keys file to git.
 # signing_keys_path = "./signing_keys.json"

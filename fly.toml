@@ -14,6 +14,11 @@ primary_region = "sjc"
 [env]
   NODE_ENV = "production"
   RELAY_PORT = "3002"
+  # IMPORTANT: Set these via `fly secrets set` for your deployment.
+  # ASTRO_BASE_URL — frontend URL for device auth, emails, notifications
+  # FRONTEND_URL   — CORS origin, invite links (can be same as ASTRO_BASE_URL)
+  # CORS_ORIGIN    — additional CORS origin (if frontend has multiple URLs)
+  # Example: fly secrets set ASTRO_BASE_URL=https://your-domain.com FRONTEND_URL=https://your-domain.com
 
 # HTTP API server (port 3001)
 [[services]]

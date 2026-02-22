@@ -1,20 +1,18 @@
 # Astro Agent Runner — Design Document
 
-## 1. Overview: What Is the Agent Runner and Why Does It Exist?
+## 1. Overview
 
 ### What It Is
 
-The Agent Runner is the **worker** in the Astro system. It is the only component that actually talks to AI (Claude) and executes code changes on your machine. Think of it like a contractor you hire: the Astro backend (the project manager) sends it task instructions, and it does the actual work — writing code, running tests, creating pull requests — then reports back what it did.
+The Agent Runner is the **worker** in the Astro system. It is the only component that actually talks to AI (Claude) and executes code changes on a machine. The Astro backend (the coordinator) sends it task instructions, and it does the actual work — writing code, running tests, creating pull requests — then reports back what it did.
 
-Technically, it is a standalone Node.js process (a program written in JavaScript that runs outside the browser). It connects to the Astro backend via WebSocket, receives task dispatches, runs them using AI providers (Claude SDK, Claude CLI, Codex), and streams results back.
+It is a standalone Node.js process that connects to the Astro backend via WebSocket, receives task dispatches, runs them using AI providers (Claude SDK, Claude CLI, Codex), and streams results back.
 
 ### Why It Is Separate from the Backend
 
-You might wonder: why not just have the backend talk to Claude directly? There are two important reasons:
+1. **Security: AI credentials never leave the machine.** The Agent Runner holds the Claude API key or OAuth token locally. Credentials are never uploaded to the Astro server.
 
-1. **Security: Your AI credentials never leave your machine.** The Agent Runner holds your Claude API key or OAuth token locally. These credentials are never uploaded to the Astro server. This means even if the server were compromised, your AI credentials would be safe.
-
-2. **Flexibility: You can run tasks on different machines.** You might want to run AI tasks on your laptop for quick things, on an HPC cluster (a shared supercomputer) for heavy computation, or on a cloud VM for long-running jobs. Each machine runs its own Agent Runner instance, and the Astro backend coordinates them all.
+2. **Flexibility: Tasks can run on different machines.** The runner can live on a laptop, an HPC cluster login node, or a cloud VM. Each machine runs its own Agent Runner instance, and the Astro backend coordinates them.
 
 ### Key Identifiers
 
@@ -26,11 +24,324 @@ You might wonder: why not just have the backend talk to Claude directly? There a
 
 ---
 
-## 2. CLI Commands
+## 2. End-to-End Architecture: The Complete Picture
 
-The Agent Runner is a **CLI** (Command Line Interface) — a program you run from the terminal/command line, like `git` or `npm`. You interact with it by typing commands rather than clicking buttons in a graphical interface.
+This section provides the full bird's-eye view of how a user's action (creating a project, dispatching a task) flows through the entire system.
 
-Entry point: `src/cli.ts` (339 lines), built with `commander` (a popular library for building CLI tools in Node.js).
+### 2.1 System Components
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              BROWSER (Frontend)                             │
+│                                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │ Welcome Page  │  │ Plan View    │  │ Task Detail  │  │ Environments  │  │
+│  │ (create proj) │  │ (dispatch)   │  │ (monitor)    │  │ (machines)    │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └───────────────┘  │
+│         │                 │                  │                              │
+│         ▼                 ▼                  ▼                              │
+│  ┌──────────────────────────────────────────────────────┐                  │
+│  │  Zustand Stores (project, plan, execution, agent)    │                  │
+│  │  + api-client.ts (HTTP + SSE)                        │                  │
+│  └──────────────────────┬───────────────────────────────┘                  │
+└─────────────────────────┼───────────────────────────────────────────────────┘
+                          │ HTTP / SSE
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         HONO SERVER (Backend, port 3001)                     │
+│                                                                             │
+│  ┌────────────────┐  ┌────────────────┐  ┌──────────────┐                  │
+│  │ /api/agent/*   │  │ /api/dispatch/*│  │ /api/relay/* │                  │
+│  │ (plan gen)     │  │ (task exec)    │  │ (machine mgmt│                  │
+│  └────────┬───────┘  └────────┬───────┘  └──────────────┘                  │
+│           │                   │                                             │
+│           │   ┌───────────────┤                                             │
+│           │   │ LOCAL?        │ RELAY?                                      │
+│           ▼   ▼               ▼                                             │
+│  ┌────────────────┐  ┌────────────────────────────────┐                    │
+│  │ Provider        │  │ Relay Server (WS, port 3002)   │                    │
+│  │ (claude-code)   │  │ + Machine Registry              │                    │
+│  │ runs locally    │  │                                │                    │
+│  └────────────────┘  └────────────┬───────────────────┘                    │
+└──────────────────────────────────┼──────────────────────────────────────────┘
+                                   │ WebSocket
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      AGENT RUNNER (on user's machine)                        │
+│                                                                             │
+│  ┌────────────────┐  ┌────────────────┐  ┌──────────────────┐              │
+│  │ WebSocket      │  │ Task Executor  │  │ Provider Adapter │              │
+│  │ Client         │──│ (queue, safety │──│ (Claude SDK/CLI) │              │
+│  │                │  │  worktree)     │  │                  │              │
+│  └────────────────┘  └────────────────┘  └──────────┬───────┘              │
+│                                                      │                      │
+│                                          ┌───────────▼──────────┐          │
+│                                          │ Execution Strategy   │          │
+│                                          │ (direct/docker/slurm)│          │
+│                                          └──────────────────────┘          │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 2.2 The Two Dispatch Paths
+
+The system has **two fundamentally different execution paths**:
+
+**Path A: Local Dispatch** — Server has a provider (Claude SDK/Code) available locally. The server itself runs the AI and manages the worktree. No agent runner involved.
+
+**Path B: Relay Dispatch** — Server sends the task over WebSocket to a remote agent runner. The agent runner manages the worktree, runs the AI, and streams results back through the relay.
+
+```
+                    ┌──────────────────┐
+                    │ POST /api/dispatch│
+                    │    /task          │
+                    └────────┬─────────┘
+                             │
+                    ┌────────▼─────────┐
+                    │  isServerMode()  │
+                    │  OR remote env   │
+                    │  OR targetMachine│
+                    └────────┬─────────┘
+                      yes ┌──┴──┐ no
+                          │     │
+               ┌──────────▼┐   ┌▼──────────────┐
+               │   RELAY    │   │    LOCAL       │
+               │  DISPATCH  │   │   DISPATCH     │
+               │            │   │                │
+               │ Pass raw   │   │ Server clones  │
+               │ workingDir │   │ repo if git URL│
+               │ to agent   │   │ Creates worktree│
+               │ runner via │   │ Runs provider  │
+               │ WebSocket  │   │ Streams SSE    │
+               └────────────┘   └────────────────┘
+```
+
+**This split is the source of most redundancy** (see Section 15 for critique).
+
+---
+
+## 3. Complete User Workflows
+
+### 3.1 Workflow A: Create Project from GitHub Repo
+
+```
+STEP  COMPONENT          ACTION                           WHERE CODE LIVES
+────  ─────────          ──────                           ──────────────────
+ 1    Browser            User enters repo URL on          —
+                         welcome.tsx or project-new.tsx
+
+ 2    Browser            Calls POST /api/repo/setup       —
+                         with { repository, projectId,
+                         targetMachineId? }
+
+ 3a   Server (local)     If no targetMachine:             ~/.astro/repos/{projectId}/
+                         server/routes/repo.ts clones     (server's filesystem)
+                         repo, reads file tree, extracts
+                         CLAUDE.md, README, package.json
+
+ 3b   Relay→Agent Runner If targetMachine specified:      ~/.astro/repos/{projectId}/
+                         sends repo_setup_request via     (agent runner's filesystem)
+                         WebSocket; agent runner clones
+                         repo via localRepoSetup()
+
+ 4    Browser            Receives { workingDirectory,     —
+                         fileTree, keyFiles }
+                         Stores project in Zustand +
+                         IndexedDB
+
+ 5    Browser            User clicks "Use AI to           —
+                         Generate Plan"
+
+ 6    Browser            POST /api/agent/generate-plan    —
+                         with { description, visionDoc,
+                         workingDirectory, fileTree,
+                         keyFiles, projectId }
+
+ 7    Server             Runs Claude with plan schema     (provider runs on server
+                         to generate nodes + edges.       or agent runner depending
+                         Streams SSE events back.         on mode)
+
+ 8    Browser            Receives plan_result SSE event.  —
+                         Stores nodes/edges in plan store.
+                         Displays graph.
+```
+
+### 3.2 Workflow B: Create Project from Local Directory
+
+```
+STEP  COMPONENT          ACTION                           WHERE CODE LIVES
+────  ─────────          ──────                           ──────────────────
+ 1    Browser            User enters local path           —
+                         (e.g., /Users/me/my-project)
+
+ 2    Browser            POST /api/repo/setup with        —
+                         { workingDirectory: "/path",
+                         projectId }
+
+ 3    Server/Runner      Validates directory exists.      /Users/me/my-project
+                         Checks if git repo.              (user's existing dir)
+                         Reads file tree.
+                         If not git: returns
+                         needsGitInit=true
+
+ 4    Browser            Stores resolved workingDirectory —
+                         in project. (workingDirectory
+                         stays as the local path)
+
+ 5+   Same as Workflow A steps 5-8
+```
+
+### 3.3 Workflow C: Dispatch a Task for Execution
+
+This is the most complex flow. Here is the full step-by-step:
+
+```
+STEP  COMPONENT          ACTION
+────  ─────────          ──────
+ 1    Browser            User clicks "Run" on a plan node.
+                         execution-store calls POST /api/dispatch/task with:
+                         { nodeId, projectId, title, description, workingDirectory,
+                           environment, targetMachineId?, preferredProvider?,
+                           visionDoc?, dependencyOutputs[] }
+
+ 2    Server             Validates input. Checks dependencies are met.
+      dispatch.ts        Decides: local or relay dispatch?
+                         (see decision logic in 2.2)
+
+     ╔══════════════════════════════════════════════════════════════╗
+     ║  PATH A: LOCAL DISPATCH (server runs the AI)                ║
+     ╠══════════════════════════════════════════════════════════════╣
+     ║                                                              ║
+     ║  3a  Server           Resolve workingDirectory:              ║
+     ║      dispatch.ts      - If git URL → clone to               ║
+     ║                         ~/.astro/repos/{projectId}/          ║
+     ║                       - If local path → use as-is            ║
+     ║                                                              ║
+     ║  4a  Server           Create git worktree:                   ║
+     ║      worktree-        ~/.astro/worktrees/{repo}/{taskId}/   ║
+     ║      manager.ts       Branch: astro/{nodeId}                ║
+     ║                                                              ║
+     ║  5a  Server           Build execution prompt:                ║
+     ║      dispatch.ts      [vision doc] + [dependency outputs]    ║
+     ║                       + [task description] + [instructions]  ║
+     ║                                                              ║
+     ║  6a  Server           Run provider.stream(task) with         ║
+     ║      providers/       workingDirectory = worktree path       ║
+     ║      claude-code.ts   (NOT the original repo dir)           ║
+     ║                                                              ║
+     ║  7a  Server           Forward StreamEvents as SSE:           ║
+     ║                       text, tool_use, tool_result,           ║
+     ║                       file_change, progress, result, done    ║
+     ║                                                              ║
+     ║  8a  Server           On success:                            ║
+     ║      dispatch.ts      - Auto-commit changes                  ║
+     ║                       - Push branch, create PR               ║
+     ║                       - Clean up worktree (keep branch       ║
+     ║                         if PR created)                       ║
+     ╚══════════════════════════════════════════════════════════════╝
+
+     ╔══════════════════════════════════════════════════════════════╗
+     ║  PATH B: RELAY DISPATCH (agent runner runs the AI)          ║
+     ╠══════════════════════════════════════════════════════════════╣
+     ║                                                              ║
+     ║  3b  Server           Find target machine in registry.       ║
+     ║      dispatch.ts      Build prompt. Send task_dispatch       ║
+     ║                       via WebSocket relay.                   ║
+     ║                       workingDirectory passed as-is          ║
+     ║                       (git URL or local path).               ║
+     ║                                                              ║
+     ║  4b  Agent Runner     Receive task_dispatch message.         ║
+     ║      task-executor    Run safety checks on directory.        ║
+     ║                                                              ║
+     ║  5b  Agent Runner     Resolve workingDirectory:              ║
+     ║      task-executor    - If git URL → clone to                ║
+     ║                         ~/.astro/repos/{projectId}/          ║
+     ║                       - If empty → process.cwd()             ║
+     ║                       - If local path → use as-is            ║
+     ║                                                              ║
+     ║  6b  Agent Runner     Create git worktree:                   ║
+     ║      worktree.ts      ~/.astro/worktrees/{repo}/{taskId}/   ║
+     ║                       Branch: astro/{taskId}                ║
+     ║                                                              ║
+     ║  7b  Agent Runner     Run adapter.execute(task, stream,      ║
+     ║      providers/       signal) with workingDirectory =       ║
+     ║                       worktree path.                         ║
+     ║                                                              ║
+     ║  8b  Agent Runner     Stream events back via WebSocket:      ║
+     ║      websocket-       task_text, task_tool_use,              ║
+     ║      client.ts        task_tool_result, task_file_change,    ║
+     ║                       task_result                            ║
+     ║                                                              ║
+     ║  9b  Server           Relay receives WS events, converts     ║
+     ║      relay-server     to internal format, emits to event     ║
+     ║                       bus.                                   ║
+     ║                                                              ║
+     ║ 10b  Server           dispatch.ts listeners forward relay    ║
+     ║      dispatch.ts      events as SSE to browser.              ║
+     ║                                                              ║
+     ║ 11b  Agent Runner     On success:                            ║
+     ║      task-executor    - Auto-create PR via pushAndCreatePR() ║
+     ║                       - Clean up worktree (keep if PR)       ║
+     ║                       - Send task_result with prUrl,         ║
+     ║                         branchName                           ║
+     ╚══════════════════════════════════════════════════════════════╝
+```
+
+### 3.4 Where Code Actually Lives During Execution
+
+This is the critical piece that the previous doc did not make explicit.
+
+**The AI agent NEVER works directly in the user's repository.** It always works in a **worktree** — an isolated copy on a separate branch.
+
+```
+User's original repo (or clone):
+  /Users/me/my-project/                  ← on branch "main"
+  └── .git/
+
+Worktree created for task execution:
+  ~/.astro/worktrees/my-project/exec-node1-1234/   ← on branch "astro/node1"
+  └── (full copy of repo files, isolated branch)
+
+After task completes:
+  The worktree branch "astro/node1" is pushed → PR created
+  Worktree directory is cleaned up (deleted)
+  Branch is kept if PR exists, deleted otherwise
+```
+
+**Directory resolution chain:**
+
+```
+workingDirectory (from frontend)
+  │
+  │  Could be: "/Users/me/my-project"  (local path)
+  │            "git@github.com:user/repo.git"  (git URL)
+  │            "https://github.com/user/repo.git"  (git URL)
+  │
+  ▼
+resolveWorkingDirectory()
+  │
+  │  Git URL → clone to ~/.astro/repos/{projectId}/
+  │  Local path → use as-is
+  │
+  ▼
+Resolved repo path (e.g. /Users/me/my-project)
+  │
+  ▼
+createWorktree()
+  │
+  │  Creates ~/.astro/worktrees/{repoName}/{taskId}/
+  │  On branch: astro/{nodeId} (server) or astro/{taskId} (runner)
+  │
+  ▼
+Worktree path ← THIS is what the AI actually uses as cwd
+```
+
+---
+
+## 4. Agent Runner Internals
+
+### 4.1 CLI Commands
+
+Entry point: `src/cli.ts`, built with `commander`.
 
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
@@ -45,901 +356,785 @@ Entry point: `src/cli.ts` (339 lines), built with `commander` (a popular library
 | `hosts` | Discover remote hosts from SSH config | |
 | `mcp` | Start MCP server for Claude Code integration (stdio mode) | |
 
-**Example usage:**
+### 4.2 Startup Flow
 
-```bash
-# First time: set up the agent runner
-astro-agent setup
+`src/commands/start.ts`:
 
-# Start it in the background (default)
-astro-agent start
-
-# Or run it in the foreground so you can see logs
-astro-agent start -f
-
-# Check what's happening
-astro-agent status
-
-# Stop it
-astro-agent stop
+```
+astro-agent start [-f]
+       │
+       ▼
+┌──────────────────┐
+│ Check setup done │
+└────────┬─────────┘
+         │
+    ┌────▼────┐
+    │ -f flag?│
+    └────┬────┘
+   no ┌──┴──┐ yes
+      │     │
+      ▼     ▼
+┌──────────┐ ┌──────────────────────────────────────────┐
+│ Spawn    │ │ FOREGROUND INITIALIZATION                 │
+│ detached │ │                                          │
+│ child    │ │  1. Detect resources (CPU, mem, GPU)     │
+│ process, │ │  2. Detect providers (Claude Code/SDK)   │
+│ report   │ │  3. Detect execution strategies           │
+│ PID,     │ │  4. Create WebSocket client               │
+│ exit     │ │  5. Create task executor                  │
+└──────────┘ │  6. Wire message handlers:                │
+             │     task_dispatch → submitTask()          │
+             │     task_cancel   → cancelTask()          │
+             │     task_steer    → injectMessage()       │
+             │     task_safety_decision → route           │
+             │     file_list_request → git ls-files       │
+             │     repo_setup_request → localRepoSetup() │
+             │  7. Connect to relay server               │
+             │  8. Register signal handlers              │
+             │  9. Enter event loop                      │
+             └──────────────────────────────────────────┘
 ```
 
----
+### 4.3 WebSocket Client
 
-## 3. Startup Flow
+`src/lib/websocket-client.ts`
 
-When you start the Agent Runner, it goes through a carefully ordered sequence to get everything ready. This section describes what happens behind the scenes.
+The WebSocket client is the agent runner's lifeline to the server.
 
-`src/commands/start.ts` (394 lines):
+```
+┌──────────────────┐         ┌──────────────────┐
+│  AGENT RUNNER    │   ws:// │  RELAY SERVER    │
+│                  │◄───────►│  (port 3002)     │
+│  websocket-      │         │                  │
+│  client.ts       │         │  relay-server.ts │
+└──────────────────┘         └──────────────────┘
 
-1. **Check setup completed** — Ensures you've run `astro-agent setup` first.
-2. **Initialize machine ID** — Generates a unique identifier for this computer based on its hardware (so the server can tell your machines apart).
-3. **Background mode** (default): Spawn detached child process, report PID. This means the runner starts in the background and you get your terminal back. The "PID" is the process ID number, which you can use to find or stop it later.
-4. **Foreground mode** (with `-f` flag):
-   - Detect resources (CPU, memory, GPU via `nvidia-smi`)
-   - Detect providers (Claude Code CLI, Claude SDK, Codex) — which AI tools are installed on this machine
-   - Detect execution strategies (Direct, Docker, SLURM, K8s, SkyPilot) — which ways of running commands are available
-   - Create WebSocket client with auto-reconnection (see section 4 for what WebSocket means)
-   - Create task executor with safety checks
-   - Wire up message handlers — these connect incoming messages to the right functions:
-     - `onTaskDispatch` -> `submitTask()` — "here's a new task to do"
-     - `onTaskCancel` -> `cancelTask()` — "stop that task"
-     - `onTaskSteer` -> inject steering message into adapter — "change direction mid-task"
-     - `onTaskSafetyDecision` -> route decision — "user says it's okay to proceed"
-     - `onFileList` -> respond with `git ls-files` — "what files are in this repo?"
-     - `onRepoSetup` -> initialize repository — "clone this repo and get ready"
-   - Connect to relay (the communication hub on the server)
-   - Install signal handlers (SIGINT, SIGTERM) — so pressing Ctrl+C shuts down gracefully
+Connection:
+  - Auth: Bearer <token> + X-Runner-Id + X-Machine-Id headers
+  - Auto-reconnect: exponential backoff 1s→60s, infinite retries
+  - Token auto-refresh before expiry
 
-**Graceful shutdown**: When you press Ctrl+C (or the system sends a stop signal), the runner does not just die. First signal: cancel all running tasks, disconnect from the server, exit cleanly. Second signal (if you press Ctrl+C again impatiently): force exit immediately. Timeout: if shutdown takes more than 3 seconds, force exit.
+Heartbeat (every 30s):
+  Runner → Server:  { resources, activeTasks }
+  Server → Runner:  heartbeat_ack
+```
 
----
+**Messages sent by agent runner (→ server):**
 
-## 4. WebSocket Client
+| Type | When | Payload |
+|------|------|---------|
+| `register` | On connect | capabilities, providers, resources |
+| `heartbeat` | Every 30s | resources, active tasks |
+| `task_status` | State change | taskId, status |
+| `task_output` | During execution | taskId, stream, data, sequence |
+| `task_text` | During execution | taskId, text (bypasses throttle) |
+| `task_tool_use` | AI calls tool | taskId, toolName, input |
+| `task_tool_result` | Tool returns | taskId, toolName, result, success |
+| `task_file_change` | File modified | taskId, path, action, diff |
+| `task_session_init` | Session starts | taskId, sessionId, model |
+| `task_result` | Task done | taskId, status, output, prUrl, branchName |
+| `task_approval_request` | Needs decision | taskId, question, options (60s timeout) |
+| `task_safety_prompt` | Unsafe dir | taskId, tier, options |
 
-### What Is a WebSocket?
+**Messages received by agent runner (← server):**
 
-A **WebSocket** is a persistent two-way communication channel between two programs. Unlike HTTP, where you send a request and wait for a response (like sending a letter and waiting for a reply), a WebSocket stays open so both sides can send messages at any time. Think of it like a phone call versus sending letters — once the connection is open, either side can talk whenever they want.
-
-The Agent Runner uses a WebSocket to stay connected to the Astro backend. This lets the server instantly send new tasks, and the runner can instantly stream back results as work progresses.
-
-`src/lib/websocket-client.ts` (855 lines)
-
-### 4.1 Connection
-
-- Library: `ws` package
-- Default relay URL: `ws://localhost:3002` (local development) or `wss://relay.astro.dev` (remote/production)
-- Authentication: `Authorization: Bearer <token>` header + `X-Runner-Id` + `X-Machine-Id` headers — these prove to the server that this runner is authorized and identify which machine it is
-- Token refresh via `/api/device/refresh` endpoint before connection if expired — tokens expire for security, so the runner automatically gets a new one before reconnecting
-
-### 4.2 Auto-Reconnection
-
-Networks are unreliable. Your WiFi might drop, the server might restart. The runner handles this automatically:
-
-- **Exponential backoff with jitter**: If the connection drops, it waits before retrying. Each retry waits longer (1s, 2s, 4s, 8s...) up to a maximum, with a small random variation ("jitter") to prevent all runners from reconnecting at the exact same instant.
-- Base delay: 1 second, max delay: 60 seconds
-- Retries: infinite by default (`reconnectMaxRetries: -1`) — it will keep trying forever until it reconnects
-- Token expiration check before each connection attempt
-
-### 4.3 Heartbeat
-
-Like a pulse check at the doctor's office, the runner periodically tells the server "I'm still alive and here's how I'm doing":
-
-- Interval: 30 seconds
-- Sends: machine resources (CPU, memory usage) + active task list
-- Application-level heartbeat + WebSocket-level ping (two layers of health checking)
-
-### 4.4 Messages Sent (Agent Runner -> Server)
-
-These are all the types of messages the runner can send to the server. Each message has a `type` field that tells the server what kind of message it is.
-
-| Type | Purpose |
-|------|---------|
-| `register` | Machine registration with capabilities (providers, resources) — "Hi, I'm machine X and I can do Y" |
-| `heartbeat` | Periodic health check with resource update — "Still alive, here's my CPU/memory" |
-| `task_status` | Task state change — "Task ABC moved from running to completed" |
-| `task_output` | Stdout/stderr chunk (sequence-numbered) — raw text output as the AI works, numbered so the server can reassemble them in order |
-| `task_result` | Final task result (status, output, PR info) — "Task done, here's the summary and PR link" |
-| `task_text` | Structured text output (bypasses stdout throttle) — important text that should arrive immediately |
-| `task_tool_use` | Tool invocation metadata — "The AI is calling tool X with these inputs" |
-| `task_tool_result` | Tool completion metadata — "Tool X returned this result" |
-| `task_tool_trace` | Legacy tool trace format (older format, kept for compatibility) |
-| `task_file_change` | File modification (path, action, diff) — "File X was edited, here's what changed" |
-| `task_session_init` | Session initialized (sessionId, model) — "AI session started, using Claude Sonnet" |
-| `task_steer_ack` | Steering message acknowledged — "Got your mid-task instruction" |
-| `task_approval_request` | Request user decision (with 60s timeout) — "The AI needs you to decide something" |
-| `resource_update` | Machine resource update — "My CPU usage changed" |
-| `file_list_response` | Response to file listing request — "Here are all the files in the repo" |
-| `repo_setup_response` | Repository setup result — "Repo cloned and ready" |
-
-### 4.5 Messages Received (Server -> Agent Runner)
-
-These are all the types of messages the server can send to the runner.
-
-| Type | Purpose |
-|------|---------|
-| `registered` | Registration acknowledgment with server config — "Welcome, here's your config" |
-| `task_dispatch` | Task assignment — "Here's a new task for you to execute" |
-| `task_cancel` | Cancel running task — "Stop working on task X" |
-| `task_steer` | Mid-execution steering message — "Tell the AI to change approach" |
-| `task_approval_response` | User's answer to approval request — "The user said yes/no to your question" |
-| `task_safety_decision` | User's safety check decision (proceed/init-git/sandbox/cancel) — "The user decided how to handle the risky situation" |
-| `config_update` | Runtime configuration changes — "Update your settings" |
-| `file_list_request` | Request for git file listing — "Tell me what files are in the repo" |
-| `repo_setup_request` | Clone/init repository — "Set up this repository" |
+| Type | When | Payload |
+|------|------|---------|
+| `registered` | After register | server config |
+| `task_dispatch` | New work | full Task object |
+| `task_cancel` | Stop work | taskId |
+| `task_steer` | Mid-execution | taskId, message, interrupt? |
+| `task_approval_response` | User decided | taskId, answer |
+| `task_safety_decision` | User decided | taskId, action |
+| `config_update` | Settings changed | new config values |
+| `file_list_request` | Server needs files | path |
+| `repo_setup_request` | Setup repo | repository, workingDirectory, projectId |
 
 ---
 
 ## 5. Task Executor
 
-The Task Executor is the core engine that manages the lifecycle of tasks — from receiving them, to running them safely, to reporting results. Think of it as the foreman on a construction site: it decides when to start work, manages multiple jobs in parallel, and ensures everything is done safely.
+`src/lib/task-executor.ts`
 
-`src/lib/task-executor.ts` (697 lines)
+The task executor is the core engine that manages the full lifecycle of tasks.
 
 ### 5.1 Architecture
 
-- **Task queue with configurable max concurrent tasks** (default: 4) — the runner can work on up to 4 tasks simultaneously
-- `taskQueue` stores pending tasks that are waiting for a slot to open up
-- `runningTasks` Map tracks executing tasks with AbortController (a mechanism to cancel a task mid-execution)
-- `processQueue()` promotes queued tasks when slots become available — like a waiting room where the next person is called when someone leaves
+```
+┌─────────────────────────────────────────────────────┐
+│                  TASK EXECUTOR                        │
+│                                                      │
+│  ┌─────────────┐     ┌────────────────────────────┐ │
+│  │ Task Queue   │────►│ Running Tasks               │ │
+│  │ (waiting)    │     │ Map<taskId, AbortController>│ │
+│  │              │     │ max concurrent: 4           │ │
+│  └─────────────┘     └────────────┬───────────────┘ │
+│                                    │                  │
+│         ┌──────────────────────────┤                  │
+│         │                          │                  │
+│  ┌──────▼──────┐   ┌──────────────▼──────────────┐  │
+│  │ Safety      │   │ Workspace Preparation        │  │
+│  │ Check       │   │                              │  │
+│  │ (workdir-   │   │ resolveWorkingDirectory()    │  │
+│  │  safety.ts) │   │ → createWorktree()           │  │
+│  └─────────────┘   │ → Provider Adapter execute() │  │
+│                     │ → PR creation                │  │
+│                     │ → Cleanup                    │  │
+│                     └────────────────────────────┘   │
+└─────────────────────────────────────────────────────┘
+```
 
-### 5.2 Task Lifecycle
+### 5.2 Task Lifecycle (Detailed)
 
-Every task goes through these stages:
-
-**1. Submit** (`submitTask()`, lines 98-142):
-   - **Safety check** on working directory (see section 7 for full details)
-   - **UNSAFE tier** -> block immediately (refuse to run)
-   - **RISKY tier** -> request user decision via safety prompt (ask first)
-   - **GUARDED tier** -> warn but continue (proceed with caution)
-   - Track task by directory for parallel execution safety (prevent two tasks from stomping on each other's files)
-   - Queue or execute based on available slots
-
-**2. Workspace Preparation** (`prepareTaskWorkspace()`, lines 594-625):
-   - Create git worktree if enabled (default: true) — see section 9 for what worktrees are and why we use them
-   - Fall back to direct execution if worktree creation fails
-   - Non-fatal failures (don't abort task) — if worktree setup fails, the task still runs, just without isolation
-
-**3. Execution** (`executeTask()`, lines 399-592):
-   - Optional sandbox mode (copy working directory to temp location for safe experimentation)
-   - Create provider adapter for task's specified provider (e.g., Claude Code, Claude SDK, or Codex)
-   - Build stream object with callbacks (see section 5.3)
-   - Execute with timeout (default: 1 hour) — if the AI takes too long, the task is cancelled
-   - Attempt PR creation on success (automatically create a pull request with the changes)
-   - Handle Slurm job monitoring (defer completion if jobs pending) — for HPC tasks, the task isn't "done" until the cluster job finishes
-   - Cleanup worktree and sandbox
-
-**4. Cancellation** (`cancelTask()`, lines 164-185):
-   - If running: abort via AbortController (sends a signal to stop the AI mid-work)
-   - If queued: remove from queue (hasn't started yet, just take it out)
-   - Cleanup resources
+```
+submitTask(task)
+       │
+       ▼
+┌──────────────────┐
+│ 1. SAFETY CHECK  │
+│                  │
+│ checkWorkdirSafety(dir)
+│   ├─ SAFE     → proceed
+│   ├─ GUARDED  → warn, proceed
+│   ├─ RISKY    → ask user (WS)
+│   └─ UNSAFE   → block
+└────────┬─────────┘
+         │
+    ┌────▼─────┐
+    │ 2. QUEUE │
+    │          │
+    │ slots    │
+    │ available│
+    │ ?        │
+    └────┬─────┘
+   no ┌──┴──┐ yes
+      │     │
+      ▼     ▼
+ ┌────────┐ ┌────────────────────────────────────────┐
+ │ Queue  │ │ 3. EXECUTE                              │
+ │ (wait) │ │                                         │
+ └────────┘ │ a. resolveWorkingDirectory()            │
+            │    git URL → clone to ~/.astro/repos/   │
+            │    local path → use as-is               │
+            │    empty → process.cwd()                │
+            │                                         │
+            │ b. createWorktree()                     │
+            │    → ~/.astro/worktrees/{repo}/{taskId} │
+            │    → branch: astro/{taskId}             │
+            │    → run .astro/.setup if exists         │
+            │                                         │
+            │ c. Create provider adapter               │
+            │    → claude-sdk / claude-code / codex    │
+            │                                         │
+            │ d. adapter.execute(task, stream, signal) │
+            │    workingDir = WORKTREE PATH            │
+            │    timeout = 1 hour                      │
+            │                                         │
+            │ e. Stream results via WebSocket          │
+            │    stdout, tool traces, file changes     │
+            │                                         │
+            │ f. On success: pushAndCreatePR()         │
+            │                                         │
+            │ g. Cleanup worktree                      │
+            │    (keep branch if PR created)           │
+            └─────────────────────────────────────────┘
+```
 
 ### 5.3 Stream Object
 
-The stream object is the communication bridge between the task executor and provider adapters. As the AI works, it generates various outputs (text, tool calls, file changes). All of these flow through the stream object's callbacks, which forward them to the server via WebSocket.
-
-Think of it as a set of labeled pipes: stdout goes through one pipe, tool calls through another, file changes through a third. Each pipe leads back to the server so the user can watch everything in real time.
+The stream object bridges the task executor to the WebSocket client. Each callback is wired to a WebSocket send method.
 
 ```typescript
 {
-  stdout(data)              // Raw stdout text (what the AI prints to the console)
-  stderr(data)              // Raw stderr text (error output)
-  status(status, progress?, message?)  // Task state update ("50% done", "compiling...")
-  toolTrace(toolName, input?, result?, success?)  // Tool call (legacy format)
-  text(data)                // Structured text output (formatted, not raw)
-  toolUse(toolName, input)  // Tool invocation — "AI is using tool X"
-  toolResult(toolName, result, success)  // Tool completion — "tool X returned Y"
-  fileChange(path, action, linesAdded?, linesRemoved?, diff?)  // File modification
-  sessionInit(sessionId, model?)  // Session started with AI model
-  approvalRequest(question, options)  // Ask user for decision before proceeding
+  stdout(data)              // Raw terminal output
+  stderr(data)              // Error output
+  status(status, progress?, message?)  // State update
+  text(data)                // Structured text (bypasses stdout throttle)
+  toolUse(toolName, input)  // AI invokes tool
+  toolResult(toolName, result, success)  // Tool returns
+  fileChange(path, action, linesAdded?, linesRemoved?, diff?)
+  sessionInit(sessionId, model?)
+  approvalRequest(question, options)  // Ask user for decision
 }
 ```
-
-Each callback is wired to the WebSocket client's send methods, so output streams directly to the server in real time.
-
-### 5.4 Working Directory Resolution
-
-When a task arrives, the runner needs to figure out WHERE on disk to work. This function resolves that:
-
-`resolveWorkingDirectory()` (lines 674-696):
-- **Git URL** -> clone to `~/.astro/repos/{projectId}/` (cached, periodic fetch) — if the task references a GitHub repo, clone it locally
-- **Empty/undefined** -> `process.cwd()` — if no directory specified, use wherever the runner is running
-- **Absolute path** -> use as-is — if a full path is given (like `/home/user/myproject`), use that directly
 
 ---
 
 ## 6. Provider Adapters
 
-### What Are Provider Adapters?
-
-Provider adapters are different **"drivers"** for different AI tools. Just like your computer needs different drivers for different printers (HP, Canon, Epson), the Agent Runner needs different adapters for different AI tools:
-
-- The **Claude SDK adapter** talks to Claude's API directly in code (like calling a function).
-- The **Claude Code adapter** runs the Claude CLI as a subprocess (like running a separate program).
-- The **Codex adapter** runs OpenAI's Codex CLI.
-
-They all produce the same output format, so the rest of the system doesn't care which AI is doing the work. This makes it easy to add new AI providers in the future.
-
-All adapters implement the `ProviderAdapter` interface from `src/providers/base-adapter.ts`:
+Provider adapters are drivers for different AI tools. They all implement the same interface so the executor doesn't care which AI is doing the work.
 
 ```typescript
 interface ProviderAdapter {
-  readonly type: string;            // e.g., 'claude-code', 'claude-sdk', 'codex'
-  readonly name: string;            // Human-readable name
-  isAvailable(): Promise<boolean>;  // Can this provider be used right now?
-  execute(task, stream, signal): Promise<TaskResult>;  // Do the work
-  getStatus(): Promise<ProviderStatus>;  // How's the provider doing?
+  readonly type: string;            // 'claude-code', 'claude-sdk', 'codex'
+  readonly name: string;
+  isAvailable(): Promise<boolean>;
+  execute(task, stream, signal): Promise<TaskResult>;
+  getStatus(): Promise<ProviderStatus>;
 }
 ```
 
-### 6.1 Claude Code Adapter (`src/providers/claude-code-adapter.ts`, 315 lines)
+### 6.1 Claude SDK Adapter
 
-This adapter runs the Claude Code CLI as a separate process (a "subprocess"). It's like launching a program from within another program and reading what it prints out.
+`src/providers/claude-sdk-adapter.ts`
 
-- **Type**: `claude-code`
-- **Max concurrent**: 1 (only one Claude Code session at a time, because the CLI manages its own state)
-- **Execution**: Spawns `claude --print --output-format stream-json <prompt>` as subprocess
-- **Arguments**: `--print` (autonomous mode, no interactive prompts), `--verbose`, `--output-format stream-json` (outputs structured JSON instead of plain text)
-- **Stream parsing**: JSON lines. Each line is a JSON object with a type:
-  - `system` -> session init (model info)
-  - `assistant` -> text blocks + tool uses (what the AI says and does)
-  - `user` -> tool results (what happened when a tool ran)
-  - `result` -> final result with cost info (done! here's what it cost)
-- **Signal handling**: SIGTERM then SIGKILL after 5s — asks the process nicely to stop, then forces it if it doesn't respond within 5 seconds
-- **Steering**: `injectMessage()` writes to process stdin (if supported) — you can send new instructions to the AI mid-execution by writing to its input stream
+```
+┌──────────────────────────────────────────────────────┐
+│              CLAUDE SDK ADAPTER                        │
+│                                                       │
+│  ┌─────────────────┐     ┌────────────────────────┐  │
+│  │ Task + Prompt    │────►│ @anthropic-ai/          │  │
+│  │                  │     │ claude-agent-sdk         │  │
+│  │ workingDir =     │     │                          │  │
+│  │ WORKTREE PATH    │     │ query({                  │  │
+│  └─────────────────┘     │   prompt,                │  │
+│                           │   maxTurns: 10-100,     │  │
+│  ┌─────────────────┐     │   model: claude-opus-4,  │  │
+│  │ process.chdir()  │     │   tools: [MCP tools],   │  │
+│  │ to worktree dir  │     │ })                      │  │
+│  │ (restored after) │     └──────────┬─────────────┘  │
+│  └─────────────────┘                 │                 │
+│                                       ▼                 │
+│                           ┌────────────────────────┐  │
+│                           │ for await (msg of query)│  │
+│                           │   msg.type:             │  │
+│                           │   system → sessionInit  │  │
+│                           │   text → stream.text()  │  │
+│                           │   tool_use → stream     │  │
+│                           │   tool_result → stream  │  │
+│                           │   result → TaskResult   │  │
+│                           └────────────────────────┘  │
+│                                                       │
+│  SPECIAL FEATURES:                                    │
+│  • HPC context injection (detects SLURM → adds       │
+│    cluster info to prompt)                            │
+│  • Approval interception (AskUserQuestion tool →      │
+│    routes to user via WebSocket, waits for answer)    │
+│  • Mid-execution steering via Query.interrupt()       │
+│    + Query.streamInput()                              │
+│  • MCP server loading (ASTRO_EXECUTION_ID injected)   │
+│  • Max concurrent: 4                                  │
+└──────────────────────────────────────────────────────┘
+```
 
-### 6.2 Claude SDK Adapter (`src/providers/claude-sdk-adapter.ts`, 502 lines)
+**Critical detail: `process.chdir()`** — The SDK adapter temporarily changes the Node.js process's working directory to the worktree path before calling `query()`. This is because the Claude Agent SDK's built-in tools (file read, file write, bash) operate relative to `process.cwd()`. The original cwd is restored in a `finally` block.
 
-This adapter talks to Claude directly through the SDK (Software Development Kit) — a code library that communicates with Claude's API. Instead of spawning a separate program, it makes API calls within the same process. This gives more control and allows more concurrent tasks.
+### 6.2 Claude Code Adapter
 
-- **Type**: `claude-sdk`
-- **Max concurrent**: 4 (more than Claude Code because it's in-process and lighter weight)
-- **Execution**: In-process via `@anthropic-ai/claude-agent-sdk` `query()` API
-- **Authentication**: `CLAUDE_CODE_OAUTH_TOKEN` env var or config
-- **Key features**:
-  - **HPC context injection** (lines 319-335): When running on a supercomputer cluster, the adapter automatically prepends HPC-specific context to the prompt so the AI understands the computing environment
-  - **Approval interception** (lines 254-316): If the AI calls a tool named `AskUserQuestion`, the adapter intercepts it and routes the question to the user via the WebSocket, waits for their answer, then feeds it back to the AI
-  - **Sbatch job tracking** (lines 438-449): When the AI submits a SLURM job (a task on a supercomputer), the adapter detects the "Submitted batch job NN" message and starts monitoring that job
-  - **MCP server loading** (lines 342-369): Loads configured MCP servers and injects the `ASTRO_EXECUTION_ID` so tools know which task they're part of (see section 11 for what MCP is)
-  - **Structured output** (lines 338-340, 457-470): Can request the AI to respond in a specific JSON format (defined by a schema)
-  - **Mid-execution steering** (`injectMessage()`, lines 148-189): Uses `Query.streamInput()` + `Query.interrupt()` to send new instructions to the AI while it's working — like tapping someone on the shoulder and saying "actually, try this instead"
-- **Working directory**: Explicitly `process.chdir()` to task directory (restored in finally block) — temporarily changes the working directory so the AI's file operations happen in the right place
+`src/providers/claude-code-adapter.ts`
 
-### 6.3 Codex Adapter (`src/providers/codex-adapter.ts`, 230 lines)
+Spawns the `claude` CLI as a subprocess.
 
-This adapter runs OpenAI's Codex CLI as a subprocess, similar to how the Claude Code adapter works but for a different AI tool.
+```
+┌──────────────────────────────────────┐
+│  CLAUDE CODE ADAPTER                  │
+│                                       │
+│  spawn('claude', [                    │
+│    '--print',                         │
+│    '--output-format', 'stream-json',  │
+│    '--verbose',                       │
+│    prompt                             │
+│  ], {                                 │
+│    cwd: WORKTREE_PATH  ← key!        │
+│  })                                   │
+│                                       │
+│  Parse JSON lines from stdout:        │
+│    system → sessionInit               │
+│    assistant → text + tool_use        │
+│    user → tool_result                 │
+│    result → TaskResult + cost         │
+│                                       │
+│  Max concurrent: 1                    │
+│  Signal: SIGTERM → 5s → SIGKILL      │
+│  Steering: write to stdin (limited)   │
+└──────────────────────────────────────┘
+```
 
-- **Type**: `codex`
-- **Max concurrent**: 1
-- **Execution**: Spawns `codex exec -a never --sandbox <mode> --json <prompt>`
-- **Sandbox modes**: `danger-full-access` (if already containerized, so sandbox is redundant), `workspace-write` (otherwise — restricts what the AI can modify)
-- **Output**: JSONL parsing for structured events (each line is a JSON object)
+### 6.3 Codex Adapter
 
-### 6.4 SLURM Adapter (`src/providers/slurm-adapter.ts`, ~80 lines)
+`src/providers/codex-adapter.ts`
 
-- **Status**: Deprecated (use `SlurmStrategy` execution strategy instead — see section 8.3)
-- **Purpose**: Was a bridge between tasks and SLURM job submission. Now replaced by the more flexible execution strategy system.
+Spawns `codex exec` as a subprocess. Similar pattern to Claude Code adapter.
+
+- Max concurrent: 1
+- Sandbox modes: `danger-full-access` (containerized) or `workspace-write`
+- JSONL output parsing
 
 ---
 
 ## 7. Safety System
 
-### Why We Need Safety Guardrails
-
-When an AI agent writes and executes code on your machine, things can go wrong. It might overwrite important files, delete something you need, or make changes you can't easily undo. The safety system is a set of guardrails to prevent the AI from accidentally damaging your files.
-
-The key insight: **if you're working in a git repo, the system knows it can undo changes** (because git tracks everything). **If you're NOT in a git repo, it warns you because changes might be irreversible** — there's no safety net.
-
-`src/lib/workdir-safety.ts` (~160 lines)
+`src/lib/workdir-safety.ts`
 
 ### 7.1 Safety Tiers
 
-The system classifies every working directory into one of four tiers, from safest to most dangerous:
-
-| Tier | Condition | Action | Why |
-|------|-----------|--------|-----|
-| **SAFE** | Git repo, clean state (no uncommitted changes) | Proceed | Everything is tracked by git; any changes can be reverted |
-| **GUARDED** | Git repo, uncommitted changes | Warn but proceed | Git can still help, but you have unsaved work that could be affected |
-| **RISKY** | Non-git directory | Require user confirmation | No version control = no easy undo. User must explicitly accept the risk |
-| **UNSAFE** | Non-git + parallel execution in same directory | Block with error | Two tasks modifying the same untracked files simultaneously is a recipe for data loss |
+| Tier | Condition | Action |
+|------|-----------|--------|
+| **SAFE** | Git repo, clean state | Proceed |
+| **GUARDED** | Git repo, uncommitted changes | Warn, proceed |
+| **RISKY** | Non-git directory | Ask user via WebSocket |
+| **UNSAFE** | Non-git + parallel execution | Block |
 
 ### 7.2 Safety Check Flow
 
-`checkWorkdirSafety()` runs automatically before every task:
-1. **Detect git repo**: `git rev-parse --show-toplevel` — asks git "is this a repository?"
-2. **Check uncommitted changes**: `git status --porcelain` — asks git "are there any unsaved modifications?"
-3. **Check parallel task count** in directory — are other tasks already working here?
-4. **Return tier + reason** — the tier determines what happens next (proceed, warn, ask, or block)
+```
+checkWorkdirSafety(dir)
+       │
+       ▼
+  ┌─────────────┐    no    ┌──────────────────────┐
+  │ Is git repo?├──────────►│ Other tasks in dir?  │
+  └──────┬──────┘           └──────────┬───────────┘
+         │ yes                   yes ┌─┴──┐ no
+         ▼                          │    │
+  ┌──────────────┐           ┌──────▼┐  ┌▼──────┐
+  │ Uncommitted  │           │UNSAFE │  │ RISKY │
+  │ changes?     │           │ Block │  │ Ask   │
+  └──────┬───────┘           └───────┘  └───────┘
+    yes ┌┴──┐ no
+        │   │
+  ┌─────▼┐ ┌▼──────┐
+  │GUARD.│ │ SAFE  │
+  │ Warn │ │ Go    │
+  └──────┘ └───────┘
+```
 
 ### 7.3 Sandbox Mode
 
-For extra caution, tasks can run in a "sandbox" — a temporary copy of your project:
-
-`createSandbox()`:
-- Copy working directory to temp location (max 100MB default, configurable via `--max-sandbox-size`) — makes a clone of your files in a temporary folder
-- Execute in isolation — the AI works on the copy, not your real files
-- Review before applying changes — you can inspect what the AI did before it touches your actual project
-- `copyBack()` applies sandbox changes to original — only when you approve, the changes are copied back
+For extra safety, tasks can run in a temporary copy of the working directory:
+- Copy working dir to temp location (max 100MB)
+- Execute in isolation
+- `copyBack()` applies changes to original only when approved
 
 ---
 
-## 8. Execution Strategies — Where and How Commands Run
+## 8. Execution Strategies
 
-### Why Execution Strategies Exist
-
-When the AI generates a command (like "run this Python script" or "submit this SLURM job"), something needs to actually execute that command. But WHERE that command runs depends on the environment:
-
-- On your laptop? → Direct strategy (just run it)
-- Inside a Docker container? → Docker strategy (isolate it)
-- On an HPC login node? → SLURM strategy (queue jobs to compute nodes)
-- Have kubectl access? → K8s Exec strategy (execute commands in pods from outside)
-- On a rented cloud VM (Lambda Labs, etc.)? → Direct strategy (it's just a Linux machine)
-- Want to provision cloud VMs on-demand? → SkyPilot strategy (experimental, not currently supported)
-
-Execution strategies answer "WHERE and HOW does a command run?" They are **orthogonal** (independent) to provider adapters, which answer "WHAT AI reasons about the task?" You can combine any provider with any strategy:
+Execution strategies answer **"WHERE does a command run?"** They are orthogonal to provider adapters (which answer "WHAT AI reasons about the task?").
 
 ```
-             │  Direct   │  Docker   │  SLURM    │ K8s Exec  │ SkyPilot* │
-─────────────┼───────────┼───────────┼───────────┼───────────┼───────────┤
-Claude SDK   │ SDK +     │ SDK +     │ SDK +     │ SDK +     │ SDK +     │
-             │ local     │ container │ HPC job   │ kubectl   │ cloud VM  │
-─────────────┼───────────┼───────────┼───────────┼───────────┼───────────┤
-Claude CLI   │ CLI +     │ CLI +     │ CLI +     │ CLI +     │ CLI +     │
-             │ local     │ container │ HPC job   │ kubectl   │ cloud VM  │
-─────────────┼───────────┼───────────┼───────────┼───────────┼───────────┤
-Codex        │ Codex +   │ Codex +   │    —      │    —      │    —      │
-             │ local     │ container │           │           │           │
-
-* SkyPilot is experimental and not currently supported.
+                 │  Direct  │  Docker  │  SLURM  │  K8s Exec │
+─────────────────┼──────────┼──────────┼─────────┼───────────┤
+Claude SDK       │    ✓     │    ✓     │    ✓    │     ✓     │
+Claude Code CLI  │    ✓     │    ✓     │    ✓    │     ✓     │
+Codex            │    ✓     │    ✓     │    —    │     —     │
 ```
 
-**Note on rented cloud VMs**: A rented VM (Lambda Labs, Hyperbolic AI, etc.) with an agent runner installed uses the Direct strategy. The AI runs on that VM and executes commands locally. It appears in the "Direct" column.
-
-**Important**: The AI (provider) always runs on the agent runner's machine. The execution strategy determines where the AI's **tool calls** (running commands, reading files) happen.
-
-### Sync vs Async
-
-**Synchronous strategies**: Run a command and wait. Output streams back in real time. The agent runner's process is occupied until the command finishes.
-
-**Asynchronous strategies**: Submit a job to a resource manager and poll for completion. There may be a queue, or resources may need provisioning. The agent runner submits and then periodically checks status.
-
-### Core Interface
-
-**File**: `src/execution/types.ts` (115 lines)
+### 8.1 Strategy Interface
 
 ```typescript
 interface ExecutionStrategy {
-  readonly id: ExecutionStrategyType;   // 'direct' | 'slurm' | 'docker' | 'k8s-exec' | 'skypilot'
-  readonly name: string;
-  readonly isAsync: boolean;            // true = submit-and-monitor
-
-  detect(): Promise<ExecutionStrategyDetection>;     // Probe environment
-  buildContext?(): Promise<string>;                   // AI-aware prompt prefix
-  execute(spec, callbacks, signal): Promise<ExecutionResult>;  // Run command
-  cancel(jobId): Promise<void>;                      // Stop job
-  getStatus(jobId): Promise<ExecutionJobStatus | null>;  // Poll status
+  readonly id: 'direct' | 'slurm' | 'docker' | 'k8s-exec' | 'skypilot';
+  readonly isAsync: boolean;  // true = submit-and-poll
+  detect(): Promise<ExecutionStrategyDetection>;
+  buildContext?(): Promise<string>;  // Inject environment info into AI prompt
+  execute(spec, callbacks, signal): Promise<ExecutionResult>;
+  cancel(jobId): Promise<void>;
+  getStatus(jobId): Promise<ExecutionJobStatus | null>;
 }
 ```
 
-**Registry**: `src/execution/registry.ts` (104 lines) — manages all strategies. `detectAll()` probes all 5 in parallel on startup, stores results. `get(id)` retrieves by ID. `getDefault()` returns Direct strategy as fallback.
+### 8.2 Direct Strategy
 
----
-
-### 8.1 Direct Strategy (`src/execution/direct-strategy.ts`, 187 lines)
-
-The simplest strategy: run a command on the same machine where the agent runner is installed.
+The default. Runs commands on the agent runner's machine via `child_process.spawn()`.
 
 ```
-┌─────────────────────────────────────┐
-│  AGENT RUNNER'S MACHINE             │
-│                                     │
-│  Agent Runner                       │
-│  ┌─────────────┐                    │
-│  │ AI (Claude) │                    │
-│  │ "run tests" │                    │
-│  └──────┬──────┘                    │
-│         │ spawn('sh', '-c', cmd)    │
-│         ▼                           │
-│  ┌─────────────┐                    │
-│  │ Child       │ ← stdout/stderr    │
-│  │ Process     │   streams back     │
-│  └─────────────┘                    │
-└─────────────────────────────────────┘
+Agent Runner → spawn('sh', '-c', command) → stdout/stderr → stream back
 ```
 
-| Property | Value |
-|----------|-------|
-| **ID** | `direct` |
-| **Async** | No — waits for process to finish |
-| **Detection** | Always available (every machine can run processes) |
-| **When to use** | Default for any task running on the agent runner's own machine |
-| **Limitation** | No isolation between tasks. Everything runs with agent runner's permissions. |
+### 8.3 Docker Strategy
 
-**Execution**: Uses `child_process.spawn()`. String commands wrapped in `sh -c`. Array commands exec'd directly. Handles timeout and AbortSignal. SIGTERM → 5s grace → SIGKILL.
-
-**Context injection** (`buildContext()`): Adds Python virtual environment safety guidelines — "NEVER run pip install globally, ALWAYS use venv/conda/uv."
-
----
-
-### 8.2 Docker Strategy (`src/execution/docker-strategy.ts`, 266 lines)
-
-Runs commands inside a Docker container. Each task gets its own isolated filesystem and environment. The working directory is mounted as a volume.
+Runs commands inside a Docker container. Working directory mounted as volume.
 
 ```
-┌─────────────────────────────────────────────────┐
-│  AGENT RUNNER'S MACHINE                         │
-│                                                 │
-│  Agent Runner                                   │
-│  ┌─────────────┐                                │
-│  │ AI (Claude) │                                │
-│  │ "run tests" │                                │
-│  └──────┬──────┘                                │
-│         │ docker run --rm -v $PWD:/work ...     │
-│         ▼                                       │
-│  ┌─────────────────────────────────────┐       │
-│  │ Docker Container (astro-{jobId})    │       │
-│  │ Image: node:22-slim                 │       │
-│  │ /work ← mounted from host cwd      │       │
-│  │ env vars passed through             │       │
-│  │                                     │       │
-│  │  ┌─────────────┐                    │       │
-│  │  │ Command     │ ← stdout/stderr    │       │
-│  │  │ runs here   │   streams back     │       │
-│  │  └─────────────┘                    │       │
-│  └─────────────────────────────────────┘       │
-└─────────────────────────────────────────────────┘
+Agent Runner → docker run --rm -v $PWD:/work node:22-slim <command>
 ```
 
-| Property | Value |
-|----------|-------|
-| **ID** | `docker` |
-| **Async** | No — waits for container to finish |
-| **Detection** | `docker info --format '{{.ServerVersion}}'` |
-| **Default image** | `node:22-slim` (configurable) |
-| **When to use** | When tasks need isolation, or a specific environment (Python version, system libraries) |
-| **Limitation** | Docker must be running. Container startup adds latency. GPU requires nvidia-docker. |
+### 8.4 SLURM Strategy
 
-**Options**: `image`, `volumes` (additional mounts), `network`, `user`.
-
-**Cleanup**: On abort/timeout: `docker stop` → `docker rm -f`. Container named `astro-{jobId}` for tracking.
-
----
-
-### 8.3 SLURM Strategy (`src/execution/slurm-strategy.ts`, 245 lines)
-
-SLURM (Simple Linux Utility for Resource Management) is software used on supercomputers and HPC clusters. When you submit a SLURM job, it goes into a queue and runs when resources (CPUs, GPUs, memory) become available on compute nodes. This is how researchers run large computations on shared clusters.
-
-**Critical architecture requirement**: The agent runner MUST be installed on the HPC **login node** — the gateway machine where users submit jobs. Compute nodes do NOT have agent runners.
+For HPC clusters. Agent runner must be on the login node. Async: submits job, polls for completion.
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  HPC CLUSTER                                         │
-│                                                      │
-│  ┌───────────────────────────┐                       │
-│  │  LOGIN NODE               │                       │
-│  │                           │                       │
-│  │  Agent Runner ◄── ws:// ── Relay                  │
-│  │  ┌──────────────────────┐ │                       │
-│  │  │ AI (Claude)          │ │                       │
-│  │  │ Writes SLURM scripts │ │                       │
-│  │  │ Reads HPC data       │ │                       │
-│  │  │ Inspects job output  │ │                       │
-│  │  └──────────┬───────────┘ │                       │
-│  │             │             │                       │
-│  │  ┌──────────▼───────────┐ │                       │
-│  │  │ SLURM Strategy       │ │                       │
-│  │  │ sbatch → submit job  │ │                       │
-│  │  │ squeue → check queue │ │                       │
-│  │  │ sacct  → job history │ │                       │
-│  │  │ scancel → cancel job │ │                       │
-│  │  └──────────┬───────────┘ │                       │
-│  └─────────────┼─────────────┘                       │
-│                │ sbatch                               │
-│                ▼                                      │
-│  ┌────────────────────────────────────────┐          │
-│  │  COMPUTE NODES (managed by scheduler)  │          │
-│  │                                        │          │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────┐ │          │
-│  │  │ Node 1   │  │ Node 2   │  │ ...  │ │          │
-│  │  │ 8 GPUs   │  │ 8 GPUs   │  │      │ │          │
-│  │  │ No agent │  │ No agent │  │      │ │          │
-│  │  └──────────┘  └──────────┘  └──────┘ │          │
-│  └────────────────────────────────────────┘          │
-│                                                      │
-│  ┌────────────────────────────────────────┐          │
-│  │  SHARED STORAGE (NFS/Lustre/GPFS)     │          │
-│  │  /home, /scratch, /data               │          │
-│  │  Accessible from login + compute      │          │
-│  └────────────────────────────────────────┘          │
-└──────────────────────────────────────────────────────┘
+Login Node (Agent Runner)
+  │ sbatch job.sh
+  ▼
+SLURM Scheduler → Compute Nodes
+  │
+  polling: squeue -j <id> / sacct -j <id>
+  │
+  ▼ job complete → read output files
 ```
 
-**Why not SSH from laptop to run sbatch?** The AI needs:
-- **Direct filesystem access** — to read datasets, write scripts, inspect outputs on the shared storage
-- **HPC environment knowledge** — which modules exist (`module avail`), which partitions, what quotas
-- **Low-latency tool calls** — every file read/write over SSH adds latency per AI turn
-- **Native sbatch/sinfo/squeue access** — without wrapping in SSH commands
+### 8.5 Kubernetes Exec Strategy
 
-| Property | Value |
-|----------|-------|
-| **ID** | `slurm` |
-| **Async** | Yes — submit job, poll for completion |
-| **Detection** | `detectSlurm()` checks for `sinfo`, `sbatch`. Returns cluster name, partitions, accounts, QoS. |
-| **Context** | `buildHpcContext()` — tells AI about cluster environment so it generates proper SLURM scripts |
-| **Config options** | `partition`, `nodes`, `ntasks`, `cpusPerTask`, `mem`, `time`, `qos`, `account`, `modules`, `gpu` |
-| **Job tracking** | Maps internal jobId → SLURM job ID. Cancel via `scancel`. |
+Executes commands inside an existing K8s pod via `kubectl exec`. Agent runner stays outside the cluster.
 
-**Status polling**: First tries `squeue -j <id>` (for running/pending jobs), falls back to `sacct -j <id>` (for completed jobs). Returns state and exit code.
+### 8.6 Strategy Comparison
 
----
-
-### 8.4 Kubernetes Exec Strategy (`src/execution/kubernetes-exec-strategy.ts`, 285 lines)
-
-Runs commands inside an existing Kubernetes pod via `kubectl exec`. The agent runner stays **outside** the cluster — on the user's laptop or any machine with kubectl configured. No agent runner installation is needed on the K8s cluster or in any pod.
-
-```
-┌──────────────────────┐           ┌───────────────────────────┐
-│  USER'S MACHINE      │           │  KUBERNETES CLUSTER       │
-│                      │           │                           │
-│  Agent Runner        │           │  ┌───────────────────┐    │
-│  ┌────────────────┐  │  kubectl  │  │  Pod A (your app) │    │
-│  │ AI (Claude)    │  │  exec     │  │  ┌─────────────┐  │    │
-│  │ "run tests"   │──┼──────────►│  │  │ Command     │  │    │
-│  └────────────────┘  │           │  │  │ runs here   │  │    │
-│  ┌────────────────┐  │           │  │  └─────────────┘  │    │
-│  │ K8s Exec      │  │           │  └───────────────────┘    │
-│  │ Strategy      │  │           │  ┌───────────────────┐    │
-│  └────────────────┘  │           │  │  Pod B (database) │    │
-│                      │           │  └───────────────────┘    │
-└──────────────────────┘           └───────────────────────────┘
-```
-
-| Property | Value |
-|----------|-------|
-| **ID** | `k8s-exec` |
-| **Async** | No — waits for command to finish in pod |
-| **Detection** | Checks `which kubectl`, then `kubectl cluster-info`. Returns cluster URL, version, namespaces, context. |
-| **Required option** | `pod` — must specify which pod to exec into |
-| **Optional** | `namespace`, `container` |
-
-**Current limitation**: Only supports `kubectl exec` (sync, existing pods). Does NOT support creating Kubernetes Jobs (batch workloads with autoscaler). A future K8sJobStrategy would use `kubectl apply -f job.yaml`, be async, and support K8s autoscaler.
-
----
-
-### 8.5 Rented Cloud VMs (Lambda Labs, Hyperbolic AI, etc.)
-
-Rented cloud VMs are a distinct category from SkyPilot-managed VMs. These are bare metal or Linux machines you rent on-demand from providers like Lambda Labs, Hyperbolic AI, or similar GPU/CPU rental services. You get SSH access to them, and they are just regular Linux machines.
-
-**Key insight**: If you are ON a rented cloud VM, it is just the Direct strategy. There is nothing special about it from the agent runner's perspective — it's a Linux machine with GPUs, Docker, etc. The agent runner detects what's available and uses it.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  USER'S LAPTOP                                                  │
-│  Agent Runner (primary)                                         │
-│                                                                  │
-│  SSH connections to rented VMs:                                  │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐  │
-│  │ ssh lambda-vm-1  │  │ ssh lambda-vm-2  │  │ ssh hyper-1  │  │
-│  └────────┬─────────┘  └────────┬─────────┘  └──────┬───────┘  │
-│           │                     │                     │          │
-└───────────┼─────────────────────┼─────────────────────┼──────────┘
-            │                     │                     │
-            ▼                     ▼                     ▼
-┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ Lambda Labs VM 1 │  │ Lambda Labs VM 2 │  │ Hyperbolic VM 1  │
-│ 8×A100 GPUs      │  │ 4×H100 GPUs      │  │ 8×A6000 GPUs     │
-│                  │  │                  │  │                  │
-│ Agent Runner ◄───┼──┼── ws:// ─── Relay│  │ Agent Runner ◄───┤
-│ (Direct strat.)  │  │ Agent Runner     │  │ (Direct strat.)  │
-│                  │  │ (Direct strat.)  │  │                  │
-│ Claude Code ✓    │  │ Claude Code ✓    │  │ Claude Code ✓    │
-│ Docker ✓         │  │ Docker ✓         │  │ Docker ✓         │
-│ Python/Conda ✓   │  │ Python/Conda ✓   │  │ Python/Conda ✓   │
-└──────────────────┘  └──────────────────┘  └──────────────────┘
-        │ ssh                    │ ssh
-        ▼                        ▼
-   (may connect to            (may connect to
-    each other or              other VMs in the
-    other VMs)                 same cluster)
-```
-
-**How to use rented VMs with Astro:**
-
-| Step | What Happens |
-|------|-------------|
-| 1 | Rent a VM from Lambda Labs, Hyperbolic AI, etc. You get an SSH address. |
-| 2 | SSH in and install the agent runner: `npx astro-agent setup` |
-| 3 | Start the agent runner: `astro-agent start -f` |
-| 4 | The agent runner connects to the relay (on your backend or cloud). |
-| 5 | It detects: Direct strategy, GPUs, Docker, Python envs, etc. |
-| 6 | The relay now shows it as a registered machine. |
-| 7 | Dispatch tasks to it from the UI like any other machine. |
-
-**Interconnected VMs**: Rented VMs from the same provider may be interconnected (same network, SSH between each other). Each VM has its own agent runner. The relay sees them as independent machines. Multi-machine workflows (e.g., distributed training) are coordinated at the plan level — one task per VM, with dependencies in the plan graph.
-
-**This is different from SkyPilot**: SkyPilot is a tool that *provisions* cloud VMs on your behalf using `sky launch`. Rented VMs are machines *you already have access to* — they exist, you SSH in, you work. No provisioning tool needed.
-
----
-
-### 8.6 SkyPilot Strategy (`src/execution/skypilot-strategy.ts`, 388 lines) — EXPERIMENTAL
-
-> **Status: Experimental / Not currently supported.** SkyPilot integration exists in code but is not a priority for the current release. The rented cloud VM approach (section 8.5) covers most use cases.
-
-SkyPilot is a tool that abstracts cloud VM provisioning across AWS, GCP, Azure, and other providers. It sits on a machine that has cloud credentials and uses `sky launch` to create VMs, run jobs, and tear them down. It handles cost optimization (spot instances, region selection).
-
-**Important clarification**: SkyPilot is NOT a way to connect to existing VMs. It is a tool that provisions NEW VMs in the cloud. You need:
-1. A machine with SkyPilot installed and cloud credentials configured
-2. The `sky` CLI available
-3. Cloud account(s) (AWS, GCP, Azure)
-
-```
-┌──────────────────────┐           ┌───────────────────────────┐
-│  MACHINE WITH        │           │  CLOUD (AWS/GCP/Azure)    │
-│  SKYPILOT + CREDS    │           │                           │
-│                      │           │  ┌───────────────────┐    │
-│  Agent Runner        │           │  │  Cloud VM          │    │
-│  ┌────────────────┐  │ sky launch│  │  (provisioned)     │    │
-│  │ AI (Claude)    │  │  ───────► │  │  4×V100 GPUs       │    │
-│  │ "train model"  │  │           │  │  ┌─────────────┐   │    │
-│  └────────────────┘  │ sky queue │  │  │ Job runs    │   │    │
-│  ┌────────────────┐  │  ◄─────── │  │  │ here        │   │    │
-│  │ SkyPilot      │  │           │  │  └─────────────┘   │    │
-│  │ Strategy      │  │           │  └───────────────────┘    │
-│  └────────────────┘  │           │                           │
-└──────────────────────┘           └───────────────────────────┘
-```
-
-| Property | Value |
-|----------|-------|
-| **ID** | `skypilot` |
-| **Async** | Yes — provisions VM, runs job, polls for completion |
-| **Detection** | Checks for `sky` CLI (including conda envs). `sky check` detects enabled clouds. |
-| **Options** | `cluster`, `cloud`, `instanceType`, `gpus`, `numNodes`, `reuseCluster` |
-| **Status** | **Experimental — not currently supported** |
-
-**Detection detail**: Also scans conda environments (`~/miniconda3`, `~/anaconda3`, `~/mambaforge`) if `sky` not on PATH.
-
----
-
-### 8.7 Strategy Comparison
-
-| Aspect | Direct | Docker | SLURM | K8s Exec | Rented VM | SkyPilot |
-|--------|--------|--------|-------|----------|-----------|----------|
-| **Sync/Async** | Sync | Sync | Async | Sync | Sync (Direct) | Async |
-| **Agent runner location** | On the machine | On the machine | HPC login node | Any machine with kubectl | On the rented VM | Any machine with sky CLI |
-| **Execution target** | Same machine | Local container | HPC compute nodes | Existing K8s pod | Same machine (it IS the VM) | Provisioned cloud VM |
-| **Isolation** | None | Container | Job-level | Pod-level | VM-level (whole machine) | VM-level |
-| **GPU support** | Native | nvidia-docker | SLURM `--gres` | Pod resource limits | Native (whatever the VM has) | `--gpus` flag |
-| **Cost** | Free | Free | Free (shared) | K8s cluster cost | Rental cost (on-demand) | Cloud pay-per-use |
-| **Status** | Stable | Stable | Stable | Stable | Stable | **Experimental** |
-
-**Note on rented VMs**: They use the Direct strategy once the agent runner is installed. They appear in this table as a separate column because the *setup process* is distinct (rent → SSH → install agent runner → connect to relay), but the execution strategy is the same as "Direct."
-
-### 8.8 How the AI Uses Execution Strategies
-
-The flow when a task executes:
-
-| Step | What Happens |
-|------|-------------|
-| 1 | Task arrives with optional `executionStrategy` field |
-| 2 | If specified, use that strategy. Otherwise, use Direct (default). |
-| 3 | AI (Claude) runs on the agent runner's machine as a process |
-| 4 | AI generates tool calls: "run command X", "read file Y", "write file Z" |
-| 5 | Tool implementations use the execution strategy for command execution |
-| 6 | Strategy's `buildContext()` injects environment info into AI prompt |
-| 7 | For async strategies: AI submits job, strategy polls until complete |
-
-**Example with SLURM**: The AI on the login node generates an sbatch script. When it calls a "run command" tool with `sbatch job.sh`, the command runs directly on the login node (where sbatch lives). SLURM then schedules the job on compute nodes. The strategy polls with squeue until the job completes, then the AI can inspect the output files.
-
-### 8.9 Known Gaps and Future Strategies
-
-| Gap | Current State | Impact | Path Forward |
-|-----|--------------|--------|-------------|
-| **No K8s Job Strategy** | Only `kubectl exec` (sync, existing pods) | Can't submit K8s batch Jobs with autoscaler support | Add `K8sJobStrategy`: `kubectl apply -f`, async, poll `kubectl get jobs` |
-| **No SSH execution** | By design — install agent runners remotely instead | Users must manually install agent runners on each remote machine | Automate via UI "Install Agent Runner" button |
-| **No native cloud strategies** | SkyPilot (experimental, not supported) + manual VM setup | Limited integration with cloud-native services (SageMaker, Vertex AI, Azure ML) | Add native strategies per cloud provider |
-| **Rented VM setup friction** | Must SSH in and install agent runner manually | Users renting Lambda Labs / Hyperbolic AI VMs need multiple manual steps | Automate via UI + one-click remote install using `ssh-installer.ts` |
-| **Manual strategy selection** | User/task config must specify strategy | No auto-routing based on task requirements ("needs GPU" → SLURM machine) | Add capability-based routing in dispatch |
-| **No multi-strategy composition** | One strategy per task | Can't say "SSH to remote, then Docker there" | Solution: install agent runner on remote (which can use Docker locally) |
-| **Async UX gap** | `isAsync` flag exists but UI doesn't surface it | Users expect immediate output from SLURM/SkyPilot | Show "queued, waiting for resources" state |
+| Aspect | Direct | Docker | SLURM | K8s Exec |
+|--------|--------|--------|-------|----------|
+| Sync/Async | Sync | Sync | Async | Sync |
+| Isolation | None | Container | Job | Pod |
+| GPU | Native | nvidia-docker | `--gres` | Pod limits |
+| Agent location | On machine | On machine | Login node | Any w/ kubectl |
 
 ---
 
 ## 9. Git Worktree Management
 
-### What Are Worktrees?
+### Why Worktrees
 
-A **worktree** is git's ability to have multiple copies of a repository checked out at the same time, each on a different branch. Normally, a git repository has one working copy of your files. With worktrees, you can have several, each showing a different branch's version of the code.
+Each task gets its own worktree (branch + working copy) so:
+- Multiple tasks can run in parallel on the same repo
+- Each task's changes are isolated on its own branch
+- No merge conflicts during concurrent execution
+- Each branch becomes a PR
+- Cleanup removes the worktree when done
 
-Think of it like having **multiple desks, each with their own copy of the paperwork**. You can work on different things at each desk without papers getting mixed up. When you're done at one desk, you can merge that work back into the main pile.
+### Worktree Lifecycle
 
-### Why We Use Worktrees
+`src/lib/worktree.ts` (agent runner) and `server/lib/worktree-manager.ts` (server)
 
-Each task gets its own worktree (branch + working directory copy), so:
-- **Multiple tasks can run in parallel on the same repo** — task A and task B can both modify files without interfering with each other
-- **Each task's changes are isolated to its own branch** — clean separation
-- **No merge conflicts during concurrent execution** — each task sees its own version of the files
-- **Easy PR creation per task** — each branch becomes a pull request
-- **Cleanup removes the worktree when done** — no leftover mess
+```
+createWorktree(taskId, workingDirectory)
+       │
+       ├── Validate taskId format (alphanumeric + hyphens/underscores/dots)
+       ├── Resolve git root: git rev-parse --show-toplevel
+       ├── Verify commits exist: git rev-parse --verify HEAD
+       │
+       ├── Base dir: ~/.astro/worktrees/{repoName}/
+       ├── Branch: astro/{sanitized-taskId}  (or astro/{nodeId} on server)
+       ├── Path: ~/.astro/worktrees/{repoName}/{sanitized-taskId}/
+       │
+       ├── Clean up stale: rm + git worktree prune
+       ├── Delete old branch: git branch -D {branchName}
+       ├── Create: git worktree add -b {branch} {path}
+       │
+       ├── (agent-runner only) Apply .astro/include/ files
+       ├── (agent-runner only) Run .astro/.setup script
+       │
+       └── Return { worktreePath, branchName, cleanup() }
 
-`src/lib/worktree.ts` (~100 lines)
+On cleanup:
+       ├── git worktree remove --force {path}
+       ├── git worktree prune
+       ├── rm -rf {path}
+       └── (unless keepBranch) git branch -D {branchName}
+```
 
-### 9.1 Worktree Creation
-
-`createWorktree(taskId, workingDirectory, options)`:
-
-1. Validate taskId format
-2. Resolve to absolute path, find git root
-3. Check for commits (`git rev-list HEAD`) — ensure the repo has at least one commit
-4. Base directory: `~/.astro/worktrees/{repoName}` (or override)
-5. Branch name: `astro/{sanitized-taskId}` — e.g., `astro/fix-login-bug`
-6. Remove stale worktree if exists, prune dangling worktrees (clean up leftover worktrees from crashed tasks)
-7. Delete existing branch with same name (fresh start)
-8. `git worktree add -b <branch> <path>` — the actual git command that creates the worktree
-9. Apply worktree include files (non-fatal) — optional additional setup
-10. Run setup script (non-fatal) — optional project-specific initialization
-11. Return `{ path, branch, cleanup() }` — the path to work in, the branch name, and a function to clean up when done
+**Subdirectory preservation**: If the task's working directory is a subdirectory of the repo (e.g., `repo/packages/web/`), the worktree preserves this: the returned working directory becomes `worktree-path/packages/web/`.
 
 ---
 
 ## 10. PR Creation
 
-After a task completes successfully and has made code changes, the runner can automatically create a **pull request** (PR) — a proposal to merge the task's changes into the main codebase. This is how changes get reviewed and integrated.
+`src/lib/git-pr.ts`
 
-`src/lib/git-pr.ts` (237 lines)
+After a task completes with code changes:
 
-`pushAndCreatePR(branchName, title, body, worktreePath)`:
-
-1. Get git root from worktree
-2. Check remote origin exists — verify the repo is connected to a remote (e.g., GitHub)
-3. Detect default branch: `refs/remotes/origin/HEAD` -> `origin/main` -> `origin/master` -> `main` — figure out which branch to merge into
-4. Check if branch has commits: `git rev-list --count origin/{base}..HEAD` — make sure there are actually changes to propose
-5. Push: `git push -u origin {branchName}` — upload the branch to GitHub
-6. Create PR (if `gh` CLI available): `gh pr create --base {base} --head {branch} --title {title} --body {body}` — `gh` is GitHub's official CLI tool
-7. Return `{ url, prNumber }` or graceful fallback (branch pushed, no PR if `gh` unavailable) — if the GitHub CLI isn't installed, the branch is still pushed; you just need to create the PR manually
+```
+pushAndCreatePR(branchName, title, body, worktreePath)
+       │
+       ├── Get git root
+       ├── Check remote origin exists
+       ├── Detect default branch (origin/HEAD → origin/main → origin/master)
+       ├── Count commits: git rev-list --count origin/{base}..HEAD
+       │
+       ├── Push: git push -u origin {branchName}
+       │
+       └── If `gh` CLI available:
+           gh pr create --base {base} --head {branch} --title --body
+           Return { url, prNumber }
+```
 
 ---
 
 ## 11. MCP Integration
 
-### What Is MCP?
+`src/mcp/`
 
-**MCP** stands for **Model Context Protocol**. It's a standard way for AI tools to share capabilities with each other, like how USB lets different devices plug into the same port. Without MCP, every AI tool would need custom integration code for every other tool. With MCP, tools expose a standard set of "here's what I can do" and other tools can use those capabilities.
+MCP (Model Context Protocol) lets Claude Code sessions interact with the Astro platform.
 
-In Astro's case, MCP lets Claude Code sessions (the AI) interact with the Astro platform — for example, to check what task it's working on, or to send progress updates.
+```
+┌─────────────┐     stdio      ┌────────────────┐     ws://     ┌──────────┐
+│ Claude Code  │◄──────────────►│ MCP Server     │◄─────────────►│  Relay   │
+│ (subprocess) │                │ astro-agent mcp │               │  Server  │
+└─────────────┘                └────────────────┘               └──────────┘
+```
 
-`src/mcp/server.ts` (~80 lines)
-
-The MCP server provides Claude Code sessions with these tools:
+**Tools provided:**
 
 | Tool | Purpose |
 |------|---------|
-| `astro_attach` | Attach Claude Code session to an Astro task — "I'm now working on task X" |
-| `astro_detach` | Detach from current task — "I'm done with task X" |
-| `astro_status` | Check attachment status — "Which task am I attached to?" |
-| `astro_send` | Send message/event to Astro (tool_call, tool_result, file_change, message, error) — "Here's what I just did" |
-
-**Transport**: Stdio (Claude Code subprocess). This means the MCP server communicates through standard input/output — the same way command-line programs have always communicated. Started via `astro-agent mcp` command.
-
-**Session Bridge**: Maintains WebSocket connection to relay, tracks active sessions, routes events between Claude Code and Astro platform. This bridge allows a Claude Code session running on your machine to send real-time updates back to the Astro UI.
+| `astro_attach` | Link Claude Code session to an Astro task |
+| `astro_detach` | Unlink session |
+| `astro_status` | Check which task this session is attached to |
+| `astro_send` | Send events (progress, file_change, error) to Astro |
 
 ---
 
 ## 12. Configuration
 
-The runner stores its configuration in a cross-platform config file managed by the `conf` package (which knows where to put config files on macOS, Linux, and Windows).
-
-`src/lib/config.ts` (~100 lines)
+`src/lib/config.ts` — uses `conf` package for cross-platform config storage.
 
 ```typescript
 interface ConfigSchema {
-  runnerId: string;              // UUID, generated at first setup — unique ID for this runner instance
-  machineId: string;             // Hardware-based (MAC, UUID) or random — unique ID for this physical machine
-  machineName?: string;          // SSH alias — a friendly name like "my-laptop"
-  environmentType: string;       // 'local', 'remote', 'hpc' — what kind of machine is this?
-  deviceToken?: string;          // Device auth code — used during initial authentication
-  apiUrl: string;                // Default: http://localhost:3001 — where the Astro backend API lives
-  accessToken?: string;          // JWT from device auth — proves this runner is authorized
-  refreshToken?: string;         // For token refresh — used to get a new access token when the current one expires
-  wsToken?: string;              // WebSocket auth token — authenticates the WebSocket connection
-  claudeOauthToken?: string;     // From `claude setup-token` — the OAuth token for talking to Claude's API
-  relayUrl: string;              // Default: ws://localhost:3002 — where the relay WebSocket server lives
-  providers: ProviderType[];     // Detected providers — e.g., ['claude-code', 'claude-sdk']
-  autoStart: boolean;            // Auto-start on login — should the runner start when you log into your computer?
-  logLevel: string;              // debug/info/warn/error — how much detail to log
-  lastConnected?: string;        // ISO timestamp — when the runner last connected to the server
-  setupCompleted: boolean;       // Setup flag — has `astro-agent setup` been run?
-  mcpServers?: Record<string, { command, args, env }>;  // Additional MCP servers to load
+  runnerId: string;              // UUID, generated at setup
+  machineId: string;             // Hardware-based (MAC/UUID) or random
+  machineName?: string;          // Friendly name (e.g., "my-laptop")
+  environmentType: string;       // 'local' | 'remote' | 'hpc' | 'cloud'
+  apiUrl: string;                // Default: http://localhost:3001
+  relayUrl: string;              // Default: ws://localhost:3002
+  accessToken?: string;          // JWT from device auth
+  refreshToken?: string;         // For token refresh
+  wsToken?: string;              // WebSocket auth
+  claudeOauthToken?: string;     // From `claude setup-token`
+  providers: ProviderType[];     // Detected providers
+  autoStart: boolean;            // Start on login
+  logLevel: string;              // debug/info/warn/error
+  setupCompleted: boolean;
+  mcpServers?: Record<string, { command, args, env }>;
 }
 ```
 
-**Hardware ID** (`src/lib/hardware-id.ts`): Network-agnostic machine identification. This generates a stable identifier for your physical machine, so the server can recognize it even if your IP address changes. Priority: hardware UUID (best, always stable) -> MAC address (good, but can change with network adapters) -> random UUID (fallback). Prefixed: `mac-`, `rand-`, or bare UUID.
+**Hardware ID** (`src/lib/hardware-id.ts`): Stable machine identifier. Priority: hardware UUID → MAC address → random UUID. Prefixed: `mac-`, `rand-`, or bare UUID.
 
 ---
 
 ## 13. Key Types
 
-These are the core data structures used throughout the Agent Runner. They define the "shape" of the data that flows through the system.
+`src/types.ts`
 
-`src/types.ts` (619 lines)
-
-### Task
-
-A task is a unit of work sent from the server to the runner. It contains everything the runner needs to execute the work.
+### Task (incoming from server)
 
 ```typescript
 interface Task {
-  id: string;                       // Unique task identifier
-  projectId: string;                // Which project this task belongs to
-  planNodeId: string;               // Which node in the project plan this task corresponds to
-  provider: ProviderType;           // 'claude-code' | 'claude-sdk' | 'codex' | 'slurm' — which AI to use
-  prompt: string;                   // The instructions for the AI (what to do)
-  workingDirectory: string;         // Where on disk to work (a file path or git URL)
-  environment?: Record<string, string>;  // Environment variables to set (e.g., API keys)
-  timeout?: number;                 // ms (default: 1 hour) — max time before the task is cancelled
-  maxTurns?: number;                // Override default SDK turns — how many back-and-forth exchanges the AI can have
-  outputFormat?: { type: 'json_schema'; schema: Record };  // Request structured JSON output
-  executionStrategy?: ExecutionStrategyType;  // 'direct' | 'docker' | 'slurm' | etc. — how to run commands
-  createdAt: string;                // ISO timestamp — when the task was created
+  id: string;
+  projectId: string;
+  planNodeId: string;
+  provider: ProviderType;           // Which AI to use
+  prompt: string;                   // Instructions for the AI
+  workingDirectory: string;         // Where to work (path or git URL)
+  environment?: Record<string, string>;
+  timeout?: number;                 // ms, default 1 hour
+  maxTurns?: number;
+  outputFormat?: { type: 'json_schema'; schema: Record };
+  executionStrategy?: ExecutionStrategyType;
+  createdAt: string;
 }
 ```
 
-### TaskResult
-
-The outcome of a completed (or failed/cancelled) task. This is what gets sent back to the server when work is done.
+### TaskResult (outgoing to server)
 
 ```typescript
 interface TaskResult {
-  taskId: string;                   // Which task this result belongs to
+  taskId: string;
   status: 'pending'|'queued'|'running'|'completed'|'failed'|'cancelled'|'timeout';
-  exitCode?: number;                // Process exit code (0 = success, anything else = failure)
-  output?: string;                  // The AI's final output text
-  error?: string;                   // Error message if something went wrong
-  startedAt?: string;               // When execution began
-  completedAt?: string;             // When execution ended
-  artifacts?: TaskArtifact[];       // Files or other outputs produced
-  branchName?: string;              // Git branch that was created (e.g., 'astro/fix-login-bug')
-  prUrl?: string;                   // URL of the pull request (e.g., 'https://github.com/org/repo/pull/42')
-  prNumber?: number;                // Pull request number (e.g., 42)
-}
-```
-
-### MachineResources
-
-Information about the physical machine the runner is running on. This helps the server decide which machine is best suited for a given task (e.g., GPU-heavy tasks should go to machines with GPUs).
-
-```typescript
-interface MachineResources {
-  hostname: string;                 // Machine's network name
-  platform: NodeJS.Platform;        // 'darwin' (macOS), 'linux', 'win32', etc.
-  arch: string;                     // CPU architecture: 'x64', 'arm64', etc.
-  cpu: { model, cores, speed, loadAvg };  // CPU details and current load
-  memory: { total, free, used, usedPercent };  // RAM usage
-  gpu: Array<{ model, memoryTotal, memoryUsed, utilization }>;  // GPU details (if any)
+  exitCode?: number;
+  output?: string;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  artifacts?: TaskArtifact[];
+  branchName?: string;              // e.g., 'astro/fix-login-bug'
+  prUrl?: string;                   // e.g., 'https://github.com/org/repo/pull/42'
+  prNumber?: number;
 }
 ```
 
 ---
 
-## 14. Data Directory
-
-The Agent Runner stores its working data in two locations on your file system:
+## 14. Data Directory Layout
 
 ```
-~/.astro/                      # Working data directory (in your home folder)
-├── worktrees/                 # Git worktrees per repo (see section 9)
-│   └── {repoName}/           # One worktree per task branch
-├── repos/                     # Cloned repositories (cached so they don't need to be re-downloaded)
-│   └── {projectId}/          # One clone per project
-├── logs/                      # SDK debug logs (for troubleshooting)
+~/.astro/                          # Working data
+├── worktrees/                     # Git worktrees per repo
+│   └── {repoName}/               # One worktree per task
+│       └── {taskId}/
+├── repos/                         # Cloned repositories (cached)
+│   └── {projectId}/
+├── projects/                      # Fresh project directories
+│   └── {projectId}/
+├── logs/                          # SDK debug logs
 ├── hpc/
-│   └── config.json           # User HPC overrides (custom supercomputer settings)
-└── astro.db                   # SQLite database (Drizzle ORM) — agent runner's own local task history and metadata
-                               # Note: the Astro *server* uses PGlite at ~/.astro/pglite/ for local mode
-                               # (and Postgres in server mode). The agent runner's SQLite DB is independent.
+│   └── config.json               # HPC overrides
+└── astro.db                       # Agent runner's SQLite database
 
-~/.config/astro-agent/         # Configuration (platform-dependent location)
-└── config.json               # Agent runner config (see section 12 for all fields)
+~/.config/astro-agent/             # Configuration
+└── config.json                    # See section 12
 ```
 
-The `~` symbol means your home directory — e.g., `/Users/yourname` on macOS or `/home/yourname` on Linux. So `~/.astro/` would be `/Users/yourname/.astro/` on a Mac. The dot prefix (`.astro`) makes it a hidden folder, keeping it out of the way of your normal files.
+---
+
+## 15. Architectural Critique and Known Redundancies
+
+This section documents the actual problems with the current architecture. These are not theoretical — they cause real confusion and maintenance burden.
+
+### 15.1 Duplicated Working Directory Resolution
+
+**The same logic exists in three places:**
+
+| Location | Function | Triggered by |
+|----------|----------|-------------|
+| `server/routes/dispatch.ts:283` | `resolveWorkingDirectory()` | Local dispatch |
+| `packages/agent-runner/src/lib/task-executor.ts:682` | `resolveWorkingDirectory()` | Relay dispatch (task executor) |
+| `packages/agent-runner/src/lib/repo-utils.ts:114` | `cloneRepository()` | Repo setup request |
+
+All three do the same thing: if the input is a git URL, clone to `~/.astro/repos/{projectId}/`. If it's a local path, use as-is.
+
+**Problem**: These have slightly different implementations. The server version uses `execFileSync` with hooks disabled (`-c core.hooksPath=/dev/null`); the agent runner version does not. The server version validates projectId format; the agent runner version does not. They use different timeouts (30s vs 120s). This divergence will grow over time.
+
+**Recommendation**: Extract a shared `resolveWorkingDirectory()` function into a common package, or clearly document that the server and agent runner versions are intentionally different (and why).
+
+### 15.2 Duplicated Worktree Management
+
+**Two separate implementations:**
+
+| Location | Function | Triggered by |
+|----------|----------|-------------|
+| `server/lib/worktree-manager.ts` | `createServerWorktree()` | Local dispatch |
+| `packages/agent-runner/src/lib/worktree.ts` | `createWorktree()` | Relay dispatch |
+
+Both create worktrees at `~/.astro/worktrees/{repoName}/`, both prune stale worktrees, both clean up afterward.
+
+**Differences that cause bugs:**
+- Server uses `astro/{nodeId}` as branch name. Agent runner uses `astro/{taskId}`. These are different values — nodeId is the plan graph node ID, taskId is the execution ID. This means the same plan node dispatched twice will have different branches on the server vs agent runner.
+- Server requires remote origin (throws if missing). Agent runner does not.
+- Agent runner runs `.astro/.setup` and `.astro/include/` after worktree creation. Server does not.
+
+**Recommendation**: Either unify into a single worktree manager (used by both server and agent runner), or formalize the differences as intentional and document them.
+
+### 15.3 The "Who Manages the Workspace" Problem
+
+The fundamental architectural question: **should the server or the agent runner be responsible for workspace preparation?**
+
+Currently, the answer is "both, depending on the dispatch path":
+
+```
+LOCAL DISPATCH:    Server clones repo → Server creates worktree → Server runs AI
+RELAY DISPATCH:    Server passes raw path → Agent runner clones → Agent runner creates worktree → Agent runner runs AI
+```
+
+This means:
+1. When running locally, the server must have git installed and understand worktree management.
+2. When running via relay, the agent runner must have the same capabilities.
+3. Both must handle PR creation.
+4. The `workingDirectory` field means different things: for local dispatch it's already resolved; for relay dispatch it might be a git URL that still needs resolution.
+
+**This is the core design tension.** The system tries to support both "server does everything" and "agent runner does everything" without a clean abstraction layer.
+
+### 15.4 Missing Working Directory Specification in Task Schema
+
+The `Task` interface has a `workingDirectory: string` field but:
+- It does not specify whether this is the **original repo path** or the **worktree path**.
+- For local dispatch, the task's `workingDirectory` is set to the worktree path by the server before calling the provider.
+- For relay dispatch, the task's `workingDirectory` is the raw value from the frontend (could be a git URL), and the agent runner resolves it before creating a worktree.
+
+**The same field has different semantics depending on the dispatch path.** This is confusing and error-prone.
+
+**Recommendation**: Split into explicit fields:
+```typescript
+interface Task {
+  repository?: string;       // Git URL (if any)
+  sourceDirectory?: string;  // Original local path
+  // workingDirectory is set internally to worktree path before execution
+}
+```
+
+### 15.5 Repo Setup vs Task Dispatch Overlap
+
+When a project is created, `/api/repo/setup` clones the repo and builds the file tree. Then when a task is dispatched, `resolveWorkingDirectory()` may clone the same repo again (or fetch it). This is redundant — the repo was already set up.
+
+The repo setup step is necessary for plan generation (to read CLAUDE.md, README, etc.), but task dispatch should be able to use the already-cloned directory.
+
+**Currently**: The server stores the resolved `workingDirectory` (a local path) in the project record. When dispatching, it passes this path. If it's still a git URL (which it shouldn't be after setup), it re-clones. This works but is fragile — the "already resolved" invariant is not enforced.
+
+### 15.6 `process.chdir()` in SDK Adapter
+
+The Claude SDK adapter changes the Node.js process's working directory:
+
+```typescript
+const originalDir = process.cwd();
+process.chdir(worktreePath);
+try {
+  // ... run Claude SDK query
+} finally {
+  process.chdir(originalDir);
+}
+```
+
+`process.chdir()` is a process-global operation. If multiple tasks run concurrently (max concurrent = 4), they could race on `process.cwd()`. This is a latent bug if the SDK adapter ever supports true concurrent execution. Currently, the adapter serializes executions, but this is not enforced by the type system.
+
+### 15.7 Summary of Recommendations
+
+| Issue | Severity | Recommendation |
+|-------|----------|----------------|
+| Duplicated `resolveWorkingDirectory()` | Medium | Extract to shared utility or eliminate one path |
+| Duplicated worktree management | Medium | Unify or formalize the differences |
+| Branch naming inconsistency (nodeId vs taskId) | High | Standardize on one naming scheme |
+| `workingDirectory` field semantics | High | Split into `repository` + `sourceDirectory` |
+| `process.chdir()` race condition | Low (latent) | Pass cwd to SDK query instead of global chdir |
+| Repo setup / dispatch overlap | Low | Enforce "workingDirectory is always a local path after setup" |
+
+---
+
+## Appendix A: File Inventory
+
+### Agent Runner (`packages/agent-runner/src/`)
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `cli.ts` | ~340 | CLI entry point (commander) |
+| `index.ts` | — | Public API exports |
+| `types.ts` | ~620 | All type definitions |
+| **Commands** (`commands/`) | | |
+| `setup.ts` | ~260 | First-time setup + device auth |
+| `start.ts` | ~340 | Main runner loop |
+| `status.ts` | — | Health check |
+| `stop.ts` | — | Graceful shutdown |
+| `mcp.ts` | — | MCP server start |
+| **Libraries** (`lib/`) | | |
+| `websocket-client.ts` | ~855 | WebSocket + auto-reconnect |
+| `task-executor.ts` | ~700 | Task queue + lifecycle |
+| `worktree.ts` | ~226 | Git worktree management |
+| `workdir-safety.ts` | ~300 | Safety tier system |
+| `repo-utils.ts` | ~220 | Repo clone + file tree |
+| `git-pr.ts` | ~237 | Push branch + create PR |
+| `config.ts` | ~420 | Configuration management |
+| `providers.ts` | ~300 | Provider detection |
+| `resources.ts` | ~150 | CPU/memory/GPU detection |
+| `hardware-id.ts` | — | Machine identification |
+| `api-client.ts` | — | HTTP client for device auth |
+| `hpc-context.ts` | — | HPC context for AI prompts |
+| `slurm-detect.ts` | — | SLURM cluster detection |
+| `slurm-executor.ts` | ~250 | SLURM job submit + monitor |
+| `slurm-job-monitor.ts` | — | SLURM job tracking |
+| `streaming-prompt.ts` | — | Prompt assembly |
+| `ssh-discovery.ts` | — | SSH host discovery |
+| `ssh-installer.ts` | — | Remote agent installation |
+| **Providers** (`providers/`) | | |
+| `base-adapter.ts` | ~60 | ProviderAdapter interface |
+| `claude-sdk-adapter.ts` | ~500 | Claude SDK integration |
+| `claude-code-adapter.ts` | ~315 | Claude CLI subprocess |
+| `codex-adapter.ts` | ~230 | Codex CLI subprocess |
+| `slurm-adapter.ts` | ~80 | SLURM adapter (deprecated) |
+| **Execution** (`execution/`) | | |
+| `types.ts` | ~115 | ExecutionStrategy interface |
+| `registry.ts` | ~104 | Strategy detection + registry |
+| `direct-strategy.ts` | ~187 | Local process execution |
+| `docker-strategy.ts` | ~266 | Docker container execution |
+| `slurm-strategy.ts` | ~245 | SLURM job submission |
+| `kubernetes-exec-strategy.ts` | ~285 | K8s pod execution |
+| `skypilot-strategy.ts` | ~388 | Cloud VM (experimental) |
+| **MCP** (`mcp/`) | | |
+| `server.ts` | ~200 | MCP server setup |
+| `session-bridge.ts` | — | Session attachment |
+| `tools.ts` | ~200 | Tool definitions |
+| `types.ts` | — | MCP types |
+
+### Server-side counterparts
+
+| Server File | Agent Runner Equivalent | Notes |
+|-------------|------------------------|-------|
+| `server/lib/worktree-manager.ts` | `src/lib/worktree.ts` | **Duplicated** |
+| `server/routes/dispatch.ts` `resolveWorkingDirectory()` | `src/lib/task-executor.ts` `resolveWorkingDirectory()` | **Duplicated** |
+| `server/lib/providers/adapters/claude-code.ts` | `src/providers/claude-sdk-adapter.ts` | Different interfaces, same SDK |

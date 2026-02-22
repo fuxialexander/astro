@@ -57,19 +57,19 @@
   --card-foreground: #1E293B;
   --popover: #FFFFFF;
   --popover-foreground: #1E293B;
-  --primary: #F97316;
+  --primary: #4A6D8A;
   --primary-foreground: #FFFFFF;
   --secondary: #64748B;
   --secondary-foreground: #FFFFFF;
   --muted: #F1F5F9;
   --muted-foreground: #64748B;
-  --accent: #FFF7ED;
-  --accent-foreground: #7C2D12;
+  --accent: #EDF2F7;
+  --accent-foreground: #2C4A6B;
   --destructive: #EF4444;
   --destructive-foreground: #FFFFFF;
   --border: #E2E8F0;
   --input: #E2E8F0;
-  --ring: #F97316;
+  --ring: #4A6D8A;
   --tile: #F8FAFC;
 
   --sidebar: #FFFFFF;
@@ -77,17 +77,17 @@
   --sidebar-accent: #F1F5F9;
   --sidebar-accent-foreground: #1E293B;
   --sidebar-border: #E2E8F0;
-  --sidebar-primary: #3B82F6;
+  --sidebar-primary: #4A6D8A;
   --sidebar-primary-foreground: #FFFFFF;
   --sidebar-ring: #E2E8F0;
 
-  --success: #16A34A;
+  --success: #5F8D6B;
   --success-foreground: #FFFFFF;
-  --warning: #F59E0B;
+  --warning: #A07D4F;
   --warning-foreground: #FFFFFF;
-  --error: #EF4444;
+  --error: #B06060;
   --error-foreground: #FFFFFF;
-  --info: #3B82F6;
+  --info: #4A6D8A;
   --info-foreground: #FFFFFF;
 
   /* Accent colors from ios.pen */
@@ -107,14 +107,14 @@
   --card-foreground: #FAFAF9;
   --popover: #16161A;
   --popover-foreground: #FAFAF9;
-  --primary: #3B82F6;
-  --primary-foreground: #FFFFFF;
+  --primary: #8AAEC8;
+  --primary-foreground: #0B0B0E;
   --secondary: #6B6B70;
   --secondary-foreground: #FFFFFF;
   --muted: #1A1A1E;
   --muted-foreground: #6B6B70;
-  --accent: rgba(59, 130, 246, 0.08);
-  --accent-foreground: #DBEAFE;
+  --accent: rgba(138, 174, 200, 0.08);
+  --accent-foreground: #C8DCEA;
   --destructive: #EF4444;
   --destructive-foreground: #FFFFFF;
 
@@ -123,7 +123,7 @@
   --border-subtle: #2A2A2E;
   --border-strong: #3A3A40;
   --input: #2A2A2E;
-  --ring: #3B82F6;
+  --ring: #8AAEC8;
   --tile: #16161A;
 
   /* Elevated background */
@@ -134,8 +134,8 @@
   --sidebar-accent: #1A1A1E;
   --sidebar-accent-foreground: #FAFAF9;
   --sidebar-border: #2A2A2E;
-  --sidebar-primary: #3B82F6;
-  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-primary: #8AAEC8;
+  --sidebar-primary-foreground: #0B0B0E;
   --sidebar-ring: #2A2A2E;
 
   /* Status colors from ios.pen */

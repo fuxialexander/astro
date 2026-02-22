@@ -5,33 +5,73 @@
 
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { networkInterfaces, userInfo, type NetworkInterfaceInfo } from 'node:os';
+import { createHash, randomUUID } from 'node:crypto';
 
 const execFile = promisify(execFileCb);
 
 /**
- * Get a stable, hardware-based machine identifier
- * Priority:
+ * Get a stable, per-user, hardware-based machine identifier.
+ *
+ * The ID incorporates both the hardware identity and the OS username so that
+ * different users on the same physical machine (e.g., a shared Slurm login node)
+ * get distinct, non-colliding IDs.
+ *
+ * Priority for the hardware component:
  * 1. Hardware UUID (most stable, survives OS reinstalls on same hardware)
  * 2. Primary network interface MAC address
  * 3. Random UUID (fallback, stored persistently by caller)
  */
 export async function getHardwareId(): Promise<{ id: string; source: 'uuid' | 'mac' | 'random' }> {
+  const username = getOsUsername();
+
   // Try hardware UUID first (best option)
   const hwUuid = await getHardwareUUID();
   if (hwUuid) {
-    return { id: hwUuid, source: 'uuid' };
+    const id = deriveUserMachineId(hwUuid, username);
+    return { id, source: 'uuid' };
   }
 
   // Fall back to primary MAC address
   const mac = getPrimaryMacAddress();
   if (mac) {
-    return { id: `mac-${mac}`, source: 'mac' };
+    const id = deriveUserMachineId(`mac-${mac}`, username);
+    return { id, source: 'mac' };
   }
 
   // Last resort: generate random UUID (caller should persist this)
   return { id: `rand-${randomUUID()}`, source: 'random' };
+}
+
+/**
+ * Derive a stable UUID v5-style ID from hardware identity + OS username.
+ * Uses SHA-256 truncated to UUID format so different users on the same
+ * physical machine produce different, deterministic IDs.
+ */
+function deriveUserMachineId(hardwareId: string, username: string): string {
+  const hash = createHash('sha256')
+    .update(`${hardwareId}:${username}`)
+    .digest('hex');
+  // Format as UUID: 8-4-4-4-12
+  return [
+    hash.slice(0, 8),
+    hash.slice(8, 12),
+    hash.slice(12, 16),
+    hash.slice(16, 20),
+    hash.slice(20, 32),
+  ].join('-');
+}
+
+/**
+ * Get the current OS username, with fallback.
+ */
+function getOsUsername(): string {
+  try {
+    return userInfo().username;
+  } catch {
+    // userInfo() can throw on some platforms (e.g., Android)
+    return process.env.USER || process.env.USERNAME || 'unknown';
+  }
 }
 
 /**
