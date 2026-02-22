@@ -882,10 +882,55 @@ async function dispatchViaRelay(
     }
   }
 
-  // Build dependency output string
-  const dependencyContext = dependencyOutputs.length > 0
-    ? dependencyOutputs.map((d) => `### ${d.title}\n\n${d.output}`).join('\n\n---\n\n')
-    : undefined
+  // Build full execution prompt (matching local dispatch quality)
+  // This is passed as task.prompt so the relay forwards it directly
+  // instead of constructing a simplified version.
+  const promptParts: string[] = []
+
+  if (visionDoc) {
+    promptParts.push(`## Project Vision\n\n${visionDoc}`)
+  }
+
+  if (dependencyOutputs.length > 0) {
+    const depsSection = dependencyOutputs
+      .map((d) => `### ${d.title}\n\n${d.output}`)
+      .join('\n\n---\n\n')
+    promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
+  }
+
+  if (workingDirectory) {
+    promptParts.push(`## Working Directory\n\n${workingDirectory}`)
+  }
+
+  promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)
+
+  promptParts.push(`## Instructions
+
+Execute the task described above. Focus on completing the task thoroughly and correctly.
+- Use appropriate tools to accomplish the task
+- Report progress and any issues encountered
+- Verify your work when possible
+- Be thorough but efficient
+- When you are done, commit all your changes with a descriptive commit message summarizing what was accomplished
+
+### Making Decisions vs. Asking for User Input
+
+**When to proceed independently:**
+- Standard best practices and established patterns exist
+- Technical decisions with clear trade-offs you can evaluate
+- Implementation details that don't affect user-facing behavior
+- Refactoring and code quality improvements
+
+**When to note that user input would be valuable:**
+If you encounter a decision point where multiple approaches are equally valid and the choice depends on user preferences or priorities (e.g., which library to use, architectural patterns, feature trade-offs), note it clearly in your output:
+1. Describe the decision point
+2. Present 2-3 viable options with brief trade-offs
+3. State which option you recommend and why
+4. Proceed with your recommended approach unless instructed otherwise
+
+The user can review your reasoning in the task output and provide guidance if they disagree with your choice.`)
+
+  const relayPrompt = promptParts.join('\n\n---\n\n')
 
   // Dispatch via relay
   const taskDispatch = {
@@ -894,12 +939,12 @@ async function dispatchViaRelay(
     nodeId,
     title,
     description,
+    prompt: relayPrompt,  // Pre-built prompt — relay forwards directly
     visionDoc,
     environment,
     preferredProvider,
     executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
-    dependencies: dependencyContext ? [dependencyContext] : undefined,
     workingDirectory,
   }
 

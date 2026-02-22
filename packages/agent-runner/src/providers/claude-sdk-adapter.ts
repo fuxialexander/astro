@@ -17,9 +17,13 @@ import { config } from '../lib/config.js';
 
 /** Active query state for a running task */
 interface ActiveQuery {
-  query: Query;
+  query: Query | null;  // null after completion (session preserved for resume)
   sessionId: string;
+  workingDirectory?: string;
 }
+
+/** How long to preserve completed session state for potential steering (ms) */
+const SESSION_PRESERVE_MS = 10 * 60 * 1000; // 10 minutes
 
 export class ClaudeSdkAdapter implements ProviderAdapter {
   readonly type = 'claude-sdk';
@@ -134,7 +138,24 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       };
     } finally {
       signal.removeEventListener('abort', abortHandler);
-      this.activeQueries.delete(task.id);
+      // Preserve session state for post-completion steering (mirrors server-side behavior).
+      // The query generator is exhausted, but the sessionId is kept so `injectMessage()`
+      // can still succeed on the SDK side and a `resumeTask()` could be implemented later.
+      const existing = this.activeQueries.get(task.id);
+      if (existing) {
+        this.activeQueries.set(task.id, {
+          query: null,
+          sessionId: existing.sessionId,
+          workingDirectory: task.workingDirectory,
+        });
+        // Auto-cleanup after a timeout to prevent memory leaks
+        setTimeout(() => {
+          const entry = this.activeQueries.get(task.id);
+          if (entry && entry.query === null) {
+            this.activeQueries.delete(task.id);
+          }
+        }, SESSION_PRESERVE_MS);
+      }
       this.activeTasks--;
     }
   }
@@ -148,6 +169,13 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
   async injectMessage(taskId: string, content: string, interrupt = false): Promise<boolean> {
     const active = this.activeQueries.get(taskId);
     if (!active) return false;
+
+    // Session completed — query is null but sessionId is preserved.
+    // Cannot inject into a completed session; caller should use resume instead.
+    if (!active.query) {
+      console.log(`[claude-sdk] Cannot inject into completed session for task ${taskId} (sessionId: ${active.sessionId})`);
+      return false;
+    }
 
     if (interrupt) {
       // Fire interrupt without awaiting — interrupt() may block until the
@@ -237,7 +265,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       maxTurns: task.maxTurns ?? defaultMaxTurns,
       permissionMode: 'bypassPermissions', // Auto-accept all tool calls
       sandbox: { enabled: false }, // Run on host machine, not in Docker container
-      settingSources: [], // Don't load settings from project - worktree is empty
+      settingSources: ['user', 'project', 'local'], // Load CLAUDE.md from user home, project dir, and cwd
       persistSession: false,
       cwd: task.workingDirectory,
       additionalDirectories: [task.workingDirectory], // Allow file operations in worktree
