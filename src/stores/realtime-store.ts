@@ -337,7 +337,13 @@ function handleRealtimeEvent(
     case 'machines:snapshot': {
       const machineList = event.data as MachineEntry[]
       const machines = new Map<string, MachineEntry>()
+      const registeredMachines = useMachinesStore.getState().machines
       for (const m of machineList) {
+        // Cross-reference with registered machines store for user-set names
+        const registered = registeredMachines.find(rm => rm.id === m.machineId)
+        if (registered?.name && registered.name !== registered.hostname) {
+          m.name = registered.name
+        }
         machines.set(m.machineId, m)
       }
       set(() => ({ machines }))

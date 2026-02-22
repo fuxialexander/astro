@@ -769,6 +769,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 
   loadLocalBackends: async () => {
+    // Local backend detection is only available in local mode;
+    // server mode blocks this endpoint (403) since it exposes server infrastructure
+    if (isServerMode()) {
+      set({ localBackendsLoaded: true })
+      return
+    }
     try {
       const headers = await getAuthHeaders()
       const response = await fetch(apiUrl("/api/backends"), { headers })
