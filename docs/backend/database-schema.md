@@ -161,7 +161,7 @@ planEdges {
 
 ### User Profiles
 
-Extended user data beyond Supabase `auth.users`.
+Extended user data beyond Supabase `auth.users`. Auto-created by the `handle_new_user` trigger when a user is inserted into `auth.users`. The trigger uses `ON CONFLICT DO NOTHING` + exception handling to never block auth signup. A `find_auth_user_by_email` RPC function provides efficient email lookup in `auth.users` for self-healing when profiles are missing.
 
 ```typescript
 userProfiles {
@@ -531,6 +531,107 @@ usageMetrics {
 }
 ```
 
+## Encrypted API Keys
+
+### Encrypted API Keys
+
+Client-side encrypted storage of external service credentials (e.g., OpenAI, Anthropic). Keys are encrypted using Web Crypto API before storage.
+
+```typescript
+encryptedApiKeys {
+  id: uuid (PK)
+  userId: uuid (FK → auth.users, cascade)
+  serviceName: text                    // e.g., 'openai-whisper', 'anthropic', 'openai'
+  encryptedKey: text                   // Base64-encoded encrypted key
+  iv: text                             // Base64-encoded initialization vector for AES-GCM
+  createdAt: timestamp
+  updatedAt: timestamp
+  -- Unique constraint: (userId, serviceName)
+}
+```
+
+## Teams & Collaboration
+
+### Teams
+
+Organizational units for multi-user collaboration. Team members share access to team projects and machines.
+
+```typescript
+teams {
+  id: uuid (PK)
+  name: text
+  description: text
+  createdAt: timestamp
+  updatedAt: timestamp
+}
+```
+
+**Relationships:**
+- One-to-many with `team_members` (cascade delete)
+- One-to-many with `invite_tokens` (cascade delete)
+- One-to-many with `projects` via `team_id` (set null on delete)
+
+**Trigger:** When a team is created, the creator is automatically added as `owner` via `add_team_creator_as_owner()` trigger.
+
+### Team Members
+
+Junction table linking users to teams with role-based access.
+
+```typescript
+teamMembers {
+  teamId: uuid (FK → teams, cascade)
+  userId: uuid (FK → auth.users, cascade)
+  role: team_member_role               // 'owner' | 'admin' | 'member'
+  joinedAt: timestamp
+  -- Composite PK: (teamId, userId)
+}
+```
+
+**Permissions:**
+- `owner` - Full control, can delete team, manage all members
+- `admin` - Can manage members, update team settings, send invites
+- `member` - Can access team projects and machines
+
+### Invite Tokens
+
+Email-based team invitation tokens. Supports both new user registration and existing user acceptance flows.
+
+```typescript
+inviteTokens {
+  id: uuid (PK)
+  token: text (unique)                 // Secure random hex token (32 bytes)
+  teamId: uuid (FK → teams, cascade)
+  email: text                          // Invitee email address
+  invitedBy: uuid                      // User ID of inviter
+  role: text                           // 'owner' | 'admin' | 'member'
+  expiresAt: timestamp                 // 7-day expiration
+  usedAt: timestamp                    // Set when invite is accepted
+  createdAt: timestamp
+}
+```
+
+**Cleanup:** The `cleanup_expired_invite_tokens()` function deletes expired, unused tokens and can be called via cron job.
+
+### Machine Usage Logs
+
+Tracks machine usage for capacity planning and billing. Records each task execution on a machine.
+
+```typescript
+machineUsageLogs {
+  id: uuid (PK)
+  machineId: text (FK → registeredMachines, cascade)
+  userId: uuid (FK → auth.users, cascade)
+  projectId: uuid (FK → projects, cascade)
+  nodeId: text                         // Plan node client ID
+  executionId: text                    // Execution identifier
+  startedAt: timestamp
+  completedAt: timestamp
+  durationMs: integer
+  status: text                         // 'success' | 'failure' | 'cancelled'
+  createdAt: timestamp
+}
+```
+
 ## Integrations
 
 ### Connected Accounts
@@ -610,6 +711,30 @@ CREATE INDEX idx_activity_events_created ON activity_events(created_at DESC);
 -- Audit Logs
 CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_created ON audit_logs(created_at DESC);
+
+-- Encrypted API Keys
+CREATE INDEX idx_encrypted_api_keys_user_id ON encrypted_api_keys(user_id);
+
+-- Teams
+CREATE INDEX idx_teams_name ON teams(name);
+CREATE INDEX idx_team_members_user ON team_members(user_id);
+CREATE INDEX idx_team_members_role ON team_members(team_id, role);
+CREATE INDEX idx_projects_team ON projects(team_id);
+
+-- Invite Tokens
+CREATE INDEX idx_invite_tokens_token ON invite_tokens(token);
+CREATE INDEX idx_invite_tokens_team ON invite_tokens(team_id);
+CREATE INDEX idx_invite_tokens_email ON invite_tokens(email);
+CREATE INDEX idx_invite_tokens_expires ON invite_tokens(expires_at);
+
+-- Machine Usage Logs
+CREATE INDEX idx_machine_usage_logs_machine ON machine_usage_logs(machine_id);
+CREATE INDEX idx_machine_usage_logs_user ON machine_usage_logs(user_id);
+CREATE INDEX idx_machine_usage_logs_project ON machine_usage_logs(project_id);
+CREATE INDEX idx_machine_usage_logs_started_at ON machine_usage_logs(started_at DESC);
+
+-- Registered Machines (team)
+CREATE INDEX idx_registered_machines_team ON registered_machines(team_id);
 ```
 
 ## Related Documentation

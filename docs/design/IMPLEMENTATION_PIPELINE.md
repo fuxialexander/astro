@@ -20,7 +20,7 @@ Backend           ████████░░░    ~75%     NO — still cal
 Relay             █████████░░    ~88%     Nearly (protocol fix in PR #115)
 Agent Runner      ██████████░    ~90%     Nearly (protocol consumption in PR #115)
 Data Persistence  ██████████░    ~92%     Nearly (28 Postgres tables, IndexedDB working)
-Testing           ███░░░░░░░░    ~25%     NO — some tests exist but coverage low
+Testing           ███████░░░░    ~60%     Partial (29 vitest files, tests pass, scripts consolidated)
 Deployment        █████████░░    ~85%     Nearly (Fly.io + Cloudflare configured)
 ──────────────────────────────────────────────────────────────────
 Overall                                   NO — 2 blockers remain
@@ -56,9 +56,11 @@ Overall                                   NO — 2 blockers remain
 
 All documented features present plus: SSH discovery/installer, 4-tier safety system (SAFE/GUARDED/RISKY/UNSAFE), token refresh with JWT expiry checks, slash command/skill discovery, dev mode fallback (unauthenticated ws://)
 
-### 2.4 Testing — improved from before
+### 2.4 Testing — 29 vitest files, all passing
 
-**Tests that exist now** (in `tests/`):
+**Framework**: Vitest 4, configured in `vitest.config.ts`. Pattern: `**/__tests__/**/*.test.ts` + `tests/**/*.test.ts`.
+
+**`tests/` (root-level, 16 vitest files)**:
 - `relay-protocol-fields.test.ts` — 25 tests (relay protocol extension)
 - `sse-parser.test.ts` — SSE stream parsing
 - `chat-api-route.test.ts` — Chat API route tests
@@ -67,13 +69,39 @@ All documented features present plus: SSH discovery/installer, 4-tier safety sys
 - `chat-session-flow.test.ts` — Chat session lifecycle
 - `chat-session-pool.test.ts` — Session pool management
 - `session-manager.test.ts` — Session management
+- `execution-strategy.test.ts` — Direct/Slurm/Docker/K8s/SkyPilot strategies + registry (29 tests)
+- `local-server-mode.test.ts` — App mode detection tests
+- `smoke-trace-viewer.test.ts` — Trace viewer smoke tests
+- `dispatch-engine.test.ts` — Dispatch queue, context assembler, result router, branch manager
+- `codex-provider.test.ts` — Codex provider adapter (capabilities, context, detection)
+- `claude-code-provider.test.ts` — Claude Code provider (dotenv, cache utils, session logger, config)
+- `claude-code-sdk-integration.test.ts` — SDK integration (skipped without API key)
+- `relay-server-integration.test.ts` — Relay server integration (skipped without running server)
 
-**Tests in `server/test/`**:
-- `relay-server.test.ts` — Relay integration
-- `claude-code-provider.test.ts` — Provider adapter tests
-- `claude-code-sdk-integration.test.ts` — SDK integration
+**`server/lib/**/__tests__/` (co-located, 10 vitest files)**:
+- `access/__tests__/user-access-control.test.ts` — Access control
+- `dispatch/__tests__/procedure-executor.test.ts` — Procedure execution
+- `events/__tests__/event-transport.test.ts` — Event transport system
+- `events/hooks/__tests__/git-pull-hook.test.ts` — Git pull hook
+- `events/hooks/__tests__/merge-queue-hook.test.ts` — Merge queue hook
+- `events/hooks/__tests__/pr-creation-hook.test.ts` — PR creation hook
+- `events/hooks/__tests__/usage-metrics-hook.test.ts` — Usage metrics hook
+- `observability/__tests__/observation-collector.test.ts` — Observation collector
+- `providers/__tests__/claude-code-adapter.test.ts` — Claude Code adapter (7 tests)
+- `providers/__tests__/mcp-loader.test.ts` — MCP config loading
 
-**Hook tests**: `server/lib/events/hooks/__tests__/merge-queue-hook.test.ts`, `pr-creation-hook.test.ts`
+**`src/**/__tests__/` (frontend, 3 vitest files)**:
+- `src/lib/__tests__/path-utils.test.ts` — Path utilities
+- `src/stores/__tests__/session-store.test.ts` — Session store
+- `src/stores/__tests__/observation-store.test.ts` — Observation store
+
+**`scripts/` (consolidated test scripts, NOT part of vitest)**:
+- `scripts/tests/` — 8 shell-based API tests used by `test-runner.sh`
+- `scripts/test-approval-*` — 4 approval system test scripts (automated, integration, quick, e2e)
+- `scripts/test-e2e-with-approval.sh` — Full E2E superset
+- `scripts/test-*` — 6 misc test scripts (github-oauth, injection, preserve-worktrees, security, token-validation, trace-viewer)
+
+**`tests/test-local-execution.ts`** — Manual integration test (not vitest, run with `npx tsx`)
 
 ---
 
@@ -350,16 +378,34 @@ Phase B (Long-Term — Beta):
 ### 5.6 Testing
 
 ```
-[x] Relay integration tests
+Vitest suite: 29 files, all passing (`npm test`)
+
+[x] Relay integration tests (vitest, skipped without running server)
 [x] Relay protocol extension tests (25 tests)
 [x] SSE parser tests
 [x] Chat API route tests
 [x] Chat session flow/resume/mutation tests
 [x] Session manager tests
-[x] Claude Code provider tests
-[x] Hook tests (merge-queue, PR creation)
-[ ] Execution strategy unit tests
-[ ] E2E smoke test
+[x] Claude Code adapter tests (7 tests — tool correlation, streaming)
+[x] Claude Code provider tests (dotenv, cache utils, session logger, config)
+[x] Claude Code SDK integration tests (vitest, skipped without API key)
+[x] Codex provider tests (capabilities, context, detection)
+[x] Dispatch engine tests (queue, context assembler, result router, branch manager)
+[x] Hook tests (merge-queue, PR creation, git-pull, usage-metrics)
+[x] Execution strategy unit tests (29 tests — Direct, Slurm, Docker, K8s, SkyPilot, Registry)
+[x] Event transport tests
+[x] Access control tests
+[x] Procedure executor tests
+[x] Observation collector tests
+[x] MCP loader tests
+[x] Frontend unit tests (path-utils, session-store, observation-store)
+[x] App mode detection tests (local-server-mode)
+[x] Trace viewer smoke tests
+[x] Consolidated server/test/ into tests/ (vitest)
+[x] Cleaned up redundant scripts/test-* files
+[~] Shell-based API tests (scripts/tests/ — 8 scripts, not in vitest)
+[~] Approval system tests (scripts/test-approval-* — 4 scripts, consolidated)
+[ ] E2E smoke test (vitest-based)
 [ ] CI/CD pipeline
 ```
 

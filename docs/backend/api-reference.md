@@ -652,6 +652,643 @@ Write a file to a sandboxed project directory.
 }
 ```
 
+## Authentication (WebAuthn)
+
+### `POST /api/auth/webauthn/check-user`
+
+Check if a user exists with the given email. Rate limited to prevent enumeration.
+
+**Request:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "exists": true
+}
+```
+
+### `POST /api/auth/webauthn/register-options`
+
+Generate WebAuthn registration options for a new passkey. Rate limited.
+
+**Request:**
+```json
+{
+  "email": "user@example.com",
+  "name": "Jane Doe"
+}
+```
+
+**Response:**
+```json
+{
+  "options": { "...WebAuthn PublicKeyCredentialCreationOptions..." },
+  "email": "user@example.com",
+  "existingUser": false
+}
+```
+
+### `POST /api/auth/webauthn/register-verify`
+
+Verify registration attestation and create/update user.
+
+**Request:**
+```json
+{
+  "email": "user@example.com",
+  "name": "Jane Doe",
+  "credential": { "...RegistrationResponseJSON..." }
+}
+```
+
+**Response:**
+```json
+{
+  "verified": true,
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "session": { "...Supabase session data..." }
+}
+```
+
+### `POST /api/auth/webauthn/login-options`
+
+Generate authentication options for passkey login. Rate limited.
+
+**Request:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "options": { "...WebAuthn PublicKeyCredentialRequestOptions..." },
+  "challengeKey": "auth:user@example.com"
+}
+```
+
+### `POST /api/auth/webauthn/login-verify`
+
+Verify authentication assertion and return session tokens.
+
+**Request:**
+```json
+{
+  "credential": { "...AuthenticationResponseJSON..." },
+  "challengeKey": "auth:user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "verified": true,
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "user": { "...user profile..." },
+  "session": { "...Supabase session data..." }
+}
+```
+
+### `GET /api/auth/session`
+
+Check current session status. Returns dev user in local mode.
+
+**Headers:**
+```
+Authorization: Bearer <supabase-access-token>
+```
+
+**Response:**
+```json
+{
+  "authenticated": true,
+  "user": { "id": "550e8400-...", "email": "user@example.com" }
+}
+```
+
+### `DELETE /api/auth/delete-account`
+
+Permanently delete user account and all associated data. Revokes machine tokens, deletes user data from all tables, and removes the auth user.
+
+**Headers:**
+```
+Authorization: Bearer <supabase-access-token>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Account and all data permanently deleted"
+}
+```
+
+## Audio Transcription
+
+### `POST /api/transcribe`
+
+Transcribe audio using OpenAI's Whisper API. Accepts multipart/form-data with an `audio` file field. Maximum file size is 25MB.
+
+**Request:** `multipart/form-data` with `audio` file field
+
+**Response:**
+```json
+{
+  "text": "Transcribed text content..."
+}
+```
+
+### `GET /api/transcribe/status`
+
+Check if the transcription service is available (OpenAI API key configured).
+
+**Response:**
+```json
+{
+  "available": true,
+  "provider": "openai",
+  "model": "whisper-1"
+}
+```
+
+## System Info
+
+### `GET /api/system/hostname`
+
+Returns the hostname of the machine running the server. Used by the browser to determine if it is on the same machine as a remote agent.
+
+**Response:**
+```json
+{
+  "hostname": "macbook-pro.local"
+}
+```
+
+### `GET /api/system/info`
+
+Returns additional system information for debugging.
+
+**Response:**
+```json
+{
+  "hostname": "macbook-pro.local",
+  "platform": "darwin",
+  "arch": "arm64",
+  "release": "24.0.0",
+  "uptime": 86400
+}
+```
+
+## Plan & Bundle Sharing
+
+### `POST /api/share`
+
+Store an Astro export bundle and return a share ID. Bundles are stored in-memory.
+
+**Request:**
+```json
+{
+  "$schema": "astro-export",
+  "...bundle data..."
+}
+```
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### `GET /api/share/:id`
+
+Retrieve a shared bundle by ID.
+
+**Response:** The original bundle JSON
+
+## Skill Management
+
+### `GET /api/skills`
+
+List all loaded skills with eligibility status.
+
+**Response:**
+```json
+{
+  "skills": [
+    {
+      "name": "code-review",
+      "description": "Review code changes",
+      "source": "builtin",
+      "enabled": true,
+      "eligible": true,
+      "userInvocable": true,
+      "pluginId": null,
+      "config": {}
+    }
+  ],
+  "total": 1
+}
+```
+
+### `POST /api/skills/install`
+
+Install a skill from ClawHub. Currently returns `501 Not Implemented`.
+
+### `DELETE /api/skills/:name`
+
+Uninstall a skill by name.
+
+**Response:**
+```json
+{
+  "success": true,
+  "name": "code-review"
+}
+```
+
+### `PUT /api/skills/:name/config`
+
+Update configuration for a specific skill.
+
+**Request:**
+```json
+{
+  "key": "value"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "name": "code-review"
+}
+```
+
+## Push Notifications
+
+### `POST /api/notifications/register`
+
+Register an APNs/FCM device token for push notifications.
+
+**Request:**
+```json
+{
+  "deviceToken": "abc123...",
+  "userId": "550e8400-...",
+  "platform": "ios",
+  "preferences": {}
+}
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+### `DELETE /api/notifications/unregister`
+
+Unregister a device token.
+
+**Request:**
+```json
+{
+  "deviceToken": "abc123...",
+  "userId": "550e8400-..."
+}
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+### `PATCH /api/notifications/preferences`
+
+Update notification preferences for a registered device.
+
+**Request:**
+```json
+{
+  "deviceToken": "abc123...",
+  "userId": "550e8400-...",
+  "preferences": { "taskCompleted": true, "approvalRequired": true }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+### `GET /api/notifications/tokens`
+
+List registered tokens for a user (debug endpoint).
+
+**Query Parameters:**
+- `userId` - User ID (defaults to `dev-user`)
+
+**Response:**
+```json
+{
+  "tokens": [ { "...token data..." } ],
+  "count": 1
+}
+```
+
+## Observations (Observability)
+
+### `GET /api/observations`
+
+List observation events with filters.
+
+**Query Parameters:**
+- `executionId` - Filter by trace/execution ID
+- `projectId` - Filter by project
+- `type` - Filter by type (`span`, `generation`, `tool`, `event`)
+- `level` - Filter by level (`debug`, `default`, `warning`, `error`)
+- `name` - Filter by observation name
+- `startAfter` - ISO timestamp lower bound
+- `startBefore` - ISO timestamp upper bound
+- `limit` - Max results (default 100, max 1000)
+- `offset` - Pagination offset (default 0)
+
+**Response:**
+```json
+{
+  "data": [ { "...observation event..." } ],
+  "limit": 100,
+  "offset": 0
+}
+```
+
+### `GET /api/observations/stats`
+
+Aggregate statistics across observations.
+
+**Query Parameters:**
+- `executionId` - Scope to a single execution
+- `projectId` - Scope to a project
+
+**Response:**
+```json
+{
+  "totalEvents": 150,
+  "totalSpans": 50,
+  "totalGenerations": 30,
+  "totalTools": 60,
+  "totalEventType": 10,
+  "errorCount": 2,
+  "warningCount": 5,
+  "totalCostUsd": 0.0523,
+  "totalInputTokens": 12500,
+  "totalOutputTokens": 8300
+}
+```
+
+### `GET /api/observations/:traceId`
+
+Get all observations for a specific execution trace, ordered by start time.
+
+**Response:**
+```json
+{
+  "data": [ { "...observation events..." } ],
+  "traceId": "exec-abc123"
+}
+```
+
+### `GET /api/observations/:traceId/summary`
+
+Get a markdown summary for an execution. Returns pre-generated summary from task executions if available, otherwise generates one from observations.
+
+**Response:** `text/plain` markdown summary
+
+## Connected Accounts
+
+Manages per-user external service integrations (Slack, Telegram, GitHub Webhooks, Linear). Requires authentication.
+
+### `GET /api/connected-accounts`
+
+List user's connected accounts. Credentials are returned masked.
+
+**Response:**
+```json
+[
+  {
+    "id": "550e8400-...",
+    "channel": "slack",
+    "label": "My Workspace",
+    "maskedCredentials": { "botToken": "xoxb...ab12" },
+    "mappings": {},
+    "settings": {},
+    "externalId": "T12345",
+    "enabled": true,
+    "connectedAt": "2026-02-20T10:00:00Z"
+  }
+]
+```
+
+### `POST /api/connected-accounts`
+
+Add a new connected account.
+
+**Request:**
+```json
+{
+  "channel": "slack",
+  "label": "My Workspace",
+  "credentials": { "botToken": "xoxb-...", "signingSecret": "abc..." },
+  "mappings": {},
+  "settings": {}
+}
+```
+
+**Valid channels:** `slack`, `telegram`, `github_webhook`, `linear`
+
+**Response:** `201` with the created account (credentials masked)
+
+### `PUT /api/connected-accounts/:id`
+
+Update account settings (label, mappings, settings, enabled). Does not update credentials.
+
+**Request:**
+```json
+{
+  "label": "Updated Name",
+  "enabled": false
+}
+```
+
+**Response:** Updated account (credentials masked)
+
+### `DELETE /api/connected-accounts/:id`
+
+Remove a connected account.
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+### `POST /api/connected-accounts/:id/test`
+
+Test the connection for a connected account. Verifies credentials by calling the external service API.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Connected to Slack workspace: My Team",
+  "details": { "...service-specific data..." }
+}
+```
+
+## Apple App Site Association
+
+### `GET /.well-known/apple-app-site-association`
+
+Serves the Apple App Site Association file for passkey sync with iOS. Returns the JSON file from `public/.well-known/apple-app-site-association`.
+
+**Response:** `application/json` with Apple AASA content
+
+## Team Management
+
+Requires authentication. Not available in local mode.
+
+### `POST /api/teams/invite`
+
+Create an invitation token and send email to invitee. Requires admin or owner role.
+
+**Request:**
+```json
+{
+  "teamId": "550e8400-...",
+  "email": "invitee@example.com",
+  "role": "member"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "invite": {
+    "id": "550e8400-...",
+    "email": "invitee@example.com",
+    "role": "member",
+    "expiresAt": "2026-02-28T12:00:00Z",
+    "emailSent": true
+  }
+}
+```
+
+### `GET /api/teams/:teamId/invites`
+
+List all pending invites for a team. Requires admin or owner role.
+
+**Response:**
+```json
+{
+  "invites": [
+    {
+      "id": "550e8400-...",
+      "email": "invitee@example.com",
+      "role": "member",
+      "expires_at": "2026-02-28T12:00:00Z",
+      "created_at": "2026-02-21T12:00:00Z",
+      "invited_by": "550e8400-...",
+      "inviter": { "id": "...", "name": "Admin", "email": "admin@example.com" }
+    }
+  ]
+}
+```
+
+### `DELETE /api/teams/invites/:inviteId`
+
+Revoke (delete) a pending invitation. Requires admin or owner role.
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+### `GET /api/teams/invite/:token`
+
+Get invitation details by token. Public endpoint for the invite acceptance page.
+
+**Response:**
+```json
+{
+  "invite": {
+    "email": "invitee@example.com",
+    "role": "member",
+    "teamName": "My Team",
+    "expiresAt": "2026-02-28T12:00:00Z",
+    "userExists": false
+  }
+}
+```
+
+### `POST /api/teams/accept/:token`
+
+Accept a team invitation. Requires authentication. The authenticated user's email must match the invitation email.
+
+**Response:**
+```json
+{
+  "success": true,
+  "team": { "id": "550e8400-...", "name": "My Team", "description": "..." }
+}
+```
+
+### `GET /api/teams/:teamId/members`
+
+List all members of a team. Requires team membership.
+
+**Response:**
+```json
+{
+  "members": [
+    {
+      "user_id": "550e8400-...",
+      "role": "owner",
+      "joined_at": "2026-02-20T10:00:00Z",
+      "user": { "id": "...", "name": "Jane Doe", "email": "jane@example.com", "avatar_url": null }
+    }
+  ]
+}
+```
+
+### `DELETE /api/teams/:teamId/members/:memberId`
+
+Remove a member from a team. Requires admin or owner role, or self-removal. Cannot remove the last owner.
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
 ## Error Responses
 
 All endpoints return consistent error responses:
@@ -682,4 +1319,4 @@ All endpoints return consistent error responses:
 - [Database Schema](./database-schema.md) - Database tables and relationships
 - [Data Flows](./data-flows.md) - How data moves through the system
 - [Authentication](./authentication.md) - Auth implementation details
-- [Real-time Sync](../frontend/realtime-sync.md) - Supabase Realtime integration
+- [Real-time Sync](../../REALTIME_SYNC.md) - Supabase Realtime integration

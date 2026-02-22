@@ -13,9 +13,13 @@ RUN apk add --no-cache python3 make g++ git
 COPY package*.json ./
 RUN npm ci
 
-# Copy source and build
+# Copy source
 COPY . .
-RUN npm run build
+
+# Server runs via tsx (runtime transpilation), so tsc is not required.
+# Frontend is deployed separately to Cloudflare Pages — skip vite build.
+# Only install production-relevant native modules (better-sqlite3, etc.)
+RUN npm rebuild
 
 # --------------- Production Stage ---------------
 FROM node:22-alpine AS production
@@ -35,8 +39,11 @@ COPY --from=builder --chown=astro:astro /app/package*.json ./
 # Server source (runs via tsx at runtime)
 COPY --from=builder --chown=astro:astro /app/server ./server
 
-# Frontend build output (for optional static serving)
-COPY --from=builder --chown=astro:astro /app/dist ./dist
+# Frontend types imported by server (src/types/*.ts)
+COPY --from=builder --chown=astro:astro /app/src/types ./src/types
+
+# tsconfig files needed by tsx for path resolution
+COPY --from=builder --chown=astro:astro /app/tsconfig*.json ./
 
 # Landing page HTML files
 COPY --from=builder --chown=astro:astro /app/astro-landing.html ./astro-landing.html
