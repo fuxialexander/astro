@@ -65,16 +65,16 @@ POST /register-verify  → challengeStore.get("reg:alice@email.com") → undefin
 
 Machine B has its own empty `Map`. The two machines don't share memory. The backend is like two waiters who each keep notes in their own pocket — if waiter A takes your order but waiter B brings your food, waiter B doesn't know what you ordered.
 
-**Stateless means**: any data that must survive between requests goes to the **database** (Supabase) or a **shared store** (Redis):
+**Stateless means**: any data that must survive between requests goes to the **database** (Postgres):
 
 ```typescript
 // Request 1 hits Machine A:
 POST /register-options → INSERT INTO webauthn_challenges ('reg:alice', 'abc123')
-//                        ↑ stored in Supabase, visible to ALL machines
+//                        ↑ stored in Postgres, visible to ALL machines
 
 // Request 2 hits Machine B:
 POST /register-verify  → SELECT FROM webauthn_challenges WHERE key = 'reg:alice'
-//                        ↑ finds it, because Supabase is shared
+//                        ↑ finds it, because Postgres is shared
 ```
 
 Now it doesn't matter which machine handles which request. They all read and write the same database.
@@ -83,347 +83,233 @@ Now it doesn't matter which machine handles which request. They all read and wri
 
 **What CANNOT stay in memory**: anything that request B needs to read that request A wrote — challenges, sessions, device codes, dispatch queues, rate limit counters.
 
-The one exception: **WebSocket connections** are inherently in-memory (the relay server holds live connections). This is solved with Redis pub/sub for cross-instance routing, already designed in `server/lib/redis-pubsub.ts`.
+The one exception: **WebSocket connections** are inherently in-memory (the relay server holds live connections). For cross-instance routing, use Postgres `LISTEN/NOTIFY` (built into Postgres, no extra dependency). Only add Redis at extreme scale if Postgres pub/sub becomes a throughput bottleneck.
 
-### 4. Offline means offline
+### 4. Postgres everywhere — same code, different connection string
 
-Compare two approaches when the user's internet drops:
+Both local and server mode talk to the same backend API. The backend talks to Postgres. The only difference is **which Postgres**:
 
-**Current (local-first)**: The app keeps working. User creates a project, edits a plan. Everything goes to IndexedDB. When internet returns... what happens? Do we sync? What if another user edited the same plan? Merge conflict? Last-write-wins? This is the hard problem that Google Docs and Figma spend entire engineering teams on.
+```
+LOCAL MODE:
+  Browser → localhost:3001 (Hono) → Postgres (inside Docker container)
 
-**Server-centric**: The app shows "You're offline. Reconnecting..." Nothing works until the connection is back. When it reconnects, you get fresh server state. No sync conflicts, no merge logic, no stale data.
-
-For Astro — where users manage AI task execution across machines — being offline doesn't make sense anyway. You can't dispatch tasks, stream execution output, or collaborate without a server. Pretending to work offline adds complexity for a scenario that provides no real value.
-
-### 5. Local mode is a separate code path
-
-Right now, every store has interleaved branching:
-
-```typescript
-load: async () => {
-  if (isServerMode()) {
-    try { /* API call */ } catch { /* fall back to IndexedDB anyway */ }
-  }
-  // IndexedDB load runs in BOTH modes
-}
+SERVER MODE:
+  Browser → Fly.io (Hono) → Postgres (Supabase / Fly.io Postgres / AWS RDS)
 ```
 
-Both modes share the same code, and the IndexedDB fallback code runs in server mode. Every bug in the IndexedDB path affects server mode users.
+**No IndexedDB anywhere.** No browser-side database. No cache layer. The browser is a thin client that renders what the API returns. The frontend code is identical in both modes — always calls `fetch('/api/...')`, never checks `isServerMode()`.
 
-**Separate code path means**: the two modes don't share persistence logic. They share the Zustand state shape (types, selectors, actions that don't involve persistence), but load/save is cleanly separated. See the "Code Organization" section below.
+The backend code is also identical. Drizzle ORM queries work against any Postgres instance. The database driver is chosen by a connection string at startup:
+
+```bash
+# Local (Docker Compose)
+DATABASE_URL=postgresql://postgres:astro@postgres:5432/astro
+
+# Supabase (beta)
+DATABASE_URL=postgresql://postgres:password@db.abc.supabase.co:5432/postgres
+
+# Fly.io managed Postgres (with VC funding)
+DATABASE_URL=postgresql://postgres:password@astro-db.internal:5432/astro
+
+# AWS RDS (at scale)
+DATABASE_URL=postgresql://admin:password@astro.abc.us-east-1.rds.amazonaws.com:5432/astro
+```
+
+**The migration from Supabase to any other Postgres provider is a config change, not a code change.**
+
+### 5. Postgres for everything — no Redis
+
+Postgres has built-in pub/sub (`LISTEN/NOTIFY`) and handles ephemeral state (challenges, rate limits) as regular tables with TTL. No extra infrastructure needed:
+
+```sql
+-- Cross-instance relay routing (replaces Redis pub/sub)
+NOTIFY relay_channel, '{"type":"task.dispatch","machineId":"abc",...}';
+LISTEN relay_channel;
+
+-- Ephemeral state (replaces in-memory Maps)
+INSERT INTO webauthn_challenges (key, challenge, expires_at) VALUES (...);
+DELETE FROM webauthn_challenges WHERE expires_at < now();  -- periodic cleanup
+```
+
+**The stack is: Fly.io + Postgres. Two things to manage.** Only add Redis if Postgres `LISTEN/NOTIFY` becomes a throughput bottleneck (10K+ messages/second), which is a far-future problem.
 
 ---
 
-## Code Organization: The Data Adapter Pattern
+## Code Organization: Unified Architecture
 
-Both modes share the same UI components, the same Zustand store shapes, and the same TypeScript types. What differs is **where data comes from and goes to**. We separate this with a `DataAdapter` interface.
-
-### Architecture
+### The key insight: no mode branching anywhere
 
 ```
-                          ┌─────────────────────┐
-                          │   React Components   │
-                          │   (shared, one copy)  │
-                          └──────────┬──────────┘
-                                     │ reads/writes
-                          ┌──────────▼──────────┐
-                          │    Zustand Stores    │
-                          │   (shared, one copy)  │
-                          │   state + actions     │
-                          └──────────┬──────────┘
-                                     │ calls adapter
-                          ┌──────────▼──────────┐
-                          │    DataAdapter       │
-                          │    (interface)        │
-                          └────┬────────────┬────┘
-                               │            │
-                    ┌──────────▼──┐   ┌─────▼───────────┐
-                    │ ServerAdapter│   │  LocalAdapter    │
-                    │ (API calls)  │   │  (IndexedDB)     │
-                    │              │   │                   │
-                    │ fetch()      │   │ idb-keyval        │
-                    │   → Backend  │   │   → browser DB    │
-                    │     → Supa   │   │                   │
-                    └──────────────┘   └───────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                     FRONTEND                             │
+│                                                          │
+│  React Components → Zustand Stores → fetch('/api/...')   │
+│                                                          │
+│  No isServerMode(). No IndexedDB. No mode branching.     │
+│  Always talks to the backend API. Identical in both modes.│
+└──────────────────────────┬──────────────────────────────┘
+                           │ HTTP (same API)
+┌──────────────────────────▼──────────────────────────────┐
+│                      BACKEND (Hono)                      │
+│                                                          │
+│  Routes → Business logic → Drizzle ORM queries           │
+│                                                          │
+│  Same code in both modes. Drizzle abstracts the driver.  │
+│  Mode only affects: auth middleware, server-only routes.  │
+└──────────────────────────┬──────────────────────────────┘
+                           │ Drizzle ORM
+              ┌────────────┴────────────┐
+              │                         │
+   ┌──────────▼──────────┐  ┌──────────▼──────────┐
+   │  PGlite (local)     │  │  Postgres (server)   │
+   │  in-process WASM    │  │  Supabase / Fly.io   │
+   │  ~/.astro/data/     │  │  Postgres / AWS RDS  │
+   │  Zero install.      │  │  Connection string.  │
+   └─────────────────────┘  └──────────────────────┘
 ```
 
-### The DataAdapter interface
+### Frontend stores — zero mode awareness
 
 ```typescript
-// src/lib/data-adapter.ts
+// src/stores/project-store.ts — same code in local and server
 
-export interface DataAdapter {
-  // Projects
-  getProjects(): Promise<Project[]>
-  createProject(project: Partial<Project>): Promise<Project>
-  updateProject(id: string, patch: Partial<Project>): Promise<Project>
-  deleteProject(id: string): Promise<void>
-
-  // Plan nodes & edges
-  getPlanNodes(projectId: string): Promise<PlanNode[]>
-  getPlanEdges(projectId: string): Promise<PlanEdge[]>
-  savePlanNode(node: PlanNode): Promise<PlanNode>
-  savePlanEdge(edge: PlanEdge): Promise<PlanEdge>
-  deletePlanNode(id: string): Promise<void>
-  deletePlanEdge(id: string): Promise<void>
-
-  // Executions
-  getExecutions(): Promise<Record<string, TaskExecution>>
-  saveExecution(exec: TaskExecution): Promise<void>
-
-  // Settings, profile, usage, etc.
-  getSettings(): Promise<Settings>
-  updateSettings(patch: Partial<Settings>): Promise<Settings>
-  getProfile(): Promise<UserProfile>
-  updateProfile(patch: Partial<UserProfile>): Promise<UserProfile>
-  // ... other methods
-}
-```
-
-### ServerAdapter — calls the backend API
-
-```typescript
-// src/lib/adapters/server-adapter.ts
-
-export class ServerDataAdapter implements DataAdapter {
-  async getProjects(): Promise<Project[]> {
-    const res = await fetch(apiUrl('/api/data/projects'), {
-      headers: await authHeaders(),
-    })
-    if (!res.ok) throw new ApiError(res.status, await res.text())
-    return res.json()
-  }
-
-  async createProject(project: Partial<Project>): Promise<Project> {
-    const res = await fetch(apiUrl('/api/data/projects'), {
-      method: 'POST',
-      headers: await authHeaders(),
-      body: JSON.stringify(project),
-    })
-    if (!res.ok) throw new ApiError(res.status, await res.text())
-    return res.json()
-  }
-
-  // ... all other methods call the backend API
-}
-```
-
-### LocalAdapter — reads/writes IndexedDB
-
-```typescript
-// src/lib/adapters/local-adapter.ts
-
-export class LocalDataAdapter implements DataAdapter {
-  async getProjects(): Promise<Project[]> {
-    return (await idbGet('astro-projects')) ?? []
-  }
-
-  async createProject(project: Partial<Project>): Promise<Project> {
-    const full = { ...project, id: crypto.randomUUID(), createdAt: new Date() } as Project
-    const projects = await this.getProjects()
-    await idbSet('astro-projects', [...projects, full])
-    return full
-  }
-
-  // ... all other methods use idb-keyval
-}
-```
-
-### Adapter is chosen once at startup
-
-```typescript
-// src/lib/data-adapter.ts
-
-import { isServerMode } from './app-mode'
-import { ServerDataAdapter } from './adapters/server-adapter'
-import { LocalDataAdapter } from './adapters/local-adapter'
-
-export const dataAdapter: DataAdapter = isServerMode()
-  ? new ServerDataAdapter()
-  : new LocalDataAdapter()
-```
-
-### Stores use the adapter — no branching
-
-```typescript
-// src/stores/project-store.ts
-
-import { dataAdapter } from '@/lib/data-adapter'
-
-export const useProjectStore = create<ProjectStore>((set, get) => ({
+export const useProjectStore = create<ProjectStore>((set) => ({
   projects: [],
   loading: false,
   error: null,
-  loaded: false,
 
   load: async () => {
     set({ loading: true, error: null })
     try {
-      const projects = await dataAdapter.getProjects()
-      set({ projects, loaded: true, loading: false })
+      const res = await fetch('/api/data/projects')
+      if (!res.ok) throw new Error(`Failed to load: ${res.status}`)
+      set({ projects: await res.json(), loading: false })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to load', loading: false })
     }
   },
-
-  createProject: async (input) => {
-    try {
-      const project = await dataAdapter.createProject(input)
-      set((s) => ({ projects: [...s.projects, project] }))
-      return project
-    } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'Failed to create' })
-      throw err
-    }
-  },
-
-  // ... no isServerMode() checks, no IndexedDB imports, no fallbacks
+  // No isServerMode(). No IndexedDB. No fallbacks.
 }))
 ```
 
-### What's shared vs separate
+### Database initialization — PGlite or Postgres, chosen by env var
 
-| Layer | Shared? | Notes |
-|-------|---------|-------|
-| TypeScript types (`src/types/`) | Shared | Same data shapes in both modes |
-| React components (`src/components/`) | Shared | Renders whatever Zustand provides |
-| React pages (`src/pages/`) | Shared | Same routes, same layout |
-| Zustand store logic (`src/stores/`) | Shared | Actions, selectors, computed state — all shared |
-| DataAdapter interface | Shared | The contract both adapters implement |
-| `ServerDataAdapter` | Server only | API calls with auth headers |
-| `LocalDataAdapter` | Local only | IndexedDB via idb-keyval |
-| Supabase Realtime subscriptions | Server only | Multi-device sync |
-| Error boundaries / offline banner | Server only | Not needed in local mode |
+```typescript
+// server/lib/db/index.ts
 
-**Roughly 90% of the code is shared.** The only divergence is the ~200-300 lines in each adapter and the mode-specific UI (offline banner, loading states).
+import { drizzle } from 'drizzle-orm/pglite'
+import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js'
+import { PGlite } from '@electric-sql/pglite'
+import * as schema from './schema'
+
+export function createDb() {
+  if (process.env.DATABASE_URL) {
+    // Server mode: connect to external Postgres
+    return drizzlePg(process.env.DATABASE_URL, { schema })
+  } else {
+    // Local mode: PGlite in-process (zero install, real Postgres)
+    const dataDir = process.env.ASTRO_DATA_DIR || '~/.astro/data'
+    const client = new PGlite(dataDir)
+    return drizzle({ client, schema })
+  }
+}
+
+export const db = createDb()
+```
+
+### Backend routes — same Drizzle queries for both modes
+
+```typescript
+// server/routes/data.ts — identical code for local and server
+
+import { db } from '../lib/db'
+import { projects } from '../lib/db/schema'
+
+app.get('/api/data/projects', async (c) => {
+  const userId = c.get('userId')  // 'local' in local mode, real UUID in server mode
+  const rows = await db.select().from(projects).where(eq(projects.ownerId, userId))
+  return c.json(rows)
+})
+```
+
+Same Drizzle query. PGlite and Postgres both speak the same SQL — because PGlite IS Postgres compiled to WASM. JSONB, TIMESTAMPTZ, UUID — all work.
+
+### What differs between local and server mode
+
+| Aspect | Local mode | Server mode |
+|--------|-----------|-------------|
+| Database | PGlite (in-process, `~/.astro/data/`) | Postgres (Supabase / Fly.io / AWS RDS) |
+| Install | `npm install` (PGlite bundled, 3MB) | Connection string in env var |
+| Auth middleware | No-op (sets `userId: 'local'`) | Validates JWT, extracts user ID |
+| Server-only routes | Not loaded (auth, teams, device-auth) | Loaded via dynamic import |
+| Realtime updates | Not needed (single user) | Postgres LISTEN/NOTIFY → SSE |
+| Frontend code | **100% identical** | **100% identical** |
+| Backend route logic | **100% identical** | **100% identical** |
+| Relay | `ws://localhost:3002` | `wss://relay.example.com:3002` |
+| Data export | JSON export from API | JSON export from API (same endpoint) |
+
+### What's shared (everything except ~5 files)
+
+| Code | Shared | Notes |
+|------|--------|-------|
+| Frontend (`src/`) | 100% | No mode branching at all |
+| Backend routes (`server/routes/data.ts`, `agent.ts`, etc.) | 100% | Same Drizzle queries |
+| Drizzle schema (`server/lib/db/schema.ts`) | 100% | One schema, one migration set |
+| Server-only routes (`auth.ts`, `teams.ts`, `device-auth.ts`) | Server only | Dynamically imported |
+| Auth middleware | Differs | Local: no-op. Server: JWT validation |
+| `server/index.ts` startup | Differs slightly | Server loads extra routes + Supabase init |
 
 ---
 
-## User Journey: Registration Through First Task
+## User Journey
 
-### 1. User visits the site
+### Local mode (open source user)
+
+```bash
+# User downloads and starts Astro
+docker compose up -d
+# → Postgres container starts
+# → Hono backend starts, connects to Postgres
+# → Frontend served on localhost:5173
+```
+
+The user opens `http://localhost:5173`. No login — single user, `userId = 'local'`. The frontend calls the same API endpoints as server mode. The backend runs the same Drizzle queries against the local Docker Postgres. Data lives in a Docker volume, persists across restarts.
+
+### Server mode (hosted website)
 
 ```
 Browser ──GET──→ Cloudflare CDN (static JS/CSS/HTML)
+  │
+  │  React app boots, checks for JWT in localStorage
+  │  No JWT → redirect to /login
+  │  Valid JWT → proceed to dashboard
+  │
+  │  GET /api/data/projects
+  │  Authorization: Bearer {jwt}
+  │ ─────────────────────────────────→ Backend (any Fly.io machine)
+  │                                      │
+  │                                      │  Drizzle: SELECT * FROM projects
+  │                                      │  WHERE owner_id = {user}
+  │                                      │ ────────────────────→ Postgres
+  │                                      │
+  │  { projects: [...] }                 │
+  │ ←────────────────────────────────────│
+  │
+  │  [Zustand: set({ projects })]
+  │  [React renders]
 ```
 
-No backend contact yet. The React app boots, checks for an existing Supabase session (JWT in `localStorage`, managed by `@supabase/supabase-js`).
+**No IndexedDB.** If the API call fails, the user sees a loading error, not stale cached data. Challenges, sessions, device codes — all stored in Postgres tables, so any backend machine can handle any request.
 
-- If no session → redirect to `/login`
-- If valid session → proceed to dashboard
+### Data export
 
-### 2. Registration
-
-```
-Browser                          Backend (any machine)              Supabase
-  │                                   │                               │
-  │  POST /auth/register-options      │                               │
-  │  { email, name }                  │                               │
-  │ ─────────────────────────────────→│                               │
-  │                                   │  INSERT INTO webauthn_challenges
-  │                                   │  (key, challenge, expires_at) │
-  │                                   │ ─────────────────────────────→│
-  │                                   │                               │
-  │  { options }                      │                               │
-  │ ←─────────────────────────────────│                               │
-  │                                   │                               │
-  │  [Browser creates passkey]        │                               │
-  │                                   │                               │
-  │  POST /auth/register-verify       │                               │
-  │  { email, credential }            │  (can hit ANY machine)        │
-  │ ─────────────────────────────────→│                               │
-  │                                   │  SELECT FROM webauthn_challenges
-  │                                   │  WHERE key = 'reg:{email}'    │
-  │                                   │ ─────────────────────────────→│
-  │                                   │  DELETE (one-time use)        │
-  │                                   │                               │
-  │                                   │  auth.admin.createUser()      │
-  │                                   │ ─────────────────────────────→│
-  │                                   │  (trigger creates user_profiles row)
-  │                                   │                               │
-  │                                   │  INSERT passkey_credentials   │
-  │                                   │ ─────────────────────────────→│
-  │                                   │                               │
-  │                                   │  admin.generateLink(magiclink)│
-  │                                   │ ─────────────────────────────→│
-  │                                   │                               │
-  │  { verified, session }            │                               │
-  │ ←─────────────────────────────────│                               │
-  │                                   │                               │
-  │  supabase.auth.verifyOtp()        │                               │
-  │ ──────────────────────────────────────────────────────────────────→│
-  │  (JWT stored in localStorage by Supabase SDK)                     │
-```
-
-Key change: **challenges stored in Supabase table, not in-memory.** Any backend machine can verify any challenge.
-
-### 3. Dashboard load (authenticated)
+Users can export their data as JSON for LLM analysis or backup:
 
 ```
-Browser                          Backend                 Supabase
-  │                                   │                      │
-  │  [Supabase SDK has JWT]           │                      │
-  │                                   │                      │
-  │  GET /api/data/projects           │                      │
-  │  Authorization: Bearer {jwt}      │                      │
-  │ ─────────────────────────────────→│                      │
-  │                                   │  SELECT * FROM projects
-  │                                   │  WHERE owner_id = {user}
-  │                                   │ ────────────────────→│
-  │                                   │                      │
-  │  { projects: [...] }              │                      │
-  │ ←─────────────────────────────────│                      │
-  │                                   │                      │
-  │  [Zustand: set({ projects })]     │                      │
-  │  [React renders]                  │                      │
+Browser → GET /api/data/export → Backend → Postgres → JSON download
 ```
 
-Key change: **No IndexedDB read or write.** Data comes from server. If the API call fails, the user sees a loading error, not stale cached data.
-
-### 4. Creating a project
-
-```
-Browser                          Backend                 Supabase        Other devices
-  │                                   │                      │                │
-  │  POST /api/data/projects          │                      │                │
-  │  { name, description, repo }      │                      │                │
-  │ ─────────────────────────────────→│                      │                │
-  │                                   │  INSERT INTO projects │                │
-  │                                   │ ────────────────────→│                │
-  │                                   │                      │  CDC event     │
-  │  { project }                      │                      │───────────────→│
-  │ ←─────────────────────────────────│                      │                │
-  │                                   │                      │  [Realtime:    │
-  │  [Zustand: addProject(project)]   │                      │   addProject]  │
-  │  [React renders immediately]      │                      │                │
-```
-
-Optimistic updates are still fine — Zustand updates immediately on API success. No IndexedDB write. Other devices get the update via Supabase Realtime.
-
-### 5. Plan generation via relay
-
-```
-Browser                    Backend              Relay            Agent Runner
-  │                            │                  │                    │
-  │  POST /agent/generate-plan │                  │                    │
-  │  { projectId, description }│                  │                    │
-  │ ──────────────────────────→│                  │                    │
-  │                            │  dispatch(task)  │                    │
-  │                            │ ────────────────→│  WS: task.dispatch │
-  │                            │                  │ ──────────────────→│
-  │                            │                  │                    │
-  │  SSE: text event           │  EventEmitter    │  WS: task.text     │
-  │ ←──────────────────────────│ ←────────────────│ ←──────────────────│
-  │                            │                  │                    │
-  │  SSE: plan_result          │                  │  WS: task.result   │
-  │ ←──────────────────────────│ ←────────────────│ ←──────────────────│
-  │                            │                  │                    │
-  │  [Zustand: setPlan()]      │  Store result    │                    │
-  │  [React Flow renders]     │  in Supabase     │                    │
-  │                            │ ────────────────────→ Supabase        │
-```
-
-SSE streaming is already stateless (the stream IS the state). The plan result is stored server-side. No change needed here.
+This covers plan graphs, execution traces, tool call logs — structured data useful for observability and LLM context.
 
 ---
 
@@ -441,17 +327,18 @@ SSE streaming is already stateless (the stream IS the state). The plan result is
 | Dispatch queue | `dispatch-queue.ts` | Tasks dispatched twice or lost |
 | Machine registry | `machine-registry.ts` | Machines visible on one machine only |
 
-### Target: database-backed (stateless)
+### Target: Postgres-backed (stateless)
 
 | State | Target location | TTL | Notes |
 |-------|----------------|-----|-------|
 | WebAuthn challenges | `webauthn_challenges` table | 5 min | Key + challenge + expires_at. DELETE after use. |
 | Device codes | `device_codes` table | 15 min | Already partially in DB. Complete the migration. |
 | Active sessions | `cancelled` flag in executions table | Session duration | Backend checks flag instead of in-memory AbortController. |
-| Chat session pool | Supabase `sessions` table | None | Already exists. Load on demand instead of pooling in memory. |
-| Rate limits | Supabase counter table or Redis | Sliding window | `INSERT ... ON CONFLICT DO UPDATE SET count = count + 1` |
-| Dispatch queue | Supabase `dispatch_queue` table | Until processed | `SELECT ... FOR UPDATE SKIP LOCKED` for distributed processing. |
+| Chat session pool | `sessions` table | None | Already exists. Load on demand instead of pooling in memory. |
+| Rate limits | Postgres counter table | Sliding window | `INSERT ... ON CONFLICT DO UPDATE SET count = count + 1` |
+| Dispatch queue | `dispatch_queue` table | Until processed | `SELECT ... FOR UPDATE SKIP LOCKED` for distributed processing. |
 | Machine registry | Already in `registered_machines` | Heartbeat | DB is authoritative. In-memory is a read cache refreshed on heartbeat. |
+| Relay pub/sub | Postgres `LISTEN/NOTIFY` | N/A | Built-in, no extra infrastructure. Replaces Redis pub/sub. |
 
 ### Example: Challenge Store Migration
 
@@ -466,140 +353,258 @@ CREATE TABLE webauthn_challenges (
 CREATE INDEX idx_challenges_expires ON webauthn_challenges (expires_at);
 ```
 
-**Backend code:**
+**Backend code (Drizzle ORM):**
 
 ```typescript
 // Replace: const challengeStore = new Map()
 
-async function storeChallenge(supabase: SupabaseClient, key: string, challenge: string) {
-  await supabase.from('webauthn_challenges')
-    .upsert({ key, challenge, expires_at: new Date(Date.now() + 5 * 60_000).toISOString() })
+import { db } from '../lib/db'
+import { webauthnChallenges } from '../lib/db/schema'
+
+async function storeChallenge(key: string, challenge: string) {
+  await db.insert(webauthnChallenges)
+    .values({ key, challenge, expiresAt: new Date(Date.now() + 5 * 60_000) })
+    .onConflictDoUpdate({ target: webauthnChallenges.key, set: { challenge, expiresAt: new Date(Date.now() + 5 * 60_000) } })
 }
 
-async function getChallenge(supabase: SupabaseClient, key: string): Promise<string | null> {
-  const { data } = await supabase
-    .from('webauthn_challenges')
-    .delete()                    // one-time use: delete and return
-    .eq('key', key)
-    .gt('expires_at', new Date().toISOString())
-    .select('challenge')
-    .single()
-  return data?.challenge ?? null
+async function getChallenge(key: string): Promise<string | null> {
+  const [row] = await db.delete(webauthnChallenges)  // one-time use: delete and return
+    .where(and(
+      eq(webauthnChallenges.key, key),
+      gt(webauthnChallenges.expiresAt, new Date()),
+    ))
+    .returning({ challenge: webauthnChallenges.challenge })
+  return row?.challenge ?? null
 }
 ```
+
+Same code runs against Docker Postgres (local) or Supabase Postgres (server). No Supabase SDK dependency in the query layer.
 
 ---
 
-## Relay Scaling
+## Open Source vs Private: Code Separation
 
-The relay server (WebSocket hub) is the one component with legitimate in-memory state: live WebSocket connections. You can't store a WebSocket connection in a database.
+### The two editions
 
-For horizontal relay scaling:
+| | Open Source (local mode) | Private (server mode) |
+|---|---|---|
+| **Users** | Single developer on their own machine | Multi-user teams via hosted website |
+| **Auth** | None (single user) | WebAuthn passkeys, OAuth (future) |
+| **Data** | PGlite (in-process Postgres, `~/.astro/data/`) | Postgres (Supabase / Fly.io / AWS RDS) |
+| **Install** | `npm install && npm start` (zero external deps) | We host it on Fly.io |
+| **AI execution** | Agent runner on localhost → relay on localhost | Agent runner on user's machine → relay on Fly.io |
+| **Multi-device** | No | Yes (Postgres LISTEN/NOTIFY) |
+| **Teams** | No | Yes |
+| **Code** | Public GitHub repo | Same repo, server-only routes excluded from release |
+
+### What gets released (open source)
 
 ```
-Agent Runner A ──WSS──→ Relay Instance 1 ◄──Redis pub/sub──► Relay Instance 2 ←──WSS── Agent Runner B
-                              │                                     │
-                              └───────── Shared Postgres ───────────┘
-                                   (registered_machines table)
+src/                              # Frontend (ALL of it — identical code)
+├── components/                   # UI components
+├── pages/                        # All pages (no mode branching)
+├── stores/                       # Zustand stores (fetch from /api/*, no IndexedDB)
+├── lib/                          # Utilities (no app-mode checks)
+├── types/                        # All TypeScript types
+server/
+├── index.ts                      # Hono server setup
+├── routes/
+│   ├── health.ts                 # Health check
+│   ├── data.ts                   # CRUD API (same Drizzle queries, works with PGlite)
+│   ├── agent.ts                  # Plan generation, chat (relay to agent runner)
+│   ├── dispatch.ts               # Task dispatch (relay to agent runner)
+│   ├── events.ts                 # SSE bridge
+│   ├── relay.ts                  # Machine management
+│   ├── observations.ts           # Trace/observability data
+│   └── fs.ts, repo.ts            # Filesystem access
+├── lib/
+│   ├── db/
+│   │   ├── index.ts              # createDb() — PGlite if no DATABASE_URL, Postgres if set
+│   │   └── schema.ts             # Drizzle schema (shared, one copy)
+│   ├── relay-server.ts           # WebSocket relay
+│   ├── machine-registry.ts       # Connected machines
+│   ├── dispatch/                 # Dispatch engine
+│   ├── events/                   # Event transport
+│   └── prompt-templates.ts       # System prompts
+packages/
+└── agent-runner/                 # Agent runner (full package)
 ```
 
-- Each relay instance holds its own WebSocket connections
-- Dispatch to a machine on another instance → publish to Redis → that instance forwards it
-- Already designed in `server/lib/redis-pubsub.ts`, not yet tested at scale
+### What stays private (server mode only)
+
+```
+server/
+├── routes/
+│   ├── auth.ts                   # WebAuthn registration/login
+│   ├── device-auth.ts            # Device code OAuth flow
+│   ├── teams.ts                  # Team management
+│   ├── notifications.ts          # Push notifications
+│   ├── github.ts                 # GitHub OAuth integration
+│   └── connected-accounts.ts     # Slack/Linear/Telegram
+├── middleware/
+│   └── auth.ts                   # JWT validation (server: real auth; local: no-op)
+├── lib/
+│   ├── supabase.ts               # Supabase client (only for auth ceremonies)
+│   ├── ensure-user-profile.ts    # Auth desync self-heal
+│   ├── token-manager.ts          # JWT lifecycle
+│   └── email-service.ts          # Transactional email
+supabase/
+└── migrations/                   # Supabase-specific migrations (local uses drizzle-kit push)
+```
+
+### Build-time separation
+
+`server/index.ts` conditionally imports server-only routes:
+
+```typescript
+// server/index.ts — always loaded
+app.route('/api', healthRoute)
+app.route('/api/data', dataRoute)     // same Drizzle queries, works with PGlite or Postgres
+app.route('/api/agent', agentRoute)
+app.route('/api/relay', relayRoute)
+app.route('/api/dispatch', dispatchRoute)
+app.route('/api/events', eventsRoute)
+
+if (isServerMode()) {
+  // Server-only routes — these files don't exist in open-source release
+  const { authRoute } = await import('./routes/auth.js')
+  const { teamsRoute } = await import('./routes/teams.js')
+  app.route('/api/auth', authRoute)
+  app.route('/api/teams', teamsRoute)
+  // ... device-auth, notifications, github, etc.
+}
+```
+
+The key difference from before: `data.ts` is now shared (same Drizzle queries work against PGlite and Postgres). Only auth and multi-user features stay private.
 
 ---
 
-## Scaling Considerations
+## Scaling the Server Mode
 
-### From 1 to millions of users
+### The stack: Fly.io + Postgres. Two things.
 
-| Layer | Current | At scale |
-|-------|---------|----------|
-| CDN (frontend) | Cloudflare Pages | Same. CDN scales infinitely. |
-| Backend | 1-2 Fly.io machines | N stateless machines behind load balancer. |
-| Database | Single Supabase instance | Supabase Pro with read replicas, connection pooling. |
-| Relay | Single WebSocket server | Multiple relay instances + Redis pub/sub. |
-| Caching | None | Redis for ephemeral state (challenges, rate limits). |
-| Agent Runners | User machines | Same — outbound connections to relay. Scale is per-user. |
+1. **Compute (Fly.io)** — Hono backend + relay. Scales horizontally (more machines). Autoscales.
+2. **Database (Postgres)** — All persistent state. Scales vertically (bigger instance). Does not autoscale.
 
-### Database indexes for common queries
+The database is the ceiling. Compute is easy to add. Database upgrades require planning.
 
-```sql
-CREATE INDEX idx_projects_owner ON projects (owner_id);
-CREATE INDEX idx_plan_nodes_project ON plan_nodes (project_id);
-CREATE INDEX idx_executions_project ON task_executions (project_id);
-CREATE INDEX idx_activity_project_time ON activity_events (project_id, created_at DESC);
+### Supabase pricing path
+
+| Supabase Plan | CPU | RAM | Connections | Price | When |
+|---------------|-----|-----|-------------|-------|------|
+| Pro | 2-core | 8GB | 60 + pooler (~200) | $25/mo | **Beta launch** |
+| Team | 4-core | 16GB | 120 + pooler (~400) | $599/mo | Growth |
+| Enterprise | Custom | Custom | Custom | Custom | **Production launch** |
+
+If we outgrow Supabase or want more control, switch `DATABASE_URL` to Fly.io managed Postgres or AWS RDS. Zero code changes.
+
+### Fly.io autoscaling
+
+```toml
+# fly.toml
+[http_service]
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
 ```
 
-### Table partitioning for large tables
+**Prerequisite**: backend must be stateless (Phase 3). Otherwise new machines start with empty in-memory Maps.
 
-```sql
--- task_executions: partition by created_at (time-series)
--- activity_events: partition by created_at
--- audit_logs: partition by created_at
+### Scaling tiers
+
+#### Tier 1: Alpha (10-50 users) — current
+
 ```
+Fly.io: 1 machine, performance-cpu-1x, 2GB RAM
+Postgres: Supabase Pro ($25/mo)
+Cost: ~$55/month
+```
+
+One machine. No autoscaling needed. Single machine avoids the in-memory state problem.
+
+#### Tier 2: Beta (100-500 users)
+
+**Prerequisite: Phase 3 (stateless backend) complete.**
+
+```
+Fly.io: 2-3 machines, performance-cpu-2x, 4GB each, autoscaling
+Postgres: Supabase Pro ($25/mo), pgbouncer (~200 conns)
+Cross-instance relay: Postgres LISTEN/NOTIFY
+Cost: ~$85-145/month
+```
+
+No Redis. Postgres `LISTEN/NOTIFY` handles relay cross-instance routing at this scale (thousands of messages/second is fine).
+
+#### Tier 3: Production (1K-10K users)
+
+```
+Fly.io: 3-10 machines, performance-cpu-4x, 8GB each, multi-region
+Postgres: Supabase Enterprise (custom sizing, read replicas)
+Cost: ~$200-500/month + Supabase Enterprise
+```
+
+Enterprise gives us: read replicas, higher connection limits, dedicated support.
+
+#### Tier 4: Scale (10K-100K+ users)
+
+Consider at this point:
+- **Redis** for relay pub/sub if Postgres LISTEN/NOTIFY becomes a throughput bottleneck
+- **Separate relay** into its own Fly.io app (different scaling profile)
+- **Database partitioning** by date/tenant for large tables
+- **CDN caching** for read-heavy API responses
+- **Queue service** (SQS) for dispatch queue
+
+### What blocks horizontal scaling today
+
+| Blocker | Fix (Phase 3) |
+|---------|---------------|
+| `challengeStore` in-memory Map | Postgres table |
+| `deviceCodeStore` in-memory Map | Postgres table |
+| `activeSessions` in-memory Map | DB cancellation flag |
+| `dispatchQueue` in-memory Map | Postgres table with `SELECT ... FOR UPDATE SKIP LOCKED` |
+| `machineRegistry` in-memory only | DB-authoritative with in-memory read cache |
+| No cross-instance relay routing | Postgres `LISTEN/NOTIFY` |
+
+**Until Phase 3 is complete, running >1 machine causes data loss and auth failures.**
 
 ---
 
 ## Action Items
 
-### Phase 1: Stabilize current deployment (immediate)
+See `docs/design/LOCAL_SERVER_REFACTOR.md` for the detailed step-by-step refactoring plan with file-level changes and unit test strategy.
 
-These are quick fixes to make the alpha usable while we build the proper architecture.
+### Phase summary
 
-| # | Task | Why | Files |
-|---|------|-----|-------|
-| 1.1 | Scale Fly.io to 1 machine | Eliminates cross-machine state bug immediately | `fly machines destroy <id>` |
-| 1.2 | Set Cloudflare Pages production branch to `main` | Fixes stale JS bundle on production URL | Cloudflare dashboard |
-| 1.3 | Move `challengeStore` to Supabase table | Fixes WebAuthn registration/login failures | `server/routes/auth.ts`, new migration |
-| 1.4 | Move `deviceCodeStore` to Supabase table | Fixes agent runner device auth flow | `server/lib/device-code-store.ts`, new migration |
-
-### Phase 2: Data adapter pattern (frontend)
-
-Restructure frontend persistence so stores never branch on mode.
-
-| # | Task | Why | Files |
-|---|------|-----|-------|
-| 2.1 | Define `DataAdapter` interface | Single contract for all data access | New: `src/lib/data-adapter.ts` |
-| 2.2 | Implement `ServerDataAdapter` | API calls with auth headers, proper error propagation | New: `src/lib/adapters/server-adapter.ts` |
-| 2.3 | Implement `LocalDataAdapter` | IndexedDB via idb-keyval | New: `src/lib/adapters/local-adapter.ts` |
-| 2.4 | Refactor existing `dataClient` into `ServerDataAdapter` | Most code already exists, just restructure | Modify: `src/lib/data-client.ts` |
-| 2.5 | Migrate stores to use `dataAdapter` | Remove all `isServerMode()` branching and IndexedDB fallbacks from stores | All 17 stores with persistence |
-| 2.6 | Add `loading` / `error` state to every store | Replace silent fallbacks with visible loading/error states | All stores |
-| 2.7 | Add error boundary + offline banner components | Show "Failed to load" and "You're offline" to users | New UI components |
-| 2.8 | Remove `loadState()`/`saveState()` calls from server-mode stores | Clean separation — IndexedDB code only in `LocalDataAdapter` | All stores |
-
-### Phase 3: Stateless backend
-
-Move all remaining in-memory state to database.
-
-| # | Task | Why | Files |
-|---|------|-----|-------|
-| 3.1 | Move session manager to DB cancellation flags | Abort/cancel works across machines | `server/lib/session-manager.ts`, migration |
-| 3.2 | Move dispatch queue to Supabase table | Tasks don't get lost or duplicated across machines | `server/lib/dispatch/dispatch-queue.ts`, migration |
-| 3.3 | Move rate limits to Supabase table | Rate limits are global, not per-machine | `server/routes/device-auth.ts`, migration |
-| 3.4 | Make machine registry DB-authoritative | In-memory becomes a read cache, refreshed on heartbeat | `server/lib/machine-registry.ts` |
-| 3.5 | Move chat session pool to load-on-demand | No in-memory pooling; load from Supabase `sessions` table | `server/lib/chat-session-pool.ts` |
-| 3.6 | Scale to 2+ machines and verify | Test all flows work with load balancer distributing requests | Manual testing |
-
-### Phase 4: Scale infrastructure (when needed)
-
-| # | Task | Why |
-|---|------|-----|
-| 4.1 | Add Redis for ephemeral state | Lower latency than Supabase for challenges, rate limits, pub/sub |
-| 4.2 | Add Supabase read replicas | Distribute read load for dashboards with many users |
-| 4.3 | Partition large tables | Prevent slow queries on task_executions, activity_events |
-| 4.4 | Load test with simulated concurrent users | Find bottlenecks before they hit production |
-| 4.5 | Add monitoring dashboards | Supabase metrics, Fly.io metrics, custom observability |
+| Phase | Goal | Key deliverable |
+|-------|------|-----------------|
+| 1. Stabilize alpha | Make current deployment reliable on 1 machine | Move in-memory challenges/device codes to Postgres |
+| 2. Unified data layer | Drizzle ORM + PGlite for local, Postgres for server | `server/lib/db/` with shared schema, `createDb()` |
+| 3. Frontend cleanup | Remove all IndexedDB and mode branching from frontend | Stores call `fetch('/api/...')` only, loading skeletons |
+| 4. Stateless backend | Move all in-memory Maps to Postgres tables | Enables Fly.io autoscaling, multi-machine |
+| 5. Cross-instance relay | Postgres LISTEN/NOTIFY for relay routing | Enables horizontal scaling |
+| 6. Beta launch | 2-3 machines, autoscaling, monitoring | Load-tested for 100-500 users |
+| 7. Production launch | Supabase Enterprise, multi-region | 1K+ users |
 
 ---
 
+## Decisions Made
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Local mode database | **PGlite** (Postgres in WASM, in-process) | Zero install (`npm install`), same SQL dialect as server, Drizzle ORM compatible. Data in `~/.astro/data/`. |
+| Server mode database | **Postgres** (Supabase → Fly.io Postgres → AWS RDS) | Portable via connection string. Pro for beta, Enterprise for launch. |
+| IndexedDB | **Removed entirely.** Not used in any mode. | Frontend is a thin client. Backend + Postgres is the only data layer. |
+| Frontend mode branching | **None.** Frontend always calls `fetch('/api/...')`. | 100% identical frontend code in local and server mode. |
+| Backend mode branching | **Minimal.** Only in `server/index.ts` (which routes to load) and auth middleware. | Data routes use Drizzle ORM against PGlite or Postgres — same code. |
+| Cross-instance pub/sub | **Postgres LISTEN/NOTIFY.** No Redis. | Built into Postgres, no extra infrastructure. Add Redis only at Tier 4 if throughput is a bottleneck. |
+| Cache layer | **HTTP cache headers only.** No app-level cache. | Browser-native caching via `Cache-Control`/`ETag`. Loading skeletons for first paint. |
+| Open source distribution | **npm package with PGlite bundled** (`npm start` works out of the box) | No Docker, no external Postgres. Single command to run. |
+| Data export | **JSON export endpoint** for observability/LLM data | Users can download execution traces, plans, tool calls. |
+
 ## Open Questions
 
-1. **Should local mode exist in the open-source version?** If yes, the two-mode architecture (data adapter with two implementations) is permanent. If local mode is removed, the codebase simplifies significantly — but loses the single-user, no-server use case.
+1. **React Query vs manual fetching?** TanStack Query handles retries, deduplication, stale-while-revalidate at the HTTP level. Would eliminate store loading boilerplate. Significant refactor but high payoff.
 
-2. **React Query vs manual fetching?** The current manual `fetch()` + Zustand could be replaced with TanStack Query, which handles caching, retries, stale-while-revalidate, and deduplication out of the box. This would eliminate most of the store loading complexity. Significant refactor but high payoff.
+2. **PGlite LISTEN/NOTIFY support?** PGlite supports core Postgres SQL, but LISTEN/NOTIFY may not work in single-connection WASM mode. Verify. Local mode may not need it (single user), but if we want feature parity, may need a polling fallback for local.
 
-3. **Supabase client-side vs backend API?** Currently the frontend calls our backend API (`/api/data/*`) which then calls Supabase. An alternative: use the Supabase client SDK directly from the frontend, with RLS policies for security. This eliminates the backend as middleman for CRUD operations, reducing latency and backend load. The backend would only handle business logic (dispatch, relay, auth ceremonies).
-
-4. **WebSocket vs SSE for frontend updates?** Currently uses SSE (EventSource) for execution streaming and Supabase Realtime (WebSocket) for data sync. Could consolidate to one WebSocket connection for both, reducing connection overhead.
+3. **Drizzle schema compatibility.** Drizzle uses `drizzle-orm/pg-core` for both PGlite and Postgres drivers. Verify that all column types we use (JSONB, TIMESTAMPTZ, UUID, ARRAY) work in PGlite. Run the full schema migration against PGlite in a test.
