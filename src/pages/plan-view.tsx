@@ -47,6 +47,7 @@ import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColor
 import { formatDueDateShort } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
+import { apiUrl } from "@/lib/api-url"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import type { PlanNode, Priority } from "@/types"
 
@@ -1180,7 +1181,7 @@ export function PlanView() {
     if (machineId) {
       // Remote machine: fetch via relay
       const params = new URLSearchParams({ projectId: project.id, machineId, workingDirectory: project.workingDirectory })
-      fetch(`/api/fs/files?${params}`)
+      fetch(apiUrl(`/api/fs/files?${params}`))
         .then((r) => r.json())
         .then((data) => {
           if (data.files?.length) updateFileTree(project.id, data.files, machineId)
@@ -1188,7 +1189,7 @@ export function PlanView() {
         .catch(() => {})
     } else {
       // Local: fetch directly
-      fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`)
+      fetch(apiUrl(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`))
         .then((r) => r.json())
         .then((data) => {
           if (data.files?.length) updateFileTree(project.id, data.files)

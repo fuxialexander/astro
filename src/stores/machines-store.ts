@@ -126,7 +126,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         headers['X-User-Id'] = browserUserId
       }
 
-      const response = await fetch(`/api/device/machines/${machineId}`, {
+      const response = await fetch(apiUrl(`/api/device/machines/${machineId}`), {
         method: 'DELETE',
         headers,
       })
@@ -171,7 +171,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         headers['X-User-Id'] = browserUserId
       }
 
-      const response = await fetch(`/api/device/machines/${machineId}`, {
+      const response = await fetch(apiUrl(`/api/device/machines/${machineId}`), {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ name }),
@@ -227,7 +227,7 @@ export const useMachinesStore = create<MachinesState>((set) => ({
         headers['X-User-Id'] = browserUserId
       }
 
-      const response = await fetch(`/api/device/machines/${machineId}`, {
+      const response = await fetch(apiUrl(`/api/device/machines/${machineId}`), {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ providerConfigs: configs }),

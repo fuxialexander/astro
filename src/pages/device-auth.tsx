@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { MobileStatusBar } from "@/components/mobile/status-bar"
 import { useAuthStore } from "@/stores/auth-store"
+import { apiUrl } from "@/lib/api-url"
 
 type AuthStatus = "loading" | "pending" | "success" | "error" | "denied" | "expired" | "unauthenticated"
 
@@ -84,7 +85,7 @@ export function DeviceAuth() {
       setError(null)
 
       try {
-        const response = await fetch(`/api/device/code/${encodeURIComponent(codeFromUrl)}`)
+        const response = await fetch(apiUrl(`/api/device/code/${encodeURIComponent(codeFromUrl)}`))
         if (cancelled) return
 
         const data = await response.json()
@@ -138,7 +139,7 @@ export function DeviceAuth() {
     try {
       console.log('[device-auth] Authorizing device...')
 
-      const response = await fetch(`/api/device/code/${deviceInfo.deviceCode}/authorize`, {
+      const response = await fetch(apiUrl(`/api/device/code/${deviceInfo.deviceCode}/authorize`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),
@@ -169,7 +170,7 @@ export function DeviceAuth() {
     setStatus("loading")
 
     try {
-      await fetch(`/api/device/code/${deviceInfo.deviceCode}/deny`, {
+      await fetch(apiUrl(`/api/device/code/${deviceInfo.deviceCode}/deny`), {
         method: "POST",
       })
       setStatus("denied")
@@ -188,7 +189,7 @@ export function DeviceAuth() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/device/code/${encodeURIComponent(deviceCode)}`)
+      const response = await fetch(apiUrl(`/api/device/code/${encodeURIComponent(deviceCode)}`))
       const data = await response.json()
 
       if (!response.ok) {

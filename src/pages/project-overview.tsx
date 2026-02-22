@@ -32,6 +32,7 @@ import { useActivityStore } from "@/stores/activity-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { cn } from "@/lib/utils"
+import { apiUrl } from "@/lib/api-url"
 import type { Project, PlanNode } from "@/types"
 
 const healthLabels: Record<string, string> = {
@@ -784,14 +785,14 @@ export function ProjectOverview() {
 
     if (machineId) {
       const params = new URLSearchParams({ projectId: project.id, machineId, workingDirectory: project.workingDirectory })
-      fetch(`/api/fs/files?${params}`)
+      fetch(apiUrl(`/api/fs/files?${params}`))
         .then((r) => r.json())
         .then((data) => {
           if (data.files?.length) updateFileTree(project.id, data.files, machineId)
         })
         .catch(() => {})
     } else {
-      fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`)
+      fetch(apiUrl(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(project.workingDirectory)}`))
         .then((r) => r.json())
         .then((data) => {
           if (data.files?.length) updateFileTree(project.id, data.files)

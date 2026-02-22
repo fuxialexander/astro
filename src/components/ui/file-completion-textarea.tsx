@@ -10,6 +10,7 @@ import {
 import { createPortal } from "react-dom"
 import { FileCode2, Hash } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { apiUrl } from "@/lib/api-url"
 
 export interface SlashCommand {
   name: string
@@ -168,7 +169,7 @@ export function FileCompletionTextarea({
         if (machineId) params.set("machineId", machineId)
         if (workingDirectory) params.set("workingDirectory", workingDirectory)
 
-        const res = await fetch(`/api/fs/files?${params}`, {
+        const res = await fetch(apiUrl(`/api/fs/files?${params}`), {
           signal: controller.signal,
         })
         if (!res.ok) return

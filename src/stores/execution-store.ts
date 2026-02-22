@@ -1316,7 +1316,7 @@ function handleSSEEvent(
           (p) => p.id === execution?.projectId
         )
         if (projectForRefresh?.workingDirectory) {
-          fetch(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(projectForRefresh.workingDirectory)}`)
+          fetch(apiUrl(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(projectForRefresh.workingDirectory)}`))
             .then((r) => r.json())
             .then((data) => {
               if (data.files?.length) {
