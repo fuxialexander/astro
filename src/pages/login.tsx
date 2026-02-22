@@ -25,6 +25,14 @@ function getFriendlyErrorMessage(message: string): string {
   if (message.includes("Authentication service not configured")) {
     return message // Keep specific config errors
   }
+  // Surface server-side error messages directly (e.g. "Account already exists")
+  if (message.includes("already exists") || message.includes("Please log in") || message.includes("Account created")) {
+    return message
+  }
+  // SecurityError often means RP ID mismatch (WebAuthn domain config wrong)
+  if (message.includes("SecurityError") || message.includes("relying party")) {
+    return "Passkey configuration error. The server's domain settings don't match this site."
+  }
   return "Something went wrong. Please try again."
 }
 
@@ -176,6 +184,12 @@ export function Login() {
     setStep("registering")
 
     try {
+      // Clear any stale session before registration to prevent identity conflicts
+      const supabase = getSupabase()
+      if (supabase) {
+        await supabase.auth.signOut()
+      }
+
       const optionsRes = await fetch(apiUrl("/api/auth/webauthn/register-options"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -186,7 +200,8 @@ export function Login() {
         if (optionsRes.status === 503) {
           throw new Error("Authentication service not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.")
         }
-        throw new Error("Failed to get registration options")
+        const data = await optionsRes.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to get registration options")
       }
 
       const { options } = await optionsRes.json()
@@ -203,14 +218,27 @@ export function Login() {
       })
 
       if (!verifyRes.ok) {
-        const data = await verifyRes.json()
+        const data = await verifyRes.json().catch(() => ({}))
+        if (verifyRes.status === 409 && data.existingUser) {
+          // Account already exists — switch to login flow
+          setError("An account with this email already exists. Signing you in instead...")
+          setStep("authenticating")
+          try {
+            await authenticateUser()
+            return
+          } catch {
+            setError("Account exists but login failed. Try signing in from the email step.")
+            setStep("email")
+            setLoading(false)
+            return
+          }
+        }
         throw new Error(data.error || "Registration failed")
       }
 
       const result = await verifyRes.json()
 
       if (result.session?.properties?.hashed_token) {
-        const supabase = getSupabase()
         if (supabase) {
           const { error } = await supabase.auth.verifyOtp({
             token_hash: result.session.properties.hashed_token,
@@ -232,6 +260,12 @@ export function Login() {
             }, 2000)
           })
         }
+      } else {
+        // Session generation failed on backend but account was created
+        setError("Account created. Please sign in with your passkey or email link.")
+        setStep("email")
+        setLoading(false)
+        return
       }
 
       navigate(from, { replace: true })
@@ -249,7 +283,7 @@ export function Login() {
       setStep("name")
       setLoading(false)
     }
-  }, [email, name, from, navigate])
+  }, [email, name, from, navigate, authenticateUser])
 
   // Send magic link email for cross-device login
   const handleMagicLink = useCallback(async () => {

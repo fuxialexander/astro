@@ -29,10 +29,38 @@ import { storeChallenge, getAndDeleteChallenge } from '../lib/challenge-store.js
 
 const authRoute = new Hono()
 
-// Configuration from environment
+// Configuration from environment.
+// CRITICAL: RP_ID and ORIGIN must match the FRONTEND domain (where the browser
+// runs the WebAuthn ceremony), NOT the backend domain. If WEBAUTHN_* vars are
+// not set, derive from CORS_ORIGIN / FRONTEND_URL (which point to the frontend).
 const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'Astro'
-const RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost'
-const ORIGIN = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173'
+
+function resolveWebAuthnConfig() {
+  // Explicit config takes priority
+  if (process.env.WEBAUTHN_RP_ID && process.env.WEBAUTHN_ORIGIN) {
+    return {
+      rpId: process.env.WEBAUTHN_RP_ID,
+      origin: process.env.WEBAUTHN_ORIGIN,
+    }
+  }
+
+  // Derive from CORS_ORIGIN or FRONTEND_URL (these point to the frontend)
+  const frontendUrl = process.env.CORS_ORIGIN || process.env.FRONTEND_URL
+  if (frontendUrl) {
+    try {
+      const url = new URL(frontendUrl)
+      return { rpId: url.hostname, origin: url.origin }
+    } catch {
+      console.warn('[auth] Invalid CORS_ORIGIN/FRONTEND_URL for WebAuthn derivation:', frontendUrl)
+    }
+  }
+
+  // Local development defaults
+  return { rpId: 'localhost', origin: 'http://localhost:5173' }
+}
+
+const { rpId: RP_ID, origin: ORIGIN } = resolveWebAuthnConfig()
+console.log('[auth] WebAuthn config — RP_ID:', RP_ID, 'ORIGIN:', ORIGIN)
 
 // Rate limiting: Prevent enumeration and DoS attacks
 // A full login flow uses 2 rate-limited endpoints (check-user + login-options),
@@ -335,28 +363,21 @@ authRoute.post('/webauthn/register-verify', async (c) => {
       return c.json({ error: 'Failed to store credential' }, 500)
     }
 
-    // Generate session tokens
+    // Generate session tokens via admin magic link.
+    // This produces a hashed_token the frontend exchanges for a real Supabase session.
     const { data: session, error: sessionError } = await supabase.auth.admin.generateLink({
       type: 'magiclink',
       email,
+      options: { redirectTo: ORIGIN },
     })
 
-    if (sessionError) {
-      console.error('[auth] Session generation failed:', sessionError)
-      // Fallback: create session directly
-      const { data: signIn } = await supabase.auth.admin.generateLink({
-        type: 'magiclink',
-        email,
-        options: { redirectTo: ORIGIN },
-      })
-
-      console.log('[auth] Registration successful, user:', userId)
-
+    if (sessionError || !session?.properties?.hashed_token) {
+      console.error('[auth] Session generation failed:', sessionError || 'no hashed_token in response')
       return c.json({
+        error: 'Account created but session generation failed. Please log in.',
         verified: true,
         userId,
-        session: signIn,
-      })
+      }, 500)
     }
 
     console.log('[auth] Registration successful, user:', userId)
