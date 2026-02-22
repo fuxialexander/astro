@@ -26,6 +26,8 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { errorMessage, isAbortError } from '../lib/error-utils.js'
 import { isServerMode } from '../lib/app-mode.js'
+import { astroEventTransport } from '../lib/events/astro-event-transport.js'
+import type { TaskStartedEvent, TaskCompletedEvent as AstroTaskCompletedEvent, TaskFailedEvent } from '../lib/events/types.js'
 import {
   createServerWorktree,
   getDefaultBranch,
@@ -915,12 +917,13 @@ async function dispatchViaRelay(
     const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
       if (!alive || msg.result.taskId !== executionId) return
       lastActivity = Date.now()
+      const isSuccess = msg.result.status === 'completed'
       stream.writeSSE({
         event: 'result',
         data: JSON.stringify({
           executionId,
           nodeId,
-          status: msg.result.status === 'completed' ? 'success' : 'failure',
+          status: isSuccess ? 'success' : 'failure',
           output: msg.result.output,
           error: msg.result.error,
           duration: msg.result.duration,
@@ -929,6 +932,45 @@ async function dispatchViaRelay(
           prNumber: msg.result.prNumber,
         }),
       }).catch(() => { alive = false })
+
+      // Bridge to astroEventTransport for observability (observation collector, audit log, usage metrics)
+      const nodeStub = { id: nodeId, title, description } as import('../../src/types/index.js').PlanNode
+      if (isSuccess) {
+        astroEventTransport.emitEvent({
+          type: 'task.completed',
+          taskId: executionId,
+          nodeId,
+          projectId,
+          executionId,
+          result: {
+            taskId: executionId,
+            status: 'completed',
+            stdout: typeof msg.result.output === 'string' ? msg.result.output : undefined,
+            metrics: {
+              durationMs: msg.result.duration,
+              ...(msg.result.metadata as Record<string, unknown> | undefined),
+            },
+          } as import('../lib/providers/types.js').TaskResult,
+          node: nodeStub,
+          timestamp: new Date(),
+        } satisfies AstroTaskCompletedEvent).catch((err) => {
+          console.error('[dispatch-relay] Failed to emit task.completed:', err)
+        })
+      } else {
+        astroEventTransport.emitEvent({
+          type: 'task.failed',
+          taskId: executionId,
+          nodeId,
+          projectId,
+          executionId,
+          error: msg.result.error || 'Task failed',
+          node: nodeStub,
+          timestamp: new Date(),
+        } satisfies TaskFailedEvent).catch((err) => {
+          console.error('[dispatch-relay] Failed to emit task.failed:', err)
+        })
+      }
+
       // Task is done, close stream after sending result
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
       alive = false
@@ -940,6 +982,10 @@ async function dispatchViaRelay(
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:stdout', {
+        output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() },
+      })
     }
 
     const onSessionInit = (msg: import('../types/relay.js').TaskSessionInitMessage) => {
@@ -949,6 +995,12 @@ async function dispatchViaRelay(
         event: 'session_init',
         data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
       }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:session_init', {
+        taskId: executionId,
+        sessionId: msg.sessionId,
+        model: msg.model || 'unknown',
+      })
     }
 
     const onProgress = (msg: import('../types/relay.js').TaskProgressMessage) => {
@@ -958,6 +1010,12 @@ async function dispatchViaRelay(
         event: 'progress',
         data: JSON.stringify({ message: msg.message, percentage: msg.progress }),
       }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:progress', {
+        taskId: executionId,
+        progress: msg.progress,
+        message: msg.message || '',
+      })
     }
 
     const onToolTrace = (msg: import('../types/relay.js').TaskToolTraceMessage) => {
@@ -967,11 +1025,24 @@ async function dispatchViaRelay(
         event: 'tool_use',
         data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
       }).catch(() => { alive = false })
+      // Bridge tool_use to executionEventBus for observability
+      executionEventBus.emit('task:tool_trace', {
+        taskId: executionId,
+        toolName: msg.toolName,
+        toolInput: msg.toolInput,
+      })
       if (msg.toolResult !== undefined) {
         stream.writeSSE({
           event: 'tool_result',
           data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
         }).catch(() => { alive = false })
+        // Bridge tool_result to executionEventBus for observability
+        executionEventBus.emit('task:tool_trace', {
+          taskId: executionId,
+          toolName: msg.toolName,
+          toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult,
+          success: msg.success ?? true,
+        })
       }
     }
 
@@ -982,6 +1053,12 @@ async function dispatchViaRelay(
         event: 'file_change',
         data: JSON.stringify({ path: msg.path, action: msg.action, linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved }),
       }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:file_change', {
+        taskId: executionId,
+        path: msg.path,
+        action: msg.action,
+      })
     }
 
     // Listen for machine disconnect during streaming
@@ -993,6 +1070,19 @@ async function dispatchViaRelay(
         data: JSON.stringify({ error: 'Remote machine disconnected during task execution', recoverable: false }),
       }).catch(() => {})
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      // Bridge disconnect as task.failed for observability
+      astroEventTransport.emitEvent({
+        type: 'task.failed',
+        taskId: executionId,
+        nodeId,
+        projectId,
+        executionId,
+        error: 'Remote machine disconnected during task execution',
+        node: { id: nodeId, title, description } as import('../../src/types/index.js').PlanNode,
+        timestamp: new Date(),
+      } satisfies TaskFailedEvent).catch((err) => {
+        console.error('[dispatch-relay] Failed to emit task.failed on disconnect:', err)
+      })
       alive = false
     }
 
@@ -1037,6 +1127,19 @@ async function dispatchViaRelay(
         computeBackend,
       }),
     })
+
+    // Emit task.started to astroEventTransport so observability hooks (observation collector,
+    // audit log, usage metrics, etc.) are notified. Without this, the relay dispatch path
+    // is invisible to the observability system.
+    await astroEventTransport.emitEvent({
+      type: 'task.started',
+      taskId: executionId,
+      nodeId,
+      projectId,
+      executionId,
+      timestamp: new Date(),
+      node: { id: nodeId, title, description } as import('../../src/types/index.js').PlanNode,
+    } satisfies TaskStartedEvent)
 
     // Keepalive + activity timeout check
     const heartbeat = setInterval(() => {
