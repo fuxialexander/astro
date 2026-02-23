@@ -130,6 +130,46 @@ function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[] {
   return blocks
 }
 
+function getToolInputSummary(toolName: string, toolInput: unknown): string | null {
+  if (!toolInput || typeof toolInput !== 'object') return null
+  const input = toolInput as Record<string, unknown>
+
+  switch (toolName) {
+    case 'Read':
+    case 'Write':
+    case 'Edit': {
+      const fp = input.file_path
+      if (typeof fp === 'string') {
+        const segments = fp.split('/')
+        return segments.slice(-2).join('/')
+      }
+      return null
+    }
+    case 'Glob': {
+      const pattern = input.pattern
+      return typeof pattern === 'string' ? pattern : null
+    }
+    case 'Grep': {
+      const pattern = input.pattern
+      return typeof pattern === 'string' ? `/${pattern}/` : null
+    }
+    case 'Bash': {
+      const cmd = input.command
+      return typeof cmd === 'string' ? cmd.slice(0, 60) : null
+    }
+    case 'Task': {
+      const desc = input.description
+      return typeof desc === 'string' ? desc : null
+    }
+    case 'WebFetch': {
+      const url = input.url
+      return typeof url === 'string' ? url : null
+    }
+    default:
+      return null
+  }
+}
+
 function TextBlock({ events }: { events: TaskActivityEvent[] }) {
   const text = events
     .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
@@ -181,7 +221,11 @@ function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
             <Wrench className="h-3 w-3" />
           )}
         </div>
-        <span className="text-[11px] font-mono flex-1 truncate text-muted-foreground">{toolUse.toolName}</span>
+        <span className="text-[11px] font-mono shrink-0 text-muted-foreground">{toolUse.toolName}</span>
+        {(() => {
+          const inputSummary = getToolInputSummary(toolUse.toolName, toolUse.toolInput)
+          return inputSummary ? <span className="text-[10px] font-mono truncate text-muted-foreground/60">{inputSummary}</span> : null
+        })()}
         {toolResult?.duration != null && (
           <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">
             {toolResult.duration}ms
@@ -324,9 +368,13 @@ function ToolGroupBlock({ events }: { events: TaskActivityEvent[] }) {
                       <Wrench className="h-3 w-3" />
                     )}
                   </div>
-                  <span className="text-[11px] font-mono flex-1 text-muted-foreground">
+                  <span className="text-[11px] font-mono shrink-0 text-muted-foreground">
                     {pair.toolUse.toolName}
                   </span>
+                  {(() => {
+                    const inputSummary = getToolInputSummary(pair.toolUse.toolName, pair.toolUse.toolInput)
+                    return inputSummary ? <span className="text-[10px] font-mono truncate text-muted-foreground/60">{inputSummary}</span> : null
+                  })()}
                   {pair.toolResult?.duration != null && (
                     <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">
                       {pair.toolResult.duration}ms

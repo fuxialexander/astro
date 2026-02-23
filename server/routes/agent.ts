@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
+import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { requireAuth } from '../middleware/auth.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, TaskStdoutMessage } from '../types/relay.js'
@@ -86,6 +87,7 @@ async function streamChatViaRelay(
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
+      executionEventBus.emit('task:stdout', { output: { taskId: opts.taskId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }
 
     const onResult = (msg: TaskResultMessage) => {
@@ -105,11 +107,13 @@ async function streamChatViaRelay(
         event: 'tool_use',
         data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
       }).catch(() => { alive = false })
+      executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolInput: msg.toolInput })
       if (msg.toolResult !== undefined) {
         stream.writeSSE({
           event: 'tool_result',
           data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
         }).catch(() => { alive = false })
+        executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true })
       }
     }
 
@@ -120,6 +124,7 @@ async function streamChatViaRelay(
         event: 'file_change',
         data: JSON.stringify({ path: msg.path, action: msg.action }),
       }).catch(() => { alive = false })
+      executionEventBus.emit('task:file_change', { taskId: opts.taskId, path: msg.path, action: msg.action })
     }
 
     const onSessionInit = (msg: TaskSessionInitMessage) => {
@@ -129,10 +134,12 @@ async function streamChatViaRelay(
         event: 'session_init',
         data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
       }).catch(() => { alive = false })
+      executionEventBus.emit('task:session_init', { taskId: opts.taskId, sessionId: msg.sessionId, model: msg.model || 'unknown' })
     }
 
-    const onMachineDisconnected = () => {
+    const onMachineDisconnected = (disconnectedMachineId: string) => {
       if (!alive) return
+      if (opts.targetMachineId && disconnectedMachineId !== opts.targetMachineId) return
       stream.writeSSE({
         event: 'error',
         data: 'Remote machine disconnected during task execution',
@@ -406,9 +413,13 @@ agentRoute.post('/generate-plan', async (c) => {
       if (!planResultSent) {
         let failureDetail: string
         const resultOutput = msg.result.output ?? ''
-        console.warn(`[plan-gen] Extraction failed. assistantText length=${assistantText.length}, result.output length=${resultOutput.length}, status=${msg.result.status}`)
+        const resultError = msg.result.error ?? ''
+        const resultStatus = msg.result.status ?? 'unknown'
+        console.warn(`[plan-gen] Extraction failed. assistantText length=${assistantText.length}, result.output length=${resultOutput.length}, status=${resultStatus}, error=${resultError}`)
 
-        if (assistantText.length > 0 || resultOutput.length > 0) {
+        if (resultStatus === 'failed' && resultError) {
+          failureDetail = `Plan generation failed: ${resultError}`
+        } else if (assistantText.length > 0 || resultOutput.length > 0) {
           const combined = assistantText || resultOutput
           const trimmed = combined.trimEnd()
           const mentionsPlanKeys = trimmed.includes('"nodes"') || trimmed.includes('"edges"')
@@ -418,7 +429,7 @@ agentRoute.post('/generate-plan', async (c) => {
             failureDetail = 'The AI response did not contain a valid plan structure. Try regenerating the plan.'
           }
         } else {
-          failureDetail = 'No output was produced during plan generation.'
+          failureDetail = `No output was produced during plan generation (status: ${resultStatus}${resultError ? `, error: ${resultError}` : ''}).`
         }
         stream.writeSSE({ event: 'error', data: failureDetail }).catch(() => { alive = false })
       }
@@ -444,8 +455,9 @@ agentRoute.post('/generate-plan', async (c) => {
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
     }
 
-    const onMachineDisconnected = () => {
+    const onMachineDisconnected = (disconnectedMachineId: string) => {
       if (!alive) return
+      if (targetMachineId && disconnectedMachineId !== targetMachineId) return
       stream.writeSSE({
         event: 'error',
         data: 'Remote machine disconnected during plan generation',

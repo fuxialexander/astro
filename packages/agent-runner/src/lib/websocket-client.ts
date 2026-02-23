@@ -816,6 +816,14 @@ export class WebSocketClient {
     this.cleanup();
     this.emitEvent({ type: 'disconnected', reason: `${code}: ${reason}` });
 
+    // Custom close code 4001 means this connection was replaced by another
+    // process with the same machineId — do not reconnect.
+    if (code === 4001) {
+      console.error('[ws-client] Connection replaced by another process with the same machineId. Not reconnecting.');
+      this.shouldReconnect = false;
+      return;
+    }
+
     if (this.shouldReconnect) {
       this.scheduleReconnect();
     }

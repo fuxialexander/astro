@@ -170,6 +170,10 @@ dump.rdb
 
 # Project specific
 .astro-worktrees/
+
+# Astro agent directory (worktrees and cache)
+.astro/worktrees/
+.astro/cache/
 .plan.md
 UI.pen
 docs/xi_fu_deployment.md

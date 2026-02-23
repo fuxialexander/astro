@@ -2,6 +2,7 @@ import { create } from "zustand"
 import type { Project } from "@/types"
 import { dataClient } from "@/lib/data-client"
 import { usePlanStore } from "@/stores/plan-store"
+import { useToastStore } from "@/stores/toast-store"
 
 interface ProjectState {
   projects: Project[]
@@ -43,7 +44,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     const next = [...get().projects, project]
     set({ projects: next })
-    dataClient.createProject(project).catch(() => {})
+    dataClient.createProject(project).catch((err) => {
+      console.error('[project-store] Failed to sync project to backend:', err)
+      useToastStore.getState().add({ type: 'error', title: 'Failed to save project', description: 'Project may be lost on refresh. Check your connection.' })
+    })
   },
 
   updateProject: (id, updates) => {
@@ -51,7 +55,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       p.id === id ? { ...p, ...updates, updatedAt: new Date() } : p
     )
     set({ projects: next })
-    dataClient.updateProject(id, updates).catch(() => {})
+    dataClient.updateProject(id, updates).catch((err) => {
+      console.error('[project-store] Failed to sync project update:', err)
+    })
   },
 
   updateFileTree: (id, files, machineId) => {
@@ -64,7 +70,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   deleteProject: (id) => {
     const next = get().projects.filter((p) => p.id !== id)
     set({ projects: next })
-    dataClient.deleteProject(id).catch(() => {})
+    dataClient.deleteProject(id).catch((err) => {
+      console.error('[project-store] Failed to sync project deletion:', err)
+    })
     // Clean up all plan nodes and edges for this project
     usePlanStore.getState().removeProjectPlan(id)
   },

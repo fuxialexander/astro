@@ -243,7 +243,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
         abortController,
         maxTurns: 100,
         permissionMode: 'bypassPermissions',
-        sandbox: { enabled: false },
+        // NOTE: Do NOT pass `sandbox` option — any non-undefined value crashes Claude Code on Bedrock.
         settingSources: ['user', 'project', 'local'],
         persistSession: false,
         cwd: workingDirectory,
@@ -396,6 +396,11 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     // cleaned up. The SDK's `cwd` option (line below) handles per-query working
     // directory correctly without mutating global state.
 
+    // Remove nested-session guard: the agent runner may be launched from within
+    // a Claude Code session, and the CLAUDECODE env var prevents the SDK from
+    // starting a new session.
+    delete process.env.CLAUDECODE;
+
     // Determine appropriate maxTurns based on task type
     const defaultMaxTurns = (task.type === 'chat' || task.type === 'summarize') ? 10 : 150;
 
@@ -404,7 +409,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       abortController,
       maxTurns: task.maxTurns ?? defaultMaxTurns,
       permissionMode: 'bypassPermissions', // Auto-accept all tool calls
-      sandbox: { enabled: false }, // Run on host machine, not in Docker container
+      // NOTE: Do NOT pass `sandbox` option — any non-undefined value crashes Claude Code on Bedrock.
       settingSources: ['user', 'project', 'local'], // Load CLAUDE.md from user home, project dir, and cwd
       persistSession: false,
       cwd: task.workingDirectory,

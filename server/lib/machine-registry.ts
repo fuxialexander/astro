@@ -85,7 +85,8 @@ export class MachineRegistry extends EventEmitter {
       }
       this.sessionToMachine.delete(existing.entry.sessionId);
       if (existing.socket && existing.socket.readyState === 1) {
-        existing.socket.close(1000, 'reconnected');
+        // Custom close code 4001 tells the old client NOT to reconnect
+        existing.socket.close(4001, 'replaced by new connection');
       }
       console.log(`[registry] Machine ${machineId} replacing existing connection`);
     }
@@ -132,7 +133,8 @@ export class MachineRegistry extends EventEmitter {
       }
       this.sessionToMachine.delete(existing.entry.sessionId);
       if (existing.socket && existing.socket.readyState === 1) {
-        existing.socket.close(1000, 'reconnected');
+        // Custom close code 4001 tells the old client NOT to reconnect
+        existing.socket.close(4001, 'replaced by new connection');
       }
     }
 
