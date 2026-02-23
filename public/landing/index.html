@@ -345,7 +345,7 @@
 
         /* ==================== PRODUCT SHOWCASE ==================== */
         .showcase-section {
-            padding: 2rem 2rem 8rem;
+            padding: 2rem 2rem 4rem;
             max-width: 1200px;
             margin: 0 auto;
         }
@@ -515,11 +515,34 @@
             color: var(--text-tertiary);
             border-radius: 6px;
             font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.15s ease;
+        }
+
+        .mock-view-tab:hover {
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.03);
         }
 
         .mock-view-tab.active {
             background: rgba(91, 163, 208, 0.1);
             color: var(--cyan);
+        }
+
+        .mock-view-tab.active:hover {
+            background: rgba(91, 163, 208, 0.14);
+        }
+
+        /* Showcase view panels */
+        .showcase-view-panel {
+            display: none;
+            position: relative;
+            height: 320px;
+        }
+        .showcase-view-panel.active {
+            display: block;
+            animation: viewFadeIn 0.25s ease-out;
         }
 
         /* Mock graph area */
@@ -593,26 +616,29 @@
 
         /* ==================== BENTO GRID PILLARS ==================== */
         .pillars-section {
-            padding: 8rem 2rem 10rem;
+            padding: 6rem 2rem 7rem;
             max-width: 1200px;
             margin: 0 auto;
         }
 
         .bento-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto auto;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-auto-rows: 1fr;
             gap: 1.25rem;
+            align-items: stretch;
         }
 
         .bento-card {
             background: var(--bg-card);
             border: 1px solid var(--border-subtle);
             border-radius: 20px;
-            padding: 2.25rem;
+            padding: 1.75rem;
             position: relative;
             overflow: hidden;
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
         }
 
         .bento-card::before {
@@ -633,9 +659,8 @@
 
         .bento-card:hover::before { opacity: 1; }
 
-        /* Plan card - large left */
+        /* Plan card */
         .bento-plan {
-            grid-row: 1 / 3;
         }
 
         .bento-plan::before {
@@ -665,13 +690,13 @@
         }
 
         .bento-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 12px;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 1.25rem;
+            margin-bottom: 0.75rem;
         }
 
         .bento-icon svg {
@@ -681,48 +706,124 @@
 
         .bento-number {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.6875rem;
+            font-size: 0.625rem;
             color: var(--text-tertiary);
             letter-spacing: 0.1em;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.5rem;
         }
 
         .bento-title {
             font-family: 'Cormorant Garamond', serif;
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             font-weight: 400;
             color: var(--text-primary);
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.5rem;
             letter-spacing: 0.02em;
         }
 
         .bento-text {
-            font-size: 0.875rem;
+            font-size: 0.8125rem;
             color: var(--text-secondary);
-            line-height: 1.7;
+            line-height: 1.6;
             font-weight: 300;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1rem;
         }
 
         .bento-visual {
             margin-top: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
         }
 
         /* Mini DAG inside bento plan card */
         .mini-dag {
             width: 100%;
-            max-width: 360px;
+            max-width: 100%;
             margin: 0 auto;
+        }
+
+        /* Mini timeline (Gantt) below DAG */
+        .mini-timeline {
+            width: 100%;
+            max-width: 100%;
+            margin: 0.75rem auto 0;
+        }
+
+        /* View toggle tabs above DAG */
+        .view-toggle {
+            display: flex;
+            gap: 2px;
+            margin: 0 auto 0.5rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 7px;
+            padding: 2px;
+            width: fit-content;
+        }
+
+        .view-toggle-tab {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.5625rem;
+            color: var(--text-tertiary);
+            padding: 3px 7px;
+            border-radius: 5px;
+            letter-spacing: 0.04em;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .view-toggle-tab:hover {
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .view-toggle-tab.active {
+            background: rgba(91, 163, 208, 0.08);
+            color: var(--cyan);
+        }
+
+        .view-toggle-tab.active:hover {
+            background: rgba(91, 163, 208, 0.12);
+        }
+
+        /* Plan view panels — fixed-size container to prevent layout jumps */
+        .plan-view-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 460 / 380;
+        }
+        .plan-view-panel {
+            display: none;
+            position: absolute;
+            inset: 0;
+        }
+        .plan-view-panel.active {
+            display: block;
+        }
+        .plan-view-panel svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Fade-in for view switching */
+        @keyframes viewFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .plan-view-panel.active {
+            animation: viewFadeIn 0.2s ease-out;
         }
 
         /* Mini terminal inside bento execute card */
         .mini-terminal {
             background: rgba(0, 0, 0, 0.3);
             border: 1px solid var(--border-subtle);
-            border-radius: 10px;
-            padding: 1rem;
+            border-radius: 8px;
+            padding: 0.75rem;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.6875rem;
+            font-size: 0.625rem;
             line-height: 1.8;
             overflow: hidden;
         }
@@ -743,15 +844,15 @@
         .mini-approval {
             background: rgba(110, 192, 122, 0.03);
             border: 1px solid rgba(110, 192, 122, 0.12);
-            border-radius: 12px;
-            padding: 1.25rem;
+            border-radius: 10px;
+            padding: 1rem;
         }
 
         .mini-approval-header {
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.5rem;
         }
 
         .mini-approval-dot {
@@ -775,10 +876,10 @@
         }
 
         .mini-approval-question {
-            font-size: 0.8125rem;
+            font-size: 0.75rem;
             color: var(--text-secondary);
-            margin-bottom: 1rem;
-            line-height: 1.6;
+            margin-bottom: 0.75rem;
+            line-height: 1.5;
         }
 
         .mini-approval-buttons {
@@ -788,10 +889,10 @@
 
         .mini-approval-btn {
             font-family: 'Inter', sans-serif;
-            font-size: 0.75rem;
+            font-size: 0.6875rem;
             font-weight: 500;
-            padding: 0.5rem 1.25rem;
-            border-radius: 8px;
+            padding: 0.375rem 1rem;
+            border-radius: 7px;
             border: 1px solid;
             cursor: default;
         }
@@ -810,9 +911,9 @@
 
         .mini-approval-stats {
             display: flex;
-            gap: 1.5rem;
-            margin-top: 1rem;
-            padding-top: 1rem;
+            gap: 1rem;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
             border-top: 1px solid rgba(255, 255, 255, 0.04);
         }
 
@@ -822,7 +923,7 @@
 
         .mini-stat-value {
             font-family: 'Cormorant Garamond', serif;
-            font-size: 1.375rem;
+            font-size: 1.125rem;
             font-weight: 400;
             color: var(--text-primary);
             line-height: 1;
@@ -836,7 +937,7 @@
 
         /* ==================== PERSONAS ==================== */
         .personas-section {
-            padding: 8rem 2rem;
+            padding: 6rem 2rem;
             max-width: 1200px;
             margin: 0 auto;
             position: relative;
@@ -967,7 +1068,7 @@
 
         /* ==================== ENVIRONMENTS ==================== */
         .environments-section {
-            padding: 8rem 2rem;
+            padding: 6rem 2rem;
             max-width: 1200px;
             margin: 0 auto;
             position: relative;
@@ -1249,14 +1350,60 @@
             to { opacity: 1; transform: translateX(0); }
         }
 
+        /* ==================== WORKSPACE FLOW ==================== */
+        .workspace-flow {
+            margin-top: 3rem;
+            position: relative;
+        }
+
+        .workspace-flow-label {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .workspace-flow-label span {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            background: rgba(91, 163, 208, 0.04);
+            padding: 0.375rem 1rem;
+            border-radius: 100px;
+            border: 1px solid rgba(91, 163, 208, 0.08);
+        }
+
+        @keyframes flowNodeAppear {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes flowDashMove {
+            from { stroke-dashoffset: 16; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        @keyframes branchGrow {
+            from { stroke-dashoffset: 200; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        @keyframes commitPop {
+            0% { r: 0; opacity: 0; }
+            60% { r: 6; opacity: 1; }
+            100% { r: 4.5; opacity: 1; }
+        }
+
+        @keyframes commitPulse {
+            0% { r: 4.5; opacity: 0.6; }
+            100% { r: 14; opacity: 0; }
+        }
+
         /* ==================== RESPONSIVE ==================== */
         @media (max-width: 1024px) {
             .bento-grid {
                 grid-template-columns: 1fr;
-            }
-
-            .bento-plan {
-                grid-row: auto;
+                grid-auto-rows: auto;
             }
 
             .showcase-body {
@@ -1383,10 +1530,10 @@
                 </button>
             </div>
             <div class="feature-pills">
-                <div class="pill">Dependency Graphs</div>
-                <div class="pill">Multi-Environment</div>
-                <div class="pill">Human-in-the-Loop</div>
-                <div class="pill">15 MCP Tools</div>
+                <div class="pill">Plan the Work</div>
+                <div class="pill">Execute in Parallel</div>
+                <div class="pill">Decide Anywhere</div>
+                <div class="pill">For human & agent</div>
             </div>
         </section>
 
@@ -1417,81 +1564,529 @@
                     <div class="mock-main">
                         <div class="mock-main-header">
                             <div class="mock-main-title">API Redesign</div>
-                            <div class="mock-view-tabs">
-                                <div class="mock-view-tab active">Graph</div>
-                                <div class="mock-view-tab">List</div>
-                                <div class="mock-view-tab">Timeline</div>
+                            <div class="mock-view-tabs" id="showcaseViewTabs">
+                                <div class="mock-view-tab active" data-view="graph">Graph</div>
+                                <div class="mock-view-tab" data-view="list">List</div>
+                                <div class="mock-view-tab" data-view="timeline">Timeline</div>
+                                <div class="mock-view-tab" data-view="board">Board</div>
                             </div>
                         </div>
-                        <div class="mock-graph">
-                            <svg viewBox="0 0 700 320" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
-                                <!-- Edges -->
-                                <path d="M175 55 L280 105" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" />
-                                <path d="M175 55 L280 175" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" />
-                                <path d="M175 55 L280 245" stroke="var(--cyan)" stroke-width="1.5" opacity="0.25" />
-                                <path d="M420 105 L520 155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" />
-                                <path d="M420 175 L520 155" stroke="var(--orange)" stroke-width="1.5" opacity="0.3" />
-                                <path d="M420 245 L520 155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.25" />
-                                <path d="M620 155 L660 155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="4 3" />
 
-                                <!-- Root node -->
+                        <!-- ===== SHOWCASE: GRAPH VIEW ===== -->
+                        <div class="showcase-view-panel active" id="showcaseView-graph">
+                        <div class="mock-graph" style="height:100%;">
+                            <svg viewBox="0 0 720 310" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                                <defs>
+                                    <marker id="edge-arrow" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0 0L6 2.5L0 5" fill="var(--cyan)" opacity="0.5" /></marker>
+                                    <marker id="edge-arrow-g" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0 0L6 2.5L0 5" fill="var(--green)" opacity="0.5" /></marker>
+                                    <pattern id="graph-dots" width="24" height="24" patternUnits="userSpaceOnUse">
+                                        <circle cx="12" cy="12" r="0.6" fill="rgba(255,255,255,0.04)" />
+                                    </pattern>
+                                </defs>
+
+                                <!-- Subtle dot grid background -->
+                                <rect width="720" height="310" fill="url(#graph-dots)" />
+
+                                <!-- Edges — animated bezier curves with flowing dashes -->
+                                <path d="M205,64 C255,64 275,108 310,108" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="6 4" marker-end="url(#edge-arrow)">
+                                    <animate attributeName="stroke-dashoffset" from="10" to="0" dur="1.5s" repeatCount="indefinite" />
+                                </path>
+                                <path d="M205,64 C265,64 275,176 310,176" stroke="var(--orange)" stroke-width="1.5" opacity="0.2" stroke-dasharray="6 4">
+                                    <animate attributeName="stroke-dashoffset" from="10" to="0" dur="2s" repeatCount="indefinite" />
+                                </path>
+                                <path d="M205,64 C265,64 275,244 310,244" stroke="var(--cyan)" stroke-width="1.5" opacity="0.15" stroke-dasharray="6 4" marker-end="url(#edge-arrow)">
+                                    <animate attributeName="stroke-dashoffset" from="10" to="0" dur="2.5s" repeatCount="indefinite" />
+                                </path>
+                                <path d="M455,108 C495,108 515,168 545,168" stroke="var(--green)" stroke-width="1.5" opacity="0.2" stroke-dasharray="6 4" marker-end="url(#edge-arrow-g)">
+                                    <animate attributeName="stroke-dashoffset" from="10" to="0" dur="1.5s" repeatCount="indefinite" />
+                                </path>
+                                <path d="M455,176 C495,176 515,168 545,168" stroke="var(--orange)" stroke-width="1.5" opacity="0.2" stroke-dasharray="6 4">
+                                    <animate attributeName="stroke-dashoffset" from="10" to="0" dur="2s" repeatCount="indefinite" />
+                                </path>
+                                <path d="M455,244 C495,244 515,168 545,168" stroke="var(--cyan)" stroke-width="1.5" opacity="0.15" stroke-dasharray="6 4" marker-end="url(#edge-arrow)">
+                                    <animate attributeName="stroke-dashoffset" from="10" to="0" dur="2.5s" repeatCount="indefinite" />
+                                </path>
+
+                                <!-- Edge particles — small circles animating along bezier paths -->
+                                <circle r="2.5" fill="var(--cyan)">
+                                    <animateMotion dur="2.5s" repeatCount="indefinite" path="M205,64 C255,64 275,108 310,108" />
+                                    <animate attributeName="opacity" values="0;0.8;0.8;0" dur="2.5s" repeatCount="indefinite" />
+                                </circle>
+                                <circle r="2" fill="var(--orange)">
+                                    <animateMotion dur="3s" repeatCount="indefinite" path="M205,64 C265,64 275,176 310,176" begin="0.5s" />
+                                    <animate attributeName="opacity" values="0;0.7;0.7;0" dur="3s" repeatCount="indefinite" begin="0.5s" />
+                                </circle>
+                                <circle r="2" fill="var(--green)">
+                                    <animateMotion dur="2s" repeatCount="indefinite" path="M455,108 C495,108 515,168 545,168" begin="1.2s" />
+                                    <animate attributeName="opacity" values="0;0.8;0.8;0" dur="2s" repeatCount="indefinite" begin="1.2s" />
+                                </circle>
+
+                                <!-- Node: Project Root — card style with left accent border -->
                                 <g>
-                                    <rect x="70" y="30" width="140" height="50" rx="10" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" />
-                                    <circle cx="90" cy="55" r="4" fill="var(--cyan)" />
-                                    <text x="102" y="51" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">API Redesign</text>
-                                    <text x="102" y="65" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">4 tasks</text>
+                                    <rect x="50" y="35" width="155" height="58" rx="10" fill="rgba(91, 163, 208, 0.05)" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" />
+                                    <rect x="50" y="35" width="3" height="58" rx="1.5" fill="var(--cyan)" />
+                                    <circle cx="68" cy="56" r="4" fill="var(--cyan)" />
+                                    <circle cx="68" cy="56" r="4" fill="none" stroke="var(--cyan)" stroke-width="1" opacity="0.4">
+                                        <animate attributeName="r" from="4" to="13" dur="2.5s" repeatCount="indefinite" />
+                                        <animate attributeName="opacity" from="0.4" to="0" dur="2.5s" repeatCount="indefinite" />
+                                    </circle>
+                                    <text x="80" y="53" fill="var(--text-primary)" font-size="11" font-weight="600" font-family="'Inter', sans-serif">API Redesign</text>
+                                    <text x="80" y="68" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">4 tasks · 2 active</text>
+                                    <text x="170" y="80" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">root</text>
                                 </g>
 
-                                <!-- Task 1: Schema -->
+                                <!-- Node: Schema Design (completed) — green accent -->
                                 <g>
-                                    <rect x="280" y="80" width="140" height="50" rx="10" fill="rgba(110, 192, 122, 0.04)" stroke="rgba(110, 192, 122, 0.18)" stroke-width="1" />
-                                    <circle cx="300" cy="105" r="4" fill="var(--green)" />
-                                    <text x="312" y="101" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">Schema Design</text>
-                                    <text x="312" y="115" fill="var(--green)" font-size="8" font-family="'JetBrains Mono', monospace">completed</text>
+                                    <rect x="310" y="80" width="145" height="56" rx="10" fill="rgba(110, 192, 122, 0.04)" stroke="rgba(110, 192, 122, 0.18)" stroke-width="1" />
+                                    <rect x="310" y="80" width="3" height="56" rx="1.5" fill="var(--green)" />
+                                    <circle cx="328" cy="100" r="3.5" fill="var(--green)" />
+                                    <path d="M326 100 L327.5 102 L330.5 98.5" stroke="white" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                                    <text x="338" y="99" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">Schema Design</text>
+                                    <text x="338" y="113" fill="var(--green)" font-size="8" font-family="'JetBrains Mono', monospace">completed</text>
+                                    <rect x="322" y="124" width="118" height="2" rx="1" fill="rgba(110, 192, 122, 0.1)" />
+                                    <rect x="322" y="124" width="118" height="2" rx="1" fill="var(--green)" opacity="0.4" />
                                 </g>
 
-                                <!-- Task 2: Endpoints -->
+                                <!-- Node: REST Endpoints (awaiting decision) — orange accent -->
                                 <g>
-                                    <rect x="280" y="150" width="140" height="50" rx="10" fill="rgba(212, 165, 116, 0.06)" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" />
-                                    <circle cx="300" cy="175" r="4" fill="var(--orange)" />
-                                    <circle cx="300" cy="175" r="4" fill="none" stroke="var(--orange)" stroke-width="1">
-                                        <animate attributeName="r" from="4" to="12" dur="2s" repeatCount="indefinite" />
+                                    <rect x="310" y="148" width="145" height="56" rx="10" fill="rgba(212, 165, 116, 0.05)" stroke="rgba(212, 165, 116, 0.22)" stroke-width="1" />
+                                    <rect x="310" y="148" width="3" height="56" rx="1.5" fill="var(--orange)" />
+                                    <circle cx="328" cy="168" r="3.5" fill="var(--orange)" />
+                                    <circle cx="328" cy="168" r="3.5" fill="none" stroke="var(--orange)" stroke-width="1">
+                                        <animate attributeName="r" from="3.5" to="11" dur="2s" repeatCount="indefinite" />
                                         <animate attributeName="opacity" from="0.6" to="0" dur="2s" repeatCount="indefinite" />
                                     </circle>
-                                    <text x="312" y="171" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">REST Endpoints</text>
-                                    <text x="312" y="185" fill="var(--orange)" font-size="8" font-family="'JetBrains Mono', monospace">awaiting decision</text>
+                                    <text x="338" y="167" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">REST Endpoints</text>
+                                    <text x="338" y="181" fill="var(--orange)" font-size="8" font-family="'JetBrains Mono', monospace">awaiting decision</text>
+                                    <rect x="322" y="192" width="118" height="2" rx="1" fill="rgba(212, 165, 116, 0.1)" />
+                                    <rect x="322" y="192" width="70" height="2" rx="1" fill="var(--orange)" opacity="0.4" />
                                 </g>
 
-                                <!-- Task 3: Auth -->
+                                <!-- Node: Auth Layer (in_progress) — cyan accent with animated progress -->
                                 <g>
-                                    <rect x="280" y="220" width="140" height="50" rx="10" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.15)" stroke-width="1" />
-                                    <circle cx="300" cy="245" r="4" fill="var(--cyan)" />
-                                    <circle cx="300" cy="245" r="4" fill="none" stroke="var(--cyan)" stroke-width="1">
-                                        <animate attributeName="r" from="4" to="12" dur="2s" begin="0.5s" repeatCount="indefinite" />
-                                        <animate attributeName="opacity" from="0.6" to="0" dur="2s" begin="0.5s" repeatCount="indefinite" />
+                                    <rect x="310" y="216" width="145" height="56" rx="10" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.18)" stroke-width="1" />
+                                    <rect x="310" y="216" width="3" height="56" rx="1.5" fill="var(--cyan)" />
+                                    <circle cx="328" cy="236" r="3.5" fill="var(--cyan)" />
+                                    <circle cx="328" cy="236" r="3.5" fill="none" stroke="var(--cyan)" stroke-width="1">
+                                        <animate attributeName="r" from="3.5" to="11" dur="2s" begin="0.7s" repeatCount="indefinite" />
+                                        <animate attributeName="opacity" from="0.6" to="0" dur="2s" begin="0.7s" repeatCount="indefinite" />
                                     </circle>
-                                    <text x="312" y="241" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">Auth Layer</text>
-                                    <text x="312" y="255" fill="var(--cyan)" font-size="8" font-family="'JetBrains Mono', monospace">in_progress</text>
+                                    <text x="338" y="235" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">Auth Layer</text>
+                                    <text x="338" y="249" fill="var(--cyan)" font-size="8" font-family="'JetBrains Mono', monospace">in_progress</text>
+                                    <rect x="322" y="260" width="118" height="2" rx="1" fill="rgba(91, 163, 208, 0.1)" />
+                                    <rect x="322" y="260" height="2" rx="1" fill="var(--cyan)" opacity="0.4">
+                                        <animate attributeName="width" values="30;85;30" dur="4s" repeatCount="indefinite" />
+                                    </rect>
                                 </g>
 
-                                <!-- Merge: Integration -->
+                                <!-- Node: Integration Tests (planned) — dashed border, muted -->
                                 <g>
-                                    <rect x="490" y="130" width="140" height="50" rx="10" fill="rgba(255,255,255,0.02)" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="4 3" />
-                                    <circle cx="510" cy="155" r="4" fill="var(--text-tertiary)" opacity="0.4" />
-                                    <text x="522" y="151" fill="var(--text-tertiary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">Integration Tests</text>
-                                    <text x="522" y="165" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" opacity="0.5">planned</text>
+                                    <rect x="545" y="140" width="145" height="56" rx="10" fill="rgba(255,255,255,0.015)" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="5 3" />
+                                    <circle cx="563" cy="162" r="3.5" fill="var(--text-tertiary)" opacity="0.3" />
+                                    <text x="573" y="161" fill="var(--text-tertiary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">Integration Tests</text>
+                                    <text x="573" y="175" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" opacity="0.5">planned</text>
+                                    <rect x="557" y="186" width="118" height="2" rx="1" fill="rgba(255, 255, 255, 0.03)" />
                                 </g>
 
-                                <!-- Parallel label -->
-                                <text x="350" y="295" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0.4">parallel execution</text>
+                                <!-- Parallel execution badge -->
+                                <rect x="308" y="280" width="104" height="20" rx="10" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.08)" stroke-width="0.5" />
+                                <text x="360" y="293" fill="var(--cyan)" font-size="7.5" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0.5">parallel execution</text>
                             </svg>
 
                             <!-- Floating annotations -->
                             <div class="showcase-annotation" style="top: 14px; right: 20px; animation-delay: 0.5s;">live progress</div>
                             <div class="showcase-annotation" style="bottom: 15px; left: 10px; animation-delay: 0.8s; color: var(--orange); background: rgba(212,165,116,0.06); border-color: rgba(212,165,116,0.15);">decision pending</div>
                         </div>
+                        </div>
+
+                        <!-- ===== SHOWCASE: LIST VIEW ===== -->
+                        <div class="showcase-view-panel" id="showcaseView-list">
+                        <svg viewBox="0 0 720 310" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                            <!-- Table header row -->
+                            <rect x="0" y="0" width="720" height="28" fill="rgba(255,255,255,0.02)" rx="4" />
+                            <text x="16" y="18" fill="var(--text-tertiary)" font-size="8.5" font-family="'JetBrains Mono', monospace" letter-spacing="0.06em">NAME</text>
+                            <text x="310" y="18" fill="var(--text-tertiary)" font-size="8.5" font-family="'JetBrains Mono', monospace" letter-spacing="0.06em">STATUS</text>
+                            <text x="430" y="18" fill="var(--text-tertiary)" font-size="8.5" font-family="'JetBrains Mono', monospace" letter-spacing="0.06em">PRIORITY</text>
+                            <text x="540" y="18" fill="var(--text-tertiary)" font-size="8.5" font-family="'JetBrains Mono', monospace" letter-spacing="0.06em">DUE DATE</text>
+                            <text x="650" y="18" fill="var(--text-tertiary)" font-size="8.5" font-family="'JetBrains Mono', monospace" letter-spacing="0.06em">EST</text>
+                            <line x1="0" y1="30" x2="720" y2="30" stroke="var(--border-subtle)" stroke-width="0.5" />
+
+                            <!-- Group: Backend Services -->
+                            <rect x="0" y="34" width="720" height="26" fill="rgba(91, 163, 208, 0.03)" />
+                            <path d="M14,43 L19,48 L24,43" stroke="var(--text-tertiary)" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.4" />
+                            <text x="32" y="51" fill="var(--text-secondary)" font-size="11" font-family="'Inter', sans-serif" font-weight="600">Backend Services</text>
+                            <text x="165" y="51" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">3 tasks</text>
+
+                            <!-- Row: Schema Design (completed) -->
+                            <line x1="0" y1="62" x2="720" y2="62" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <circle cx="28" cy="80" r="4" fill="var(--green)" />
+                            <path d="M26 80 L27.5 82 L30.5 78" stroke="white" stroke-width="1" fill="none" stroke-linecap="round" />
+                            <text x="40" y="84" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif">Schema Design</text>
+                            <rect x="310" y="72" width="68" height="18" rx="5" fill="rgba(110, 192, 122, 0.08)" />
+                            <text x="344" y="84" fill="var(--green)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">completed</text>
+                            <rect x="435" y="72" width="42" height="18" rx="5" fill="rgba(212, 165, 116, 0.08)" />
+                            <text x="456" y="84" fill="var(--orange)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                            <text x="540" y="84" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">Feb 18</text>
+                            <text x="655" y="84" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">M</text>
+
+                            <!-- Row: Auth Layer (running) -->
+                            <line x1="0" y1="96" x2="720" y2="96" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <circle cx="28" cy="114" r="4" fill="var(--cyan)" />
+                            <circle cx="28" cy="114" r="4" fill="none" stroke="var(--cyan)" stroke-width="0.8">
+                                <animate attributeName="r" from="4" to="10" dur="2s" repeatCount="indefinite" />
+                                <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" />
+                            </circle>
+                            <text x="40" y="118" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif">Auth Layer Implementation</text>
+                            <rect x="310" y="106" width="55" height="18" rx="5" fill="rgba(91, 163, 208, 0.08)" />
+                            <text x="337" y="118" fill="var(--cyan)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">running</text>
+                            <rect x="435" y="106" width="42" height="18" rx="5" fill="rgba(212, 165, 116, 0.08)" />
+                            <text x="456" y="118" fill="var(--orange)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                            <text x="540" y="118" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">Feb 21</text>
+                            <text x="655" y="118" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">L</text>
+
+                            <!-- Row: API Routes (planned) -->
+                            <line x1="0" y1="130" x2="720" y2="130" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <circle cx="28" cy="148" r="4" fill="var(--text-tertiary)" opacity="0.3" />
+                            <text x="40" y="152" fill="var(--text-secondary)" font-size="11" font-family="'Inter', sans-serif">API Route Handlers</text>
+                            <rect x="310" y="140" width="55" height="18" rx="5" fill="rgba(255,255,255,0.03)" />
+                            <text x="337" y="152" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">planned</text>
+                            <rect x="435" y="140" width="42" height="18" rx="5" fill="rgba(255,255,255,0.03)" />
+                            <text x="456" y="152" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                            <text x="540" y="152" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">Feb 24</text>
+                            <text x="655" y="152" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">S</text>
+
+                            <!-- Group: Frontend UI -->
+                            <rect x="0" y="166" width="720" height="26" fill="rgba(91, 163, 208, 0.03)" />
+                            <path d="M14,175 L19,180 L24,175" stroke="var(--text-tertiary)" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.4" />
+                            <text x="32" y="183" fill="var(--text-secondary)" font-size="11" font-family="'Inter', sans-serif" font-weight="600">Frontend UI</text>
+                            <text x="120" y="183" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">2 tasks</text>
+
+                            <!-- Row: REST Endpoints (deciding) -->
+                            <line x1="0" y1="194" x2="720" y2="194" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <circle cx="28" cy="212" r="4" fill="var(--orange)" />
+                            <circle cx="28" cy="212" r="4" fill="none" stroke="var(--orange)" stroke-width="0.8">
+                                <animate attributeName="r" from="4" to="10" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                                <animate attributeName="opacity" from="0.5" to="0" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                            </circle>
+                            <text x="40" y="216" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif">REST Endpoints Review</text>
+                            <rect x="310" y="204" width="62" height="18" rx="5" fill="rgba(212, 165, 116, 0.08)" />
+                            <text x="341" y="216" fill="var(--orange)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">deciding</text>
+                            <rect x="435" y="204" width="42" height="18" rx="5" fill="rgba(255,255,255,0.03)" />
+                            <text x="456" y="216" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                            <text x="540" y="216" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">Feb 22</text>
+                            <text x="655" y="216" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">M</text>
+
+                            <!-- Row: Design System (running) -->
+                            <line x1="0" y1="228" x2="720" y2="228" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <circle cx="28" cy="246" r="4" fill="var(--cyan)" />
+                            <text x="40" y="250" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif">Design System Setup</text>
+                            <rect x="310" y="238" width="55" height="18" rx="5" fill="rgba(91, 163, 208, 0.08)" />
+                            <text x="337" y="250" fill="var(--cyan)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">running</text>
+                            <rect x="435" y="238" width="42" height="18" rx="5" fill="rgba(255,255,255,0.03)" />
+                            <text x="456" y="250" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">low</text>
+                            <text x="540" y="250" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">Feb 25</text>
+                            <text x="655" y="250" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace">S</text>
+                            <line x1="0" y1="262" x2="720" y2="262" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+
+                            <!-- Add task -->
+                            <g opacity="0.3">
+                                <text x="28" y="284" fill="var(--cyan)" font-size="13" font-family="'Inter', sans-serif">+</text>
+                                <text x="44" y="284" fill="var(--text-tertiary)" font-size="10" font-family="'Inter', sans-serif">Add task...</text>
+                            </g>
+
+                            <!-- Footer summary -->
+                            <line x1="0" y1="296" x2="720" y2="296" stroke="var(--border-subtle)" stroke-width="0.5" />
+                            <text x="16" y="310" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">5 tasks</text>
+                            <circle cx="80" cy="307" r="3" fill="var(--green)" /><text x="88" y="310" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">1 done</text>
+                            <circle cx="145" cy="307" r="3" fill="var(--cyan)" /><text x="153" y="310" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">2 running</text>
+                            <circle cx="230" cy="307" r="3" fill="var(--orange)" /><text x="238" y="310" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">1 deciding</text>
+                            <circle cx="330" cy="307" r="3" fill="var(--text-tertiary)" opacity="0.3" /><text x="338" y="310" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">1 planned</text>
+                        </svg>
+                        </div>
+
+                        <!-- ===== SHOWCASE: TIMELINE VIEW ===== -->
+                        <div class="showcase-view-panel" id="showcaseView-timeline">
+                        <svg viewBox="0 0 720 310" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                            <!-- Left labels column divider -->
+                            <line x1="140" y1="0" x2="140" y2="310" stroke="var(--border-subtle)" stroke-width="0.5" />
+
+                            <!-- Week headers -->
+                            <text x="170" y="14" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" opacity="0.5">Feb 17</text>
+                            <text x="290" y="14" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" opacity="0.5">Feb 24</text>
+                            <text x="420" y="14" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" opacity="0.5">Mar 3</text>
+                            <text x="555" y="14" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" opacity="0.5">Mar 10</text>
+                            <text x="670" y="14" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" opacity="0.5">Mar 17</text>
+                            <line x1="140" y1="20" x2="720" y2="20" stroke="rgba(255,255,255,0.03)" stroke-width="0.5" />
+
+                            <!-- Vertical grid lines -->
+                            <line x1="280" y1="20" x2="280" y2="290" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <line x1="410" y1="20" x2="410" y2="290" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <line x1="545" y1="20" x2="545" y2="290" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <line x1="665" y1="20" x2="665" y2="290" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+
+                            <!-- Today marker -->
+                            <line x1="350" y1="18" x2="350" y2="290" stroke="var(--cyan)" stroke-width="1" opacity="0.15" stroke-dasharray="4 3" />
+                            <rect x="337" y="18" width="26" height="13" rx="4" fill="rgba(91, 163, 208, 0.12)" />
+                            <text x="350" y="28" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">today</text>
+
+                            <!-- Row 1: Schema Design (completed, green) -->
+                            <text x="14" y="52" fill="var(--text-secondary)" font-size="10" font-family="'Inter', sans-serif">Schema Design</text>
+                            <circle cx="130" cy="49" r="3.5" fill="var(--green)" />
+                            <rect x="155" y="40" width="140" height="18" rx="5" fill="rgba(110, 192, 122, 0.1)" stroke="rgba(110, 192, 122, 0.15)" stroke-width="0.5" />
+                            <rect x="155" y="40" width="140" height="18" rx="5" fill="rgba(110, 192, 122, 0.15)" />
+                            <text x="200" y="53" fill="var(--green)" font-size="8" font-family="'Inter', sans-serif" text-anchor="middle" opacity="0.8">Feb 17 – 20</text>
+
+                            <!-- Row 2: Auth Layer (running, cyan) -->
+                            <text x="14" y="92" fill="var(--text-secondary)" font-size="10" font-family="'Inter', sans-serif">Auth Layer</text>
+                            <circle cx="130" cy="89" r="3.5" fill="var(--cyan)" />
+                            <rect x="210" y="80" width="200" height="18" rx="5" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.12)" stroke-width="0.5" />
+                            <rect x="210" y="80" width="100" height="18" rx="5" fill="rgba(91, 163, 208, 0.15)" />
+                            <rect x="210" y="80" height="18" rx="5" fill="rgba(91, 163, 208, 0.12)">
+                                <animate attributeName="width" values="90;130;90" dur="4s" repeatCount="indefinite" />
+                            </rect>
+
+                            <!-- Row 3: REST Endpoints (deciding, orange) -->
+                            <text x="14" y="132" fill="var(--text-secondary)" font-size="10" font-family="'Inter', sans-serif">REST Endpoints</text>
+                            <circle cx="130" cy="129" r="3.5" fill="var(--orange)" />
+                            <rect x="230" y="120" width="160" height="18" rx="5" fill="rgba(212, 165, 116, 0.06)" stroke="rgba(212, 165, 116, 0.12)" stroke-width="0.5" />
+                            <rect x="230" y="120" width="75" height="18" rx="5" fill="rgba(212, 165, 116, 0.12)" />
+                            <circle cx="310" cy="129" r="3" fill="var(--orange)" opacity="0.4">
+                                <animate attributeName="opacity" values="0.2;0.7;0.2" dur="2s" repeatCount="indefinite" />
+                            </circle>
+
+                            <!-- Row 4: Design System (running) -->
+                            <text x="14" y="172" fill="var(--text-secondary)" font-size="10" font-family="'Inter', sans-serif">Design System</text>
+                            <circle cx="130" cy="169" r="3.5" fill="var(--cyan)" />
+                            <rect x="270" y="160" width="140" height="18" rx="5" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.12)" stroke-width="0.5" />
+                            <rect x="270" y="160" height="18" rx="5" fill="rgba(91, 163, 208, 0.1)">
+                                <animate attributeName="width" values="50;85;50" dur="3.5s" repeatCount="indefinite" />
+                            </rect>
+
+                            <!-- Row 5: API Routes (planned) -->
+                            <text x="14" y="212" fill="var(--text-tertiary)" font-size="10" font-family="'Inter', sans-serif" opacity="0.5">API Routes</text>
+                            <circle cx="130" cy="209" r="3.5" fill="var(--text-tertiary)" opacity="0.2" />
+                            <rect x="380" y="200" width="130" height="18" rx="5" fill="none" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="4 3" />
+                            <text x="430" y="213" fill="var(--text-tertiary)" font-size="8" font-family="'Inter', sans-serif" text-anchor="middle" opacity="0.3">planned</text>
+
+                            <!-- Row 6: Integration Tests (planned) -->
+                            <text x="14" y="252" fill="var(--text-tertiary)" font-size="10" font-family="'Inter', sans-serif" opacity="0.5">Integration Tests</text>
+                            <circle cx="130" cy="249" r="3.5" fill="var(--text-tertiary)" opacity="0.2" />
+                            <rect x="500" y="240" width="170" height="18" rx="5" fill="none" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="4 3" />
+                            <text x="565" y="253" fill="var(--text-tertiary)" font-size="8" font-family="'Inter', sans-serif" text-anchor="middle" opacity="0.3">planned</text>
+
+                            <!-- Dependency arrows (faint) -->
+                            <path d="M295,56 L295,65 C295,72 215,75 215,80" stroke="rgba(91, 163, 208, 0.12)" stroke-width="0.8" fill="none" stroke-linecap="round" />
+                            <path d="M410,96 L410,105 C410,115 395,118 390,120" stroke="rgba(91, 163, 208, 0.08)" stroke-width="0.8" fill="none" stroke-linecap="round" />
+
+                            <!-- Zoom preset buttons -->
+                            <g opacity="0.4">
+                                <rect x="155" y="275" width="30" height="15" rx="4" fill="rgba(255,255,255,0.02)" />
+                                <text x="170" y="286" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">D</text>
+                                <rect x="189" y="275" width="30" height="15" rx="4" fill="rgba(91, 163, 208, 0.1)" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.5" />
+                                <text x="204" y="286" fill="var(--cyan)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">W</text>
+                                <rect x="223" y="275" width="30" height="15" rx="4" fill="rgba(255,255,255,0.02)" />
+                                <text x="238" y="286" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">M</text>
+                                <rect x="257" y="275" width="30" height="15" rx="4" fill="rgba(255,255,255,0.02)" />
+                                <text x="272" y="286" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">Q</text>
+                                <rect x="291" y="275" width="30" height="15" rx="4" fill="rgba(255,255,255,0.02)" />
+                                <text x="306" y="286" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">Y</text>
+                            </g>
+                        </svg>
+                        </div>
+
+                        <!-- ===== SHOWCASE: BOARD VIEW ===== -->
+                        <div class="showcase-view-panel" id="showcaseView-board">
+                        <svg viewBox="0 0 720 310" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                            <!-- Column backgrounds -->
+                            <rect x="0" y="0" width="170" height="310" rx="8" fill="rgba(110, 192, 122, 0.02)" stroke="rgba(110, 192, 122, 0.06)" stroke-width="0.5" />
+                            <rect x="182" y="0" width="170" height="310" rx="8" fill="rgba(91, 163, 208, 0.02)" stroke="rgba(91, 163, 208, 0.06)" stroke-width="0.5" />
+                            <rect x="364" y="0" width="170" height="310" rx="8" fill="rgba(212, 165, 116, 0.02)" stroke="rgba(212, 165, 116, 0.06)" stroke-width="0.5" />
+                            <rect x="546" y="0" width="174" height="310" rx="8" fill="rgba(255, 255, 255, 0.01)" stroke="rgba(255, 255, 255, 0.04)" stroke-width="0.5" />
+
+                            <!-- Column headers -->
+                            <circle cx="16" cy="20" r="4" fill="var(--green)" />
+                            <text x="26" y="24" fill="var(--green)" font-size="10" font-family="'JetBrains Mono', monospace" font-weight="600">Completed</text>
+                            <rect x="130" y="12" width="22" height="18" rx="5" fill="rgba(110, 192, 122, 0.1)" />
+                            <text x="141" y="24" fill="var(--green)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">1</text>
+
+                            <circle cx="198" cy="20" r="4" fill="var(--cyan)" />
+                            <text x="208" y="24" fill="var(--cyan)" font-size="10" font-family="'JetBrains Mono', monospace" font-weight="600">In Progress</text>
+                            <rect x="312" y="12" width="22" height="18" rx="5" fill="rgba(91, 163, 208, 0.1)" />
+                            <text x="323" y="24" fill="var(--cyan)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">2</text>
+
+                            <circle cx="380" cy="20" r="4" fill="var(--orange)" />
+                            <text x="390" y="24" fill="var(--orange)" font-size="10" font-family="'JetBrains Mono', monospace" font-weight="600">Deciding</text>
+                            <rect x="494" y="12" width="22" height="18" rx="5" fill="rgba(212, 165, 116, 0.1)" />
+                            <text x="505" y="24" fill="var(--orange)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">1</text>
+
+                            <circle cx="562" cy="20" r="4" fill="var(--text-tertiary)" opacity="0.3" />
+                            <text x="572" y="24" fill="var(--text-tertiary)" font-size="10" font-family="'JetBrains Mono', monospace" font-weight="600">Planned</text>
+                            <rect x="678" y="12" width="22" height="18" rx="5" fill="rgba(255, 255, 255, 0.04)" />
+                            <text x="689" y="24" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle">2</text>
+
+                            <line x1="0" y1="38" x2="720" y2="38" stroke="rgba(255,255,255,0.03)" stroke-width="0.5" />
+
+                            <!-- Completed: Schema Design -->
+                            <rect x="10" y="48" width="150" height="90" rx="8" fill="rgba(110, 192, 122, 0.04)" stroke="rgba(110, 192, 122, 0.1)" stroke-width="0.5" />
+                            <text x="22" y="68" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">Schema Design</text>
+                            <rect x="22" y="78" width="36" height="14" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                            <text x="40" y="89" fill="var(--orange)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                            <rect x="64" y="78" width="20" height="14" rx="4" fill="rgba(255,255,255,0.03)" />
+                            <text x="74" y="89" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">M</text>
+                            <text x="22" y="108" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">Feb 18</text>
+                            <path d="M126 118 L130 122 L138 114" stroke="var(--green)" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.5" />
+
+                            <!-- In Progress: Auth Layer -->
+                            <rect x="192" y="48" width="150" height="95" rx="8" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" />
+                            <text x="204" y="68" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">Auth Layer</text>
+                            <text x="204" y="82" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">Implementation</text>
+                            <rect x="204" y="92" width="36" height="14" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                            <text x="222" y="103" fill="var(--orange)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                            <rect x="246" y="92" width="20" height="14" rx="4" fill="rgba(255,255,255,0.03)" />
+                            <text x="256" y="103" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">L</text>
+                            <rect x="204" y="118" width="126" height="3" rx="1.5" fill="rgba(91, 163, 208, 0.08)" />
+                            <rect x="204" y="118" height="3" rx="1.5" fill="var(--cyan)" opacity="0.5">
+                                <animate attributeName="width" values="40;80;40" dur="3s" repeatCount="indefinite" />
+                            </rect>
+
+                            <!-- In Progress: Design System -->
+                            <rect x="192" y="153" width="150" height="75" rx="8" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" />
+                            <text x="204" y="173" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">Design System</text>
+                            <text x="204" y="187" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">Setup</text>
+                            <rect x="204" y="196" width="28" height="14" rx="4" fill="rgba(255,255,255,0.03)" />
+                            <text x="218" y="207" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">low</text>
+
+                            <!-- Deciding: REST Endpoints -->
+                            <rect x="374" y="48" width="150" height="95" rx="8" fill="rgba(212, 165, 116, 0.04)" stroke="rgba(212, 165, 116, 0.12)" stroke-width="0.5" />
+                            <text x="386" y="68" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">REST Endpoints</text>
+                            <text x="386" y="82" fill="var(--text-primary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">Review</text>
+                            <rect x="386" y="92" width="28" height="14" rx="4" fill="rgba(255,255,255,0.03)" />
+                            <text x="400" y="103" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                            <rect x="420" y="92" width="20" height="14" rx="4" fill="rgba(255,255,255,0.03)" />
+                            <text x="430" y="103" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">M</text>
+                            <circle cx="500" cy="120" r="6" fill="rgba(212, 165, 116, 0.12)">
+                                <animate attributeName="r" values="6;10;6" dur="2s" repeatCount="indefinite" />
+                                <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
+                            </circle>
+                            <text x="498" y="123" fill="var(--orange)" font-size="10" font-family="'Inter', sans-serif" text-anchor="middle">?</text>
+
+                            <!-- Planned: API Routes -->
+                            <rect x="556" y="48" width="154" height="75" rx="8" fill="rgba(255,255,255,0.015)" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="4 3" />
+                            <text x="568" y="68" fill="var(--text-secondary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">API Route</text>
+                            <text x="568" y="82" fill="var(--text-secondary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">Handlers</text>
+                            <rect x="568" y="92" width="28" height="14" rx="4" fill="rgba(255,255,255,0.03)" />
+                            <text x="582" y="103" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                            <text x="568" y="113" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">Feb 24</text>
+
+                            <!-- Planned: Integration Tests -->
+                            <rect x="556" y="133" width="154" height="80" rx="8" fill="rgba(255,255,255,0.015)" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="4 3" />
+                            <text x="568" y="153" fill="var(--text-secondary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">Integration</text>
+                            <text x="568" y="167" fill="var(--text-secondary)" font-size="11" font-family="'Inter', sans-serif" font-weight="500">Test Suite</text>
+                            <rect x="568" y="177" width="36" height="14" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                            <text x="586" y="188" fill="var(--orange)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                            <rect x="610" y="177" width="20" height="14" rx="4" fill="rgba(255,255,255,0.03)" />
+                            <text x="620" y="188" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">L</text>
+                            <text x="568" y="200" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">Feb 28</text>
+                        </svg>
+                        </div>
                     </div>
                 </div>
+            </div>
+            <!-- Workspace Pipeline Flow — inspired by workflow execution model -->
+            <div class="workspace-flow">
+                <div class="workspace-flow-label"><span>How Work Flows</span></div>
+                <svg viewBox="0 0 800 180" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" style="max-width: 720px; margin: 0 auto; display: block;">
+                    <defs>
+                        <marker id="flow-arrow" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0 0L7 2.5L0 5" fill="var(--cyan)" opacity="0.5" /></marker>
+                    </defs>
+
+                    <!-- Pipeline: Directory → Detection → Isolation → Delivery -->
+                    <!-- Flow arrows with animated dashes -->
+                    <line x1="178" y1="42" x2="228" y2="42" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.3" marker-end="url(#flow-arrow)">
+                        <animate attributeName="stroke-dashoffset" from="7" to="0" dur="1s" repeatCount="indefinite" />
+                    </line>
+                    <line x1="388" y1="42" x2="438" y2="42" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.3" marker-end="url(#flow-arrow)">
+                        <animate attributeName="stroke-dashoffset" from="7" to="0" dur="1s" repeatCount="indefinite" />
+                    </line>
+                    <line x1="598" y1="42" x2="648" y2="42" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.3" marker-end="url(#flow-arrow)">
+                        <animate attributeName="stroke-dashoffset" from="7" to="0" dur="1s" repeatCount="indefinite" />
+                    </line>
+
+                    <!-- Box 1: Your Directory -->
+                    <g style="animation: flowNodeAppear 0.5s ease-out forwards">
+                        <rect x="28" y="17" width="150" height="50" rx="10" fill="rgba(255,255,255,0.025)" stroke="var(--border-subtle)" stroke-width="1" />
+                        <text x="103" y="39" fill="var(--text-primary)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Your Directory</text>
+                        <text x="103" y="54" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">auto-detected</text>
+                    </g>
+
+                    <!-- Box 2: Detection -->
+                    <g style="animation: flowNodeAppear 0.5s ease-out 0.15s forwards; opacity: 0">
+                        <rect x="232" y="17" width="156" height="50" rx="10" fill="rgba(91, 163, 208, 0.05)" stroke="rgba(91, 163, 208, 0.18)" stroke-width="1" />
+                        <text x="310" y="39" fill="var(--cyan)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Detection</text>
+                        <text x="310" y="54" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">git? remote? size?</text>
+                    </g>
+
+                    <!-- Box 3: Isolation -->
+                    <g style="animation: flowNodeAppear 0.5s ease-out 0.3s forwards; opacity: 0">
+                        <rect x="442" y="17" width="156" height="50" rx="10" fill="rgba(110, 192, 122, 0.05)" stroke="rgba(110, 192, 122, 0.18)" stroke-width="1" />
+                        <text x="520" y="39" fill="var(--green)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Isolation</text>
+                        <text x="520" y="54" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">worktree / copy</text>
+                    </g>
+
+                    <!-- Box 4: Delivery -->
+                    <g style="animation: flowNodeAppear 0.5s ease-out 0.45s forwards; opacity: 0">
+                        <rect x="652" y="17" width="138" height="50" rx="10" fill="rgba(212, 165, 116, 0.05)" stroke="rgba(212, 165, 116, 0.18)" stroke-width="1" />
+                        <text x="721" y="39" fill="var(--orange)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Delivery</text>
+                        <text x="721" y="54" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">PR / push / diff</text>
+                    </g>
+
+                    <!-- Git Worktree Branch Visualization below the pipeline -->
+                    <!-- Main branch — horizontal line -->
+                    <line x1="100" y1="120" x2="700" y2="120" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" opacity="0.3" stroke-dasharray="200" stroke-dashoffset="200">
+                        <animate attributeName="stroke-dashoffset" from="200" to="0" dur="1.2s" fill="freeze" begin="0.6s" />
+                    </line>
+
+                    <!-- Branch 1 (top): curve from main at x=280 up to y=95 -->
+                    <path d="M280 120 C280 120, 280 95, 320 95 L560 95" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" opacity="0.25" stroke-dasharray="200" stroke-dashoffset="200">
+                        <animate attributeName="stroke-dashoffset" from="200" to="0" dur="1s" fill="freeze" begin="1s" />
+                    </path>
+
+                    <!-- Branch 2 (bottom): curve from main at x=400 down to y=148 -->
+                    <path d="M400 120 C400 120, 400 148, 440 148 L580 148" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" opacity="0.25" stroke-dasharray="200" stroke-dashoffset="200">
+                        <animate attributeName="stroke-dashoffset" from="200" to="0" dur="1s" fill="freeze" begin="1.2s" />
+                    </path>
+
+                    <!-- Commit dots on main branch -->
+                    <circle cx="140" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="0.8s" /></circle>
+                    <circle cx="280" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="1s" /></circle>
+                    <circle cx="400" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="1.2s" /></circle>
+                    <circle cx="540" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="1.4s" /></circle>
+                    <circle cx="660" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="1.6s" /></circle>
+
+                    <!-- Commit dots on branch 1 -->
+                    <circle cx="380" cy="95" r="0" fill="var(--green)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.3s" /></circle>
+                    <circle cx="440" cy="95" r="0" fill="var(--green)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.5s" /></circle>
+                    <circle cx="520" cy="95" r="0" fill="var(--green)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.7s" /></circle>
+
+                    <!-- Commit dots on branch 2 -->
+                    <circle cx="480" cy="148" r="0" fill="var(--orange)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.5s" /></circle>
+                    <circle cx="540" cy="148" r="0" fill="var(--orange)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.7s" /></circle>
+
+                    <!-- Active head pulses -->
+                    <circle cx="660" cy="120" r="4" fill="none" stroke="var(--cyan)" stroke-width="1" opacity="0">
+                        <animate attributeName="r" from="4" to="14" dur="2s" repeatCount="indefinite" begin="2s" />
+                        <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" begin="2s" />
+                    </circle>
+                    <circle cx="520" cy="95" r="3.5" fill="none" stroke="var(--green)" stroke-width="1" opacity="0">
+                        <animate attributeName="r" from="3.5" to="12" dur="2s" repeatCount="indefinite" begin="2.2s" />
+                        <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" begin="2.2s" />
+                    </circle>
+
+                    <!-- Branch labels -->
+                    <text x="120" y="140" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" opacity="0.5">main</text>
+                    <text x="350" y="88" fill="var(--green)" font-size="8" font-family="'JetBrains Mono', monospace" opacity="0.5">astro/task-1</text>
+                    <text x="450" y="166" fill="var(--orange)" font-size="8" font-family="'JetBrains Mono', monospace" opacity="0.5">astro/task-2</text>
+                </svg>
             </div>
         </section>
 
@@ -1499,9 +2094,9 @@
         <section class="pillars-section fade-section section-divider">
             <div class="section-header">
                 <div class="section-label">How It Works</div>
-                <h2 class="section-title">Three Pillars</h2>
+                <h2 class="section-title">Plan, Execute, Decide</h2>
                 <p class="section-description">
-                    Structured planning, parallel execution, and human-in-the-loop decisions. All visible at once.
+                    The workflow turn-by-turn tools can't provide: structured planning, parallel execution, strategic decisions from anywhere.
                 </p>
             </div>
 
@@ -1515,69 +2110,549 @@
                         </svg>
                     </div>
                     <div class="bento-number">01</div>
-                    <h3 class="bento-title">Plan</h3>
+                    <h3 class="bento-title">Plan the Work</h3>
                     <p class="bento-text">
-                        Not a todo list. A dependency graph. AI decomposes your goal into tasks with explicit dependencies. Parallel branches run simultaneously. Blocked tasks wait. You see the critical path at a glance.
+                        Decompose goals into a dependency graph — not a flat list. See what runs in parallel and what must wait.
                     </p>
                     <div class="bento-visual">
-                        <svg class="mini-dag" viewBox="0 0 360 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <!-- Interactive view toggle tabs -->
+                        <div class="view-toggle" id="planViewToggle">
+                            <div class="view-toggle-tab active" data-view="graph">Graph</div>
+                            <div class="view-toggle-tab" data-view="list">List</div>
+                            <div class="view-toggle-tab" data-view="timeline">Timeline</div>
+                            <div class="view-toggle-tab" data-view="board">Board</div>
+                        </div>
+
+                        <div class="plan-view-container">
+                        <!-- ===== GRAPH VIEW ===== -->
+                        <div class="plan-view-panel active" id="planView-graph">
+                        <svg class="mini-dag" viewBox="0 0 460 380" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <defs>
-                                <marker id="dag-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                                    <path d="M0 0L8 3L0 6" fill="var(--cyan)" opacity="0.5" />
-                                </marker>
-                                <marker id="dag-arrow-o" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                                    <path d="M0 0L8 3L0 6" fill="var(--orange)" opacity="0.5" />
-                                </marker>
+                                <pattern id="dag-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                                    <circle cx="10" cy="10" r="0.5" fill="rgba(255,255,255,0.03)" />
+                                </pattern>
                             </defs>
 
-                            <!-- Edges -->
-                            <line x1="180" y1="35" x2="90" y2="85" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
-                            <line x1="180" y1="35" x2="270" y2="85" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
-                            <line x1="90" y1="105" x2="60" y2="155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
-                            <line x1="90" y1="105" x2="140" y2="155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
-                            <line x1="270" y1="105" x2="220" y2="155" stroke="var(--orange)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow-o)" />
-                            <line x1="270" y1="105" x2="300" y2="155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
-                            <line x1="140" y1="175" x2="180" y2="215" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
-                            <line x1="220" y1="175" x2="180" y2="215" stroke="var(--orange)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow-o)" />
+                            <rect width="460" height="380" fill="url(#dag-grid)" />
 
-                            <!-- Nodes -->
-                            <circle cx="180" cy="25" r="7" fill="var(--cyan)" />
-                            <text x="180" y="13" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">Goal</text>
+                            <!-- Edges — bezier curves with animated dashes -->
+                            <!-- Root → Backend -->
+                            <path d="M230,52 C230,75 115,75 115,110" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="1.5s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Root → Frontend -->
+                            <path d="M230,52 C230,75 345,75 345,110" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="1.8s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Backend → DB Schema -->
+                            <path d="M115,158 C115,178 80,178 80,218" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="1.5s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Backend → Auth Layer -->
+                            <path d="M115,158 C115,185 230,185 230,218" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="2s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Frontend → UI Review -->
+                            <path d="M345,158 C345,178 385,178 385,218" stroke="var(--orange)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="1.8s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Frontend → Auth Layer -->
+                            <path d="M345,158 C345,185 230,185 230,218" stroke="var(--cyan)" stroke-width="1.5" opacity="0.15" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="2s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Auth Layer → Integration -->
+                            <path d="M230,268 C230,295 230,295 230,322" stroke="var(--cyan)" stroke-width="1.5" opacity="0.15" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="2s" repeatCount="indefinite" />
+                            </path>
+                            <!-- UI Review → Integration -->
+                            <path d="M385,268 C385,295 230,305 230,322" stroke="var(--orange)" stroke-width="1.5" opacity="0.15" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="2.2s" repeatCount="indefinite" />
+                            </path>
 
-                            <circle cx="90" cy="95" r="6" fill="var(--cyan)" />
-                            <circle cx="270" cy="95" r="6" fill="var(--cyan)" />
-                            <text x="63" y="92" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="end">Backend</text>
-                            <text x="297" y="92" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Frontend</text>
-
-                            <circle cx="60" cy="165" r="6" fill="var(--green)" />
-                            <circle cx="140" cy="165" r="6" fill="var(--cyan)" />
-                            <circle cx="220" cy="165" r="6" fill="var(--orange)" />
-                            <circle cx="300" cy="165" r="6" fill="var(--green)" />
-
-                            <text x="60" y="185" fill="var(--green)" font-size="6.5" font-family="'JetBrains Mono', monospace" text-anchor="middle">done</text>
-                            <text x="140" y="185" fill="var(--cyan)" font-size="6.5" font-family="'JetBrains Mono', monospace" text-anchor="middle">running</text>
-                            <text x="220" y="185" fill="var(--orange)" font-size="6.5" font-family="'JetBrains Mono', monospace" text-anchor="middle">deciding</text>
-                            <text x="300" y="185" fill="var(--green)" font-size="6.5" font-family="'JetBrains Mono', monospace" text-anchor="middle">done</text>
-
-                            <circle cx="180" cy="222" r="6" fill="var(--cyan)" opacity="0.5" />
-                            <text x="180" y="238" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">Integrate</text>
-
-                            <!-- Active pulses -->
-                            <circle cx="140" cy="165" r="6" fill="none" stroke="var(--cyan)" stroke-width="1">
-                                <animate attributeName="r" from="6" to="16" dur="2s" repeatCount="indefinite" />
-                                <animate attributeName="opacity" from="0.6" to="0" dur="2s" repeatCount="indefinite" />
+                            <!-- Edge particles -->
+                            <circle r="2" fill="var(--cyan)">
+                                <animateMotion dur="2s" repeatCount="indefinite" path="M230,52 C230,75 115,75 115,110" />
+                                <animate attributeName="opacity" values="0;0.7;0.7;0" dur="2s" repeatCount="indefinite" />
                             </circle>
-                            <circle cx="220" cy="165" r="6" fill="none" stroke="var(--orange)" stroke-width="1">
-                                <animate attributeName="r" from="6" to="16" dur="2s" begin="0.5s" repeatCount="indefinite" />
-                                <animate attributeName="opacity" from="0.6" to="0" dur="2s" begin="0.5s" repeatCount="indefinite" />
+                            <circle r="2" fill="var(--cyan)">
+                                <animateMotion dur="2.2s" repeatCount="indefinite" path="M230,52 C230,75 345,75 345,110" begin="0.4s" />
+                                <animate attributeName="opacity" values="0;0.7;0.7;0" dur="2.2s" repeatCount="indefinite" begin="0.4s" />
+                            </circle>
+                            <circle r="1.5" fill="var(--orange)">
+                                <animateMotion dur="2s" repeatCount="indefinite" path="M345,158 C345,178 385,178 385,218" begin="0.8s" />
+                                <animate attributeName="opacity" values="0;0.7;0.7;0" dur="2s" repeatCount="indefinite" begin="0.8s" />
                             </circle>
 
-                            <text x="180" y="200" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0.4">parallel</text>
+                            <!-- NODE: Goal (root) -->
+                            <g>
+                                <rect x="155" y="10" width="150" height="42" rx="8" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" />
+                                <rect x="155" y="10" width="3" height="42" rx="1.5" fill="var(--cyan)" />
+                                <circle cx="172" cy="27" r="3.5" fill="var(--cyan)" />
+                                <text x="182" y="25" fill="var(--text-primary)" font-size="10" font-weight="600" font-family="'Inter', sans-serif">API Redesign</text>
+                                <text x="182" y="38" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">6 tasks · root</text>
+                            </g>
+
+                            <!-- NODE: Backend -->
+                            <g>
+                                <rect x="30" y="110" width="170" height="48" rx="8" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.15)" stroke-width="1" />
+                                <rect x="30" y="110" width="3" height="48" rx="1.5" fill="var(--cyan)" />
+                                <circle cx="47" cy="128" r="3" fill="var(--cyan)" />
+                                <circle cx="47" cy="128" r="3" fill="none" stroke="var(--cyan)" stroke-width="0.8">
+                                    <animate attributeName="r" from="3" to="9" dur="2s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="57" y="127" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">Backend Services</text>
+                                <text x="57" y="140" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace">in_progress</text>
+                                <rect x="43" y="148" width="144" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="43" y="148" height="2" rx="1" fill="var(--cyan)" opacity="0.4">
+                                    <animate attributeName="width" values="30;90;30" dur="4s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- NODE: Frontend -->
+                            <g>
+                                <rect x="260" y="110" width="170" height="48" rx="8" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.15)" stroke-width="1" />
+                                <rect x="260" y="110" width="3" height="48" rx="1.5" fill="var(--cyan)" />
+                                <circle cx="277" cy="128" r="3" fill="var(--cyan)" />
+                                <text x="287" y="127" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">Frontend UI</text>
+                                <text x="287" y="140" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace">in_progress</text>
+                                <rect x="273" y="148" width="144" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="273" y="148" height="2" rx="1" fill="var(--cyan)" opacity="0.4">
+                                    <animate attributeName="width" values="50;110;50" dur="5s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- NODE: DB Schema (done) -->
+                            <g>
+                                <rect x="15" y="218" width="130" height="50" rx="8" fill="rgba(110, 192, 122, 0.04)" stroke="rgba(110, 192, 122, 0.18)" stroke-width="1" />
+                                <rect x="15" y="218" width="3" height="50" rx="1.5" fill="var(--green)" />
+                                <circle cx="31" cy="237" r="3" fill="var(--green)" />
+                                <path d="M29.5 237 L30.5 238.5 L33 235.5" stroke="white" stroke-width="1" fill="none" stroke-linecap="round" />
+                                <text x="40" y="235" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">DB Schema</text>
+                                <text x="40" y="248" fill="var(--green)" font-size="7" font-family="'JetBrains Mono', monospace">completed</text>
+                                <rect x="28" y="257" width="104" height="2" rx="1" fill="var(--green)" opacity="0.25" />
+                            </g>
+
+                            <!-- NODE: Auth Layer (running) -->
+                            <g>
+                                <rect x="165" y="218" width="130" height="50" rx="8" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.18)" stroke-width="1" />
+                                <rect x="165" y="218" width="3" height="50" rx="1.5" fill="var(--cyan)" />
+                                <circle cx="181" cy="237" r="3" fill="var(--cyan)" />
+                                <circle cx="181" cy="237" r="3" fill="none" stroke="var(--cyan)" stroke-width="0.8">
+                                    <animate attributeName="r" from="3" to="9" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="190" y="235" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">Auth Layer</text>
+                                <text x="190" y="248" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace">running</text>
+                                <rect x="178" y="257" width="104" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="178" y="257" height="2" rx="1" fill="var(--cyan)" opacity="0.4">
+                                    <animate attributeName="width" values="20;65;20" dur="3.5s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- NODE: UI Review (deciding) -->
+                            <g>
+                                <rect x="315" y="218" width="130" height="50" rx="8" fill="rgba(212, 165, 116, 0.05)" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" />
+                                <rect x="315" y="218" width="3" height="50" rx="1.5" fill="var(--orange)" />
+                                <circle cx="331" cy="237" r="3" fill="var(--orange)" />
+                                <circle cx="331" cy="237" r="3" fill="none" stroke="var(--orange)" stroke-width="0.8">
+                                    <animate attributeName="r" from="3" to="9" dur="2s" begin="0.6s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" begin="0.6s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="340" y="235" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">UI Review</text>
+                                <text x="340" y="248" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace">deciding</text>
+                                <rect x="328" y="257" width="104" height="2" rx="1" fill="rgba(212, 165, 116, 0.08)" />
+                                <rect x="328" y="257" width="55" height="2" rx="1" fill="var(--orange)" opacity="0.35" />
+                            </g>
+
+                            <!-- NODE: Integration (planned, dashed) -->
+                            <g>
+                                <rect x="155" y="322" width="150" height="48" rx="8" fill="rgba(255,255,255,0.015)" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="4 3" />
+                                <circle cx="172" cy="340" r="3" fill="var(--text-tertiary)" opacity="0.3" />
+                                <text x="182" y="339" fill="var(--text-tertiary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">Integration Tests</text>
+                                <text x="182" y="352" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">planned</text>
+                                <rect x="168" y="360" width="124" height="2" rx="1" fill="rgba(255, 255, 255, 0.03)" />
+                            </g>
+
+                            <!-- Parallel badge -->
+                            <rect x="130" y="280" width="76" height="18" rx="9" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.08)" stroke-width="0.5" />
+                            <text x="168" y="292" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0.5">parallel</text>
+
+                            <!-- Critical path label -->
+                            <rect x="250" y="280" width="92" height="18" rx="9" fill="rgba(212, 165, 116, 0.04)" stroke="rgba(212, 165, 116, 0.08)" stroke-width="0.5" />
+                            <text x="296" y="292" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0.5">critical path</text>
+
                         </svg>
+                        </div>
+
+                        <!-- ===== LIST VIEW ===== -->
+                        <div class="plan-view-panel" id="planView-list">
+                        <svg class="mini-dag" viewBox="0 0 460 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Table header -->
+                            <rect x="0" y="0" width="460" height="24" rx="4" fill="rgba(255,255,255,0.02)" />
+                            <text x="12" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">NAME</text>
+                            <text x="200" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">STATUS</text>
+                            <text x="285" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">PRIORITY</text>
+                            <text x="360" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">DUE</text>
+                            <text x="420" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">EST</text>
+                            <line x1="0" y1="26" x2="460" y2="26" stroke="var(--border-subtle)" stroke-width="0.5" />
+
+                            <!-- Group header: Backend -->
+                            <g>
+                                <rect x="0" y="32" width="460" height="22" fill="rgba(91, 163, 208, 0.03)" />
+                                <text x="22" y="46" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="600">Backend Services</text>
+                                <text x="130" y="46" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">3 tasks</text>
+                                <!-- Collapse chevron -->
+                                <path d="M10,40 L14,44 L18,40" stroke="var(--text-tertiary)" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.4" />
+                            </g>
+
+                            <!-- Row 1: DB Schema -->
+                            <line x1="0" y1="56" x2="460" y2="56" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="72" r="3" fill="var(--green)" />
+                                <path d="M18.8 72 L19.6 73 L21.5 70.8" stroke="white" stroke-width="0.8" fill="none" stroke-linecap="round" />
+                                <text x="30" y="75" fill="var(--text-primary)" font-size="9" font-family="'Inter', sans-serif">DB Schema Migration</text>
+                                <!-- Status badge -->
+                                <rect x="200" y="64" width="52" height="16" rx="4" fill="rgba(110, 192, 122, 0.08)" />
+                                <text x="226" y="75" fill="var(--green)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">completed</text>
+                                <!-- Priority -->
+                                <rect x="290" y="64" width="32" height="16" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="306" y="75" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <!-- Due date -->
+                                <text x="360" y="75" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 18</text>
+                                <!-- Estimate -->
+                                <text x="425" y="75" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">M</text>
+                            </g>
+
+                            <!-- Row 2: Auth Layer -->
+                            <line x1="0" y1="86" x2="460" y2="86" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="102" r="3" fill="var(--cyan)" />
+                                <circle cx="20" cy="102" r="3" fill="none" stroke="var(--cyan)" stroke-width="0.6">
+                                    <animate attributeName="r" from="3" to="7" dur="2s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="30" y="105" fill="var(--text-primary)" font-size="9" font-family="'Inter', sans-serif">Auth Layer Implementation</text>
+                                <rect x="200" y="94" width="52" height="16" rx="4" fill="rgba(91, 163, 208, 0.08)" />
+                                <text x="226" y="105" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">running</text>
+                                <rect x="290" y="94" width="32" height="16" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="306" y="105" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <text x="360" y="105" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 21</text>
+                                <text x="425" y="105" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">L</text>
+                            </g>
+
+                            <!-- Row 3: API Routes -->
+                            <line x1="0" y1="116" x2="460" y2="116" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="132" r="3" fill="var(--text-tertiary)" opacity="0.3" />
+                                <text x="30" y="135" fill="var(--text-secondary)" font-size="9" font-family="'Inter', sans-serif">API Route Handlers</text>
+                                <rect x="200" y="124" width="42" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="221" y="135" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">planned</text>
+                                <rect x="290" y="124" width="32" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="306" y="135" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                                <text x="360" y="135" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 24</text>
+                                <text x="425" y="135" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">S</text>
+                            </g>
+
+                            <!-- Group header: Frontend -->
+                            <g>
+                                <rect x="0" y="150" width="460" height="22" fill="rgba(91, 163, 208, 0.03)" />
+                                <text x="22" y="164" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="600">Frontend UI</text>
+                                <text x="100" y="164" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">2 tasks</text>
+                                <path d="M10,158 L14,162 L18,158" stroke="var(--text-tertiary)" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.4" />
+                            </g>
+
+                            <!-- Row 4: UI Review -->
+                            <line x1="0" y1="174" x2="460" y2="174" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="190" r="3" fill="var(--orange)" />
+                                <circle cx="20" cy="190" r="3" fill="none" stroke="var(--orange)" stroke-width="0.6">
+                                    <animate attributeName="r" from="3" to="7" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="30" y="193" fill="var(--text-primary)" font-size="9" font-family="'Inter', sans-serif">UI Component Review</text>
+                                <rect x="200" y="182" width="52" height="16" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="226" y="193" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">deciding</text>
+                                <rect x="290" y="182" width="32" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="306" y="193" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                                <text x="360" y="193" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 22</text>
+                                <text x="425" y="193" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">M</text>
+                            </g>
+
+                            <!-- Row 5: Design System -->
+                            <line x1="0" y1="204" x2="460" y2="204" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="220" r="3" fill="var(--cyan)" />
+                                <text x="30" y="223" fill="var(--text-primary)" font-size="9" font-family="'Inter', sans-serif">Design System Setup</text>
+                                <rect x="200" y="212" width="52" height="16" rx="4" fill="rgba(91, 163, 208, 0.08)" />
+                                <text x="226" y="223" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">running</text>
+                                <rect x="290" y="212" width="32" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="306" y="223" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">low</text>
+                                <text x="360" y="223" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 25</text>
+                                <text x="425" y="223" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">S</text>
+                            </g>
+
+                            <!-- Group header: Integration -->
+                            <g>
+                                <rect x="0" y="238" width="460" height="22" fill="rgba(255,255,255,0.015)" />
+                                <text x="22" y="252" fill="var(--text-tertiary)" font-size="8" font-family="'Inter', sans-serif" font-weight="600">Integration</text>
+                                <text x="100" y="252" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">1 task</text>
+                                <path d="M10,246 L14,250 L18,246" stroke="var(--text-tertiary)" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.4" />
+                            </g>
+
+                            <!-- Row 6: Integration Tests -->
+                            <line x1="0" y1="262" x2="460" y2="262" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="278" r="3" fill="var(--text-tertiary)" opacity="0.3" />
+                                <text x="30" y="281" fill="var(--text-secondary)" font-size="9" font-family="'Inter', sans-serif">Integration Test Suite</text>
+                                <rect x="200" y="270" width="42" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="221" y="281" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">planned</text>
+                                <rect x="290" y="270" width="32" height="16" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="306" y="281" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <text x="360" y="281" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 28</text>
+                                <text x="425" y="281" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">L</text>
+                            </g>
+                            <line x1="0" y1="292" x2="460" y2="292" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+
+                            <!-- Add task row -->
+                            <g opacity="0.35">
+                                <text x="20" y="315" fill="var(--cyan)" font-size="10" font-family="'Inter', sans-serif">+</text>
+                                <text x="33" y="315" fill="var(--text-tertiary)" font-size="8" font-family="'Inter', sans-serif">Add task...</text>
+                            </g>
+
+                            <!-- Summary footer -->
+                            <line x1="0" y1="330" x2="460" y2="330" stroke="var(--border-subtle)" stroke-width="0.5" />
+                            <text x="12" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">6 tasks</text>
+                            <circle cx="75" cy="345" r="2.5" fill="var(--green)" /><text x="82" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">1 done</text>
+                            <circle cx="130" cy="345" r="2.5" fill="var(--cyan)" /><text x="137" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">3 running</text>
+                            <circle cx="200" cy="345" r="2.5" fill="var(--orange)" /><text x="207" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">1 deciding</text>
+                            <circle cx="278" cy="345" r="2.5" fill="var(--text-tertiary)" opacity="0.3" /><text x="285" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">1 planned</text>
+                        </svg>
+                        </div>
+
+                        <!-- ===== TIMELINE VIEW ===== -->
+                        <div class="plan-view-panel" id="planView-timeline">
+                        <svg viewBox="0 0 460 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Timeline header with week markers -->
+                            <line x1="100" y1="0" x2="100" y2="360" stroke="var(--border-subtle)" stroke-width="0.5" />
+                            <text x="105" y="14" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">Week 1</text>
+                            <text x="195" y="14" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">Week 2</text>
+                            <text x="285" y="14" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">Week 3</text>
+                            <text x="375" y="14" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">Week 4</text>
+
+                            <!-- Vertical grid lines -->
+                            <line x1="190" y1="22" x2="190" y2="360" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <line x1="280" y1="22" x2="280" y2="360" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <line x1="370" y1="22" x2="370" y2="360" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+
+                            <!-- Today marker -->
+                            <line x1="235" y1="20" x2="235" y2="360" stroke="var(--cyan)" stroke-width="1" opacity="0.15" stroke-dasharray="3 3" />
+                            <rect x="225" y="20" width="20" height="12" rx="3" fill="rgba(91, 163, 208, 0.12)" />
+                            <text x="235" y="29" fill="var(--cyan)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">today</text>
+
+                            <!-- Row 1: DB Schema (completed) — y=55 -->
+                            <text x="8" y="58" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">DB Schema</text>
+                            <circle cx="90" cy="55" r="2.5" fill="var(--green)" />
+                            <rect x="105" y="48" width="110" height="16" rx="4" fill="rgba(110, 192, 122, 0.08)" stroke="rgba(110, 192, 122, 0.15)" stroke-width="0.5" />
+                            <rect x="105" y="48" width="110" height="16" rx="4" fill="rgba(110, 192, 122, 0.12)" />
+                            <text x="145" y="59" fill="var(--green)" font-size="6.5" font-family="'Inter', sans-serif" text-anchor="middle" opacity="0.8">done</text>
+
+                            <!-- Row 2: Backend Services (in progress) — y=105 -->
+                            <text x="8" y="108" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">Backend</text>
+                            <circle cx="90" cy="105" r="2.5" fill="var(--cyan)" />
+                            <rect x="130" y="98" width="160" height="16" rx="4" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.12)" stroke-width="0.5" />
+                            <rect x="130" y="98" width="80" height="16" rx="4" fill="rgba(91, 163, 208, 0.15)" />
+                            <rect x="130" y="98" height="16" rx="4" fill="rgba(91, 163, 208, 0.1)">
+                                <animate attributeName="width" values="70;100;70" dur="4s" repeatCount="indefinite" />
+                            </rect>
+
+                            <!-- Row 3: Auth Layer (running) — y=155 -->
+                            <text x="8" y="158" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">Auth Layer</text>
+                            <circle cx="90" cy="155" r="2.5" fill="var(--cyan)" />
+                            <rect x="165" y="148" width="140" height="16" rx="4" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.12)" stroke-width="0.5" />
+                            <rect x="165" y="148" height="16" rx="4" fill="rgba(91, 163, 208, 0.12)">
+                                <animate attributeName="width" values="40;75;40" dur="3.5s" repeatCount="indefinite" />
+                            </rect>
+
+                            <!-- Row 4: UI Review (deciding, orange) — y=205 -->
+                            <text x="8" y="208" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">UI Review</text>
+                            <circle cx="90" cy="205" r="2.5" fill="var(--orange)" />
+                            <rect x="145" y="198" width="115" height="16" rx="4" fill="rgba(212, 165, 116, 0.06)" stroke="rgba(212, 165, 116, 0.12)" stroke-width="0.5" />
+                            <rect x="145" y="198" width="55" height="16" rx="4" fill="rgba(212, 165, 116, 0.12)" />
+                            <circle cx="202" cy="206" r="2" fill="var(--orange)" opacity="0.4">
+                                <animate attributeName="opacity" values="0.2;0.7;0.2" dur="2s" repeatCount="indefinite" />
+                            </circle>
+
+                            <!-- Row 5: Design System (running) — y=255 -->
+                            <text x="8" y="258" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">Design Sys</text>
+                            <circle cx="90" cy="255" r="2.5" fill="var(--cyan)" />
+                            <rect x="180" y="248" width="100" height="16" rx="4" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.12)" stroke-width="0.5" />
+                            <rect x="180" y="248" height="16" rx="4" fill="rgba(91, 163, 208, 0.1)">
+                                <animate attributeName="width" values="30;60;30" dur="3s" repeatCount="indefinite" />
+                            </rect>
+
+                            <!-- Row 6: Integration Tests (planned, dashed) — y=305 -->
+                            <text x="8" y="308" fill="var(--text-tertiary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400" opacity="0.5">Integration</text>
+                            <circle cx="90" cy="305" r="2.5" fill="var(--text-tertiary)" opacity="0.2" />
+                            <rect x="290" y="298" width="120" height="16" rx="4" fill="none" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="3 2" />
+                            <text x="340" y="309" fill="var(--text-tertiary)" font-size="6.5" font-family="'Inter', sans-serif" text-anchor="middle" opacity="0.3">planned</text>
+
+                            <!-- Dependency arrows -->
+                            <path d="M215,62 L215,72 C215,80 170,90 170,98" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.8" fill="none" stroke-linecap="round" />
+                            <path d="M305,162 L305,175 C305,200 330,280 330,298" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.8" fill="none" stroke-linecap="round" />
+                            <path d="M260,212 L260,230 C260,270 310,285 315,298" stroke="rgba(212, 165, 116, 0.1)" stroke-width="0.8" fill="none" stroke-linecap="round" />
+
+                            <!-- Zoom level indicator -->
+                            <g opacity="0.4">
+                                <rect x="105" y="335" width="28" height="12" rx="3" fill="rgba(255,255,255,0.02)" />
+                                <text x="119" y="344" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">D</text>
+                                <rect x="135" y="335" width="28" height="12" rx="3" fill="rgba(91, 163, 208, 0.1)" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.5" />
+                                <text x="149" y="344" fill="var(--cyan)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">W</text>
+                                <rect x="165" y="335" width="28" height="12" rx="3" fill="rgba(255,255,255,0.02)" />
+                                <text x="179" y="344" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">M</text>
+                                <rect x="195" y="335" width="28" height="12" rx="3" fill="rgba(255,255,255,0.02)" />
+                                <text x="209" y="344" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">Q</text>
+                            </g>
+                        </svg>
+                        </div>
+
+                        <!-- ===== BOARD VIEW ===== -->
+                        <div class="plan-view-panel" id="planView-board">
+                        <svg class="mini-dag" viewBox="0 0 460 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Column backgrounds -->
+                            <rect x="0" y="0" width="108" height="380" rx="6" fill="rgba(110, 192, 122, 0.02)" stroke="rgba(110, 192, 122, 0.06)" stroke-width="0.5" />
+                            <rect x="118" y="0" width="108" height="380" rx="6" fill="rgba(91, 163, 208, 0.02)" stroke="rgba(91, 163, 208, 0.06)" stroke-width="0.5" />
+                            <rect x="236" y="0" width="108" height="380" rx="6" fill="rgba(212, 165, 116, 0.02)" stroke="rgba(212, 165, 116, 0.06)" stroke-width="0.5" />
+                            <rect x="354" y="0" width="106" height="380" rx="6" fill="rgba(255, 255, 255, 0.01)" stroke="rgba(255, 255, 255, 0.04)" stroke-width="0.5" />
+
+                            <!-- Column headers -->
+                            <circle cx="14" cy="16" r="3" fill="var(--green)" />
+                            <text x="22" y="19" fill="var(--green)" font-size="7.5" font-family="'JetBrains Mono', monospace" font-weight="600">Completed</text>
+                            <rect x="82" y="9" width="16" height="14" rx="4" fill="rgba(110, 192, 122, 0.1)" />
+                            <text x="90" y="19" fill="var(--green)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">1</text>
+
+                            <circle cx="132" cy="16" r="3" fill="var(--cyan)" />
+                            <text x="140" y="19" fill="var(--cyan)" font-size="7.5" font-family="'JetBrains Mono', monospace" font-weight="600">In Progress</text>
+                            <rect x="200" y="9" width="16" height="14" rx="4" fill="rgba(91, 163, 208, 0.1)" />
+                            <text x="208" y="19" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">3</text>
+
+                            <circle cx="250" cy="16" r="3" fill="var(--orange)" />
+                            <text x="258" y="19" fill="var(--orange)" font-size="7.5" font-family="'JetBrains Mono', monospace" font-weight="600">Deciding</text>
+                            <rect x="314" y="9" width="16" height="14" rx="4" fill="rgba(212, 165, 116, 0.1)" />
+                            <text x="322" y="19" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">1</text>
+
+                            <circle cx="368" cy="16" r="3" fill="var(--text-tertiary)" opacity="0.3" />
+                            <text x="376" y="19" fill="var(--text-tertiary)" font-size="7.5" font-family="'JetBrains Mono', monospace" font-weight="600">Planned</text>
+                            <rect x="428" y="9" width="16" height="14" rx="4" fill="rgba(255, 255, 255, 0.04)" />
+                            <text x="436" y="19" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">2</text>
+
+                            <line x1="0" y1="30" x2="460" y2="30" stroke="rgba(255,255,255,0.03)" stroke-width="0.5" />
+
+                            <!-- Completed column - card 1: DB Schema -->
+                            <g>
+                                <rect x="6" y="38" width="96" height="70" rx="6" fill="rgba(110, 192, 122, 0.04)" stroke="rgba(110, 192, 122, 0.1)" stroke-width="0.5" />
+                                <text x="14" y="54" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">DB Schema</text>
+                                <text x="14" y="66" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Migration</text>
+                                <!-- Priority badge -->
+                                <rect x="14" y="74" width="28" height="11" rx="3" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="28" y="82" fill="var(--orange)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <!-- Estimate -->
+                                <rect x="47" y="74" width="16" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="55" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">M</text>
+                                <!-- Checkmark -->
+                                <circle cx="88" y="98" r="5" fill="none" />
+                                <path d="M83 96 L86 99 L93 92" stroke="var(--green)" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.5" />
+                            </g>
+
+                            <!-- In Progress column - card 1: Auth Layer -->
+                            <g>
+                                <rect x="124" y="38" width="96" height="70" rx="6" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" />
+                                <text x="132" y="54" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Auth Layer</text>
+                                <text x="132" y="66" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Implementation</text>
+                                <rect x="132" y="74" width="28" height="11" rx="3" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="146" y="82" fill="var(--orange)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <rect x="165" y="74" width="16" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="173" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">L</text>
+                                <!-- Progress bar -->
+                                <rect x="132" y="94" width="80" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="132" y="94" height="2" rx="1" fill="var(--cyan)" opacity="0.5">
+                                    <animate attributeName="width" values="25;50;25" dur="3s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- In Progress column - card 2: Backend Services -->
+                            <g>
+                                <rect x="124" y="116" width="96" height="60" rx="6" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" />
+                                <text x="132" y="132" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Backend</text>
+                                <text x="132" y="144" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Services</text>
+                                <rect x="132" y="152" width="28" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="146" y="160" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                                <rect x="132" y="166" width="80" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="132" y="166" height="2" rx="1" fill="var(--cyan)" opacity="0.5">
+                                    <animate attributeName="width" values="40;65;40" dur="4s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- In Progress column - card 3: Design System -->
+                            <g>
+                                <rect x="124" y="186" width="96" height="55" rx="6" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" />
+                                <text x="132" y="202" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Design System</text>
+                                <text x="132" y="214" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Setup</text>
+                                <rect x="132" y="222" width="24" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="144" y="230" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">low</text>
+                            </g>
+
+                            <!-- Deciding column - card 1: UI Review -->
+                            <g>
+                                <rect x="242" y="38" width="96" height="70" rx="6" fill="rgba(212, 165, 116, 0.04)" stroke="rgba(212, 165, 116, 0.12)" stroke-width="0.5" />
+                                <text x="250" y="54" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">UI Component</text>
+                                <text x="250" y="66" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Review</text>
+                                <rect x="250" y="74" width="28" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="264" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                                <rect x="283" y="74" width="16" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="291" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">M</text>
+                                <!-- Decision icon (pulsing) -->
+                                <circle cx="325" cy="96" r="4" fill="rgba(212, 165, 116, 0.12)">
+                                    <animate attributeName="r" values="4;7;4" dur="2s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="323" y="99" fill="var(--orange)" font-size="7" font-family="'Inter', sans-serif" text-anchor="middle">?</text>
+                            </g>
+
+                            <!-- Planned column - card 1: API Routes -->
+                            <g>
+                                <rect x="360" y="38" width="94" height="55" rx="6" fill="rgba(255, 255, 255, 0.015)" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="3 2" />
+                                <text x="368" y="54" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">API Route</text>
+                                <text x="368" y="66" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Handlers</text>
+                                <rect x="368" y="74" width="28" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="382" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                            </g>
+
+                            <!-- Planned column - card 2: Integration Tests -->
+                            <g>
+                                <rect x="360" y="101" width="94" height="60" rx="6" fill="rgba(255, 255, 255, 0.015)" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="3 2" />
+                                <text x="368" y="117" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Integration</text>
+                                <text x="368" y="129" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Test Suite</text>
+                                <rect x="368" y="137" width="28" height="11" rx="3" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="382" y="145" fill="var(--orange)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <rect x="401" y="137" width="16" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="409" y="145" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">L</text>
+                            </g>
+
+                            <!-- Drag hint (subtle) -->
+                            <g opacity="0.2">
+                                <text x="168" y="270" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">drag cards between columns</text>
+                                <!-- Arrow left-right -->
+                                <path d="M138,276 L125,276 M133,272 L125,276 L133,280" stroke="var(--text-tertiary)" stroke-width="0.7" fill="none" stroke-linecap="round" />
+                                <path d="M198,276 L211,276 M203,272 L211,276 L203,280" stroke="var(--text-tertiary)" stroke-width="0.7" fill="none" stroke-linecap="round" />
+                            </g>
+                        </svg>
+                        </div>
+                        </div><!-- /plan-view-container -->
                     </div>
                 </div>
 
-                <!-- EXECUTE — top right -->
+                <!-- EXECUTE -->
                 <div class="bento-card bento-execute stagger-child" style="transition-delay: 0.2s">
                     <div class="bento-icon" style="background: rgba(212, 165, 116, 0.08);">
                         <svg viewBox="0 0 20 20" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round">
@@ -1585,11 +2660,24 @@
                         </svg>
                     </div>
                     <div class="bento-number">02</div>
-                    <h3 class="bento-title">Execute</h3>
+                    <h3 class="bento-title">Execute Everywhere</h3>
                     <p class="bento-text">
-                        Tasks dispatch across local machines, HPC clusters, and cloud. Each task gets a worktree. Results come back as PRs.
+                        Launch tasks across local, HPC, and cloud simultaneously. Isolated worktrees, results as PRs.
                     </p>
                     <div class="bento-visual">
+                        <!-- Mini worktree branch visualization -->
+                        <svg viewBox="0 0 280 60" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" style="margin-bottom: 0.75rem;">
+                            <line x1="20" y1="30" x2="260" y2="30" stroke="var(--orange)" stroke-width="2" stroke-linecap="round" opacity="0.3" />
+                            <path d="M80 30 C80 30, 80 12, 110 12 L200 12" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" opacity="0.3" />
+                            <path d="M160 30 C160 30, 160 48, 190 48 L240 48" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.3" />
+                            <circle cx="20" cy="30" r="3.5" fill="var(--orange)" /><circle cx="80" cy="30" r="3.5" fill="var(--orange)" /><circle cx="160" cy="30" r="3.5" fill="var(--orange)" /><circle cx="220" cy="30" r="3.5" fill="var(--orange)" /><circle cx="260" cy="30" r="3.5" fill="var(--orange)" />
+                            <circle cx="140" cy="12" r="3" fill="var(--green)" /><circle cx="175" cy="12" r="3" fill="var(--green)" />
+                            <circle cx="215" cy="48" r="3" fill="var(--cyan)" /><circle cx="240" cy="48" r="3" fill="var(--cyan)" />
+                            <circle cx="175" cy="12" r="3" fill="none" stroke="var(--green)" stroke-width="0.8"><animate attributeName="r" from="3" to="9" dur="2s" repeatCount="indefinite" /><animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" /></circle>
+                            <text x="20" y="46" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">main</text>
+                            <text x="130" y="8" fill="var(--green)" font-size="6.5" font-family="'JetBrains Mono', monospace">task-3</text>
+                            <text x="205" y="44" fill="var(--cyan)" font-size="6.5" font-family="'JetBrains Mono', monospace">task-4</text>
+                        </svg>
                         <div class="mini-terminal">
                             <div class="term-line"><span class="term-prompt">$</span><span class="term-cmd">astro dispatch task-3</span></div>
                             <div class="term-line"><span class="term-info">detecting...</span> <span class="term-output">git repo, github remote</span></div>
@@ -1601,7 +2689,7 @@
                     </div>
                 </div>
 
-                <!-- APPROVE — bottom right -->
+                <!-- DECIDE -->
                 <div class="bento-card bento-approve stagger-child" style="transition-delay: 0.3s">
                     <div class="bento-icon" style="background: rgba(110, 192, 122, 0.08);">
                         <svg viewBox="0 0 20 20" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1609,9 +2697,9 @@
                         </svg>
                     </div>
                     <div class="bento-number">03</div>
-                    <h3 class="bento-title">Approve</h3>
+                    <h3 class="bento-title">Decide Anywhere</h3>
                     <p class="bento-text">
-                        See every tool call. Make strategic decisions from your phone, laptop, anywhere.
+                        Strategic decisions from any device. Approve, pivot, or prune branches without touching a terminal.
                     </p>
                     <div class="bento-visual">
                         <div class="mini-approval">
@@ -1620,7 +2708,7 @@
                                 <div class="mini-approval-label">DECISION PENDING</div>
                             </div>
                             <div class="mini-approval-question">
-                                Agent asks: "OAuth adds a dependency but is more secure. Use OAuth or session tokens?"
+                                "OAuth adds a dependency but is more secure. Use OAuth or session tokens?"
                             </div>
                             <div class="mini-approval-buttons">
                                 <div class="mini-approval-btn approve">OAuth</div>
@@ -2071,6 +3159,41 @@
         }, { threshold: 0.5 });
 
         counters.forEach(function(c) { counterObserver.observe(c); });
+
+        // Generic view tab switching function
+        function setupViewSwitcher(toggleId, panelPrefix, urlBar) {
+            var toggle = document.getElementById(toggleId);
+            if (!toggle) return;
+            var tabs = toggle.querySelectorAll('[data-view]');
+            var viewMap = { graph: 'graph', list: 'list', timeline: 'timeline', board: 'board' };
+            tabs.forEach(function(tab) {
+                tab.addEventListener('click', function() {
+                    var view = this.getAttribute('data-view');
+                    // Update active tab
+                    tabs.forEach(function(t) { t.classList.remove('active'); });
+                    this.classList.add('active');
+                    // Update active panel
+                    var panels = document.querySelectorAll('[id^="' + panelPrefix + '"]');
+                    panels.forEach(function(p) { p.classList.remove('active'); });
+                    var target = document.getElementById(panelPrefix + view);
+                    if (target) {
+                        target.classList.add('active');
+                        target.style.animation = 'none';
+                        target.offsetHeight;
+                        target.style.animation = '';
+                    }
+                    // Update URL bar if provided
+                    if (urlBar) {
+                        urlBar.textContent = 'astro.app/project/redesign/' + (viewMap[view] || view);
+                    }
+                });
+            });
+        }
+
+        // Showcase (top mock app) view switching
+        setupViewSwitcher('showcaseViewTabs', 'showcaseView-', document.querySelector('.showcase-url'));
+        // Bento plan card view switching
+        setupViewSwitcher('planViewToggle', 'planView-', null);
     })();
     </script>
 </body>
