@@ -36,7 +36,7 @@ Overall                                   NO — 2 blockers remain
 
 **Stores (27)**: project, plan, agent, execution, realtime, machines, slurm, user-profile, display-settings, usage, task-chat, activity, initiative, ui, settings, sidebar, connected-accounts, plugin, **team** (new), **auth** (new), **github** (new), **observation** (new), **session** (new), **skill** (new), **api-keys** (new), **keyboard-nav** (new), **toast** (new)
 
-**New component directories**: `board/` (kanban), `mobile/`, `sharing/`, `views/`, `environments/` (machine-config-dialog)
+**New component directories**: `board/` (kanban), `mobile/`, `sharing/`, `views/`, `environments/`
 
 **New hooks**: use-keyboard-nav, use-bar-drag-resize, use-voice-transcription, use-welcome-form-persistence, use-repo-setup
 

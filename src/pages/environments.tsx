@@ -15,7 +15,6 @@ import {
   Pencil,
   Check,
   X,
-  Settings,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -27,7 +26,6 @@ import { useExecutionStore, type ComputeBackendInfo } from "@/stores/execution-s
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
-import { MachineConfigDialog } from "@/components/environments/machine-config-dialog"
 import { MachineDetailDialog } from "@/components/environments/machine-detail-dialog"
 import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
@@ -153,10 +151,9 @@ function InlineMachineName({ machineId, name, fallback }: {
   )
 }
 
-function ConnectedMachinesCard({ machines, onRemove, onConfigure, onMachineClick }: {
+function ConnectedMachinesCard({ machines, onRemove, onMachineClick }: {
   machines: MachineEntry[]
   onRemove?: (machineId: string) => void
-  onConfigure?: (machineId: string) => void
   onMachineClick?: (machine: MachineEntry) => void
 }) {
   return (
@@ -212,16 +209,6 @@ function ConnectedMachinesCard({ machines, onRemove, onConfigure, onMachineClick
                       style={{ width: `${Math.min(loadPercent, 100)}%` }}
                     />
                   </div>
-                  {onConfigure && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-foreground hidden md:flex"
-                      onClick={() => onConfigure(machine.machineId)}
-                    >
-                      <Settings className="h-3 w-3" />
-                    </Button>
-                  )}
                   {onRemove && (
                     <Button
                       variant="ghost"
@@ -496,7 +483,6 @@ export function Environments() {
   const [backendContextString, setBackendContextString] = useState("")
   const [backendDialogOpen, setBackendDialogOpen] = useState(false)
   const [backendDetailLoading, setBackendDetailLoading] = useState(false)
-  const [machineConfigDialogOpen, setMachineConfigDialogOpen] = useState(false)
   const [selectedMachine, setSelectedMachine] = useState<RegisteredMachine | null>(null)
   const [machineDetailDialogOpen, setMachineDetailDialogOpen] = useState(false)
   const [detailLiveMachine, setDetailLiveMachine] = useState<MachineEntry | undefined>(undefined)
@@ -633,14 +619,6 @@ export function Environments() {
     setMachineDetailDialogOpen(true)
   }
 
-  const handleConfigureMachine = (machineId: string) => {
-    const machine = registeredMachines.find((m) => m.id === machineId)
-    if (machine) {
-      setSelectedMachine(machine)
-      setMachineConfigDialogOpen(true)
-    }
-  }
-
   return (
     <div className="flex flex-col gap-6 p-4 md:p-8 md:px-10">
       {/* Header */}
@@ -719,7 +697,6 @@ export function Environments() {
             <ConnectedMachinesCard
               machines={connectedLiveMachines}
               onRemove={(id) => revokeMachine(id)}
-              onConfigure={handleConfigureMachine}
               onMachineClick={handleMachineClick}
             />
           </div>
@@ -848,12 +825,6 @@ export function Environments() {
         liveMachine={detailLiveMachine}
       />
 
-      {/* Machine Config Dialog */}
-      <MachineConfigDialog
-        open={machineConfigDialogOpen}
-        onOpenChange={setMachineConfigDialogOpen}
-        machine={selectedMachine}
-      />
     </div>
   )
 }
