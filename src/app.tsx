@@ -211,12 +211,19 @@ function DataLoader({ children }: { children: React.ReactNode }) {
 function RootRedirect() {
   const session = useAuthStore((s) => s.session)
   const initialized = useAuthStore((s) => s.initialized)
+  const local = isLocalMode()
 
-  if (isLocalMode()) {
+  useEffect(() => {
+    if (!local && initialized && !session) {
+      window.location.href = '/landing/'
+    }
+  }, [local, initialized, session])
+
+  if (local) {
     return <Navigate to="/dashboard" replace />
   }
 
-  if (!initialized) {
+  if (!initialized || !session) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         <div className="flex flex-col items-center gap-3">
@@ -226,15 +233,6 @@ function RootRedirect() {
     )
   }
 
-  useEffect(() => {
-    if (initialized && !session) {
-      window.location.href = '/landing/'
-    }
-  }, [initialized, session])
-
-  if (!session) {
-    return null
-  }
   return <Navigate to="/dashboard" replace />
 }
 
