@@ -26,7 +26,6 @@ import { skillsRoute } from './routes/skills.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
-import { skillManager } from './lib/skill-manager.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
@@ -43,7 +42,6 @@ import { prCreationHook } from './lib/events/hooks/pr-creation-hook.js'
 import { mergeQueueHook } from './lib/events/hooks/merge-queue-hook.js'
 import { gitPullHook } from './lib/events/hooks/git-pull-hook.js'
 import { channelNotificationHook } from './lib/events/hooks/channel-notification-hook.js'
-import { loadAndActivateChannelPlugins } from './lib/plugin-loader.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
 import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
@@ -254,14 +252,6 @@ async function start() {
 
   const app = createApp()
 
-  // Load skills
-  try {
-    const skills = await skillManager.loadSkills()
-    console.log(`[backend] loaded ${skills.size} skills`)
-  } catch (err) {
-    console.warn('[backend] skill loading warning:', err)
-  }
-
   // Register event transport hooks (skip in test mode to avoid side effects)
   if (!isTest()) {
     console.log('[event-transport] Registering hooks...')
@@ -281,14 +271,6 @@ async function start() {
   } else {
     console.log('[event-transport] Test mode detected - hooks disabled')
     astroEventTransport.setEnabled(false)
-  }
-
-  // Load and mount channel plugins
-  try {
-    const pluginCount = await loadAndActivateChannelPlugins(app)
-    console.log(`[backend] activated ${pluginCount} channel plugins`)
-  } catch (err) {
-    console.warn('[backend] channel plugin loading warning:', err)
   }
 
   // Reset stale connection statuses from previous server session

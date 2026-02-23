@@ -1,8 +1,13 @@
 /**
  * Skills API Route
  *
- * Manages server-side skill lifecycle: listing, installing,
- * uninstalling, and configuring OpenClaw-compatible skills.
+ * Manages server-side skill registry: listing, removing,
+ * and configuring skills. Skills are populated via relay
+ * messages or programmatic registration — not filesystem.
+ *
+ * Install/uninstall from disk is handled by:
+ * - Tauri commands (desktop app)
+ * - Agent runner (relay messages)
  */
 
 import { Hono } from 'hono'
@@ -39,6 +44,34 @@ skillsRoute.get('/', async (c) => {
 })
 
 /**
+ * Register skills (bulk load from relay or Tauri)
+ *
+ * POST /api/skills/register
+ */
+skillsRoute.post('/register', async (c) => {
+  try {
+    const { skills } = await c.req.json<{ skills: Array<{ name: string; description: string; instructions: string; source?: string; enabled?: boolean }> }>()
+    if (!Array.isArray(skills)) {
+      return c.json({ error: 'skills must be an array' }, 400)
+    }
+
+    for (const s of skills) {
+      skillManager.addSkill({
+        name: s.name,
+        description: s.description ?? '',
+        instructions: s.instructions ?? '',
+        source: (s.source as 'builtin' | 'workspace' | 'clawhub' | 'plugin') ?? 'workspace',
+        enabled: s.enabled ?? true,
+      })
+    }
+
+    return c.json({ success: true, total: skills.length })
+  } catch (e) {
+    return c.json({ error: errorMessage(e) }, 500)
+  }
+})
+
+/**
  * Install a skill from ClawHub (stub)
  *
  * POST /api/skills/install
@@ -48,14 +81,14 @@ skillsRoute.post('/install', async (c) => {
 })
 
 /**
- * Uninstall a skill
+ * Remove a skill from the in-memory registry
  *
  * DELETE /api/skills/:name
  */
 skillsRoute.delete('/:name', async (c) => {
   try {
     const { name } = c.req.param()
-    const removed = skillManager.uninstallSkill(name)
+    const removed = skillManager.removeSkill(name)
 
     if (!removed) {
       return c.json({ error: `Skill '${name}' not found` }, 404)
