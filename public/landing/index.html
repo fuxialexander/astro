@@ -105,25 +105,98 @@
 
         .nav-link:hover { color: var(--text-secondary); }
 
+        .nav-cta-group {
+            display: flex;
+            align-items: stretch;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            transition: all 0.25s ease;
+        }
+
+        .nav-cta-group:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
         .nav-cta {
             font-family: 'Inter', sans-serif;
             padding: 0.5rem 1.25rem;
             background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
+            border: none;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 0;
             color: var(--text-primary);
             font-size: 0.8125rem;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.25s ease;
+            transition: background 0.25s ease;
             letter-spacing: 0.02em;
-            backdrop-filter: blur(10px);
+            text-decoration: none;
         }
 
         .nav-cta:hover {
             background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.2);
         }
+
+        .nav-install {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: rgba(0, 0, 0, 0.2);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .nav-install:hover {
+            background: rgba(0, 0, 0, 0.35);
+            color: var(--text-secondary);
+        }
+
+        .nav-install .prompt { color: var(--cyan); opacity: 0.5; }
+        .nav-install .flag { color: var(--orange); }
+
+        .nav-about {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-tertiary);
+            font-size: 0.75rem;
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .nav-about:hover {
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .nav-install { position: relative; }
+        .nav-install-copied {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--green);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 500;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .nav-install.copied .nav-install-text { visibility: hidden; }
+        .nav-install.copied .nav-install-copied { opacity: 1; }
+        .nav-install.copied { background: rgba(110, 192, 122, 0.06); }
 
         /* ==================== HERO ==================== */
         .hero {
@@ -166,7 +239,6 @@
             color: var(--text-secondary);
             margin-bottom: 2.5rem;
             letter-spacing: 0.06em;
-            font-style: italic;
             opacity: 0;
             animation: fadeInUp 0.8s ease forwards 0.4s;
         }
@@ -184,10 +256,13 @@
 
         .hero-ctas {
             display: flex;
-            gap: 1rem;
-            align-items: center;
+            gap: 0;
+            align-items: stretch;
             opacity: 0;
             animation: fadeInUp 0.8s ease forwards 0.8s;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(91, 163, 208, 0.25);
         }
 
         .cta-button {
@@ -208,6 +283,7 @@
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             text-decoration: none;
+            white-space: nowrap;
         }
 
         .cta-button:hover {
@@ -217,8 +293,143 @@
             box-shadow: 0 8px 32px rgba(91, 163, 208, 0.2);
         }
 
+        .hero-ctas .cta-button {
+            border: none;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 0;
+            padding: 0.875rem 1.75rem;
+        }
+
+        .hero-ctas .cta-button:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
         .cta-button .arrow { transition: transform 0.25s ease; }
         .cta-button:hover .arrow { transform: translateX(3px); }
+
+        .hero-ctas:hover {
+            border-color: rgba(91, 163, 208, 0.5);
+            box-shadow: 0 8px 32px rgba(91, 163, 208, 0.12);
+        }
+
+        .hero-install-inline {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0 0.5rem 0 1.25rem;
+            background: rgba(0, 0, 0, 0.25);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .hero-install-inline:hover {
+            background: rgba(0, 0, 0, 0.35);
+            color: var(--text-primary);
+        }
+
+        .hero-install-inline .prompt { color: var(--cyan); opacity: 0.5; }
+        .hero-install-inline .cmd { color: var(--text-secondary); }
+        .hero-install-inline .flag { color: var(--orange); }
+        .hero-install-inline:hover .cmd { color: var(--text-primary); }
+
+        .hero-install-inline .install-copy-btn {
+            font-size: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .hero-install-inline .install-copy-btn::before {
+            content: '';
+            width: 13px;
+            height: 13px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(240,240,240,0.4)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2' ry='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+            background-size: contain;
+            background-repeat: no-repeat;
+        }
+
+        .hero-install-inline .install-copy-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .hero-install-inline .install-copy-btn:hover::before {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(240,240,240,0.8)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2' ry='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+        }
+
+        .hero-install-inline .install-copy-btn.copied {
+            font-size: 0.6rem;
+            width: auto;
+            padding: 0 0.5rem;
+            color: var(--green);
+            border-color: rgba(110, 192, 122, 0.25);
+            background: rgba(110, 192, 122, 0.08);
+        }
+
+        .hero-install-inline .install-copy-btn.copied::before {
+            display: none;
+        }
+
+        .hero-scroll-hint {
+            position: absolute;
+            bottom: 2.5rem;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            opacity: 0;
+            animation: fadeIn 0.8s ease forwards 1.2s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .hero-scroll-hint:hover {
+            opacity: 1 !important;
+        }
+
+        .hero-scroll-hint span {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            letter-spacing: 0.08em;
+            font-weight: 400;
+        }
+
+        .hero-scroll-hint .chevron-wrap {
+            animation: bounceDown 2s ease infinite;
+        }
+
+        .hero-scroll-hint .chevron-down {
+            width: 16px;
+            height: 16px;
+            border-left: 1.5px solid var(--text-secondary);
+            border-bottom: 1.5px solid var(--text-secondary);
+            transform: rotate(-45deg);
+        }
+
+        @keyframes bounceDown {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(6px); }
+        }
 
         .cta-secondary {
             display: inline-flex;
@@ -247,7 +458,7 @@
         .feature-pills {
             display: flex;
             gap: 0.75rem;
-            margin-top: 4rem;
+            margin-top: 2.5rem;
             flex-wrap: wrap;
             justify-content: center;
             opacity: 0;
@@ -1266,8 +1477,75 @@
         /* ==================== GET STARTED ==================== */
         .get-started-section {
             padding: 6rem 2rem 4rem;
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
+        }
+
+        .access-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1px;
+            margin-top: 2.5rem;
+            background: var(--border-subtle);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .access-card {
+            background: var(--bg-deep);
+            padding: 2.5rem 2rem;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .access-card-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+        }
+
+        .access-card-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.5rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.01em;
+        }
+
+        .access-card-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            margin-bottom: 1.5rem;
+            flex-grow: 1;
+        }
+
+        .access-card .cta-button {
+            align-self: flex-start;
+            padding: 0.625rem 1.5rem;
+            font-size: 0.8125rem;
+        }
+
+        .access-card .install-command {
+            padding: 0.75rem 1rem;
+            font-size: 0.8125rem;
+            border-radius: 8px;
+        }
+
+        .access-card .install-hint {
+            text-align: left;
+            font-size: 0.7rem;
+            margin-top: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .access-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .install-block {
@@ -1610,6 +1888,7 @@
             }
 
             .nav-link { display: none; }
+            .nav-install { display: none; }
 
             .hero {
                 padding: 5rem 1.5rem 3rem;
@@ -1617,6 +1896,22 @@
 
             .hero-ctas {
                 flex-direction: column;
+                border-radius: 12px;
+            }
+
+            .hero-ctas .cta-button {
+                border-right: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                justify-content: center;
+            }
+
+            .hero-install-inline {
+                padding: 0.75rem 1rem;
+                justify-content: space-between;
+            }
+
+            .hero-scroll-hint {
+                bottom: 1.5rem;
             }
 
             .pillars-section,
@@ -1672,9 +1967,15 @@
             <div class="logo">Astro</div>
             <div class="nav-links">
                 <button class="nav-link" onclick="document.querySelector('.pillars-section').scrollIntoView({behavior:'smooth'})">How It Works</button>
-                <button class="nav-link" onclick="document.querySelector('.personas-section').scrollIntoView({behavior:'smooth'})">Design</button>
-                <a href="/landing/about" class="nav-link">About</a>
-                <a class="nav-cta" href="/login">Get Started</a>
+                <button class="nav-link" onclick="document.querySelector('.personas-section').scrollIntoView({behavior:'smooth'})">What It Can Do</button>
+                <button class="nav-link" onclick="document.querySelector('#get-started').scrollIntoView({behavior:'smooth'})">Launch Sequence</button>
+                <div class="nav-cta-group">
+                    <a class="nav-cta" href="/login">Get Started</a>
+                    <div class="nav-install" onclick="navigator.clipboard.writeText('npx @astro/agent launch');this.classList.add('copied');var el=this;setTimeout(function(){el.classList.remove('copied')},1500)">
+                        <span class="nav-install-text"><span class="prompt">$</span> npx @astro/agent <span class="flag">launch</span></span>
+                        <span class="nav-install-copied">Copied!</span>
+                    </div>
+                </div>
             </div>
         </nav>
 
@@ -1683,23 +1984,39 @@
             <h1 class="hero-title">Astro</h1>
             <p class="hero-subtitle">Mission control for the AI age</p>
             <p class="hero-description">
-                Plan complex goals as dependency graphs. Execute across every environment.
-                Make the decisions that matter, from anywhere.
+                Apollo missions aren't run from chat windows. Astro turns ambitious goals into coordinated
+                missions&mdash;parallel workstreams across every environment, strategic decisions at every branch,
+                from anywhere, by humans and agents.
             </p>
             <div class="hero-ctas">
                 <a class="cta-button" href="/login">
                     <span>Get Started</span>
                     <span class="arrow">&rarr;</span>
                 </a>
-                <button class="cta-secondary" onclick="document.querySelector('.showcase-section').scrollIntoView({behavior:'smooth'})">
-                    <span>See How It Works</span>
-                </button>
+                <div class="hero-install-inline" onclick="navigator.clipboard.writeText('npx @astro/agent launch');var btn=this.querySelector('.install-copy-btn');btn.classList.add('copied');btn.textContent='Copied!';setTimeout(function(){btn.classList.remove('copied');btn.textContent=''},2000)">
+                    <span><span class="prompt">$</span> <span class="cmd">npx @astro/agent</span> <span class="flag">launch</span></span>
+                    <span class="install-copy-btn"></span>
+                </div>
+            </div>
+            <div class="hero-scroll-hint" onclick="document.querySelector('.showcase-section').scrollIntoView({behavior:'smooth'})">
+                <span>See how it works</span>
+                <div class="chevron-wrap"><div class="chevron-down"></div></div>
             </div>
             <div class="feature-pills">
-                <div class="pill">Plan the Work</div>
-                <div class="pill">Execute in Parallel</div>
-                <div class="pill">Decide Anywhere</div>
+                <div class="pill">Plan the work</div>
+                <div class="pill">Execute in parallel</div>
+                <div class="pill">Decide anywhere</div>
                 <div class="pill">For human & agent</div>
+            </div>
+        </section>
+
+        <!-- ==================== MISSION ==================== -->
+        <section class="mission-section fade-section">
+            <div class="mission-content">
+                <div class="section-label" style="text-align:center; margin-bottom: 2rem;">Our Mission</div>
+                <p class="mission-statement">
+                    <strong class="mission-highlight">Apollo wasn't launched from a chat window.</strong> Complex missions need structure&mdash;dependency graphs, parallel execution, real-time monitoring, and decisive intervention at the moments that matter. Astro is mission control for long-horizon work: plan the goal, dispatch across every environment, and focus attention where it counts. <strong class="mission-highlight">For humans and agents. Same interface. Every scale.</strong>
+                </p>
             </div>
         </section>
 
@@ -2288,7 +2605,7 @@
                         </svg>
                     </div>
                     <div class="bento-number">01</div>
-                    <h3 class="bento-title">Plan the Work</h3>
+                    <h3 class="bento-title">Plan the work</h3>
                     <p class="bento-text">
                         Decompose goals into a dependency graph — not a flat list. See what runs in parallel and what must wait.
                     </p>
@@ -2875,7 +3192,7 @@
                         </svg>
                     </div>
                     <div class="bento-number">03</div>
-                    <h3 class="bento-title">Decide Anywhere</h3>
+                    <h3 class="bento-title">Decide anywhere</h3>
                     <p class="bento-text">
                         Strategic decisions from any device. Approve, pivot, or prune branches without touching a terminal.
                     </p>
@@ -2915,7 +3232,7 @@
         <!-- ==================== A WORKFLOW FOR EVERYONE ==================== -->
         <section class="personas-section fade-section section-divider">
             <div class="section-header">
-                <div class="section-label">For Everyone</div>
+                <div class="section-label">What It Can Do</div>
                 <h2 class="section-title">One platform. Every workflow.</h2>
                 <p class="section-description">
                     Same entry point, different journeys. Describe your goal, point at a directory, and Astro adapts to your workflow.
@@ -3020,7 +3337,7 @@
                         </div>
                     </div>
                     <ol class="persona-steps">
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">1</span><span class="persona-step-text">Use 15 MCP tools to query and update plans</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">1</span><span class="persona-step-text">Use CLI tools to query and update plans</span></li>
                         <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">2</span><span class="persona-step-text">Create sub-tasks and new dependencies</span></li>
                         <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">3</span><span class="persona-step-text">Coordinate with other agents via the graph</span></li>
                         <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">4</span><span class="persona-step-text">Ask humans only when it truly matters</span></li>
@@ -3088,73 +3405,49 @@
         <section class="stats-section fade-section section-divider">
             <div class="stats-row">
                 <div class="stat-item stagger-child" style="transition-delay: 0.1s">
-                    <div class="stat-number"><span class="counter" data-target="5">0</span></div>
-                    <div class="stat-label">Environments supported</div>
+                    <div class="stat-number"><span class="counter" data-target="15">0</span></div>
+                    <div class="stat-label">Planned CLI tools for agents</div>
                 </div>
                 <div class="stat-item stagger-child" style="transition-delay: 0.2s">
-                    <div class="stat-number"><span class="counter" data-target="15">0</span></div>
-                    <div class="stat-label">MCP tools for agents</div>
-                </div>
-                <div class="stat-item stagger-child" style="transition-delay: 0.3s">
                     <div class="stat-number">Real-time</div>
                     <div class="stat-label">Task streaming</div>
                 </div>
-                <div class="stat-item stagger-child" style="transition-delay: 0.4s">
-                    <div class="stat-number">Branch</div>
-                    <div class="stat-label">Per-task isolation</div>
+                <div class="stat-item stagger-child" style="transition-delay: 0.3s">
+                    <div class="stat-number">Worktree</div>
+                    <div class="stat-label">Task isolation</div>
                 </div>
             </div>
         </section>
 
-        <!-- ==================== MISSION ==================== -->
-        <section class="mission-section fade-section section-divider">
-            <div class="mission-content">
-                <div class="section-label" style="text-align:center; margin-bottom: 2rem;">Our Mission</div>
-                <p class="mission-statement">
-                    <strong class="mission-highlight">Apollo wasn't launched from a chat window.</strong> Complex missions need structure&mdash;dependency graphs, parallel execution, real-time monitoring, and decisive intervention at the moments that matter. Astro is mission control for long-horizon work: plan the goal, dispatch across every environment, and focus attention where it counts. <strong class="mission-highlight">Same interface. Every scale.</strong>
-                </p>
-            </div>
-        </section>
-
-        <!-- Why Astro -->
-        <section class="why-link-section fade-section">
-            <a href="/landing/about" class="why-link">ABOUT &rarr;</a>
-        </section>
-
-        <!-- ==================== GET STARTED ==================== -->
         <!-- ==================== GET ACCESS ==================== -->
         <section id="get-started" class="get-started-section fade-section section-divider">
             <div class="section-header">
-                <div class="section-label">Get Access</div>
-                <h2 class="section-title">Start Building</h2>
-                <p class="section-description">
-                    Sign in to create projects, dispatch tasks, and monitor your agents from anywhere.
-                </p>
+                <div class="section-label">Launch Sequence</div>
             </div>
 
-            <div style="text-align: center; margin: 2rem 0 3rem;">
-                <a href="/login" class="cta-button" style="display: inline-flex; text-decoration: none;">
-                    <span>Sign In</span>
-                    <span class="arrow">&rarr;</span>
-                </a>
-            </div>
-
-        <!-- ==================== QUICK START ==================== -->
-            <div class="section-header" style="margin-top: 4rem;">
-                <div class="section-label">Quick Start</div>
-                <h2 class="section-title">Connect All Your Machines</h2>
-                <p class="section-description">
-                    One command discovers your SSH hosts, authenticates, and starts agents everywhere. No global install, no config files.
-                </p>
-            </div>
-
-            <div class="install-block">
-                <div class="install-command" onclick="navigator.clipboard.writeText('npx @astro/agent launch');this.querySelector('.install-copy').textContent='Copied!'">
-                    <span><span class="prompt">$</span> <span class="cmd">npx @astro/agent</span> <span class="flag">launch</span></span>
-                    <span class="install-copy">Copy</span>
+            <div class="access-grid">
+                <div class="access-card">
+                    <div class="access-card-num">01</div>
+                    <div class="access-card-title">Start planning in Mission Control</div>
+                    <div class="access-card-desc">Create projects, decompose goals into plans, and monitor your agents from anywhere.</div>
+                    <a href="/login" class="cta-button" style="text-decoration: none;">
+                        <span>Open Mission Control</span>
+                        <span class="arrow">&rarr;</span>
+                    </a>
                 </div>
-                <p class="install-hint">Requires Node.js 18+. Runs setup + connect in one step.</p>
+                <div class="access-card">
+                    <div class="access-card-num">02</div>
+                    <div class="access-card-title">Connect all your machines</div>
+                    <div class="access-card-desc">One command discovers your SSH hosts, authenticates via your browser, creates your account, and starts agents everywhere.</div>
+                    <div class="install-command" onclick="navigator.clipboard.writeText('npx @astro/agent launch');this.querySelector('.install-copy').textContent='Copied!'">
+                        <span><span class="prompt">$</span> <span class="cmd">npx @astro/agent</span> <span class="flag">launch</span></span>
+                        <span class="install-copy">Copy</span>
+                    </div>
+                    <p class="install-hint">Requires Node.js 18+. No global install.</p>
+                </div>
             </div>
+
+            <div style="text-align: center; margin-top: 3rem; margin-bottom: 0.5rem; font-size: 0.75rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace;">The launch includes</div>
 
             <div class="install-steps">
                 <div class="install-step">
@@ -3174,8 +3467,8 @@
                 <div class="install-step">
                     <span class="install-step-num">03</span>
                     <div class="install-step-content">
-                        <div class="install-step-title">Authenticates via device code</div>
-                        <div class="install-step-desc">Opens a browser link. Approve the code and your machine is registered to your Astro account.</div>
+                        <div class="install-step-title">Authenticates and creates your account</div>
+                        <div class="install-step-desc">Opens your browser directly. Approve the device code to sign in or create your Astro account in one step.</div>
                     </div>
                 </div>
                 <div class="install-step">
@@ -3266,7 +3559,7 @@
 
         <!-- Footer -->
         <footer class="footer-bottom">
-            <p>&copy; 2026 Astro</p>
+            <p><a href="/landing/about" style="color: var(--text-tertiary); text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.1); transition: color 0.2s;">About</a> &nbsp;&middot;&nbsp; &copy; 2026 Astro</p>
         </footer>
     </div>
 
