@@ -175,6 +175,7 @@ export function ProjectNew() {
           targetMachineId: selectedMachine?.machineId || undefined,
         })
 
+        const resolvedWorkDir = repoResult?.workingDirectory || workingDir.trim()
         if (repoResult?.workingDirectory) {
           startGeneration(id, projectName, description.trim(), undefined, {
             workingDirectory: repoResult.workingDirectory,
@@ -182,8 +183,14 @@ export function ProjectNew() {
             keyFiles: repoResult.keyFiles,
             targetMachineId: selectedMachine?.machineId,
           })
+        } else if (resolvedWorkDir) {
+          console.warn('[project-new] Repo setup returned null, generating with user-provided directory')
+          startGeneration(id, projectName, description.trim(), undefined, {
+            workingDirectory: resolvedWorkDir,
+            targetMachineId: selectedMachine?.machineId,
+          })
         } else {
-          console.warn('[project-new] Repo setup returned null, generating without working directory')
+          console.warn('[project-new] No working directory available, generating without repo context')
           setRepoSetupError('Repository setup returned incomplete data')
           startGeneration(id, projectName, description.trim())
         }
@@ -200,7 +207,11 @@ export function ProjectNew() {
           )
         }
 
-        startGeneration(id, projectName, description.trim())
+        const fallbackDir = workingDir.trim()
+        startGeneration(id, projectName, description.trim(), undefined, fallbackDir ? {
+          workingDirectory: fallbackDir,
+          targetMachineId: selectedMachine?.machineId,
+        } : undefined)
       } finally {
         setIsSubmitting(false)
       }

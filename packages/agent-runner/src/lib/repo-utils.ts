@@ -208,7 +208,18 @@ export function localRepoSetup(options: {
 
   if (workingDirectory) {
     if (!existsSync(workingDirectory)) {
-      return { success: false, error: `Directory does not exist: ${workingDirectory}` };
+      // Directory doesn't exist — create it (non-git, direct mode)
+      try {
+        mkdirSync(workingDirectory, { recursive: true });
+      } catch (mkdirError) {
+        return { success: false, error: `Failed to create directory: ${mkdirError instanceof Error ? mkdirError.message : String(mkdirError)}` };
+      }
+      return {
+        success: true,
+        workingDirectory,
+        fileTree: [],
+        needsGitInit: true,
+      };
     }
 
     if (isGitRepo(workingDirectory)) {
@@ -224,12 +235,14 @@ export function localRepoSetup(options: {
       };
     }
 
-    // Not a git repo
+    // Not a git repo — direct mode (per WORKSPACE_V2)
+    const keyFiles = readKeyFiles(workingDirectory);
     return {
       success: true,
       workingDirectory,
       fileTree: [],
       needsGitInit: true,
+      keyFiles,
     };
   }
 

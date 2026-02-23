@@ -279,6 +279,11 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     log('debug', `File list request for path: ${path || '(cwd)'}`, logLevel);
     try {
       const cwd = path || process.cwd();
+      if (!existsSync(cwd)) {
+        log('debug', `Directory does not exist: ${cwd}`, logLevel);
+        wsClient.sendFileListResponse(correlationId, []);
+        return;
+      }
       const output = execFileSync('git', ['ls-files'], {
         cwd,
         encoding: 'utf-8',
@@ -289,7 +294,7 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
       wsClient.sendFileListResponse(correlationId, files);
       log('debug', `Sent ${files.length} files for path: ${cwd}`, logLevel);
     } catch (error) {
-      log('warn', `Failed to list files: ${error instanceof Error ? error.message : String(error)}`, logLevel);
+      log('warn', `Failed to list files in ${path}: ${error instanceof Error ? error.message : String(error)}`, logLevel);
       wsClient.sendFileListResponse(correlationId, []);
     }
   };
