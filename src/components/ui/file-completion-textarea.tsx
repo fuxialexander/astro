@@ -44,7 +44,8 @@ interface FileCompletionTextareaProps {
 }
 
 interface DropdownPosition {
-  top: number
+  top?: number
+  bottom?: number
   left: number
   width: number
 }
@@ -124,8 +125,15 @@ export function FileCompletionTextarea({
     const maxDropdownHeight = hasMentionItems ? 280 : 240
     const spaceBelow = window.innerHeight - rect.bottom
     const showAbove = spaceBelow < maxDropdownHeight + 8
+    if (showAbove) {
+      return {
+        bottom: window.innerHeight - rect.top + 4,
+        left: rect.left,
+        width: Math.max(rect.width, opts?.minWidth ?? 0),
+      }
+    }
     return {
-      top: showAbove ? rect.top - maxDropdownHeight - 4 : rect.bottom + 4,
+      top: rect.bottom + 4,
       left: rect.left,
       width: Math.max(rect.width, opts?.minWidth ?? 0),
     }
@@ -540,6 +548,7 @@ export function FileCompletionTextarea({
             style={{
               position: "fixed",
               top: dropdownPos.top,
+              bottom: dropdownPos.bottom,
               left: dropdownPos.left,
               width: dropdownPos.width,
             }}
@@ -622,6 +631,7 @@ export function FileCompletionTextarea({
             style={{
               position: "fixed",
               top: slashDropdownPos.top,
+              bottom: slashDropdownPos.bottom,
               left: slashDropdownPos.left,
               width: slashDropdownPos.width,
             }}
