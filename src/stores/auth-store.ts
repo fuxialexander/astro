@@ -3,6 +3,7 @@ import type { Session, User } from "@supabase/supabase-js"
 import { getSupabase } from "@/lib/supabase-client"
 import { isLocalMode } from "@/lib/app-mode"
 import { setupRealtimeSync, teardownRealtimeSync } from "@/lib/realtime-sync"
+import { apiUrl } from "@/lib/api-url"
 
 interface AuthState {
   session: Session | null
@@ -71,7 +72,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     // Listen for auth changes (single listener, cleaned up on re-initialize)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       set({
         session,
         user: session?.user ?? null,
@@ -80,6 +81,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Setup/teardown realtime sync based on auth state
       if (session) {
         setupRealtimeSync()
+
+        // For OAuth sign-ins, ensure user profile + personal team exist.
+        // This is idempotent and safe to call on every sign-in.
+        if (event === 'SIGNED_IN' && session.user?.app_metadata?.provider !== 'email') {
+          fetch(apiUrl('/api/auth/ensure-profile'), {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: session.user.user_metadata?.full_name || session.user.user_metadata?.name,
+              avatarUrl: session.user.user_metadata?.avatar_url,
+            }),
+          }).catch((err) => {
+            console.warn('[auth] ensure-profile call failed (non-fatal):', err)
+          })
+        }
       } else {
         teardownRealtimeSync()
       }

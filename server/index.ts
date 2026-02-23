@@ -166,9 +166,11 @@ export function createApp() {
   app.route('/api/observations', observationsRoute)
   app.route('/api/teams', teamsRoute)
 
+  // Auth routes are always mounted (endpoints guard themselves with isLocalMode())
+  app.route('/api/auth', authRoute)
+
   // Server-only routes (require Supabase Auth)
   if (!isIndexedDBMode()) {
-    app.route('/api/auth', authRoute)
     app.route('/api/notifications', notificationsRoute)
     app.route('/api/github', githubRoute)
     app.route('/api/share', shareRoute)

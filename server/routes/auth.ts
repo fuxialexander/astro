@@ -26,6 +26,7 @@ import { isLocalMode } from '../lib/app-mode.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { ensureUserProfile } from '../lib/ensure-user-profile.js'
 import { storeChallenge, getAndDeleteChallenge } from '../lib/challenge-store.js'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
 const authRoute = new Hono()
 
@@ -738,6 +739,201 @@ authRoute.delete('/delete-account', async (c) => {
       error: 'Failed to delete account',
       details: err instanceof Error ? err.message : String(err)
     }, 500)
+  }
+})
+
+/**
+ * POST /api/auth/ensure-profile
+ *
+ * Ensure user profile and personal team exist after OAuth login.
+ * Called by the frontend on every SIGNED_IN event for OAuth users.
+ * Idempotent — safe to call on every login.
+ */
+authRoute.post('/ensure-profile', requireAuth, async (c) => {
+  if (isLocalMode()) {
+    return c.json({ ok: true, mode: 'local' })
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const body = await c.req.json<{ name?: string; avatarUrl?: string }>().catch(() => ({}))
+
+    const supabase = getServiceClient()
+
+    // Ensure user_profiles row exists
+    const profile = await ensureUserProfile(supabase, user.id)
+    if (!profile) {
+      return c.json({ error: 'Failed to ensure user profile' }, 500)
+    }
+
+    // Update name/avatar if provided and profile has placeholder values
+    const updates: Record<string, string> = {}
+    if (body.name && (!profile.name || profile.name.includes('@'))) {
+      updates.name = body.name
+    }
+    if (body.avatarUrl) {
+      updates.avatarUrl = body.avatarUrl
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await supabase
+        .from('user_profiles')
+        .update(updates)
+        .eq('id', user.id)
+    }
+
+    // Auto-create personal team if user has none
+    const { db } = await import('../lib/db/index.js')
+    const { teams, teamMembers } = await import('../lib/db/schema.js')
+    const { eq } = await import('drizzle-orm')
+
+    const memberships = await db.select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, user.id))
+
+    let teamId: string | null = null
+    if (memberships.length === 0) {
+      const teamName = `${body.name || profile.name || profile.email}'s workspace`
+      const [team] = await db.insert(teams).values({
+        name: teamName,
+        description: 'Personal workspace',
+      }).returning()
+      await db.insert(teamMembers).values({
+        teamId: team.id,
+        userId: user.id,
+        role: 'owner',
+      })
+      teamId = team.id
+      console.log('[auth] Created personal team for OAuth user:', user.id, 'team:', team.id)
+    } else {
+      teamId = memberships[0].teamId
+    }
+
+    return c.json({
+      ok: true,
+      profile: {
+        id: user.id,
+        name: updates.name || profile.name,
+        email: profile.email,
+      },
+      teamId,
+    })
+  } catch (err) {
+    console.error('[auth] ensure-profile error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
+  }
+})
+
+/**
+ * POST /api/auth/webauthn/add-passkey
+ *
+ * Add a passkey to an existing authenticated account.
+ * Same WebAuthn registration ceremony, but skips createUser().
+ * Requires an authenticated session (any method).
+ */
+authRoute.post('/webauthn/add-passkey', requireAuth, async (c) => {
+  if (isLocalMode()) {
+    return c.json({ error: 'Supabase not configured' }, 503)
+  }
+
+  try {
+    const user = c.get('user') as AuthUser
+    const { action, credential } = await c.req.json<{
+      action: 'options' | 'verify'
+      credential?: RegistrationResponseJSON
+    }>()
+
+    const supabase = getServiceClient()
+
+    if (action === 'options') {
+      // Get existing credentials to exclude
+      const { data: existingCreds } = await supabase
+        .from('passkey_credentials')
+        .select('id, transports')
+        .eq('user_id', user.id)
+
+      const excludeCredentials = (existingCreds || []).map((cred) => ({
+        id: cred.id,
+        transports: cred.transports as AuthenticatorTransport[] | undefined,
+      }))
+
+      // Get user profile for display name
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('name, email')
+        .eq('id', user.id)
+        .single()
+
+      const options = await generateRegistrationOptions({
+        rpName: RP_NAME,
+        rpID: RP_ID,
+        userName: profile?.email || user.email || '',
+        userDisplayName: profile?.name || user.email || '',
+        userID: new TextEncoder().encode(user.id),
+        attestationType: 'none',
+        excludeCredentials: excludeCredentials.map((c) => ({
+          id: c.id,
+          transports: c.transports as AuthenticatorTransport[] | undefined,
+        })),
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          residentKey: 'preferred',
+          userVerification: 'required',
+        },
+      })
+
+      await storeChallenge(`add-passkey:${user.id}`, options.challenge)
+
+      return c.json({ options })
+    }
+
+    if (action === 'verify') {
+      if (!credential) {
+        return c.json({ error: 'Credential is required for verify action' }, 400)
+      }
+
+      const expectedChallenge = await getAndDeleteChallenge(`add-passkey:${user.id}`)
+      if (!expectedChallenge) {
+        return c.json({ error: 'Challenge expired or not found' }, 400)
+      }
+
+      const verification = await verifyRegistrationResponse({
+        response: credential,
+        expectedChallenge,
+        expectedOrigin: ORIGIN,
+        expectedRPID: RP_ID,
+      })
+
+      if (!verification.verified || !verification.registrationInfo) {
+        return c.json({ error: 'Verification failed' }, 400)
+      }
+
+      const { credential: regCredential, credentialDeviceType } = verification.registrationInfo
+
+      // Store passkey credential
+      const { error: credError } = await supabase.from('passkey_credentials').insert({
+        id: regCredential.id,
+        user_id: user.id,
+        public_key: Buffer.from(regCredential.publicKey).toString('base64'),
+        counter: regCredential.counter,
+        transports: credential.response.transports?.filter((t: string) => t !== 'hybrid'),
+        device_name: credentialDeviceType || 'passkey',
+      })
+
+      if (credError) {
+        console.error('[auth] Failed to store add-passkey credential:', credError)
+        return c.json({ error: 'Failed to store credential' }, 500)
+      }
+
+      console.log('[auth] Added passkey to existing account:', user.id)
+
+      return c.json({ verified: true })
+    }
+
+    return c.json({ error: 'Invalid action. Must be "options" or "verify".' }, 400)
+  } catch (err) {
+    console.error('[auth] add-passkey error:', err)
+    return c.json({ error: errorMessage(err) }, 500)
   }
 })
 
