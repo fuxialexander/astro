@@ -1,5 +1,7 @@
 # Tauri Desktop App Vision
 
+> **See also:** [PACKAGE_ARCHITECTURE.md](./PACKAGE_ARCHITECTURE.md) for the full monorepo package structure (`@astro/core`, `@astro/cli`, `server/`, `@astro/agent-runner`, Tauri desktop) and how they compose across deployment scenarios.
+
 ## Motivation
 
 The current Astro architecture has a fundamental filesystem gap:
@@ -97,6 +99,267 @@ A Tauri app doesn't force a choice between local and server mode — it supports
 - Connected mode + Supabase RLS for data isolation
 - Real-time collaboration via Supabase Realtime
 - Shared projects with team permissions
+
+## Communication Architecture
+
+### Overview: Web vs Tauri
+
+The fundamental difference is **where the orchestration layer runs**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          WEB MODE (current)                             │
+│                                                                         │
+│  User's Browser              Cloud (Fly.io)            User's Machine   │
+│  ┌──────────┐    HTTPS     ┌──────────────┐    WS    ┌─────────────┐  │
+│  │  React   │─────────────▶│  Hono API    │────────▶ │ Agent Runner│  │
+│  │  App     │◀─────────────│  + Relay     │◀────────│  (CLI)      │  │
+│  └──────────┘    SSE       └──────┬───────┘         └──────┬──────┘  │
+│                                   │ HTTPS                   │ fs      │
+│                            ┌──────▼───────┐         ┌──────▼──────┐  │
+│                            │ Claude API   │         │ Filesystem  │  │
+│                            │ Supabase     │         │ Git, Skills │  │
+│                            └──────────────┘         └─────────────┘  │
+│                                                                         │
+│  Orchestration: Cloud          Data: Cloud + Machine        UI: Browser │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         TAURI MODE (proposed)                           │
+│                                                                         │
+│  ┌────────────────────────────────────────────────┐     Optional Cloud  │
+│  │  Tauri App (user's machine)                    │    ┌─────────────┐ │
+│  │  ┌──────────┐                                  │    │ Supabase    │ │
+│  │  │  React   │    IPC (in-process, ~0ms)        │───▶│ (sync)      │ │
+│  │  │  Webview │◀─────────────────────────┐       │    └─────────────┘ │
+│  │  └──────────┘                          │       │    ┌─────────────┐ │
+│  │  ┌─────────────────────────────────────┴──┐    │───▶│ Relay       │ │
+│  │  │  Rust Backend                          │    │    │ (remote     │ │
+│  │  │  ├── PGlite (embedded Postgres)        │    │    │  machines)  │ │
+│  │  │  ├── Agent Runner (embedded)           │    │    └─────────────┘ │
+│  │  │  ├── Filesystem (direct)               │    │    ┌─────────────┐ │
+│  │  │  └── Claude SDK (direct API calls) ────│────│───▶│ Claude API  │ │
+│  │  └────────────────────────────────────────┘    │    └─────────────┘ │
+│  └────────────────────────────────────────────────┘                     │
+│                                                                         │
+│  Orchestration: Local          Data: Local + Sync       UI: Local       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow Comparison by Operation
+
+#### 1. Plan Generation (User → AI → Plan Graph)
+
+```
+WEB:
+  Browser                    Fly.io                      Anthropic
+  ┌──────┐   POST /agent   ┌──────┐   POST /messages   ┌───────┐
+  │React │──────────────── ▶│ Hono │───────────────────▶│Claude │
+  │      │◀════════════════│      │◀═══════════════════│  API  │
+  └──────┘   SSE stream    └──────┘   SSE stream       └───────┘
+
+  Latency: Browser → Fly.io (50-200ms) + Fly.io → Anthropic (varies)
+  Failure points: 2 network hops, SSE proxy through Cloudflare
+
+TAURI:
+  ┌──────────────────────────────┐                      Anthropic
+  │ Tauri App                    │   POST /messages     ┌───────┐
+  │ Webview ◀══IPC══▶ Rust ─────│──────────────────────▶│Claude │
+  │                              │◀════════════════════│  API  │
+  └──────────────────────────────┘   SSE stream        └───────┘
+
+  Latency: IPC (~0ms) + Rust → Anthropic (varies)
+  Failure points: 1 network hop, no proxy
+```
+
+#### 2. Task Execution (Dispatch → Agent → Results)
+
+```
+WEB (local machine):
+  Browser         Fly.io          Relay (3002)      Agent Runner
+  ┌──────┐ POST  ┌──────┐  WS   ┌───────┐   WS   ┌──────────┐
+  │React │──────▶│ Hono │──────▶│Relay  │───────▶│ Claude   │
+  │      │       │      │       │Server │        │ Code CLI │
+  │      │◀══════│      │◀══════│       │◀═══════│          │──▶ Filesystem
+  └──────┘ SSE   └──────┘ events└───────┘ stdout └──────────┘
+                                  + result
+
+  Latency: ~100-300ms per hop × 3 hops = 300-900ms round-trip
+  Stdout: Agent → WS → Relay → WS → Hono → SSE → Browser (3 hops)
+
+WEB (remote machine, e.g. HPC):
+  Same as above, but Relay → Agent Runner crosses the internet.
+  This path REMAINS in Tauri mode for remote dispatch.
+
+TAURI (local task):
+  ┌───────────────────────────────────────────────────┐
+  │ Tauri App                                         │
+  │                                                   │
+  │ Webview ◀══IPC══▶ Rust ──spawn──▶ Agent Runner   │
+  │                     │               │              │
+  │                     │◀══ pipe ══════╯              │
+  │                     │         stdout + result      │
+  │                     │                              │
+  │                     ├──▶ Filesystem (direct)       │
+  │                     └──▶ PGlite (save result)      │
+  └───────────────────────────────────────────────────┘
+
+  Latency: IPC (~0ms) + process spawn (~50ms)
+  Stdout: Agent → pipe → Rust → IPC → Webview (0 network hops)
+
+TAURI (remote task — e.g. HPC cluster):
+  ┌────────────────────────────┐
+  │ Tauri App                  │        Relay           Remote Machine
+  │                            │  WS   ┌───────┐  WS  ┌──────────┐
+  │ Webview ◀══IPC══▶ Rust ───│──────▶│Relay  │─────▶│ Agent    │
+  │                            │◀══════│Server │◀═════│ Runner   │
+  └────────────────────────────┘       └───────┘      └──────────┘
+
+  Latency: IPC (~0ms) + WS to relay + WS to remote
+  Note: Hono backend is bypassed entirely — Rust speaks WS directly
+```
+
+#### 3. Skill/Plugin Discovery
+
+```
+WEB (remote machine):
+  Browser         Fly.io           Relay            Agent Runner
+  ┌──────┐ GET   ┌──────┐  WS    ┌───────┐  WS   ┌──────────┐
+  │React │──────▶│ Hono │───────▶│Relay  │──────▶│ scan     │
+  │      │◀──────│      │◀───────│       │◀──────│ ~/.astro │
+  └──────┘ JSON  └──────┘        └───────┘       └──────────┘
+  Cache in Zustand (5min TTL)
+
+  Latency: 200-500ms, stale for up to 5 minutes
+
+TAURI:
+  ┌───────────────────────────────────────────┐
+  │ Tauri App                                 │
+  │                                           │
+  │ Webview ◀══IPC══▶ Rust ──▶ Filesystem    │
+  │                     │       ~/.astro/     │
+  │                     │       .astro/       │
+  │                     │       ~/.claude/    │
+  │                     │                     │
+  │                     ◀── Vec<Skill> ───────│
+  └───────────────────────────────────────────┘
+
+  Latency: <5ms, always fresh
+  No caching needed — reads are fast enough to do on every page load
+```
+
+#### 4. Data Persistence
+
+```
+WEB (local mode):
+  Browser         Hono (localhost:3001)
+  ┌──────┐ POST  ┌──────────────────┐
+  │React │──────▶│ Drizzle ORM      │
+  │      │◀──────│    ▼             │
+  └──────┘ JSON  │ PGlite (WASM)   │
+                 └──────────────────┘
+
+WEB (server mode):
+  Browser         Fly.io                Supabase
+  ┌──────┐ POST  ┌──────┐  TCP/SSL    ┌──────────┐
+  │React │──────▶│ Hono │────────────▶│ Postgres │
+  │      │◀──────│      │◀────────────│ + RLS    │
+  └──────┘ JSON  └──────┘             └──────────┘
+
+TAURI (standalone):
+  ┌───────────────────────────────────┐
+  │ Tauri App                         │
+  │                                   │
+  │ Webview ◀══IPC══▶ Rust            │
+  │                     │             │
+  │                     ▼             │
+  │                  PGlite           │
+  │                  (embedded)       │
+  └───────────────────────────────────┘
+
+  No network. Same Drizzle schema as Supabase.
+
+TAURI (connected / team):
+  ┌───────────────────────────────────┐         Supabase
+  │ Tauri App                         │  HTTPS ┌──────────┐
+  │                                   │───────▶│ Postgres │
+  │ Webview ◀══IPC══▶ Rust            │◀───────│ + RLS    │
+  │                     │             │  WS    │ Realtime │
+  │                     ▼             │        └──────────┘
+  │                  PGlite           │
+  │                  (local cache)    │
+  └───────────────────────────────────┘
+
+  Writes: PGlite first (instant) → sync to Supabase (async)
+  Reads: PGlite (instant), updated via Supabase Realtime
+  Offline: Queue writes, replay on reconnect
+```
+
+#### 5. Real-Time Collaboration
+
+```
+WEB:
+  Browser A                Supabase                Browser B
+  ┌──────┐   WS (RT)     ┌──────────┐  WS (RT)  ┌──────┐
+  │React │◀══════════════▶│ Realtime │◀══════════▶│React │
+  └──────┘                └──────────┘            └──────┘
+
+  Direct browser ↔ Supabase. Works well.
+
+TAURI (team mode):
+  Tauri App A              Supabase                Tauri App B
+  ┌────────────┐  WS (RT) ┌──────────┐  WS (RT) ┌────────────┐
+  │Rust backend│◀════════▶│ Realtime │◀════════▶│Rust backend│
+  │  ▲         │          └──────────┘          │         ▲  │
+  │  │ IPC     │                                │    IPC  │  │
+  │  ▼         │                                │         ▼  │
+  │Webview     │                                │     Webview│
+  └────────────┘                                └────────────┘
+
+  Supabase Realtime → Rust backend → IPC → React
+  Extra IPC hop vs web, but Rust can batch/debounce updates
+```
+
+### Protocol Summary
+
+| Channel | Protocol | Latency | Used For |
+|---------|----------|---------|----------|
+| Webview ↔ Rust | Tauri IPC (JSON over OS pipes) | ~0.1ms | All frontend-backend communication |
+| Rust → Claude API | HTTPS + SSE | 100-500ms | Plan generation, chat |
+| Rust → Supabase | HTTPS + WebSocket | 50-200ms | Data sync, realtime (connected/team only) |
+| Rust → Relay | WebSocket | 50-200ms | Remote machine dispatch only |
+| Rust → Filesystem | Direct syscalls | <1ms | Skills, plugins, git, file trees |
+| Rust → PGlite | In-process FFI | <1ms | All data persistence |
+| Rust → Agent Runner | Process spawn + pipes | ~50ms startup | Local task execution |
+
+### What Disappears in Tauri Mode
+
+```
+Web Mode                              Tauri Mode
+────────                              ──────────
+Browser ──HTTPS──▶ Hono               Webview ──IPC──▶ Rust      (no Hono)
+Hono ──WS──▶ Relay ──WS──▶ Runner    Rust ──spawn──▶ Runner     (no Relay for local)
+Browser ──fetch──▶ /api/skills        Rust ──fs──▶ scan dirs     (no HTTP for skills)
+Browser ──fetch──▶ /api/repo/*        Rust ──fs──▶ git commands  (no HTTP for git)
+Browser ──SSE──▶ /api/events          Rust ──IPC──▶ Webview      (no SSE)
+Agent Runner ──WS──▶ Relay (stdout)   Runner ──pipe──▶ Rust      (no WS for stdout)
+Device auth flow (register machine)   N/A — app IS the machine   (no device auth)
+```
+
+### Network Requests in Each Mode
+
+**Standalone (offline-capable):**
+- Rust → `api.anthropic.com` (Claude API only)
+- That's it. Everything else is local.
+
+**Connected (multi-device sync):**
+- Rust → `api.anthropic.com` (Claude API)
+- Rust → Supabase (data sync + realtime WebSocket)
+
+**Team (full collaboration):**
+- Rust → `api.anthropic.com` (Claude API)
+- Rust → Supabase (data sync + realtime + RLS)
+- Rust → Relay server (remote machine dispatch, if needed)
 
 ## What's Still Needed
 

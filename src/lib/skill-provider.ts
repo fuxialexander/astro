@@ -55,7 +55,7 @@ export class WebSkillProvider implements SkillProvider {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async installSkill(name: string, content: string): Promise<OpenClawSkill> {
+  async installSkill(_name: string, _content: string): Promise<OpenClawSkill> {
     // Web mode: skill installation not supported (no filesystem access)
     throw new Error('Skill installation requires the desktop app')
   }
@@ -95,19 +95,19 @@ export class TauriSkillProvider implements SkillProvider {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async installSkill(name: string, content: string): Promise<OpenClawSkill> {
+  async installSkill(_name: string, _content: string): Promise<OpenClawSkill> {
     // Will be: return invoke<OpenClawSkill>('install_skill', { name, content })
     throw new Error('Tauri skill provider not yet implemented')
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async uninstallSkill(name: string): Promise<boolean> {
+  async uninstallSkill(_name: string): Promise<boolean> {
     // Will be: return invoke<boolean>('uninstall_skill', { name })
     throw new Error('Tauri skill provider not yet implemented')
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async updateSkillConfig(name: string, config: Record<string, unknown>): Promise<boolean> {
+  async updateSkillConfig(_name: string, _config: Record<string, unknown>): Promise<boolean> {
     // Will be: return invoke<boolean>('update_skill_config', { name, config })
     throw new Error('Tauri skill provider not yet implemented')
   }

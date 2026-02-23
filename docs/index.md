@@ -24,6 +24,7 @@ The design docs in `docs/design/` are the authoritative reference for the system
 | [IMPLEMENTATION_PIPELINE](./design/IMPLEMENTATION_PIPELINE.md) | Implementation priorities and pipeline |
 | [COLLABORATION](./design/COLLABORATION.md) | Teams, public projects, content model, community review |
 | [FRONTEND_EPHEMERAL_CACHE](./design/FRONTEND_EPHEMERAL_CACHE.md) | Ephemeral auto-fetch for machine-derived metadata (file trees, skills) |
+| [PACKAGE_ARCHITECTURE](./design/PACKAGE_ARCHITECTURE.md) | Monorepo package structure: core, cli, server, agent-runner, desktop |
 | [TAURI_APP](./design/TAURI_APP.md) | Tauri desktop app vision, plugin system architecture, migration path |
 | [CURRENT_CONFLICT_VIEW](./design/CURRENT_CONFLICT_VIEW.md) | Known conflicts between design and code |
 
