@@ -7,8 +7,11 @@
  */
 
 import { Hono } from 'hono'
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { setupProjectRepo, initializeGitRepo, getFileTree } from '../lib/repo-setup.js'
 import { relayServer, type RepoSetupRelayResult } from '../lib/relay-server.js'
+import { detectRemoteType } from '../lib/git-url-utils.js'
 import { errorMessage } from '../lib/error-utils.js'
 
 const repoRoute = new Hono()
@@ -57,6 +60,114 @@ async function requestRemoteRepoSetup(
 }
 
 /**
+ * GET /api/repo/detect?path=<dir>
+ *
+ * Lightweight, read-only probe that returns detection info about a directory.
+ * Does NOT modify anything — purely diagnostic. Used for inline detection
+ * feedback as the user types a directory path in the project creation form.
+ *
+ * Response: { exists, isGit, remoteUrl?, remoteType, baseBranch?, suggestedDeliveryMode }
+ */
+repoRoute.get('/detect', async (c) => {
+  const dirPath = c.req.query('path')
+
+  if (!dirPath) {
+    return c.json({ error: 'path query parameter is required' }, 400)
+  }
+
+  try {
+    const exists = existsSync(dirPath)
+    if (!exists) {
+      return c.json({
+        exists: false,
+        isGit: false,
+        remoteType: 'none' as const,
+        suggestedDeliveryMode: 'branch' as const,
+      })
+    }
+
+    // Check if it's a git repo
+    let isGit = false
+    try {
+      execFileSync('git', ['-C', dirPath, 'rev-parse', '--is-inside-work-tree'], {
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: 'pipe',
+      })
+      isGit = true
+    } catch {
+      // Not a git repo
+    }
+
+    if (!isGit) {
+      return c.json({
+        exists: true,
+        isGit: false,
+        remoteType: 'none' as const,
+        suggestedDeliveryMode: 'direct' as const,
+      })
+    }
+
+    // Get remote URL
+    let remoteUrl: string | undefined
+    try {
+      const url = execFileSync('git', ['-C', dirPath, 'remote', 'get-url', 'origin'], {
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: 'pipe',
+      }).trim()
+      if (url) remoteUrl = url
+    } catch {
+      // No remote
+    }
+
+    // Get default branch
+    let baseBranch = 'main'
+    try {
+      const branch = execFileSync('git', ['-C', dirPath, 'symbolic-ref', '--short', 'HEAD'], {
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: 'pipe',
+      }).trim()
+      if (branch) baseBranch = branch
+    } catch {
+      // Default to 'main'
+    }
+
+    // Detect remote type and derive delivery mode
+    const remoteType = detectRemoteType(remoteUrl)
+    let suggestedDeliveryMode: 'pr' | 'push' | 'branch' | 'direct' = 'branch'
+    switch (remoteType) {
+      case 'github':
+      case 'gitlab':
+      case 'bitbucket':
+        suggestedDeliveryMode = 'pr'
+        break
+      case 'generic':
+        suggestedDeliveryMode = 'push'
+        break
+      case 'none':
+      default:
+        suggestedDeliveryMode = 'branch'
+        break
+    }
+
+    return c.json({
+      exists: true,
+      isGit: true,
+      remoteUrl,
+      remoteType,
+      baseBranch,
+      suggestedDeliveryMode,
+    })
+  } catch (error) {
+    const message = errorMessage(error)
+    console.error('[repo] Detect failed:', message)
+    return c.json({ error: `Detection failed: ${message}` }, 500)
+  }
+})
+
+/**
  * POST /api/repo/setup
  *
  * Main endpoint called during project creation to set up a git-backed directory.
@@ -72,10 +183,11 @@ repoRoute.post('/setup', async (c) => {
     projectDescription?: string
     workingDirectory?: string
     repository?: string
+    referenceUrls?: string[]
     targetMachineId?: string
   }>()
 
-  const { projectId, projectName, projectDescription, workingDirectory, repository, targetMachineId } = body
+  const { projectId, projectName, projectDescription, workingDirectory, repository, referenceUrls, targetMachineId } = body
 
   if (!projectId || !projectName) {
     return c.json({ error: 'projectId and projectName are required' }, 400)
@@ -112,6 +224,7 @@ repoRoute.post('/setup', async (c) => {
       projectDescription,
       workingDirectory,
       repository,
+      referenceUrls,
     })
 
     return c.json(result)

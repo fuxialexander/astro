@@ -98,6 +98,45 @@ export function validateGitUrl(url: string): GitUrlValidation {
   };
 }
 
+export type RemoteType = 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none'
+
+/**
+ * Detect the remote type from a git URL (server-side).
+ */
+export function detectRemoteType(url: string | undefined): RemoteType {
+  if (!url) return 'none'
+  const lower = url.toLowerCase()
+  if (lower.includes('github.com')) return 'github'
+  // Match gitlab.com and self-hosted GitLab instances (gitlab.company.com)
+  if (lower.includes('gitlab.com') || lower.includes('gitlab.')) return 'gitlab'
+  if (lower.includes('bitbucket.org') || lower.includes('bitbucket.')) return 'bitbucket'
+  if (lower.startsWith('git@') || lower.startsWith('http') || lower.startsWith('ssh://')) return 'generic'
+  return 'none'
+}
+
+/**
+ * Normalize a git URL for comparison (strip protocol, trailing .git, trailing slashes).
+ */
+function normalizeGitUrl(url: string): string {
+  let normalized = url.trim().toLowerCase()
+  normalized = normalized.replace(/\.git$/, '')
+  normalized = normalized.replace(/\/+$/, '')
+  const sshMatch = normalized.match(/^git@([^:]+):(.+)$/)
+  if (sshMatch) {
+    normalized = `${sshMatch[1]}/${sshMatch[2]}`
+  }
+  normalized = normalized.replace(/^(https?:\/\/|ssh:\/\/)/, '')
+  normalized = normalized.replace(/^[^@]+@/, '')
+  return normalized
+}
+
+/**
+ * Check if two git URLs refer to the same repository (server-side).
+ */
+export function urlsMatchSameRepo(url1: string, url2: string): boolean {
+  return normalizeGitUrl(url1) === normalizeGitUrl(url2)
+}
+
 /**
  * Extract owner/repo from GitHub URL (any format)
  */

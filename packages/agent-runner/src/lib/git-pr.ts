@@ -245,6 +245,8 @@ export async function pushAndCreatePR(
     branchName: string;
     taskTitle: string;
     taskDescription?: string;
+    /** If true, push the branch but skip PR creation */
+    skipPR?: boolean;
   },
 ): Promise<PRResult> {
   const result: PRResult = { branchName: options.branchName };
@@ -280,6 +282,12 @@ export async function pushAndCreatePR(
   const pushed = await pushBranch(worktreePath, options.branchName);
   if (!pushed) return result;
   result.pushed = true;
+
+  // Skip PR creation if requested (push-only mode)
+  if (options.skipPR) {
+    console.log(`[git-pr] skipPR=true, branch pushed (${options.branchName})`);
+    return result;
+  }
 
   // Create PR if gh is available
   if (!(await isGhAvailable())) {
