@@ -336,6 +336,63 @@ Complete documentation is in `docs/`:
 - [Data Model](docs/design/DATA_MODEL.md) — Database schema (28 tables)
 - [Full Index](docs/index.md) — All documentation
 
+## Contributing
+
+We welcome contributions from the community! Whether you're fixing bugs, adding features, improving documentation, or helping others, your contributions are appreciated.
+
+### Quick Start for Contributors
+
+1. **Read the guidelines**: Check out our [Contributing Guide](CONTRIBUTING.md) for detailed setup instructions, coding standards, and the pull request process.
+
+2. **Fork and clone**: Fork the repository, clone it locally, and create a feature branch.
+
+3. **Make your changes**: Follow our coding standards and commit guidelines.
+
+4. **Submit a PR**: Push your branch and create a pull request using our template.
+
+### Good First Issues
+
+New to Astro? Look for issues labeled [`good first issue`](https://github.com/fuxialexander/astro/labels/good%20first%20issue) — these are specifically curated for newcomers and include:
+
+- Documentation improvements
+- Bug fixes with clear reproduction steps
+- Small feature additions
+- Test coverage improvements
+
+Tips for your first contribution:
+- Start with the [Contributing Guide](CONTRIBUTING.md) to understand the codebase structure
+- Check the existing issues and PRs to avoid duplicate work
+- Feel free to ask questions on the issue before starting
+
+### Reporting Issues
+
+Found a bug or have a feature idea? We use GitHub Issues with structured templates:
+
+- **🐛 [Report a Bug](https://github.com/fuxialexander/astro/issues/new?template=bug_report.yml)** — For unexpected behavior or errors
+- **✨ [Request a Feature](https://github.com/fuxialexander/astro/issues/new?template=feature_request.yml)** — For new functionality or enhancements
+
+Please search existing issues before creating a new one to avoid duplicates.
+
+### Community
+
+Join the conversation and get help:
+
+- **💬 [GitHub Discussions](https://github.com/fuxialexander/astro/discussions)** — Ask questions, share ideas, and discuss the project
+- **📖 [Documentation](docs/index.md)** — Comprehensive guides and reference materials
+- **📋 [Roadmap](ROADMAP.md)** — See what's planned and in progress
+
+### Ways to Contribute
+
+Beyond code, there are many ways to help:
+
+| Area | How You Can Help |
+|------|------------------|
+| **Code** | Fix bugs, add features, improve performance |
+| **Documentation** | Improve guides, add examples, fix typos |
+| **Testing** | Write tests, report bugs, test edge cases |
+| **Design** | UI/UX improvements, design feedback |
+| **Community** | Answer questions, review PRs, share knowledge |
+
 ## Acknowledgments
 
 Built with [React](https://react.dev/), [Vite](https://vite.dev/), [Hono](https://hono.dev/), [Tailwind CSS](https://tailwindcss.com/), [React Flow](https://reactflow.dev/), [Zustand](https://zustand-demo.pmnd.rs/), [Drizzle ORM](https://orm.drizzle.team/), and [Anthropic Claude](https://www.anthropic.com/).
