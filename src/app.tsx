@@ -226,7 +226,11 @@ function RootRedirect() {
     )
   }
 
-  return session ? <Navigate to="/dashboard" replace /> : <Navigate to="/landing/" replace />
+  if (!session) {
+    window.location.href = '/landing/'
+    return null
+  }
+  return <Navigate to="/dashboard" replace />
 }
 
 export default function App() {
