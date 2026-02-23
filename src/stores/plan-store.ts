@@ -51,6 +51,12 @@ async function retryAsync(
   }
 }
 
+/**
+ * Track node IDs whose initial POST/PUT save is still in-flight.
+ * Position updates for these nodes are deferred until the save completes.
+ */
+const pendingSaveNodeIds = new Set<string>()
+
 interface PlanState {
   nodes: PlanNode[]
   edges: PlanEdge[]
@@ -130,7 +136,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
     const nextNodes = [...get().nodes, node]
     set({ nodes: nextNodes })
-    dataClient.addNode(node).catch((err) => {
+    const nodeId = node.id
+    pendingSaveNodeIds.add(nodeId)
+    dataClient.addNode(node).then(() => {
+      pendingSaveNodeIds.delete(nodeId)
+      // Sync any position computed by reorganizeProject while the save was in-flight
+      const saved = get().nodes.find((n) => n.id === nodeId)
+      if (saved?.position) {
+        dataClient.updateNode(nodeId, { position: saved.position }).catch(() => {})
+      }
+    }).catch((err) => {
+      pendingSaveNodeIds.delete(nodeId)
       console.error('[plan-store] Failed to save node to API:', err)
     })
   },
@@ -240,11 +256,20 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     const nextEdges = [...otherEdges, ...dedupedNewEdges]
     console.log(`[plan-store] Updating store: ${nextNodes.length} total nodes (${otherNodes.length} existing + ${newNodes.length} new)`)
     set({ nodes: nextNodes, edges: nextEdges })
-    // Retry API save to prevent data loss on reload
+    // Mark all new nodes as pending save
+    const newNodeIds = new Set(newNodes.map((n) => n.id))
+    for (const n of newNodes) pendingSaveNodeIds.add(n.id)
+    // Retry API save to prevent data loss on reload.
+    // Read the latest node state at save-time so positions from reorganizeProject are included.
     retryAsync(
-      () => dataClient.setProjectPlan(projectId, newNodes, dedupedNewEdges),
+      () => {
+        const latestNodes = get().nodes.filter((n) => newNodeIds.has(n.id))
+        return dataClient.setProjectPlan(projectId, latestNodes, dedupedNewEdges)
+      },
       `Save project plan ${projectId}`,
-    )
+    ).then(() => {
+      for (const id of newNodeIds) pendingSaveNodeIds.delete(id)
+    })
   },
 
   removeProjectPlan: (projectId) => {
@@ -279,8 +304,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     })
     set({ nodes: nextNodes })
 
-    // Sync position updates to API
+    // Sync position updates to API — skip nodes whose initial save is still in-flight
     for (const [nodeId, pos] of positions) {
+      if (pendingSaveNodeIds.has(nodeId)) continue
       dataClient.updateNode(nodeId, { position: pos }).catch((err) => {
         console.error(`[plan-store] Failed to update position for node ${nodeId}:`, err)
       })
