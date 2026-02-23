@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { ChevronDown, ChevronRight, FilePlus, FileEdit, FileX, Plus, Minus, ExternalLink } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { buildFileUrlSync, getBrowserHostname } from "@/lib/path-utils"
+import { buildFileUrlSync } from "@/lib/path-utils"
 import { useMachinesStore } from "@/stores/machines-store"
 import { Badge } from "@/components/ui/badge"
 
@@ -101,7 +101,7 @@ function DiffRenderer({ diff }: { diff: string }) {
   )
 }
 
-function FileChangeItem({ change, machineId, urlMode, useVSCode }: { change: FileChange; machineId?: string; urlMode: 'auto' | 'local' | 'remote'; useVSCode: boolean }) {
+function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change: FileChange; machineId?: string; useLocalUrls: boolean; useVSCode: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const [fileUrl, setFileUrl] = useState<string | undefined>()
   const config = actionConfig[change.action] || actionConfig.modified
@@ -112,52 +112,38 @@ function FileChangeItem({ change, machineId, urlMode, useVSCode }: { change: Fil
 
   // Build file URL for editor integration
   useEffect(() => {
-    const buildUrl = async () => {
-      // Pre-cache hostname if needed
-      await getBrowserHostname()
-      const editorType = useVSCode ? 'vscode' : 'cursor'
-      // Map urlMode to forceLocal parameter
-      const forceLocal = urlMode === 'local' ? true : urlMode === 'remote' ? 'remote' : false
-      const url = buildFileUrlSync(change.path, undefined, machine, forceLocal, editorType)
-      setFileUrl(url)
-    }
-    buildUrl()
-  }, [change.path, machine, urlMode, useVSCode])
+    const editorType = useVSCode ? 'vscode' : 'cursor'
+    const forceLocal = useLocalUrls ? true : 'remote' as const
+    const url = buildFileUrlSync(change.path, undefined, machine, forceLocal, editorType)
+    setFileUrl(url)
+  }, [change.path, machine, useLocalUrls, useVSCode])
 
   // Extract filename from path
   const parts = change.path.split("/")
   const filename = parts.pop() || change.path
   const directory = parts.join("/")
 
-  const handleFileClick = (e: React.MouseEvent) => {
-    if (fileUrl) {
-      e.stopPropagation()
-      window.open(fileUrl, '_self')
-    }
-  }
-
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       <div className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted/50 transition-colors">
         <Icon className={cn("h-4 w-4 shrink-0", config.color)} />
-        <div className="flex-1 min-w-0 flex items-center gap-2">
-          <div className="flex-1">
+        <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+          <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm font-medium">{filename}</span>
             {directory && (
-              <span className="text-xs text-muted-foreground ml-1.5">{directory}/</span>
+              <span className="text-xs text-muted-foreground truncate">{directory}/</span>
             )}
           </div>
+          <span className="text-xs text-muted-foreground font-mono truncate" title={change.path}>
+            {change.path}
+          </span>
           {fileUrl && (
-            <button
-              onClick={handleFileClick}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              title="Open in editor"
-            >
-              <ExternalLink className="h-3 w-3" />
-            </button>
+            <span className="text-[10px] text-muted-foreground/70 font-mono truncate break-all" title={fileUrl}>
+              {fileUrl}
+            </span>
           )}
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {change.linesAdded != null && change.linesAdded > 0 && (
             <span className="flex items-center gap-0.5 text-xs font-mono text-green-600">
               <Plus className="h-3 w-3" />{change.linesAdded}
@@ -167,6 +153,17 @@ function FileChangeItem({ change, machineId, urlMode, useVSCode }: { change: Fil
             <span className="flex items-center gap-0.5 text-xs font-mono text-red-600">
               <Minus className="h-3 w-3" />{change.linesRemoved}
             </span>
+          )}
+          {fileUrl && (
+            <a
+              href={fileUrl}
+              onClick={(e) => { e.stopPropagation(); window.open(fileUrl, '_self') }}
+              className="flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 hover:bg-primary/20 transition-colors h-6"
+              title="Open in editor"
+            >
+              <ExternalLink className="h-3 w-3 text-primary" />
+              <span className="text-[10px] font-medium text-primary">Open</span>
+            </a>
           )}
           {change.diff && (
             <button
@@ -191,8 +188,8 @@ function FileChangeItem({ change, machineId, urlMode, useVSCode }: { change: Fil
 }
 
 export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
-  const [urlMode, setUrlMode] = useState<'auto' | 'local' | 'remote'>('auto') // auto, local, or remote
-  const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
+  const [useLocalUrls, setUseLocalUrls] = useState(true)
+  const [useVSCode, setUseVSCode] = useState(false)
 
   if (changes.length === 0) {
     return (
@@ -227,12 +224,9 @@ export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
           <Badge
             variant="outline"
             className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-6 px-2"
-            onClick={() => {
-              // Cycle through: auto → local → remote → auto
-              setUrlMode(urlMode === 'auto' ? 'local' : urlMode === 'local' ? 'remote' : 'auto')
-            }}
+            onClick={() => setUseLocalUrls(!useLocalUrls)}
           >
-            {urlMode === 'auto' ? "Auto" : urlMode === 'local' ? "Local" : "Remote"}
+            {useLocalUrls ? "Local" : "Remote"}
           </Badge>
           <Badge
             variant="outline"
@@ -247,7 +241,7 @@ export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
       {/* File list */}
       <div className="flex flex-col gap-2">
         {changes.map((change, i) => (
-          <FileChangeItem key={i} change={change} machineId={machineId} urlMode={urlMode} useVSCode={useVSCode} />
+          <FileChangeItem key={i} change={change} machineId={machineId} useLocalUrls={useLocalUrls} useVSCode={useVSCode} />
         ))}
       </div>
     </div>

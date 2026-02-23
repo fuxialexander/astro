@@ -100,11 +100,20 @@ function scanSlashCommands(workingDirectory?: string): Array<{ name: string; des
 }
 
 export async function startCommand(options: StartOptions = {}): Promise<void> {
-  // Check if setup is complete
+  // Auto-run setup if not completed
   if (!config.isSetupComplete()) {
-    console.log(chalk.yellow('Setup has not been completed.'));
-    console.log(chalk.dim('Run: npx @astro/agent setup'));
-    process.exit(1);
+    console.log(chalk.yellow('Setup has not been completed. Running setup automatically...\n'));
+    const { setupCommand } = await import('./setup.js');
+    await setupCommand({
+      relay: options.relay,
+      skipAuth: true,
+      nonInteractive: true,
+      withSshConfig: true,
+    });
+    if (!config.isSetupComplete()) {
+      console.log(chalk.red('Setup failed. Run manually: npx @astro/agent setup'));
+      process.exit(1);
+    }
   }
 
   // Initialize hardware-based machine ID if not set

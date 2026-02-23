@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir, type ComputeBackendInfo } from "@/stores/execution-store"
-import { isServerMode } from "@/lib/app-mode"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -64,8 +63,6 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
 
-  // In Supabase mode, no "Local" option — only registered machines
-  const isMultiTenant = isServerMode()
   const onlineMachines = machines.filter((m) => m.status !== 'offline')
 
   // Default machine ID fallback chain:
@@ -105,8 +102,8 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
     setSelectedMachineId(syncMachineId)
   }
 
-  // In multi-tenant mode, if no machine is selected and there are online machines, auto-select the first one
-  if (isMultiTenant && !selectedMachineId && onlineMachines.length > 0 && machinesLoaded) {
+  // If no machine is selected and there are online machines, auto-select the first one
+  if (!selectedMachineId && onlineMachines.length > 0 && machinesLoaded) {
     setSelectedMachineId(onlineMachines[0].machineId)
   }
 
@@ -162,7 +159,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   }
 
   const MachineIcon = selectedMachine ? Server : Laptop
-  const machineDisplayName = selectedMachine?.name || (isMultiTenant ? "Select machine" : "Local")
+  const machineDisplayName = selectedMachine?.name || "Select machine"
 
   return (
     <div className="flex flex-col gap-4">
@@ -182,22 +179,6 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {!isMultiTenant && (
-              <DropdownMenuItem
-                onClick={() => setSelectedMachineId(null)}
-                className="gap-2"
-              >
-                <Laptop className="h-4 w-4" />
-                <div className="flex flex-col">
-                  <span>Local</span>
-                  <span className="text-xs text-muted-foreground">Run on this machine</span>
-                </div>
-                {!selectedMachineId && (
-                  <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                )}
-              </DropdownMenuItem>
-            )}
-            {!isMultiTenant && onlineMachines.length > 0 && <DropdownMenuSeparator />}
             {onlineMachines.map((machine) => (
                 <DropdownMenuItem
                   key={machine.machineId}
@@ -291,7 +272,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
       )}
 
       {/* Provider Selection */}
-      {providersLoaded && (
+      {providersLoaded && !selectedMachineId && (
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Agent</span>
           {providers.length > 0 ? (
