@@ -14,7 +14,6 @@ export const PLAN_GRAPH_SCHEMA = {
           status: { type: "string" as const, enum: ["planned"] },
           parentId: { type: ["string", "null"] as const },
           dependencies: { type: "array" as const, items: { type: "string" as const }, description: "Array of node IDs this depends on" },
-          environment: { type: "string" as const, enum: ["local", "hpc", "cloud"] },
           verification: { type: "string" as const, enum: ["auto", "human"] },
           position: {
             type: "object" as const,
@@ -113,7 +112,6 @@ ${visionSection}${repoSection}
 - type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points.
 - All status: "planned".
 - verification: "auto" if programmatically verifiable, "human" otherwise.
-- environment: "local" | "hpc" | "cloud".
 - position: top-to-bottom layout starting at {x:40,y:40}, increment y by 100. Parallel branches offset x by 260.
 - parentId: null for all nodes.
 - dependencies: array of prerequisite node ids.
@@ -144,7 +142,6 @@ export interface ChatPlanNode {
   type: string
   priority?: string
   estimate?: string
-  environment?: string
   verification?: string
   milestoneId?: string
   dependencies?: string[]
@@ -190,7 +187,6 @@ export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNo
         `${n.type}, ${n.status}`,
         n.priority ? `priority: ${n.priority}` : "",
         n.estimate ? `estimate: ${n.estimate}` : "",
-        n.environment ? `env: ${n.environment}` : "",
         n.verification ? `verification: ${n.verification}` : "",
         n.dueDate ? `due: ${n.dueDate}` : "",
         milestoneName ? `milestone: ${milestoneName} [${n.milestoneId}]` : (n.type !== "milestone" ? "milestone: NONE" : ""),
@@ -256,7 +252,6 @@ Each object must have "nodeId" (required) plus any fields to change:
 - "dueDate" (string) — ISO YYYY-MM-DD or null to clear
 - "startDate" (string) — ISO YYYY-MM-DD (milestones only) or null to clear
 - "endDate" (string) — ISO YYYY-MM-DD (milestones only) or null to clear
-- "environment" (string) — "local" | "hpc" | "cloud"
 - "verification" (string) — "auto" | "human"
 - "dependencies" (string[]) — array of node IDs this node depends on (replaces the full list; edges are auto-reconciled)
 
@@ -295,7 +290,7 @@ Fields:
 - "type" (string) — defaults to "task"
 - "milestoneId" (string) — inherit from the parent task being decomposed
 - "dependencies" (string[]) — can reference other new node IDs from the same block, or existing node IDs
-- "priority", "estimate", "environment", "verification" — same as node properties
+- "priority", "estimate", "verification" — same as node properties
 
 When decomposing, also use \`astro-updates\` to mark the original task as "completed" or "pruned" (since it's been replaced by sub-tasks), and use \`astro-edges\` if the sub-tasks need to connect to other existing nodes.
 

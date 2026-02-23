@@ -148,7 +148,6 @@ app.patch('/projects/:id', async (c) => {
   if (body.workingDirectory !== undefined) patch.workingDirectory = body.workingDirectory || null
   if (body.sourceDirectory !== undefined) patch.sourceDirectory = body.sourceDirectory || null
   if (body.repository !== undefined) patch.repository = body.repository || null
-  if (body.defaultEnvironment !== undefined) patch.defaultEnvironment = body.defaultEnvironment || null
   if (body.defaultMachineId !== undefined) patch.defaultMachineId = body.defaultMachineId || null
   if (body.mergeQueueEnabled !== undefined) patch.mergeQueueEnabled = body.mergeQueueEnabled ?? false
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
@@ -444,7 +443,6 @@ app.put('/plan/:projectId', async (c) => {
         description: (n.description as string) ?? '',
         status: (n.status as string) ?? 'planned',
         parentId: (n.parentId as string) ?? null,
-        environment: (n.environment as string) ?? null,
         verification: (n.verification as string) ?? 'auto',
         positionX: position?.x ?? 0,
         positionY: position?.y ?? 0,

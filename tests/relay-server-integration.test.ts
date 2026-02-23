@@ -88,7 +88,6 @@ function waitForMessage<T>(ws: WebSocket, type: string, timeoutMs = 5000): Promi
 function createMachineInfo(name: string): Omit<MachineInfo, 'machineId'> {
   return {
     name,
-    environmentType: 'local',
     hostname: 'test-host',
     platform: 'linux',
     providers: [
@@ -242,7 +241,6 @@ describe.skipIf(!serverAvailable)('Relay Server Integration', () => {
             nodeId: 'node-1',
             title: 'Test Task',
             description: 'A test task for dispatch',
-            environment: 'local',
           },
           targetMachineId: machineId,
         }),

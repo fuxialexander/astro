@@ -14,7 +14,6 @@ interface ConfigSchema {
   runnerId: string;
   machineId: string;
   machineName?: string;
-  environmentType: string;
   deviceToken?: string;
   apiUrl: string;
   accessToken?: string;
@@ -44,7 +43,6 @@ class ConfigManager {
       defaults: {
         runnerId: '',
         machineId: '',
-        environmentType: 'local',
         deviceToken: undefined,
         apiUrl: DEFAULT_API_URL,
         accessToken: undefined,
@@ -148,20 +146,6 @@ class ConfigManager {
    */
   setMachineName(name: string): void {
     this.conf.set('machineName', name);
-  }
-
-  /**
-   * Get environment type
-   */
-  getEnvironmentType(): string {
-    return this.conf.get('environmentType');
-  }
-
-  /**
-   * Set environment type
-   */
-  setEnvironmentType(type: string): void {
-    this.conf.set('environmentType', type);
   }
 
   /**

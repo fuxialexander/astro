@@ -10,9 +10,6 @@
 // Core Types
 // ============================================================================
 
-/** Environment types where agents can run */
-export type EnvironmentType = 'local' | 'remote' | 'hpc' | 'cloud';
-
 /** Provider types available on a machine */
 export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'aws' | 'gcp' | 'custom';
 
@@ -86,7 +83,7 @@ export interface ExecutionStrategyInfo {
 export interface MachineInfo {
   machineId: string;
   name: string;
-  environmentType: EnvironmentType;
+  environmentType?: string;
   hostname?: string;
   platform?: string;
   providers: ProviderInfo[];
@@ -140,7 +137,7 @@ export interface TaskDispatch {
   title: string;
   description: string;
   visionDoc?: string;  // Project vision context
-  environment: EnvironmentType;
+  environment?: string;
   preferredProvider?: ProviderType;
   /** Preferred execution strategy (direct, slurm, docker, k8s-exec) */
   executionStrategy?: string;
@@ -731,7 +728,6 @@ export interface SlurmJobInfo {
 
 /** Slurm task dispatch extension */
 export interface SlurmTaskDispatch extends TaskDispatch {
-  environment: 'hpc';
   preferredProvider: 'claude-sdk';
   /** Slurm-specific configuration */
   slurmConfig?: {

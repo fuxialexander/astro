@@ -1,8 +1,5 @@
 import {
   Laptop,
-  Server,
-  Globe,
-  Cloud,
   CheckCircle2,
   XCircle,
   Clock,
@@ -27,12 +24,6 @@ const providerDisplayName: Record<string, string> = {
   "codex": "OpenAI Codex",
 }
 
-const envConfig = {
-  local: { icon: Laptop, label: "Local Machine" },
-  remote: { icon: Globe, label: "Remote Machine" },
-  hpc: { icon: Server, label: "HPC Cluster" },
-  cloud: { icon: Cloud, label: "Cloud Instance" },
-} as const
 
 const platformLabel: Record<string, string> = {
   darwin: "macOS",
@@ -60,9 +51,6 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }: MachineDetailDialogProps) {
   if (!machine) return null
 
-  const envType = machine.environmentType as keyof typeof envConfig
-  const env = envConfig[envType] || envConfig.local
-  const EnvIcon = env.icon
   const isOnline = machine.isConnected || !!liveMachine
 
   // Resources from live relay connection
@@ -79,7 +67,7 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-              <EnvIcon className="h-5 w-5 text-primary" />
+              <Laptop className="h-5 w-5 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
               <DialogTitle className="text-base truncate">{machine.name}</DialogTitle>
@@ -95,7 +83,6 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
         <div className="flex flex-col gap-0 divide-y divide-border mt-2">
           {/* Basic Info */}
           <InfoRow label="Platform">{platformLabel[machine.platform] || machine.platform}</InfoRow>
-          <InfoRow label="Environment">{env.label}</InfoRow>
           <InfoRow label="Machine ID">
             <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{machine.id.slice(0, 16)}...</code>
           </InfoRow>

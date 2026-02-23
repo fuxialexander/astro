@@ -42,7 +42,6 @@ interface PlanGraphResult {
     status: PlanNode["status"]
     parentId: string | null
     dependencies: string[]
-    environment?: PlanNode["environment"]
     verification: PlanNode["verification"]
     position: { x: number; y: number }
     startDate?: string
@@ -132,7 +131,6 @@ export interface ChatPlanNodeContext {
   type: string
   priority?: string
   estimate?: string
-  environment?: string
   verification?: string
   milestoneId?: string
   dependencies?: string[]

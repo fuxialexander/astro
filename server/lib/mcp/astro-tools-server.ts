@@ -153,11 +153,6 @@ const TOOLS = [
           items: { type: 'string' },
           description: 'Array of task IDs this task depends on',
         },
-        environment: {
-          type: 'string',
-          enum: ['local', 'remote', 'hpc', 'cloud'],
-          description: 'Execution environment',
-        },
         verification: {
           type: 'string',
           enum: ['auto', 'human'],
@@ -220,11 +215,6 @@ const TOOLS = [
           type: 'string',
           enum: ['XS', 'S', 'M', 'L', 'XL'],
           description: 'Updated size estimate',
-        },
-        environment: {
-          type: 'string',
-          enum: ['local', 'remote', 'hpc', 'cloud'],
-          description: 'Updated execution environment',
         },
         verification: {
           type: 'string',
@@ -352,11 +342,6 @@ const TOOLS = [
           type: 'string',
           description: 'Working directory or repository URL',
         },
-        defaultEnvironment: {
-          type: 'string',
-          enum: ['local', 'remote', 'hpc', 'cloud'],
-          description: 'Default execution environment',
-        },
         initiativeId: {
           type: 'string',
           description: 'Initiative ID to group this project under',
@@ -407,11 +392,6 @@ const TOOLS = [
         workingDirectory: {
           type: 'string',
           description: 'Updated working directory or repository URL',
-        },
-        defaultEnvironment: {
-          type: 'string',
-          enum: ['local', 'remote', 'hpc', 'cloud'],
-          description: 'Updated default execution environment',
         },
       },
     },
@@ -611,7 +591,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         description: args.description,
         status: args.status || 'planned',
         parentId: args.parentId || null,
-        environment: args.environment || null,
         verification: args.verification || 'auto',
         priority: args.priority || null,
         estimate: args.estimate || null,
@@ -753,7 +732,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         visionDoc: args.visionDoc || '',
         status: args.status || 'active',
         workingDirectory: args.workingDirectory || null,
-        defaultEnvironment: args.defaultEnvironment || null,
         initiativeId: args.initiativeId || null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

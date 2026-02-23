@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useSearchParams, useNavigate } from "react-router"
-import { Monitor, CheckCircle2, XCircle, Loader2, AlertCircle, Laptop, Server, Cloud } from "lucide-react"
+import { Monitor, CheckCircle2, XCircle, Loader2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -16,24 +16,11 @@ interface DeviceCodeInfo {
   machineInfo?: {
     hostname?: string
     platform?: string
-    environmentType?: string
   }
   scopes: string[]
   expiresAt: string
 }
 
-function getEnvironmentIcon(type?: string) {
-  switch (type) {
-    case "local":
-      return <Laptop className="h-5 w-5" />
-    case "hpc":
-      return <Server className="h-5 w-5" />
-    case "cloud":
-      return <Cloud className="h-5 w-5" />
-    default:
-      return <Monitor className="h-5 w-5" />
-  }
-}
 
 function getPlatformLabel(platform?: string) {
   switch (platform) {
@@ -337,7 +324,7 @@ export function DeviceAuth() {
                 <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/50 p-4">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-background">
-                      {getEnvironmentIcon(deviceInfo.machineInfo?.environmentType)}
+                      <Monitor className="h-5 w-5" />
                     </div>
                     <div className="flex flex-col">
                       <span className="font-medium">
@@ -345,9 +332,6 @@ export function DeviceAuth() {
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {getPlatformLabel(deviceInfo.machineInfo?.platform)}
-                        {deviceInfo.machineInfo?.environmentType && (
-                          <> · {deviceInfo.machineInfo.environmentType}</>
-                        )}
                       </span>
                     </div>
                   </div>

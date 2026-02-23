@@ -17,7 +17,6 @@ import type {
   DispatchPriority,
   DispatchEngineConfig,
 } from './types.js'
-import type { ExecutionEnvironment } from './types.js'
 import type { ProviderType } from '../../types/relay.js'
 
 /**
@@ -46,7 +45,7 @@ function rowToEntry(row: typeof dispatchQueueEntries.$inferSelect): DispatchQueu
     projectId: row.projectId,
     status: row.status as DispatchStatus,
     priority: row.priority as DispatchPriority,
-    environment: row.environment as ExecutionEnvironment,
+    environment: row.environment ?? undefined,
     preferredProvider: (row.preferredProvider ?? undefined) as ProviderType | undefined,
     targetMachineId: row.targetMachineId ?? undefined,
     retryCount: row.retryCount,
@@ -90,7 +89,6 @@ export class DispatchQueue extends EventEmitter {
     nodeId: string
     projectId: string
     priority?: DispatchPriority
-    environment?: ExecutionEnvironment
     preferredProvider?: ProviderType
     targetMachineId?: string
     maxRetries?: number
@@ -110,7 +108,7 @@ export class DispatchQueue extends EventEmitter {
       projectId: params.projectId,
       status: 'ready' as const,
       priority: (params.priority ?? this.config.defaultPriority) as string,
-      environment: (params.environment ?? 'local') as string,
+      environment: 'local',
       preferredProvider: params.preferredProvider ?? null,
       targetMachineId: params.targetMachineId ?? null,
       retryCount: 0,
@@ -127,7 +125,7 @@ export class DispatchQueue extends EventEmitter {
       projectId: params.projectId,
       status: 'ready',
       priority: params.priority ?? this.config.defaultPriority,
-      environment: params.environment ?? 'local',
+      environment: undefined,
       preferredProvider: params.preferredProvider,
       targetMachineId: params.targetMachineId,
       retryCount: 0,

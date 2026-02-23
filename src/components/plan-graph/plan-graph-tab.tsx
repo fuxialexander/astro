@@ -74,10 +74,8 @@ function MachineSelector({ selectedNode, projectId, onUpdate }: {
         value={effectiveId}
         onChange={(e) => {
           const machineId = e.target.value || undefined
-          const machine = machines.find((m) => m.machineId === machineId)
           onUpdate({
             machineId,
-            environment: machine?.environmentType || undefined,
           })
         }}
         className="bg-transparent text-sm text-right cursor-pointer focus:outline-none max-w-[180px] truncate"

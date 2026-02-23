@@ -94,7 +94,7 @@ export const planNodes = pgTable('plan_nodes', {
   description: text('description').notNull().default(''),
   status: text('status').notNull().default('planned'),
   parentId: text('parent_id'),
-  environment: text('environment'), // 'local' | 'hpc' | 'cloud'
+  environment: text('environment'), // legacy, unused
   verification: text('verification').notNull().default('auto'),
   positionX: real('position_x').notNull().default(0),
   positionY: real('position_y').notNull().default(0),

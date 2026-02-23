@@ -11,7 +11,7 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Globe, Server, Cloud, CheckCircle2, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, Info } from "lucide-react"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Server, CheckCircle2, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, Info } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,12 +38,6 @@ import { calculateChildPosition } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 
-const environmentConfig = {
-  local: { icon: Laptop, label: "Local" },
-  remote: { icon: Globe, label: "Remote" },
-  hpc: { icon: Server, label: "HPC" },
-  cloud: { icon: Cloud, label: "Cloud" },
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes = { task: TaskNode as any }
@@ -123,7 +117,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   const onlineMachines = machines.filter((m) => m.status !== 'offline')
   const selectedMachine = selectedMachineId ? machines.find((m) => m.machineId === selectedMachineId) ?? null : null
-  const selectedEnvironment: 'local' | 'remote' | 'hpc' | 'cloud' = selectedMachine?.environmentType || 'local'
   const [addChildState, setAddChildState] = useState<AddChildState | null>(null)
   const connectingNodeId = useRef<string | null>(null)
   const justCreatedChild = useRef(false)
@@ -250,12 +243,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     )
     for (const node of nodesToExecute) {
       startExecution(node.id, projectId, {
-        environment: selectedEnvironment,
         targetMachineId: selectedMachineId || undefined,
       })
     }
     setCheckedIds(new Set())
-  }, [checkedIds, projectNodes, startExecution, projectId, selectedEnvironment, selectedMachineId])
+  }, [checkedIds, projectNodes, startExecution, projectId, selectedMachineId])
 
   const handleSelectAll = useCallback(() => {
     const allIds = new Set(projectNodes.map((n) => n.id))
@@ -264,10 +256,9 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   const handleExecuteAll = useCallback(() => {
     executeAllProject(projectId, {
-      environment: selectedEnvironment,
       targetMachineId: selectedMachineId || undefined,
     })
-  }, [executeAllProject, projectId, selectedEnvironment, selectedMachineId])
+  }, [executeAllProject, projectId, selectedMachineId])
 
   const handleStopBatch = useCallback(() => {
     stopBatchExecution(projectId)
@@ -590,9 +581,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const selectedNodes = projectNodes.filter((n) => checkedIds.has(n.id))
   const readyNodes = selectedNodes.filter((n) => canExecuteNode(n, allPlanNodes, allPlanEdges).ready)
   const blockedCount = selectedNodes.length - readyNodes.length
-  const SelectedMachineIcon = selectedMachine
-    ? environmentConfig[selectedMachine.environmentType]?.icon || Server
-    : Laptop
+  const SelectedMachineIcon = selectedMachine ? Server : Laptop
   // Batch execution stats
   const isBatchActive = batchExecution?.active ?? false
   const plannedCount = projectNodes.filter((n) => n.status === "planned").length
@@ -750,19 +739,17 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                       )}
                       {!isMultiTenant && onlineMachines.length > 0 && <DropdownMenuSeparator />}
                       {onlineMachines.map((machine) => {
-                        const envConfig = environmentConfig[machine.environmentType]
-                        const Icon = envConfig?.icon || Server
                         return (
                           <DropdownMenuItem
                             key={machine.machineId}
                             onClick={() => setSelectedMachineId(machine.machineId)}
                             className="gap-2"
                           >
-                            <Icon className="h-4 w-4" />
+                            <Server className="h-4 w-4" />
                             <div className="flex flex-col">
                               <span className="truncate max-w-[140px]">{machine.name}</span>
                               <span className="text-[10px] text-muted-foreground">
-                                {machine.hostname || machine.environmentType}
+                                {machine.hostname || machine.machineId}
                               </span>
                             </div>
                             {selectedMachineId === machine.machineId && (
@@ -842,28 +829,24 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                   </DropdownMenuItem>
                 )}
                 {!isMultiTenant && onlineMachines.length > 0 && <DropdownMenuSeparator />}
-                {onlineMachines.map((machine) => {
-                  const envConfig = environmentConfig[machine.environmentType]
-                  const Icon = envConfig?.icon || Server
-                  return (
+                {onlineMachines.map((machine) => (
                     <DropdownMenuItem
                       key={machine.machineId}
                       onClick={() => setSelectedMachineId(machine.machineId)}
                       className="gap-2"
                     >
-                      <Icon className="h-4 w-4" />
+                      <Server className="h-4 w-4" />
                       <div className="flex flex-col">
                         <span className="truncate max-w-[140px]">{machine.name}</span>
                         <span className="text-[10px] text-muted-foreground">
-                          {machine.hostname || machine.environmentType}
+                          {machine.hostname || machine.machineId}
                         </span>
                       </div>
                       {selectedMachineId === machine.machineId && (
                         <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
                       )}
                     </DropdownMenuItem>
-                  )
-                })}
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

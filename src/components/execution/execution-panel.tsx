@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from "react"
 import { Link } from "react-router"
-import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, Cloud, Globe, ChevronDown, Bot, Boxes } from "lucide-react"
-// Cloud and Globe used via environmentConfig lookup
+import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, ChevronDown, Bot, Boxes } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -35,12 +34,6 @@ const statusConfig = {
   cancelled: { icon: Square, label: "Cancelled", variant: "secondary" as const },
 }
 
-const environmentConfig = {
-  local: { icon: Laptop, label: "Local", description: "Run on local machine" },
-  remote: { icon: Globe, label: "Remote", description: "Run on remote machine" },
-  hpc: { icon: Server, label: "HPC", description: "Run on HPC cluster" },
-  cloud: { icon: Cloud, label: "Cloud", description: "Run on cloud instance" },
-}
 
 export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProps) {
   const outputRef = useRef<HTMLDivElement>(null)
@@ -88,9 +81,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const [selectedModel, setSelectedModel] = useState<string>("")
   const [selectedBackend, setSelectedBackend] = useState<string>("")
 
-  // Derive environment from selected machine
   const selectedMachine = selectedMachineId ? machines.find((m) => m.machineId === selectedMachineId) ?? null : null
-  const selectedEnvironment: 'local' | 'remote' | 'hpc' | 'cloud' = selectedMachine?.environmentType || 'local'
 
   // Compute backends available on the selected machine (non-direct strategies)
   const availableBackends: ComputeBackendInfo[] = selectedMachine?.executionStrategies
@@ -102,8 +93,8 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
     ? providers.find((p) => p.id === selectedProvider) ?? null
     : null
 
-  // Resolve working directory based on selected environment
-  const dirCheck = getProjectWorkingDir(project, selectedEnvironment)
+  // Resolve working directory
+  const dirCheck = getProjectWorkingDir(project)
   const workingDir = dirCheck.dir || ''
 
   const effectiveMachine = selectedMachine
@@ -159,7 +150,6 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
 
   const handleExecute = () => {
     startExecution(node.id, projectId, {
-      environment: selectedEnvironment,
       targetMachineId: effectiveMachine?.machineId,
       preferredProvider: selectedProvider || undefined,
       model: selectedModel || undefined,
@@ -171,9 +161,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
     cancelExecution(node.id)
   }
 
-  const MachineIcon = selectedMachine
-    ? environmentConfig[selectedMachine.environmentType]?.icon || Server
-    : Laptop
+  const MachineIcon = selectedMachine ? Server : Laptop
   const machineDisplayName = selectedMachine?.name || (isMultiTenant ? "Select machine" : "Local")
 
   return (
@@ -210,20 +198,17 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
               </DropdownMenuItem>
             )}
             {!isMultiTenant && onlineMachines.length > 0 && <DropdownMenuSeparator />}
-            {onlineMachines.map((machine) => {
-              const envConfig = environmentConfig[machine.environmentType]
-              const Icon = envConfig?.icon || Server
-              return (
+            {onlineMachines.map((machine) => (
                 <DropdownMenuItem
                   key={machine.machineId}
                   onClick={() => setSelectedMachineId(machine.machineId)}
                   className="gap-2"
                 >
-                  <Icon className="h-4 w-4" />
+                  <Server className="h-4 w-4" />
                   <div className="flex flex-col">
                     <span>{machine.name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {machine.hostname || machine.environmentType}
+                      {machine.hostname || machine.machineId}
                       {machine.load && ` · ${machine.load.activeTasks} tasks`}
                     </span>
                   </div>
@@ -231,8 +216,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
                     <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
                   )}
                 </DropdownMenuItem>
-              )
-            })}
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

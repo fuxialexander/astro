@@ -219,7 +219,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               status: n.status,
               parentId: n.parentId ? prefixId(n.parentId) : n.parentId,
               dependencies: n.dependencies.map(prefixId),
-              environment: n.environment || "local",
               verification: n.verification,
               position: n.position,
               startDate: n.startDate,

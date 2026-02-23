@@ -11,7 +11,7 @@
  * 4. On success, agent registers machine → /api/device/register
  */
 
-import type { MachineInfo, ProviderType, EnvironmentType } from './relay';
+import type { MachineInfo, ProviderType } from './relay';
 
 // ============================================================================
 // Device Authorization Types
@@ -35,7 +35,7 @@ export interface DeviceAuthRequest {
   machineInfo?: {
     hostname?: string;
     platform?: string;
-    environmentType?: EnvironmentType;
+    environmentType?: string;
   };
 }
 
@@ -177,8 +177,8 @@ export interface RegisteredMachine {
   hostname: string;
   /** Platform (darwin, linux, win32) */
   platform: string;
-  /** Environment type */
-  environmentType: EnvironmentType;
+  /** Environment type (legacy, unused) */
+  environmentType?: string;
   /** Available providers */
   providers: ProviderType[];
   /** Provider configurations (API keys, models, settings) */

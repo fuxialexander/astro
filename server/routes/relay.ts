@@ -12,7 +12,7 @@ import { relayServer } from '../lib/relay-server.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { redisPubSub } from '../lib/redis-pubsub.js';
 import { getMachine } from '../lib/registered-machines-store.js';
-import type { TaskDispatch, EnvironmentType, ProviderType } from '../types/relay.js';
+import type { TaskDispatch, ProviderType } from '../types/relay.js';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 
 export const relayRoute = new Hono();
@@ -105,7 +105,6 @@ relayRoute.get('/machines', async (c) => {
       machineId: m.machineId,
       name: m.resolvedName,
       hostname: m.hostname,
-      environmentType: m.environmentType,
       connectionStatus: m.connectionStatus,
       providers: m.providers.map((p) => ({
         type: p.type,
@@ -146,7 +145,6 @@ relayRoute.get('/machines/:machineId', (c) => {
     machine: {
       machineId: machine.machineId,
       name: machine.name,
-      environmentType: machine.environmentType,
       hostname: machine.hostname,
       platform: machine.platform,
       connectionStatus: machine.connectionStatus,
@@ -159,32 +157,6 @@ relayRoute.get('/machines/:machineId', (c) => {
       lastHeartbeat: machine.lastHeartbeat,
       sessionId: machine.sessionId,
     },
-  });
-});
-
-/**
- * GET /relay/machines/environment/:environment
- * Get machines by environment type
- */
-relayRoute.get('/machines/environment/:environment', (c) => {
-  const environment = c.req.param('environment') as EnvironmentType;
-
-  if (!['local', 'remote', 'hpc', 'cloud'].includes(environment)) {
-    return c.json({ error: 'Invalid environment type' }, 400);
-  }
-
-  const machines = machineRegistry.getByEnvironment(environment);
-
-  return c.json({
-    environment,
-    machines: machines.map((m) => ({
-      machineId: m.machineId,
-      name: m.name,
-      connectionStatus: m.connectionStatus,
-      providers: m.providers,
-      load: m.load,
-    })),
-    count: machines.length,
   });
 });
 
@@ -206,7 +178,6 @@ relayRoute.get('/machines/provider/:provider', (c) => {
     machines: machines.map((m) => ({
       machineId: m.machineId,
       name: m.name,
-      environmentType: m.environmentType,
       connectionStatus: m.connectionStatus,
       load: m.load,
     })),
@@ -256,10 +227,10 @@ relayRoute.post('/dispatch', async (c) => {
     const { task, targetMachineId } = body;
 
     // Validate required fields
-    if (!task.taskId || !task.projectId || !task.nodeId || !task.title || !task.environment) {
+    if (!task.taskId || !task.projectId || !task.nodeId || !task.title) {
       return c.json({
         error: 'Missing required task fields',
-        required: ['taskId', 'projectId', 'nodeId', 'title', 'environment'],
+        required: ['taskId', 'projectId', 'nodeId', 'title'],
       }, 400);
     }
 
@@ -290,14 +261,14 @@ relayRoute.post('/dispatch', async (c) => {
         error: 'Failed to dispatch task',
         reason: targetMachineId
           ? `Machine ${targetMachineId} not available`
-          : `No available machine for environment: ${task.environment}`,
+          : 'No available machine',
       }, 503);
     }
 
     // Track task-to-machine mapping
     const machine = targetMachineId
       ? machineRegistry.get(targetMachineId)
-      : machineRegistry.findBestMachine(task.environment, task.preferredProvider);
+      : machineRegistry.findBestMachine(task.preferredProvider);
 
     if (machine && redisPubSub.isConnected()) {
       await redisPubSub.mapTaskToMachine(task.taskId, machine.machineId);
@@ -409,7 +380,6 @@ relayRoute.get('/tasks/:taskId/machine', async (c) => {
         machine: machine
           ? {
               name: machine.name,
-              environmentType: machine.environmentType,
               connectionStatus: machine.connectionStatus,
             }
           : null,
@@ -429,20 +399,14 @@ relayRoute.get('/tasks/:taskId/machine', async (c) => {
  * Find the best machine for a task
  */
 relayRoute.get('/best-machine', (c) => {
-  const environment = c.req.query('environment') as EnvironmentType;
   const provider = c.req.query('provider') as ProviderType | undefined;
   const user = c.get('user') as AuthUser | undefined;
 
-  if (!environment || !['local', 'hpc', 'cloud'].includes(environment)) {
-    return c.json({ error: 'Invalid or missing environment parameter' }, 400);
-  }
-
-  const machine = machineRegistry.findBestMachine(environment, provider, user?.id);
+  const machine = machineRegistry.findBestMachine(provider, user?.id);
 
   if (!machine) {
     return c.json({
       error: 'No available machine',
-      environment,
       provider,
     }, 404);
   }
@@ -451,7 +415,6 @@ relayRoute.get('/best-machine', (c) => {
     machine: {
       machineId: machine.machineId,
       name: machine.name,
-      environmentType: machine.environmentType,
       providers: machine.providers,
       load: machine.load,
     },
@@ -469,11 +432,9 @@ relayRoute.get('/best-machine', (c) => {
  * hpcCapability on claude-sdk/claude-code providers.
  */
 relayRoute.get('/slurm/clusters', (c) => {
-  const hpcMachines = machineRegistry.getByEnvironment('hpc');
-  // Also include machines that have hpcCapability regardless of environment type
   const allMachines = machineRegistry.getAll();
   const hpcCapableMachines = allMachines.filter(m =>
-    m.providers.some(p => p.hpcCapability) || hpcMachines.some(h => h.machineId === m.machineId)
+    m.providers.some(p => p.hpcCapability)
   );
 
   return c.json({
@@ -512,10 +473,6 @@ relayRoute.get('/slurm/clusters/:machineId', (c) => {
 
   if (!machine) {
     return c.json({ error: 'Machine not found' }, 404);
-  }
-
-  if (machine.environmentType !== 'hpc') {
-    return c.json({ error: 'Machine is not an HPC cluster' }, 400);
   }
 
   const hpcProvider = machine.providers.find(p => p.hpcCapability);
@@ -605,10 +562,9 @@ relayRoute.post('/slurm/dispatch', async (c) => {
       }, 400);
     }
 
-    // Force HPC environment and claude-sdk provider (HPC via prompt injection)
+    // Force claude-sdk provider for HPC tasks
     const hpcTask: TaskDispatch = {
       ...task,
-      environment: 'hpc',
       preferredProvider: 'claude-sdk',
       metadata: {
         ...task.metadata,
@@ -619,7 +575,7 @@ relayRoute.post('/slurm/dispatch', async (c) => {
     // Find target cluster
     let targetMachineId = targetClusterId;
     if (!targetMachineId) {
-      const bestMachine = machineRegistry.findBestMachine('hpc', 'claude-sdk');
+      const bestMachine = machineRegistry.findBestMachine('claude-sdk');
       if (!bestMachine) {
         return c.json({
           error: 'No HPC machine available',
@@ -665,7 +621,6 @@ relayRoute.post('/slurm/dispatch', async (c) => {
       taskId: task.taskId,
       machineId: targetMachineId,
       clusterName: targetMachine.name,
-      environment: 'hpc',
       provider: 'claude-sdk',
       slurmConfig,
       message: 'Task dispatched to HPC machine',

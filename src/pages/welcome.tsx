@@ -9,9 +9,7 @@ import {
   Search,
   X,
   Laptop,
-  Globe,
   Server,
-  Cloud,
   Plus,
   CheckCircle2,
   FolderGit2,
@@ -37,12 +35,6 @@ import { validateAbsolutePath } from "@/lib/path-utils"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { cn } from "@/lib/utils"
 
-const environmentConfig = {
-  local: { icon: Laptop, label: "Local", description: "Run on this machine" },
-  remote: { icon: Globe, label: "Remote", description: "Run on remote machine" },
-  hpc: { icon: Server, label: "HPC", description: "Run on HPC cluster" },
-  cloud: { icon: Cloud, label: "Cloud", description: "Run on cloud instance" },
-} as const
 
 export function Welcome() {
   const [repoUrl, setRepoUrl] = useState("")
@@ -328,13 +320,8 @@ export function Welcome() {
     setIsRefreshingMachines(false)
   }
 
-  // Group machines by environment type (for single-user mode)
-  const machinesByEnv = Array.from(liveMachines.values()).reduce((acc, m) => {
-    const env = m.environmentType as keyof typeof environmentConfig
-    if (!acc[env]) acc[env] = []
-    acc[env].push(m)
-    return acc
-  }, {} as Record<string, typeof liveMachines extends Map<string, infer M> ? M[] : never>)
+  // Collect all live machines as a flat list
+  const allLiveMachines = Array.from(liveMachines.values())
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -669,24 +656,41 @@ export function Welcome() {
               </Button>
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              {/* Single-user mode: show "Local" + grouped environments */}
+              {/* Single-user mode: show "Local" + connected machines */}
               {!isMultiTenant && (
                 <>
-                  <EnvironmentCard
-                    env="local"
-                    machineCount={1}
-                    isLocal
-                  />
-                  {(['remote', 'hpc', 'cloud'] as const).map((env) => {
-                    const count = machinesByEnv[env]?.length || 0
-                    return count > 0 ? (
-                      <EnvironmentCard
-                        key={env}
-                        env={env}
-                        machineCount={count}
-                      />
-                    ) : null
-                  })}
+                  <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                        <Laptop className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-foreground">Local</div>
+                      </div>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <CheckCircle2 className="h-3 w-3 text-green-600" />
+                        <span>Ready</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Run on this machine</p>
+                  </div>
+                  {allLiveMachines.length > 0 && (
+                    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                          <Server className="h-4 w-4 text-primary" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-foreground">Remote</div>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <CheckCircle2 className="h-3 w-3 text-green-600" />
+                          <span>{allLiveMachines.length} connected</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Connected machines</p>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -753,38 +757,6 @@ export function Welcome() {
   )
 }
 
-function EnvironmentCard({
-  env,
-  machineCount,
-  isLocal,
-}: {
-  env: keyof typeof environmentConfig
-  machineCount: number
-  isLocal?: boolean
-}) {
-  const config = environmentConfig[env]
-  const Icon = config.icon
-
-  return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-          <Icon className="h-4 w-4 text-primary" />
-        </div>
-        <div className="flex-1">
-          <div className="text-sm font-medium text-foreground">{config.label}</div>
-        </div>
-        {machineCount > 0 && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <CheckCircle2 className="h-3 w-3 text-green-600" />
-            <span>{isLocal ? "Ready" : `${machineCount} connected`}</span>
-          </div>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground">{config.description}</p>
-    </div>
-  )
-}
 
 const providerDisplayName: Record<string, string> = {
   "claude-sdk": "Claude SDK",
@@ -805,7 +777,6 @@ function MachineCard({
     name: string
     hostname: string
     platform: string
-    environmentType: string
     isConnected: boolean
     providers: string[]
   }
@@ -873,8 +844,6 @@ function MachineCard({
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
             <span className="text-muted-foreground">Machine ID</span>
             <span className="text-foreground font-mono truncate">{machine.id.slice(0, 12)}...</span>
-            <span className="text-muted-foreground">Environment</span>
-            <span className="text-foreground capitalize">{machine.environmentType}</span>
             {registeredAt && (
               <>
                 <span className="text-muted-foreground">Registered</span>

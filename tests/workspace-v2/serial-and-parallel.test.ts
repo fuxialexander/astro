@@ -58,7 +58,6 @@ async function insertQueueEntry(projectId: string, status = 'dispatched'): Promi
     projectId,
     status,
     priority: 'normal',
-    environment: 'local',
     retryCount: 0,
     maxRetries: 2,
   })

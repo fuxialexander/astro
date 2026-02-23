@@ -690,7 +690,6 @@ export function Environments() {
         name: liveMachine.name || liveMachine.machineId,
         hostname: liveMachine.machineId,
         platform: 'unknown',
-        environmentType: (liveMachine.environmentType as 'local' | 'remote' | 'hpc' | 'cloud') || 'local',
         providers: liveMachine.providers.map((p) => p.type),
         registeredAt: '',
         lastSeenAt: new Date().toISOString(),

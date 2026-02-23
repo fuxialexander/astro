@@ -49,7 +49,6 @@ interface ParsedNewNode {
   dependencies?: string[]
   priority?: string
   estimate?: string
-  environment?: string
   verification?: string
 }
 
@@ -348,7 +347,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         type: n.type,
         priority: n.priority,
         estimate: n.estimate,
-        environment: n.environment,
         verification: n.verification,
         milestoneId: n.milestoneId,
         dependencies: n.dependencies,
@@ -614,7 +612,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         status: "planned",
         parentId: null,
         dependencies: (n.dependencies ?? []).map((d) => idMap.get(d) ?? safePrefixId(d)),
-        environment: (n.environment as PlanNode["environment"]) ?? "local",
         verification: (n.verification as PlanNode["verification"]) ?? "auto",
         position: { x: 40, y: 40 },
         priority: (n.priority as PlanNode["priority"]) ?? "medium",

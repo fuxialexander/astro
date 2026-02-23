@@ -59,7 +59,6 @@ export function importProject(data: ProjectExportData): ImportResult {
         dependencies: (n.dependencies ?? [])
           .map((dep) => nodeIdMap.get(dep))
           .filter((d): d is string => d != null),
-        environment: n.environment,
         verification: n.verification ?? 'auto',
         position: n.position ?? { x: 0, y: 0 },
         startDate: n.startDate,

@@ -21,7 +21,6 @@ const execFile = promisify(execFileCb);
 interface SetupOptions {
   api?: string;
   relay?: string;
-  type?: string;
   hostname?: string;
   skipAuth?: boolean;
   nonInteractive?: boolean;
@@ -102,11 +101,6 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
   const relayUrl = options.relay ?? config.getRelayUrl();
   config.setRelayUrl(relayUrl);
   console.log(chalk.green(`✓ Relay server: ${relayUrl}\n`));
-
-  // Step 4c: Set environment type
-  if (options.type) {
-    config.setEnvironmentType(options.type);
-  }
 
   // Step 5: Device authentication (if not skipped)
   if (!options.skipAuth) {
@@ -410,7 +404,6 @@ async function runDeviceAuthFlow(
     deviceAuth = await requestDeviceCode(apiUrl, {
       hostname,
       platform,
-      environmentType: 'local',
     });
   } catch (err) {
     authSpinner.fail('Failed to request device code');
@@ -487,7 +480,6 @@ async function runDeviceAuthFlow(
       hostname, // Actual network hostname (for display)
       name: machineName, // Stable name from hardware ID
       platform,
-      environmentType: config.getEnvironmentType() || 'local',
       providers: providerTypes,
       resources: resources ?? undefined,
       metadata: {
@@ -577,7 +569,6 @@ async function installOnRemoteHosts(
         hostname: host.hostname,
         name: hostName,
         platform: 'linux',
-        environmentType: 'remote',
         providers: [],
       });
 

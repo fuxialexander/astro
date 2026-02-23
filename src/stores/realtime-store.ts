@@ -31,7 +31,6 @@ export interface ComputeBackendInfo {
 export interface MachineEntry {
   machineId: string
   name: string
-  environmentType: string
   connectionStatus: string
   providers: Array<{
     type: string

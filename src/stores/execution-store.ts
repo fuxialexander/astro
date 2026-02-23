@@ -24,41 +24,22 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 }
 
 // Helper: Resolve working directory from project config
-// For remote/hpc/cloud environments, a git repository URL is required unless
-// a defaultMachineId is set (meaning code lives on that specific machine).
-// For local, prefer workingDirectory, fall back to repository.
+// Prefer source.localPath, then workingDirectory, fall back to repository.
 export function getProjectWorkingDir(
   project: Project | undefined,
-  environment: 'local' | 'remote' | 'hpc' | 'cloud' = 'local',
 ): {
   ok: boolean
   dir?: string
   source?: 'local' | 'repository' | 'remote-path'
   message?: string
 } {
-  const isRemote = environment !== 'local'
-
-  if (isRemote) {
-    // If project has a defaultMachineId + workingDirectory but no repository,
-    // the code only exists on that machine — use the working directory as path
-    if (project?.defaultMachineId && project?.workingDirectory && !project?.repository) {
-      return { ok: true, dir: project.workingDirectory, source: 'remote-path' }
-    }
-    // Remote environments can use a git repository URL
-    if (project?.repository) {
-      return { ok: true, dir: project.repository, source: 'repository' }
-    }
-    // Or a working directory if available (path on remote machine)
-    if (project?.workingDirectory) {
-      return { ok: true, dir: project.workingDirectory, source: 'remote-path' }
-    }
-    return {
-      ok: false,
-      message: 'A working directory or git repository URL is required for remote execution. Add one in project settings.',
-    }
+  // If project has a defaultMachineId + workingDirectory but no repository,
+  // the code only exists on that machine — use the working directory as path
+  if (project?.defaultMachineId && project?.workingDirectory && !project?.repository) {
+    return { ok: true, dir: project.workingDirectory, source: 'remote-path' }
   }
 
-  // Local: prefer source.localPath, then workingDirectory (resolved local path)
+  // Prefer source.localPath, then workingDirectory (resolved local path)
   const localPath = project?.source?.localPath ?? project?.workingDirectory
   if (localPath) {
     return { ok: true, dir: localPath, source: 'local' }
@@ -73,35 +54,22 @@ export function getProjectWorkingDir(
   }
 }
 
-// Helper: Compute allowed environments for a project
-export function getAllowedEnvironments(project: Project | undefined): {
-  allowed: Array<'local' | 'remote' | 'hpc' | 'cloud'>
+// Helper: Check if a project is locked to a specific machine
+export function getProjectMachineLock(project: Project | undefined): {
   lockedMachineId?: string
   lockReason?: string
 } {
-  if (!project) return { allowed: ['local'] }
-
-  // If project has a git URL, any environment can clone it
-  if (project.repository) {
-    return { allowed: ['local', 'remote', 'hpc', 'cloud'] }
-  }
+  if (!project) return {}
 
   // If project has defaultMachineId but no repository, locked to that machine
-  if (project.defaultMachineId && project.workingDirectory) {
-    const env = project.defaultEnvironment || 'remote'
+  if (project.defaultMachineId && project.workingDirectory && !project.repository) {
     return {
-      allowed: [env],
       lockedMachineId: project.defaultMachineId,
       lockReason: 'This project\'s code only exists on a specific machine',
     }
   }
 
-  // Only workingDirectory, no repository, no defaultMachineId — local only
-  if (project.workingDirectory) {
-    return { allowed: ['local'] }
-  }
-
-  return { allowed: ['local', 'remote', 'hpc', 'cloud'] }
+  return {}
 }
 
 // Compute backend info from agent-runner detection
@@ -117,7 +85,6 @@ export interface ComputeBackendInfo {
 export interface MachineInfo {
   machineId: string
   name: string
-  environmentType: 'local' | 'remote' | 'hpc' | 'cloud'
   hostname?: string
   status: 'online' | 'offline' | 'busy'
   load?: {
@@ -134,7 +101,6 @@ export interface MachineInfo {
 
 // Execution options for dispatch
 export interface ExecutionOptions {
-  environment?: 'local' | 'remote' | 'hpc' | 'cloud'
   targetMachineId?: string
   preferredProvider?: string
   /** Selected compute backend (direct, slurm, docker, k8s-exec) */
@@ -204,7 +170,6 @@ interface ExecutionState {
 
   // Machine actions
   loadMachines: () => Promise<void>
-  getMachinesForEnvironment: (env: 'local' | 'remote' | 'hpc' | 'cloud') => MachineInfo[]
 
   // Local backend actions
   loadLocalBackends: () => Promise<void>
@@ -306,9 +271,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }
     }
 
-    // Determine environment first (needed for directory resolution)
-    const environment = options?.environment ?? project?.defaultEnvironment ?? node.environment ?? 'local'
-
     // Enforce defaultMachineId constraint: if project has no repository URL
     // and has a defaultMachineId, execution must target that machine
     let effectiveTargetMachineId = options?.targetMachineId
@@ -337,8 +299,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       effectiveTargetMachineId = project.defaultMachineId
     }
 
-    // Resolve working directory based on environment
-    const dirCheck = getProjectWorkingDir(project, environment)
+    // Resolve working directory
+    const dirCheck = getProjectWorkingDir(project)
     const resolvedDir = dirCheck.ok ? dirCheck.dir : undefined
     if (!resolvedDir) {
       // Fail early: no working directory configured
@@ -385,11 +347,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return { executions: newExecutions }
     })
 
-    // Update node status to dispatched and persist the chosen environment
-    planStore.updateNode(nodeId, { status: "dispatched", environment })
+    // Update node status to dispatched
+    planStore.updateNode(nodeId, { status: "dispatched" })
 
     try {
-      // Use the dispatch/task endpoint for full environment support
+      // Use the dispatch/task endpoint
       const headers = await getAuthHeaders()
       const response = await fetch(apiUrl("/api/dispatch/task"), {
         method: "POST",
@@ -400,7 +362,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           title: node.title,
           description: node.description || node.title,
           dependencies: node.dependencies,
-          environment,
           verification: node.verification,
           visionDoc: project?.visionDoc,
           dependencyOutputs,
@@ -705,7 +666,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         const machines: MachineInfo[] = (data.machines || []).map((m: Record<string, unknown>) => ({
           machineId: m.machineId,
           name: m.name,
-          environmentType: m.environmentType || 'remote',
           hostname: m.hostname,
           status: m.connectionStatus === 'connected' ? 'online'
             : m.connectionStatus === 'disconnected' ? 'offline'
@@ -719,10 +679,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     } catch {
       set({ machinesLoaded: true })
     }
-  },
-
-  getMachinesForEnvironment: (env: 'local' | 'remote' | 'hpc' | 'cloud') => {
-    return get().machines.filter((m) => m.environmentType === env && m.status !== 'offline')
   },
 
   loadLocalBackends: async () => {

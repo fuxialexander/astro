@@ -13,7 +13,7 @@ export interface SessionMessage {
   appliedMutations?: {
     nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>;
     edgeOps: Array<{ action: 'add' | 'remove'; source: string; target: string; type?: string }>;
-    newNodes: Array<{ id?: string; title: string; description: string; type?: string; milestoneId?: string; dependencies?: string[]; priority?: string; estimate?: string; environment?: string; verification?: string }>;
+    newNodes: Array<{ id?: string; title: string; description: string; type?: string; milestoneId?: string; dependencies?: string[]; priority?: string; estimate?: string; verification?: string }>;
   };
 }
 
@@ -129,7 +129,6 @@ export interface Project {
   fileTree?: string[];           // Cached git ls-files output (relative paths)
   fileTreeUpdatedAt?: string;    // ISO timestamp for staleness check
   fileTreeMachineId?: string;    // Which machine the cached fileTree belongs to ("local" or machineId)
-  defaultEnvironment?: 'local' | 'remote' | 'hpc' | 'cloud'
   defaultMachineId?: string
   // Merge queue settings
   mergeQueueEnabled?: boolean
@@ -152,7 +151,6 @@ export interface PlanNode {
   status: 'planned' | 'dispatched' | 'in_progress' | 'auto_verified' | 'awaiting_judgment' | 'awaiting_approval' | 'completed' | 'pruned';
   parentId: string | null;
   dependencies: string[];
-  environment?: 'local' | 'remote' | 'hpc' | 'cloud';
   machineId?: string;            // references a specific registered machine
   verification: 'auto' | 'human';
   position: { x: number; y: number };
@@ -319,9 +317,6 @@ export type DomainExpertise =
 
 // Experience level for calibrating plan granularity
 export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
-
-// Preferred environment for task dispatch (deprecated - use preferredMachines instead)
-export type PreferredEnvironment = 'local' | 'remote' | 'hpc' | 'cloud';
 
 // API key entry for agent providers (legacy, unencrypted - stored in user_profiles.api_keys)
 export interface ApiKey {

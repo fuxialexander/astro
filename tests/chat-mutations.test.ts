@@ -35,7 +35,6 @@ interface ParsedNewNode {
   dependencies?: string[]
   priority?: string
   estimate?: string
-  environment?: string
   verification?: string
 }
 

@@ -23,7 +23,6 @@ export interface RegisteredMachine {
   name: string
   hostname: string
   platform: string
-  environmentType: 'local' | 'remote' | 'hpc' | 'cloud'
   providers: string[]
   providerConfigs?: ProviderConfig[]
   registeredAt: string

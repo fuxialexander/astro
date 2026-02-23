@@ -36,7 +36,6 @@ describe('TaskDispatch type definitions (server/types/relay.ts)', () => {
       nodeId: 'node-1',
       title: 'Test task',
       description: 'A test task',
-      environment: 'local',
       // New fields
       type: 'chat',
       systemPrompt: 'You are a helpful planning assistant.',
@@ -65,8 +64,7 @@ describe('TaskDispatch type definitions (server/types/relay.ts)', () => {
         nodeId: 'node-1',
         title: `${t} task`,
         description: `A ${t} task`,
-        environment: 'local',
-        type: t,
+          type: t,
       }
       expect(dispatch.type).toBe(t)
     })
@@ -88,7 +86,6 @@ describe('TaskDispatch type definitions (server/types/relay.ts)', () => {
       nodeId: 'node-1',
       title: 'Legacy task',
       description: 'Created without new fields',
-      environment: 'local',
       prompt: 'Do the thing',
       maxTurns: 10,
     }
@@ -204,7 +201,6 @@ describe('Relay server dispatch payload forwarding', () => {
       nodeId: 'node-1',
       title: 'Chat',
       description: 'Chat about plan',
-      environment: 'local',
       type: 'chat',
     })
     expect(payload.type).toBe('chat')
@@ -217,7 +213,6 @@ describe('Relay server dispatch payload forwarding', () => {
       nodeId: 'node-1',
       title: 'Plan',
       description: 'Generate plan',
-      environment: 'local',
       systemPrompt: 'You are a planning assistant.',
     })
     expect(payload.systemPrompt).toBe('You are a planning assistant.')
@@ -235,7 +230,6 @@ describe('Relay server dispatch payload forwarding', () => {
       nodeId: 'node-1',
       title: 'Chat',
       description: 'Continue chat',
-      environment: 'local',
       messages,
     })
     expect(payload.messages).toEqual(messages)
@@ -249,7 +243,6 @@ describe('Relay server dispatch payload forwarding', () => {
       nodeId: 'node-1',
       title: 'Summarize',
       description: 'Summarize output',
-      environment: 'local',
       model: 'claude-sonnet-4-20250514',
     })
     expect(payload.model).toBe('claude-sonnet-4-20250514')
@@ -262,7 +255,6 @@ describe('Relay server dispatch payload forwarding', () => {
       nodeId: 'node-1',
       title: 'Execute',
       description: 'Run task',
-      environment: 'local',
     })
     // Should NOT have type, systemPrompt, messages, model keys
     expect('type' in payload).toBe(false)
@@ -278,7 +270,6 @@ describe('Relay server dispatch payload forwarding', () => {
       nodeId: 'node-1',
       title: 'Plan chat',
       description: 'Discuss the plan',
-      environment: 'local',
       type: 'chat',
       systemPrompt: 'You are helping refine a project plan.',
       messages: [
@@ -303,7 +294,6 @@ describe('Relay server dispatch payload forwarding', () => {
       nodeId: 'node-1',
       title: 'Should be ignored',
       description: 'Also ignored',
-      environment: 'local',
       prompt: 'This is the pre-built prompt',
     })
     expect(payload.prompt).toBe('This is the pre-built prompt')

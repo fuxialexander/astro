@@ -6,7 +6,7 @@
  */
 
 import type { MachineWithTeamInfo } from '../../types/device-auth.js'
-import type { ProviderType, EnvironmentType } from '../../types/relay.js'
+import type { ProviderType } from '../../types/relay.js'
 
 export type MachineSelectionPolicy = 'round-robin' | 'priority' | 'least-loaded' | 'manual'
 
@@ -16,8 +16,6 @@ export type MachineSelectionPolicy = 'round-robin' | 'priority' | 'least-loaded'
 export interface MachineSelectionContext {
   /** Available machines (owned + team shared) */
   availableMachines: MachineWithTeamInfo[]
-  /** Target environment type */
-  targetEnvironment: EnvironmentType
   /** Preferred provider */
   preferredProvider?: ProviderType
   /** Explicitly requested machine ID */
@@ -75,10 +73,8 @@ export function selectMachine(
     }
   }
 
-  // Filter machines by environment, provider, and connection status
+  // Filter machines by provider and connection status
   const candidates = context.availableMachines.filter(m => {
-    // Must match environment
-    if (m.environmentType !== context.targetEnvironment) return false
     // Must be connected
     if (!m.isConnected) return false
     // If provider specified, must support it
@@ -91,7 +87,7 @@ export function selectMachine(
       machine: null,
       reason: 'No suitable machines available',
       success: false,
-      error: `No connected machines found for environment ${context.targetEnvironment}`,
+      error: 'No connected machines found',
     }
   }
 
@@ -101,7 +97,7 @@ export function selectMachine(
 
   switch (policy) {
     case 'round-robin':
-      ({ machine: selectedMachine, reason } = selectRoundRobin(candidates, context.targetEnvironment))
+      ({ machine: selectedMachine, reason } = selectRoundRobin(candidates))
       break
     case 'priority':
       ({ machine: selectedMachine, reason } = selectPriority(candidates))
@@ -126,9 +122,8 @@ export function selectMachine(
  */
 function selectRoundRobin(
   candidates: MachineWithTeamInfo[],
-  environment: EnvironmentType
 ): { machine: MachineWithTeamInfo; reason: string } {
-  const key = environment
+  const key = 'default'
   const lastIndex = roundRobinState.get(key) ?? -1
   const nextIndex = (lastIndex + 1) % candidates.length
   roundRobinState.set(key, nextIndex)

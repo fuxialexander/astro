@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, GitBranch, Plus, Users, GitPullRequest, FolderEdit } from "lucide-react"
+import { Sparkles, Loader2, X, Laptop, Server, ChevronDown, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, GitBranch, Plus, Users, GitPullRequest, FolderEdit } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {
@@ -29,15 +29,6 @@ import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { remoteTypeLabel, deliveryModeLabel } from "@/lib/project-source"
 
-const environmentConfig = {
-  local: { icon: Laptop, label: "Local", description: "Run on this machine" },
-  remote: { icon: Globe, label: "Remote", description: "Run on remote machine" },
-  hpc: { icon: Server, label: "HPC", description: "Run on HPC cluster" },
-  cloud: { icon: Cloud, label: "Cloud", description: "Run on cloud instance" },
-}
-
-type EnvironmentType = keyof typeof environmentConfig
-
 export function ProjectNew() {
   const [searchParams] = useSearchParams()
   const teamIdParam = searchParams.get('teamId')
@@ -48,7 +39,6 @@ export function ProjectNew() {
   const [workingDir, setWorkingDir] = useState("")
   const [showRepoUrl, setShowRepoUrl] = useState(false)
   const [showGitHubRepos, setShowGitHubRepos] = useState(false)
-  const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
   const [repoSetupError, setRepoSetupError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -90,7 +80,7 @@ export function ProjectNew() {
   // Machine state from execution store
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
-  const getMachinesForEnvironment = useExecutionStore((s) => s.getMachinesForEnvironment)
+  const machines = useExecutionStore((s) => s.machines)
 
   // Server mode: registered machines
   const isMultiTenant = isServerMode()
@@ -111,13 +101,13 @@ export function ProjectNew() {
     if (isMultiTenant && !selectedMachine && registeredMachines.length > 0) {
       const first = registeredMachines.find((m) => !m.isRevoked && m.isConnected) || registeredMachines.find((m) => !m.isRevoked)
       if (first) {
-        setSelectedMachine({ machineId: first.id, name: first.name, hostname: first.hostname, environmentType: first.environmentType } as MachineInfo)
+        setSelectedMachine({ machineId: first.id, name: first.name, hostname: first.hostname } as MachineInfo)
       }
     }
   }, [isMultiTenant, selectedMachine, registeredMachines])
 
-  const availableMachines = getMachinesForEnvironment(selectedEnvironment)
-  const isRemote = isMultiTenant ? true : selectedEnvironment !== "local"
+  const availableMachines = machines.filter((m) => m.status !== 'offline')
+  const isRemote = isMultiTenant ? true : !!selectedMachine
 
   // Voice transcription for project description
   const handleTranscript = useCallback((text: string) => {
@@ -164,7 +154,6 @@ export function ProjectNew() {
         sourceDirectory: workingDir.trim() || undefined,
         workingDirectory: workingDir.trim() || undefined,
         repository: repoUrl.trim() || undefined,
-        defaultEnvironment: isRemote ? selectedEnvironment : undefined,
         defaultMachineId: selectedMachine?.machineId || undefined,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -241,7 +230,6 @@ export function ProjectNew() {
           sourceDirectory: resolvedDir,
           workingDirectory: resolvedDir,
           repository: repoUrl.trim() || undefined,
-          defaultEnvironment: isRemote ? selectedEnvironment : undefined,
           defaultMachineId: selectedMachine?.machineId || undefined,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -280,10 +268,8 @@ export function ProjectNew() {
     }
   }
 
-  const EnvironmentIcon = environmentConfig[selectedEnvironment].icon
-
-  // Shared environment selector component
-  const EnvironmentSelector = () => {
+  // Shared machine selector component
+  const MachineSelector = () => {
     // Server mode: show registered machines as selectable cards
     if (isMultiTenant) {
       const connectedMachines = registeredMachines.filter((m) => !m.isRevoked)
@@ -298,7 +284,7 @@ export function ProjectNew() {
                   <button
                     key={machine.id}
                     type="button"
-                    onClick={() => setSelectedMachine({ machineId: machine.id, name: machine.name, hostname: machine.hostname, environmentType: machine.environmentType } as MachineInfo)}
+                    onClick={() => setSelectedMachine({ machineId: machine.id, name: machine.name, hostname: machine.hostname } as MachineInfo)}
                     className={cn(
                       "flex items-center gap-3 rounded-lg border-2 px-4 py-3 text-left transition-all cursor-pointer",
                       isSelected
@@ -350,65 +336,38 @@ export function ProjectNew() {
       )
     }
 
-    // Local mode: show environment type dropdown
-    return (
-      <div className="flex flex-col gap-3">
-        <span className="text-[13px] font-medium text-muted-foreground">Environment</span>
-        <div className="flex items-center gap-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-                <EnvironmentIcon className="h-4 w-4" />
-                {environmentConfig[selectedEnvironment].label}
-                <ChevronDown className="h-3 w-3 opacity-50" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuLabel>Select Environment</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {(Object.keys(environmentConfig) as EnvironmentType[]).map((env) => {
-                const config = environmentConfig[env]
-                const Icon = config.icon
-                const machineCount = getMachinesForEnvironment(env).length
-                return (
-                  <DropdownMenuItem
-                    key={env}
-                    onClick={() => {
-                      setSelectedEnvironment(env)
-                      setSelectedMachine(null)
-                    }}
-                    className="gap-2"
-                  >
-                    <Icon className="h-4 w-4" />
-                    <div className="flex flex-col">
-                      <span>{config.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {env === "local" ? config.description : `${machineCount} available`}
-                      </span>
-                    </div>
-                    {selectedEnvironment === env && (
-                      <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                )
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Machine selector for non-local environments */}
-          {isRemote && availableMachines.length > 0 && (
+    // Local mode: show machine selector if machines are available
+    if (availableMachines.length > 0) {
+      return (
+        <div className="flex flex-col gap-3">
+          <span className="text-[13px] font-medium text-muted-foreground">Target Machine</span>
+          <div className="flex items-center gap-3">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-                  <Server className="h-4 w-4" />
+                  <Laptop className="h-4 w-4" />
                   <span className="max-w-[140px] truncate">
-                    {selectedMachine?.name || "Select machine"}
+                    {selectedMachine?.name || "Local"}
                   </span>
                   <ChevronDown className="h-3 w-3 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setSelectedMachine(null)}
+                  className="gap-2"
+                >
+                  <Laptop className="h-4 w-4" />
+                  <div className="flex flex-col">
+                    <span>Local</span>
+                    <span className="text-xs text-muted-foreground">Run on this machine</span>
+                  </div>
+                  {!selectedMachine && (
+                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
+                  )}
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {availableMachines.map((machine) => (
                   <DropdownMenuItem
@@ -430,16 +389,12 @@ export function ProjectNew() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-          )}
-
-          {isRemote && availableMachines.length === 0 && machinesLoaded && (
-            <span className="text-xs text-muted-foreground">
-              No {environmentConfig[selectedEnvironment].label.toLowerCase()} machines connected
-            </span>
-          )}
+          </div>
         </div>
-      </div>
-    )
+      )
+    }
+
+    return null
   }
 
   // Error alert component
@@ -748,7 +703,7 @@ export function ProjectNew() {
           </div>
 
           <ErrorAlert />
-          <EnvironmentSelector />
+          <MachineSelector />
         </div>
 
         {/* Actions */}

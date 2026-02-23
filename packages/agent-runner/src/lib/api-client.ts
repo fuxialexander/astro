@@ -36,7 +36,7 @@ export class DeviceAuthApiError extends Error {
  */
 export async function requestDeviceCode(
   apiUrl: string,
-  machineInfo: { hostname: string; platform: string; environmentType?: string },
+  machineInfo: { hostname: string; platform: string },
 ): Promise<DeviceAuthServerResponse> {
   let res: Response;
   try {

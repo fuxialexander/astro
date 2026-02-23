@@ -26,7 +26,6 @@ const dispatchTaskSchema = z.object({
   title: z.string().min(1).max(1000),
   description: z.string().min(1).max(50000),
   dependencies: z.array(z.string().max(100)).max(100).optional(),
-  environment: z.enum(['local', 'remote', 'hpc', 'cloud']).optional(),
   verification: z.enum(['auto', 'human']).optional(),
   visionDoc: z.string().max(100000).optional(),
   dependencyOutputs: z.array(z.object({
@@ -87,7 +86,6 @@ dispatchRoute.post('/task', async (c) => {
     title,
     description,
     dependencies = [],
-    environment = 'local',
     visionDoc,
     dependencyOutputs = [],
     priority = 'normal',
@@ -181,7 +179,6 @@ dispatchRoute.post('/task', async (c) => {
     description,
     visionDoc,
     dependencyOutputs,
-    environment,
     preferredProvider,
     targetMachineId,
     priority,
@@ -208,7 +205,6 @@ async function dispatchViaRelay(
     description: string
     visionDoc?: string
     dependencyOutputs: Array<{ nodeId: string; title: string; output: string }>
-    environment: string
     preferredProvider?: ProviderType
     targetMachineId?: string
     priority: DispatchPriority
@@ -229,7 +225,6 @@ async function dispatchViaRelay(
     description,
     visionDoc,
     dependencyOutputs,
-    environment,
     preferredProvider,
     targetMachineId,
     priority,
@@ -248,12 +243,12 @@ async function dispatchViaRelay(
   // Find target machine
   let machineId = targetMachineId
   if (!machineId) {
-    const bestMachine = machineRegistry.findBestMachine(environment, preferredProvider, user?.id)
+    const bestMachine = machineRegistry.findBestMachine(preferredProvider, user?.id)
     if (!bestMachine) {
       return c.json(
         {
           success: false,
-          error: `No available machine for environment: ${environment}. Start an agent runner with: npx astro-agent start --relay wss://<your-relay-url>`,
+          error: `No available machine. Start an agent runner with: npx astro-agent start --relay wss://<your-relay-url>`,
         },
         400
       )
@@ -331,7 +326,6 @@ The user can review your reasoning in the task output and provide guidance if th
     description,
     prompt: relayPrompt,
     visionDoc,
-    environment,
     preferredProvider,
     executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,

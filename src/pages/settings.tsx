@@ -717,7 +717,7 @@ function ProfileContent() {
                     )}
                   </div>
                   <span className="text-[13px] text-muted-foreground">
-                    {machine.hostname} • {machine.environmentType} • {machine.platform}
+                    {machine.hostname} • {machine.platform}
                   </span>
                 </div>
               </label>

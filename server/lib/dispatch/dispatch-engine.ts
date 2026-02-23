@@ -239,7 +239,6 @@ export class DispatchEngine extends EventEmitter {
       nodeId: request.nodeId,
       projectId: request.projectId,
       priority: request.priority,
-      environment: request.environment ?? node.environment ?? 'local',
       preferredProvider: request.preferredProvider,
       targetMachineId: request.targetMachineId,
     })

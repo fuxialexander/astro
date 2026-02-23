@@ -26,7 +26,6 @@ interface PlanNode {
   status: string
   parentId: string | null
   dependencies: string[]
-  environment: string
   verification: string
   position: { x: number; y: number }
   priority?: string
@@ -209,7 +208,7 @@ function displayPlan(plan: PlanResult) {
       `  ${icon} ${node.id}: ${node.title}${deps}`
     )
     console.log(`    ${node.description.slice(0, 100)}${node.description.length > 100 ? '...' : ''}`)
-    console.log(`    env=${node.environment} verify=${node.verification} est=${node.estimate ?? '-'}`)
+    console.log(`    verify=${node.verification} est=${node.estimate ?? '-'}`)
   }
 
   console.log(`\nEdges: ${plan.edges.length}`)
@@ -235,7 +234,6 @@ async function executeTask(node: PlanNode, plan: PlanResult) {
       title: node.title,
       description: node.description,
       dependencies: node.dependencies,
-      environment: 'local',
       verification: node.verification,
       workingDirectory: WORKING_DIR,
       maxTurns: 30,

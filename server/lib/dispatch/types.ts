@@ -8,9 +8,6 @@
 import type { PlanNode, PlanEdge } from '../../../src/types/index.js'
 import type { ProviderType } from '../../types/relay.js'
 
-/** Execution environments for task dispatch */
-export type ExecutionEnvironment = 'local' | 'remote' | 'hpc' | 'cloud'
-
 /** Minimal task result interface (formerly from providers/types.ts) */
 export interface TaskResult {
   taskId: string
@@ -87,8 +84,8 @@ export interface DispatchQueueEntry {
   status: DispatchStatus
   /** Dispatch priority */
   priority: DispatchPriority
-  /** Target execution environment */
-  environment: ExecutionEnvironment
+  /** Target execution environment (legacy, unused) */
+  environment?: string
   /** Preferred provider (if any) */
   preferredProvider?: ProviderType
   /** Target machine ID (if specified) */
@@ -183,8 +180,8 @@ export interface DispatchRequest {
   nodeId: string
   /** Project ID */
   projectId: string
-  /** Target environment (optional, defaults to node's environment) */
-  environment?: ExecutionEnvironment
+  /** Target environment (legacy, unused) */
+  environment?: string
   /** Preferred provider */
   preferredProvider?: ProviderType
   /** Target machine (for relay dispatch) */
@@ -365,7 +362,7 @@ export interface TaskDispatchedEvent extends DispatchEngineEvent {
   nodeId: string
   projectId: string
   executionId: string
-  environment: ExecutionEnvironment
+  environment?: string
   providerId?: string
   machineId?: string
 }

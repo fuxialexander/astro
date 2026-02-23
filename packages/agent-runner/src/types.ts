@@ -214,7 +214,6 @@ export interface RegisterMessage extends WSMessage {
   payload: {
     runnerId: string;
     machineId: string;
-    environmentType?: string;
     providers: ProviderInfo[];
     executionStrategies?: ExecutionStrategyInfo[];
     resources: MachineResources;

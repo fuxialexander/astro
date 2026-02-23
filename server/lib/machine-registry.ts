@@ -33,7 +33,6 @@ import type {
   MachineInfo,
   MachineLoad,
   ProviderInfo,
-  EnvironmentType,
   ProviderType,
 } from '../types/relay.js';
 import type { WebSocket } from 'ws';
@@ -308,13 +307,6 @@ export class MachineRegistry extends EventEmitter {
   }
 
   /**
-   * Get machines by environment type
-   */
-  getByEnvironment(environment: EnvironmentType): MachineRegistryEntry[] {
-    return this.getAll().filter(m => m.environmentType === environment);
-  }
-
-  /**
    * Get machines by provider type
    */
   getByProvider(providerType: ProviderType): MachineRegistryEntry[] {
@@ -324,26 +316,20 @@ export class MachineRegistry extends EventEmitter {
   }
 
   /**
-   * Find best machine for a task based on environment, provider, and load.
-   * For HPC environment, finds machines with claude-sdk/claude-code providers
-   * that report hpcCapability metadata (Slurm is no longer a standalone provider).
+   * Find best machine for a task based on provider and load.
    */
   findBestMachine(
-    environment: EnvironmentType,
     preferredProvider?: ProviderType,
     userId?: string
   ): MachineRegistryEntry | undefined {
-    let candidates = this.getByEnvironment(environment);
+    let candidates = this.getAll();
 
     // Filter by user ownership when provided
     if (userId) {
       candidates = candidates.filter(m => !m.userId || m.userId === userId || m.userId === 'dev-user');
     }
 
-    // For HPC, default to claude-sdk provider (HPC is handled via prompt injection)
-    const effectiveProvider = (environment === 'hpc' && !preferredProvider)
-      ? 'claude-sdk' as ProviderType
-      : preferredProvider;
+    const effectiveProvider = preferredProvider;
 
     // Filter by provider if specified
     if (effectiveProvider) {
@@ -406,17 +392,11 @@ export class MachineRegistry extends EventEmitter {
     machines: MachineRegistryEntry[];
     summary: {
       total: number;
-      byEnvironment: Record<EnvironmentType, number>;
-      byProvider: Record<ProviderType, number>;
+      byProvider: Record<string, number>;
       totalActiveTasks: number;
     };
   } {
     const machines = this.getAll();
-    const byEnvironment: Record<EnvironmentType, number> = {
-      local: 0,
-      hpc: 0,
-      cloud: 0,
-    };
     const byProvider: Record<string, number> = {
       'claude-code': 0,
       'claude-sdk': 0,
@@ -427,7 +407,6 @@ export class MachineRegistry extends EventEmitter {
     let totalActiveTasks = 0;
 
     for (const machine of machines) {
-      byEnvironment[machine.environmentType]++;
       for (const provider of machine.providers) {
         byProvider[provider.type]++;
         totalActiveTasks += provider.currentTasks;
@@ -438,7 +417,6 @@ export class MachineRegistry extends EventEmitter {
       machines,
       summary: {
         total: machines.length,
-        byEnvironment,
         byProvider,
         totalActiveTasks,
       },

@@ -38,7 +38,6 @@ describe('POST /api/device/authorize', () => {
   it('returns deviceCode, userCode, and verification URIs', async () => {
     const res = await post('/api/device/authorize', {
       machineInfo: {
-        environmentType: 'local',
         hostname: 'test-machine',
         platform: 'darwin',
       },
@@ -52,13 +51,13 @@ describe('POST /api/device/authorize', () => {
     expect(body.interval).toBeGreaterThan(0)
   })
 
-  it('returns 400 when machineInfo.environmentType is missing', async () => {
+  it('accepts empty machineInfo', async () => {
     const res = await post('/api/device/authorize', {
       machineInfo: {},
     })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.error).toBe('invalid_request')
+    expect(body.deviceCode).toBeTruthy()
   })
 })
 
@@ -67,7 +66,6 @@ describe('Device code approval flow', () => {
     // Step 1: Authorize
     const authRes = await post('/api/device/authorize', {
       machineInfo: {
-        environmentType: 'local',
         hostname: 'flow-test',
         platform: 'linux',
       },
@@ -114,7 +112,6 @@ describe('Device code denial flow', () => {
     // Step 1: Authorize
     const authRes = await post('/api/device/authorize', {
       machineInfo: {
-        environmentType: 'local',
         hostname: 'deny-test',
         platform: 'linux',
       },
@@ -149,7 +146,7 @@ describe('GET /api/device/stats', () => {
   it('counts pending codes correctly', async () => {
     // Create a pending device code
     await post('/api/device/authorize', {
-      machineInfo: { environmentType: 'local' },
+      machineInfo: { hostname: 'local' },
     })
 
     const res = await get('/api/device/stats')
@@ -174,7 +171,6 @@ describe('GET /api/device/code/:code', () => {
   it('returns device code info for pending code', async () => {
     const authRes = await post('/api/device/authorize', {
       machineInfo: {
-        environmentType: 'local',
         hostname: 'info-test',
         platform: 'darwin',
       },
@@ -212,7 +208,6 @@ describe('machine registration ownership transfer', () => {
     name: 'test-machine',
     hostname: 'test-host',
     platform: 'darwin',
-    environmentType: 'local' as const,
     providers: ['claude-code' as const],
     refreshTokenHash: 'hash-abc',
   }

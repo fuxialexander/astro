@@ -29,7 +29,6 @@ program
   .description('Run initial setup: detect providers, authenticate, configure relay')
   .option('--api <url>', 'API server URL')
   .option('--relay <url>', 'Custom relay server URL')
-  .option('--type <type>', 'Environment type: local, remote, hpc, cloud')
   .option('--hostname <hostname>', 'Machine hostname (defaults to system hostname)')
   .option('--skip-auth', 'Skip device authentication')
   .option('--non-interactive', 'Run in non-interactive mode')

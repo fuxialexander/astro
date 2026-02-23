@@ -6,7 +6,7 @@
  */
 
 import type { RegisteredMachine } from '../types/device-auth.js'
-import type { ProviderType, EnvironmentType } from '../types/relay.js'
+import type { ProviderType } from '../types/relay.js'
 import crypto from 'crypto'
 import { db } from './db/index.js'
 import { registeredMachines, machineUsageLogs, teamMembers, teams } from './db/schema.js'
@@ -28,7 +28,7 @@ function mapRowToMachine(row: typeof registeredMachines.$inferSelect): Registere
     name: row.name,
     hostname: row.hostname,
     platform: row.platform,
-    environmentType: row.environmentType as EnvironmentType,
+    environmentType: row.environmentType ?? undefined,
     providers: (row.providers ?? []) as ProviderType[],
     providerConfigs: (row.providerConfigs ?? []) as import('../types/device-auth.js').ProviderConfig[],
     userId: row.userId,
@@ -54,7 +54,6 @@ export async function registerMachine(params: {
   name: string
   hostname: string
   platform: string
-  environmentType: EnvironmentType
   providers: ProviderType[]
   userId: string
   workspaceId?: string
@@ -99,7 +98,6 @@ export async function registerMachine(params: {
       ...existingMachine,
       userId: ownershipTransfer ? params.userId : existingMachine.userId,
       name: preserveName ? existingMachine.name : params.name,
-      environmentType: params.environmentType,
       providers: params.providers,
       lastSeenAt: now,
       refreshTokenHash: params.refreshTokenHash,
@@ -109,7 +107,6 @@ export async function registerMachine(params: {
 
     const updateFields: Partial<typeof registeredMachines.$inferInsert> = {
       name: updated.name,
-      environmentType: updated.environmentType,
       providers: updated.providers as string[],
       lastSeenAt: now,
       refreshTokenHash: updated.refreshTokenHash,
@@ -136,7 +133,6 @@ export async function registerMachine(params: {
     name: params.name,
     hostname: params.hostname,
     platform: params.platform,
-    environmentType: params.environmentType,
     providers: params.providers,
     userId: params.userId,
     workspaceId: params.workspaceId,
@@ -153,8 +149,6 @@ export async function registerMachine(params: {
   console.log(`[machines-store]   - Name: ${machine.name}`)
   console.log(`[machines-store]   - Hostname: ${machine.hostname}`)
   console.log(`[machines-store]   - User ID: ${machine.userId}`)
-  console.log(`[machines-store]   - Environment: ${machine.environmentType}`)
-
   try {
     await db.insert(registeredMachines).values({
       id: machine.id,
@@ -162,7 +156,6 @@ export async function registerMachine(params: {
       name: machine.name,
       hostname: machine.hostname,
       platform: machine.platform,
-      environmentType: machine.environmentType,
       providers: machine.providers as string[],
       workspaceId: machine.workspaceId,
       refreshTokenHash: machine.refreshTokenHash,
@@ -200,20 +193,18 @@ export async function ensureMachineRegistered(machineId: string, params: {
   name: string
   hostname: string
   platform: string
-  environmentType: EnvironmentType
   providers: ProviderType[]
   userId: string
 }): Promise<void> {
   const existing = await getMachine(machineId)
 
   if (existing) {
-    // Machine exists — update connection status + environmentType/providers
+    // Machine exists — update connection status + providers
     const now = new Date()
     await db.update(registeredMachines)
       .set({
         isConnected: true,
         lastSeenAt: now,
-        environmentType: params.environmentType,
         providers: params.providers as string[],
       })
       .where(eq(registeredMachines.id, machineId))
@@ -230,7 +221,6 @@ export async function ensureMachineRegistered(machineId: string, params: {
       name: params.name,
       hostname: params.hostname,
       platform: params.platform,
-      environmentType: params.environmentType,
       providers: params.providers as string[],
       refreshTokenHash: '',
       isConnected: true,

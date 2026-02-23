@@ -166,15 +166,6 @@ deviceAuthRoute.post('/authorize', async (c) => {
   try {
     const body = await c.req.json() as DeviceAuthRequest;
 
-    // Validate required fields
-    if (!body.machineInfo?.environmentType) {
-      console.error('[device-auth] Missing required field: machineInfo.environmentType');
-      return c.json({
-        error: 'invalid_request',
-        error_description: 'machineInfo.environmentType is required',
-      }, 400);
-    }
-
     const { deviceCode, userCode, expiresIn, interval } = await createDeviceCode(body);
 
     // Verify device code was actually created
@@ -402,7 +393,6 @@ deviceAuthRoute.post('/register', async (c) => {
       name: machineInfo.name || machineInfo.hostname || 'Unknown',
       hostname: machineInfo.hostname || 'unknown',
       platform: machineInfo.platform || 'unknown',
-      environmentType: machineInfo.environmentType || 'local',
       providers: machineInfo.providers?.map(p => p.type) || [],
       userId: payload.userId,
       workspaceId: payload.workspaceId,
@@ -478,7 +468,6 @@ deviceAuthRoute.post('/register', async (c) => {
         machineName: machine.name,
         hostname: machine.hostname,
         platform: machine.platform,
-        environmentType: machine.environmentType,
       },
       ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
       userAgent: c.req.header('user-agent'),
@@ -694,7 +683,6 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
       name: row.name as string,
       hostname: row.hostname as string,
       platform: row.platform as string,
-      environmentType: row.environment_type as string,
       providers: row.providers as string[],
       providerConfigs: row.provider_configs ?? [],
       userId: row.user_id as string,
@@ -720,7 +708,6 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
         name: m.name,
         hostname: m.hostname,
         platform: m.platform,
-        environmentType: m.environmentType,
         providers: m.providers,
         providerConfigs: m.providerConfigs ?? [],
         userId: m.userId,
@@ -773,7 +760,6 @@ deviceAuthRoute.get('/machines/:id', requireAuth, async (c) => {
         name: data.name,
         hostname: data.hostname,
         platform: data.platform,
-        environmentType: data.environment_type,
         providers: data.providers,
         registeredAt: new Date(data.registered_at),
         lastSeenAt: new Date(data.last_seen_at),
@@ -801,7 +787,6 @@ deviceAuthRoute.get('/machines/:id', requireAuth, async (c) => {
         name: machine.name,
         hostname: machine.hostname,
         platform: machine.platform,
-        environmentType: machine.environmentType,
         providers: machine.providers,
         registeredAt: machine.registeredAt,
         lastSeenAt: machine.lastSeenAt,
@@ -1036,8 +1021,7 @@ deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
 deviceAuthRoute.post('/simulate-machine', async (c) => {
   try {
     const body = await c.req.json() as { type?: 'local' | 'hpc'; name?: string };
-    const envType = body.type || 'local';
-    const isHpc = envType === 'hpc';
+    const isHpc = body.type === 'hpc';
 
     const machineId = `sim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const machineName = body.name || (isHpc ? 'Sherlock HPC' : `Dev Machine ${machineId.slice(-4)}`);
@@ -1050,7 +1034,6 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
       name: machineName,
       hostname,
       platform,
-      environmentType: envType,
       providers,
       userId: 'current-user',
       refreshTokenHash: '',
@@ -1062,7 +1045,6 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
       name: machineName,
       hostname,
       platform,
-      environmentType: envType,
       providers: providers.map((p) => ({
         type: p,
         status: 'available' as const,
@@ -1086,7 +1068,6 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
         name: machineName,
         hostname,
         platform,
-        environmentType: envType,
         providers,
       },
     });

@@ -70,7 +70,6 @@ const dispatchTaskSchema = z.object({
   title: z.string().min(1).max(1000),
   description: z.string().min(1).max(50000),
   dependencies: z.array(z.string().max(100)).max(100).optional(),
-  environment: z.enum(['local', 'remote', 'hpc', 'cloud']).optional(),
   verification: z.enum(['auto', 'human']).optional(),
   visionDoc: z.string().max(100000).optional(),
   dependencyOutputs: z.array(z.object({
