@@ -22,6 +22,9 @@ The design docs in `docs/design/` are the authoritative reference for the system
 | [DATA_MODEL](./design/DATA_MODEL.md) | All types: Project, PlanNode, PlanEdge, etc. |
 | [USER_WORKFLOWS](./design/USER_WORKFLOWS.md) | End-to-end data flows for all user journeys |
 | [IMPLEMENTATION_PIPELINE](./design/IMPLEMENTATION_PIPELINE.md) | Implementation priorities and pipeline |
+| [COLLABORATION](./design/COLLABORATION.md) | Teams, public projects, content model, community review |
+| [FRONTEND_EPHEMERAL_CACHE](./design/FRONTEND_EPHEMERAL_CACHE.md) | Ephemeral auto-fetch for machine-derived metadata (file trees, skills) |
+| [TAURI_APP](./design/TAURI_APP.md) | Tauri desktop app vision, plugin system architecture, migration path |
 | [CURRENT_CONFLICT_VIEW](./design/CURRENT_CONFLICT_VIEW.md) | Known conflicts between design and code |
 
 ## Technical Documentation
