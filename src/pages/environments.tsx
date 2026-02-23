@@ -6,7 +6,6 @@ import {
   Wifi,
   RefreshCw,
   Plus,
-  Laptop,
   Globe,
   CheckCircle2,
   XCircle,
@@ -367,73 +366,6 @@ function RegisteredMachinesCard({ machines, liveMachineIds, onRefresh }: {
   )
 }
 
-function LocalMachineCard() {
-  const providers = useExecutionStore((s) => s.providers)
-  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
-  const loadProviders = useExecutionStore((s) => s.loadProviders)
-
-  useEffect(() => {
-    if (!providersLoaded) loadProviders()
-  }, [providersLoaded, loadProviders])
-
-  // Only show providers that are at least installed (skip irrelevant ones like Slurm on a laptop)
-  const installedProviders = providers.filter((p) => p.installed)
-  const hasAvailable = installedProviders.some((p) => p.available)
-
-  return (
-    <Card>
-      <div className="flex items-center justify-between p-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-            <Laptop className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <p className="font-medium">This Machine</p>
-            <p className="text-xs text-muted-foreground">
-              Providers detected from local auth
-            </p>
-          </div>
-        </div>
-        <Badge className="gap-1.5 bg-success/10 text-success border-0">
-          <span className="h-1.5 w-1.5 rounded-full bg-success" />
-          Active
-        </Badge>
-      </div>
-
-      <div className="flex flex-col gap-3 px-6 pb-6">
-        {!providersLoaded ? (
-          <p className="text-sm text-muted-foreground">Detecting providers...</p>
-        ) : installedProviders.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No providers detected</p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {installedProviders.map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-lg bg-muted p-3">
-                <div className="flex items-center gap-2">
-                  {p.available ? (
-                    <CheckCircle2 className="h-4 w-4 text-success" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-warning" />
-                  )}
-                  <span className="text-sm font-medium">{p.name}</span>
-                </div>
-                <Badge variant={p.available ? "success" : "warning"}>
-                  {p.available ? "Ready" : "Not authenticated"}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        )}
-        {!hasAvailable && providersLoaded && (
-          <p className="text-xs text-muted-foreground">
-            Run <code className="font-mono bg-muted px-1 rounded text-[11px]">claude login</code> to authenticate.
-          </p>
-        )}
-      </div>
-    </Card>
-  )
-}
-
 function backendSubtitle(b: ComputeBackendInfo): string | null {
   const meta = b.metadata ?? {}
 
@@ -768,24 +700,6 @@ export function Environments() {
           iconColor="text-purple-500"
         />
       </div>
-
-      {/* Local - only show in single-user mode */}
-      {!isMultiTenant && (
-        <div className="flex flex-col gap-4">
-          <div className="hidden md:flex flex-col gap-1">
-            <div className="flex items-center gap-3">
-              <Laptop className="h-5 w-5 text-muted-foreground" />
-              <h2 className="text-lg font-semibold">Local</h2>
-            </div>
-            <p className="text-xs text-muted-foreground ml-8">
-              AI providers authenticated on this machine. Agents use these credentials to run tasks locally.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <LocalMachineCard />
-          </div>
-        </div>
-      )}
 
       {/* Connected — only show when there are live relay machines */}
       {connectedLiveMachines.length > 0 && (
