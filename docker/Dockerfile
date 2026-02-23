@@ -43,6 +43,9 @@ COPY --from=builder --chown=astro:astro /app/package.json ./
 # Server source (runs via tsx at runtime)
 COPY --from=builder --chown=astro:astro /app/server ./server
 
+# Shared core package (server imports from packages/core/src/*)
+COPY --from=builder --chown=astro:astro /app/packages/core ./packages/core
+
 # Frontend types imported by server (src/types/*.ts)
 COPY --from=builder --chown=astro:astro /app/src/types ./src/types
 
