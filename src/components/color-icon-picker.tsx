@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/static-components */
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import {
   PROJECT_EMOJI_ICONS,
   INITIATIVE_EMOJI_ICONS,
 } from "@/lib/color-icon-utils";
-import * as FaIcons from "react-icons/fa";
+import { getFaIcon } from "@/lib/color-icon-utils";
 
 interface ColorIconPickerProps {
   color?: string;
@@ -65,9 +66,7 @@ export function ColorIconPicker({
   };
 
   // Get the current icon component (FA or emoji)
-  const CurrentIcon = icon.startsWith("Fa") && icon in FaIcons
-    ? FaIcons[icon as keyof typeof FaIcons]
-    : null;
+  const CurrentIcon = useMemo(() => getFaIcon(icon), [icon]);
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
@@ -132,7 +131,7 @@ export function ColorIconPicker({
             <TabsContent value="icons" className="px-4 pb-4 mt-0 max-h-[300px] overflow-y-auto">
               <div className="grid grid-cols-12 gap-1">
                 {filteredFaIcons.map((iconName) => {
-                  const IconComponent = FaIcons[iconName as keyof typeof FaIcons];
+                  const IconComponent = getFaIcon(iconName);
                   if (!IconComponent) return null;
 
                   return (
@@ -203,9 +202,7 @@ export function ColorIconBadge({
   className,
 }: ColorIconBadgeProps) {
   // Get the icon component if it's a Font Awesome icon
-  const IconComponent = icon.startsWith("Fa") && icon in FaIcons
-    ? FaIcons[icon as keyof typeof FaIcons]
-    : null;
+  const IconComponent = useMemo(() => getFaIcon(icon), [icon]);
 
   if (!editable) {
     return (

@@ -10,7 +10,7 @@ export interface DisplaySettings {
   showCompleted: boolean
   visibleProperties: string[]
   columnBy?: "status" | "priority" | "milestone"
-  zoom?: "month" | "quarter" | "year"
+  zoom?: "day" | "week" | "month" | "quarter" | "year"
   showProjectList?: boolean
   showWeekNumbers?: boolean
   showEmptyGroups?: boolean
@@ -30,7 +30,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderDirection: "asc",
     showCompleted: true,
     visibleProperties: [],
-    zoom: "month",
+    zoom: "day",
   },
   "plan-graph": {
     groupBy: "status",
@@ -45,7 +45,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderDirection: "asc",
     showCompleted: true,
     visibleProperties: ["priority", "status", "dueDate", "estimate", "labels", "pr"],
-    zoom: "month",
+    zoom: "day",
   },
   "my-tasks": {
     groupBy: "project",
@@ -60,7 +60,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderDirection: "asc",
     showCompleted: false,
     visibleProperties: [],
-    zoom: "month",
+    zoom: "day",
   },
   "plan-board": {
     groupBy: "none",

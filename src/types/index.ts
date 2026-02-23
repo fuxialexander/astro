@@ -154,8 +154,8 @@ export interface PlanNode {
   machineId?: string;            // references a specific registered machine
   verification: 'auto' | 'human';
   position: { x: number; y: number };
-  startDate?: string;
-  endDate?: string;
+  startDate?: string;     // ISO date (YYYY-MM-DD) or datetime (YYYY-MM-DDTHH:MM:SS.sssZ); updated with real execution time on task start
+  endDate?: string;       // ISO date (YYYY-MM-DD) or datetime (YYYY-MM-DDTHH:MM:SS.sssZ); updated with real execution time on task completion
   priority?: Priority;
   labelIds?: string[];
   dueDate?: string;       // ISO YYYY-MM-DD, distinct from startDate/endDate

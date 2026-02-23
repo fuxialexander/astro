@@ -1,3 +1,17 @@
+import type { ComponentType } from 'react';
+import * as FaIcons from 'react-icons/fa';
+import * as Fa6Icons from 'react-icons/fa6';
+
+type IconComponent = ComponentType<{ size?: number; style?: React.CSSProperties; className?: string }>;
+
+/** Look up a Font Awesome icon from both fa (v5) and fa6 (v6) packages */
+export function getFaIcon(name: string): IconComponent | null {
+  if (!name.startsWith('Fa')) return null;
+  return (FaIcons as Record<string, unknown>)[name] as IconComponent
+    ?? (Fa6Icons as Record<string, unknown>)[name] as IconComponent
+    ?? null;
+}
+
 // Color palette for projects and initiatives
 export const COLOR_PALETTE = [
   '#64748b', // slate

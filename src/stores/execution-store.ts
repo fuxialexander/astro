@@ -952,6 +952,8 @@ function handleSSEEvent(
           status: "in_progress",
           executionId: parsed.executionId,
           executionStartedAt: now,
+          // Update startDate with real execution start time (ISO datetime)
+          startDate: now.toISOString(),
           // Set actualStartDate only on first execution attempt (if not already set)
           ...(node && !node.actualStartDate ? { actualStartDate: now } : {}),
         })
@@ -1185,6 +1187,8 @@ function handleSSEEvent(
           status: finalStatus,
           executionOutput: execution?.streamText || parsed.output,
           executionCompletedAt: completionTime,
+          // Update endDate with real execution completion time (ISO datetime)
+          endDate: completionTime.toISOString(),
           // Set actualEndDate to capture final execution completion timestamp
           actualEndDate: completionTime,
           // Persist PR/branch metadata on the plan node
@@ -1252,6 +1256,8 @@ function handleSSEEvent(
         planStore.updateNode(nodeId, {
           status: "awaiting_judgment",
           executionError: errorMessage,
+          // Update endDate with real execution error time (ISO datetime)
+          endDate: errorTime.toISOString(),
           // Set actualEndDate even on error to track when task stopped
           actualEndDate: errorTime,
         })

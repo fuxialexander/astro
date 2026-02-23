@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react"
 import { NavLink, useNavigate, useParams } from "react-router"
 import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, Puzzle, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code } from "lucide-react"
-import * as FaIcons from "react-icons/fa"
+import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -414,9 +414,7 @@ export function Sidebar() {
                   {(() => {
                     const projIcon = project.icon || "FaBox"
                     const projColor = project.color || color
-                    const FaIcon = projIcon.startsWith("Fa") && projIcon in FaIcons
-                      ? FaIcons[projIcon as keyof typeof FaIcons]
-                      : null
+                    const FaIcon = getFaIcon(projIcon)
                     if (FaIcon) {
                       return <FaIcon size={16} style={{ color: projColor }} className="shrink-0" />
                     }

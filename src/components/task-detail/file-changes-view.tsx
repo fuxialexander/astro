@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { ChevronDown, ChevronRight, FilePlus, FileEdit, FileX, Plus, Minus, ExternalLink } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { buildFileUrlSync } from "@/lib/path-utils"
@@ -106,8 +106,10 @@ function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change
   const config = actionConfig[change.action] || actionConfig.modified
   const Icon = config.icon
 
-  const machines = useMachinesStore((s) => s.machines)
-  const machine = machineId ? machines.find((m) => m.id === machineId) : undefined
+  const registeredMachines = useMachinesStore((s) => s.machines)
+  const machine = machineId
+    ? registeredMachines.find((m) => m.id === machineId || m.name === machineId)
+    : undefined
 
   // Build file URL for editor integration
   const editorType = useVSCode ? 'vscode' : 'cursor'
@@ -189,6 +191,15 @@ function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change
 export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
   const [useLocalUrls, setUseLocalUrls] = useState(true)
   const [useVSCode, setUseVSCode] = useState(false)
+
+  // Ensure machines are loaded for editor URL generation
+  const machines = useMachinesStore((s) => s.machines)
+  const fetchMachines = useMachinesStore((s) => s.fetchMachines)
+  useEffect(() => {
+    if (machines.length === 0) {
+      fetchMachines()
+    }
+  }, [machines.length, fetchMachines])
 
   if (changes.length === 0) {
     return (

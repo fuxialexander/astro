@@ -30,7 +30,7 @@ function getBarGradient(barClass: string): string {
   }
 }
 
-type ZoomLevel = "month" | "quarter" | "year"
+type ZoomLevel = "day" | "week" | "month" | "quarter" | "year"
 
 export interface TimelineItem {
   id: string
@@ -66,9 +66,11 @@ interface ColumnInfo {
 
 // Preset ppd values for button presets
 const PRESET_PPD: Record<ZoomLevel, number> = {
-  month: DAY_WIDTH,    // 20px/day → ~140px/week
-  quarter: 6,          // 6px/day → ~180px/month
-  year: 2.2,           // 2.2px/day → ~200px/quarter
+  day: 60,             // 60px/day → detailed hourly view
+  week: DAY_WIDTH,     // 20px/day → ~140px/week
+  month: 6,            // 6px/day → ~180px/month
+  quarter: 2.2,        // 2.2px/day → ~200px/quarter
+  year: 0.8,           // 0.8px/day → ~290px/year
 }
 
 // Continuous ppd limits
@@ -76,6 +78,7 @@ const PPD_MIN_ABSOLUTE = 0.3
 const PPD_MAX = 30
 
 // Column granularity thresholds
+const PPD_DAILY_THRESHOLD = 30    // above this: show daily columns
 const PPD_WEEKLY_THRESHOLD = 10   // above this: show weekly columns
 const PPD_MONTHLY_THRESHOLD = 3   // above this: show monthly columns, else quarterly
 
@@ -113,7 +116,7 @@ export function ItemTimelineView<T>({
 }: ItemTimelineViewProps<T>) {
   const displaySettings = useDisplaySettingsStore((s) => s.get(viewKey))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
-  const savedZoom = (displaySettings.zoom ?? "month") as ZoomLevel
+  const savedZoom = (displaySettings.zoom ?? "day") as ZoomLevel
 
   // Continuous ppd state — initialized from saved preset.
   // When savedZoom changes externally, reset ppd to the new preset.
@@ -246,7 +249,7 @@ export function ItemTimelineView<T>({
   const effectivePpd = Math.max(ppd, ppdMin)
 
   // Column granularity based on effective ppd
-  const columnMode = effectivePpd >= PPD_WEEKLY_THRESHOLD ? "week" : effectivePpd >= PPD_MONTHLY_THRESHOLD ? "month" : "quarter"
+  const columnMode = effectivePpd >= PPD_DAILY_THRESHOLD ? "day" : effectivePpd >= PPD_WEEKLY_THRESHOLD ? "week" : effectivePpd >= PPD_MONTHLY_THRESHOLD ? "month" : "quarter"
 
   // Compute timeline bounds + columns using effectivePpd
   const { timelineStart, columnInfos, totalWidth } = useMemo(() => {
@@ -265,7 +268,13 @@ export function ItemTimelineView<T>({
 
     const cols: ColumnInfo[] = []
 
-    if (columnMode === "week") {
+    if (columnMode === "day") {
+      const numDays = Math.max(14, Math.ceil(totalSpanDays))
+      for (let i = 0; i < numDays; i++) {
+        const d = addDays(start, i)
+        cols.push({ label: formatColLabel(d, "day"), left: i * effectivePpd, width: effectivePpd })
+      }
+    } else if (columnMode === "week") {
       const numWeeks = Math.max(8, Math.ceil(totalSpanDays / 7))
       for (let i = 0; i < numWeeks; i++) {
         const d = addDays(start, i * 7)
@@ -307,6 +316,15 @@ export function ItemTimelineView<T>({
   const scrollToToday = useCallback(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollLeft = Math.max(0, todayOffset - scrollRef.current.clientWidth / 2)
+    }
+  }, [todayOffset])
+
+  // Scroll to today on mount
+  const hasScrolledToToday = useRef(false)
+  useEffect(() => {
+    if (!hasScrolledToToday.current && scrollRef.current && todayOffset > 0) {
+      scrollRef.current.scrollLeft = Math.max(0, todayOffset - scrollRef.current.clientWidth / 2)
+      hasScrolledToToday.current = true
     }
   }, [todayOffset])
 
@@ -422,7 +440,7 @@ export function ItemTimelineView<T>({
             Today
           </Button>
           <div className="flex items-center rounded-lg bg-secondary p-0.5 gap-0.5">
-            {(["month", "quarter", "year"] as ZoomLevel[]).map((level) => (
+            {(["day", "week", "month", "quarter", "year"] as ZoomLevel[]).map((level) => (
               <button
                 key={level}
                 onClick={() => setPreset(level)}
@@ -553,8 +571,11 @@ export function ItemTimelineView<T>({
   )
 }
 
-function formatColLabel(d: Date, mode: "week" | "month" | "quarter"): string {
-  if (mode === "week") {
+function formatColLabel(d: Date, mode: "day" | "week" | "month" | "quarter"): string {
+  if (mode === "day") {
+    const weekday = d.toLocaleString("default", { weekday: "short", timeZone: "UTC" })
+    return `${weekday} ${d.getUTCDate()}`
+  } else if (mode === "week") {
     return `${d.toLocaleString("default", { month: "short", timeZone: "UTC" })} ${d.getUTCDate()}`
   } else if (mode === "month") {
     return `${d.toLocaleString("default", { month: "short", timeZone: "UTC" })} ${d.getUTCFullYear()}`
