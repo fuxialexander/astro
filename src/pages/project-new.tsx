@@ -175,6 +175,9 @@ export function ProjectNew() {
           targetMachineId: selectedMachine?.machineId || undefined,
         })
 
+        // In AI path we navigate away immediately, so dismiss any git init prompt
+        // (it's only useful in the non-AI path where the user stays on this page)
+        dismissGitInit()
         const resolvedWorkDir = repoResult?.workingDirectory || workingDir.trim()
         if (repoResult?.workingDirectory) {
           startGeneration(id, projectName, description.trim(), undefined, {
