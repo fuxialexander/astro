@@ -130,6 +130,52 @@ export function ProjectNew() {
 
   const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
 
+  // Pending AI generation context — set when git init dialog is shown, consumed after user chooses
+  const [pendingGeneration, setPendingGeneration] = useState<{
+    id: string
+    projectName: string
+    description: string
+    workingDir: string
+    machineId?: string
+  } | null>(null)
+
+  // Navigate to graph view and start AI plan generation
+  function navigateAndGenerate(
+    projectId: string,
+    name: string,
+    desc: string,
+    repoContext?: { workingDirectory: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string },
+  ) {
+    navigate(`/project/${projectId}/graph`)
+    startGeneration(projectId, name, desc, undefined, repoContext)
+  }
+
+  // Called when user confirms git init from the dialog
+  const handleGitInitConfirm = async () => {
+    await confirmGitInit()
+    if (pendingGeneration) {
+      const pg = pendingGeneration
+      setPendingGeneration(null)
+      navigateAndGenerate(pg.id, pg.projectName, pg.description, {
+        workingDirectory: pg.workingDir,
+        targetMachineId: pg.machineId,
+      })
+    }
+  }
+
+  // Called when user skips git init from the dialog
+  const handleGitInitDismiss = () => {
+    dismissGitInit()
+    if (pendingGeneration) {
+      const pg = pendingGeneration
+      setPendingGeneration(null)
+      navigateAndGenerate(pg.id, pg.projectName, pg.description, {
+        workingDirectory: pg.workingDir,
+        targetMachineId: pg.machineId,
+      })
+    }
+  }
+
   // Unified create handler
   async function handleCreate(useAI: boolean) {
     if (!description.trim() || isSubmitting) return
@@ -140,7 +186,7 @@ export function ProjectNew() {
     const projectName = description.slice(0, 50).trim() || "New Project"
 
     if (useAI) {
-      // --- AI path: create project, navigate, then setup repo + generate ---
+      // --- AI path: create project, setup repo, then navigate + generate ---
       addProject({
         id,
         name: projectName,
@@ -157,9 +203,9 @@ export function ProjectNew() {
         createdAt: new Date(),
         updatedAt: new Date(),
       })
-      navigate(`/project/${id}/graph`)
 
       if (connectionStatus !== "connected") {
+        navigate(`/project/${id}/graph`)
         setIsSubmitting(false)
         return
       }
@@ -175,26 +221,35 @@ export function ProjectNew() {
           targetMachineId: selectedMachine?.machineId || undefined,
         })
 
-        // In AI path we navigate away immediately, so dismiss any git init prompt
-        // (it's only useful in the non-AI path where the user stays on this page)
-        dismissGitInit()
+        if (!repoResult && gitInitPrompt) {
+          // needsGitInit — stay on page, let user choose via dialog
+          setPendingGeneration({
+            id,
+            projectName,
+            description: description.trim(),
+            workingDir: workingDir.trim(),
+            machineId: selectedMachine?.machineId,
+          })
+          setIsSubmitting(false)
+          return
+        }
+
+        // Navigate and generate
         const resolvedWorkDir = repoResult?.workingDirectory || workingDir.trim()
         if (repoResult?.workingDirectory) {
-          startGeneration(id, projectName, description.trim(), undefined, {
+          navigateAndGenerate(id, projectName, description.trim(), {
             workingDirectory: repoResult.workingDirectory,
             fileTree: repoResult.fileTree,
             keyFiles: repoResult.keyFiles,
             targetMachineId: selectedMachine?.machineId,
           })
         } else if (resolvedWorkDir) {
-          console.warn('[project-new] Repo setup returned null, generating with user-provided directory')
-          startGeneration(id, projectName, description.trim(), undefined, {
+          navigateAndGenerate(id, projectName, description.trim(), {
             workingDirectory: resolvedWorkDir,
             targetMachineId: selectedMachine?.machineId,
           })
         } else {
-          console.warn('[project-new] No working directory available, generating without repo context')
-          setRepoSetupError('Repository setup returned incomplete data')
+          navigate(`/project/${id}/graph`)
           startGeneration(id, projectName, description.trim())
         }
       } catch (error) {
@@ -211,6 +266,7 @@ export function ProjectNew() {
         }
 
         const fallbackDir = workingDir.trim()
+        navigate(`/project/${id}/graph`)
         startGeneration(id, projectName, description.trim(), undefined, fallbackDir ? {
           workingDirectory: fallbackDir,
           targetMachineId: selectedMachine?.machineId,
@@ -729,8 +785,8 @@ export function ProjectNew() {
         {/* Git init confirmation dialog */}
         <GitInitDialog
           prompt={gitInitPrompt}
-          onConfirm={confirmGitInit}
-          onDismiss={dismissGitInit}
+          onConfirm={handleGitInitConfirm}
+          onDismiss={handleGitInitDismiss}
         />
 
         {/* Add environment dialog (server mode) */}
