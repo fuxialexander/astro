@@ -20,6 +20,9 @@ import type { ProviderType } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
+import { db } from '../lib/db/index.js'
+import { projects } from '../lib/db/schema.js'
+import { eq, isNull, and } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 
 // Validation schemas
@@ -415,6 +418,17 @@ The user can review your reasoning in the task output and provide guidance if th
       }).catch((err) => {
         console.error('[dispatch] Error emitting task.completed event:', err)
       })
+
+      // Auto-assign defaultMachineId on the project if not yet set
+      if (msg.result.status === 'completed' && machineId) {
+        db().update(projects)
+          .set({ defaultMachineId: machineId, updatedAt: new Date() })
+          .where(and(eq(projects.id, projectId), isNull(projects.defaultMachineId)))
+          .execute()
+          .catch((err: unknown) => {
+            console.error('[dispatch] Error auto-assigning defaultMachineId:', err)
+          })
+      }
 
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
       alive = false

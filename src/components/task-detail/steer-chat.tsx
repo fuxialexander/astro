@@ -13,6 +13,7 @@ import { usePlanStore } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { fetchSlashCommands } from "@/lib/api-client"
+import { useProjectMachineId } from "@/hooks/use-project-machine"
 import { parseSSEStream } from "@/lib/sse-parser"
 import type { SlashCommand, MentionItem } from "@/components/ui/file-completion-textarea"
 import type { Session } from "@/types"
@@ -33,6 +34,7 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
   const addSteerMessageToRealtime = useRealtimeStore((s) => s.addSteerMessage)
   const sessionStoreAddSteer = useSessionStore((s) => s.addSteerMessage)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const resolvedMachineId = useProjectMachineId(project) || machineId
   const appendText = useExecutionStore((s) => s.appendText)
   const addToolTrace = useExecutionStore((s) => s.addToolTrace)
   const updateToolTraceResult = useExecutionStore((s) => s.updateToolTraceResult)
@@ -54,9 +56,9 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
   // Slash commands from connected machine
   const [slashCmds, setSlashCmds] = useState<SlashCommand[]>([])
   useEffect(() => {
-    if (!machineId) return
-    fetchSlashCommands(machineId, project?.workingDirectory).then(setSlashCmds).catch(() => {})
-  }, [machineId, project?.workingDirectory])
+    if (!resolvedMachineId) return
+    fetchSlashCommands(resolvedMachineId, project?.workingDirectory).then(setSlashCmds).catch(() => {})
+  }, [resolvedMachineId, project?.workingDirectory])
 
   // Voice transcription for steering input
   const handleTranscript = useCallback((text: string) => {
@@ -285,7 +287,7 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
         />
         <FileCompletionTextarea
           projectId={projectId}
-          machineId={machineId}
+          machineId={resolvedMachineId}
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
           slashCommands={slashCmds}

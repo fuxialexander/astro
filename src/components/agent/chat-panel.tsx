@@ -23,6 +23,7 @@ import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { SessionDialog } from "@/components/session-dialog"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
+import { useProjectMachineId } from "@/hooks/use-project-machine"
 import type { PlanNode, ProviderStatus, Session } from "@/types"
 
 /** A node update: nodeId + any properties to patch */
@@ -298,6 +299,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
 
   // Project store — for file tree and working directory
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const resolvedMachineId = useProjectMachineId(project)
 
   // Build lean plan context for the API (only nodes in this project)
   const planNodeContext: ChatPlanNodeContext[] = useMemo(() => {
@@ -342,10 +344,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   // Slash commands from connected machine
   const [slashCmds, setSlashCmds] = useState<SlashCommand[]>([])
   useEffect(() => {
-    const mid = project?.defaultMachineId
-    if (!mid) return
-    fetchSlashCommands(mid, project?.workingDirectory).then(setSlashCmds).catch(() => {})
-  }, [project?.defaultMachineId, project?.workingDirectory])
+    if (!resolvedMachineId) return
+    fetchSlashCommands(resolvedMachineId, project?.workingDirectory).then(setSlashCmds).catch(() => {})
+  }, [resolvedMachineId, project?.workingDirectory])
 
   // Settings defaults
   const settingsModel = useSettingsStore((s) => s.model)
@@ -939,7 +940,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         />
         <FileCompletionTextarea
           projectId={projectId}
-          machineId={project?.defaultMachineId}
+          machineId={resolvedMachineId}
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
           slashCommands={slashCmds}

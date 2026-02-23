@@ -1197,6 +1197,14 @@ function handleSSEEvent(
           ...(parsed.prNumber && { prNumber: parsed.prNumber }),
         })
 
+        // Auto-assign defaultMachineId on the project if not set
+        if (isSuccess && execution?.machineId && execution?.projectId) {
+          const proj = useProjectStore.getState().projects.find((p) => p.id === execution.projectId)
+          if (proj && !proj.defaultMachineId) {
+            useProjectStore.getState().updateProject(proj.id, { defaultMachineId: execution.machineId })
+          }
+        }
+
         // Refresh file tree cache after task completion
         const projectForRefresh = useProjectStore.getState().projects.find(
           (p) => p.id === execution?.projectId

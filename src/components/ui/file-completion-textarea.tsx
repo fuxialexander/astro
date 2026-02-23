@@ -105,7 +105,8 @@ export function FileCompletionTextarea({
   const isActive = atIndex >= 0
   const hasMentionItems = !!(mentionItems && mentionItems.length > 0)
   const hasFileTree = !!(fileTree && fileTree.length > 0)
-  const canComplete = hasMentionItems || hasFileTree || !!(workingDirectory && machineId)
+  const canCompleteFiles = hasFileTree || !!(workingDirectory && machineId)
+  const canComplete = hasMentionItems || canCompleteFiles
 
   // Filter mention items by query (client-side, instant)
   const filteredMentions = useMemo(() => {
@@ -293,13 +294,17 @@ export function FileCompletionTextarea({
             const q = beforeCursor.slice(lastAt + 1)
             // Mention mode: allow spaces up to 60 chars
             // File mode: no spaces allowed
-            const queryValid = hasMentionItems ? q.length <= 60 : !q.includes(" ")
-            if (queryValid) {
+            const mentionValid = hasMentionItems && q.length <= 60
+            const fileValid = canCompleteFiles && !q.includes(" ")
+            if (mentionValid || fileValid) {
               setAtIndex(lastAt)
               updateDropdownPosition()
-              if (hasMentionItems) {
+              // Update mention query when mention items exist
+              if (mentionValid) {
                 setMentionQuery(q)
-              } else if (canComplete) {
+              }
+              // Also fetch/filter files when query has no spaces
+              if (fileValid) {
                 if (hasFileTree) {
                   filterFileTree(q)
                 } else {
@@ -315,7 +320,7 @@ export function FileCompletionTextarea({
       // No active completion
       dismiss()
     },
-    [onChange, slashCommands, debouncedFetch, filterFileTree, updateDropdownPosition, updateSlashDropdownPosition, dismiss, dismissSlash, canComplete, hasFileTree, hasMentionItems, autoResize],
+    [onChange, slashCommands, debouncedFetch, filterFileTree, updateDropdownPosition, updateSlashDropdownPosition, dismiss, dismissSlash, canCompleteFiles, hasFileTree, hasMentionItems, autoResize],
   )
 
   // Auto-resize on mount and when value changes externally
@@ -397,6 +402,9 @@ export function FileCompletionTextarea({
     [value, onChange, dismissSlash],
   )
 
+  // Combined item count for keyboard navigation (mentions first, then files)
+  const totalItems = filteredMentions.length + files.length
+
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -426,30 +434,28 @@ export function FileCompletionTextarea({
         }
       }
 
-      // @ completion navigation (mentions or files)
-      const atItems = hasMentionItems ? filteredMentions : files
-      if (isActive && atItems.length > 0) {
+      // @ completion navigation (mentions + files combined)
+      if (isActive && totalItems > 0) {
         switch (e.key) {
           case "ArrowDown":
             e.preventDefault()
-            setSelectedIndex((prev) => (prev + 1) % atItems.length)
+            setSelectedIndex((prev) => (prev + 1) % totalItems)
             return
           case "ArrowUp":
             e.preventDefault()
-            setSelectedIndex((prev) => (prev - 1 + atItems.length) % atItems.length)
+            setSelectedIndex((prev) => (prev - 1 + totalItems) % totalItems)
             return
           case "Tab":
-          case "Enter":
-            if (hasMentionItems && filteredMentions[selectedIndex]) {
-              e.preventDefault()
+          case "Enter": {
+            e.preventDefault()
+            if (selectedIndex < filteredMentions.length) {
               insertMention(filteredMentions[selectedIndex])
-              return
-            } else if (!hasMentionItems && files[selectedIndex]) {
-              e.preventDefault()
-              insertFile(files[selectedIndex])
-              return
+            } else {
+              const fileIdx = selectedIndex - filteredMentions.length
+              if (files[fileIdx]) insertFile(files[fileIdx])
             }
-            break
+            return
+          }
           case "Escape":
             e.preventDefault()
             dismiss()
@@ -467,7 +473,7 @@ export function FileCompletionTextarea({
 
       onKeyDown?.(e)
     },
-    [slashActive, filteredSlashCommands, slashSelectedIndex, insertSlashCommand, dismissSlash, isActive, files, filteredMentions, hasMentionItems, selectedIndex, insertFile, insertMention, dismiss, onSubmit, onKeyDown],
+    [slashActive, filteredSlashCommands, slashSelectedIndex, insertSlashCommand, dismissSlash, isActive, totalItems, filteredMentions, selectedIndex, insertFile, insertMention, files, dismiss, onSubmit, onKeyDown],
   )
 
   // Close dropdown on blur with delay (allows click on dropdown items)
@@ -505,9 +511,7 @@ export function FileCompletionTextarea({
   }, [isActive, slashActive, updateDropdownPosition, updateSlashDropdownPosition])
 
   const showDropdown = isActive && dropdownPos && (
-    hasMentionItems
-      ? filteredMentions.length > 0
-      : (files.length > 0 || loading || !canComplete)
+    totalItems > 0 || loading || !canComplete
   )
   const showSlashDropdown = slashActive && slashDropdownPos && filteredSlashCommands.length > 0
 
@@ -553,68 +557,82 @@ export function FileCompletionTextarea({
               width: dropdownPos.width,
             }}
             className={cn(
-              "z-[9999] overflow-y-auto",
-              hasMentionItems ? "max-h-[280px] py-1" : "max-h-[240px]",
+              "z-[9999] max-h-[320px] overflow-y-auto py-1",
               "rounded-md border border-border bg-popover shadow-md",
             )}
           >
-            {hasMentionItems ? (
-              filteredMentions.map((item, i) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs",
-                    "hover:bg-accent hover:text-accent-foreground cursor-pointer",
-                    i === selectedIndex && "bg-accent text-accent-foreground",
-                  )}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    insertMention(item)
-                  }}
-                  onMouseEnter={() => setSelectedIndex(i)}
-                >
-                  {item.kind === "special" ? (
-                    <FileCode2 className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                  ) : item.kind === "milestone" ? (
-                    <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-primary">◆</span>
-                  ) : (
-                    <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )}
-                  <span className="truncate font-medium">{item.label}</span>
-                  {item.detail && (
-                    <span className="ml-auto truncate text-[10px] text-muted-foreground max-w-[120px]">
-                      {item.detail}
-                    </span>
-                  )}
-                </button>
-              ))
-            ) : (
+            {/* Mention items (tasks/milestones) */}
+            {filteredMentions.length > 0 && (
               <>
-                {files.map((file, i) => (
+                {filteredMentions.length > 0 && files.length > 0 && (
+                  <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Tasks</div>
+                )}
+                {filteredMentions.map((item, i) => (
                   <button
-                    key={file}
+                    key={item.id}
                     type="button"
                     className={cn(
-                      "flex w-full items-center px-3 py-1.5 text-left text-xs font-mono",
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs",
                       "hover:bg-accent hover:text-accent-foreground cursor-pointer",
                       i === selectedIndex && "bg-accent text-accent-foreground",
                     )}
                     onMouseDown={(e) => {
                       e.preventDefault()
-                      insertFile(file)
+                      insertMention(item)
                     }}
                     onMouseEnter={() => setSelectedIndex(i)}
                   >
-                    <span className="truncate">{file}</span>
+                    {item.kind === "special" ? (
+                      <FileCode2 className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                    ) : item.kind === "milestone" ? (
+                      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-primary">◆</span>
+                    ) : (
+                      <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="truncate font-medium">{item.label}</span>
+                    {item.detail && (
+                      <span className="ml-auto truncate text-[10px] text-muted-foreground max-w-[120px]">
+                        {item.detail}
+                      </span>
+                    )}
                   </button>
                 ))}
-                {!canComplete && (
+              </>
+            )}
+            {/* File completions */}
+            {(files.length > 0 || loading || !canCompleteFiles) && (
+              <>
+                {filteredMentions.length > 0 && (files.length > 0 || loading) && (
+                  <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground border-t border-border mt-1 pt-1">Files</div>
+                )}
+                {files.map((file, i) => {
+                  const combinedIdx = filteredMentions.length + i
+                  return (
+                    <button
+                      key={file}
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center px-3 py-1.5 text-left text-xs font-mono",
+                        "hover:bg-accent hover:text-accent-foreground cursor-pointer",
+                        combinedIdx === selectedIndex && "bg-accent text-accent-foreground",
+                      )}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        insertFile(file)
+                      }}
+                      onMouseEnter={() => setSelectedIndex(combinedIdx)}
+                    >
+                      <FileCode2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground mr-2" />
+                      <span className="truncate">{file}</span>
+                    </button>
+                  )
+                })}
+                {!canCompleteFiles && filteredMentions.length === 0 && (
                   <div className="px-3 py-2 text-xs text-muted-foreground">
                     Set a working directory in project settings to enable file references
                   </div>
                 )}
-                {canComplete && loading && files.length === 0 && (
+                {canCompleteFiles && loading && files.length === 0 && (
                   <div className="px-3 py-2 text-xs text-muted-foreground">
                     Searching files...
                   </div>

@@ -10,7 +10,7 @@ import { requireAuth } from '../middleware/auth.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, TaskStdoutMessage } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects } from '../lib/db/schema.js'
-import { eq } from 'drizzle-orm'
+import { eq, isNull, and } from 'drizzle-orm'
 
 // Validation schemas
 const generatePlanSchema = z.object({
@@ -432,6 +432,17 @@ agentRoute.post('/generate-plan', async (c) => {
           failureDetail = `No output was produced during plan generation (status: ${resultStatus}${resultError ? `, error: ${resultError}` : ''}).`
         }
         stream.writeSSE({ event: 'error', data: failureDetail }).catch(() => { alive = false })
+      }
+
+      // Auto-assign defaultMachineId on the project if not yet set
+      if (planResultSent && targetMachineId) {
+        db().update(projects)
+          .set({ defaultMachineId: targetMachineId, updatedAt: new Date() })
+          .where(and(eq(projects.id, projectId), isNull(projects.defaultMachineId)))
+          .execute()
+          .catch((err: unknown) => {
+            console.error('[plan-gen] Error auto-assigning defaultMachineId:', err)
+          })
       }
 
       stream.writeSSE({

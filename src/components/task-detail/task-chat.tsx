@@ -12,6 +12,7 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
+import { useProjectMachineId } from "@/hooks/use-project-machine"
 import type { SlashCommand, MentionItem } from "@/components/ui/file-completion-textarea"
 import type { PlanNode } from "@/types"
 
@@ -29,6 +30,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   const abortRef = useRef<AbortController | null>(null)
   const model = useSettingsStore((s) => s.model)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const resolvedMachineId = useProjectMachineId(project)
 
   // Session store actions
   const createSession = useSessionStore((s) => s.createSession)
@@ -56,10 +58,9 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   // Slash commands from connected machine
   const [slashCmds, setSlashCmds] = useState<SlashCommand[]>([])
   useEffect(() => {
-    const mid = project?.defaultMachineId
-    if (!mid) return
-    fetchSlashCommands(mid, project?.workingDirectory).then(setSlashCmds).catch(() => {})
-  }, [project?.defaultMachineId, project?.workingDirectory])
+    if (!resolvedMachineId) return
+    fetchSlashCommands(resolvedMachineId, project?.workingDirectory).then(setSlashCmds).catch(() => {})
+  }, [resolvedMachineId, project?.workingDirectory])
 
   // Voice transcription
   const handleTranscript = useCallback((text: string) => {
@@ -279,7 +280,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
         />
         <FileCompletionTextarea
           projectId={projectId}
-          machineId={project?.defaultMachineId}
+          machineId={resolvedMachineId}
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
           slashCommands={slashCmds}

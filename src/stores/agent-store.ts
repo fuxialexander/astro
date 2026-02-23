@@ -3,7 +3,7 @@ import { generatePlan } from "@/lib/api-client"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
-import type { PlanNode, PlanEdge } from "@/types"
+import type { PlanNode, PlanEdge, Project } from "@/types"
 
 export type GenerationPhase = 'idle' | 'repo_setup' | 'generating'
 export type GenerationStatus = 'active' | 'completed' | 'error'
@@ -298,8 +298,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             usePlanStore.getState().reorganizeProject(projectId)
             console.log(`[plan-gen] Plan stored and layout applied for ${projectId}`)
 
-            if (result.projectName) {
-              useProjectStore.getState().updateProject(projectId, { name: result.projectName })
+            // Update project name and auto-assign machine if not set
+            const projectUpdates: Partial<Project> = {}
+            if (result.projectName) projectUpdates.name = result.projectName
+            if (repoContext?.targetMachineId) {
+              const currentProject = useProjectStore.getState().projects.find((p) => p.id === projectId)
+              if (!currentProject?.defaultMachineId) {
+                projectUpdates.defaultMachineId = repoContext.targetMachineId
+              }
+            }
+            if (Object.keys(projectUpdates).length > 0) {
+              useProjectStore.getState().updateProject(projectId, projectUpdates)
             }
           },
           onError: (error) => {
