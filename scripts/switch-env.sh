@@ -142,7 +142,7 @@ EOF
     echo -e "${YELLOW}  .env.prod already exists — skipping${NC}"
   else
     local fly_app="${FLY_APP:-astro-backend-platform}"
-    local pages_project="${CLOUDFLARE_PAGES_PROJECT:-astro-app-3vo}"
+    local pages_project="${CLOUDFLARE_PAGES_PROJECT:-astro-app}"
     local branch
     branch=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
 

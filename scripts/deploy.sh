@@ -30,7 +30,7 @@ done
 
 # ── Resolve config ────────────────────────────────────────────────────
 APP="${FLY_APP:-astro-backend-platform}"
-PAGES_PROJECT="${CLOUDFLARE_PAGES_PROJECT:-astro-app-3vo}"
+PAGES_PROJECT="${CLOUDFLARE_PAGES_PROJECT:-astro-app}"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # Validate required vars for prod deploy
