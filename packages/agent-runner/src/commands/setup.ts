@@ -92,12 +92,14 @@ export async function setupCommand(options: SetupOptions = {}): Promise<void> {
     }
   }
 
-  // Step 4a: Configure API URL (use defaults without prompting)
+  // Step 4a: Configure API URL
+  // Priority: --api flag > env vars (ASTRO_SERVER_URL, VITE_API_BASE_URL, CLOUDFLARED_DOMAIN) > stored config
   const apiUrl = options.api ?? config.getApiUrl();
   config.setApiUrl(apiUrl);
   console.log(chalk.green(`✓ API server: ${apiUrl}\n`));
 
-  // Step 4b: Configure relay URL (use defaults without prompting)
+  // Step 4b: Configure relay URL
+  // Priority: --relay flag > env vars (ASTRO_RELAY_URL, VITE_API_BASE_URL, CLOUDFLARED_DOMAIN) > stored config
   const relayUrl = options.relay ?? config.getRelayUrl();
   config.setRelayUrl(relayUrl);
   console.log(chalk.green(`✓ Relay server: ${relayUrl}\n`));

@@ -40,7 +40,6 @@ program
       await setupCommand({
         api: options.api,
         relay: options.relay,
-        type: options.type,
         hostname: options.hostname,
         skipAuth: options.skipAuth,
         nonInteractive: options.nonInteractive,

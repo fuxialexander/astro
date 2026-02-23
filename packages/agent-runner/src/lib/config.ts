@@ -7,8 +7,58 @@ import { randomUUID } from 'node:crypto';
 import type { StoredConfig, ProviderType } from '../types.js';
 import { getHardwareId } from './hardware-id.js';
 
-const DEFAULT_RELAY_URL = 'ws://localhost:3002';
-const DEFAULT_API_URL = 'http://localhost:3001';
+// Production defaults (Fly.io backend)
+const DEFAULT_API_URL = 'https://astro-backend-deploy.fly.dev';
+const DEFAULT_RELAY_URL = 'wss://astro-backend-deploy.fly.dev:3002';
+
+/**
+ * Derive API and relay URLs from environment variables.
+ *
+ * Priority (highest first):
+ *   1. ASTRO_SERVER_URL / ASTRO_RELAY_URL  — explicit agent-runner env vars
+ *   2. VITE_API_BASE_URL                   — set in .env.prod (points to Fly.io backend)
+ *   3. CLOUDFLARED_DOMAIN                  — dev mode with Cloudflare tunnel
+ *   4. Defaults                            — Fly.io production backend
+ *
+ * Relay URL derivation:
+ *   - Fly.io backend exposes relay on port 3002 with TLS → wss://<fly-app>.fly.dev:3002
+ *   - Cloudflare tunnel maps astro-relay.<domain> → wss://astro-relay.<domain>
+ *   - Local dev → ws://localhost:3002
+ */
+function resolveApiUrlFromEnv(): string {
+  // Explicit override
+  if (process.env.ASTRO_SERVER_URL) return process.env.ASTRO_SERVER_URL;
+
+  // Prod mode: VITE_API_BASE_URL points to the Fly.io backend
+  if (process.env.VITE_API_BASE_URL) return process.env.VITE_API_BASE_URL;
+
+  // Dev mode with tunnel: derive from CLOUDFLARED_DOMAIN
+  if (process.env.CLOUDFLARED_DOMAIN) {
+    return `https://astro-api.${process.env.CLOUDFLARED_DOMAIN}`;
+  }
+
+  return DEFAULT_API_URL;
+}
+
+function resolveRelayUrlFromEnv(): string {
+  // Explicit override
+  if (process.env.ASTRO_RELAY_URL) return process.env.ASTRO_RELAY_URL;
+
+  // Prod mode: derive WSS relay from VITE_API_BASE_URL (Fly.io exposes relay on :3002)
+  if (process.env.VITE_API_BASE_URL) {
+    const flyHost = process.env.VITE_API_BASE_URL
+      .replace(/^https?:\/\//, '')
+      .replace(/\/+$/, '');
+    return `wss://${flyHost}:3002`;
+  }
+
+  // Dev mode with tunnel: derive from CLOUDFLARED_DOMAIN
+  if (process.env.CLOUDFLARED_DOMAIN) {
+    return `wss://astro-relay.${process.env.CLOUDFLARED_DOMAIN}`;
+  }
+
+  return DEFAULT_RELAY_URL;
+}
 
 interface ConfigSchema {
   runnerId: string;
@@ -149,10 +199,14 @@ class ConfigManager {
   }
 
   /**
-   * Get relay URL
+   * Get relay URL.
+   * Returns stored value unless it's the hardcoded default, in which case
+   * env-based resolution takes precedence (allows mode switching without re-setup).
    */
   getRelayUrl(): string {
-    return this.conf.get('relayUrl');
+    const stored = this.conf.get('relayUrl');
+    if (stored !== DEFAULT_RELAY_URL) return stored;
+    return resolveRelayUrlFromEnv();
   }
 
   /**
@@ -163,10 +217,14 @@ class ConfigManager {
   }
 
   /**
-   * Get API URL
+   * Get API URL.
+   * Returns stored value unless it's the hardcoded default, in which case
+   * env-based resolution takes precedence (allows mode switching without re-setup).
    */
   getApiUrl(): string {
-    return this.conf.get('apiUrl');
+    const stored = this.conf.get('apiUrl');
+    if (stored !== DEFAULT_API_URL) return stored;
+    return resolveApiUrlFromEnv();
   }
 
   /**
