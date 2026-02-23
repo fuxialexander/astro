@@ -389,6 +389,10 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     process.env.DEBUG_SDK = '1';
     process.env.CLAUDE_CODE_DEBUG_LOGS_DIR = join(homedir(), '.astro', 'logs', 'sdk-debug');
 
+    // Remove nested-session guard: the agent runner may be launched from within
+    // a Claude Code session, and CLAUDECODE env var prevents spawning sub-processes.
+    delete process.env.CLAUDECODE;
+
     // NOTE: We intentionally do NOT call process.chdir() here.
     // process.cwd() is global state shared across concurrent tasks, so calling
     // chdir() creates race conditions where one task captures another's worktree
@@ -404,7 +408,8 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       abortController,
       maxTurns: task.maxTurns ?? defaultMaxTurns,
       permissionMode: 'bypassPermissions', // Auto-accept all tool calls
-      sandbox: { enabled: false }, // Run on host machine, not in Docker container
+      // NOTE: Do NOT pass `sandbox` option — any non-undefined value crashes Claude Code
+      // on Bedrock. Omitting it defaults to no sandbox, which is what we want.
       settingSources: ['user', 'project', 'local'], // Load CLAUDE.md from user home, project dir, and cwd
       persistSession: false,
       cwd: task.workingDirectory,
@@ -412,7 +417,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       env: {
         ...process.env,
         ...task.environment,
-        CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1', // Enable additional directories for CLAUDE.md loading
+        CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
       },
       // Intercept built-in AskUserQuestion to handle approvals (following Cyrus pattern)
       canUseTool: async (toolName: string, input: Record<string, unknown>, options: { toolUseID: string; signal: AbortSignal }) => {

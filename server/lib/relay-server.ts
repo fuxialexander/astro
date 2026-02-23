@@ -930,10 +930,21 @@ export class RelayServer extends EventEmitter {
 
     // Find best machine if not specified
     if (!machineId) {
-      const bestMachine = machineRegistry.findBestMachine(
+      let bestMachine = machineRegistry.findBestMachine(
         task.environment,
         task.preferredProvider
       );
+      // Fallback: if no machine found for the requested environment, try ANY connected machine
+      if (!bestMachine) {
+        for (const fallbackEnv of ['local', 'remote', 'hpc', 'cloud'] as const) {
+          if (fallbackEnv === task.environment) continue;
+          bestMachine = machineRegistry.findBestMachine(fallbackEnv, task.preferredProvider);
+          if (bestMachine) {
+            console.log(`[relay] No '${task.environment}' machine available, falling back to '${fallbackEnv}' machine ${bestMachine.machineId}`);
+            break;
+          }
+        }
+      }
       if (!bestMachine) {
         console.error(`[relay] No available machine for task ${task.taskId}`);
         return false;
