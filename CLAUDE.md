@@ -22,7 +22,7 @@ The product vision is documented in `vision.md`. The UI design is in `UI.pen` (r
 npm run dev              # Start frontend (Vite) + backend (Hono + relay) concurrently
 npm run dev:frontend     # Vite dev server only (http://localhost:5173)
 npm run dev:backend      # Hono API server (port 3001) + WebSocket relay (port 3002)
-npm run dev:indexeddb    # IndexedDB-only mode (no Supabase, no auth)
+npm run dev:indexeddb    # Local-only mode (PGlite, no Supabase, no auth)
 npm run dev:supabase     # Supabase mode (setup + start)
 npm run build            # TypeScript check + Vite production build
 npm run lint             # ESLint
@@ -35,7 +35,7 @@ npm run deploy           # Build + deploy to Cloudflare Pages
 Astro supports two persistence modes:
 
 **Local Mode** (default for local dev):
-- IndexedDB is the primary data store
+- PGlite (Postgres-in-WASM) is the primary data store, running in the backend process
 - No authentication required, no Docker, no Supabase
 - Single-user only
 - Perfect for rapid iteration
@@ -44,7 +44,6 @@ Astro supports two persistence modes:
 
 **Server Mode** (multi-user production):
 - Supabase/Postgres is the single source of truth
-- IndexedDB serves as a transparent cache for fast startup and offline resilience
 - WebAuthn/passkey authentication
 - Multi-user with data isolation via RLS
 - Real-time collaboration
@@ -55,6 +54,8 @@ Astro supports two persistence modes:
 1. If `USE_INDEXEDDB_ONLY=true` → Local mode (explicit override)
 2. If Supabase env vars not set → Local mode (auto-detected)
 3. If Supabase env vars set → Server mode
+
+**Data Layer:** Both modes use the same Drizzle ORM schema (`server/lib/db/schema.ts`). Frontend stores use `dataClient` (`src/lib/data-client.ts`) which calls `/api/data/*` endpoints — no direct IndexedDB or PGlite access from the frontend.
 
 **Visual Indicator:** Sidebar shows "Local Mode" badge when in local mode.
 
@@ -72,7 +73,8 @@ Everything runs locally — no Fly.io, Redis, or external services needed for de
 - **Frontend**: Vite 7 + React 19 + TypeScript (strict mode)
 - **Styling**: Tailwind CSS v4 (`@tailwindcss/vite` plugin, NOT `@tailwindcss/postcss`)
 - **Routing**: React Router v7 (`react-router` package, not `react-router-dom`)
-- **State**: Zustand 5 stores + `idb-keyval` for IndexedDB persistence
+- **State**: Zustand 5 stores, persisted via `dataClient` → `/api/data/*` → Drizzle ORM
+- **Database**: PGlite (local mode) or postgres-js (server mode) via Drizzle ORM (`server/lib/db/`)
 - **Graph**: @xyflow/react for plan graph visualization
 - **UI Components**: shadcn/ui pattern (manual Radix primitives, not CLI-installed)
 - **Icons**: lucide-react
@@ -101,7 +103,7 @@ src/
 ├── pages/
 │   ├── dashboard.tsx             # Home: stats, pending decisions, active projects, system health, usage metrics
 │   ├── projects.tsx              # Project list with table (grouped, sortable columns)
-│   ├── project-new.tsx           # New project form + AI plan generation
+│   ├── project-new.tsx           # New project form (unified: description + directory detection)
 │   ├── project-overview.tsx      # Project details: overview + updates tabs, vision doc dialog
 │   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List/Timeline toggle)
 │   ├── my-tasks.tsx              # Cross-project task list with filters, grouping, display settings
@@ -109,9 +111,11 @@ src/
 │   ├── environments.tsx          # Machine/environment management, SLURM cluster display
 │   ├── agents.tsx                # Agent management and monitoring
 │   ├── initiatives.tsx           # Initiatives/projects grouping
+│   ├── workflows.tsx             # Workflow management
 │   ├── device-auth.tsx           # Device code OAuth2 authentication flow
 │   ├── welcome.tsx               # Multi-step onboarding (user type, domains, repo)
 │   ├── login.tsx                 # WebAuthn/passkey login (public route)
+│   ├── team-invite.tsx           # Team invitation flow
 │   └── settings.tsx              # Backend connection, model selection
 ├── components/
 │   ├── ui/                       # shadcn/ui Radix primitives (button, input, badge, card, dialog, sheet, etc.)
@@ -150,55 +154,86 @@ src/
 │   ├── milestone-dialog.tsx      # Milestone creation/edit dialog
 │   ├── theme-provider.tsx        # Light/dark/system theme context
 │   └── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
-├── stores/
-│   ├── activity-store.ts         # Activity tracking and history, IndexedDB persistence
+├── stores/                          # All stores persist via dataClient → /api/data/* → Drizzle
+│   ├── activity-store.ts         # Activity tracking and history
 │   ├── agent-store.ts            # AI generation state, SSE streaming, abort
 │   ├── api-keys-store.ts         # Encrypted API keys for external services (Web Crypto API)
 │   ├── auth-store.ts             # Supabase auth session, user state, WebAuthn/passkey
 │   ├── connected-accounts-store.ts # Connected external accounts (Slack, Telegram, GitHub webhooks, Linear)
-│   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties), IndexedDB persistence
+│   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties)
 │   ├── execution-store.ts        # Task execution state, SSE stream processing, provider/machine management
 │   ├── github-store.ts           # GitHub integration: connection, repositories, selections
-│   ├── initiative-store.ts       # Initiatives/projects grouping, IndexedDB persistence
+│   ├── initiative-store.ts       # Initiatives/projects grouping
 │   ├── keyboard-nav-store.ts     # Keyboard navigation state (focused item, navigable items)
 │   ├── machines-store.ts         # Registered machines (fetch, revoke, rename)
 │   ├── observation-store.ts      # Trace observation trees for execution debugging
 │   ├── plan-store.ts             # Plan nodes/edges per project, bulk updates
-│   ├── plugin-store.ts           # Plugin registry, manifests, contributions, IndexedDB persistence
-│   ├── project-store.ts          # Projects CRUD, IndexedDB persistence, mock seed data
+│   ├── plugin-store.ts           # Plugin registry, manifests, contributions
+│   ├── project-store.ts          # Projects CRUD
 │   ├── realtime-store.ts         # Real-time events: machines, activity feed, task streams
 │   ├── session-store.ts          # Unified session store: plan chat, task chat, steer messages, execution sessions
-│   ├── settings-store.ts         # Model selection, backend health, IndexedDB persistence
+│   ├── settings-store.ts         # Model selection, backend health
 │   ├── sidebar-store.ts          # Sidebar navigation items, visibility, ordering
-│   ├── skill-store.ts            # OpenClaw skill registry, IndexedDB persistence
+│   ├── skill-store.ts            # OpenClaw skill registry
 │   ├── slurm-store.ts            # HPC/Slurm cluster state (clusters, jobs, queue tracking)
-│   ├── task-chat-store.ts        # Task-level chat history, IndexedDB persistence
-│   ├── team-store.ts             # Teams CRUD, team members, IndexedDB persistence
+│   ├── task-chat-store.ts        # Task-level chat history
+│   ├── team-store.ts             # Teams CRUD, team members
 │   ├── toast-store.ts            # Toast notification queue (info, success, warning, error)
 │   ├── ui-store.ts               # Sidebar collapsed, command palette open
-│   ├── usage-store.ts            # Session usage metrics (cost, tokens, task counts), IndexedDB persistence
+│   ├── usage-store.ts            # Session usage metrics (cost, tokens, task counts)
 │   └── user-profile-store.ts     # User identity and preferences (name, email, domains, API keys)
 ├── lib/
-│   ├── db.ts                     # idb-keyval wrapper for IndexedDB
 │   ├── api-client.ts             # HTTP + SSE client for /api/agent/* endpoints
+│   ├── api-url.ts                # API URL resolution
+│   ├── data-client.ts            # Data CRUD client (calls /api/data/* endpoints)
 │   ├── realtime-client.ts        # EventSource wrapper for /api/events/stream
+│   ├── realtime-sync.ts          # Supabase Realtime sync
+│   ├── supabase-client.ts        # Supabase browser client
+│   ├── app-mode.ts               # Local vs server mode detection
+│   ├── project-source.ts         # ProjectSource resolution, delivery mode derivation
 │   ├── constants.ts              # Priority/estimate config, default labels
 │   ├── graph-utils.ts            # Graph node position calculation for child placement
 │   ├── timeline-utils.ts         # Gantt timeline calculations (topological sort, date assignment)
+│   ├── path-utils.ts             # Path manipulation utilities
+│   ├── git-url-utils.ts          # Git URL parsing
+│   ├── sse-parser.ts             # SSE stream parser
+│   ├── sharing/                  # Export/import shared bundles
 │   └── utils.ts                  # cn() = clsx + tailwind-merge
 └── types/
     └── index.ts                  # Project, PlanNode, PlanEdge, TaskExecution, ProviderStatus, UserProfile, etc.
 
 server/
 ├── index.ts                      # Hono server setup, CORS, port 3001 + relay init
+├── middleware/
+│   ├── auth.ts                   # Authentication middleware
+│   └── audit.ts                  # Audit logging middleware
 ├── routes/
 │   ├── health.ts                 # GET /api/health (Claude SDK auth check)
 │   ├── agent.ts                  # POST /api/agent/generate-plan, /chat, /abort (SSE streaming)
+│   ├── auth.ts                   # Authentication endpoints (WebAuthn/passkey)
+│   ├── data.ts                   # GET/POST /api/data/* (generic CRUD for all entities)
 │   ├── dispatch.ts               # POST /api/dispatch/task, /cancel, /steer, /prune (task execution)
 │   ├── events.ts                 # GET /api/events/stream (SSE bridge: relay → browser)
 │   ├── relay.ts                  # GET/POST /api/relay/* (machine registry, task dispatch)
-│   └── device-auth.ts            # Device authorization flow (RFC 8628): authorize, token, register, refresh, revoke
+│   ├── repo.ts                   # GET/POST /api/repo/* (detect, setup, directory operations)
+│   ├── fs.ts                     # File system operations
+│   ├── github.ts                 # GitHub integration endpoints
+│   ├── teams.ts                  # Team management endpoints
+│   ├── notifications.ts          # Notification management
+│   ├── connected-accounts.ts     # External account integrations
+│   ├── observations.ts           # Trace observation endpoints
+│   ├── share.ts                  # Share/export bundles
+│   ├── skills.ts                 # Skill registry
+│   ├── system.ts                 # System information
+│   ├── transcribe.ts             # Audio transcription
+│   ├── device-auth.ts            # Device authorization flow (RFC 8628)
+│   └── well-known.ts             # OpenID/WebAuthn discovery
 ├── lib/
+│   ├── db/                       # Database abstraction layer
+│   │   ├── index.ts              # DB factory (PGlite local / postgres-js server)
+│   │   ├── schema.ts             # Drizzle ORM schema (all tables)
+│   │   ├── migrate.ts            # Drizzle migration runner
+│   │   └── bootstrap-local.ts    # Local mode team/user initialization
 │   ├── session-manager.ts        # In-memory AbortController map for agent sessions
 │   ├── prompt-templates.ts       # System prompts + JSON schema for plan generation
 │   ├── relay-server.ts           # WebSocket relay server for agent runner communication
@@ -210,8 +245,32 @@ server/
 │   ├── token-manager.ts          # JWT token lifecycle (create, verify, refresh, revoke)
 │   ├── registered-machines-store.ts # Machine registration persistence
 │   ├── ensure-user-profile.ts    # Self-heal auth.users ↔ user_profiles desync
-│   ├── events/
-│   │   └── astro-event-transport.ts # Singleton event transport (SSE, audit log, usage metrics hooks)
+│   ├── github-client.ts          # GitHub API wrapper
+│   ├── email-service.ts          # Email notifications
+│   ├── push-notifications.ts     # Push notification service
+│   ├── cleanup-scheduler.ts      # Automated cleanup tasks
+│   ├── repo-setup.ts             # Repository initialization
+│   ├── repo-context.ts           # Repository context assembly
+│   ├── git-url-utils.ts          # Git URL parsing
+│   ├── events/                   # Distributed event transport
+│   │   ├── astro-event-transport.ts # Singleton event bus (SSE, audit, usage hooks)
+│   │   ├── types.ts              # Event type definitions
+│   │   └── hooks/                # Pluggable event hooks
+│   │       ├── audit-log-hook.ts
+│   │       ├── sse-notification-hook.ts
+│   │       ├── usage-metrics-hook.ts
+│   │       ├── channel-notification-hook.ts
+│   │       ├── pr-creation-hook.ts
+│   │       ├── merge-queue-hook.ts
+│   │       └── git-pull-hook.ts
+│   ├── channel/                  # Multi-channel notification system
+│   │   ├── channel-types.ts
+│   │   ├── channel-config-manager.ts
+│   │   ├── channel-formatter.ts
+│   │   ├── channel-router.ts
+│   │   └── webhook-verifier.ts
+│   ├── access/                   # Role-based access control
+│   │   └── user-access-control.ts
 │   ├── providers/                # Pluggable agent provider system
 │   │   ├── types.ts              # AgentProvider, TaskDispatch, TaskResult, StreamEvent interfaces
 │   │   ├── registry.ts           # Provider registry management
@@ -224,8 +283,13 @@ server/
 │   │   ├── dispatch-engine.ts    # Core dispatch execution logic
 │   │   ├── dispatch-queue.ts     # Task queue management
 │   │   ├── branch-manager.ts     # Branch tracking/pruning
+│   │   ├── machine-selector.ts   # Select optimal machine for task
 │   │   ├── context-assembler.ts  # Assembles execution context (vision doc + dependencies)
 │   │   └── result-router.ts      # Routes task results to storage
+│   ├── observability/            # Tracing and safety
+│   │   ├── observation-collector.ts
+│   │   ├── langfuse-exporter.ts  # Export traces to Langfuse
+│   │   └── safety-rails.ts       # Safety guardrails
 │   ├── slurm/                    # HPC cluster support
 │   │   ├── types.ts              # SLURM job/partition types
 │   │   ├── job-manager.ts        # Submit/cancel/monitor jobs
@@ -251,7 +315,7 @@ docs/
 |------|------|--------|
 | `/` | Dashboard | Implemented (auto-redirects to /welcome if no projects; stats, pending decisions, active projects, system health, usage metrics) |
 | `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
-| `/projects/new` | New Project | Implemented (simplified form: description + optional repo + environment) |
+| `/projects/new` | New Project | Implemented (unified form: description + directory with inline detection) |
 | `/project/:id` | Project Overview | Implemented (overview + updates tabs, vision doc dialog) |
 | `/project/:id/plan` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation across all views) |
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat, session activity) |
@@ -259,22 +323,24 @@ docs/
 | `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow) |
 | `/agents` | Agents | Implemented (agent listing and monitoring) |
 | `/initiatives` | Initiatives | Implemented (initiatives/projects grouping) |
+| `/workflows` | Workflows | Implemented (workflow management) |
 | `/settings` | Settings | Implemented (health check + model selection) |
 | `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
 | `/welcome` | Welcome | Implemented (simplified 2-option onboarding: empty project or repo-based project) |
 | `/login` | Login | Implemented (WebAuthn/passkey authentication) |
+| `/team/invite/:token` | Team Invite | Implemented (team invitation flow) |
 | `/landing/` | Landing Page | Implemented (static HTML, public marketing page) |
 | `/landing/about` | Why Astro? | Implemented (static HTML, philosophy/naming page) |
 | `/issues` | Issues List | **Not implemented** (designed in UI.pen, no code) |
 | `/issues/board` | Issues Board | **Not implemented** (designed in UI.pen, no code) |
 
 ### Data Flow
-1. Stores load from IndexedDB on mount via `DataLoader` component
+1. Stores load from backend on mount via `DataLoader` component (`dataClient.load()` → `GET /api/data/*`)
 2. Project creation → navigates to plan view → triggers AI generation via SSE
 3. Backend streams Claude Agent SDK output as Server-Sent Events
 4. Plan nodes/edges stored in Zustand → rendered in React Flow graph
 5. AI generates `startDate`/`endDate` for each plan node; timeline uses topological sort fallback for legacy data
-6. All state persisted to IndexedDB on change
+6. All state persisted via `dataClient` → `POST /api/data/*` → Drizzle ORM (PGlite local / Postgres server)
 
 ### Provider & Dispatch System
 - **Provider adapters** (Claude Code, Codex, SLURM) implement a common `AgentProvider` interface
@@ -293,10 +359,12 @@ docs/
 - **Branch pruning**: Killing a branch auto-cancels all downstream tasks
 - **Agent-agnostic execution**: Wraps existing agents (e.g., Claude Code), does not build custom agents
 - **Data flywheel**: Planning traces (decomposition, overrides, pruning decisions, outcomes) improve future plans via context engineering, not model retraining
-- **Activity Feed**: Real-time activity tracking system with IndexedDB persistence, captures all project/task events
+- **Activity Feed**: Real-time activity tracking system, captures all project/task events
 - **Approval System**: Dynamic tool-based approvals (`ask_user_question`) + procedure-level approvals with SSE notifications
 - **Realtime Sync**: Multi-device collaboration via Supabase Realtime with optimistic updates and conflict resolution
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
+- **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
+- **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
 
 ## Target Users
 
@@ -307,7 +375,7 @@ docs/
 
 - Use `cn()` from `@/lib/utils` for Tailwind class merging
 - Follow existing shadcn/ui component patterns in `src/components/ui/`
-- Zustand stores: use `(s) => s.field` selectors, persist via `idb-keyval`
+- Zustand stores: use `(s) => s.field` selectors, persist via `dataClient` → `/api/data/*`
 - React Flow: define node data type as `type TaskNodeData = Node<{ ... }>`, use `NodeProps<TaskNodeData>`, cast `nodeTypes` to `any`; wrap in `ReactFlowProvider` when using `useReactFlow()` hooks
 - Task creation: use `TaskCreationForm` component with `mode="inline"|"popover"|"dialog"`; creates nodes via `usePlanStore.addNode()` + `addEdge()`
 - SSE streaming: use `readSSE()` from `api-client.ts` for server-sent events
@@ -429,7 +497,7 @@ Agent-runner and MCP tools use `ASTRO_*` prefixed env vars:
 
 ### Data Directory
 Agent runners store data in `~/.astro/`:
-- `~/.astro/astro.db` — SQLite database (drizzle)
+- `~/.astro/pglite/` — PGlite database (Drizzle ORM)
 - `~/.astro/logs/` — Audit logs (JSONL)
 - `~/.astro/config.json` — Agent runner config
 
@@ -448,8 +516,13 @@ Agent runners store data in `~/.astro/`:
 **Main Index:** `docs/index.md` — Complete documentation index
 
 ### Design Documents (Canonical Reference)
-- `docs/design/` — Authoritative design documents (ARCHITECTURE, BACKEND, FRONTEND, RELAY, AGENT_RUNNER, DATA_MODEL, USER_WORKFLOWS)
+- `docs/design/` — Authoritative design documents (ARCHITECTURE, BACKEND, FRONTEND, RELAY, AGENT_RUNNER, DATA_MODEL, USER_WORKFLOWS, WORKSPACE_V2, IMPLEMENTATION_PIPELINE)
 - `docs/design/CURRENT_CONFLICT_VIEW.md` — Known conflicts between design docs and code
+- `docs/design/AGENT_PERFORMANCE.md` — Agent performance optimization
+- `docs/design/ATTENTION_TRIAGE.md` — Attention triage system
+- `docs/design/COST_TRACKING.md` — Cost tracking and budgets
+- `docs/design/CROSS_PROJECT_REFERENCES.md` — Cross-project reference system
+- `docs/design/WORKSPACE_V2.md` — Workspace model (directory detection, worktrees, delivery modes)
 
 ### Quick Links
 
@@ -461,21 +534,24 @@ Agent runners store data in `~/.astro/`:
 - `docs/backend/authentication.md` — WebAuthn/passkey implementation
 - `docs/backend/device-authorization.md` — OAuth2 device code flow
 - `docs/backend/observability-and-safety.md` — Logging, metrics, safety
+- `docs/backend/workspace-v2-data-model.md` — Workspace V2 types, schema, and storage
+- `docs/backend/workspace-v2-backend.md` — Workspace V2 API, dispatch, and context assembly
 
 **Frontend:**
 - `docs/frontend/page-structure.md` — Pages and routes
 - `docs/frontend/component-architecture.md` — UI component organization
 - `docs/frontend/state-management.md` — Zustand stores
 - `docs/frontend/plan-graph.md` — React Flow graph visualization
+- `docs/frontend/workspace-v2-frontend.md` — Workspace V2 store, component, and page changes
 
 **Relay Server:**
 - `docs/relay/overview.md` — WebSocket hub architecture
 - `docs/relay/protocol.md` — Message protocol specification
-- `docs/relay/workspace-preparation.md` — Git worktree management
+- `docs/relay/workspace-v2-relay.md` — Workspace V2 relay and agent runner changes
 
 **Setup & Deployment:**
 - `docs/setup/developer-setup.md` — Getting started guide
-- `docs/setup/local-mode.md` — IndexedDB-only mode
+- `docs/setup/local-mode.md` — PGlite local-only mode
 - `docs/setup/server-mode.md` — Supabase multi-user mode
 - `docs/setup/environment-variables.md` — Env var reference
 - `docs/setup/fly-deployment.md` — Fly.io deployment

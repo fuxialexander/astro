@@ -39,6 +39,8 @@ The design docs in `docs/design/` are the authoritative reference for the system
 - [User Behavior Tracking](./backend/user-behavior-tracking.md) - Activity and analytics
 - [Machine Names](./backend/machine-names.md) - Machine naming conventions
 - [Prompt Caching](./backend/prompt-caching.md) - Claude prompt caching
+- [Workspace V2 Data Model](./backend/workspace-v2-data-model.md) - Type, schema, and storage changes
+- [Workspace V2 Backend](./backend/workspace-v2-backend.md) - API, dispatch, and context assembly changes
 
 ### Frontend
 
@@ -49,12 +51,13 @@ The design docs in `docs/design/` are the authoritative reference for the system
 - [Plan Graph](./frontend/plan-graph.md) - React Flow graph visualization
 - [Keyboard Navigation](./frontend/keyboard-navigation.md) - Keyboard nav system
 - [UI Screen List](./frontend/ui-screen-list.md) - Complete screen inventory
+- [Workspace V2 Frontend](./frontend/workspace-v2-frontend.md) - Store, component, and page changes
 
 ### Relay Server
 
 - [Relay Overview](./relay/overview.md) - WebSocket hub architecture
 - [Protocol Specification](./relay/protocol.md) - Message types and flows
-- [Workspace Preparation](./relay/workspace-preparation.md) - Git worktree management
+- [Workspace V2 Relay](./relay/workspace-v2-relay.md) - Relay and agent runner changes for Workspace V2
 
 ### Setup & Deployment
 
