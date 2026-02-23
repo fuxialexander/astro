@@ -327,6 +327,8 @@ Summary:
 
 ## 13. Procedure Pipeline Flow (Current State)
 
+> **Note:** The procedure pipeline is **server-side only** — it runs inside `dispatchLocal()` in `server/routes/dispatch.ts` and was **not migrated to the agent runner**. In server mode (Fly.io), `dispatchLocal()` is not used because all tasks route through the relay to agent runners. The agent runner executes tasks as single Claude sessions without the classify-then-subroutine pipeline. This section documents the server-side implementation for reference; it is effectively dead code in production server mode.
+
 The procedure pipeline is a multi-step execution workflow that runs inside `dispatchLocal()` on the Backend. It is targeted for migration to the Agent Runner.
 
 | Step | Action |

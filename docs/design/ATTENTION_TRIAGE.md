@@ -1,5 +1,7 @@
 # Attention Triage — Design Document
 
+> **Status: PROPOSED** — Not yet implemented (~5%)
+
 ## 1. Overview
 
 When a human manages 5 agents running 30 tasks across 4 machines, the bottleneck is not compute — it is human attention. The system generates a continuous stream of events: tasks complete, agents request approval, errors occur, costs spike, branches diverge. Without triage, the human either monitors everything (exhausting, doesn't scale) or checks periodically (misses critical moments).

@@ -8,7 +8,7 @@ Comprehensive design documentation for the Astro platform. Use these documents a
 |----------|-------------|
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Global system structure: three processes, two operating modes, package layout, tech stack, communication protocols, event system |
 | [FRONTEND.md](./FRONTEND.md) | React app: routing, 18 Zustand stores, data persistence, API client, key components, data flow for user journeys |
-| [BACKEND.md](./BACKEND.md) | Hono server: startup sequence, 22 routes, middleware, data storage (Postgres schema), event system, dispatch engine, procedure pipeline, provider system, prompt templates, observability |
+| [BACKEND.md](./BACKEND.md) | Hono server: startup sequence, 20 routes, middleware, data storage (Postgres schema), event system, dispatch engine, prompt templates, observability |
 | [AGENT_RUNNER.md](./AGENT_RUNNER.md) | Agent runner package: CLI commands, WebSocket client, task executor, 4 provider adapters, 5 execution strategies, safety system, worktree/PR management, MCP integration, configuration |
 | [RELAY.md](./RELAY.md) | WebSocket relay: protocol messages, machine registry, authentication (local vs server), horizontal scaling, event flow, protocol gaps |
 | [DATA_MODEL.md](./DATA_MODEL.md) | All data types: Project, PlanNode, PlanEdge, TaskExecution, Session, and more. Entity relationships, Postgres schema, IndexedDB keys |

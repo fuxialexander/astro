@@ -1,16 +1,16 @@
 # Current Conflicts: Design Docs vs. Code/Technical Docs
 
-This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-02-21.
+This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-02-22.
 
 ---
 
 ## Design Doc Issues
 
-### 1. Relay Protocol Gaps (RELAY.md Section 8)
+### 1. ~~Relay Protocol Gaps (RELAY.md Section 8)~~ ✅ RESOLVED
 
 `docs/design/RELAY.md` §8 lists four "Protocol Gaps" as open — all four are resolved in `server/types/relay.ts` (`messages`, `systemPrompt`, `type`, `model` fields exist).
 
-**Resolution needed:** Mark all gaps as resolved in RELAY.md §8.
+**Resolved (2026-02-22):** All gaps are resolved in code. RELAY.md §8 still needs updating to reflect this.
 
 ### 2. IMPLEMENTATION_PIPELINE.md Phase A Blocker
 
@@ -20,15 +20,11 @@ This document tracks discrepancies between design documents (in `docs/design/`),
 
 ### 3. ~~ARCHITECTURE.md §1.3 — Backend AI Calls~~ ✅ RESOLVED
 
-~~States the backend calls AI directly for several endpoints.~~
-
-**Resolved (2026-02-22):** §1.3 rewritten to state that all AI execution flows through the relay to agent runners. The backend never calls AI directly. This was achieved by the Execution Path Unification — see `EXECUTION_PATH_DUPLICATION.md` §9.
+**Resolved (2026-02-22):** §1.3 rewritten to state that all AI execution flows through the relay to agent runners.
 
 ### 4. ~~`docs/SERVER_LOCAL_MODE_SEPARATION.md` — Missing~~ ✅ RESOLVED
 
-~~Referenced in docs but never created.~~
-
-**Resolved (2026-02-22):** The migration described in this plan has been **completed** by the Execution Path Unification. ARCHITECTURE.md §1.3 now documents the completed state. The reference in ARCHITECTURE.md has been updated to mark the plan as COMPLETE.
+**Resolved (2026-02-22):** The migration described in this plan has been completed by the Execution Path Unification.
 
 ### 5. Agent Runner Config vs. Data Directory
 
@@ -38,15 +34,71 @@ This document tracks discrepancies between design documents (in `docs/design/`),
 
 ### 7. ~~FRONTEND.md — Stale IndexedDB References~~ ✅ RESOLVED
 
-~~`FRONTEND.md` extensively describes the old dual-source architecture.~~
-
-**Resolved (2026-02-21):** FRONTEND.md rewritten — §2 data flow diagram updated to show API/Drizzle path, §6 persistence section rewritten to describe two-layer pattern (Zustand + API), §6.3 IndexedDB Keys deleted and replaced with Drizzle ORM persistence description.
+**Resolved (2026-02-21):** FRONTEND.md rewritten — data flow and persistence sections updated for API/Drizzle path.
 
 ### 8. ~~BACKEND.md — Minor IndexedDB References~~ ✅ RESOLVED
 
-~~`BACKEND.md` §2 mentions IndexedDB, §11 mentions IndexedDB-only mode.~~
+**Resolved (2026-02-21):** BACKEND.md updated for PGlite/Drizzle architecture.
 
-**Resolved (2026-02-21):** BACKEND.md updated — §2 now describes dual-driver architecture (PGlite + postgres-js), §5.1 expanded with PGlite/migration/bootstrap details, §11 says "local mode" instead of "IndexedDB-only mode", auth middleware section updated with teamId resolution.
+---
+
+## Workspace V2 Conflicts (introduced 2026-02-22)
+
+Workspace V2 design (`docs/design/WORKSPACE_V2.md`) and its implementation specs add new types and fields that the older design docs do not yet reflect.
+
+### 9. DATA_MODEL.md — `Project` type missing workspace V2 fields
+
+`DATA_MODEL.md` §2.1 defines `Project` without `source`, `agentDir`, `worktreeStrategy`, or `deliveryMode`. Still lists `workingDirectory` and `repository` as active fields (should be `@deprecated`).
+
+**Resolution needed:** Update DATA_MODEL.md `Project` type to include workspace V2 fields and deprecation markers. Reference `workspace-v2-data-model.md` for the target shape.
+
+### 10. DATA_MODEL.md — `TaskExecution` missing workspace V2 fields
+
+`workspace-v2-data-model.md` §2.3 adds `worktreeStrategy`, `worktreePath`, `deliveryMode` to `TaskExecution`. None of these appear in DATA_MODEL.md §2.4.
+
+**Resolution needed:** Update DATA_MODEL.md `TaskExecution` type.
+
+### 11. DATA_MODEL.md / RELAY.md — `TaskDispatch` missing workspace V2 fields
+
+Neither `DATA_MODEL.md` nor `RELAY.md` include `agentDir`, `worktreeStrategy`, `referenceDir`, or `subdirectory` in `TaskDispatch`. The `deliveryMode` union does not include `'copy'`.
+
+**Resolution needed:** Update `TaskDispatch` in both DATA_MODEL.md and RELAY.md to include workspace V2 fields.
+
+### 12. FRONTEND.md — Route table outdated, missing workspace V2 UI
+
+FRONTEND.md route table is missing `/workflows` and `/team/invite/:token`. Does not describe directory detection hook or simplified project creation form.
+
+**Resolution needed:** Update FRONTEND.md route table and project creation section.
+
+### 13. Worktree location: global vs. per-project
+
+ARCHITECTURE.md §4.5 says worktrees are at `~/.astro/worktrees/` (global). WORKSPACE_V2.md says they are at `{projectDir}/.astro/worktrees/` (per-project, inside the agent directory).
+
+**Resolution needed:** Update ARCHITECTURE.md to reflect per-project worktree location from WORKSPACE_V2.md.
+
+---
+
+## Execution Unification Conflicts
+
+ARCHITECTURE.md was updated for the execution path unification, but BACKEND.md was not.
+
+### 14. BACKEND.md — Still documents local dispatch path
+
+ARCHITECTURE.md §1.3 says the backend never calls AI directly (relay-only). BACKEND.md §3.1 still documents both `dispatchLocal()` (~480 lines) and `dispatchViaRelay()` as dual paths.
+
+**Resolution needed:** Remove or mark the local dispatch path as deleted in BACKEND.md. Update to describe relay-only dispatch.
+
+### 15. BACKEND.md — Still documents procedure pipeline
+
+ARCHITECTURE.md §15 marks the procedure pipeline as deleted. BACKEND.md §7.2 still documents the full procedure pipeline system (classifiers, validation loops, etc.).
+
+**Resolution needed:** Remove or mark the procedure pipeline section as deleted in BACKEND.md.
+
+### 16. BACKEND.md — Still documents server-side provider adapters
+
+ARCHITECTURE.md says provider adapters were deleted from the server. BACKEND.md §8 still documents the full provider system (registry, adapters).
+
+**Resolution needed:** Remove or mark the provider adapter section as deleted in BACKEND.md. Note: CLAUDE.md still lists provider adapter files in the project structure — verify whether the files still exist or were actually deleted.
 
 ---
 
@@ -56,7 +108,32 @@ This document tracks discrepancies between design documents (in `docs/design/`),
 
 Inconsistent across docs: `astro.fuxialexander.work` (dev tunnel), `astroanywhere.com` (prod), `astro-backend-platform.fly.dev` (Fly default). Dev tunnel URLs are used in examples that should be generic.
 
-**Resolution needed:** Clearly distinguish dev vs. prod URL references. Consider using placeholder domains in examples.
+**Resolution needed:** Clearly distinguish dev vs. prod URL references.
+
+### 17. Database table count inconsistency
+
+DATA_MODEL.md says "32+ tables", ARCHITECTURE.md says "28 tables". With Phase 3 additions the actual count is 32+.
+
+**Resolution needed:** Update table counts in DATA_MODEL.md and ARCHITECTURE.md to match the actual Drizzle schema.
+
+### 18. Local data path inconsistency
+
+ARCHITECTURE.md §2.4 says `~/.astro/data/`, §3.1 says `~/.astro/pglite/`. BACKEND.md §5.1 says `~/.astro/pglite/`.
+
+**Resolution needed:** Standardize on one path (`~/.astro/pglite/`) across all docs.
+
+---
+
+## Aspirational Design Docs (Proposals, Low Implementation)
+
+The following design documents in `docs/design/` are forward-looking proposals with little to no implementation in the codebase. They should be treated as aspirational references, not descriptions of current behavior.
+
+| Document | Implementation | Notes |
+|----------|---------------|-------|
+| `AGENT_PERFORMANCE.md` | 0% | No implementation exists. Pure proposal for future agent performance optimization. |
+| `ATTENTION_TRIAGE.md` | ~5% | Minimal scaffolding only. Core triage logic and UI are not implemented. |
+| `COST_TRACKING.md` | ~20% | Basic usage tracking exists (`usage-store.ts`, `UsageMetrics` type, usage metrics hook), but the full cost tracking, budgeting, and alerting system described in the doc is not built. |
+| `CROSS_PROJECT_REFERENCES.md` | ~5% | Minimal cross-project awareness exists (e.g., initiative grouping), but the reference resolution system described in the doc is not implemented. |
 
 ---
 
@@ -64,8 +141,11 @@ Inconsistent across docs: `astro.fuxialexander.work` (dev tunnel), `astroanywher
 
 | Category | Count |
 |----------|-------|
-| Design doc issues (open) | 3 |
-| Design doc issues (resolved) | 4 |
-| Other open issues | 1 |
-| **Total open** | **4** |
-| **Total resolved** | **4** |
+| Design doc issues (open) | 2 (#2, #5) |
+| Design doc issues (resolved) | 5 (#1, #3, #4, #7, #8) |
+| Workspace V2 conflicts (open) | 5 (#9, #10, #11, #12, #13) |
+| Execution unification conflicts (open) | 3 (#14, #15, #16) |
+| Other open issues | 3 (#6, #17, #18) |
+| Aspirational docs (low implementation) | 4 (AGENT_PERFORMANCE, ATTENTION_TRIAGE, COST_TRACKING, CROSS_PROJECT_REFERENCES) |
+| **Total open** | **13** |
+| **Total resolved** | **5** |

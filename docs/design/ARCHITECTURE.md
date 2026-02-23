@@ -34,7 +34,7 @@ Astro consists of four logical components. Depending on the operating mode, they
  │  │  BACKEND — Hono API Server                                       │  │
  │  │  Dev: localhost:3001 / Prod: Fly.io                              │  │
  │  │                                                                  │  │
- │  │  • HTTP API (22 route files, auth middleware)                     │  │
+ │  │  • HTTP API (20 route files, auth middleware)                     │  │
  │  │  • Data persistence (Postgres via Drizzle — PGlite local,        │  │
  │  │    postgres-js server)                                          │  │
  │  │  • SSE event broadcasting (events → browser)                     │  │
@@ -608,7 +608,7 @@ astro/
 │
 ├── server/                        # [BACKEND] Hono API Server + [RELAY]
 │   ├── index.ts                   # Server entry: middleware, routes, startup, relay init
-│   ├── routes/                    # 22 route files
+│   ├── routes/                    # 20 route files
 │   ├── middleware/                # Auth middleware (WebAuthn + local mode)
 │   ├── lib/
 │   │   ├── relay-server.ts        # [RELAY] WebSocket relay server
@@ -757,6 +757,17 @@ All blockers to horizontal scaling have been resolved. In-memory Maps that held 
 - **Context assembly**: Vision doc + dependency outputs + graph position + skills injected into every dispatch prompt.
 - **Session preservation**: Completed agent sessions are preserved for 10 minutes to enable post-completion steering.
 
+### 15.1 Workspace V2
+
+The workspace model defines how Astro manages project directories, agent isolation, and code delivery. Key aspects:
+
+- **`.astro/` agent directory**: Per-project directory storing agent configuration, worktree metadata, and execution context. Aligned with Claude Code's `.claude/` convention.
+- **Git worktrees**: Each task execution runs in an isolated git worktree (`git worktree add -b astro/{taskId}`), preventing parallel tasks from interfering with each other or the user's working tree.
+- **Delivery modes**: Configurable per-project strategy for how completed work is delivered: `pr` (pull request), `push` (direct push), `branch` (branch only), `copy` (copy files), `direct` (in-place edits).
+- **Directory detection**: Automatic detection of project source type (local directory, git repo URL, GitHub repo) with validation and setup during project creation.
+
+See `WORKSPACE_V2.md` for the complete design, including data model changes, API endpoints, relay protocol extensions, and frontend integration.
+
 ---
 
 ## 16. Decisions Made
@@ -786,7 +797,7 @@ All blockers to horizontal scaling have been resolved. In-memory Maps that held 
 | Document | Topic |
 |----------|-------|
 | `DATA_MODEL.md` | Complete schema (28 tables), entity relationships, type definitions |
-| `BACKEND.md` | Backend startup, 22 routes, middleware, event system, dispatch, observability |
+| `BACKEND.md` | Backend startup, 20 routes, middleware, event system, dispatch, observability |
 | `FRONTEND.md` | 27 stores, 16 pages, user journeys, persistence patterns |
 | `RELAY.md` | WebSocket protocol, machine registry, event flow, authentication |
 | `AGENT_RUNNER.md` | CLI, providers, safety system, execution strategies, MCP, worktrees |
@@ -797,3 +808,8 @@ All blockers to horizontal scaling have been resolved. In-memory Maps that held 
 | `LOCAL_SERVER_REFACTOR.md` | PGlite + Drizzle migration steps with code examples |
 | `IMPLEMENTATION_PIPELINE.md` | Blocker identification, alpha/beta readiness criteria |
 | `CURRENT_CONFLICT_VIEW.md` | Known discrepancies between design docs and code |
+| `AGENT_PERFORMANCE.md` | Agent performance optimization (proposed) |
+| `ATTENTION_TRIAGE.md` | Attention triage system (proposed) |
+| `COST_TRACKING.md` | Cost tracking and budgets (proposed) |
+| `CROSS_PROJECT_REFERENCES.md` | Cross-project reference system (proposed) |
+| `WORKSPACE_V2.md` | Workspace model: `.astro/` agent dir, worktrees, delivery modes, directory detection |

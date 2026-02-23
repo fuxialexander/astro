@@ -445,7 +445,7 @@ Both drivers are wrapped in Drizzle ORM with the same schema (`server/lib/db/sch
 
 On first PGlite startup, creates a fixed local team (`LOCAL_TEAM_ID = '00000000-0000-0000-0000-000000000001'`), user profile (`LOCAL_USER_ID = '00000000-0000-0000-0000-000000000000'`), and team membership. This is idempotent and safe to call on every restart. These fixed IDs are used by the auth middleware in local mode (see section 4.1).
 
-**Schema** (`server/lib/db/schema.ts`, ~300 lines, 27+ tables):
+**Schema** (`server/lib/db/schema.ts`, ~300 lines, 32+ tables):
 
 The schema defines the structure of all database tables -- what columns they have, what types of data they hold, and how they relate to each other. Here is an overview grouped by purpose:
 
@@ -574,6 +574,8 @@ Components that the dispatch engine relies on:
 
 ### 7.2 Procedure Pipeline
 
+> **REMOVED** — never implemented. Procedure files (`procedure-types.ts`, `procedure-classifier.ts`, `procedure-executor.ts`) do not exist. The description below is a design-only artifact retained for historical reference.
+
 The procedure pipeline is a multi-step workflow system for task execution. Instead of giving the AI a single prompt and hoping for the best, we break the work into discrete, well-defined steps -- like following a recipe.
 
 Why does this matter? A single AI session might write code, forget to test it, make a messy commit, and skip the PR. The procedure pipeline enforces discipline: first write the code, then verify it builds, then commit it properly, then create a PR. Each step has rules about what the AI is allowed to do and how its output is validated.
@@ -642,6 +644,8 @@ Before an AI agent starts working on a task, it needs context -- background info
 
 ## 8. Provider System (Current State)
 
+> **REMOVED** — `server/lib/providers/` deleted during Execution Path Unification (PR #126). All task execution now routes through the relay to agent runners. The description below is retained for historical reference only.
+
 The "provider system" is the Backend's abstraction layer for different AI tools. Rather than hardcoding "use Claude Code," the Backend has a plugin system where different AI providers can be registered, detected, and selected at runtime.
 
 Note: The server currently has its own provider system for local execution. This is what the server/local mode separation work targets for eventual removal -- in the target architecture, all AI execution happens on Agent Runners, and the server only coordinates.
@@ -680,6 +684,8 @@ These types are used by the relay protocol as well and will be kept even after p
 ## 9. Prompt Templates
 
 `server/lib/prompt-templates.ts` (452 lines):
+
+> **Note:** These templates are used for **plan generation and chat only**, NOT for task execution. Task execution prompts are assembled by the agent runner (via the relay), not by the server.
 
 Prompt templates are the instructions we give to the AI. Just as a manager gives different instructions for different tasks ("write a report" vs. "review this code"), the Backend has different prompt templates for different AI interactions. These templates are carefully crafted to produce consistent, high-quality outputs.
 

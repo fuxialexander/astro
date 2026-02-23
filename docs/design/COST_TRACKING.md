@@ -1,5 +1,7 @@
 # Cost Tracking and Resource Management — Design Document
 
+> **Status: PROPOSED** — Partially implemented (~20%, basic usage tracking exists)
+
 ## 1. Overview
 
 Astro needs a resource management system that treats AI spending the same way AWS treats compute: as a measurable, budgetable, forecastable resource. As agents run more tasks across more machines, the cost of AI execution becomes a management problem, not just an accounting one.

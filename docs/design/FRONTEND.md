@@ -103,6 +103,7 @@ All routes are defined in `src/app.tsx` using **React Router v7**, a library tha
 | `/device` | `device-auth.tsx` | A special page for the device authentication flow (used when registering a new machine to run tasks -- similar to how you authorize a smart TV to access your Netflix account by entering a code on your phone). |
 | `/welcome` | `welcome.tsx` | The onboarding experience for new users. Offers two paths: create an empty project, or create a project from an existing code repository. |
 | `/login` | `login.tsx` | The login page, using WebAuthn/passkey authentication (the same technology that lets you log into websites with your fingerprint or face). This is a public route -- you do not need to be logged in to see it. |
+| `/invite/:token` | `team-invite.tsx` | Team invitation acceptance flow. When a user receives an invite link, this page validates the token and lets them join the team. This is a public route. |
 
 ---
 
@@ -449,30 +450,58 @@ These sections trace exactly what happens in the system for the most common user
 
 ### 5.1 Create Project and Generate Plan
 
-This is the first thing most users do: create a project and let the AI generate an initial plan.
+This is the first thing most users do: create a project and let the AI generate an initial plan. The project creation form (`project-new.tsx`) is a single unified page that combines project description, directory configuration, repository URL, reference repos, environment selection, and an optional first task -- all in one place.
+
+**The Unified Form**
+
+The form contains the following sections, presented top-to-bottom:
+
+1. **Project description** (required) -- A textarea where the user describes what they are building. Supports voice input via `VoiceInputButton`.
+2. **Project directory** (optional) -- A text input for the local or remote path. As the user types, the `useDirectoryDetection` hook debounces calls to `GET /api/repo/detect` and shows inline feedback below the input:
+   - If the directory does not exist: "Directory will be created with git initialized."
+   - If it is a git repo with a GitHub/GitLab/Bitbucket remote: "Git repo detected (GitHub). PRs will be created for review."
+   - If it is a git repo with no remote: "Local git repo (no remote). Changes saved as local branches."
+   - If it exists but is not a git repo: "No git history. Initialize Git recommended for safe parallel execution."
+   The delivery mode (`pr`, `push`, `branch`, `direct`) is derived automatically from the detection result using `deriveDeliveryMode()` from `project-source.ts`.
+3. **Repository URL** (collapsed by default) -- Click "+ Add repository URL" to expand. Supports manual URL entry or browsing connected GitHub repos via the GitHub integration.
+4. **Reference repos** (collapsed by default) -- Click "+ Add reference code" to expand. Users can add multiple read-only reference repository URLs that agents can read but will not modify.
+5. **First task** (optional) -- A text input for an initial task node to seed the plan with. Used only in the non-AI path.
+6. **Environment selector** -- In local mode, a dropdown to choose local/remote/HPC/cloud environment type plus machine selector. In server (multi-tenant) mode, shows registered machines as selectable cards with online/offline status.
+
+**Two Creation Paths**
+
+The form offers two submit buttons:
+
+- **"Create & Generate Plan"** (primary) -- The AI path. Creates the project, navigates to the graph view, runs `useRepoSetup.setupRepo()` to clone/detect the repository, then calls `startGeneration()` to kick off AI plan generation via SSE.
+- **"Create Project"** (secondary) -- The manual path. Runs repo setup first, creates the project with the resolved directory, optionally adds a first task node, then navigates to the list view.
+
+**AI Path Flow (step by step)**
 
 ```
-User fills out the form on the "New Project" page (project-new.tsx)
+User fills out the unified form and clicks "Create & Generate Plan"
   |
   v
-A Project object is created with a random UUID, a color, and an icon
+A Project object is created with a random UUID, a color, an icon, and
+all form fields (description, sourceDirectory, repository, environment, etc.)
   |
   v
-addProject() is called, which writes to two places:
-  1. Zustand store (UI updates immediately via optimistic update)
-  2. API call to Hono backend (persisted via Drizzle ORM to PGlite or Postgres)
+addProject() writes to the Zustand store (optimistic) and Hono backend (persistent)
   |
   v
-The browser navigates to /project/{id}/plan (the plan view for this project)
+The browser navigates to /project/{id}/graph (the plan graph view)
   |
   v
-setupRepo() hook runs:
-  - If the project has a repository URL, it clones the repo
-  - If not, it initializes an empty directory
-  - Either way, it builds a file tree for context
+useRepoSetup.setupRepo() is called:
+  - POSTs to /api/repo/setup with project details
+  - The backend clones the repo (if URL provided), detects git state,
+    builds a file tree, and extracts key files (CLAUDE.md, README, package.json)
+  - If the directory exists but has no git: a GitInitDialog prompts the user
+  - On success: updates the project with resolved sourceDirectory, repository,
+    structured source object, and deliveryMode
   |
   v
-startGeneration() is called in the agent-store, kicking off AI plan generation:
+startGeneration() is called in the agent-store with repo context:
+  - workingDirectory, fileTree, keyFiles, and targetMachineId are passed in
   |
   v
 POST /api/agent/generate-plan is sent to the backend, opening an SSE stream
@@ -789,7 +818,7 @@ This section documents components, pages, hooks, and libraries added since the o
 - `skill-settings.tsx` — Skill configuration panel
 - `toast-container.tsx` — Toast notification container
 
-### Custom Hooks (5)
+### Custom Hooks (7)
 
 | Hook | Purpose |
 |------|---------|
@@ -797,9 +826,11 @@ This section documents components, pages, hooks, and libraries added since the o
 | `use-bar-drag-resize.ts` | Drag-to-resize for panels and sidebars |
 | `use-voice-transcription.ts` | Voice input transcription |
 | `use-welcome-form-persistence.ts` | Welcome form state persistence across page reloads |
-| `use-repo-setup.ts` | Repository setup logic for project creation |
+| `use-repo-setup.ts` | Repository setup orchestration: POSTs to `/api/repo/setup`, updates project with resolved source/deliveryMode/fileTree, handles `needsGitInit` prompt via `GitInitDialog`, and exposes `confirmGitInit` for git initialization |
+| `use-directory-detection.ts` | Debounced directory detection as the user types a path (calls `GET /api/repo/detect`). Returns `DetectionResult` with `exists`, `isGit`, `remoteType`, `suggestedDeliveryMode`. Used for inline feedback in the project creation form. |
+| `use-file-tree-refresh.ts` | Auto-refreshes a project's file tree when stale (>5 min), missing, or targeting a different machine. Fetches from `/api/fs/files` (remote) or `/api/repo/file-tree` (local). Also exports `refreshAllFileTrees()` for bulk refresh after initial project load. |
 
-### New Library Files (15)
+### New Library Files (16)
 
 | File | Purpose |
 |------|---------|
@@ -813,6 +844,7 @@ This section documents components, pages, hooks, and libraries added since the o
 | `path-utils.ts` | Path manipulation (getBrowserHostname) |
 | `plugin-context.ts` | Plugin execution context |
 | `plugin-loader.ts` | Dynamic plugin loading system |
+| `project-source.ts` | Project source resolution and delivery mode derivation. Exports: `resolveProjectSource(project)` resolves a `ProjectSource` from legacy project fields; `deriveDeliveryMode(source)` maps git state to `pr`/`push`/`branch`/`direct`; `detectRemoteType(url)` classifies a git URL as `github`/`gitlab`/`bitbucket`/`generic`/`none`; `urlsMatchSameRepo(url1, url2)` normalizes and compares git URLs; `deliveryModeLabel(mode)` and `remoteTypeLabel(type)` return human-readable labels. |
 | `realtime-sync.ts` | Supabase realtime data synchronization |
 | `skill-loader.ts` | Skill loading and discovery |
 | `status-config.ts` | Task status configuration and colors |

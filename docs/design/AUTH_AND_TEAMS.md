@@ -64,6 +64,8 @@ This means a bad actor who mass-creates accounts with fake emails can see the UI
 
 ### 2.3 Verification Triggers
 
+> **Note:** The backend currently creates passkey-registered users with `email_confirm: true` (see `register-verify` in `server/routes/auth.ts`), which means Supabase sets `email_confirmed_at` immediately at registration. No verification gate is actually enforced — unverified accounts are not blocked from dispatching tasks or registering machines. The design below describes the intended behavior, but the gate (checking `email_confirmed_at` in the dispatch engine and device-auth routes) has not been implemented.
+
 An account becomes verified when any of these occur:
 
 1. **OAuth login** — Google or GitHub confirms the email. Verified immediately.
@@ -135,6 +137,8 @@ Magic link registration is inherently verified — clicking the link proves emai
 
 ### 3.3 Google OAuth Registration
 
+> **NOT YET IMPLEMENTED** — Google OAuth is designed but not wired up. The Supabase provider configuration and frontend OAuth buttons have not been created.
+
 ```
 Frontend                          Supabase                         Google
    │                                │                                │
@@ -160,6 +164,8 @@ Frontend                          Supabase                         Google
 
 ### 3.4 GitHub OAuth Registration
 
+> **NOT YET IMPLEMENTED** — GitHub OAuth is designed but not wired up. The Supabase provider configuration and frontend OAuth buttons have not been created.
+
 Same flow as Google, using `provider: 'github'`. GitHub provides:
 - Email (verified by GitHub)
 - Display name
@@ -176,6 +182,8 @@ GitHub login is especially useful for Astro because:
 ## 4. Login Flows
 
 ### 4.1 Decision Tree (Frontend)
+
+> **Note:** When passkey authentication fails with a `NotAllowedError` (e.g., user cancels the WebAuthn ceremony, credential not found on this device, or RP ID mismatch), the frontend falls back to showing alternative login methods (magic link, OAuth buttons, register new passkey) rather than displaying a raw error. See the flow diagram below — the "Fail (NotAllowedError)" arrow leads to the method-choice screen.
 
 ```
 User enters email

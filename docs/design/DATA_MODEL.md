@@ -16,6 +16,7 @@ This document describes all data types, their relationships, where they are defi
 ```typescript
 interface Project {
   id: string;                      // UUID
+  number?: number;                 // Auto-incrementing display number (e.g., #3)
   name: string;
   description: string;
   visionDoc: string;               // Persistent vision/context doc injected into all AI sessions
@@ -25,17 +26,25 @@ interface Project {
   lead?: string;
   health?: 'on_track' | 'at_risk' | 'off_track';
   initiativeId?: string;           // FK to Initiative
+  teamId?: string;                 // Team that owns this project (for team projects)
   progress?: number;               // 0-100
   labels?: Label[];
   color?: string;                  // Hex color for visual grouping
   icon?: string;                   // Emoji icon
-  workingDirectory?: string;       // Absolute path for task execution (cwd for agents)
-  repository?: string;             // Git clone URL
+  workingDirectory?: string;       // @deprecated Use sourceDirectory instead. Kept for backward compatibility.
+  sourceDirectory?: string;        // Resolved absolute path where the project repo lives on disk
+  source?: ProjectSource;          // Detected project source metadata (git info, remote type, etc.)
+  deliveryMode?: DeliveryMode;     // How completed work is delivered: 'pr' | 'push' | 'branch' | 'direct'
+  references?: ProjectReference[]; // Additional repos/directories referenced by this project
+  repository?: string;             // Git SSH URL (e.g., git@github.com:user/repo.git)
+  resourcePaths?: string[];        // Additional local folders (data, configs, docs) besides workingDirectory
   fileTree?: string[];             // Cached git ls-files output (relative paths)
   fileTreeUpdatedAt?: string;      // ISO timestamp for staleness check
   fileTreeMachineId?: string;      // Which machine the cached fileTree belongs to
   defaultEnvironment?: 'local' | 'remote' | 'hpc' | 'cloud';
   defaultMachineId?: string;
+  mergeQueueEnabled?: boolean;
+  mergeQueueMergeMethod?: 'merge' | 'squash' | 'rebase';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,7 +54,10 @@ interface Project {
 - A project has many PlanNodes (via `projectId`)
 - A project has many PlanEdges (via `projectId`)
 - A project may belong to an Initiative (via `initiativeId`)
+- A project may belong to a Team (via `teamId`)
 - A project has a visionDoc that is injected into every AI session
+- A project may have a `source` (ProjectSource) describing where its code lives
+- A project may have `references` (ProjectReference[]) linking to additional repos
 
 ### 2.2 PlanNode (Task)
 
@@ -209,6 +221,11 @@ interface TaskExecution {
 
   // Compute backend
   computeBackend?: string;         // 'direct' | 'slurm' | 'docker' | 'k8s-exec'
+
+  // Workspace V2 fields
+  worktreeStrategy?: 'direct' | 'copy' | 'reference';  // How workspace isolation is achieved
+  worktreePath?: string;           // Absolute path to the git worktree used for this execution
+  deliveryMode?: DeliveryMode;     // How results are delivered: 'pr' | 'push' | 'branch' | 'direct'
 
   // Post-completion
   summary?: ExecutionSummary;
@@ -376,6 +393,55 @@ type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
 type PreferredEnvironment = 'local' | 'remote' | 'hpc' | 'cloud';
 type Priority = 'urgent' | 'high' | 'medium' | 'low' | 'none';
 type Estimate = 'XS' | 'S' | 'M' | 'L' | 'XL';
+```
+
+### 4.3 Workspace & Source Types
+
+These types support Workspace V2: project source detection, delivery modes, and cross-project references.
+
+```typescript
+/** How the project source was detected */
+type SourceType = 'local-git' | 'cloned-git' | 'local-dir';
+
+/** Type of git remote hosting service */
+type RemoteType = 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
+
+/** How completed work is delivered after task execution */
+type DeliveryMode = 'pr' | 'push' | 'branch' | 'direct';
+```
+
+- `SourceType`: Distinguishes how a project directory was set up. `local-git` means an existing local git repo; `cloned-git` means cloned from a remote URL; `local-dir` means a plain directory with no git history.
+- `RemoteType`: Identifies the git hosting provider for PR creation and push operations.
+- `DeliveryMode`: Controls post-execution delivery. `pr` creates a pull request; `push` pushes to the remote branch; `branch` commits to a local branch only; `direct` modifies files in-place without git operations.
+
+### 4.4 ProjectSource
+
+Detected metadata about where a project's code lives. Populated by the directory-detection endpoint (`POST /api/repo/detect`).
+
+```typescript
+interface ProjectSource {
+  type: SourceType;                // How the source was detected
+  localPath: string;               // Absolute path on disk
+  gitRoot?: string;                // Git root directory (may differ from localPath for monorepos)
+  subdirectory?: string;           // Subdirectory within gitRoot (monorepo support)
+  remoteUrl?: string;              // Git remote URL (if any)
+  remoteType: RemoteType;          // Hosting provider type
+  baseBranch: string;              // Default branch name (e.g., 'main', 'master')
+  isGit: boolean;                  // Whether the directory is a git repository
+}
+```
+
+### 4.5 ProjectReference
+
+A reference to an additional repository or directory that a project depends on or reads from.
+
+```typescript
+interface ProjectReference {
+  id: string;                      // UUID
+  url: string;                     // Git URL or local path identifier
+  localPath: string;               // Absolute path where this reference lives on disk
+  purpose: string;                 // Human-readable description of why this reference is needed
+}
 ```
 
 ---
@@ -575,7 +641,7 @@ type AgentToRelayMessage =
 
 ## 8. Database Schema (Postgres)
 
-Defined in `server/lib/db/schema.ts` (~300 lines, 27+ tables):
+Defined in `server/lib/db/schema.ts` (~300 lines, 32+ tables):
 
 ### 8.1 Core Tables
 

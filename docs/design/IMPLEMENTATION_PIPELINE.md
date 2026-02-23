@@ -107,6 +107,8 @@ All documented features present plus: SSH discovery/installer, 4-tier safety sys
 
 ## 3. The Core Problem: Server Mode Calls AI Directly
 
+> **RESOLVED** — All AI endpoints now route through the relay in server mode. The `isServerMode()` guards and `streamViaRelay()` helper have been added to `server/routes/agent.ts` and `server/routes/dispatch.ts`. The evidence below documents the original state for historical reference.
+
 ### Evidence
 
 `server/routes/agent.ts` has 7 direct AI calls via `provider.stream()` / `provider.execute()`:
@@ -492,9 +494,9 @@ The **alpha** milestone focuses on **server mode**: deploying the Fly.io backend
 
 | # | Blocker | Plan | Why Critical |
 |---|---------|------|-------------|
-| 1 | Server calls AI directly for chat, task-chat, summarize, plan generation | Plans 1-6 | Fly.io VM has no Claude credentials. These endpoints will FAIL in server mode. |
+| 1 | ~~Server calls AI directly for chat, task-chat, summarize, plan generation~~ | Plans 1-6 | **RESOLVED** — All AI endpoints now route through relay in server mode via `isServerMode()` guards. |
 | 2 | `ANTHROPIC_API_KEY` treated as required in some code paths | Plan 7 | Server should never need this env var |
-| 3 | Merge relay protocol fix (PR #115) | Plan 0 | Prerequisite for Plans 1-6 |
+| 3 | ~~Merge relay protocol fix (PR #115)~~ | Plan 0 | **RESOLVED** — PR #115 merged (commit `4f81d69`). Protocol fields `type`, `systemPrompt`, `messages`, `model` added to `TaskDispatch`. |
 
 **Important (affects UX but not blockers):**
 

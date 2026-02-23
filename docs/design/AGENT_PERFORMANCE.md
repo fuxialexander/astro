@@ -1,5 +1,7 @@
 # Agent Performance Tracking — Design Document
 
+> **Status: PROPOSED** — Not yet implemented (0%)
+
 ## 1. Overview
 
 ### 1.1 What This Document Is About

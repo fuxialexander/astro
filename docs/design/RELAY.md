@@ -238,6 +238,8 @@ Notice how the Hono server calls `relayServer.dispatchTask()` as a simple functi
   dependencies?: DependencyContext[],  // Context from tasks this one depends on
   maxTurns?: number,            // Maximum number of AI conversation turns
   outputFormat?: { type: string, schema: Record },  // Expected output structure
+  deliveryMode?: 'pr' | 'push' | 'branch' | 'direct',  // How results are delivered (default: 'pr')
+  remoteType?: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none',  // Source repo remote type
 }
 ```
 
@@ -533,49 +535,37 @@ A few things to note:
 
 ---
 
-## 8. Protocol Gaps (Known)
+## 8. Protocol Gaps (Resolved)
 
-The Relay protocol was designed primarily for task execution -- sending a prompt to an Agent Runner and streaming back results. However, as Astro has grown, we have discovered several **gaps in the protocol** that need to be addressed. These gaps matter because they block the ability to remove the server's local execution paths (where the server runs AI directly instead of going through the Relay).
+The Relay protocol was designed primarily for task execution -- sending a prompt to an Agent Runner and streaming back results. As Astro grew, four gaps were identified in the protocol. **All four have now been resolved** by extending the `TaskDispatch` interface in `server/types/relay.ts` (lines 136-224) and forwarding the new fields in `RelayServer.dispatchTask()` in `server/lib/relay-server.ts` (lines 986-989).
 
-Here are the four known gaps, what each one means in practice, and why it matters:
+### Gap 1: No `messages` field -- **RESOLVED**
 
-### Gap 1: No `messages` field
+**The problem**: The `TaskDispatch` payload only had a single `prompt` string field for the AI input. But for chat-style interactions, the backend needs to send a structured conversation history -- an array of messages like `[{role: "user", content: "..."}, {role: "assistant", content: "..."}, {role: "user", content: "..."}]`.
 
-**The problem**: The `TaskDispatch` payload only has a single `prompt` string field for the AI input. But for chat-style interactions, the backend needs to send a structured conversation history -- an array of messages like `[{role: "user", content: "..."}, {role: "assistant", content: "..."}, {role: "user", content: "..."}]`.
+**Resolution**: A `messages?: ConversationMessage[]` field was added to `TaskDispatch` (`server/types/relay.ts`, line 194). When provided, the agent runner uses this to build the prompt as an `AsyncIterable<SDKUserMessage>` instead of a flat string, preserving multi-turn structure. When omitted, `prompt` is used as a single-turn string (backward-compatible).
 
-**The workaround**: Currently, the entire conversation history has to be flattened (serialized) into the single `prompt` string, which is messy and loses the message structure.
+### Gap 2: No `systemPrompt` field -- **RESOLVED**
 
-**Why it matters**: Chat endpoints need this to work properly through the Relay. Without it, the server has to handle chat requests locally instead of dispatching them to Agent Runners.
+**The problem**: Different types of tasks need different system prompts. A chat task uses `buildChatSystemPrompt()`, a planning task uses a planning-specific prompt, etc. But `TaskDispatch` had no way to specify a system prompt separately from the user prompt.
 
-**Reference**: See `docs/SERVER_LOCAL_MODE_SEPARATION.md` section 6.1.
+**Resolution**: A `systemPrompt?: string` field was added to `TaskDispatch` (`server/types/relay.ts`, line 179). When provided, the agent runner passes this to the Claude SDK's `options.systemPrompt` parameter, keeping it separate from user content. This enables proper system prompt caching across turns.
 
-### Gap 2: No `systemPrompt` field
+### Gap 3: No task `type` field -- **RESOLVED**
 
-**The problem**: Different types of tasks need different system prompts. A chat task uses `buildChatSystemPrompt()`, a planning task uses a planning-specific prompt, etc. But `TaskDispatch` has no way to specify a system prompt separately from the user prompt.
+**The problem**: The Relay did not distinguish between different kinds of tasks: plan generation, chat, task execution, and summarization. They all looked like "here is a prompt, run it."
 
-**The workaround**: The system prompt gets concatenated into the `prompt` field, which means the Agent Runner cannot distinguish between the system-level instructions and the user's actual request.
+**Resolution**: A `type?: TaskDispatchType` field was added to `TaskDispatch` (`server/types/relay.ts`, line 166), where `TaskDispatchType = 'execution' | 'plan' | 'chat' | 'summarize'` (line 122). Defaults to `'execution'` if omitted (backward-compatible). The agent runner can now optimize behavior per task type.
 
-**Why it matters**: System prompts control the AI's behavior and persona. Mixing them into the user prompt can degrade output quality and prevents the Agent Runner from handling them correctly (e.g., caching system prompts across turns).
+### Gap 4: No `model` field -- **RESOLVED**
 
-### Gap 3: No task `type` field
+**The problem**: The model selection was implicit via the `preferredProvider` field (e.g., "use Claude Code"). There was no way to specify which exact model to use within a provider (e.g., "use Claude Opus 4 via Claude Code").
 
-**The problem**: The Relay does not distinguish between different kinds of tasks: plan generation, chat, task execution, and summarization. They all look like "here is a prompt, run it."
+**Resolution**: A `model?: string` field was added to `TaskDispatch` (`server/types/relay.ts`, line 205). The frontend allows users to select models, and this field passes that choice through the relay to the agent runner, which passes it to the SDK's `options.model` parameter. When omitted, the agent runner uses its configured default model.
 
-**The workaround**: The Agent Runner treats everything the same way, which means it cannot optimize its behavior for different task types (e.g., using a cheaper model for summarization, or applying different safety checks for code execution).
+### Status
 
-**Why it matters**: Different task types have fundamentally different requirements. Without a `type` field, the Agent Runner has to guess what kind of work it is being asked to do.
-
-### Gap 4: No `model` field
-
-**The problem**: The model selection is currently implicit via the `preferredProvider` field (e.g., "use Claude Code"). But there is no way to specify which exact model to use within a provider (e.g., "use Claude Opus 4 via Claude Code").
-
-**The workaround**: The Agent Runner uses whatever default model its provider is configured with.
-
-**Why it matters**: Adding an explicit `model` field would let the server hint at model choice, enabling cost optimization (use a cheaper model for simple tasks) and quality tuning (use the best model for critical tasks).
-
-### Path Forward
-
-These four gaps need to be addressed before the server's local execution paths can be fully removed. Once the protocol supports messages, system prompts, task types, and model selection, all AI execution can go through the Relay uniformly.
+All four gaps are resolved. The `dispatchTask()` method in `server/lib/relay-server.ts` forwards `type`, `systemPrompt`, `messages`, and `model` to agent runners when present (lines 986-989). Agent runners that do not recognize these fields will ignore them, maintaining backward compatibility. All AI execution can now go through the Relay uniformly.
 
 ---
 
