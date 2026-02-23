@@ -203,6 +203,24 @@ export interface TaskDispatch {
    * When omitted, the agent runner uses its configured default model.
    */
   model?: string;
+
+  /**
+   * How results should be delivered after task completion.
+   *
+   * - 'pr': Create a pull request (GitHub, GitLab, Bitbucket)
+   * - 'push': Push to remote branch
+   * - 'branch': Commit to local branch only (no push)
+   * - 'direct': Modify files in-place (no git operations)
+   *
+   * Defaults to 'pr' for backward compatibility.
+   */
+  deliveryMode?: 'pr' | 'push' | 'branch' | 'direct';
+
+  /**
+   * Remote type of the source repository.
+   * Helps the agent runner decide how to create PRs or push.
+   */
+  remoteType?: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
 }
 
 /** Task result from agent runner */

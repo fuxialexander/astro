@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate, useSearchParams } from "react-router"
-import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, Layers, FileText } from "lucide-react"
+import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, Layers, FileText, FolderEdit } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -159,13 +159,8 @@ export function TaskDetail() {
             <span className="font-mono text-xs">{execution.executionId.slice(0, 20)}</span>
           </div>
         )}
-        {(node.branchName || execution?.branchName) && (
-          <div className="hidden md:flex items-center gap-1.5 text-muted-foreground shrink-0">
-            <GitBranch className="h-3.5 w-3.5" />
-            <span className="font-mono text-xs">{node.branchName || execution?.branchName}</span>
-          </div>
-        )}
-        {(node.prUrl || execution?.prUrl) && (
+        {/* Delivery result: PR link, branch name, or direct indicator */}
+        {(node.prUrl || execution?.prUrl) ? (
           <a
             href={node.prUrl || execution?.prUrl}
             target="_blank"
@@ -177,7 +172,17 @@ export function TaskDetail() {
               <span className="hidden sm:inline">PR </span>#{node.prNumber || execution?.prNumber}
             </Badge>
           </a>
-        )}
+        ) : (node.branchName || execution?.branchName) ? (
+          <div className="hidden md:flex items-center gap-1.5 text-muted-foreground shrink-0">
+            <GitBranch className="h-3.5 w-3.5" />
+            <span className="font-mono text-xs">{node.branchName || execution?.branchName}</span>
+          </div>
+        ) : project?.deliveryMode === 'direct' && !isRunning && execution?.status === 'success' ? (
+          <div className="hidden md:flex items-center gap-1.5 text-amber-600 shrink-0">
+            <FolderEdit className="h-3.5 w-3.5" />
+            <span className="text-xs">Changes applied directly</span>
+          </div>
+        ) : null}
         <div className="flex-1 min-w-[20px]" />
         {/* Action buttons */}
         {isRunning && (

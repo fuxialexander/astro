@@ -78,6 +78,9 @@ app.post('/projects', async (c) => {
     repository: body.repository ?? null,
     mergeQueueEnabled: body.mergeQueueEnabled ?? false,
     mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
+    source: body.source ?? null,
+    deliveryMode: body.deliveryMode ?? null,
+    references: body.references ?? [],
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   }
@@ -150,6 +153,9 @@ app.patch('/projects/:id', async (c) => {
   if (body.defaultMachineId !== undefined) patch.defaultMachineId = body.defaultMachineId || null
   if (body.mergeQueueEnabled !== undefined) patch.mergeQueueEnabled = body.mergeQueueEnabled ?? false
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
+  if (body.source !== undefined) patch.source = body.source
+  if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
+  if (body.references !== undefined) patch.references = body.references
 
   await db.update(projects).set(patch).where(
     and(eq(projects.id, id), teamScopeFilter(projects, user))

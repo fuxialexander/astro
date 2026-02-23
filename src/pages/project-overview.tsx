@@ -32,6 +32,7 @@ import { useActivityStore } from "@/stores/activity-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { cn } from "@/lib/utils"
+import { deliveryModeLabel, remoteTypeLabel } from "@/lib/project-source"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
 import type { Project, PlanNode } from "@/types"
 
@@ -445,6 +446,36 @@ export function OverviewTab({
                       <span className="text-[10px] font-medium text-primary">Open in Editor</span>
                     </a>
                   </div>
+                )}
+              </div>
+            )}
+            {/* Source detection & delivery mode info */}
+            {project.source && (
+              <div className="flex flex-wrap items-center gap-1.5 px-1">
+                <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1">
+                  {project.source.isGit ? (
+                    <>
+                      <FolderGit2 className="h-3 w-3" />
+                      {project.source.remoteType !== 'none' ? remoteTypeLabel(project.source.remoteType) : 'Local Git'}
+                    </>
+                  ) : (
+                    'No Git'
+                  )}
+                </Badge>
+                {project.deliveryMode && (
+                  <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                    {deliveryModeLabel(project.deliveryMode)}
+                  </Badge>
+                )}
+                {project.source.baseBranch && project.source.baseBranch !== 'main' && (
+                  <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-mono">
+                    {project.source.baseBranch}
+                  </Badge>
+                )}
+                {project.references && project.references.length > 0 && (
+                  <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                    {project.references.length} ref{project.references.length !== 1 ? 's' : ''}
+                  </Badge>
                 )}
               </div>
             )}

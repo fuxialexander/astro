@@ -614,30 +614,58 @@ export class TaskExecutor {
       // Execute the task
       const result = await adapter.execute(taskWithWorkspace, stream, abortController.signal);
 
-      // Attempt PR creation if worktree was used and execution succeeded
+      // Delivery-mode-aware result handling
+      const deliveryMode = task.deliveryMode ?? 'pr';
       if (prepared.branchName && (result.status === 'completed' || !result.error)) {
         try {
-          console.log(`[executor] Task ${task.id}: attempting PR creation for branch ${prepared.branchName}`);
-          const prResult = await pushAndCreatePR(prepared.workingDirectory, {
-            branchName: prepared.branchName,
-            taskTitle: task.prompt.slice(0, 100),
-            taskDescription: task.prompt.slice(0, 500),
-          });
-          result.branchName = prResult.branchName;
-          if (prResult.prUrl) {
-            result.prUrl = prResult.prUrl;
-            result.prNumber = prResult.prNumber;
+          if (deliveryMode === 'direct') {
+            // No git delivery — files modified in-place
+            console.log(`[executor] Task ${task.id}: direct mode, skipping git delivery`);
+          } else if (deliveryMode === 'branch') {
+            // Auto-commit but don't push — branch stays local
+            console.log(`[executor] Task ${task.id}: branch mode, committing locally`);
+            result.branchName = prepared.branchName;
             keepBranch = true;
-            console.log(`[executor] Task ${task.id}: PR created at ${prResult.prUrl}`);
-          } else if (prResult.pushed) {
-            keepBranch = true;
-            console.log(`[executor] Task ${task.id}: branch pushed, no PR created (gh not available?)`);
+          } else if (deliveryMode === 'push') {
+            // Push branch to remote, but don't create a PR — user creates PR manually
+            console.log(`[executor] Task ${task.id}: push mode, pushing branch ${prepared.branchName}`);
+            const prResult = await pushAndCreatePR(prepared.workingDirectory, {
+              branchName: prepared.branchName,
+              taskTitle: task.prompt.slice(0, 100),
+              taskDescription: task.prompt.slice(0, 500),
+              skipPR: true,
+            });
+            result.branchName = prResult.branchName;
+            if (prResult.pushed) {
+              keepBranch = true;
+              console.log(`[executor] Task ${task.id}: branch pushed (${prepared.branchName})`);
+            } else {
+              console.log(`[executor] Task ${task.id}: no changes to push`);
+            }
           } else {
-            console.log(`[executor] Task ${task.id}: no changes to push`);
+            // 'pr' — push + create PR (existing behavior)
+            console.log(`[executor] Task ${task.id}: pr mode, attempting PR creation for branch ${prepared.branchName}`);
+            const prResult = await pushAndCreatePR(prepared.workingDirectory, {
+              branchName: prepared.branchName,
+              taskTitle: task.prompt.slice(0, 100),
+              taskDescription: task.prompt.slice(0, 500),
+            });
+            result.branchName = prResult.branchName;
+            if (prResult.prUrl) {
+              result.prUrl = prResult.prUrl;
+              result.prNumber = prResult.prNumber;
+              keepBranch = true;
+              console.log(`[executor] Task ${task.id}: PR created at ${prResult.prUrl}`);
+            } else if (prResult.pushed) {
+              keepBranch = true;
+              console.log(`[executor] Task ${task.id}: branch pushed, no PR created (gh not available?)`);
+            } else {
+              console.log(`[executor] Task ${task.id}: no changes to push`);
+            }
           }
         } catch (prError) {
           const prMsg = prError instanceof Error ? prError.message : String(prError);
-          console.warn(`[executor] Task ${task.id}: PR creation failed: ${prMsg}`);
+          console.warn(`[executor] Task ${task.id}: delivery (${deliveryMode}) failed: ${prMsg}`);
           // Non-fatal: still report the task result without PR info
         }
       }
@@ -702,6 +730,12 @@ export class TaskExecutor {
   }> {
     if (!this.useWorktree) {
       console.warn(`[executor] Task ${task.id}: worktree disabled, using raw workdir: ${task.workingDirectory}`);
+      return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
+    }
+
+    // Direct delivery mode: skip worktree, work in-place
+    if (task.deliveryMode === 'direct') {
+      console.log(`[executor] Task ${task.id}: direct delivery mode, using raw workdir: ${task.workingDirectory}`);
       return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
     }
 

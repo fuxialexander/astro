@@ -58,9 +58,10 @@ export function getProjectWorkingDir(
     }
   }
 
-  // Local: prefer workingDirectory (resolved local path)
-  if (project?.workingDirectory) {
-    return { ok: true, dir: project.workingDirectory, source: 'local' }
+  // Local: prefer source.localPath, then workingDirectory (resolved local path)
+  const localPath = project?.source?.localPath ?? project?.workingDirectory
+  if (localPath) {
+    return { ok: true, dir: localPath, source: 'local' }
   }
   // If only a git URL is available, pass it through — the server will clone/resolve it
   if (project?.repository) {
@@ -277,6 +278,34 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Get project for vision doc and working directory
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
 
+    // Serial execution constraint for non-git projects (direct delivery mode)
+    if (project?.source && !project.source.isGit) {
+      const activeForProject = [...get().executions.values()].some(
+        (e) => e.projectId === projectId && (e.status === 'pending' || e.status === 'running')
+      )
+      if (activeForProject) {
+        const execution: TaskExecution = {
+          nodeId,
+          projectId,
+          executionId: `exec-${nodeId}-${Date.now()}`,
+          status: 'failure',
+          streamText: '',
+          error: 'Serial execution required: this project has no git history. Only one task can run at a time to prevent file conflicts. Wait for the current task to complete.',
+          toolTraces: [],
+          fileChanges: [],
+          activityEvents: [],
+          startedAt: new Date(),
+          completedAt: new Date(),
+        }
+        set((state) => {
+          const newExecutions = new Map(state.executions)
+          newExecutions.set(nodeId, execution)
+          return { executions: newExecutions }
+        })
+        return
+      }
+    }
+
     // Determine environment first (needed for directory resolution)
     const environment = options?.environment ?? project?.defaultEnvironment ?? node.environment ?? 'local'
 
@@ -381,6 +410,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           maxTurns: options?.maxTurns ?? 100,
           workingDirectory: resolvedDir,
           computeBackend: options?.computeBackend,
+          deliveryMode: project?.deliveryMode,
+          remoteType: project?.source?.remoteType,
+          references: project?.references,
         }),
         signal: abortController.signal,
       })

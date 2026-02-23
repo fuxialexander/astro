@@ -26,6 +26,9 @@ export const projects = pgTable('projects', {
   defaultMachineId: text('default_machine_id'),
   mergeQueueEnabled: boolean('merge_queue_enabled').default(false),
   mergeQueueMergeMethod: text('merge_queue_merge_method').default('squash'),
+  source: jsonb('source'),
+  deliveryMode: text('delivery_mode'),
+  references: jsonb('references').default([]),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })

@@ -92,6 +92,28 @@ export interface TeamMember {
   joinedAt: Date;
 }
 
+export type RemoteType = 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none'
+export type DeliveryMode = 'pr' | 'push' | 'branch' | 'direct'
+export type SourceType = 'local-git' | 'cloned-git' | 'local-dir'
+
+export interface ProjectSource {
+  type: SourceType
+  localPath: string
+  gitRoot?: string
+  subdirectory?: string
+  remoteUrl?: string
+  remoteType: RemoteType
+  baseBranch: string
+  isGit: boolean
+}
+
+export interface ProjectReference {
+  id: string
+  url: string
+  localPath: string
+  purpose: string
+}
+
 export interface Project {
   id: string;
   number?: number;      // Auto-incrementing display number (e.g., #3). UUID remains the internal ID.
@@ -121,6 +143,9 @@ export interface Project {
   // Merge queue settings
   mergeQueueEnabled?: boolean
   mergeQueueMergeMethod?: 'merge' | 'squash' | 'rebase'
+  source?: ProjectSource
+  deliveryMode?: DeliveryMode
+  references?: ProjectReference[]
   createdAt: Date;
   updatedAt: Date;
 }

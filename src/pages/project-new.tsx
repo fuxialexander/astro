@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, ListTodo, GitBranch, ArrowLeft, Plus, Users } from "lucide-react"
+import { Sparkles, Loader2, X, Laptop, Globe, Server, Cloud, ChevronDown, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, GitBranch, Plus, Users, GitPullRequest, FolderEdit } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import {
@@ -21,11 +21,13 @@ import { useGitHubStore } from "@/stores/github-store"
 import { useTeamStore } from "@/stores/team-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
+import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { GitInitDialog } from "@/components/git-init-dialog"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { isServerMode } from "@/lib/app-mode"
 import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
+import { remoteTypeLabel, deliveryModeLabel } from "@/lib/project-source"
 
 const environmentConfig = {
   local: { icon: Laptop, label: "Local", description: "Run on this machine" },
@@ -35,18 +37,18 @@ const environmentConfig = {
 }
 
 type EnvironmentType = keyof typeof environmentConfig
-type CreateMode = "choose" | "empty" | "repo"
 
 export function ProjectNew() {
   const [searchParams] = useSearchParams()
   const teamIdParam = searchParams.get('teamId')
 
-  const [mode, setMode] = useState<CreateMode>("choose")
   const [description, setDescription] = useState("")
   const [firstTask, setFirstTask] = useState("")
   const [repoUrl, setRepoUrl] = useState("")
   const [workingDir, setWorkingDir] = useState("")
-  const [showRepoInput, setShowRepoInput] = useState(false)
+  const [showRepoUrl, setShowRepoUrl] = useState(false)
+  const [showReferences, setShowReferences] = useState(false)
+  const [referenceUrls, setReferenceUrls] = useState<string[]>([])
   const [showGitHubRepos, setShowGitHubRepos] = useState(false)
   const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
@@ -59,6 +61,9 @@ export function ProjectNew() {
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+
+  // Directory detection — inline feedback as user types
+  const { detection, isDetecting } = useDirectoryDetection(workingDir)
 
   // GitHub integration
   const { connected, repos, selectedRepoIds, fetchRepos } = useGitHubStore()
@@ -138,218 +143,148 @@ export function ProjectNew() {
 
   const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
 
-  async function handleGenerate() {
+  // Unified create handler
+  async function handleCreate(useAI: boolean) {
     if (!description.trim() || isSubmitting) return
+    // Skip AI requires either a first task or just creates empty project
     setIsSubmitting(true)
     setRepoSetupError(null)
-    const id = crypto.randomUUID()  // Use proper UUID format for PostgreSQL
+    const id = crypto.randomUUID()
     const projectName = description.slice(0, 50).trim() || "New Project"
 
-    addProject({
-      id,
-      name: projectName,
-      description: description.trim(),
-      visionDoc: "",
-      status: "active",
-      teamId: teamIdParam || undefined,
-      color: getRandomColor(),
-      icon: getRandomProjectIcon(),
-      sourceDirectory: workingDir.trim() || undefined,
-      workingDirectory: workingDir.trim() || undefined,
-      repository: repoUrl.trim() || undefined,
-      defaultEnvironment: isRemote ? selectedEnvironment : undefined,
-      defaultMachineId: selectedMachine?.machineId || undefined,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    navigate(`/project/${id}/graph`)
+    // Collect non-empty reference URLs
+    const refs = referenceUrls.map(u => u.trim()).filter(Boolean)
 
-    if (connectionStatus !== "connected") {
-      setIsSubmitting(false)
-      return
-    }
-
-    // Always use repo setup — handles creating dir, git init, clone, file tree
-    setGenerationPhase(id, 'repo_setup')
-    try {
-      console.log('[project-new] Calling setupRepo with:', { projectId: id, workingDirectory: workingDir.trim() || undefined, repository: repoUrl.trim() || undefined, targetMachineId: selectedMachine?.machineId })
-
-      const repoResult = await setupRepo({
-        projectId: id,
-        projectName,
-        projectDescription: description.trim(),
+    if (useAI) {
+      // --- AI path: create project, navigate, then setup repo + generate ---
+      addProject({
+        id,
+        name: projectName,
+        description: description.trim(),
+        visionDoc: "",
+        status: "active",
+        teamId: teamIdParam || undefined,
+        color: getRandomColor(),
+        icon: getRandomProjectIcon(),
+        sourceDirectory: workingDir.trim() || undefined,
         workingDirectory: workingDir.trim() || undefined,
         repository: repoUrl.trim() || undefined,
-        targetMachineId: selectedMachine?.machineId || undefined,
+        defaultEnvironment: isRemote ? selectedEnvironment : undefined,
+        defaultMachineId: selectedMachine?.machineId || undefined,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
+      navigate(`/project/${id}/graph`)
 
-      console.log('[project-new] Repo setup result:', repoResult)
+      if (connectionStatus !== "connected") {
+        setIsSubmitting(false)
+        return
+      }
 
-      if (repoResult?.workingDirectory) {
-        console.log('[project-new] Starting generation with working directory:', repoResult.workingDirectory)
-        startGeneration(id, projectName, description.trim(), undefined, {
-          workingDirectory: repoResult.workingDirectory,
-          fileTree: repoResult.fileTree,
-          keyFiles: repoResult.keyFiles,
-          targetMachineId: selectedMachine?.machineId,
+      setGenerationPhase(id, 'repo_setup')
+      try {
+        const repoResult = await setupRepo({
+          projectId: id,
+          projectName,
+          projectDescription: description.trim(),
+          workingDirectory: workingDir.trim() || undefined,
+          repository: repoUrl.trim() || undefined,
+          referenceUrls: refs.length > 0 ? refs : undefined,
+          targetMachineId: selectedMachine?.machineId || undefined,
         })
-      } else {
-        // Repo setup returned null (needsGitInit or error) — generate without context
-        console.warn('[project-new] Repo setup returned null, generating without working directory')
-        setRepoSetupError('Repository setup returned incomplete data')
+
+        if (repoResult?.workingDirectory) {
+          startGeneration(id, projectName, description.trim(), undefined, {
+            workingDirectory: repoResult.workingDirectory,
+            fileTree: repoResult.fileTree,
+            keyFiles: repoResult.keyFiles,
+            targetMachineId: selectedMachine?.machineId,
+          })
+        } else {
+          console.warn('[project-new] Repo setup returned null, generating without working directory')
+          setRepoSetupError('Repository setup returned incomplete data')
+          startGeneration(id, projectName, description.trim())
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+        console.error('[project-new] Repo setup failed:', errorMsg, error)
+        setRepoSetupError(errorMsg)
+        setGenerationPhase(id, 'idle')
+
+        if (isRemote && !repoUrl.trim()) {
+          setRepoSetupError(
+            `Failed to set up repository on remote machine: ${errorMsg}. ` +
+            'Please either: (1) provide a Git repository URL, or (2) manually configure the working directory in project settings after creation.'
+          )
+        }
+
         startGeneration(id, projectName, description.trim())
+      } finally {
+        setIsSubmitting(false)
       }
-    } catch (error) {
-      // Repo setup failed — save error and proceed with plan generation without context
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[project-new] Repo setup failed:', errorMsg, error)
-      setRepoSetupError(errorMsg)
-      setGenerationPhase(id, 'idle')
+    } else {
+      // --- Non-AI path: setup repo, create project, optionally add first task ---
+      try {
+        const repoResult = await setupRepo({
+          projectId: id,
+          projectName,
+          projectDescription: description.trim(),
+          workingDirectory: workingDir.trim() || undefined,
+          repository: repoUrl.trim() || undefined,
+          referenceUrls: refs.length > 0 ? refs : undefined,
+          targetMachineId: selectedMachine?.machineId || undefined,
+        })
 
-      // If remote machine failed, suggest fallback to local setup
-      if (isRemote && !repoUrl.trim()) {
-        // No repository URL — can't proceed with remote execution without working directory
-        setRepoSetupError(
-          `Failed to set up repository on remote machine: ${errorMsg}. ` +
-          'Please either: (1) provide a Git repository URL, or (2) manually configure the working directory in project settings after creation.'
-        )
+        const resolvedDir = repoResult?.workingDirectory || workingDir.trim() || undefined
+        addProject({
+          id,
+          name: projectName,
+          description: description.trim(),
+          visionDoc: "",
+          status: "active",
+          teamId: teamIdParam || undefined,
+          color: getRandomColor(),
+          icon: getRandomProjectIcon(),
+          sourceDirectory: resolvedDir,
+          workingDirectory: resolvedDir,
+          repository: repoUrl.trim() || undefined,
+          defaultEnvironment: isRemote ? selectedEnvironment : undefined,
+          defaultMachineId: selectedMachine?.machineId || undefined,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+
+        // Add first task node if provided
+        if (firstTask.trim()) {
+          const taskId = crypto.randomUUID()
+          const today = new Date().toISOString().split('T')[0]
+          addNode({
+            id: taskId,
+            projectId: id,
+            type: "task",
+            title: firstTask.trim(),
+            description: "",
+            status: "planned",
+            parentId: null,
+            dependencies: [],
+            verification: "auto",
+            position: { x: 0, y: 0 },
+            priority: "medium",
+            dueDate: today,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+        }
+
+        setIsSubmitting(false)
+        navigate(`/project/${id}/list`)
+      } catch (error) {
+        console.error('[project-new] Repo setup failed:', error)
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+        setRepoSetupError(errorMsg)
+        setIsSubmitting(false)
       }
-
-      // Generate plan anyway, but user will need to configure working directory for execution
-      startGeneration(id, projectName, description.trim())
-    } finally {
-      setIsSubmitting(false)
     }
-  }
-
-  // Create empty project without AI - just set up working directory and navigate to task list
-  async function handleCreateEmpty() {
-    if (!description.trim() || isSubmitting) return
-    setIsSubmitting(true)
-    setRepoSetupError(null)
-    const id = crypto.randomUUID()
-    const projectName = description.slice(0, 50).trim() || "New Project"
-
-    try {
-      // Call repo setup on the machine (creates working directory)
-      const repoResult = await setupRepo({
-        projectId: id,
-        projectName,
-        projectDescription: description.trim(),
-        workingDirectory: workingDir.trim() || undefined,
-        targetMachineId: selectedMachine?.machineId || undefined,
-      })
-
-      // Create project with resolved working directory from backend
-      const resolvedDir = repoResult?.workingDirectory || workingDir.trim() || undefined
-      addProject({
-        id,
-        name: projectName,
-        description: description.trim(),
-        visionDoc: "",
-        status: "active",
-        teamId: teamIdParam || undefined,
-        color: getRandomColor(),
-        icon: getRandomProjectIcon(),
-        sourceDirectory: resolvedDir,
-        workingDirectory: resolvedDir,
-        defaultEnvironment: isRemote ? selectedEnvironment : undefined,
-        defaultMachineId: selectedMachine?.machineId || undefined,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-
-      setIsSubmitting(false)
-      navigate(`/project/${id}/list`)
-    } catch (error) {
-      console.error('[project-new] Repo setup failed:', error)
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-      setRepoSetupError(errorMsg)
-      setIsSubmitting(false)
-    }
-  }
-
-  // Create project with repo and add first task manually (skip AI)
-  async function handleCreateWithFirstTask() {
-    if (!description.trim() || !firstTask.trim() || isSubmitting) return
-    setIsSubmitting(true)
-    setRepoSetupError(null)
-    const id = crypto.randomUUID()
-    const projectName = repoUrl.trim()
-      ? repoUrl.split("/").pop()?.replace(".git", "") || "New Project"
-      : description.slice(0, 50).trim() || "New Project"
-
-    try {
-      // Call repo setup to clone on the machine
-      const repoResult = await setupRepo({
-        projectId: id,
-        projectName,
-        projectDescription: description.trim(),
-        workingDirectory: workingDir.trim() || undefined,
-        repository: repoUrl.trim() || undefined,
-        targetMachineId: selectedMachine?.machineId || undefined,
-      })
-
-      // Create project with resolved working directory from backend
-      const resolvedDir = repoResult?.workingDirectory || workingDir.trim() || undefined
-      addProject({
-        id,
-        name: projectName,
-        description: description.trim(),
-        visionDoc: "",
-        status: "active",
-        teamId: teamIdParam || undefined,
-        color: getRandomColor(),
-        icon: getRandomProjectIcon(),
-        sourceDirectory: resolvedDir,
-        workingDirectory: resolvedDir,
-        repository: repoUrl.trim() || undefined,
-        defaultEnvironment: isRemote ? selectedEnvironment : undefined,
-        defaultMachineId: selectedMachine?.machineId || undefined,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-
-      // Add first task node with due date set to today
-      const taskId = crypto.randomUUID()
-      const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
-      addNode({
-        id: taskId,
-        projectId: id,
-        type: "task",
-        title: firstTask.trim(),
-        description: "",
-        status: "planned",
-        parentId: null,
-        dependencies: [],
-        verification: "auto",
-        position: { x: 0, y: 0 },
-        priority: "medium",
-        dueDate: today,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-
-      setIsSubmitting(false)
-      navigate(`/project/${id}/list`)
-    } catch (error) {
-      console.error('[project-new] Repo setup failed:', error)
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-      setRepoSetupError(errorMsg)
-      setIsSubmitting(false)
-    }
-  }
-
-  // Reset mode and clear form
-  function handleBack() {
-    setMode("choose")
-    setRepoUrl("")
-    setWorkingDir("")
-    setFirstTask("")
-    setShowRepoInput(false)
-    setShowGitHubRepos(false)
-    setSearchQuery("")
-    setRepoSetupError(null)
   }
 
   const EnvironmentIcon = environmentConfig[selectedEnvironment].icon
@@ -531,24 +466,68 @@ export function ProjectNew() {
     </div>
   ) : null
 
-  // Safety note component for directory input
-  const ProjectSafetyNote = ({ hasRepo }: { hasRepo: boolean }) => {
-    if (hasRepo) {
+  // Detection feedback component — shown inline below the directory input
+  const DetectionFeedback = () => {
+    const trimmedDir = workingDir.trim()
+    if (!trimmedDir) return null
+
+    // Detecting state
+    if (isDetecting) {
       return (
-        <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 px-3 py-2.5">
-          <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-          <p className="text-xs leading-relaxed text-blue-700 dark:text-blue-300">
-            The repository will be cloned into your chosen folder. AI agents work on isolated branches and create pull requests for review. Ensure you have enough disk space.
-          </p>
+        <div className="flex items-center gap-2.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">Checking directory...</p>
         </div>
       )
     }
+
+    if (!detection) return null
+
+    let Icon = Info
+    let message = ''
+    let borderColor = 'border-border'
+    let bgColor = 'bg-muted/30'
+    let textColor = 'text-muted-foreground'
+    let iconColor = 'text-muted-foreground'
+
+    if (!detection.exists) {
+      Icon = Info
+      message = 'Directory will be created with git initialized.'
+      borderColor = 'border-border'
+      bgColor = 'bg-muted/30'
+      textColor = 'text-muted-foreground'
+      iconColor = 'text-muted-foreground'
+    } else if (detection.isGit && detection.remoteType !== 'none') {
+      Icon = GitPullRequest
+      const label = remoteTypeLabel(detection.remoteType)
+      const modeLabel = deliveryModeLabel(detection.suggestedDeliveryMode)
+      message = detection.suggestedDeliveryMode === 'pr'
+        ? `Git repo detected (${label}). PRs will be created for review.`
+        : `Git repo detected (${label}). ${modeLabel}.`
+      borderColor = 'border-blue-200 dark:border-blue-900'
+      bgColor = 'bg-blue-50/50 dark:bg-blue-950/20'
+      textColor = 'text-blue-700 dark:text-blue-300'
+      iconColor = 'text-blue-600 dark:text-blue-400'
+    } else if (detection.isGit) {
+      Icon = GitBranch
+      message = 'Local git repo (no remote). Changes saved as local branches.'
+      borderColor = 'border-amber-200 dark:border-amber-900'
+      bgColor = 'bg-amber-50/50 dark:bg-amber-950/20'
+      textColor = 'text-amber-700 dark:text-amber-300'
+      iconColor = 'text-amber-600 dark:text-amber-400'
+    } else {
+      Icon = AlertCircle
+      message = 'No git history. Initialize Git recommended for safe parallel execution.'
+      borderColor = 'border-amber-200 dark:border-amber-900'
+      bgColor = 'bg-amber-50/50 dark:bg-amber-950/20'
+      textColor = 'text-amber-700 dark:text-amber-300'
+      iconColor = 'text-amber-600 dark:text-amber-400'
+    }
+
     return (
-      <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2.5">
-        <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-        <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-300">
-          AI agents work on isolated git branches in a sibling directory (<code className="font-mono text-[11px] bg-amber-100 dark:bg-amber-900/40 px-1 rounded">your-project.astro-worktrees/</code>). Your project directory is not modified directly. Untracked files (data, models) are accessible via absolute paths. Back up sensitive data that isn't under version control.
-        </p>
+      <div className={cn("flex items-start gap-2.5 rounded-lg border px-3 py-2.5", borderColor, bgColor)}>
+        <Icon className={cn("h-4 w-4 shrink-0 mt-0.5", iconColor)} />
+        <p className={cn("text-xs leading-relaxed", textColor)}>{message}</p>
       </div>
     )
   }
@@ -612,355 +591,255 @@ export function ProjectNew() {
 
         {/* Icon */}
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary">
-          {mode === "choose" ? (
-            <Sparkles className="h-7 w-7 text-primary-foreground" />
-          ) : mode === "empty" ? (
-            <ListTodo className="h-7 w-7 text-primary-foreground" />
-          ) : (
-            <GitBranch className="h-7 w-7 text-primary-foreground" />
-          )}
+          <Sparkles className="h-7 w-7 text-primary-foreground" />
         </div>
 
-        {/* Mode: Choose */}
-        {mode === "choose" && (
-          <>
-            <div className="flex flex-col items-center gap-3">
-              <h1 className="text-3xl font-bold">Create a new project</h1>
-              <p className="max-w-[480px] text-center text-[15px] leading-relaxed text-muted-foreground">
-                Choose how you want to start your project.
-              </p>
-            </div>
+        {/* Title */}
+        <div className="flex flex-col items-center gap-3">
+          <h1 className="text-3xl font-bold">Create a new project</h1>
+          <p className="max-w-[480px] text-center text-[15px] leading-relaxed text-muted-foreground">
+            Describe what you're building. Point to a directory or repo and we'll detect the rest.
+          </p>
+        </div>
 
-            {/* Option cards */}
-            <div className="flex w-full flex-col gap-4">
-              <button
-                onClick={() => setMode("empty")}
-                className={cn(
-                  "flex flex-col gap-3 rounded-2xl border p-6 text-left transition-all cursor-pointer",
-                  "border-primary bg-primary/[0.03] hover:bg-primary/[0.05] shadow-[0_2px_8px_rgba(87,73,244,0.12)]"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                    <ListTodo className="h-5 w-5 text-primary" />
-                  </div>
-                  <span className="text-base font-semibold text-foreground">Start with empty project</span>
-                </div>
-                <p className="text-[13px] leading-relaxed text-muted-foreground">
-                  Set up a new working directory and start adding tasks manually. Best for when you want full control.
-                </p>
-              </button>
-
-              <button
-                onClick={() => setMode("repo")}
-                className={cn(
-                  "flex flex-col gap-3 rounded-2xl border p-6 text-left transition-all cursor-pointer",
-                  "border-border bg-card hover:border-foreground/20"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-                    <GitBranch className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <span className="text-base font-semibold text-foreground">Start with a repo</span>
-                </div>
-                <p className="text-[13px] leading-relaxed text-muted-foreground">
-                  Link an existing repository. Add tasks manually or use AI to generate a plan based on the codebase.
-                </p>
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* Mode: Empty project */}
-        {mode === "empty" && (
-          <>
-            <div className="flex flex-col items-center gap-3">
-              <h1 className="text-3xl font-bold">Create empty project</h1>
-              <p className="max-w-[480px] text-center text-[15px] leading-relaxed text-muted-foreground">
-                Describe your project and start adding tasks manually.
-              </p>
-            </div>
-
-            <div className="flex w-full flex-col gap-4">
-              {/* Project description */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-foreground">Project description</label>
-                <div className="relative">
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="What are you building? e.g., A personal finance app with budgeting and transaction tracking..."
-                    className="h-[120px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    autoFocus
-                  />
-                  <div className="absolute right-3 top-3">
-                    <VoiceInputButton
-                      isRecording={isRecording}
-                      isTranscribing={isTranscribing}
-                      isAvailable={isAvailable}
-                      duration={duration}
-                      onClick={toggleRecording}
-                      disabled={isSubmitting}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Working directory */}
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                  Working directory
-                  <WorkingDirectoryHelp />
-                </label>
-                <input
-                  type="text"
-                  value={workingDir}
-                  onChange={(e) => setWorkingDir(e.target.value)}
-                  placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project"}
-                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+        {/* Unified Form */}
+        <div className="flex w-full flex-col gap-4">
+          {/* Project description */}
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-foreground">
+              What are you building? <span className="text-destructive">*</span>
+            </label>
+            <div className="relative">
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="A personal finance app with budgeting and transaction tracking..."
+                className="h-[100px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                autoFocus
+              />
+              <div className="absolute right-3 top-3">
+                <VoiceInputButton
+                  isRecording={isRecording}
+                  isTranscribing={isTranscribing}
+                  isAvailable={isAvailable}
+                  duration={duration}
+                  onClick={toggleRecording}
+                  disabled={isSubmitting}
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  Choose a folder on your machine where this project will live
-                </p>
               </div>
-
-              {workingDir.trim() && <ProjectSafetyNote hasRepo={false} />}
-              <ErrorAlert />
-              <EnvironmentSelector />
             </div>
+          </div>
 
-            {/* Actions */}
-            <div className="flex w-full flex-col gap-3">
-              <Button
-                onClick={handleCreateEmpty}
-                disabled={!description.trim() || isSubmitting}
-                className="h-12 w-full rounded-xl text-base font-semibold"
-              >
-                {isSubmitting ? (
-                  <Loader2 className="h-[18px] w-[18px] animate-spin" />
-                ) : (
-                  <ListTodo className="h-[18px] w-[18px]" />
-                )}
-                {isSubmitting ? "Creating..." : "Create Project"}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={handleBack}
-                disabled={isSubmitting}
-                className="h-10 w-full rounded-xl"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </Button>
-            </div>
-          </>
-        )}
+          {/* Project directory */}
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+              Project directory
+              <WorkingDirectoryHelp />
+            </label>
+            <input
+              type="text"
+              value={workingDir}
+              onChange={(e) => setWorkingDir(e.target.value)}
+              placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project"}
+              className="h-10 rounded-lg border border-border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <DetectionFeedback />
+          </div>
 
-        {/* Mode: Repo project */}
-        {mode === "repo" && (
-          <>
-            <div className="flex flex-col items-center gap-3">
-              <h1 className="text-3xl font-bold">Start with a repo</h1>
-              <p className="max-w-[480px] text-center text-[15px] leading-relaxed text-muted-foreground">
-                Link a repository and choose how to create your project.
-              </p>
-            </div>
-
-            <div className="flex w-full flex-col gap-4">
-              {/* Project description */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-foreground">Project description</label>
-                <div className="relative">
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="What are you building? e.g., A personal finance app with budgeting and transaction tracking..."
-                    className="h-[100px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    autoFocus
-                  />
-                  <div className="absolute right-3 top-3">
-                    <VoiceInputButton
-                      isRecording={isRecording}
-                      isTranscribing={isTranscribing}
-                      isAvailable={isAvailable}
-                      duration={duration}
-                      onClick={toggleRecording}
-                      disabled={isSubmitting}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Repository URL */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-foreground">Repository URL</label>
-                {showGitHubRepos ? (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <input
-                          type="text"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Search repositories..."
-                          className="w-full rounded-lg border border-border bg-card pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                        />
-                      </div>
-                      <button
-                        onClick={() => { setShowGitHubRepos(false); setSearchQuery("") }}
-                        className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
-                      >
-                        <X className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                    </div>
-                    <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-background">
-                      {filteredRepos.length === 0 ? (
-                        <div className="p-4 text-center text-sm text-muted-foreground">
-                          {searchQuery ? "No repositories found" : "No repositories available"}
-                        </div>
-                      ) : (
-                        filteredRepos.map((repo) => (
-                          <button
-                            key={repo.id}
-                            onClick={() => {
-                              setRepoUrl(repo.sshUrl)
-                              setShowGitHubRepos(false)
-                              setSearchQuery("")
-                              setShowRepoInput(true)
-                            }}
-                            className="w-full p-3 text-left hover:bg-muted/50 border-b last:border-b-0 transition-colors"
-                          >
-                            <div className="flex items-start gap-2">
-                              <Github className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-sm truncate">{repo.fullName}</div>
-                                {repo.description && (
-                                  <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
-                                    {repo.description}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                ) : showRepoInput ? (
+          {/* Repository URL — collapsed by default */}
+          {showRepoUrl ? (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-foreground">Repository URL</label>
+              {showGitHubRepos ? (
+                <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={repoUrl}
-                      onChange={(e) => setRepoUrl(e.target.value)}
-                      placeholder="git@github.com:user/repo.git"
-                      className="flex-1 h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search repositories..."
+                        className="w-full rounded-lg border border-border bg-card pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
                     <button
-                      onClick={() => { setRepoUrl(""); setShowRepoInput(false) }}
+                      onClick={() => { setShowGitHubRepos(false); setSearchQuery("") }}
                       className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
                     >
                       <X className="h-4 w-4 text-muted-foreground" />
                     </button>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    {connected && (
-                      <button
-                        onClick={() => setShowGitHubRepos(true)}
-                        className="flex-1 h-10 flex items-center justify-center gap-2 rounded-lg border border-border bg-card text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
-                      >
-                        <Github className="h-4 w-4" />
-                        Browse GitHub repos
-                      </button>
+                  <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-background">
+                    {filteredRepos.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-muted-foreground">
+                        {searchQuery ? "No repositories found" : "No repositories available"}
+                      </div>
+                    ) : (
+                      filteredRepos.map((repo) => (
+                        <button
+                          key={repo.id}
+                          onClick={() => {
+                            setRepoUrl(repo.sshUrl)
+                            setShowGitHubRepos(false)
+                            setSearchQuery("")
+                          }}
+                          className="w-full p-3 text-left hover:bg-muted/50 border-b last:border-b-0 transition-colors"
+                        >
+                          <div className="flex items-start gap-2">
+                            <Github className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm truncate">{repo.fullName}</div>
+                              {repo.description && (
+                                <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                                  {repo.description}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))
                     )}
-                    <button
-                      onClick={() => setShowRepoInput(true)}
-                      className="flex-1 h-10 flex items-center justify-center gap-2 rounded-lg border border-border bg-card text-sm text-muted-foreground hover:border-foreground/20 transition-colors cursor-pointer"
-                    >
-                      <GitBranch className="h-4 w-4" />
-                      {connected ? "Manual URL" : "Enter URL"}
-                    </button>
                   </div>
-                )}
-              </div>
-
-              {/* Working directory for repo projects */}
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                  Working directory
-                  <WorkingDirectoryHelp />
-                </label>
-                <input
-                  type="text"
-                  value={workingDir}
-                  onChange={(e) => setWorkingDir(e.target.value)}
-                  placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project"}
-                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  {repoUrl.trim() ? "Where to clone the repo on your machine" : "Choose a folder on your machine where this project will live"}
-                </p>
-              </div>
-
-              {/* First Task */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-foreground">
-                  First task <span className="text-muted-foreground font-normal">(optional for AI)</span>
-                </label>
-                <input
-                  type="text"
-                  value={firstTask}
-                  onChange={(e) => setFirstTask(e.target.value)}
-                  placeholder="e.g., Add user authentication, refactor API endpoints, set up CI/CD..."
-                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Required if you want to skip AI and add the first task manually
-                </p>
-              </div>
-
-              {(workingDir.trim() || repoUrl.trim()) && <ProjectSafetyNote hasRepo={!!repoUrl.trim()} />}
-              <ErrorAlert />
-              <EnvironmentSelector />
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    placeholder="git@github.com:user/repo.git"
+                    className="flex-1 h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  {connected && (
+                    <button
+                      onClick={() => setShowGitHubRepos(true)}
+                      className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                      title="Browse GitHub repos"
+                    >
+                      <Github className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setShowRepoUrl(false); setRepoUrl(""); setShowGitHubRepos(false); setSearchQuery("") }}
+                    className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    <X className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                </div>
+              )}
             </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowRepoUrl(true)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add repository URL
+            </button>
+          )}
 
-            {/* Actions */}
-            <div className="flex w-full flex-col gap-3">
-              <Button
-                onClick={handleCreateWithFirstTask}
-                disabled={!description.trim() || !firstTask.trim() || isSubmitting}
-                className="h-12 w-full rounded-xl text-base font-semibold"
+          {/* Reference repos — collapsed by default */}
+          {showReferences ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground">Reference repos</label>
+                <button
+                  type="button"
+                  onClick={() => { setShowReferences(false); setReferenceUrls([]) }}
+                  className="p-1 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+              {referenceUrls.map((url, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={url}
+                    onChange={(e) => {
+                      const updated = [...referenceUrls]
+                      updated[i] = e.target.value
+                      setReferenceUrls(updated)
+                    }}
+                    placeholder="git@github.com:team/api-spec.git"
+                    className="flex-1 h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setReferenceUrls(referenceUrls.filter((_, j) => j !== i))}
+                    className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    <X className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setReferenceUrls([...referenceUrls, ""])}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
               >
-                {isSubmitting ? (
-                  <Loader2 className="h-[18px] w-[18px] animate-spin" />
-                ) : (
-                  <ListTodo className="h-[18px] w-[18px]" />
-                )}
-                {isSubmitting ? "Creating..." : "Create Project & Add First Task"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleGenerate}
-                disabled={!description.trim() || isSubmitting}
-                className="h-12 w-full rounded-xl text-base font-semibold"
-              >
-                <Sparkles className="h-[18px] w-[18px]" />
-                Or Use AI to Generate Plan
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={handleBack}
-                disabled={isSubmitting}
-                className="h-10 w-full rounded-xl"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </Button>
+                <Plus className="h-3.5 w-3.5" />
+                Add another
+              </button>
+              <p className="text-[11px] text-muted-foreground">
+                Reference repos are cloned as read-only context. Agents can read them but won't modify them.
+              </p>
             </div>
-          </>
-        )}
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setShowReferences(true); setReferenceUrls([""]) }}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add reference code
+            </button>
+          )}
+
+          {/* First task */}
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-foreground">
+              First task <span className="text-muted-foreground font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={firstTask}
+              onChange={(e) => setFirstTask(e.target.value)}
+              placeholder="e.g., Add user authentication, refactor API endpoints..."
+              className="h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <ErrorAlert />
+          <EnvironmentSelector />
+        </div>
+
+        {/* Actions */}
+        <div className="flex w-full flex-col gap-3">
+          <Button
+            onClick={() => handleCreate(true)}
+            disabled={!description.trim() || isSubmitting || connectionStatus !== "connected"}
+            className="h-12 w-full rounded-xl text-base font-semibold"
+          >
+            {isSubmitting ? (
+              <Loader2 className="h-[18px] w-[18px] animate-spin" />
+            ) : (
+              <Sparkles className="h-[18px] w-[18px]" />
+            )}
+            {isSubmitting ? "Creating..." : "Create & Generate Plan"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => handleCreate(false)}
+            disabled={!description.trim() || isSubmitting}
+            className="h-10 w-full rounded-xl"
+          >
+            <FolderEdit className="h-4 w-4" />
+            Create Project
+          </Button>
+        </div>
 
         {/* Git init confirmation dialog */}
         <GitInitDialog

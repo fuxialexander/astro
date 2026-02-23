@@ -8,6 +8,7 @@ export interface RepoSetupParams {
   projectDescription?: string
   workingDirectory?: string
   repository?: string
+  referenceUrls?: string[]
   targetMachineId?: string
 }
 
@@ -41,6 +42,7 @@ export function useRepoSetup() {
           projectDescription: params.projectDescription,
           workingDirectory: params.workingDirectory,
           repository: params.repository,
+          referenceUrls: params.referenceUrls,
           targetMachineId: params.targetMachineId,
         }),
       })
@@ -64,11 +66,14 @@ export function useRepoSetup() {
         return null
       }
 
-      // Update project with resolved source directory and auto-detected repository
-      if (data.workingDirectory || data.repository) {
+      // Update project with resolved source directory, auto-detected repository, and structured source
+      if (data.workingDirectory || data.repository || data.source) {
         updateProject(params.projectId, {
           ...(data.workingDirectory ? { sourceDirectory: data.workingDirectory, workingDirectory: data.workingDirectory } : {}),
           ...(data.repository ? { repository: data.repository } : {}),
+          ...(data.source ? { source: data.source } : {}),
+          ...(data.deliveryMode ? { deliveryMode: data.deliveryMode } : {}),
+          ...(data.references?.length ? { references: data.references } : {}),
         })
       }
       if (data.fileTree) {
@@ -104,7 +109,12 @@ export function useRepoSetup() {
       if (!res.ok) return
       const data = await res.json()
       if (data.workingDirectory) {
-        updateProject(projectId, { sourceDirectory: data.workingDirectory, workingDirectory: data.workingDirectory })
+        updateProject(projectId, {
+          sourceDirectory: data.workingDirectory,
+          workingDirectory: data.workingDirectory,
+          ...(data.source ? { source: data.source } : {}),
+          ...(data.deliveryMode ? { deliveryMode: data.deliveryMode } : {}),
+        })
       }
       if (data.fileTree) {
         updateFileTree(projectId, data.fileTree)
