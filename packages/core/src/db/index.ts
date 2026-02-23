@@ -8,6 +8,7 @@ import { homedir } from 'node:os'
 // `as unknown as` casts anyway.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _db: any = null
+let _checkpointInterval: ReturnType<typeof setInterval> | null = null
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function initDb(): Promise<any> {
@@ -20,6 +21,17 @@ async function initDb(): Promise<any> {
     const dataDir = process.env.PGLITE_DATA_DIR || join(homedir(), '.astro', 'pglite')
     const client = new PGlite(dataDir)
     _db = drizzle(client, { schema })
+
+    // Periodic CHECKPOINT every 30s so data survives abrupt process kills
+    // (e.g. tsx watch restart, concurrently Ctrl+C)
+    _checkpointInterval = setInterval(async () => {
+      try {
+        await client.exec('CHECKPOINT')
+      } catch {
+        // Ignore — client may be closing
+      }
+    }, 30_000)
+    _checkpointInterval.unref() // Don't keep process alive just for checkpointing
   } else {
     // postgres-js: TCP connection to external Postgres
     const postgres = (await import('postgres')).default
@@ -59,6 +71,11 @@ export { initDb }
  */
 async function closeDb(): Promise<void> {
   if (!_db) return
+
+  if (_checkpointInterval) {
+    clearInterval(_checkpointInterval)
+    _checkpointInterval = null
+  }
 
   try {
     // Drizzle wraps the underlying client — access it via $client
