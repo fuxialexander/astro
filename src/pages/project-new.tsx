@@ -221,7 +221,7 @@ export function ProjectNew() {
           targetMachineId: selectedMachine?.machineId || undefined,
         })
 
-        if (!repoResult && gitInitPrompt) {
+        if (!repoResult) {
           // needsGitInit — stay on page, let user choose via dialog
           setPendingGeneration({
             id,
