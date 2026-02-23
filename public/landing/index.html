@@ -1263,6 +1263,172 @@
             border-color: rgba(255, 255, 255, 0.3);
         }
 
+        /* ==================== GET STARTED ==================== */
+        .get-started-section {
+            padding: 6rem 2rem 4rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .install-block {
+            margin-top: 3rem;
+            position: relative;
+        }
+
+        .install-command {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: clamp(0.9rem, 2vw, 1.15rem);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            cursor: pointer;
+            transition: border-color 0.25s ease, box-shadow 0.25s ease;
+        }
+
+        .install-command:hover {
+            border-color: var(--border-hover);
+            box-shadow: 0 0 30px rgba(91, 163, 208, 0.06);
+        }
+
+        .install-command .prompt { color: var(--cyan); opacity: 0.6; }
+        .install-command .cmd { color: var(--text-primary); }
+        .install-command .flag { color: var(--orange); }
+
+        .install-copy {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 0.35rem 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .install-copy:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-secondary);
+        }
+
+        .install-hint {
+            text-align: center;
+            margin-top: 0.75rem;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+        }
+
+        .install-steps {
+            margin-top: 3rem;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0;
+        }
+
+        .install-step {
+            display: flex;
+            gap: 1.25rem;
+            padding: 1.25rem 0;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .install-step:last-child { border-bottom: none; }
+
+        .install-step-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--cyan);
+            opacity: 0.5;
+            padding-top: 0.15rem;
+            flex-shrink: 0;
+        }
+
+        .install-step-content {
+            flex: 1;
+        }
+
+        .install-step-title {
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+
+        .install-step-desc {
+            font-size: 0.8rem;
+            color: var(--text-tertiary);
+            line-height: 1.6;
+        }
+
+        .install-step-desc code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            background: rgba(91, 163, 208, 0.08);
+            color: var(--cyan);
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+        }
+
+        .install-demo {
+            margin-top: 2.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .install-demo-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .install-demo-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .install-demo-title {
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            margin-left: 0.5rem;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .install-demo-body {
+            padding: 1.25rem 1.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            line-height: 2;
+        }
+
+        .install-demo-body .term-line {
+            color: var(--text-tertiary);
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .install-demo-body .term-prompt { color: var(--orange); opacity: 0.7; }
+        .install-demo-body .term-cmd { color: var(--text-secondary); }
+        .install-demo-body .term-output { color: var(--text-tertiary); opacity: 0.6; }
+        .install-demo-body .term-success { color: var(--green); }
+        .install-demo-body .term-info { color: var(--cyan); }
+        .install-demo-body .term-link { color: var(--cyan); text-decoration: underline; text-decoration-color: rgba(91, 163, 208, 0.3); }
+        .install-demo-body .term-dim { color: var(--text-tertiary); opacity: 0.4; }
+        .install-demo-body .term-blank { height: 0.5rem; }
+
         /* ==================== FOOTER CTA ==================== */
         .footer-cta {
             padding: 8rem 2rem 6rem;
@@ -1508,7 +1674,7 @@
                 <button class="nav-link" onclick="document.querySelector('.pillars-section').scrollIntoView({behavior:'smooth'})">How It Works</button>
                 <button class="nav-link" onclick="document.querySelector('.personas-section').scrollIntoView({behavior:'smooth'})">Use Cases</button>
                 <a href="/landing/about" class="nav-link">About</a>
-                <button class="nav-cta" onclick="document.querySelector('.footer-cta').scrollIntoView({behavior:'smooth'})">Get Early Access</button>
+                <button class="nav-cta" onclick="document.getElementById('get-started').scrollIntoView({behavior:'smooth'})">Get Started</button>
             </div>
         </nav>
 
@@ -1521,8 +1687,8 @@
                 Make the decisions that matter, from anywhere.
             </p>
             <div class="hero-ctas">
-                <button class="cta-button" onclick="document.querySelector('.footer-cta').scrollIntoView({behavior:'smooth'})">
-                    <span>Get Early Access</span>
+                <button class="cta-button" onclick="document.getElementById('get-started').scrollIntoView({behavior:'smooth'})">
+                    <span>Get Started</span>
                     <span class="arrow">&rarr;</span>
                 </button>
                 <button class="cta-secondary" onclick="document.querySelector('.showcase-section').scrollIntoView({behavior:'smooth'})">
@@ -2955,15 +3121,90 @@
             <a href="/landing/about" class="why-link">ABOUT &rarr;</a>
         </section>
 
+        <!-- ==================== GET STARTED ==================== -->
+        <section id="get-started" class="get-started-section fade-section section-divider">
+            <div class="section-header">
+                <div class="section-label">Get Started</div>
+                <h2 class="section-title">One Command</h2>
+                <p class="section-description">
+                    Register your machine and start accepting tasks. No global install, no config files.
+                </p>
+            </div>
+
+            <div class="install-block">
+                <div class="install-command" onclick="navigator.clipboard.writeText('npx @astro/agent launch');this.querySelector('.install-copy').textContent='Copied!'">
+                    <span><span class="prompt">$</span> <span class="cmd">npx @astro/agent</span> <span class="flag">launch</span></span>
+                    <span class="install-copy">Copy</span>
+                </div>
+                <p class="install-hint">Requires Node.js 18+. Runs setup + connect in one step.</p>
+            </div>
+
+            <div class="install-steps">
+                <div class="install-step">
+                    <span class="install-step-num">01</span>
+                    <div class="install-step-content">
+                        <div class="install-step-title">Detects your AI providers</div>
+                        <div class="install-step-desc">Finds Claude SDK, Claude Code, or Codex on your machine automatically.</div>
+                    </div>
+                </div>
+                <div class="install-step">
+                    <span class="install-step-num">02</span>
+                    <div class="install-step-content">
+                        <div class="install-step-title">Discovers your SSH hosts</div>
+                        <div class="install-step-desc">Reads <code>~/.ssh/config</code> and offers to register remote machines (servers, HPC login nodes, cloud VMs).</div>
+                    </div>
+                </div>
+                <div class="install-step">
+                    <span class="install-step-num">03</span>
+                    <div class="install-step-content">
+                        <div class="install-step-title">Authenticates via device code</div>
+                        <div class="install-step-desc">Opens a browser link. Approve the code and your machine is registered to your Astro account.</div>
+                    </div>
+                </div>
+                <div class="install-step">
+                    <span class="install-step-num">04</span>
+                    <div class="install-step-content">
+                        <div class="install-step-title">Connects and listens</div>
+                        <div class="install-step-desc">Joins the relay network. Tasks dispatched from the Astro UI land on your machine in seconds.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="install-demo">
+                <div class="install-demo-bar">
+                    <div class="install-demo-dot"></div>
+                    <div class="install-demo-dot"></div>
+                    <div class="install-demo-dot"></div>
+                    <span class="install-demo-title">Terminal</span>
+                </div>
+                <div class="install-demo-body">
+                    <div class="term-line"><span class="term-prompt">$</span> <span class="term-cmd">npx @astro/agent launch</span></div>
+                    <div class="term-blank"></div>
+                    <div class="term-line"><span class="term-info">providers</span> <span class="term-output">claude-sdk, claude-code</span></div>
+                    <div class="term-line"><span class="term-info">ssh hosts</span> <span class="term-output">found 3: lab-gpu, hpc-login, aws-dev</span></div>
+                    <div class="term-blank"></div>
+                    <div class="term-line"><span class="term-dim">  To authenticate, open:</span></div>
+                    <div class="term-line"><span class="term-link">  https://astroanywhere.com/device?code=ABCD-1234</span></div>
+                    <div class="term-blank"></div>
+                    <div class="term-line"><span class="term-success">  &#10003;</span> <span class="term-output">Authenticated as alex@example.com</span></div>
+                    <div class="term-line"><span class="term-success">  &#10003;</span> <span class="term-output">Machine "alex-mbp" registered</span></div>
+                    <div class="term-line"><span class="term-success">  &#10003;</span> <span class="term-output">3 remote hosts queued for setup</span></div>
+                    <div class="term-line"><span class="term-success">  &#10003;</span> <span class="term-output">Connected to relay</span></div>
+                    <div class="term-blank"></div>
+                    <div class="term-line"><span class="term-info">  Ready.</span> <span class="term-dim">Listening for tasks...</span></div>
+                </div>
+            </div>
+        </section>
+
         <!-- ==================== FOOTER CTA ==================== -->
         <section class="footer-cta fade-section section-divider">
             <div class="footer-cta-inner">
                 <h2 class="footer-title">Ready to launch?</h2>
-                <p class="footer-subtitle">Join the waitlist for early access</p>
-                <button class="cta-button" onclick="window.scrollTo({top:0,behavior:'smooth'})">
-                    <span>Get Early Access</span>
-                    <span class="arrow">&rarr;</span>
-                </button>
+                <p class="footer-subtitle">Register your machine in 30 seconds</p>
+                <div class="install-command" style="max-width: 480px; margin: 0 auto; font-size: 1rem;" onclick="navigator.clipboard.writeText('npx @astro/agent launch');this.querySelector('.install-copy').textContent='Copied!'">
+                    <span><span class="prompt">$</span> <span class="cmd">npx @astro/agent</span> <span class="flag">launch</span></span>
+                    <span class="install-copy">Copy</span>
+                </div>
             </div>
         </section>
 
