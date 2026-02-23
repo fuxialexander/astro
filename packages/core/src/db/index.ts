@@ -52,3 +52,28 @@ export const db: any = new Proxy({}, {
  * Must be called (and awaited) during server startup before any route handlers run.
  */
 export { initDb }
+
+/**
+ * Close the database connection gracefully.
+ * Must be called during server shutdown to flush PGlite WAL and release connections.
+ */
+async function closeDb(): Promise<void> {
+  if (!_db) return
+
+  try {
+    // Drizzle wraps the underlying client — access it via $client
+    const client = (_db as { $client?: unknown }).$client
+    if (client && typeof (client as { close?: () => Promise<void> }).close === 'function') {
+      // PGlite: flushes WAL, checkpoints, cleans up postmaster.pid
+      await (client as { close: () => Promise<void> }).close()
+    } else if (client && typeof (client as { end?: () => Promise<void> }).end === 'function') {
+      // postgres-js: drains connection pool
+      await (client as { end: () => Promise<void> }).end()
+    }
+  } catch (e) {
+    console.error('[db] Error closing database:', e)
+  }
+  _db = null
+}
+
+export { closeDb }

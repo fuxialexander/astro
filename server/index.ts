@@ -27,6 +27,7 @@ import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
 import { runMigrations } from './lib/db/migrate.js'
+import { closeDb } from '../packages/core/src/db/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
@@ -453,11 +454,11 @@ async function start() {
 // Shared shutdown logic with a hard timeout so the process never hangs
 async function shutdown(signal: string) {
   console.log(`[server] ${signal} received, shutting down gracefully`)
-  // Hard kill after 3 seconds if cleanup stalls
+  // Hard kill after 5 seconds if cleanup stalls (PGlite needs time to checkpoint WAL)
   const timer = setTimeout(() => {
     console.log('[server] Shutdown timed out, forcing exit')
     process.exit(1)
-  }, 3_000)
+  }, 5_000)
   timer.unref()
 
   if (challengeCleanup) clearInterval(challengeCleanup)
@@ -470,6 +471,8 @@ async function shutdown(signal: string) {
     httpServer?.close()
     await relayServer.stop()
     await redisPubSub.disconnect()
+    // Close database last — flushes PGlite WAL/checkpoint, drains postgres-js pool
+    await closeDb()
   } catch (e) {
     console.error('[server] Error during shutdown:', e)
   }
