@@ -421,7 +421,7 @@ The user can review your reasoning in the task output and provide guidance if th
 
       // Auto-assign defaultMachineId on the project if not yet set
       if (msg.result.status === 'completed' && machineId) {
-        db().update(projects)
+        db.update(projects)
           .set({ defaultMachineId: machineId, updatedAt: new Date() })
           .where(and(eq(projects.id, projectId), isNull(projects.defaultMachineId)))
           .execute()
