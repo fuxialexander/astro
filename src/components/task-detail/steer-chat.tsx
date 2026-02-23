@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Send, Loader2, CheckCircle2, XCircle, RotateCw } from "lucide-react"
 import { apiUrl } from "@/lib/api-url"
 import { Button } from "@/components/ui/button"
@@ -9,11 +9,12 @@ import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useProjectStore } from "@/stores/project-store"
+import { usePlanStore } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { fetchSlashCommands } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
-import type { SlashCommand } from "@/components/ui/file-completion-textarea"
+import type { SlashCommand, MentionItem } from "@/components/ui/file-completion-textarea"
 import type { Session } from "@/types"
 
 interface SteerChatProps {
@@ -35,6 +36,18 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
   const appendText = useExecutionStore((s) => s.appendText)
   const addToolTrace = useExecutionStore((s) => s.addToolTrace)
   const updateToolTraceResult = useExecutionStore((s) => s.updateToolTraceResult)
+
+  const planNodes = usePlanStore((s) => s.nodes)
+  const mentionItems: MentionItem[] = useMemo(() => {
+    return planNodes
+      .filter((n) => n.projectId === projectId)
+      .map((n) => ({
+        id: n.id,
+        label: n.title,
+        detail: n.type,
+        kind: n.type === "milestone" ? "milestone" as const : "task" as const,
+      }))
+  }, [planNodes, projectId])
 
   const steerMessages = steerSession?.steerMessages || []
 
@@ -276,10 +289,11 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
           slashCommands={slashCmds}
+          mentionItems={mentionItems}
           value={input}
           onChange={setInput}
           onSubmit={handleSend}
-          placeholder={resuming ? "Session resumed..." : isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Guide the agent... (type @ for files, / for commands)"}
+          placeholder={resuming ? "Session resumed..." : isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Guide the agent... (@ for files/tasks)"}
           rows={1}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />

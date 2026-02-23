@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Send, Loader2, Trash2, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -10,8 +10,9 @@ import { chatWithTask, fetchSlashCommands } from "@/lib/api-client"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useProjectStore } from "@/stores/project-store"
+import { usePlanStore } from "@/stores/plan-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
-import type { SlashCommand } from "@/components/ui/file-completion-textarea"
+import type { SlashCommand, MentionItem } from "@/components/ui/file-completion-textarea"
 import type { PlanNode } from "@/types"
 
 interface TaskChatProps {
@@ -37,6 +38,20 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
   const clearSessionsForNode = useSessionStore((s) => s.clearSessionsForNode)
   const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
+  // Subscribe to sessions so component re-renders when messages change
+  useSessionStore((s) => s.sessions)
+
+  const planNodes = usePlanStore((s) => s.nodes)
+  const mentionItems: MentionItem[] = useMemo(() => {
+    return planNodes
+      .filter((n) => n.projectId === projectId)
+      .map((n) => ({
+        id: n.id,
+        label: n.title,
+        detail: n.type,
+        kind: n.type === "milestone" ? "milestone" as const : "task" as const,
+      }))
+  }, [planNodes, projectId])
 
   // Slash commands from connected machine
   const [slashCmds, setSlashCmds] = useState<SlashCommand[]>([])
@@ -268,10 +283,11 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
           workingDirectory={project?.workingDirectory}
           fileTree={project?.fileTree}
           slashCommands={slashCmds}
+          mentionItems={mentionItems}
           value={input}
           onChange={setInput}
           onSubmit={handleSend}
-          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Ask about this task... (type @ for files, / for commands)"}
+          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Ask about this task... (@ for files/tasks)"}
           rows={1}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />

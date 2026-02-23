@@ -12,9 +12,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
-import { MentionTextarea, type MentionItem } from "@/components/ui/mention-textarea"
+import { FileCompletionTextarea, type MentionItem } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
-import { chatWithAgent, compactConversation, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { chatWithAgent, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -68,24 +68,6 @@ interface Message {
 
 // ---- Fields that are internal and should not be written from chat ----
 const INTERNAL_FIELDS = new Set(["id", "projectId", "createdAt", "updatedAt", "position", "boardOrder", "executionId", "executionOutput", "executionError", "executionStartedAt", "executionCompletedAt", "branchName", "prUrl", "prNumber"])
-
-// ---- Slash commands ----
-interface SlashCommand {
-  name: string
-  description: string
-  usage?: string
-}
-
-const SLASH_COMMANDS: SlashCommand[] = [
-  { name: "/clear", description: "Clear session and start fresh" },
-  { name: "/new", description: "Create a new session" },
-  { name: "/rename", description: "Rename current session", usage: "/rename <name>" },
-  { name: "/sessions", description: "Show session list" },
-  { name: "/model", description: "Show model picker" },
-  { name: "/compact", description: "Compress conversation to reduce context" },
-  { name: "/context", description: "Show context usage info" },
-  { name: "/help", description: "Show available commands" },
-]
 
 // ---- Update parsing utilities ----
 
@@ -187,9 +169,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   const renameSession = useSessionStore((s) => s.renameSession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const clearActiveSessionId = useSessionStore((s) => s.clearActiveSessionId)
-  // Subscribe to sessions and activeSessionIds so we re-render on changes
-  useSessionStore((s) => s.sessions)
-  useSessionStore((s) => s.activeSessionIds)
+  // Subscribe to sessions and activeSessionIds so memos recompute on changes
+  const sessions = useSessionStore((s) => s.sessions)
+  const activeSessionIds = useSessionStore((s) => s.activeSessionIds)
 
   // State for session dialog and dropdown
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false)
@@ -197,8 +179,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   const [sessionDropdownOpen, setSessionDropdownOpen] = useState(false)
 
   // Slash command autocomplete state
-  const [showSlashMenu, setShowSlashMenu] = useState(false)
-  const [slashFilter, setSlashFilter] = useState("")
   // Dropdown refs for provider/model menus (for /sessions and /model commands)
   const sessionDropdownRef = useRef<HTMLButtonElement>(null)
   const modelDropdownRef = useRef<HTMLButtonElement>(null)
@@ -206,13 +186,15 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   // Get all plan-chat sessions for this project (re-evaluates when sessions map changes)
   const planChatSessions = useMemo(
     () => getSessionsForProject(projectId, "plan-chat"),
-    [getSessionsForProject, projectId]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [getSessionsForProject, projectId, sessions]
   )
 
   // Get the active session ID (re-evaluates when activeSessionIds changes)
   const activeSessionId = useMemo(
     () => getActiveSessionId(projectId, "plan-chat"),
-    [getActiveSessionId, projectId]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [getActiveSessionId, projectId, activeSessionIds]
   )
   const currentSession: Session | undefined = useMemo(() => {
     // If we have an active session ID, try to get that session
@@ -297,22 +279,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     clearActiveSessionId(projectId, "plan-chat")
   }, [planChatSessions, deleteSession, projectId, clearActiveSessionId])
 
-  // Filtered slash commands for autocomplete
-  const filteredSlashCommands = useMemo(() => {
-    if (!slashFilter) return SLASH_COMMANDS
-    return SLASH_COMMANDS.filter((cmd) => cmd.name.startsWith(slashFilter.toLowerCase()))
-  }, [slashFilter])
-
-  // Handle input changes to detect slash commands
   const handleInputChange = useCallback((value: string) => {
     setInput(value)
-    if (value.startsWith("/")) {
-      setShowSlashMenu(true)
-      setSlashFilter(value.split(" ")[0])
-    } else {
-      setShowSlashMenu(false)
-      setSlashFilter("")
-    }
   }, [])
 
   const messages: Message[] = (currentSession?.messages || []).map((m) => ({
@@ -332,7 +300,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   const removeEdge = usePlanStore((s) => s.removeEdge)
   const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
 
-  // Project store — for @codebase context
+  // Project store — for file tree and working directory
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
   // Build lean plan context for the API (only nodes in this project)
@@ -364,21 +332,15 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
       .map((e) => ({ source: e.source, target: e.target, type: e.type }))
   }, [planNodes, planEdges, projectId])
 
-  // Build @mention items for the chat input
+  // Build @mention items for the chat input (task/milestone references)
   const mentionItems: MentionItem[] = useMemo(() => {
     const projectNodes = planNodes.filter((n) => n.projectId === projectId)
-    const items: MentionItem[] = [
-      { id: "codebase", label: "codebase", detail: "Include repo context", kind: "special" },
-    ]
-    for (const n of projectNodes) {
-      items.push({
-        id: n.id,
-        label: n.title,
-        detail: n.type,
-        kind: n.type === "milestone" ? "milestone" : "task",
-      })
-    }
-    return items
+    return projectNodes.map((n) => ({
+      id: n.id,
+      label: n.title,
+      detail: n.type,
+      kind: n.type === "milestone" ? "milestone" as const : "task" as const,
+    }))
   }, [planNodes, projectId])
 
   // Settings defaults
@@ -419,147 +381,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     if (isClaudeProvider) return settingsModel
     return undefined
   })()
-
-  /** Add a system-style message to the current session (gray, informational). */
-  const addSystemMessage = useCallback((text: string) => {
-    if (!currentSession) return
-    addMessage(currentSession.id, { role: "assistant", content: `_${text}_` })
-  }, [currentSession, addMessage])
-
-  /**
-   * Process slash commands. Returns true if the input was handled as a command.
-   */
-  const processSlashCommand = useCallback(async (text: string): Promise<boolean> => {
-    const trimmed = text.trim()
-    if (!trimmed.startsWith("/")) return false
-
-    const parts = trimmed.split(/\s+/)
-    const command = parts[0].toLowerCase()
-    const args = parts.slice(1).join(" ")
-
-    switch (command) {
-      case "/clear": {
-        if (currentSession && currentSession.messages.length > 0) {
-          if (abortRef.current) {
-            abortRef.current.abort()
-            abortRef.current = null
-          }
-          setIsStreaming(false)
-          handleNewSession()
-          setTimeout(() => {
-            const store = useSessionStore.getState()
-            const activeId = store.activeSessionIds.get(`${projectId}:plan-chat`)
-            if (activeId) addMessage(activeId, { role: "assistant", content: "_Session cleared. Starting fresh._" })
-          }, 50)
-        }
-        return true
-      }
-
-      case "/new": {
-        handleNewSession()
-        setTimeout(() => {
-          const store = useSessionStore.getState()
-          const activeId = store.activeSessionIds.get(`${projectId}:plan-chat`)
-          if (activeId) addMessage(activeId, { role: "assistant", content: "_New session created._" })
-        }, 50)
-        return true
-      }
-
-      case "/rename": {
-        if (!args.trim()) {
-          addSystemMessage("Usage: /rename <name>")
-          return true
-        }
-        if (currentSession) {
-          renameSession(currentSession.id, args.trim())
-          addSystemMessage(`Session renamed to "${args.trim()}"`)
-        }
-        return true
-      }
-
-      case "/sessions": {
-        sessionDropdownRef.current?.click()
-        return true
-      }
-
-      case "/model": {
-        modelDropdownRef.current?.click()
-        return true
-      }
-
-      case "/compact": {
-        if (!currentSession || currentSession.messages.length < 4) {
-          addSystemMessage("Not enough messages to compact. Continue chatting first.")
-          return true
-        }
-
-        addSystemMessage("Compacting conversation...")
-        setIsStreaming(true)
-
-        const allMessages = currentSession.messages
-          .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
-          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
-
-        const abortController = new AbortController()
-        abortRef.current = abortController
-
-        let summaryText = ""
-        try {
-          await compactConversation(
-            { messages: allMessages, projectId, model: effectiveModel, providerId: effectiveProviderId },
-            {
-              onText: (chunk) => { summaryText += chunk },
-              onDone: () => {
-                if (!summaryText) {
-                  addSystemMessage("Compaction produced no output. Try again later.")
-                  setIsStreaming(false)
-                  return
-                }
-                handleNewSession()
-                setTimeout(() => {
-                  const store = useSessionStore.getState()
-                  const activeId = store.activeSessionIds.get(`${projectId}:plan-chat`)
-                  if (activeId) {
-                    addMessage(activeId, { role: "assistant", content: `_Context compressed from ${allMessages.length} messages._\n\n**Summary of prior conversation:**\n${summaryText}` })
-                  }
-                  setIsStreaming(false)
-                }, 50)
-              },
-              onError: (error) => {
-                addSystemMessage(`Compaction failed: ${error}`)
-                setIsStreaming(false)
-              },
-            },
-            abortController.signal,
-          )
-        } catch {
-          setIsStreaming(false)
-        }
-        return true
-      }
-
-      case "/context": {
-        const msgs = currentSession?.messages || []
-        const totalChars = msgs.reduce((sum, m) => sum + m.content.length, 0)
-        const estimatedTokens = Math.round(totalChars / 4)
-        addSystemMessage(
-          `Session: ${msgs.length} messages, ~${estimatedTokens.toLocaleString()} tokens (~${Math.round(totalChars / 1000)}K chars)`
-        )
-        return true
-      }
-
-      case "/help": {
-        const helpText = SLASH_COMMANDS
-          .map((cmd) => `**${cmd.usage || cmd.name}** - ${cmd.description}`)
-          .join("\n")
-        addSystemMessage(`Available commands:\n${helpText}`)
-        return true
-      }
-
-      default:
-        return false
-    }
-  }, [currentSession, projectId, handleNewSession, addMessage, addSystemMessage, renameSession, effectiveModel, effectiveProviderId])
 
   // Voice transcription
   const handleTranscript = useCallback((text: string) => {
@@ -710,14 +531,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     }
     abortRef.current = new AbortController()
 
-    // Detect @codebase mention — inject file tree context into the message
-    const hasCodebaseMention = /@codebase\b/i.test(text)
-    let enrichedMessage = text
-    if (hasCodebaseMention && project?.fileTree?.length) {
-      const fileTreeContext = `\n\n[Codebase context: ${project.fileTree.length} files]\nFile tree:\n${project.fileTree.slice(0, 200).join("\n")}${project.fileTree.length > 200 ? "\n... (truncated)" : ""}`
-      enrichedMessage = text + fileTreeContext
-    }
-
     // Re-read messages from store after adding user msg + placeholder to get fresh state
     const freshSession = useSessionStore.getState().sessions.get(sid)
     const freshMessages = freshSession?.messages || []
@@ -739,7 +552,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     try {
       await chatWithAgent(
         {
-          message: enrichedMessage,
+          message: text,
           sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
           projectId,
           visionDoc,
@@ -792,15 +605,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   function handleSend() {
     const text = input.trim()
     if (!text) return
-    setShowSlashMenu(false)
-    setSlashFilter("")
-    // Process slash commands first; if not a command, send as regular message
-    if (text.startsWith("/")) {
-      setInput("")
-      processSlashCommand(text)
-    } else {
-      sendMessage(text)
-    }
+    sendMessage(text)
   }
 
   // Handle initialMessage (from decompose button)
@@ -1129,31 +934,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
           className="h-9 w-9 shrink-0"
         />
         <div className="relative flex-1">
-          {/* Slash command autocomplete */}
-          {showSlashMenu && filteredSlashCommands.length > 0 && (
-            <div className="absolute bottom-full left-0 mb-1 w-full rounded-lg border border-border bg-popover shadow-md z-10 max-h-[200px] overflow-y-auto">
-              {filteredSlashCommands.map((cmd) => (
-                <button
-                  key={cmd.name}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent transition-colors"
-                  onMouseDown={(e) => {
-                    e.preventDefault() // Prevent textarea blur
-                    setInput(cmd.name === "/rename" ? "/rename " : cmd.name)
-                    setShowSlashMenu(false)
-                    setSlashFilter("")
-                  }}
-                >
-                  <span className="font-mono text-xs text-primary">{cmd.name}</span>
-                  <span className="text-xs text-muted-foreground">{cmd.description}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <MentionTextarea
+          <FileCompletionTextarea
+            projectId={projectId}
+            workingDirectory={project?.workingDirectory}
+            fileTree={project?.fileTree}
+            mentionItems={mentionItems}
             value={input}
             onChange={handleInputChange}
-            items={mentionItems}
-            placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Type / for commands, @ to reference tasks..."}
+            placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Type a message, @ for files or tasks..."}
             rows={1}
             disabled={isStreaming}
             onSubmit={handleSend}

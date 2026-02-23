@@ -104,7 +104,7 @@ export function FileCompletionTextarea({
   const isActive = atIndex >= 0
   const hasMentionItems = !!(mentionItems && mentionItems.length > 0)
   const hasFileTree = !!(fileTree && fileTree.length > 0)
-  const canComplete = hasMentionItems || hasFileTree || !!(workingDirectory || machineId)
+  const canComplete = hasMentionItems || hasFileTree || !!(workingDirectory && machineId)
 
   // Filter mention items by query (client-side, instant)
   const filteredMentions = useMemo(() => {

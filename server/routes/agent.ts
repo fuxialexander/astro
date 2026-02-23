@@ -8,6 +8,9 @@ import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { requireAuth } from '../middleware/auth.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, TaskStdoutMessage } from '../types/relay.js'
+import { db } from '../lib/db/index.js'
+import { projects } from '../lib/db/schema.js'
+import { eq } from 'drizzle-orm'
 
 // Validation schemas
 const generatePlanSchema = z.object({
@@ -529,6 +532,9 @@ agentRoute.post('/chat', async (c) => {
   const { message, sessionId: existingSessionId, projectId, visionDoc, planNodes, planEdges, messages: historyMessages } = body
   const taskId = existingSessionId || `chat-${projectId}-${Date.now()}`
 
+  // Look up the project's working directory
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory }).from(projects).where(eq(projects.id, projectId)).limit(1)
+
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
   return streamChatViaRelay(c, {
     taskId,
@@ -539,6 +545,7 @@ agentRoute.post('/chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     maxTurns: 50,
+    workingDirectory: project?.workingDirectory ?? undefined,
   })
 })
 
@@ -571,6 +578,9 @@ agentRoute.post('/task-chat', async (c) => {
 
   const taskId = existingSessionId || `task-chat-${nodeId}-${Date.now()}`
 
+  // Look up the project's working directory
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory }).from(projects).where(eq(projects.id, projectId)).limit(1)
+
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
     taskDescription,
@@ -586,6 +596,7 @@ agentRoute.post('/task-chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     maxTurns: 50,
+    workingDirectory: project?.workingDirectory ?? undefined,
   })
 })
 

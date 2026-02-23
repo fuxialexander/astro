@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
-import { setupProjectRepo, initializeGitRepo, getFileTree } from '../lib/repo-setup.js'
+import { setupProjectRepo, initializeGitRepo } from '../lib/repo-setup.js'
 import { relayServer, type RepoSetupRelayResult } from '../lib/relay-server.js'
 import { detectRemoteType } from '../lib/git-url-utils.js'
 import { errorMessage } from '../lib/error-utils.js'
@@ -281,28 +281,6 @@ repoRoute.post('/git-init', async (c) => {
   }
 })
 
-/**
- * GET /api/repo/file-tree?workingDirectory=path
- *
- * Lightweight refresh endpoint — returns current git ls-files output.
- * Path expansion (tilde ~) is handled automatically in getFileTree.
- *
- * Response: { files: string[] }
- */
-repoRoute.get('/file-tree', async (c) => {
-  const workingDirectory = c.req.query('workingDirectory')
-
-  if (!workingDirectory) {
-    return c.json({ files: [] })
-  }
-
-  try {
-    const files = getFileTree(workingDirectory)
-    return c.json({ files })
-  } catch (error) {
-    console.error('[repo] File tree failed:', error)
-    return c.json({ files: [] })
-  }
-})
+// File tree endpoint removed — file listing always goes through relay via /api/fs/files
 
 export { repoRoute }
