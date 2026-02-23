@@ -3,75 +3,125 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Why Astro? — Our Philosophy</title>
+    <title>About Astro — Our Philosophy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600;700&family=Spectral:wght@300;400;600&display=swap');
-
         :root {
-            --space-navy: #0a0e27;
-            --deep-blue: #1a2a4e;
-            --electric-cyan: #5ba3d0;
-            --star-orange: #d4a574;
-            --off-white: #f5f5f0;
-            --subtle-blue: #2a3a5e;
-            --soft-gray: #a8a8a0;
+            --bg-deep: #050510;
+            --bg-card: rgba(255, 255, 255, 0.03);
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-hover: rgba(255, 255, 255, 0.12);
+            --cyan: #5ba3d0;
+            --cyan-glow: rgba(91, 163, 208, 0.4);
+            --orange: #d4a574;
+            --orange-glow: rgba(212, 165, 116, 0.3);
+            --green: #6ec07a;
+            --green-glow: rgba(110, 192, 122, 0.3);
+            --purple: #a78bfa;
+            --rose: #f472b6;
+            --text-primary: #f0f0f0;
+            --text-secondary: rgba(240, 240, 240, 0.55);
+            --text-tertiary: rgba(240, 240, 240, 0.35);
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Spectral', serif;
-            background: var(--space-navy);
-            color: var(--off-white);
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-deep);
+            color: var(--text-primary);
             overflow-x: hidden;
-            line-height: 1.8;
-            font-weight: 300;
+            line-height: 1.7;
+            font-weight: 400;
+            -webkit-font-smoothing: antialiased;
         }
 
-        /* Navigation */
+        /* Three.js Canvas */
+        #scene-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .content {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ==================== NAVIGATION ==================== */
         nav {
             position: fixed;
             top: 0;
             width: 100%;
-            padding: 2rem 4rem;
+            padding: 1.25rem 3rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
             z-index: 100;
-            backdrop-filter: blur(10px);
-            background: rgba(10, 14, 39, 0.8);
-            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+            background: rgba(5, 5, 16, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-subtle);
         }
 
         .logo {
             font-family: 'Cormorant Garamond', serif;
-            font-size: 1.75rem;
+            font-size: 1.5rem;
             font-weight: 600;
-            letter-spacing: 0.1em;
-            color: var(--off-white);
-        }
-
-        .back-link {
-            font-family: 'Spectral', serif;
-            color: var(--off-white);
+            letter-spacing: 0.15em;
+            color: var(--text-primary);
             text-decoration: none;
-            font-size: 0.875rem;
-            padding: 0.5rem 1.5rem;
-            border: 1px solid rgba(245, 245, 240, 0.3);
-            transition: all 0.3s ease;
-            letter-spacing: 0.05em;
         }
 
-        .back-link:hover {
-            border-color: var(--off-white);
-            background: rgba(245, 245, 240, 0.05);
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
         }
 
-        /* Hero */
+        .nav-link {
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            transition: color 0.25s ease;
+        }
+
+        .nav-link:hover { color: var(--text-secondary); }
+
+        .nav-link.active {
+            color: var(--text-primary);
+        }
+
+        .nav-cta {
+            font-family: 'Inter', sans-serif;
+            padding: 0.5rem 1.25rem;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.8125rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            letter-spacing: 0.02em;
+            backdrop-filter: blur(10px);
+            text-decoration: none;
+        }
+
+        .nav-cta:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* ==================== HERO ==================== */
         .hero {
             min-height: 70vh;
             display: flex;
@@ -80,238 +130,899 @@
             align-items: center;
             text-align: center;
             padding: 8rem 2rem 4rem;
+            position: relative;
+        }
+
+        .hero-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--cyan);
+            margin-bottom: 1.5rem;
+            font-weight: 500;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.2s;
         }
 
         .hero-title {
             font-family: 'Cormorant Garamond', serif;
-            font-size: clamp(3rem, 8vw, 6rem);
+            font-size: clamp(3rem, 8vw, 5.5rem);
             font-weight: 300;
-            color: var(--off-white);
+            letter-spacing: 0.03em;
             margin-bottom: 2rem;
-            letter-spacing: 0.02em;
+            line-height: 1.1;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.3s;
+            background: linear-gradient(135deg, var(--text-primary), var(--cyan));
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .hero-description {
-            max-width: 800px;
-            font-size: 1.375rem;
-            line-height: 1.9;
-            color: rgba(245, 245, 240, 0.8);
-            margin-bottom: 3rem;
+            max-width: 640px;
+            font-size: 1.0625rem;
+            line-height: 1.85;
+            color: var(--text-secondary);
+            font-weight: 300;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.5s;
         }
 
-        /* Content sections */
-        .content-section {
+        /* Scroll indicator */
+        .scroll-hint {
+            margin-top: 3rem;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.8s;
+        }
+
+        .scroll-hint svg {
+            width: 20px;
+            height: 20px;
+            animation: scrollBounce 2s ease-in-out infinite;
+        }
+
+        @keyframes scrollBounce {
+            0%, 100% { transform: translateY(0); opacity: 0.3; }
+            50% { transform: translateY(6px); opacity: 0.6; }
+        }
+
+        /* ==================== METAPHOR SECTIONS ==================== */
+        .metaphors {
             max-width: 900px;
             margin: 0 auto;
-            padding: 6rem 2rem;
+            padding: 0 2rem 6rem;
         }
 
-        .metaphor-detail {
-            margin-bottom: 8rem;
+        .metaphor {
+            position: relative;
+            padding: 5rem 0;
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
         }
 
-        .metaphor-detail:last-child {
-            margin-bottom: 4rem;
+        .metaphor.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .metaphor + .metaphor {
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .metaphor-header {
+            display: grid;
+            grid-template-columns: 80px 1fr;
+            gap: 2.5rem;
+            align-items: start;
+            margin-bottom: 2.5rem;
+        }
+
+        .metaphor-icon-wrapper {
+            width: 80px;
+            height: 80px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metaphor-icon-wrapper::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 20px;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+
+        .metaphor:hover .metaphor-icon-wrapper::before {
+            opacity: 1;
+        }
+
+        .metaphor-icon-wrapper svg {
+            width: 36px;
+            height: 36px;
         }
 
         .metaphor-number {
-            font-family: 'Cormorant Garamond', serif;
-            font-size: 0.875rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
             letter-spacing: 0.2em;
-            color: var(--soft-gray);
-            margin-bottom: 1rem;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 0.75rem;
         }
 
-        .metaphor-detail-title {
+        .metaphor-title {
             font-family: 'Cormorant Garamond', serif;
-            font-size: clamp(2rem, 4vw, 3rem);
+            font-size: clamp(2rem, 4vw, 2.75rem);
             font-weight: 400;
-            color: var(--off-white);
-            margin-bottom: 2rem;
+            color: var(--text-primary);
             letter-spacing: 0.02em;
+            line-height: 1.2;
         }
 
-        .metaphor-detail-text {
-            font-size: 1.125rem;
-            line-height: 1.9;
-            color: rgba(245, 245, 240, 0.8);
+        .metaphor-body {
+            padding-left: calc(80px + 2.5rem);
+        }
+
+        .metaphor-text {
+            font-size: 1rem;
+            line-height: 1.85;
+            color: var(--text-secondary);
+            font-weight: 300;
             margin-bottom: 1.5rem;
         }
 
-        .metaphor-detail-text strong {
-            color: var(--off-white);
-            font-weight: 400;
+        .metaphor-text strong {
+            color: var(--text-primary);
+            font-weight: 500;
         }
 
+        /* Glassmorphic highlight box */
         .highlight-box {
-            background: rgba(26, 42, 78, 0.4);
-            border-left: 2px solid var(--star-orange);
-            padding: 2rem;
+            position: relative;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 1.75rem 2rem;
             margin: 2rem 0;
+            overflow: hidden;
+            transition: all 0.35s ease;
+        }
+
+        .highlight-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 3px;
+            height: 100%;
+            border-radius: 3px 0 0 3px;
+        }
+
+        .highlight-box:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateX(4px);
         }
 
         .highlight-box p {
+            font-size: 0.9375rem;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            font-weight: 300;
             font-style: italic;
-            color: rgba(245, 245, 240, 0.9);
         }
 
-        /* Footer */
-        .footer {
+        /* Color variations per section */
+        .metaphor-cyan .metaphor-icon-wrapper {
+            background: rgba(91, 163, 208, 0.06);
+            border: 1px solid rgba(91, 163, 208, 0.12);
+        }
+        .metaphor-cyan .metaphor-icon-wrapper::before {
+            box-shadow: 0 0 30px rgba(91, 163, 208, 0.1);
+        }
+        .metaphor-cyan .metaphor-title { color: var(--text-primary); }
+        .metaphor-cyan .highlight-box::before { background: var(--cyan); }
+        .metaphor-cyan .metaphor-number { color: var(--cyan); }
+
+        .metaphor-orange .metaphor-icon-wrapper {
+            background: rgba(212, 165, 116, 0.06);
+            border: 1px solid rgba(212, 165, 116, 0.12);
+        }
+        .metaphor-orange .metaphor-icon-wrapper::before {
+            box-shadow: 0 0 30px rgba(212, 165, 116, 0.1);
+        }
+        .metaphor-orange .highlight-box::before { background: var(--orange); }
+        .metaphor-orange .metaphor-number { color: var(--orange); }
+
+        .metaphor-green .metaphor-icon-wrapper {
+            background: rgba(110, 192, 122, 0.06);
+            border: 1px solid rgba(110, 192, 122, 0.12);
+        }
+        .metaphor-green .metaphor-icon-wrapper::before {
+            box-shadow: 0 0 30px rgba(110, 192, 122, 0.1);
+        }
+        .metaphor-green .highlight-box::before { background: var(--green); }
+        .metaphor-green .metaphor-number { color: var(--green); }
+
+        /* ==================== CLOSING SECTION ==================== */
+        .closing {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 2rem 6rem;
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+
+        .closing.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .closing-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 20px;
+            padding: 3.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .closing-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--cyan-glow), var(--orange-glow), transparent);
+        }
+
+        .closing-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+            font-weight: 400;
+            color: var(--text-primary);
+            letter-spacing: 0.02em;
+            margin-bottom: 2rem;
+            line-height: 1.2;
+        }
+
+        .closing-text {
+            font-size: 1rem;
+            line-height: 1.85;
+            color: var(--text-secondary);
+            font-weight: 300;
+            margin-bottom: 1.5rem;
+        }
+
+        .closing-text:last-child {
+            margin-bottom: 0;
+        }
+
+        .closing-text strong {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        /* Three pillars summary */
+        .pillars-summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin: 2.5rem 0;
+        }
+
+        .pillar-mini {
             text-align: center;
-            padding: 4rem 2rem;
-            border-top: 1px solid rgba(0, 212, 255, 0.2);
+            padding: 1.25rem 1rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            background: rgba(255, 255, 255, 0.02);
+            transition: all 0.3s ease;
         }
 
-        .footer-text {
-            font-size: 0.875rem;
-            color: var(--soft-gray);
-            margin-bottom: 1rem;
+        .pillar-mini:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateY(-2px);
         }
 
-        /* Responsive */
+        .pillar-mini-icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            line-height: 1;
+        }
+
+        .pillar-mini-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.375rem;
+        }
+
+        .pillar-mini-desc {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            line-height: 1.5;
+        }
+
+        /* ==================== FOOTER CTA ==================== */
+        .footer-cta {
+            padding: 6rem 2rem 4rem;
+            text-align: center;
+            position: relative;
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+
+        .footer-cta.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .footer-cta::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+        }
+
+        .footer-cta-inner {
+            position: relative;
+        }
+
+        .footer-cta-inner::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(91, 163, 208, 0.05) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .cta-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.625rem;
+            padding: 0.875rem 2rem;
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.15), rgba(212, 165, 116, 0.1));
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            font-size: 0.9375rem;
+            letter-spacing: 0.02em;
+            border: 1px solid rgba(91, 163, 208, 0.25);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            text-decoration: none;
+        }
+
+        .cta-button:hover {
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.25), rgba(212, 165, 116, 0.18));
+            border-color: rgba(91, 163, 208, 0.5);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 40px rgba(91, 163, 208, 0.2);
+        }
+
+        .cta-button .arrow { transition: transform 0.25s ease; }
+        .cta-button:hover .arrow { transform: translateX(3px); }
+
+        .footer-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.02em;
+        }
+
+        .footer-subtitle {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            font-weight: 300;
+        }
+
+        /* Footer bottom */
+        .footer-bottom {
+            padding: 3rem 2rem;
+            text-align: center;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .footer-bottom p {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.05em;
+        }
+
+        /* ==================== ANIMATIONS ==================== */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ==================== RESPONSIVE ==================== */
         @media (max-width: 768px) {
             nav {
-                padding: 1.5rem 2rem;
+                padding: 1rem 1.5rem;
             }
 
-            .content-section {
-                padding: 4rem 2rem;
+            .nav-link:not(.active) { display: none; }
+
+            .hero {
+                padding: 6rem 1.5rem 3rem;
             }
 
-            .metaphor-detail {
-                margin-bottom: 5rem;
+            .metaphors,
+            .closing {
+                padding-left: 1.5rem;
+                padding-right: 1.5rem;
+            }
+
+            .metaphor {
+                padding: 3.5rem 0;
+            }
+
+            .metaphor-header {
+                grid-template-columns: 1fr;
+                gap: 1.25rem;
+            }
+
+            .metaphor-icon-wrapper {
+                width: 60px;
+                height: 60px;
+                border-radius: 16px;
+            }
+
+            .metaphor-icon-wrapper svg {
+                width: 28px;
+                height: 28px;
+            }
+
+            .metaphor-body {
+                padding-left: 0;
+            }
+
+            .pillars-summary {
+                grid-template-columns: 1fr;
+                gap: 0.75rem;
+            }
+
+            .closing-card {
+                padding: 2.25rem 1.75rem;
+            }
+
+            .footer-cta {
+                padding: 4rem 1.5rem 3rem;
             }
         }
     </style>
 </head>
 <body>
-    <!-- Navigation -->
-    <nav>
-        <div class="logo">ASTRO</div>
-        <a href="/landing" class="back-link">← Back to Home</a>
-    </nav>
+    <!-- Three.js Background -->
+    <canvas id="scene-canvas"></canvas>
 
-    <!-- Hero -->
-    <section class="hero">
-        <h1 class="hero-title">Why Astro?</h1>
-        <p class="hero-description">
-            The name comes from three things: a brain cell, an ancient navigation tool, and space explorers.
-            They all point to the same idea about keeping humans in charge of complex work.
-        </p>
-    </section>
+    <div class="content">
+        <!-- Navigation (matches index.html) -->
+        <nav>
+            <a href="/landing" class="logo">ASTRO</a>
+            <div class="nav-links">
+                <a href="/landing" class="nav-link">&larr; Home</a>
+                <a href="/landing/about" class="nav-link active">About</a>
+                <a href="/landing" class="nav-cta">Get Early Access</a>
+            </div>
+        </nav>
 
-    <!-- Content -->
-    <section class="content-section">
-        <!-- Astrocyte -->
-        <div class="metaphor-detail">
-            <div class="metaphor-number">ONE</div>
-            <h2 class="metaphor-detail-title">Astrocyte</h2>
-            <p class="metaphor-detail-text">
-                Astrocytes are star-shaped cells in your brain. They don't fire signals like neurons do.
-                They just make sure neurons have what they need: oxygen, nutrients, cleanup of waste products.
-                The infrastructure team of the brain.
+        <!-- ==================== HERO ==================== -->
+        <section class="hero">
+            <div class="hero-label">Our Philosophy</div>
+            <h1 class="hero-title">Why "Astro"?</h1>
+            <p class="hero-description">
+                The name comes from three things: a brain cell, an ancient navigation tool,
+                and space explorers. They all point to the same idea about keeping humans
+                in charge of complex work.
             </p>
-            <p class="metaphor-detail-text">
-                That's what Astro does. Your laptop, your HPC cluster, Claude Code—those are the neurons doing actual work.
-                Astro is the support layer that keeps track of dependencies, routes tasks to the right machines,
-                makes sure everything has the context it needs.
-            </p>
-            <div class="highlight-box">
-                <p>
-                    The real power isn't execution. It's coordination. Astro handles the wiring so you can run
-                    many things at once without losing track of what depends on what.
+            <div class="scroll-hint">
+                <svg viewBox="0 0 20 20" fill="none" stroke="var(--text-tertiary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 4v12" /><path d="M5 11l5 5 5-5" />
+                </svg>
+            </div>
+        </section>
+
+        <!-- ==================== METAPHOR SECTIONS ==================== -->
+        <div class="metaphors">
+
+            <!-- ASTROCYTE -->
+            <div class="metaphor metaphor-cyan">
+                <div class="metaphor-header">
+                    <div class="metaphor-icon-wrapper">
+                        <svg viewBox="0 0 36 36" fill="none" stroke="var(--cyan)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                            <!-- Star-shaped cell body -->
+                            <circle cx="18" cy="18" r="5" fill="rgba(91, 163, 208, 0.15)" stroke="var(--cyan)" stroke-width="1.2" />
+                            <!-- Processes reaching out -->
+                            <path d="M18 13V5" /><path d="M18 23v8" />
+                            <path d="M13 18H5" /><path d="M23 18h8" />
+                            <path d="M14.5 14.5L9 9" /><path d="M21.5 14.5L27 9" />
+                            <path d="M14.5 21.5L9 27" /><path d="M21.5 21.5L27 27" />
+                            <!-- End feet (synaptic contacts) -->
+                            <circle cx="5" cy="5" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="31" cy="5" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="5" cy="31" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="31" cy="31" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="18" cy="3" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="18" cy="33" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="3" cy="18" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="33" cy="18" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="metaphor-number">ONE</div>
+                        <h2 class="metaphor-title">Astrocyte</h2>
+                    </div>
+                </div>
+                <div class="metaphor-body">
+                    <p class="metaphor-text">
+                        Astrocytes are star-shaped cells in your brain. They don't fire signals like neurons do.
+                        They just make sure neurons have what they need: oxygen, nutrients, cleanup of waste products.
+                        <strong>The infrastructure team of the brain.</strong>
+                    </p>
+                    <p class="metaphor-text">
+                        That's what Astro does. Your laptop, your HPC cluster, Claude Code&mdash;those are the neurons
+                        doing actual work. Astro is the support layer that keeps track of dependencies, routes tasks
+                        to the right machines, makes sure everything has the context it needs.
+                    </p>
+                    <div class="highlight-box">
+                        <p>
+                            The real power isn't execution. It's coordination. Astro handles the wiring so you can
+                            run many things at once without losing track of what depends on what.
+                        </p>
+                    </div>
+                    <p class="metaphor-text">
+                        We picked "Astro" from astrocyte because that's the part people miss.
+                        Everyone wants better agents. <strong>What you actually need is better orchestration.</strong>
+                    </p>
+                </div>
+            </div>
+
+            <!-- ASTROLABE -->
+            <div class="metaphor metaphor-orange">
+                <div class="metaphor-header">
+                    <div class="metaphor-icon-wrapper">
+                        <svg viewBox="0 0 36 36" fill="none" stroke="var(--orange)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                            <!-- Outer ring -->
+                            <circle cx="18" cy="18" r="14" />
+                            <!-- Inner ring -->
+                            <circle cx="18" cy="18" r="9" opacity="0.5" />
+                            <!-- Cross hairs -->
+                            <line x1="18" y1="4" x2="18" y2="32" opacity="0.3" />
+                            <line x1="4" y1="18" x2="32" y2="18" opacity="0.3" />
+                            <!-- Rete (star pointer) -->
+                            <path d="M18 9l3 5h-6z" fill="rgba(212, 165, 116, 0.2)" stroke="var(--orange)" />
+                            <!-- Degree marks -->
+                            <circle cx="18" cy="4" r="1" fill="var(--orange)" />
+                            <circle cx="32" cy="18" r="1" fill="var(--orange)" />
+                            <circle cx="18" cy="32" r="1" fill="var(--orange)" />
+                            <circle cx="4" cy="18" r="1" fill="var(--orange)" />
+                            <!-- Alidade (sighting arm) -->
+                            <line x1="8" y1="28" x2="28" y2="8" stroke-width="1.5" />
+                            <circle cx="8" cy="28" r="2" fill="rgba(212, 165, 116, 0.15)" stroke="var(--orange)" />
+                            <circle cx="28" cy="8" r="2" fill="rgba(212, 165, 116, 0.15)" stroke="var(--orange)" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="metaphor-number">TWO</div>
+                        <h2 class="metaphor-title">Astrolabe</h2>
+                    </div>
+                </div>
+                <div class="metaphor-body">
+                    <p class="metaphor-text">
+                        Before GPS, before accurate maps, explorers navigated by the stars using an astrolabe.
+                        You'd measure the angle of celestial bodies to figure out where you were
+                        and plot a course forward.
+                    </p>
+                    <p class="metaphor-text">
+                        <strong>Your plan is that instrument.</strong> It doesn't do the work, but it shows you
+                        where you are relative to where you're going. When you break your moonshot into
+                        connected tasks with dependencies, you're making a map. A real map, not a list.
+                        You can see what can happen in parallel, what's blocked, how it all connects.
+                    </p>
+                    <div class="highlight-box">
+                        <p>
+                            The astrolabe didn't just improve accuracy. It let explorers go farther.
+                            Same here&mdash;a clear plan means you can spin up more parallel work
+                            without losing the thread.
+                        </p>
+                    </div>
+                    <p class="metaphor-text">
+                        The point isn't rigid planning. It's having something to orient against
+                        when things get messy. Which they will.
+                    </p>
+                </div>
+            </div>
+
+            <!-- ASTRONAUT -->
+            <div class="metaphor metaphor-green">
+                <div class="metaphor-header">
+                    <div class="metaphor-icon-wrapper">
+                        <svg viewBox="0 0 36 36" fill="none" stroke="var(--green)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                            <!-- Helmet -->
+                            <circle cx="18" cy="14" r="10" />
+                            <!-- Visor -->
+                            <path d="M11 11a8 8 0 0114 0" fill="rgba(110, 192, 122, 0.1)" stroke="var(--green)" />
+                            <!-- Visor reflection -->
+                            <path d="M14 10a4 4 0 015-1" stroke="var(--green)" opacity="0.4" />
+                            <!-- Body / suit -->
+                            <path d="M10 24c0-3 3.5-5 8-5s8 2 8 5" />
+                            <line x1="10" y1="24" x2="10" y2="32" />
+                            <line x1="26" y1="24" x2="26" y2="32" />
+                            <line x1="10" y1="32" x2="26" y2="32" />
+                            <!-- Antenna -->
+                            <line x1="18" y1="4" x2="18" y2="1" />
+                            <circle cx="18" cy="1" r="1" fill="var(--green)" />
+                            <!-- Star -->
+                            <circle cx="30" cy="6" r="1" fill="var(--green)" opacity="0.5" />
+                            <circle cx="7" cy="4" r="0.8" fill="var(--green)" opacity="0.3" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="metaphor-number">THREE</div>
+                        <h2 class="metaphor-title">Astronaut</h2>
+                    </div>
+                </div>
+                <div class="metaphor-body">
+                    <p class="metaphor-text">
+                        Astronauts have a destination. The North Star. It's not poetic&mdash;it's literal.
+                        When you're far from anything familiar, <strong>you need to know what direction you're pointed.</strong>
+                    </p>
+                    <p class="metaphor-text">
+                        You have a North Star too. Maybe it's a product you want to ship, maybe it's a research
+                        question, maybe it's a technical capability that doesn't exist yet. Everything else&mdash;bugs,
+                        architecture debates, which approach to try&mdash;is just navigation.
+                    </p>
+                    <p class="metaphor-text">
+                        But here's the thing: complex work hides your North Star behind immediate problems.
+                        You spend a week debugging, lose sight of whether this whole direction even makes sense
+                        anymore. AI tools make this worse because they're good at tasks but have no opinion about strategy.
+                    </p>
+                    <div class="highlight-box">
+                        <p>
+                            Astro keeps your destination visible. When you hit decision points&mdash;pivot or
+                            push through? kill this branch or keep exploring?&mdash;you judge based on your goal,
+                            not the tool's output.
+                        </p>
+                    </div>
+                    <p class="metaphor-text">
+                        Only you know what you're building. AI can execute brilliantly, even generate plans.
+                        But it can't tell you whether approach A's promising results are worth abandoning
+                        approach B's half-finished work. <strong>That's judgment, and it requires knowing where you're headed.</strong>
+                    </p>
+                    <p class="metaphor-text">
+                        Oh, and one more thing. Astronauts aren't stuck at mission control. They make decisions
+                        from wherever they are. Same with Astro&mdash;check progress on your phone, make a call
+                        about which branch to pursue, keep moving. The whole system is built so you're not
+                        chained to a terminal to stay on top of things.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== CLOSING ==================== -->
+        <div class="closing">
+            <div class="closing-card">
+                <h2 class="closing-title">Three Angles on the Same Thing</h2>
+                <p class="closing-text">
+                    Astrocyte, astrolabe, astronaut. They're all pointing at the same gap in how AI tools work right now.
+                </p>
+
+                <div class="pillars-summary">
+                    <div class="pillar-mini">
+                        <div class="pillar-mini-icon" style="color: var(--cyan);">&#x2726;</div>
+                        <div class="pillar-mini-label" style="color: var(--cyan);">Coordination</div>
+                        <div class="pillar-mini-desc">Across machines, not just better execution on one</div>
+                    </div>
+                    <div class="pillar-mini">
+                        <div class="pillar-mini-icon" style="color: var(--orange);">&#x2737;</div>
+                        <div class="pillar-mini-label" style="color: var(--orange);">Navigation</div>
+                        <div class="pillar-mini-desc">Tools that scale with complexity, not linear lists</div>
+                    </div>
+                    <div class="pillar-mini">
+                        <div class="pillar-mini-icon" style="color: var(--green);">&#x2605;</div>
+                        <div class="pillar-mini-label" style="color: var(--green);">Human Judgment</div>
+                        <div class="pillar-mini-desc">In the decision loop at the right altitude</div>
+                    </div>
+                </div>
+
+                <p class="closing-text">
+                    <strong>That's Astro.</strong> We don't replace judgment. We give you the infrastructure to exercise it
+                    at a scale that used to require a whole team.
                 </p>
             </div>
-            <p class="metaphor-detail-text">
-                We picked "Astro" from astrocyte because that's the part people miss. Everyone wants better agents.
-                What you actually need is better orchestration.
-            </p>
         </div>
 
-        <!-- Astrolabe -->
-        <div class="metaphor-detail">
-            <div class="metaphor-number">TWO</div>
-            <h2 class="metaphor-detail-title">Astrolabe</h2>
-            <p class="metaphor-detail-text">
-                Before GPS, before accurate maps, explorers navigated by the stars using an astrolabe.
-                You'd measure the angle of celestial bodies to figure out where you were and plot a course forward.
-            </p>
-            <p class="metaphor-detail-text">
-                Your plan is that instrument. It doesn't do the work, but it shows you where you are relative to where you're going.
-                When you break your moonshot into connected tasks with dependencies, you're making a map.
-                A real map, not a list. You can see what can happen in parallel, what's blocked, how it all connects.
-            </p>
-            <div class="highlight-box">
-                <p>
-                    The astrolabe didn't just improve accuracy. It let explorers go farther.
-                    Same here—a clear plan means you can spin up more parallel work without losing the thread.
-                </p>
+        <!-- ==================== FOOTER CTA ==================== -->
+        <section class="footer-cta">
+            <div class="footer-cta-inner">
+                <h2 class="footer-title">Ready to launch?</h2>
+                <p class="footer-subtitle">Join the waitlist for early access</p>
+                <a href="/landing" class="cta-button">
+                    <span>Back to Home</span>
+                    <span class="arrow">&rarr;</span>
+                </a>
             </div>
-            <p class="metaphor-detail-text">
-                The point isn't rigid planning. It's having something to orient against when things get messy.
-                Which they will.
-            </p>
-        </div>
+        </section>
 
-        <!-- Astronaut -->
-        <div class="metaphor-detail">
-            <div class="metaphor-number">THREE</div>
-            <h2 class="metaphor-detail-title">Astronaut</h2>
-            <p class="metaphor-detail-text">
-                Astronauts have a destination. The North Star. It's not poetic—it's literal.
-                When you're far from anything familiar, you need to know what direction you're pointed.
-            </p>
-            <p class="metaphor-detail-text">
-                You have a North Star too. Maybe it's a product you want to ship, maybe it's a research question,
-                maybe it's a technical capability that doesn't exist yet. Everything else—bugs, architecture debates,
-                which approach to try—is just navigation.
-            </p>
-            <p class="metaphor-detail-text">
-                But here's the thing: complex work hides your North Star behind immediate problems.
-                You spend a week debugging, lose sight of whether this whole direction even makes sense anymore.
-                AI tools make this worse because they're good at tasks but have no opinion about strategy.
-            </p>
-            <div class="highlight-box">
-                <p>
-                    Astro keeps your destination visible. When you hit decision points—pivot or push through?
-                    kill this branch or keep exploring?—you judge based on your goal, not the tool's output.
-                </p>
-            </div>
-            <p class="metaphor-detail-text">
-                Only you know what you're building. AI can execute brilliantly, even generate plans.
-                But it can't tell you whether approach A's promising results are worth abandoning approach B's half-finished work.
-                That's judgment, and it requires knowing where you're headed.
-            </p>
-            <p class="metaphor-detail-text">
-                Oh, and one more thing. Astronauts aren't stuck at mission control.
-                They make decisions from wherever they are. Same with Astro—check progress on your phone,
-                make a call about which branch to pursue, keep moving. The whole system is built so you're not
-                chained to a terminal to stay on top of things.
-            </p>
-        </div>
+        <!-- Footer -->
+        <footer class="footer-bottom">
+            <p>&copy; 2026 Astro</p>
+        </footer>
+    </div>
 
-        <!-- Closing -->
-        <div class="metaphor-detail">
-            <h2 class="metaphor-detail-title">Three Angles on the Same Thing</h2>
-            <p class="metaphor-detail-text">
-                Astrocyte, astrolabe, astronaut. They're all pointing at the same gap in how AI tools work right now.
-            </p>
-            <p class="metaphor-detail-text">
-                Coordination across machines (not just better execution on one machine). Navigation tools that scale
-                with complexity (not linear todo lists). Keeping humans in the decision loop at the right altitude
-                (not turn-by-turn instructions).
-            </p>
-            <p class="metaphor-detail-text">
-                That's Astro. We don't replace judgment. We give you the infrastructure to exercise it at a scale
-                that used to require a whole team.
-            </p>
-        </div>
-    </section>
+    <!-- Three.js (same starfield as index.html) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+    (function() {
+        var canvas = document.getElementById('scene-canvas');
+        var scene = new THREE.Scene();
+        var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
 
-    <!-- Footer -->
-    <section class="footer">
-        <p class="footer-text">© 2026 Astro — Mission Control for Builders & Scientists</p>
-        <a href="/landing" class="back-link">← Back to Home</a>
-    </section>
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        camera.position.z = 5;
+
+        var isMobile = window.innerWidth < 768;
+
+        // Star field
+        var starsGeometry = new THREE.BufferGeometry();
+        var starCount = isMobile ? 300 : 600;
+        var positions = new Float32Array(starCount * 3);
+
+        for (var i = 0; i < starCount * 3; i += 3) {
+            positions[i] = (Math.random() - 0.5) * 100;
+            positions[i + 1] = (Math.random() - 0.5) * 100;
+            positions[i + 2] = (Math.random() - 0.5) * 100;
+        }
+
+        starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        var starsMaterial = new THREE.PointsMaterial({
+            size: 0.03,
+            color: 0xf0f0f0,
+            transparent: true,
+            opacity: 0.4
+        });
+        var stars = new THREE.Points(starsGeometry, starsMaterial);
+        scene.add(stars);
+
+        // Bezier curves (fewer, subtler for about page)
+        var curves = [];
+        var curveMaterial = new THREE.LineBasicMaterial({
+            color: 0xf0f0f0,
+            transparent: true,
+            opacity: 0.08,
+            linewidth: 1
+        });
+
+        for (var c = 0; c < 3; c++) {
+            var angle = (c / 3) * Math.PI * 2;
+            var radius = 7 + c * 0.5;
+            var curve = new THREE.CubicBezierCurve3(
+                new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius, -2),
+                new THREE.Vector3(Math.cos(angle + 1) * (radius + 2), Math.sin(angle + 1) * (radius - 1), 0),
+                new THREE.Vector3(Math.cos(angle + 2) * (radius - 1), Math.sin(angle + 2) * (radius + 2), 1),
+                new THREE.Vector3(Math.cos(angle + 3) * radius, Math.sin(angle + 3) * radius, 2)
+            );
+            var points = curve.getPoints(80);
+            var lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            var line = new THREE.Line(lineGeometry, curveMaterial);
+            curves.push({ line: line, speed: 0.00008 + c * 0.00004 });
+            scene.add(line);
+        }
+
+        // Accent points
+        var accentGeometry = new THREE.SphereGeometry(0.02, 16, 16);
+        var accents = [];
+
+        for (var a = 0; a < 6; a++) {
+            var mat = new THREE.MeshBasicMaterial({
+                color: a < 3 ? 0xd4a574 : 0x5ba3d0,
+                transparent: true,
+                opacity: 0.2
+            });
+            var accent = new THREE.Mesh(accentGeometry, mat);
+            var aAngle = (a / 6) * Math.PI * 2;
+            var aRadius = 5 + (a % 3) * 2;
+            accent.position.set(Math.cos(aAngle) * aRadius, Math.sin(aAngle) * aRadius, (a % 3) - 1);
+            accents.push(accent);
+            scene.add(accent);
+        }
+
+        // Mouse interaction
+        var mouseX = 0, mouseY = 0, targetX = 0, targetY = 0;
+
+        if (!isMobile) {
+            document.addEventListener('mousemove', function(e) {
+                mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+                mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+            });
+        }
+
+        window.addEventListener('scroll', function() {
+            stars.rotation.z = window.pageYOffset * 0.00008;
+        });
+
+        window.addEventListener('resize', function() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            targetX += (mouseX - targetX) * 0.04;
+            targetY += (mouseY - targetY) * 0.04;
+
+            stars.rotation.y += 0.00004;
+
+            for (var i = 0; i < curves.length; i++) {
+                curves[i].line.rotation.z += curves[i].speed;
+            }
+
+            for (var j = 0; j < accents.length; j++) {
+                accents[j].material.opacity = 0.12 + Math.sin(Date.now() * 0.0008 + j * 0.9) * 0.1;
+            }
+
+            if (!isMobile) {
+                camera.position.x = targetX * 0.4;
+                camera.position.y = targetY * 0.4;
+                camera.lookAt(scene.position);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    })();
+    </script>
+
+    <!-- Scroll animations -->
+    <script>
+    (function() {
+        var elements = document.querySelectorAll('.metaphor, .closing, .footer-cta');
+        var observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+        elements.forEach(function(el) { observer.observe(el); });
+    })();
+    </script>
 </body>
 </html>

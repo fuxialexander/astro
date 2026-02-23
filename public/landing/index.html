@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Astro — Your Mission Control</title>
+    <title>Astro — Mission Control for the AI Age</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -17,6 +17,12 @@
             --cyan-glow: rgba(91, 163, 208, 0.4);
             --orange: #d4a574;
             --orange-glow: rgba(212, 165, 116, 0.3);
+            --green: #6ec07a;
+            --green-glow: rgba(110, 192, 122, 0.3);
+            --purple: #a78bfa;
+            --purple-glow: rgba(167, 139, 250, 0.3);
+            --rose: #f472b6;
+            --rose-glow: rgba(244, 114, 182, 0.3);
             --text-primary: #f0f0f0;
             --text-secondary: rgba(240, 240, 240, 0.55);
             --text-tertiary: rgba(240, 240, 240, 0.35);
@@ -45,7 +51,6 @@
             pointer-events: none;
         }
 
-        /* Content */
         .content {
             position: relative;
             z-index: 1;
@@ -79,6 +84,27 @@
             color: var(--text-primary);
         }
 
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .nav-link {
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            transition: color 0.25s ease;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-family: inherit;
+        }
+
+        .nav-link:hover { color: var(--text-secondary); }
+
         .nav-cta {
             font-family: 'Inter', sans-serif;
             padding: 0.5rem 1.25rem;
@@ -99,7 +125,7 @@
             border-color: rgba(255, 255, 255, 0.2);
         }
 
-        /* Hero Section */
+        /* ==================== HERO ==================== */
         .hero {
             min-height: 100vh;
             display: flex;
@@ -116,11 +142,21 @@
             font-size: clamp(5rem, 14vw, 11rem);
             font-weight: 300;
             letter-spacing: 0.04em;
-            color: var(--text-primary);
-            margin-bottom: 1.5rem;
             line-height: 0.9;
+            margin-bottom: 1.5rem;
             opacity: 0;
             animation: fadeInUp 0.8s ease forwards 0.2s;
+            background: linear-gradient(135deg, var(--cyan), var(--text-primary) 40%, var(--orange));
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: fadeInUp 0.8s ease forwards 0.2s, gradientShift 8s ease infinite 1s;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
         }
 
         .hero-subtitle {
@@ -146,45 +182,68 @@
             animation: fadeInUp 0.8s ease forwards 0.6s;
         }
 
-        /* Glassmorphic CTA Button */
+        .hero-ctas {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.8s;
+        }
+
         .cta-button {
             display: inline-flex;
             align-items: center;
             gap: 0.625rem;
             padding: 0.875rem 2rem;
-            background: linear-gradient(135deg, rgba(91, 163, 208, 0.12), rgba(212, 165, 116, 0.08));
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.15), rgba(212, 165, 116, 0.1));
             color: var(--text-primary);
             font-family: 'Inter', sans-serif;
             font-weight: 500;
             font-size: 0.9375rem;
             letter-spacing: 0.02em;
-            border: 1px solid rgba(91, 163, 208, 0.2);
+            border: 1px solid rgba(91, 163, 208, 0.25);
             border-radius: 12px;
             cursor: pointer;
             transition: all 0.3s ease;
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             text-decoration: none;
-            opacity: 0;
-            animation: fadeInUp 0.8s ease forwards 0.8s;
         }
 
         .cta-button:hover {
-            background: linear-gradient(135deg, rgba(91, 163, 208, 0.2), rgba(212, 165, 116, 0.14));
-            border-color: rgba(91, 163, 208, 0.4);
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.25), rgba(212, 165, 116, 0.18));
+            border-color: rgba(91, 163, 208, 0.5);
             transform: translateY(-1px);
-            box-shadow: 0 8px 32px rgba(91, 163, 208, 0.15);
+            box-shadow: 0 8px 32px rgba(91, 163, 208, 0.2);
         }
 
-        .cta-button .arrow {
-            transition: transform 0.25s ease;
+        .cta-button .arrow { transition: transform 0.25s ease; }
+        .cta-button:hover .arrow { transform: translateX(3px); }
+
+        .cta-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.875rem 1.75rem;
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-weight: 400;
+            font-size: 0.9375rem;
+            letter-spacing: 0.02em;
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
         }
 
-        .cta-button:hover .arrow {
-            transform: translateX(3px);
+        .cta-secondary:hover {
+            color: var(--text-primary);
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.03);
         }
 
-        /* Feature Pills */
         .feature-pills {
             display: flex;
             gap: 0.75rem;
@@ -213,7 +272,7 @@
             background: rgba(255, 255, 255, 0.05);
         }
 
-        /* Sections — fade in on scroll */
+        /* ==================== SHARED ==================== */
         .fade-section {
             opacity: 0;
             transform: translateY(40px);
@@ -225,16 +284,20 @@
             transform: translateY(0);
         }
 
-        /* How It Works Section */
-        .how-section {
-            padding: 8rem 2rem 10rem;
-            max-width: 1200px;
-            margin: 0 auto;
+        .stagger-child {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+
+        .fade-section.visible .stagger-child {
+            opacity: 1;
+            transform: translateY(0);
         }
 
         .section-header {
             text-align: center;
-            margin-bottom: 5rem;
+            margin-bottom: 4rem;
         }
 
         .section-label {
@@ -265,74 +328,11 @@
             font-weight: 300;
         }
 
-        /* Cards Grid */
-        .cards-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.5rem;
-        }
-
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 2.5rem 2rem;
-            transition: all 0.35s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--cyan-glow), transparent);
-            opacity: 0;
-            transition: opacity 0.35s ease;
-        }
-
-        .card:hover {
-            border-color: var(--border-hover);
-            background: rgba(255, 255, 255, 0.04);
-            transform: translateY(-2px);
-        }
-
-        .card:hover::before { opacity: 1; }
-
-        .card-number {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.6875rem;
-            color: var(--text-tertiary);
-            letter-spacing: 0.1em;
-            margin-bottom: 1.5rem;
-        }
-
-        .card-title {
-            font-family: 'Cormorant Garamond', serif;
-            font-size: 1.75rem;
-            font-weight: 400;
-            color: var(--text-primary);
-            margin-bottom: 1rem;
-            letter-spacing: 0.02em;
-        }
-
-        .card-text {
-            font-size: 0.9375rem;
-            color: var(--text-secondary);
-            line-height: 1.75;
-            font-weight: 300;
-        }
-
-        /* Mission Section */
-        .mission-section {
-            padding: 8rem 2rem;
+        .section-divider {
             position: relative;
         }
 
-        .mission-section::before {
+        .section-divider::before {
             content: '';
             position: absolute;
             top: 0;
@@ -341,6 +341,768 @@
             width: 60%;
             height: 1px;
             background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+        }
+
+        /* ==================== PRODUCT SHOWCASE ==================== */
+        .showcase-section {
+            padding: 2rem 2rem 8rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .showcase-frame {
+            position: relative;
+            border-radius: 20px;
+            border: 1px solid rgba(91, 163, 208, 0.15);
+            background: rgba(5, 5, 16, 0.8);
+            overflow: hidden;
+            box-shadow: 0 0 80px rgba(91, 163, 208, 0.06), 0 0 160px rgba(91, 163, 208, 0.03);
+        }
+
+        .showcase-frame::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.2), transparent 40%, transparent 60%, rgba(212, 165, 116, 0.15));
+            z-index: -1;
+            padding: 1px;
+        }
+
+        .showcase-titlebar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.875rem 1.25rem;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .showcase-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .showcase-dot:first-child { background: rgba(255, 100, 100, 0.5); }
+        .showcase-dot:nth-child(2) { background: rgba(255, 200, 60, 0.5); }
+        .showcase-dot:nth-child(3) { background: rgba(100, 220, 100, 0.5); }
+
+        .showcase-url {
+            margin-left: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: var(--text-tertiary);
+            background: rgba(255, 255, 255, 0.03);
+            padding: 0.25rem 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .showcase-body {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            min-height: 420px;
+        }
+
+        /* Mock sidebar */
+        .mock-sidebar {
+            border-right: 1px solid var(--border-subtle);
+            padding: 1.25rem 0;
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        .mock-sidebar-brand {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            color: var(--text-primary);
+            padding: 0 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .mock-nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.625rem;
+            padding: 0.5rem 1.25rem;
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            transition: all 0.2s ease;
+        }
+
+        .mock-nav-item.active {
+            color: var(--text-primary);
+            background: rgba(91, 163, 208, 0.06);
+            border-right: 2px solid var(--cyan);
+        }
+
+        .mock-nav-icon {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.06);
+            flex-shrink: 0;
+        }
+
+        .mock-nav-item.active .mock-nav-icon {
+            background: rgba(91, 163, 208, 0.2);
+        }
+
+        .mock-sidebar-section {
+            margin-top: 1.5rem;
+            padding: 0 1.25rem;
+        }
+
+        .mock-sidebar-section-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.5625rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 0.625rem;
+            opacity: 0.6;
+        }
+
+        .mock-project-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.375rem 0;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+        }
+
+        .mock-project-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        /* Mock main content */
+        .mock-main {
+            padding: 1.5rem;
+            position: relative;
+        }
+
+        .mock-main-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+
+        .mock-main-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .mock-view-tabs {
+            display: flex;
+            gap: 0.125rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 0.1875rem;
+        }
+
+        .mock-view-tab {
+            padding: 0.25rem 0.625rem;
+            font-size: 0.6875rem;
+            color: var(--text-tertiary);
+            border-radius: 6px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .mock-view-tab.active {
+            background: rgba(91, 163, 208, 0.1);
+            color: var(--cyan);
+        }
+
+        /* Mock graph area */
+        .mock-graph {
+            position: relative;
+            height: 320px;
+        }
+
+        .mock-node {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 0.625rem 0.875rem;
+            min-width: 140px;
+            transition: all 0.3s ease;
+        }
+
+        .mock-node:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .mock-node-status {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.375rem;
+        }
+
+        .mock-node-label {
+            font-size: 0.75rem;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .mock-node-sub {
+            font-size: 0.625rem;
+            color: var(--text-tertiary);
+            margin-top: 0.25rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .mock-edge {
+            position: absolute;
+            background: none;
+        }
+
+        /* Floating annotations */
+        .showcase-annotation {
+            position: absolute;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.625rem;
+            color: var(--cyan);
+            letter-spacing: 0.04em;
+            background: rgba(91, 163, 208, 0.06);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            border: 1px solid rgba(91, 163, 208, 0.15);
+            white-space: nowrap;
+            opacity: 0;
+            animation: annotationFadeIn 0.5s ease forwards;
+            pointer-events: none;
+        }
+
+        @keyframes annotationFadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ==================== BENTO GRID PILLARS ==================== */
+        .pillars-section {
+            padding: 8rem 2rem 10rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .bento-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto;
+            gap: 1.25rem;
+        }
+
+        .bento-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 20px;
+            padding: 2.25rem;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .bento-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 20px;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            pointer-events: none;
+        }
+
+        .bento-card:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateY(-2px);
+        }
+
+        .bento-card:hover::before { opacity: 1; }
+
+        /* Plan card - large left */
+        .bento-plan {
+            grid-row: 1 / 3;
+        }
+
+        .bento-plan::before {
+            box-shadow: 0 0 40px rgba(91, 163, 208, 0.1), inset 0 0 40px rgba(91, 163, 208, 0.02);
+        }
+
+        .bento-plan:hover {
+            border-color: rgba(91, 163, 208, 0.2);
+        }
+
+        /* Execute card - top right */
+        .bento-execute::before {
+            box-shadow: 0 0 40px rgba(212, 165, 116, 0.1), inset 0 0 40px rgba(212, 165, 116, 0.02);
+        }
+
+        .bento-execute:hover {
+            border-color: rgba(212, 165, 116, 0.2);
+        }
+
+        /* Approve card - bottom right */
+        .bento-approve::before {
+            box-shadow: 0 0 40px rgba(110, 192, 122, 0.1), inset 0 0 40px rgba(110, 192, 122, 0.02);
+        }
+
+        .bento-approve:hover {
+            border-color: rgba(110, 192, 122, 0.2);
+        }
+
+        .bento-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.25rem;
+        }
+
+        .bento-icon svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .bento-number {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.1em;
+            margin-bottom: 0.75rem;
+        }
+
+        .bento-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.5rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.02em;
+        }
+
+        .bento-text {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            font-weight: 300;
+            margin-bottom: 1.5rem;
+        }
+
+        .bento-visual {
+            margin-top: auto;
+        }
+
+        /* Mini DAG inside bento plan card */
+        .mini-dag {
+            width: 100%;
+            max-width: 360px;
+            margin: 0 auto;
+        }
+
+        /* Mini terminal inside bento execute card */
+        .mini-terminal {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            line-height: 1.8;
+            overflow: hidden;
+        }
+
+        .term-line {
+            color: var(--text-tertiary);
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .term-prompt { color: var(--orange); opacity: 0.7; }
+        .term-cmd { color: var(--text-secondary); }
+        .term-output { color: var(--text-tertiary); opacity: 0.6; }
+        .term-success { color: var(--green); }
+        .term-info { color: var(--cyan); }
+
+        /* Mini approval card */
+        .mini-approval {
+            background: rgba(110, 192, 122, 0.03);
+            border: 1px solid rgba(110, 192, 122, 0.12);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+
+        .mini-approval-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .mini-approval-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--orange);
+            animation: approvalPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes approvalPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .mini-approval-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: var(--orange);
+            letter-spacing: 0.04em;
+        }
+
+        .mini-approval-question {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            line-height: 1.6;
+        }
+
+        .mini-approval-buttons {
+            display: flex;
+            gap: 0.625rem;
+        }
+
+        .mini-approval-btn {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 500;
+            padding: 0.5rem 1.25rem;
+            border-radius: 8px;
+            border: 1px solid;
+            cursor: default;
+        }
+
+        .mini-approval-btn.approve {
+            background: rgba(110, 192, 122, 0.1);
+            border-color: rgba(110, 192, 122, 0.25);
+            color: var(--green);
+        }
+
+        .mini-approval-btn.reject {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: var(--border-subtle);
+            color: var(--text-tertiary);
+        }
+
+        .mini-approval-stats {
+            display: flex;
+            gap: 1.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .mini-stat {
+            text-align: center;
+        }
+
+        .mini-stat-value {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.375rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+
+        .mini-stat-label {
+            font-size: 0.625rem;
+            color: var(--text-tertiary);
+            margin-top: 0.25rem;
+        }
+
+        /* ==================== PERSONAS ==================== */
+        .personas-section {
+            padding: 8rem 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .persona-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.25rem;
+        }
+
+        .persona-grid-bottom {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.25rem;
+            margin-top: 1.25rem;
+            max-width: 810px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .persona-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 2rem 1.75rem;
+            transition: all 0.35s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .persona-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            opacity: 0;
+            transition: opacity 0.35s ease;
+        }
+
+        .persona-card:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateY(-2px);
+        }
+
+        .persona-card:hover::before { opacity: 1; }
+
+        .persona-card[data-color="cyan"]::before { background: linear-gradient(90deg, transparent, var(--cyan-glow), transparent); }
+        .persona-card[data-color="orange"]::before { background: linear-gradient(90deg, transparent, var(--orange-glow), transparent); }
+        .persona-card[data-color="green"]::before { background: linear-gradient(90deg, transparent, var(--green-glow), transparent); }
+        .persona-card[data-color="purple"]::before { background: linear-gradient(90deg, transparent, var(--purple-glow), transparent); }
+        .persona-card[data-color="rose"]::before { background: linear-gradient(90deg, transparent, var(--rose-glow), transparent); }
+
+        .persona-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .persona-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .persona-avatar svg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .persona-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.625rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }
+
+        .persona-name {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.1875rem;
+            font-weight: 400;
+            color: var(--text-primary);
+        }
+
+        .persona-steps {
+            list-style: none;
+        }
+
+        .persona-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.4375rem 0;
+        }
+
+        .persona-step + .persona-step {
+            border-top: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .persona-step-num {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.5625rem;
+            margin-top: 0.125rem;
+        }
+
+        .persona-step-text {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            font-weight: 300;
+        }
+
+        /* ==================== ENVIRONMENTS ==================== */
+        .environments-section {
+            padding: 8rem 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .env-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.25rem;
+        }
+
+        .env-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 2rem 1.5rem;
+            text-align: center;
+            transition: all 0.35s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .env-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 16px;
+            opacity: 0;
+            transition: opacity 0.35s ease;
+            pointer-events: none;
+        }
+
+        .env-card:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateY(-3px);
+        }
+
+        .env-card:hover::before { opacity: 1; }
+
+        .env-card:nth-child(1)::before { box-shadow: 0 0 30px rgba(91, 163, 208, 0.08); }
+        .env-card:nth-child(2)::before { box-shadow: 0 0 30px rgba(212, 165, 116, 0.08); }
+        .env-card:nth-child(3)::before { box-shadow: 0 0 30px rgba(110, 192, 122, 0.08); }
+        .env-card:nth-child(4)::before { box-shadow: 0 0 30px rgba(167, 139, 250, 0.08); }
+
+        .env-card-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.25rem;
+        }
+
+        .env-card-icon svg {
+            width: 26px;
+            height: 26px;
+        }
+
+        .env-card-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.25rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 0.625rem;
+        }
+
+        .env-card-text {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            font-weight: 300;
+            margin-bottom: 1rem;
+        }
+
+        .env-card-stat {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.04em;
+        }
+
+        .env-card-stat .counter {
+            color: var(--cyan);
+            font-weight: 500;
+        }
+
+        /* ==================== STATS BAR ==================== */
+        .stats-section {
+            padding: 5rem 2rem;
+            max-width: 1000px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1.5rem 1rem;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-subtle);
+            transition: all 0.3s ease;
+        }
+
+        .stat-item:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .stat-number {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2rem, 3vw, 2.75rem);
+            font-weight: 400;
+            color: var(--text-primary);
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+
+        /* ==================== MISSION ==================== */
+        .mission-section {
+            padding: 8rem 2rem;
+            position: relative;
         }
 
         .mission-content {
@@ -359,6 +1121,23 @@
         .mission-statement strong {
             color: var(--text-primary);
             font-weight: 500;
+            position: relative;
+        }
+
+        .mission-highlight {
+            position: relative;
+            display: inline;
+        }
+
+        .mission-highlight::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, var(--cyan), var(--orange));
+            opacity: 0.4;
         }
 
         /* Why Astro Link */
@@ -383,22 +1162,28 @@
             border-color: rgba(255, 255, 255, 0.3);
         }
 
-        /* Footer CTA */
+        /* ==================== FOOTER CTA ==================== */
         .footer-cta {
             padding: 8rem 2rem 6rem;
             text-align: center;
             position: relative;
         }
 
-        .footer-cta::before {
+        .footer-cta-inner {
+            position: relative;
+        }
+
+        .footer-cta-inner::before {
             content: '';
             position: absolute;
-            top: 0;
+            top: 50%;
             left: 50%;
-            transform: translateX(-50%);
-            width: 40%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+            transform: translate(-50%, -50%);
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(91, 163, 208, 0.06) 0%, transparent 70%);
+            pointer-events: none;
         }
 
         .footer-title {
@@ -418,11 +1203,13 @@
         }
 
         .footer-cta .cta-button {
-            opacity: 1;
-            animation: none;
+            position: relative;
         }
 
-        /* Footer bottom */
+        .footer-cta .cta-button:hover {
+            box-shadow: 0 8px 40px rgba(91, 163, 208, 0.25);
+        }
+
         .footer-bottom {
             padding: 3rem 2rem;
             text-align: center;
@@ -435,29 +1222,99 @@
             letter-spacing: 0.05em;
         }
 
-        /* Animations */
+        /* ==================== ANIMATIONS ==================== */
         @keyframes fadeInUp {
             from { opacity: 0; transform: translateY(24px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Responsive */
-        @media (max-width: 960px) {
-            .cards-grid {
+        @keyframes dagNodePop {
+            0% { r: 0; opacity: 0; }
+            60% { r: 9; opacity: 1; }
+            100% { r: 7; opacity: 1; }
+        }
+
+        @keyframes dagPulse {
+            0% { r: 7; opacity: 0.6; }
+            100% { r: 16; opacity: 0; }
+        }
+
+        @keyframes dagFadeLine {
+            from { opacity: 0; stroke-dashoffset: 100; }
+            to { opacity: 1; stroke-dashoffset: 0; }
+        }
+
+        @keyframes termTyping {
+            from { opacity: 0; transform: translateX(-4px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        /* ==================== RESPONSIVE ==================== */
+        @media (max-width: 1024px) {
+            .bento-grid {
                 grid-template-columns: 1fr;
-                gap: 1rem;
+            }
+
+            .bento-plan {
+                grid-row: auto;
+            }
+
+            .showcase-body {
+                grid-template-columns: 1fr;
+            }
+
+            .mock-sidebar {
+                display: none;
+            }
+
+            .persona-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .persona-grid-bottom {
+                grid-template-columns: 1fr;
+                max-width: 100%;
+            }
+        }
+
+        @media (max-width: 960px) {
+            .env-cards-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .stats-row {
+                grid-template-columns: repeat(2, 1fr);
             }
         }
 
         @media (max-width: 768px) {
-            nav { padding: 1rem 1.5rem; }
+            nav {
+                padding: 1rem 1.5rem;
+            }
 
-            .hero { padding: 5rem 1.5rem 3rem; }
+            .nav-links {
+                gap: 1rem;
+            }
 
-            .how-section,
+            .nav-link { display: none; }
+
+            .hero {
+                padding: 5rem 1.5rem 3rem;
+            }
+
+            .hero-ctas {
+                flex-direction: column;
+            }
+
+            .pillars-section,
             .mission-section,
-            .footer-cta {
-                padding: 5rem 1.5rem;
+            .footer-cta,
+            .environments-section,
+            .personas-section,
+            .stats-section,
+            .showcase-section {
+                padding-left: 1.5rem;
+                padding-right: 1.5rem;
             }
 
             .feature-pills { gap: 0.5rem; }
@@ -467,7 +1324,28 @@
                 padding: 0.375rem 0.875rem;
             }
 
-            .card { padding: 2rem 1.5rem; }
+            .persona-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .env-cards-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-row {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1rem;
+            }
+
+            .showcase-frame {
+                border-radius: 14px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .stats-row {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -479,82 +1357,514 @@
         <!-- Navigation -->
         <nav>
             <div class="logo">ASTRO</div>
-            <button class="nav-cta" onclick="document.querySelector('.footer-cta').scrollIntoView({behavior:'smooth'})">Get Early Access</button>
+            <div class="nav-links">
+                <button class="nav-link" onclick="document.querySelector('.pillars-section').scrollIntoView({behavior:'smooth'})">How It Works</button>
+                <button class="nav-link" onclick="document.querySelector('.personas-section').scrollIntoView({behavior:'smooth'})">Use Cases</button>
+                <a href="/landing/about" class="nav-link">About</a>
+                <button class="nav-cta" onclick="document.querySelector('.footer-cta').scrollIntoView({behavior:'smooth'})">Get Early Access</button>
+            </div>
         </nav>
 
-        <!-- Hero -->
+        <!-- ==================== HERO ==================== -->
         <section class="hero">
             <h1 class="hero-title">Astro</h1>
-            <p class="hero-subtitle">The planning layer AI tools are missing</p>
+            <p class="hero-subtitle">Mission control for the AI age</p>
             <p class="hero-description">
-                Apollo missions aren't executed in chat apps. Astro turns your moonshot into a coordinated mission: parallel workstreams across environments, strategic decisions at every branch, all aligned to your North Star.
+                Plan complex goals as dependency graphs. Execute across every environment.
+                Make the decisions that matter, from anywhere.
             </p>
-            <button class="cta-button" onclick="document.querySelector('.footer-cta').scrollIntoView({behavior:'smooth'})">
-                <span>Request Access</span>
-                <span class="arrow">&rarr;</span>
-            </button>
+            <div class="hero-ctas">
+                <button class="cta-button" onclick="document.querySelector('.footer-cta').scrollIntoView({behavior:'smooth'})">
+                    <span>Get Early Access</span>
+                    <span class="arrow">&rarr;</span>
+                </button>
+                <button class="cta-secondary" onclick="document.querySelector('.showcase-section').scrollIntoView({behavior:'smooth'})">
+                    <span>See How It Works</span>
+                </button>
+            </div>
             <div class="feature-pills">
-                <div class="pill">Plan the Work</div>
-                <div class="pill">Execute in Parallel</div>
-                <div class="pill">Decide Anywhere</div>
+                <div class="pill">Dependency Graphs</div>
+                <div class="pill">Multi-Environment</div>
+                <div class="pill">Human-in-the-Loop</div>
+                <div class="pill">15 MCP Tools</div>
             </div>
         </section>
 
-        <!-- How It Works -->
-        <section class="how-section fade-section">
+        <!-- ==================== PRODUCT SHOWCASE ==================== -->
+        <section class="showcase-section fade-section">
+            <div class="showcase-frame">
+                <div class="showcase-titlebar">
+                    <span class="showcase-dot"></span>
+                    <span class="showcase-dot"></span>
+                    <span class="showcase-dot"></span>
+                    <span class="showcase-url">astro.app/project/redesign/plan</span>
+                </div>
+                <div class="showcase-body">
+                    <div class="mock-sidebar">
+                        <div class="mock-sidebar-brand">ASTRO</div>
+                        <div class="mock-nav-item"><div class="mock-nav-icon"></div>Dashboard</div>
+                        <div class="mock-nav-item"><div class="mock-nav-icon"></div>Projects</div>
+                        <div class="mock-nav-item active"><div class="mock-nav-icon"></div>Plan View</div>
+                        <div class="mock-nav-item"><div class="mock-nav-icon"></div>My Tasks</div>
+                        <div class="mock-nav-item"><div class="mock-nav-icon"></div>Environments</div>
+                        <div class="mock-sidebar-section">
+                            <div class="mock-sidebar-section-label">Projects</div>
+                            <div class="mock-project-item"><div class="mock-project-dot" style="background:var(--cyan)"></div>API Redesign</div>
+                            <div class="mock-project-item"><div class="mock-project-dot" style="background:var(--orange)"></div>ML Pipeline</div>
+                            <div class="mock-project-item"><div class="mock-project-dot" style="background:var(--green)"></div>Auth System</div>
+                        </div>
+                    </div>
+                    <div class="mock-main">
+                        <div class="mock-main-header">
+                            <div class="mock-main-title">API Redesign</div>
+                            <div class="mock-view-tabs">
+                                <div class="mock-view-tab active">Graph</div>
+                                <div class="mock-view-tab">List</div>
+                                <div class="mock-view-tab">Timeline</div>
+                            </div>
+                        </div>
+                        <div class="mock-graph">
+                            <svg viewBox="0 0 700 320" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                                <!-- Edges -->
+                                <path d="M175 55 L280 105" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" />
+                                <path d="M175 55 L280 175" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" />
+                                <path d="M175 55 L280 245" stroke="var(--cyan)" stroke-width="1.5" opacity="0.25" />
+                                <path d="M420 105 L520 155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" />
+                                <path d="M420 175 L520 155" stroke="var(--orange)" stroke-width="1.5" opacity="0.3" />
+                                <path d="M420 245 L520 155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.25" />
+                                <path d="M620 155 L660 155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="4 3" />
+
+                                <!-- Root node -->
+                                <g>
+                                    <rect x="70" y="30" width="140" height="50" rx="10" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" />
+                                    <circle cx="90" cy="55" r="4" fill="var(--cyan)" />
+                                    <text x="102" y="51" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">API Redesign</text>
+                                    <text x="102" y="65" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace">4 tasks</text>
+                                </g>
+
+                                <!-- Task 1: Schema -->
+                                <g>
+                                    <rect x="280" y="80" width="140" height="50" rx="10" fill="rgba(110, 192, 122, 0.04)" stroke="rgba(110, 192, 122, 0.18)" stroke-width="1" />
+                                    <circle cx="300" cy="105" r="4" fill="var(--green)" />
+                                    <text x="312" y="101" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">Schema Design</text>
+                                    <text x="312" y="115" fill="var(--green)" font-size="8" font-family="'JetBrains Mono', monospace">completed</text>
+                                </g>
+
+                                <!-- Task 2: Endpoints -->
+                                <g>
+                                    <rect x="280" y="150" width="140" height="50" rx="10" fill="rgba(212, 165, 116, 0.06)" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" />
+                                    <circle cx="300" cy="175" r="4" fill="var(--orange)" />
+                                    <circle cx="300" cy="175" r="4" fill="none" stroke="var(--orange)" stroke-width="1">
+                                        <animate attributeName="r" from="4" to="12" dur="2s" repeatCount="indefinite" />
+                                        <animate attributeName="opacity" from="0.6" to="0" dur="2s" repeatCount="indefinite" />
+                                    </circle>
+                                    <text x="312" y="171" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">REST Endpoints</text>
+                                    <text x="312" y="185" fill="var(--orange)" font-size="8" font-family="'JetBrains Mono', monospace">awaiting decision</text>
+                                </g>
+
+                                <!-- Task 3: Auth -->
+                                <g>
+                                    <rect x="280" y="220" width="140" height="50" rx="10" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.15)" stroke-width="1" />
+                                    <circle cx="300" cy="245" r="4" fill="var(--cyan)" />
+                                    <circle cx="300" cy="245" r="4" fill="none" stroke="var(--cyan)" stroke-width="1">
+                                        <animate attributeName="r" from="4" to="12" dur="2s" begin="0.5s" repeatCount="indefinite" />
+                                        <animate attributeName="opacity" from="0.6" to="0" dur="2s" begin="0.5s" repeatCount="indefinite" />
+                                    </circle>
+                                    <text x="312" y="241" fill="var(--text-primary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">Auth Layer</text>
+                                    <text x="312" y="255" fill="var(--cyan)" font-size="8" font-family="'JetBrains Mono', monospace">in_progress</text>
+                                </g>
+
+                                <!-- Merge: Integration -->
+                                <g>
+                                    <rect x="490" y="130" width="140" height="50" rx="10" fill="rgba(255,255,255,0.02)" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="4 3" />
+                                    <circle cx="510" cy="155" r="4" fill="var(--text-tertiary)" opacity="0.4" />
+                                    <text x="522" y="151" fill="var(--text-tertiary)" font-size="10" font-weight="500" font-family="'Inter', sans-serif">Integration Tests</text>
+                                    <text x="522" y="165" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" opacity="0.5">planned</text>
+                                </g>
+
+                                <!-- Parallel label -->
+                                <text x="350" y="295" fill="var(--text-tertiary)" font-size="9" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0.4">parallel execution</text>
+                            </svg>
+
+                            <!-- Floating annotations -->
+                            <div class="showcase-annotation" style="top: 14px; right: 20px; animation-delay: 0.5s;">live progress</div>
+                            <div class="showcase-annotation" style="bottom: 15px; left: 10px; animation-delay: 0.8s; color: var(--orange); background: rgba(212,165,116,0.06); border-color: rgba(212,165,116,0.15);">decision pending</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== THREE PILLARS — BENTO GRID ==================== -->
+        <section class="pillars-section fade-section section-divider">
             <div class="section-header">
                 <div class="section-label">How It Works</div>
-                <h2 class="section-title">Plan, Execute, Decide</h2>
+                <h2 class="section-title">Three Pillars</h2>
                 <p class="section-description">
-                    The workflow turn-by-turn tools can't provide: structured planning, parallel execution, strategic decisions from anywhere.
+                    Structured planning, parallel execution, and human-in-the-loop decisions. All visible at once.
                 </p>
             </div>
 
-            <div class="cards-grid">
-                <div class="card">
-                    <div class="card-number">01</div>
-                    <h3 class="card-title">Plan the Work</h3>
-                    <p class="card-text">
-                        Decompose complex goals into coordinated tasks with explicit dependencies. Not a flat todo list, but a graph showing what can run in parallel and what must wait.
+            <div class="bento-grid">
+                <!-- PLAN — large left column -->
+                <div class="bento-card bento-plan stagger-child" style="transition-delay: 0.1s">
+                    <div class="bento-icon" style="background: rgba(91, 163, 208, 0.08);">
+                        <svg viewBox="0 0 20 20" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round">
+                            <circle cx="10" cy="4" r="2.5" /><circle cx="4" cy="14" r="2.5" /><circle cx="16" cy="14" r="2.5" />
+                            <line x1="8.5" y1="6" x2="5.5" y2="12" /><line x1="11.5" y1="6" x2="14.5" y2="12" />
+                        </svg>
+                    </div>
+                    <div class="bento-number">01</div>
+                    <h3 class="bento-title">Plan</h3>
+                    <p class="bento-text">
+                        Not a todo list. A dependency graph. AI decomposes your goal into tasks with explicit dependencies. Parallel branches run simultaneously. Blocked tasks wait. You see the critical path at a glance.
                     </p>
+                    <div class="bento-visual">
+                        <svg class="mini-dag" viewBox="0 0 360 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <marker id="dag-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                    <path d="M0 0L8 3L0 6" fill="var(--cyan)" opacity="0.5" />
+                                </marker>
+                                <marker id="dag-arrow-o" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                    <path d="M0 0L8 3L0 6" fill="var(--orange)" opacity="0.5" />
+                                </marker>
+                            </defs>
+
+                            <!-- Edges -->
+                            <line x1="180" y1="35" x2="90" y2="85" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
+                            <line x1="180" y1="35" x2="270" y2="85" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
+                            <line x1="90" y1="105" x2="60" y2="155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
+                            <line x1="90" y1="105" x2="140" y2="155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
+                            <line x1="270" y1="105" x2="220" y2="155" stroke="var(--orange)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow-o)" />
+                            <line x1="270" y1="105" x2="300" y2="155" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
+                            <line x1="140" y1="175" x2="180" y2="215" stroke="var(--cyan)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow)" />
+                            <line x1="220" y1="175" x2="180" y2="215" stroke="var(--orange)" stroke-width="1.5" opacity="0.3" marker-end="url(#dag-arrow-o)" />
+
+                            <!-- Nodes -->
+                            <circle cx="180" cy="25" r="7" fill="var(--cyan)" />
+                            <text x="180" y="13" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">Goal</text>
+
+                            <circle cx="90" cy="95" r="6" fill="var(--cyan)" />
+                            <circle cx="270" cy="95" r="6" fill="var(--cyan)" />
+                            <text x="63" y="92" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="end">Backend</text>
+                            <text x="297" y="92" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Frontend</text>
+
+                            <circle cx="60" cy="165" r="6" fill="var(--green)" />
+                            <circle cx="140" cy="165" r="6" fill="var(--cyan)" />
+                            <circle cx="220" cy="165" r="6" fill="var(--orange)" />
+                            <circle cx="300" cy="165" r="6" fill="var(--green)" />
+
+                            <text x="60" y="185" fill="var(--green)" font-size="6.5" font-family="'JetBrains Mono', monospace" text-anchor="middle">done</text>
+                            <text x="140" y="185" fill="var(--cyan)" font-size="6.5" font-family="'JetBrains Mono', monospace" text-anchor="middle">running</text>
+                            <text x="220" y="185" fill="var(--orange)" font-size="6.5" font-family="'JetBrains Mono', monospace" text-anchor="middle">deciding</text>
+                            <text x="300" y="185" fill="var(--green)" font-size="6.5" font-family="'JetBrains Mono', monospace" text-anchor="middle">done</text>
+
+                            <circle cx="180" cy="222" r="6" fill="var(--cyan)" opacity="0.5" />
+                            <text x="180" y="238" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">Integrate</text>
+
+                            <!-- Active pulses -->
+                            <circle cx="140" cy="165" r="6" fill="none" stroke="var(--cyan)" stroke-width="1">
+                                <animate attributeName="r" from="6" to="16" dur="2s" repeatCount="indefinite" />
+                                <animate attributeName="opacity" from="0.6" to="0" dur="2s" repeatCount="indefinite" />
+                            </circle>
+                            <circle cx="220" cy="165" r="6" fill="none" stroke="var(--orange)" stroke-width="1">
+                                <animate attributeName="r" from="6" to="16" dur="2s" begin="0.5s" repeatCount="indefinite" />
+                                <animate attributeName="opacity" from="0.6" to="0" dur="2s" begin="0.5s" repeatCount="indefinite" />
+                            </circle>
+
+                            <text x="180" y="200" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0.4">parallel</text>
+                        </svg>
+                    </div>
                 </div>
-                <div class="card">
-                    <div class="card-number">02</div>
-                    <h3 class="card-title">Execute in Parallel</h3>
-                    <p class="card-text">
-                        Launch independent tasks simultaneously across environments. While one trains on HPC, another builds UI locally, a third deploys infrastructure&mdash;all from one plan.
+
+                <!-- EXECUTE — top right -->
+                <div class="bento-card bento-execute stagger-child" style="transition-delay: 0.2s">
+                    <div class="bento-icon" style="background: rgba(212, 165, 116, 0.08);">
+                        <svg viewBox="0 0 20 20" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round">
+                            <path d="M4 16V4h3l2 3h7v9z" /><line x1="8" y1="10" x2="14" y2="10" /><line x1="8" y1="13" x2="12" y2="13" />
+                        </svg>
+                    </div>
+                    <div class="bento-number">02</div>
+                    <h3 class="bento-title">Execute</h3>
+                    <p class="bento-text">
+                        Tasks dispatch across local machines, HPC clusters, and cloud. Each task gets a worktree. Results come back as PRs.
                     </p>
+                    <div class="bento-visual">
+                        <div class="mini-terminal">
+                            <div class="term-line"><span class="term-prompt">$</span><span class="term-cmd">astro dispatch task-3</span></div>
+                            <div class="term-line"><span class="term-info">detecting...</span> <span class="term-output">git repo, github remote</span></div>
+                            <div class="term-line"><span class="term-info">worktree</span> <span class="term-output">astro/task-3 created</span></div>
+                            <div class="term-line"><span class="term-info">provider</span> <span class="term-output">claude-code</span></div>
+                            <div class="term-line"><span class="term-info">running</span> <span class="term-output">48 tool calls...</span></div>
+                            <div class="term-line"><span class="term-success">PR #142</span> <span class="term-output">ready for review</span></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="card">
-                    <div class="card-number">03</div>
-                    <h3 class="card-title">Decide Anywhere</h3>
-                    <p class="card-text">
-                        Make strategic decisions from your phone, laptop, anywhere. Approach A worked but B is stuck&mdash;pivot or debug? You're not tied to a terminal.
+
+                <!-- APPROVE — bottom right -->
+                <div class="bento-card bento-approve stagger-child" style="transition-delay: 0.3s">
+                    <div class="bento-icon" style="background: rgba(110, 192, 122, 0.08);">
+                        <svg viewBox="0 0 20 20" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M16 7l-6 6-3-3" /><circle cx="10" cy="10" r="8" />
+                        </svg>
+                    </div>
+                    <div class="bento-number">03</div>
+                    <h3 class="bento-title">Approve</h3>
+                    <p class="bento-text">
+                        See every tool call. Make strategic decisions from your phone, laptop, anywhere.
                     </p>
+                    <div class="bento-visual">
+                        <div class="mini-approval">
+                            <div class="mini-approval-header">
+                                <div class="mini-approval-dot"></div>
+                                <div class="mini-approval-label">DECISION PENDING</div>
+                            </div>
+                            <div class="mini-approval-question">
+                                Agent asks: "OAuth adds a dependency but is more secure. Use OAuth or session tokens?"
+                            </div>
+                            <div class="mini-approval-buttons">
+                                <div class="mini-approval-btn approve">OAuth</div>
+                                <div class="mini-approval-btn reject">Session tokens</div>
+                            </div>
+                            <div class="mini-approval-stats">
+                                <div class="mini-stat">
+                                    <div class="mini-stat-value">7</div>
+                                    <div class="mini-stat-label">Tasks active</div>
+                                </div>
+                                <div class="mini-stat">
+                                    <div class="mini-stat-value">2</div>
+                                    <div class="mini-stat-label">Decisions</div>
+                                </div>
+                                <div class="mini-stat">
+                                    <div class="mini-stat-value">$1.24</div>
+                                    <div class="mini-stat-label">Cost</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
 
-        <!-- Mission Statement -->
-        <section class="mission-section fade-section">
+        <!-- ==================== A WORKFLOW FOR EVERYONE ==================== -->
+        <section class="personas-section fade-section section-divider">
+            <div class="section-header">
+                <div class="section-label">For Everyone</div>
+                <h2 class="section-title">One platform. Every workflow.</h2>
+                <p class="section-description">
+                    Same entry point, different journeys. Describe your goal, point at a directory, and Astro adapts to your workflow.
+                </p>
+            </div>
+
+            <!-- Top row: 3 cards -->
+            <div class="persona-grid">
+                <div class="persona-card stagger-child" data-color="cyan" style="transition-delay: 0.1s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(91, 163, 208, 0.06); border: 1px solid rgba(91, 163, 208, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--cyan);">Human Builders</div>
+                            <div class="persona-name">PR-based development</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">1</span><span class="persona-step-text">Point at a git repo with a GitHub remote</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">2</span><span class="persona-step-text">AI generates a plan with task dependencies</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">3</span><span class="persona-step-text">Each task runs in a worktree, opens a PR</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">4</span><span class="persona-step-text">Review and merge PRs from GitHub</span></li>
+                    </ol>
+                </div>
+
+                <div class="persona-card stagger-child" data-color="orange" style="transition-delay: 0.2s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(212, 165, 116, 0.06); border: 1px solid rgba(212, 165, 116, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10 2v8l-2 2" /><path d="M14 2v8l2 2" /><path d="M6 14a6 6 0 0012 0" /><path d="M12 14v8" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--orange);">Scientists</div>
+                            <div class="persona-name">Data analysis pipelines</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">1</span><span class="persona-step-text">Point at scripts + data directory</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">2</span><span class="persona-step-text">Dispatch to HPC clusters or cloud GPUs</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">3</span><span class="persona-step-text">Branching analyses run in parallel</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">4</span><span class="persona-step-text">Review outputs, compare approaches</span></li>
+                    </ol>
+                </div>
+
+                <div class="persona-card stagger-child" data-color="green" style="transition-delay: 0.3s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(110, 192, 122, 0.06); border: 1px solid rgba(110, 192, 122, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--green);">Knowledge Workers</div>
+                            <div class="persona-name">Structured planning</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">1</span><span class="persona-step-text">Describe a complex goal in plain language</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">2</span><span class="persona-step-text">AI decomposes into a dependency graph</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">3</span><span class="persona-step-text">Define milestones and track progress</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">4</span><span class="persona-step-text">Coordinate teams with task assignments</span></li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Bottom row: 2 cards centered -->
+            <div class="persona-grid-bottom">
+                <div class="persona-card stagger-child" data-color="purple" style="transition-delay: 0.4s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(167, 139, 250, 0.06); border: 1px solid rgba(167, 139, 250, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--purple);">Agentic AI Users</div>
+                            <div class="persona-name">Multi-agent orchestration</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">1</span><span class="persona-step-text">Set up multiple agents across providers</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">2</span><span class="persona-step-text">Dispatch tasks to the right agent + machine</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">3</span><span class="persona-step-text">Monitor all agents from a single dashboard</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">4</span><span class="persona-step-text">Steer decisions in real-time</span></li>
+                    </ol>
+                </div>
+
+                <div class="persona-card stagger-child" data-color="rose" style="transition-delay: 0.5s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(244, 114, 182, 0.06); border: 1px solid rgba(244, 114, 182, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--rose)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3" /><path d="M12 1v2" /><path d="M12 21v2" /><path d="M4.22 4.22l1.42 1.42" /><path d="M18.36 18.36l1.42 1.42" /><path d="M1 12h2" /><path d="M21 12h2" /><path d="M4.22 19.78l1.42-1.42" /><path d="M18.36 5.64l1.42-1.42" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--rose);">Agents Themselves</div>
+                            <div class="persona-name">Self-organizing AI agents</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">1</span><span class="persona-step-text">Use 15 MCP tools to query and update plans</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">2</span><span class="persona-step-text">Create sub-tasks and new dependencies</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">3</span><span class="persona-step-text">Coordinate with other agents via the graph</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">4</span><span class="persona-step-text">Ask humans only when it truly matters</span></li>
+                    </ol>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== ENVIRONMENTS ==================== -->
+        <section class="environments-section fade-section section-divider">
+            <div class="section-header">
+                <div class="section-label">Environments</div>
+                <h2 class="section-title">Run Anywhere</h2>
+                <p class="section-description">
+                    Tasks dispatch to the right environment automatically. Register machines once, dispatch forever.
+                </p>
+            </div>
+
+            <div class="env-cards-grid">
+                <div class="env-card stagger-child" style="transition-delay: 0.1s">
+                    <div class="env-card-icon" style="background: rgba(91, 163, 208, 0.06); border: 1px solid rgba(91, 163, 208, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+                        </svg>
+                    </div>
+                    <h3 class="env-card-title">Local Machine</h3>
+                    <p class="env-card-text">Your laptop or workstation. Zero setup. Agent runs alongside you with full file access.</p>
+                    <div class="env-card-stat">Tasks dispatched: <span class="counter" data-target="1247">0</span></div>
+                </div>
+                <div class="env-card stagger-child" style="transition-delay: 0.2s">
+                    <div class="env-card-icon" style="background: rgba(212, 165, 116, 0.06); border: 1px solid rgba(212, 165, 116, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" />
+                            <circle cx="6" cy="6" r="1" fill="var(--orange)" /><circle cx="6" cy="18" r="1" fill="var(--orange)" />
+                        </svg>
+                    </div>
+                    <h3 class="env-card-title">HPC / SLURM</h3>
+                    <p class="env-card-text">Submit to compute clusters. SBATCH scripts generated automatically. Monitor jobs live.</p>
+                    <div class="env-card-stat">Jobs submitted: <span class="counter" data-target="384">0</span></div>
+                </div>
+                <div class="env-card stagger-child" style="transition-delay: 0.3s">
+                    <div class="env-card-icon" style="background: rgba(110, 192, 122, 0.06); border: 1px solid rgba(110, 192, 122, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z" />
+                        </svg>
+                    </div>
+                    <h3 class="env-card-title">Cloud</h3>
+                    <p class="env-card-text">AWS, GCP, or any cloud VM. Register once via device auth flow. Dispatch remotely.</p>
+                    <div class="env-card-stat">Instances: <span class="counter" data-target="56">0</span></div>
+                </div>
+                <div class="env-card stagger-child" style="transition-delay: 0.4s">
+                    <div class="env-card-icon" style="background: rgba(167, 139, 250, 0.06); border: 1px solid rgba(167, 139, 250, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M5 12h14" /><path d="M12 5v14" /><circle cx="5" cy="12" r="2" /><circle cx="19" cy="12" r="2" /><circle cx="12" cy="5" r="2" /><circle cx="12" cy="19" r="2" />
+                        </svg>
+                    </div>
+                    <h3 class="env-card-title">Relay Network</h3>
+                    <p class="env-card-text">WebSocket relay connects all your machines. Secure, real-time, works behind firewalls.</p>
+                    <div class="env-card-stat">Uptime: <span class="counter" data-target="99" data-suffix="%">0</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== STATS BAR ==================== -->
+        <section class="stats-section fade-section section-divider">
+            <div class="stats-row">
+                <div class="stat-item stagger-child" style="transition-delay: 0.1s">
+                    <div class="stat-number"><span class="counter" data-target="5">0</span></div>
+                    <div class="stat-label">Environments supported</div>
+                </div>
+                <div class="stat-item stagger-child" style="transition-delay: 0.2s">
+                    <div class="stat-number"><span class="counter" data-target="15">0</span></div>
+                    <div class="stat-label">MCP tools for agents</div>
+                </div>
+                <div class="stat-item stagger-child" style="transition-delay: 0.3s">
+                    <div class="stat-number">Real-time</div>
+                    <div class="stat-label">Task streaming</div>
+                </div>
+                <div class="stat-item stagger-child" style="transition-delay: 0.4s">
+                    <div class="stat-number">Branch</div>
+                    <div class="stat-label">Per-task isolation</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== MISSION ==================== -->
+        <section class="mission-section fade-section section-divider">
             <div class="mission-content">
                 <div class="section-label" style="text-align:center; margin-bottom: 2rem;">Our Mission</div>
                 <p class="mission-statement">
-                    <strong>Astro is mission control for ambitious builders and scientists.</strong> We provide the planning and orchestration layer for long-horizon work&mdash;helping you structure complex goals, coordinate execution across environments, and surface the critical moments that require human judgment. <strong>Astro amplifies human decision-making at the scale of complexity that once required entire teams.</strong>
+                    <strong class="mission-highlight">Astro is mission control for ambitious builders and scientists.</strong> We provide the planning and orchestration layer for long-horizon work&mdash;helping you structure complex goals, coordinate execution across environments, and surface the critical moments that require human judgment. <strong class="mission-highlight">Astro amplifies human decision-making at the scale of complexity that once required entire teams.</strong>
                 </p>
             </div>
         </section>
 
         <!-- Why Astro -->
         <section class="why-link-section fade-section">
-            <a href="/landing/about" class="why-link">WHY ASTRO? &rarr;</a>
+            <a href="/landing/about" class="why-link">ABOUT &rarr;</a>
         </section>
 
-        <!-- Footer CTA -->
-        <section class="footer-cta fade-section">
-            <h2 class="footer-title">Ready to launch?</h2>
-            <p class="footer-subtitle">Join the waitlist for early access</p>
-            <button class="cta-button">Get Early Access &rarr;</button>
+        <!-- ==================== FOOTER CTA ==================== -->
+        <section class="footer-cta fade-section section-divider">
+            <div class="footer-cta-inner">
+                <h2 class="footer-title">Ready to launch?</h2>
+                <p class="footer-subtitle">Join the waitlist for early access</p>
+                <button class="cta-button" onclick="window.scrollTo({top:0,behavior:'smooth'})">
+                    <span>Get Early Access</span>
+                    <span class="arrow">&rarr;</span>
+                </button>
+            </div>
         </section>
 
         <!-- Footer -->
@@ -567,174 +1877,130 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
     (function() {
-        const canvas = document.getElementById('scene-canvas');
-        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        var canvas = document.getElementById('scene-canvas');
+        var scene = new THREE.Scene();
+        var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setClearColor(0x000000, 0);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        camera.position.z = 5;
 
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 6;
+        var isMobile = window.innerWidth < 768;
 
-        const isMobile = window.innerWidth < 768;
+        // Star field
+        var starsGeometry = new THREE.BufferGeometry();
+        var starCount = isMobile ? 400 : 800;
+        var positions = new Float32Array(starCount * 3);
 
-        // --- Central Icosahedron (wireframe with glow) ---
-        const icoGeo = new THREE.IcosahedronGeometry(1.4, 1);
-        const icoMat = new THREE.MeshBasicMaterial({
-            color: 0x5ba3d0,
-            wireframe: true,
-            transparent: true,
-            opacity: 0.18
-        });
-        const icosahedron = new THREE.Mesh(icoGeo, icoMat);
-        scene.add(icosahedron);
-
-        // Inner glow icosahedron (slightly smaller, orange tint)
-        const innerGeo = new THREE.IcosahedronGeometry(1.35, 1);
-        const innerMat = new THREE.MeshBasicMaterial({
-            color: 0xd4a574,
-            wireframe: true,
-            transparent: true,
-            opacity: 0.06
-        });
-        const innerIco = new THREE.Mesh(innerGeo, innerMat);
-        scene.add(innerIco);
-
-        // --- Torus ring ---
-        const torusGeo = new THREE.TorusGeometry(2.2, 0.008, 8, 100);
-        const torusMat = new THREE.MeshBasicMaterial({
-            color: 0x5ba3d0,
-            transparent: true,
-            opacity: 0.12
-        });
-        const torus = new THREE.Mesh(torusGeo, torusMat);
-        torus.rotation.x = Math.PI * 0.55;
-        torus.rotation.y = Math.PI * 0.1;
-        scene.add(torus);
-
-        // Second torus ring
-        const torus2Geo = new THREE.TorusGeometry(2.8, 0.006, 8, 120);
-        const torus2Mat = new THREE.MeshBasicMaterial({
-            color: 0xd4a574,
-            transparent: true,
-            opacity: 0.07
-        });
-        const torus2 = new THREE.Mesh(torus2Geo, torus2Mat);
-        torus2.rotation.x = Math.PI * 0.35;
-        torus2.rotation.y = Math.PI * -0.2;
-        scene.add(torus2);
-
-        // --- Orbital Particles ---
-        function createOrbitalRing(radius, count, color, size) {
-            const positions = new Float32Array(count * 3);
-            for (let i = 0; i < count; i++) {
-                const angle = (i / count) * Math.PI * 2;
-                const r = radius + (Math.random() - 0.5) * 0.15;
-                positions[i * 3] = Math.cos(angle) * r;
-                positions[i * 3 + 1] = (Math.random() - 0.5) * 0.3;
-                positions[i * 3 + 2] = Math.sin(angle) * r;
-            }
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            const mat = new THREE.PointsMaterial({
-                color: color,
-                size: size,
-                transparent: true,
-                opacity: 0.5,
-                sizeAttenuation: true
-            });
-            return new THREE.Points(geo, mat);
+        for (var i = 0; i < starCount * 3; i += 3) {
+            positions[i] = (Math.random() - 0.5) * 100;
+            positions[i + 1] = (Math.random() - 0.5) * 100;
+            positions[i + 2] = (Math.random() - 0.5) * 100;
         }
 
-        const particleCount = isMobile ? 40 : 80;
-        const ring1 = createOrbitalRing(2.2, particleCount, 0x5ba3d0, 0.02);
-        ring1.rotation.x = Math.PI * 0.55;
-        ring1.rotation.y = Math.PI * 0.1;
-        scene.add(ring1);
-
-        const ring2 = createOrbitalRing(2.8, particleCount, 0xd4a574, 0.015);
-        ring2.rotation.x = Math.PI * 0.35;
-        ring2.rotation.y = Math.PI * -0.2;
-        scene.add(ring2);
-
-        const ring3 = createOrbitalRing(3.4, Math.floor(particleCount * 0.6), 0x5ba3d0, 0.012);
-        ring3.rotation.x = Math.PI * 0.7;
-        ring3.rotation.y = Math.PI * 0.3;
-        scene.add(ring3);
-
-        // --- Background Stars ---
-        const starCount = isMobile ? 200 : 500;
-        const starPositions = new Float32Array(starCount * 3);
-        for (let i = 0; i < starCount; i++) {
-            starPositions[i * 3] = (Math.random() - 0.5) * 30;
-            starPositions[i * 3 + 1] = (Math.random() - 0.5) * 30;
-            starPositions[i * 3 + 2] = (Math.random() - 0.5) * 20 - 5;
-        }
-        const starGeo = new THREE.BufferGeometry();
-        starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-        const starMat = new THREE.PointsMaterial({
+        starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        var starsMaterial = new THREE.PointsMaterial({
+            size: 0.03,
             color: 0xf0f0f0,
-            size: 0.02,
             transparent: true,
-            opacity: 0.4,
-            sizeAttenuation: true
+            opacity: 0.5
         });
-        const stars = new THREE.Points(starGeo, starMat);
+        var stars = new THREE.Points(starsGeometry, starsMaterial);
         scene.add(stars);
 
-        // --- Mouse Parallax ---
-        const mouse = { x: 0, y: 0 };
-        const targetRotation = { x: 0, y: 0 };
+        // Flowing Bezier curves
+        var curves = [];
+        var curveMaterial = new THREE.LineBasicMaterial({
+            color: 0xf0f0f0,
+            transparent: true,
+            opacity: 0.12,
+            linewidth: 1
+        });
+
+        for (var c = 0; c < 5; c++) {
+            var angle = (c / 5) * Math.PI * 2;
+            var radius = 6 + c * 0.5;
+            var curve = new THREE.CubicBezierCurve3(
+                new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius, -2),
+                new THREE.Vector3(Math.cos(angle + 1) * (radius + 2), Math.sin(angle + 1) * (radius - 1), 0),
+                new THREE.Vector3(Math.cos(angle + 2) * (radius - 1), Math.sin(angle + 2) * (radius + 2), 1),
+                new THREE.Vector3(Math.cos(angle + 3) * radius, Math.sin(angle + 3) * radius, 2)
+            );
+            var points = curve.getPoints(100);
+            var lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            var line = new THREE.Line(lineGeometry, curveMaterial);
+            curves.push({ line: line, speed: 0.0001 + c * 0.00005 });
+            scene.add(line);
+        }
+
+        // Accent points
+        var accentGeometry = new THREE.SphereGeometry(0.02, 16, 16);
+        var accents = [];
+
+        for (var a = 0; a < 8; a++) {
+            var accentMat = new THREE.MeshBasicMaterial({ color: 0xd4a574, transparent: true, opacity: 0.3 });
+            var accent = new THREE.Mesh(accentGeometry, accentMat);
+            var aAngle = (a / 8) * Math.PI * 2;
+            var aRadius = 5 + (a % 3) * 2;
+            accent.position.set(Math.cos(aAngle) * aRadius, Math.sin(aAngle) * aRadius, (a % 3) - 1);
+            accents.push(accent);
+            scene.add(accent);
+        }
+
+        for (var b = 0; b < 5; b++) {
+            var cyanMat = new THREE.MeshBasicMaterial({ color: 0x5ba3d0, transparent: true, opacity: 0.2 });
+            var cyanAccent = new THREE.Mesh(accentGeometry, cyanMat);
+            var bAngle = (b / 5) * Math.PI * 2 + 0.5;
+            var bRadius = 4 + (b % 2) * 3;
+            cyanAccent.position.set(Math.cos(bAngle) * bRadius, Math.sin(bAngle) * bRadius, (b % 3) - 1.5);
+            accents.push(cyanAccent);
+            scene.add(cyanAccent);
+        }
+
+        // Mouse interaction
+        var mouseX = 0, mouseY = 0, targetX = 0, targetY = 0;
 
         if (!isMobile) {
             document.addEventListener('mousemove', function(e) {
-                mouse.x = (e.clientX / window.innerWidth - 0.5) * 2;
-                mouse.y = (e.clientY / window.innerHeight - 0.5) * 2;
+                mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+                mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
             });
         }
 
-        // --- Resize ---
+        // Scroll parallax
+        window.addEventListener('scroll', function() {
+            stars.rotation.z = window.pageYOffset * 0.0001;
+        });
+
+        // Resize
         window.addEventListener('resize', function() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // --- Animate ---
+        // Animate
         function animate() {
             requestAnimationFrame(animate);
 
-            const time = Date.now() * 0.001;
+            targetX += (mouseX - targetX) * 0.05;
+            targetY += (mouseY - targetY) * 0.05;
 
-            // Rotate geometry slowly
-            icosahedron.rotation.x = time * 0.08;
-            icosahedron.rotation.y = time * 0.12;
+            stars.rotation.y += 0.00005;
 
-            innerIco.rotation.x = time * 0.06;
-            innerIco.rotation.y = -time * 0.1;
+            for (var i = 0; i < curves.length; i++) {
+                curves[i].line.rotation.z += curves[i].speed;
+            }
 
-            torus.rotation.z = time * 0.04;
-            torus2.rotation.z = -time * 0.03;
+            for (var j = 0; j < accents.length; j++) {
+                accents[j].material.opacity = 0.15 + Math.sin(Date.now() * 0.001 + j * 0.8) * 0.12;
+            }
 
-            ring1.rotation.z = time * 0.05;
-            ring2.rotation.z = -time * 0.04;
-            ring3.rotation.z = time * 0.025;
-
-            // Subtle breathing
-            const breathe = 1 + Math.sin(time * 0.5) * 0.03;
-            icosahedron.scale.setScalar(breathe);
-            innerIco.scale.setScalar(breathe);
-
-            // Subtle opacity pulsing on icosahedron
-            icoMat.opacity = 0.15 + Math.sin(time * 0.8) * 0.04;
-
-            // Mouse parallax (desktop only)
             if (!isMobile) {
-                targetRotation.x += (mouse.y * 0.15 - targetRotation.x) * 0.03;
-                targetRotation.y += (mouse.x * 0.15 - targetRotation.y) * 0.03;
-                scene.rotation.x = targetRotation.x;
-                scene.rotation.y = targetRotation.y;
+                camera.position.x = targetX * 0.5;
+                camera.position.y = targetY * 0.5;
+                camera.lookAt(scene.position);
             }
 
             renderer.render(scene, camera);
@@ -744,11 +2010,11 @@
     })();
     </script>
 
-    <!-- Scroll nav + section fade-in -->
+    <!-- Scroll animations + counter animations -->
     <script>
     (function() {
         // Nav show on scroll
-        const nav = document.querySelector('nav');
+        var nav = document.querySelector('nav');
         window.addEventListener('scroll', function() {
             if (window.pageYOffset > 100) {
                 nav.classList.add('scrolled');
@@ -757,17 +2023,54 @@
             }
         });
 
-        // IntersectionObserver for fade-in sections
-        const sections = document.querySelectorAll('.fade-section');
-        const observer = new IntersectionObserver(function(entries) {
+        // IntersectionObserver for fade-in sections with stagger
+        var sections = document.querySelectorAll('.fade-section');
+        var sectionObserver = new IntersectionObserver(function(entries) {
             entries.forEach(function(entry) {
                 if (entry.isIntersecting) {
                     entry.target.classList.add('visible');
                 }
             });
-        }, { threshold: 0.15, rootMargin: '0px 0px -60px 0px' });
+        }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
 
-        sections.forEach(function(s) { observer.observe(s); });
+        sections.forEach(function(s) { sectionObserver.observe(s); });
+
+        // Counter animation
+        function animateCounter(el) {
+            var target = parseInt(el.getAttribute('data-target'), 10);
+            var suffix = el.getAttribute('data-suffix') || '';
+            var duration = 1500;
+            var start = 0;
+            var startTime = null;
+
+            function step(timestamp) {
+                if (!startTime) startTime = timestamp;
+                var progress = Math.min((timestamp - startTime) / duration, 1);
+                var eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+                var current = Math.floor(eased * target);
+                el.textContent = current.toLocaleString() + suffix;
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    el.textContent = target.toLocaleString() + suffix;
+                }
+            }
+
+            requestAnimationFrame(step);
+        }
+
+        // Observe counters
+        var counters = document.querySelectorAll('.counter');
+        var counterObserver = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting && !entry.target.dataset.animated) {
+                    entry.target.dataset.animated = 'true';
+                    animateCounter(entry.target);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        counters.forEach(function(c) { counterObserver.observe(c); });
     })();
     </script>
 </body>

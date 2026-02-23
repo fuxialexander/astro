@@ -32,9 +32,17 @@ RELAY_PORT=3002
 RELAY_JWT_SECRET=your-secret
 REDIS_URL=redis://localhost:6379  # Optional, for scaling
 
-# GitHub OAuth
+# GitHub OAuth (app-level integration, not login)
 GITHUB_CLIENT_ID=your-client-id
 GITHUB_CLIENT_SECRET=your-client-secret
+
+# Supabase OAuth Providers (social login)
+# Create OAuth apps and set these + enable in Supabase Dashboard → Auth → Providers
+# Callback URL: https://<project-ref>.supabase.co/auth/v1/callback
+SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID=your-github-oauth-client-id
+SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET=your-github-oauth-secret
+SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID=your-google-oauth-client-id
+SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET=your-google-oauth-secret
 ```
 
 ## Agent Runner (.astro/config.json)

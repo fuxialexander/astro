@@ -377,11 +377,69 @@ Supabase `auth.users` is the source of truth for user existence. A Postgres trig
 
 All auth endpoints (`check-user`, `register-options`, `register-verify`, `login-options`, `login-verify`) fall back to the RPC when `user_profiles` lookup misses, then call `ensureUserProfile()` to repair the desync.
 
+## OAuth Providers (GitHub, Google)
+
+Astro supports social login via Supabase Auth's built-in OAuth providers.
+
+### Setup
+
+**1. Create OAuth Apps:**
+
+- **GitHub**: [github.com/settings/developers](https://github.com/settings/developers) → New OAuth App
+- **Google**: [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) → Create OAuth 2.0 Client ID
+
+For both, set the **Authorization callback URL** to:
+```
+https://<your-project-ref>.supabase.co/auth/v1/callback
+```
+
+**2. Configure Supabase (hosted project):**
+
+Go to [Supabase Dashboard](https://supabase.com/dashboard) → Authentication → Providers, and enable GitHub/Google with the client ID and secret from step 1.
+
+**Important:** Also configure **URL Configuration** in the Supabase dashboard:
+- **Site URL**: Your frontend URL (e.g., `https://astro-app-3vo.pages.dev` or `http://localhost:5173`)
+- **Redirect URLs**: Add all valid frontend URLs (local dev, production, iOS callback)
+
+If the Site URL is wrong, OAuth will redirect to the wrong origin after login.
+
+**3. Configure local dev (`supabase/config.toml`):**
+
+```toml
+[auth.external.github]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET)"
+
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = true
+```
+
+**4. Set environment variables (`.env` or `.env.prod`):**
+
+```bash
+SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID=your-github-client-id
+SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET=your-github-client-secret
+SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID=your-google-client-id
+SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET=your-google-client-secret
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `provider is not enabled` | Provider not enabled in Supabase dashboard | Enable in Dashboard → Auth → Providers |
+| Redirect to `localhost:3000` | Wrong Site URL in Supabase | Fix in Dashboard → Auth → URL Configuration |
+| Google OAuth fails locally | Google requires HTTPS | Use Cloudflare tunnel or test with GitHub instead |
+
 ## Fallback Authentication
 
-For environments where WebAuthn is unavailable, consider:
+For environments where WebAuthn is unavailable:
 - Email magic links (Supabase built-in)
-- OAuth providers (GitHub, Google)
+- OAuth providers (GitHub, Google) — see above
 
 ## Related Documentation
 
