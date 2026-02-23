@@ -112,6 +112,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
         startedAt,
         completedAt: new Date().toISOString(),
         artifacts: result.artifacts,
+        metrics: result.metrics,
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -377,6 +378,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     output: string;
     error?: string;
     artifacts?: TaskArtifact[];
+    metrics?: TaskResult['metrics'];
   }> {
     // Ensure CLAUDE_CONFIG_DIR points to a user-writable location.
     // The SDK derives internal storage paths from cwd, and /tmp/claude/ may be
@@ -576,6 +578,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
     let errorMessage: string | undefined;
     const artifacts: TaskArtifact[] = [];
     let progress = 0;
+    let resultMetrics: TaskResult['metrics'] | undefined;
 
     for await (const msg of gen) {
       if (msg.type === 'system' && msg.subtype === 'init') {
@@ -646,12 +649,27 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
           }
         }
       } else if (msg.type === 'result') {
+        // Extract metrics from SDK result (available on both success and error subtypes)
+        const msgAny = msg as Record<string, unknown>;
+        const usage = msgAny.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+        const totalCostUsd = msgAny.total_cost_usd as number | undefined;
+        const numTurns = msgAny.num_turns as number | undefined;
+        const durationMs = msgAny.duration_ms as number | undefined;
+
+        resultMetrics = {
+          inputTokens: usage?.input_tokens,
+          outputTokens: usage?.output_tokens,
+          totalCost: totalCostUsd,
+          numTurns,
+          durationMs,
+          model: this.model,
+        };
+
         if (msg.subtype === 'success') {
           success = true;
           stream.status('completed', 100, 'Task completed successfully');
 
           // Capture structured output (produced when outputFormat is set)
-          const msgAny = msg as Record<string, unknown>;
           if (msgAny.structured_output) {
             const jsonStr = JSON.stringify(msgAny.structured_output);
             output += jsonStr;
@@ -683,6 +701,7 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
       output,
       error: errorMessage,
       artifacts: artifacts.length > 0 ? artifacts : undefined,
+      metrics: resultMetrics,
     };
   }
 }

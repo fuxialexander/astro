@@ -150,6 +150,14 @@ export interface TaskResult {
   branchName?: string;
   prUrl?: string;
   prNumber?: number;
+  metrics?: {
+    durationMs?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalCost?: number;
+    model?: string;
+    numTurns?: number;
+  };
 }
 
 export interface TaskArtifact {

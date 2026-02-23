@@ -21,6 +21,9 @@ export interface TaskResult {
     inputTokens?: number
     outputTokens?: number
     totalCost?: number
+    estimatedCostUsd?: number  // Alias for totalCost, used by observation collector & usage hooks
+    tokensUsed?: number        // inputTokens + outputTokens, used by usage-metrics-hook
+    turnsUsed?: number         // Alias for numTurns, used by usage-metrics-hook
     model?: string
     numTurns?: number
   }

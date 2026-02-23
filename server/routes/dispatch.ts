@@ -19,6 +19,8 @@ import { machineRegistry } from '../lib/machine-registry.js'
 import type { ProviderType } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
+import { astroEventTransport } from '../lib/events/astro-event-transport.js'
+import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 
 // Validation schemas
 const dispatchTaskSchema = z.object({
@@ -346,6 +348,21 @@ The user can review your reasoning in the task output and provide guidance if th
     const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
       if (!alive || msg.result.taskId !== executionId) return
       lastActivity = Date.now()
+
+      // Map relay metrics to dispatch metrics (adding aliases used by hooks)
+      const relayMetrics = msg.result.metrics
+      const dispatchMetrics = relayMetrics ? {
+        durationMs: relayMetrics.durationMs,
+        inputTokens: relayMetrics.inputTokens,
+        outputTokens: relayMetrics.outputTokens,
+        totalCost: relayMetrics.totalCost,
+        estimatedCostUsd: relayMetrics.totalCost,  // Alias used by observation collector & usage hooks
+        tokensUsed: (relayMetrics.inputTokens ?? 0) + (relayMetrics.outputTokens ?? 0) || undefined,
+        model: relayMetrics.model,
+        numTurns: relayMetrics.numTurns,
+        turnsUsed: relayMetrics.numTurns,  // Alias used by usage-metrics-hook
+      } : undefined
+
       stream.writeSSE({
         event: 'result',
         data: JSON.stringify({
@@ -355,11 +372,50 @@ The user can review your reasoning in the task output and provide guidance if th
           output: msg.result.output,
           error: msg.result.error,
           duration: msg.result.duration,
+          metrics: dispatchMetrics,
           branchName: msg.result.branchName,
           prUrl: msg.result.prUrl,
           prNumber: msg.result.prNumber,
         }),
       }).catch(() => { alive = false })
+
+      // Emit task.completed AstroEvent for observability hooks (observation collector, usage metrics, langfuse)
+      const dispatchResult: DispatchTaskResult = {
+        taskId: executionId,
+        status: msg.result.status === 'completed' ? 'success' : 'failure',
+        stdout: msg.result.output,
+        errorMessage: msg.result.error,
+        metrics: dispatchMetrics,
+        branchName: msg.result.branchName,
+        prUrl: msg.result.prUrl,
+        prNumber: msg.result.prNumber,
+      }
+      astroEventTransport.emitEvent({
+        type: 'task.completed',
+        taskId: executionId,
+        nodeId,
+        projectId,
+        executionId,
+        result: dispatchResult,
+        node: {
+          id: nodeId,
+          projectId,
+          type: 'task',
+          title,
+          description,
+          status: msg.result.status === 'completed' ? 'completed' : 'planned',
+          parentId: null,
+          dependencies: [],
+          verification: 'auto',
+          position: { x: 0, y: 0 },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        timestamp: new Date(),
+      }).catch((err) => {
+        console.error('[dispatch] Error emitting task.completed event:', err)
+      })
+
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
       alive = false
     }

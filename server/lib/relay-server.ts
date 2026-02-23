@@ -322,6 +322,14 @@ interface AgentRunnerTaskResultMessage {
       content?: string;
       metadata?: Record<string, unknown>;
     }>;
+    metrics?: {
+      durationMs?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      totalCost?: number;
+      model?: string;
+      numTurns?: number;
+    };
   };
 }
 
@@ -1554,7 +1562,7 @@ export class RelayServer extends EventEmitter {
 
   private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {
     const { payload } = message;
-    const { taskId, status, exitCode, output, error, artifacts } = payload;
+    const { taskId, status, exitCode, output, error, artifacts, metrics } = payload;
 
     // Convert to standard result message
     const resultMsg: TaskResultMessage = {
@@ -1575,6 +1583,7 @@ export class RelayServer extends EventEmitter {
           type: a.type === 'file' ? 'file' : a.type === 'log' ? 'log' : 'other',
           path: a.path,
         })),
+        metrics,
       },
     };
     this.emit('task:result', resultMsg);

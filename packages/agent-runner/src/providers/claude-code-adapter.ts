@@ -17,6 +17,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   private maxTasks = 1; // Claude Code runs one task at a time
   private lastError?: string;
   private claudePath: string | null = null;
+  private lastResultMetrics?: TaskResult['metrics'];
 
   async isAvailable(): Promise<boolean> {
     const provider = await getProvider('claude-code');
@@ -47,6 +48,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     try {
       stream.status('running', 0, 'Starting Claude Code');
 
+      this.lastResultMetrics = undefined;
       const result = await this.runClaude(task, stream, signal);
 
       return {
@@ -58,6 +60,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         startedAt,
         completedAt: new Date().toISOString(),
         artifacts: result.artifacts,
+        metrics: this.lastResultMetrics,
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -291,9 +294,22 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
         case 'result': {
           // Final result — don't send text (already streamed via assistant events)
-          // Extract cost/usage info
+          // Extract cost/usage info and metrics
           const cost = event.total_cost_usd as number | undefined;
           const numTurns = event.num_turns as number | undefined;
+          const durationMs = event.duration_ms as number | undefined;
+          const usage = event.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+          const model = event.model as string | undefined;
+
+          this.lastResultMetrics = {
+            inputTokens: usage?.input_tokens,
+            outputTokens: usage?.output_tokens,
+            totalCost: cost,
+            numTurns,
+            durationMs,
+            model,
+          };
+
           if (cost !== undefined) {
             stream.status('running', 100, `Completed (${numTurns ?? 0} turns, $${cost.toFixed(4)})`);
           } else {

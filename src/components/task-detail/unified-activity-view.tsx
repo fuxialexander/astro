@@ -185,14 +185,16 @@ function TextBlock({ events }: { events: TaskActivityEvent[] }) {
   )
 }
 
-function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
+function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunning?: boolean }) {
   const [expanded, setExpanded] = useState(false) // Collapsed by default
   const toolUse = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
   const toolResult = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
 
   if (!toolUse) return null
 
-  const isComplete = toolResult !== undefined
+  const hasResult = toolResult !== undefined
+  // Only show spinner when task is still running and tool result hasn't arrived
+  const isComplete = hasResult || !isRunning
   const success = toolResult?.success
 
   return (
@@ -266,7 +268,7 @@ function ToolBlock({ events }: { events: TaskActivityEvent[] }) {
   )
 }
 
-function ToolGroupBlock({ events }: { events: TaskActivityEvent[] }) {
+function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunning?: boolean }) {
   const [expanded, setExpanded] = useState(false) // Collapsed by default showing icons
 
   // Group tool_use and tool_result pairs
@@ -296,7 +298,8 @@ function ToolGroupBlock({ events }: { events: TaskActivityEvent[] }) {
         {/* Horizontal icon layout when collapsed */}
         <div className="flex items-center gap-1 flex-1 min-w-0">
           {toolPairs.map((pair, idx) => {
-            const isComplete = pair.toolResult !== undefined
+            const hasResult = pair.toolResult !== undefined
+            const isComplete = hasResult || !isRunning
             const success = pair.toolResult?.success
 
             return (
@@ -342,7 +345,8 @@ function ToolGroupBlock({ events }: { events: TaskActivityEvent[] }) {
       {expanded && (
         <div className="mt-1 ml-2 mr-2 flex flex-col gap-1">
           {toolPairs.map((pair, idx) => {
-            const isComplete = pair.toolResult !== undefined
+            const hasResult = pair.toolResult !== undefined
+            const isComplete = hasResult || !isRunning
             const success = pair.toolResult?.success
 
             return (
@@ -938,9 +942,9 @@ export function UnifiedActivityView({
             case 'text':
               return <TextBlock key={i} events={block.events} />
             case 'tool':
-              return <ToolBlock key={i} events={block.events} />
+              return <ToolBlock key={i} events={block.events} isRunning={isRunning} />
             case 'tool_group':
-              return <ToolGroupBlock key={i} events={block.events} />
+              return <ToolGroupBlock key={i} events={block.events} isRunning={isRunning} />
             case 'steer':
               return <SteerBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
             case 'file_change':
