@@ -309,7 +309,7 @@ server/
     └── relay.ts                  # WebSocket protocol types for relay communication
 
 packages/
-└── agent-runner/                 # Compiled agent runner distribution
+└── agent-runner/                 # Git submodule → github.com/fuxialexander/astro-agent
 
 cli/
 └── astro-agent/                  # CLI tools for agent runner
@@ -511,8 +511,25 @@ Agent runners store data in `~/.astro/`:
 
 ### Package Names
 - Root: `astro` (package.json)
-- Agent runner: `@astro/agent` (packages/agent-runner)
+- Agent runner: `@astro/agent` (packages/agent-runner, git submodule)
 - CLI binary: `astro-agent`
+
+### Git Submodules
+`packages/agent-runner` is a git submodule pointing to `github.com/fuxialexander/astro-agent` (private).
+
+```bash
+# Clone with submodules
+git clone --recurse-submodules <repo-url>
+
+# Or initialize after clone
+git submodule update --init --recursive
+
+# Update submodule to latest
+cd packages/agent-runner && git pull origin main && cd ../..
+git add packages/agent-runner && git commit -m "chore: update agent-runner submodule"
+```
+
+`npm install` at the root automatically runs `npm install` inside the submodule via the `postinstall` script.
 
 ## Documentation
 

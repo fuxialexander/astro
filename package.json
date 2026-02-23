@@ -37,6 +37,7 @@
     "clear-data": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/clear-user-data.ts",
     "clear-data:force": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/clear-user-data.ts --force",
     "cleanup-duplicates": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/cleanup-duplicate-machines.ts",
+    "postinstall": "cd packages/agent-runner && npm install",
     "prepare": "husky"
   },
   "dependencies": {

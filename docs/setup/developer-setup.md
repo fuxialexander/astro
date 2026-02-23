@@ -125,15 +125,20 @@ This opens a browser. Select your domain and authorize. Credentials are saved to
 ## Phase 3: Clone & Install the Project
 
 ```bash
-git clone git@github.com:fuxialexander/astro.git
+git clone --recurse-submodules git@github.com:fuxialexander/astro.git
 cd astro
 
 # Use the pinned Node version
 nvm use   # reads .nvmrc -> v25.6.0
 
-# Install dependencies
+# Install dependencies (also installs agent-runner submodule deps via postinstall)
 npm install
 ```
+
+> **Note:** `packages/agent-runner` is a git submodule. If you cloned without `--recurse-submodules`, run:
+> ```bash
+> git submodule update --init --recursive
+> ```
 
 ---
 
