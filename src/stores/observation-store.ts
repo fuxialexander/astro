@@ -89,9 +89,10 @@ export function buildTraceTree(traceId: string, observations: RawObservation[]):
     }
   })
 
-  // Compute aggregate stats
-  const totalTokens = generations.reduce(
-    (sum, g) => sum + (g.inputTokens ?? 0) + (g.outputTokens ?? 0),
+  // Compute aggregate stats (sum from ALL observations, not just generations,
+  // because token/cost data lives on the task:completed event observation)
+  const totalTokens = observations.reduce(
+    (sum, o) => sum + (o.inputTokens ?? 0) + (o.outputTokens ?? 0),
     0
   )
   const totalCost = observations.reduce(

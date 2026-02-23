@@ -295,11 +295,21 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         case 'result': {
           // Final result — don't send text (already streamed via assistant events)
           // Extract cost/usage info and metrics
-          const cost = event.total_cost_usd as number | undefined;
+          // Claude Code CLI may use `cost_usd` or `total_cost_usd` depending on version
+          const cost = (event.total_cost_usd ?? event.cost_usd) as number | undefined;
           const numTurns = event.num_turns as number | undefined;
-          const durationMs = event.duration_ms as number | undefined;
+          const durationMs = (event.duration_ms ?? event.duration_api_ms) as number | undefined;
           const usage = event.usage as { input_tokens?: number; output_tokens?: number } | undefined;
           const model = event.model as string | undefined;
+
+          // Log result event fields for debugging token extraction
+          const eventKeys = Object.keys(event).filter(k => k !== 'result').sort();
+          console.log(`[claude-code] Result event fields: ${eventKeys.join(', ')}`);
+          if (usage) {
+            console.log(`[claude-code] Usage: input_tokens=${usage.input_tokens}, output_tokens=${usage.output_tokens}`);
+          } else {
+            console.log(`[claude-code] No usage field found on result event`);
+          }
 
           this.lastResultMetrics = {
             inputTokens: usage?.input_tokens,

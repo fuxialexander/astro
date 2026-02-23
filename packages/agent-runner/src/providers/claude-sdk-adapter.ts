@@ -652,9 +652,18 @@ export class ClaudeSdkAdapter implements ProviderAdapter {
         // Extract metrics from SDK result (available on both success and error subtypes)
         const msgAny = msg as Record<string, unknown>;
         const usage = msgAny.usage as { input_tokens?: number; output_tokens?: number } | undefined;
-        const totalCostUsd = msgAny.total_cost_usd as number | undefined;
+        const totalCostUsd = (msgAny.total_cost_usd ?? msgAny.cost_usd) as number | undefined;
         const numTurns = msgAny.num_turns as number | undefined;
-        const durationMs = msgAny.duration_ms as number | undefined;
+        const durationMs = (msgAny.duration_ms ?? msgAny.duration_api_ms) as number | undefined;
+
+        // Log result message fields for debugging token extraction
+        const msgKeys = Object.keys(msgAny).filter(k => k !== 'result').sort();
+        console.log(`[claude-sdk] Result message fields: ${msgKeys.join(', ')}`);
+        if (usage) {
+          console.log(`[claude-sdk] Usage: input_tokens=${usage.input_tokens}, output_tokens=${usage.output_tokens}`);
+        } else {
+          console.log(`[claude-sdk] No usage field found on result message`);
+        }
 
         resultMetrics = {
           inputTokens: usage?.input_tokens,

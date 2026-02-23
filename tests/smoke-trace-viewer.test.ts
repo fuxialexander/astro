@@ -439,4 +439,43 @@ describe('Trace Viewer Pipeline Smoke Test', () => {
     console.log(`    TraceTree structure valid for all 6 UI components`)
     console.log(`    ${tree.turns.length} turns, ${tree.stats.totalToolCalls} tools, ${tree.events.length} events`)
   })
+
+  it('should aggregate token counts and cost from task:completed event observations', async () => {
+    const execId = 'exec-tokens-' + Date.now()
+
+    collector.handleLifecycleEvent(createTaskStartedEvent(execId))
+    executionEventBus.emit('task:session_init', {
+      taskId: execId, sessionId: 'sess-tok', model: 'claude-sonnet-4-5-20250929',
+    })
+
+    // One turn with text + tool
+    executionEventBus.emit('task:stdout', {
+      output: { taskId: execId, data: 'Working on it.', stream: 'stdout', timestamp: new Date() },
+    })
+    executionEventBus.emit('task:tool_trace', {
+      taskId: execId, toolName: 'Bash',
+      toolInput: { command: 'echo hi' }, toolUseId: 'toolu_tok_1',
+    })
+    executionEventBus.emit('task:tool_trace', {
+      taskId: execId, toolName: 'Bash',
+      toolResult: 'hi', success: true, toolUseId: 'toolu_tok_1',
+    })
+
+    // Complete with metrics containing token data
+    collector.handleLifecycleEvent(createTaskCompletedEvent(execId))
+    await tick(100)
+
+    const rawObs = collectFlushedObservations(execId)
+    const tree = buildTraceTree(execId, rawObs)
+
+    // Token counts should come from the task:completed event observation,
+    // NOT from individual generation observations (which don't have token data).
+    // createTaskCompletedEvent sets inputTokens=8500, outputTokens=1200, estimatedCostUsd=0.025
+    expect(tree.stats.totalTokens).toBe(8500 + 1200)
+    expect(tree.stats.totalCost).toBeCloseTo(0.025)
+
+    console.log('\n  Token aggregation test:')
+    console.log(`    totalTokens: ${tree.stats.totalTokens} (expected ${8500 + 1200})`)
+    console.log(`    totalCost: ${tree.stats.totalCost} (expected 0.025)`)
+  })
 })
