@@ -226,8 +226,13 @@ function RootRedirect() {
     )
   }
 
+  useEffect(() => {
+    if (initialized && !session) {
+      window.location.href = '/landing/'
+    }
+  }, [initialized, session])
+
   if (!session) {
-    window.location.href = '/landing/'
     return null
   }
   return <Navigate to="/dashboard" replace />
