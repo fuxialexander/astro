@@ -530,6 +530,117 @@
         .cta-button .arrow { transition: transform 0.25s ease; }
         .cta-button:hover .arrow { transform: translateX(3px); }
 
+        .footer-cta-row {
+            display: inline-flex;
+            align-items: stretch;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(91, 163, 208, 0.25);
+            transition: all 0.3s ease;
+        }
+
+        .footer-cta-row:hover {
+            border-color: rgba(91, 163, 208, 0.5);
+            box-shadow: 0 8px 32px rgba(91, 163, 208, 0.12);
+        }
+
+        .footer-cta-row .cta-button {
+            border: none;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 0;
+        }
+
+        .footer-cta-row .cta-button:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        .footer-install {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0 0.5rem 0 1.25rem;
+            background: rgba(0, 0, 0, 0.25);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            position: relative;
+        }
+
+        .footer-install:hover {
+            background: rgba(0, 0, 0, 0.35);
+            color: var(--text-primary);
+        }
+
+        .footer-install .prompt { color: var(--cyan); opacity: 0.5; }
+        .footer-install .flag { color: var(--orange); }
+        .footer-install:hover .cmd { color: var(--text-primary); }
+
+        .footer-install .copy-btn {
+            font-size: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .footer-install .copy-btn::before {
+            content: '';
+            width: 13px;
+            height: 13px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(240,240,240,0.4)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2' ry='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+            background-size: contain;
+            background-repeat: no-repeat;
+        }
+
+        .footer-install .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .footer-install .copy-btn:hover::before {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(240,240,240,0.8)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2' ry='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+        }
+
+        .footer-install .copy-btn.copied {
+            font-size: 0.6rem;
+            width: auto;
+            padding: 0 0.5rem;
+            color: var(--green);
+            border-color: rgba(110, 192, 122, 0.25);
+            background: rgba(110, 192, 122, 0.08);
+        }
+
+        .footer-install .copy-btn.copied::before {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .footer-cta-row {
+                flex-direction: column;
+            }
+            .footer-cta-row .cta-button {
+                border-right: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                justify-content: center;
+            }
+            .footer-install {
+                padding: 0.75rem 1rem;
+                justify-content: space-between;
+            }
+        }
+
         .footer-title {
             font-family: 'Cormorant Garamond', serif;
             font-size: clamp(2rem, 4vw, 3rem);
@@ -867,11 +978,17 @@
         <section class="footer-cta">
             <div class="footer-cta-inner">
                 <h2 class="footer-title">Ready to launch?</h2>
-                <p class="footer-subtitle">Install the agent runner and connect your machines</p>
-                <a href="https://github.com/fuxialexander/astro-agent" target="_blank" rel="noopener" class="cta-button">
-                    <span>Get Started</span>
-                    <span class="arrow">&rarr;</span>
-                </a>
+                <p class="footer-subtitle">One command to connect all your machines</p>
+                <div class="footer-cta-row">
+                    <a href="/login" class="cta-button">
+                        <span>Get Started</span>
+                        <span class="arrow">&rarr;</span>
+                    </a>
+                    <div class="footer-install" onclick="navigator.clipboard.writeText('npx @astro/agent launch');var btn=this.querySelector('.copy-btn');btn.classList.add('copied');btn.textContent='Copied!';setTimeout(function(){btn.classList.remove('copied');btn.textContent=''},2000)">
+                        <span><span class="prompt">$</span> <span class="cmd">npx @astro/agent</span> <span class="flag">launch</span></span>
+                        <span class="copy-btn"></span>
+                    </div>
+                </div>
             </div>
         </section>
 
