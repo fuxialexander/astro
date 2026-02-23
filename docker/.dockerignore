@@ -45,6 +45,9 @@ temp/
 # CI/CD
 .github/
 
+# Agent runner (git submodule, runs on user machines, not in server image)
+packages/agent-runner/
+
 # Project-specific dev files
 .plan.md
 UI.pen

@@ -9,9 +9,12 @@ WORKDIR /app
 # Native module build tools (better-sqlite3 needs these)
 RUN apk add --no-cache python3 make g++ git
 
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+
 # Install ALL dependencies (devDeps needed for tsc + vite)
-COPY package*.json ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # Copy source
 COPY . .
@@ -34,7 +37,7 @@ RUN addgroup -g 1001 astro && \
 
 # Runtime artifacts from builder
 COPY --from=builder --chown=astro:astro /app/node_modules ./node_modules
-COPY --from=builder --chown=astro:astro /app/package*.json ./
+COPY --from=builder --chown=astro:astro /app/package.json ./
 
 # Server source (runs via tsx at runtime)
 COPY --from=builder --chown=astro:astro /app/server ./server
