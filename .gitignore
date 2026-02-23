@@ -18,11 +18,13 @@ out/
 .env
 .env.*
 !.env.example
+!.env.example.*
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 *.local
+!.env.example.local
 
 # IDE and Editor files
 .vscode/
@@ -125,6 +127,7 @@ public/*
 
 # Vite
 *.local
+!.env.example.local
 
 # vuepress
 .vuepress/dist
