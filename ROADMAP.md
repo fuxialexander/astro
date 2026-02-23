@@ -913,7 +913,7 @@ Your environment (you own this):
                         │
 Agent-runner (Astro provides — ~5MB):
   ┌─────────────────────▼──────────────────────┐
-  │  npm install -g @astro/agent               │
+  │  npm install -g @astroanywhere/agent               │
   │  Connects to relay via WebSocket           │
   │  Receives task dispatches                  │
   │  Selects agent model (Claude, Codex, None) │
@@ -983,7 +983,7 @@ spec:
 
 ```bash
 conda activate ml                                    # your environment
-npm install -g @astro/agent                          # agent-runner
+npm install -g @astroanywhere/agent                          # agent-runner
 astro-agent setup --relay wss://astro-server:3002    # authenticate
 export ANTHROPIC_API_KEY=sk-ant-...                  # only if running AI tasks
 astro-agent start                                     # connect to relay
@@ -996,7 +996,7 @@ FROM pytorch/pytorch:2.4-cuda12.1-cudnn9-runtime     # YOUR base image
 RUN pip install transformers datasets                 # YOUR dependencies
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
-    && npm install -g @astro/agent                    # agent-runner
+    && npm install -g @astroanywhere/agent                    # agent-runner
 CMD ["astro-agent", "start", "--relay", "ws://astro-server.default.svc:3002"]
 ```
 

@@ -639,7 +639,7 @@ These fields already partially exist (added in recent relay protocol updates). C
 
 Create `server/lib/embedded-runner.ts`:
 ```typescript
-import { TaskExecutor } from '@astro/agent-runner';
+import { TaskExecutor } from '@astroanywhere/agent-runner';
 import { machineRegistry } from './machine-registry.js';
 
 export function startEmbeddedRunner() {

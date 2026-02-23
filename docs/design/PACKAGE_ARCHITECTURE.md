@@ -141,7 +141,7 @@ server/
 | Network access | Inbound (serves HTTP API + WebSocket relay) |
 | Deployment | Fly.io (production), localhost via `astro serve`, Tauri sidecar |
 
-### @astro/agent-runner
+### @astroanywhere/agent-runner
 
 Runs on user machines. Receives task dispatches, spawns agent processes (Claude Code, Codex), streams output, collects results. Can run standalone or embedded in Tauri.
 
@@ -160,7 +160,7 @@ packages/agent-runner/
 │   │   └── types.ts         # AgentProvider interface
 │   └── mcp/
 │       └── astro-tools-server.ts  # 15 MCP tools for agent self-direction
-└── package.json             # @astro/agent, bin: astro-agent
+└── package.json             # @astroanywhere/agent, bin: astro-agent
 ```
 
 | Property | Value |
@@ -173,7 +173,7 @@ packages/agent-runner/
 
 ### MCP Tool Server
 
-Runs INSIDE agent execution sessions. Gives agents the ability to query and modify the plan graph, projects, and initiatives. Not a separate package — it's part of @astro/agent-runner but imports @astro/core.
+Runs INSIDE agent execution sessions. Gives agents the ability to query and modify the plan graph, projects, and initiatives. Not a separate package — it's part of @astroanywhere/agent-runner but imports @astro/core.
 
 | Property | Value |
 |----------|-------|
@@ -247,7 +247,7 @@ Terminal
   │                │
   │                └──▶ Claude API (plan generation)
   │
-  └──▶ @astro/agent-runner ──▶ Claude Code ──▶ Filesystem
+  └──▶ @astroanywhere/agent-runner ──▶ Claude Code ──▶ Filesystem
          (optional, for `astro task dispatch`)
 ```
 
@@ -442,6 +442,6 @@ npm run dev                  # Local development
 docker compose up            # Production deployment
 
 # 4. Agent runner (on remote machines)
-npm install -g @astro/agent
+npm install -g @astroanywhere/agent
 astro-agent connect --server wss://astro-relay.example.com
 ```

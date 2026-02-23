@@ -87,7 +87,7 @@ export interface GitInitRelayResult {
 }
 
 // ============================================================================
-// Agent Runner Message Types (for compatibility with @astro/agent package)
+// Agent Runner Message Types (for compatibility with @astroanywhere/agent package)
 // ============================================================================
 
 /** Agent runner's provider info format */
@@ -573,7 +573,7 @@ export class RelayServer extends EventEmitter {
         console.error('[relay] Missing authentication token');
         callback(false, 401,
           'Missing authentication token. ' +
-          'Run "npx @astro/agent setup" to register this machine.'
+          'Run "npx @astroanywhere/agent setup" to register this machine.'
         );
         return;
       }
@@ -592,11 +592,11 @@ export class RelayServer extends EventEmitter {
 
         let userMessage = 'Invalid authentication token. ';
         if (errName === 'TokenExpiredError') {
-          userMessage += 'Token has expired. Run "npx @astro/agent setup" to re-register.';
+          userMessage += 'Token has expired. Run "npx @astroanywhere/agent setup" to re-register.';
         } else if (errName === 'JsonWebTokenError' && errMsg.includes('malformed')) {
           userMessage += 'Token is malformed (possible "null" string). Run setup again.';
         } else {
-          userMessage += 'Run "npx @astro/agent setup" to re-register this machine.';
+          userMessage += 'Run "npx @astroanywhere/agent setup" to re-register this machine.';
         }
 
         callback(false, 401, userMessage);
@@ -1312,7 +1312,7 @@ export class RelayServer extends EventEmitter {
   }
 
   // ============================================================================
-  // Agent Runner Message Handlers (for compatibility with @astro/agent package)
+  // Agent Runner Message Handlers (for compatibility with @astroanywhere/agent package)
   // ============================================================================
 
   /**

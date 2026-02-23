@@ -8,14 +8,14 @@ The Astro MCP server provides tools for AI agents to interact with the Astro pla
 
 ### Method 1: NPM Package (Recommended for Production)
 
-Once `@astro/agent` is published to npm:
+Once `@astroanywhere/agent` is published to npm:
 
 ```bash
 # Install globally
-npm install -g @astro/agent
+npm install -g @astroanywhere/agent
 
 # Or use npx (no installation needed)
-npx @astro/agent setup
+npx @astroanywhere/agent setup
 ```
 
 The MCP SDK will be installed automatically as a dependency.
@@ -70,7 +70,7 @@ cat ~/.claude/mcp_servers.json
   "mcpServers": {
     "astro": {
       "command": "npx",
-      "args": ["@astro/agent", "mcp"]
+      "args": ["@astroanywhere/agent", "mcp"]
     }
   }
 }
@@ -158,7 +158,7 @@ astro-agent setup
 
 ### Publishing to NPM
 
-To make the package available via `npx @astro/agent`:
+To make the package available via `npx @astroanywhere/agent`:
 
 ```bash
 # From packages/agent-runner directory

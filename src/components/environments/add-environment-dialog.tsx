@@ -184,7 +184,7 @@ export function AddEnvironmentDialog({ open, onOpenChange }: AddEnvironmentDialo
               <p className="text-sm text-muted-foreground">
                 On the remote machine (server, HPC login node, etc.), run:
               </p>
-              <CopyBlock text="npx @astro/agent setup" />
+              <CopyBlock text="npx @astroanywhere/agent setup" />
             </div>
             <p className="text-xs text-muted-foreground">
               <strong>For HPC clusters:</strong> Install on the login node if allowed by your administrator.
@@ -196,7 +196,7 @@ export function AddEnvironmentDialog({ open, onOpenChange }: AddEnvironmentDialo
               <p className="text-xs text-muted-foreground">
                 To batch add servers from your SSH config without connecting to each machine separately, run:
               </p>
-              <CopyBlock text="npx @astro/agent setup --with-ssh-config" />
+              <CopyBlock text="npx @astroanywhere/agent setup --with-ssh-config" />
               <p className="text-xs text-muted-foreground">
                 You'll be prompted to choose which SSH hosts to add. <strong>Prerequisite:</strong> Key-based login must be configured for those hosts.
               </p>

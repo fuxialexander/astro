@@ -1,6 +1,6 @@
 # Tauri Desktop App Vision
 
-> **See also:** [PACKAGE_ARCHITECTURE.md](./PACKAGE_ARCHITECTURE.md) for the full monorepo package structure (`@astro/core`, `@astro/cli`, `server/`, `@astro/agent-runner`, Tauri desktop) and how they compose across deployment scenarios.
+> **See also:** [PACKAGE_ARCHITECTURE.md](./PACKAGE_ARCHITECTURE.md) for the full monorepo package structure (`@astro/core`, `@astro/cli`, `server/`, `@astroanywhere/agent-runner`, Tauri desktop) and how they compose across deployment scenarios.
 
 ## Motivation
 

@@ -193,7 +193,7 @@ npm run verify    # Check Node version, deps, ports, config
 
 ## Agent Runner
 
-The agent runner is the worker process that executes AI tasks. It lives in `packages/agent-runner/`, which is a **git submodule** pointing to [github.com/fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) (private). It will later be published as a standalone package (`@astro/agent`).
+The agent runner is the worker process that executes AI tasks. It lives in `packages/agent-runner/`, which is a **git submodule** pointing to [github.com/fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) (private). It will later be published as a standalone package (`@astroanywhere/agent`).
 
 ```bash
 # Initialize the submodule (if you didn't clone with --recurse-submodules)
@@ -308,12 +308,12 @@ npx tsx packages/agent-runner/src/cli.ts status
 
 ### Future: Standalone Package
 
-When published to npm as `@astro/agent`, the commands simplify to:
+When published to npm as `@astroanywhere/agent`, the commands simplify to:
 ```bash
-npx @astro/agent launch --force-setup
-npx @astro/agent stop
-npx @astro/agent status
-npx @astro/agent config
+npx @astroanywhere/agent launch --force-setup
+npx @astroanywhere/agent stop
+npx @astroanywhere/agent status
+npx @astroanywhere/agent config
 ```
 
 ## Operating Modes

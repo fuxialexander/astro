@@ -42,7 +42,7 @@ YOUR REPO
         Own package.json.           Deployed by: you run "npm publish"
         Own build.                  Hosted on: npm registry
                                     Runs on: end user's machine (laptop, HPC, cloud VM)
-                                    End users install it with "npm install -g @astro/agent"
+                                    End users install it with "npm install -g @astroanywhere/agent"
                                     and connect to the relay.
 ```
 
@@ -110,7 +110,7 @@ This diagram shows what happens **after deployment**, when end users are using t
 │  SUPABASE CLOUD      │   │  END USER'S MACHINE          │
 │  (managed service)   │   │                              │
 │                      │   │  The user installs            │
-│  PostgreSQL          │   │  @astro/agent on their        │
+│  PostgreSQL          │   │  @astroanywhere/agent on their        │
 │    All persistent    │   │  machine and runs it.         │
 │    state.            │   │  It connects outbound to      │
 │  Auth                │   │  the relay, receives tasks,   │
@@ -139,8 +139,8 @@ YOU (operator, on your dev machine)
 │                                         Frontend is live at https://astro-app.pages.dev
 │
 └── (cd packages/agent-runner && npm publish)
-                                        → publishes @astro/agent to npm
-                                          End users install with: npm install -g @astro/agent
+                                        → publishes @astroanywhere/agent to npm
+                                          End users install with: npm install -g @astroanywhere/agent
 ```
 
 The frontend build step bakes in three `VITE_*` env vars. `VITE_API_BASE_URL` tells the React app where the backend is (without it, the app calls `/api/...` on the same domain — works in local dev via Vite proxy, not in production). `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` enable auth mode — without them, the app detects "local mode" and skips authentication entirely (no login page).
@@ -403,7 +403,7 @@ fly secrets set \
 From a user machine (your laptop, an HPC node, etc.):
 
 ```bash
-npm install -g @astro/agent
+npm install -g @astroanywhere/agent
 astro-agent setup --relay wss://astro-backend-platform.fly.dev:3002
 astro-agent start
 ```

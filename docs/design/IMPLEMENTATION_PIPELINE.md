@@ -419,7 +419,7 @@ Vitest suite: 29 files, all passing (`npm test`)
 [x] Cloudflare Tunnel (dev)
 [x] Environment variable system (ASTRO_*)
 [ ] CI/CD pipeline (GitHub Actions)
-[ ] npm publish @astro/agent
+[ ] npm publish @astroanywhere/agent
 ```
 
 ---
@@ -624,6 +624,6 @@ After beta, these are the next priorities:
 | "Install Agent Runner" button | M | Wire to `ssh-installer.ts` |
 | Rented VM setup wizard | M | Guided flow in UI |
 | CI/CD pipeline (GitHub Actions) | M | Build + lint + test on PRs |
-| npm publish `@astro/agent` | S | Package on npm registry |
+| npm publish `@astroanywhere/agent` | S | Package on npm registry |
 | Supabase stress testing | M | Multi-device concurrent load |
 | SkyPilot strategy completion | L | Experimental → stable |

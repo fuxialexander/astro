@@ -207,7 +207,7 @@ curl -X POST https://astro-api.your-domain.com/api/device/revoke \
 
 ```bash
 # Install agent runner
-npm install -g @astro/agent
+npm install -g @astroanywhere/agent
 
 # Authenticate
 astro-agent auth login

@@ -16,7 +16,7 @@ It is a standalone Node.js process that connects to the Astro backend via WebSoc
 
 ### Key Identifiers
 
-- **Package**: `@astro/agent` (npm)
+- **Package**: `@astroanywhere/agent` (npm)
 - **CLI binary**: `astro-agent`
 - **Location**: `packages/agent-runner/`
 - **Config directory**: `~/.config/astro-agent/` (platform-dependent, via `conf` package)

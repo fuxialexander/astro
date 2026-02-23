@@ -1345,14 +1345,14 @@ The initial public release is **local-mode only**: a single user runs everything
 
 | Component | Package | What it does |
 |-----------|---------|-------------|
-| **Agent Runner** | `packages/agent-runner/` → `@astro/agent` (npm) | CLI tool. Receives tasks, executes them locally using the user's own Claude credentials, streams output. |
+| **Agent Runner** | `packages/agent-runner/` → `@astroanywhere/agent` (npm) | CLI tool. Receives tasks, executes them locally using the user's own Claude credentials, streams output. |
 | **Local Server** | `server/` (bundled with agent runner or run via `npm run dev`) | Hono API + PGlite. Serves the frontend, stores data on disk (`~/.astro/`), runs AI plan generation. Single process, no network dependencies. |
 | **Frontend** | `src/` → `dist/` (static files) | React app. Served by the local server at `http://localhost:5173` (dev) or bundled for production. |
 
 **What this looks like for the user:**
 
 ```
-npm install -g @astro/agent    # or: npx @astro/agent
+npm install -g @astroanywhere/agent    # or: npx @astroanywhere/agent
 astro-agent start              # starts local server + opens browser
 
 # Everything runs locally:
@@ -1408,7 +1408,7 @@ In local mode, `server/index.ts` skips loading the server-only routes entirely (
 For the initial release, the local server and agent runner can be the **same process**:
 
 ```
-@astro/agent (npm package)
+@astroanywhere/agent (npm package)
 ├── Agent runner loop (receives tasks, calls Claude, streams output)
 ├── Hono API server (serves frontend + API on localhost)
 ├── PGlite (embedded Postgres, data in ~/.astro/data/)

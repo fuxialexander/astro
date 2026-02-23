@@ -50,9 +50,9 @@ curl http://localhost:3001/api/relay/health
 On the machine that will execute tasks:
 
 ```bash
-npm install -g @astro/agent
+npm install -g @astroanywhere/agent
 # or use npx (no install needed)
-npx @astro/agent status
+npx @astroanywhere/agent status
 ```
 
 On HPC clusters, you may need to load Node.js first:

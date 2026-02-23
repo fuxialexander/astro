@@ -19,7 +19,7 @@ The biggest gaps for release are:
 4. **Team features partially wired** — backend ~85% complete, frontend ~30% wired
 5. **LICENSE references wrong project name** — says "Nexus Contributors" instead of "Astro"
 6. **Bundle size warning** — 3.2MB JS bundle (should be code-split)
-7. **No npm publishing** — `@astro/agent` package not published
+7. **No npm publishing** — `@astroanywhere/agent` package not published
 
 ---
 
@@ -121,7 +121,7 @@ The critical Phase A fix from `IMPLEMENTATION_PIPELINE.md` has been **completed*
 | Git worktree isolation | ✅ Done | |
 | PR creation | ✅ Done | |
 | MCP tools (4) | ✅ Done | |
-| npm publish (`@astro/agent`) | ❌ Not done | Package exists but not published |
+| npm publish (`@astroanywhere/agent`) | ❌ Not done | Package exists but not published |
 
 ### 2.6 Data Persistence
 
@@ -210,7 +210,7 @@ The critical Phase A fix from `IMPLEMENTATION_PIPELINE.md` has been **completed*
 | 9 | **Wire Settings Teams tab** | S | Replace 4 stubbed API calls in `TeamsContent()` |
 | 10 | **Add sidebar team switcher** | M | Slack-style workspace switcher dropdown |
 | 11 | **Code splitting** | M | 3.2MB JS bundle needs `React.lazy()` / dynamic imports for route-level splitting |
-| 12 | **Publish `@astro/agent` to npm** | S | Package exists, needs publishing setup |
+| 12 | **Publish `@astroanywhere/agent` to npm** | S | Package exists, needs publishing setup |
 | 13 | **Email service integration** | M | Replace console.log stub with actual email provider (SendGrid/Resend/SES) |
 | 14 | **Structured logging** | M | Replace 577 console.log/warn/error calls with proper logger (pino/winston) |
 | 15 | **E2E smoke test** | L | Vitest-based end-to-end test for core user journey |
@@ -262,7 +262,7 @@ Focus: Open-source ready, anyone can `npm run dev` and use it.
 1. Complete team CRUD + wire frontend
 2. Add sidebar team switcher
 3. Code-split the frontend bundle
-4. Publish `@astro/agent` to npm
+4. Publish `@astroanywhere/agent` to npm
 5. Integrate real email service
 6. Add structured logging
 7. Write comprehensive README with architecture docs

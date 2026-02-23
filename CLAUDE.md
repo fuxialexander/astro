@@ -511,7 +511,7 @@ Agent runners store data in `~/.astro/`:
 
 ### Package Names
 - Root: `astro` (package.json)
-- Agent runner: `@astro/agent` (packages/agent-runner, git submodule)
+- Agent runner: `@astroanywhere/agent` (packages/agent-runner, git submodule)
 - CLI binary: `astro-agent`
 
 ### Git Submodules

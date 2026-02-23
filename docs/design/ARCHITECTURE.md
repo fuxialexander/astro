@@ -624,7 +624,7 @@ astro/
 │   └── types/                     # Relay protocol types
 │
 ├── packages/
-│   └── agent-runner/              # [AGENT RUNNER] (npm: @astro/agent, binary: astro-agent)
+│   └── agent-runner/              # [AGENT RUNNER] (npm: @astroanywhere/agent, binary: astro-agent)
 │       ├── src/
 │       │   ├── cli.ts             # CLI entry point (10 commands)
 │       │   ├── commands/          # start, setup, status, auth, config, providers, resources, hosts, mcp
