@@ -203,7 +203,9 @@ export function ProjectNew() {
         } else {
           console.warn('[project-new] Repo setup returned null, generating without working directory')
           setRepoSetupError('Repository setup returned incomplete data')
-          startGeneration(id, projectName, description.trim())
+          startGeneration(id, projectName, description.trim(), undefined, {
+            targetMachineId: selectedMachine?.machineId,
+          })
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
@@ -218,7 +220,9 @@ export function ProjectNew() {
           )
         }
 
-        startGeneration(id, projectName, description.trim())
+        startGeneration(id, projectName, description.trim(), undefined, {
+          targetMachineId: selectedMachine?.machineId,
+        })
       } finally {
         setIsSubmitting(false)
       }

@@ -131,8 +131,10 @@ async function streamChatViaRelay(
       }).catch(() => { alive = false })
     }
 
-    const onMachineDisconnected = () => {
+    const onMachineDisconnected = (disconnectedMachineId: string) => {
       if (!alive) return
+      // Only react to the specific machine running this task
+      if (opts.targetMachineId && disconnectedMachineId !== opts.targetMachineId) return
       stream.writeSSE({
         event: 'error',
         data: 'Remote machine disconnected during task execution',
@@ -406,9 +408,14 @@ agentRoute.post('/generate-plan', async (c) => {
       if (!planResultSent) {
         let failureDetail: string
         const resultOutput = msg.result.output ?? ''
-        console.warn(`[plan-gen] Extraction failed. assistantText length=${assistantText.length}, result.output length=${resultOutput.length}, status=${msg.result.status}`)
+        const resultError = msg.result.error ?? ''
+        const resultStatus = msg.result.status ?? 'unknown'
+        console.warn(`[plan-gen] Extraction failed. assistantText length=${assistantText.length}, result.output length=${resultOutput.length}, status=${resultStatus}, error=${resultError}`)
 
-        if (assistantText.length > 0 || resultOutput.length > 0) {
+        if (resultStatus === 'failed' && resultError) {
+          // Surface the actual error from the agent runner
+          failureDetail = `Plan generation failed: ${resultError}`
+        } else if (assistantText.length > 0 || resultOutput.length > 0) {
           const combined = assistantText || resultOutput
           const trimmed = combined.trimEnd()
           const mentionsPlanKeys = trimmed.includes('"nodes"') || trimmed.includes('"edges"')
@@ -418,7 +425,9 @@ agentRoute.post('/generate-plan', async (c) => {
             failureDetail = 'The AI response did not contain a valid plan structure. Try regenerating the plan.'
           }
         } else {
-          failureDetail = 'No output was produced during plan generation.'
+          failureDetail = resultError
+            ? `No output was produced during plan generation: ${resultError}`
+            : `No output was produced during plan generation (task status: ${resultStatus}).`
         }
         stream.writeSSE({ event: 'error', data: failureDetail }).catch(() => { alive = false })
       }
@@ -444,8 +453,10 @@ agentRoute.post('/generate-plan', async (c) => {
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
     }
 
-    const onMachineDisconnected = () => {
+    const onMachineDisconnected = (disconnectedMachineId: string) => {
       if (!alive) return
+      // Only react to the specific machine running this task
+      if (targetMachineId && disconnectedMachineId !== targetMachineId) return
       stream.writeSSE({
         event: 'error',
         data: 'Remote machine disconnected during plan generation',

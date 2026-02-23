@@ -816,6 +816,15 @@ export class WebSocketClient {
     this.cleanup();
     this.emitEvent({ type: 'disconnected', reason: `${code}: ${reason}` });
 
+    // Code 4001: this connection was replaced by a new registration with the same machineId.
+    // Another process (or a duplicate instance) took over — do NOT reconnect or we'll
+    // enter an infinite reconnect loop where both processes fight for the same machineId.
+    if (code === 4001) {
+      console.error(`[ws-client] Connection replaced by another process with the same machineId. Not reconnecting. Kill duplicate processes or use a unique machineId.`);
+      this.shouldReconnect = false;
+      return;
+    }
+
     if (this.shouldReconnect) {
       this.scheduleReconnect();
     }

@@ -26,7 +26,7 @@ interface RepoKeyFiles {
 }
 
 interface RepoContext {
-  workingDirectory: string
+  workingDirectory?: string
   fileTree?: string[]
   keyFiles?: RepoKeyFiles
   targetMachineId?: string
