@@ -61,10 +61,6 @@ export function isLocalMode(): boolean {
   return !hasSupabase;
 }
 
-/** @deprecated Use isLocalMode() instead */
-export function isIndexedDBMode(): boolean {
-  return isLocalMode();
-}
 
 /**
  * Get environment variable with required validation
@@ -168,8 +164,7 @@ export function getJWTSecrets() {
  * Get Supabase configuration
  */
 export function getSupabaseConfig() {
-  // Not required in IndexedDB mode
-  const required = !isIndexedDBMode();
+  const required = !isLocalMode();
 
   return {
     url: requireEnvVar('SUPABASE_URL', {
@@ -254,12 +249,12 @@ export function validateEnvironment(): void {
     getJWTSecrets();
     console.log('[env] JWT secrets validated');
 
-    // Validate Supabase config (if not in IndexedDB mode)
-    if (!isIndexedDBMode()) {
+    // Validate Supabase config (if not in local/PGlite mode)
+    if (!isLocalMode()) {
       getSupabaseConfig();
       console.log('[env] Supabase config validated');
     } else {
-      console.log('[env] IndexedDB mode: Supabase config skipped');
+      console.log('[env] Local mode: Supabase config skipped');
     }
 
     // Validate WebAuthn config
@@ -290,7 +285,7 @@ export function getEnvironmentSummary() {
     isProduction: isProduction(),
     isDevelopment: isDevelopment(),
     isTest: isTest(),
-    isIndexedDBMode: isIndexedDBMode(),
+    isLocalMode: isLocalMode(),
     hasRedis: !!getRedisConfig().url,
     relayPort: getRelayConfig().port,
   };

@@ -32,7 +32,7 @@ import { redisPubSub } from './lib/redis-pubsub.js'
 import { machineRegistry } from './lib/machine-registry.js'
 import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus, ensureMachineRegistered, resetAllConnectionStatuses, getMachine } from './lib/registered-machines-store.js'
-import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isIndexedDBMode } from './lib/environment.js'
+import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isLocalMode as isLocalModeEnv } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
 import { astroEventTransport } from './lib/events/astro-event-transport.js'
 import { sseNotificationHook } from './lib/events/hooks/sse-notification-hook.js'
@@ -170,7 +170,7 @@ export function createApp() {
   app.route('/api/auth', authRoute)
 
   // Server-only routes (require Supabase Auth)
-  if (!isIndexedDBMode()) {
+  if (!isLocalModeEnv()) {
     app.route('/api/notifications', notificationsRoute)
     app.route('/api/github', githubRoute)
     app.route('/api/share', shareRoute)
@@ -241,7 +241,7 @@ async function start() {
   }
 
   // Bootstrap local-mode team and user (PGlite only)
-  if (isIndexedDBMode()) {
+  if (isLocalModeEnv()) {
     try {
       const { bootstrapLocalMode } = await import('./lib/db/bootstrap-local.js')
       await bootstrapLocalMode()
@@ -325,7 +325,7 @@ async function start() {
       console.log(`[relay] Machine ${machineId} connected for user ${userId}`)
       const entry = machineRegistry.get(machineId)
       // Ensure machine exists in persistent store (survives server restarts)
-      // In IndexedDB-only mode (no Postgres), this may fail — that's OK,
+      // In local/PGlite-only mode (no Postgres), this may fail — that's OK,
       // the in-memory machine registry still tracks the connection.
       try {
         await ensureMachineRegistered(machineId, {
@@ -342,7 +342,7 @@ async function start() {
           entry.name = dbMachine.name
         }
       } catch (err) {
-        console.warn(`[relay] Could not persist machine ${machineId} to database (IndexedDB-only mode?):`, (err as Error).message)
+        console.warn(`[relay] Could not persist machine ${machineId} to database (local/PGlite-only mode?):`, (err as Error).message)
       }
       if (entry && redisPubSub.isConnected()) {
         await redisPubSub.registerMachine(machineId, entry)
@@ -357,7 +357,7 @@ async function start() {
 
     relayServer.on('machine:disconnected', async (machineId, reason) => {
       console.log(`[relay] Machine ${machineId} disconnected: ${reason}`)
-      // Update registered machine status (may fail in IndexedDB-only mode — that's OK)
+      // Update registered machine status (may fail in local/PGlite-only mode — that's OK)
       updateMachineConnectionStatus(machineId, false).catch(() => {})
       if (redisPubSub.isConnected()) {
         await redisPubSub.unregisterMachine(machineId)
@@ -379,8 +379,8 @@ async function start() {
   dispatchEngine.start()
   console.log('[dispatch] Dispatch engine started')
 
-  // Start cleanup scheduler (disabled in test mode and IndexedDB mode)
-  if (!isTest() && !isIndexedDBMode()) {
+  // Start cleanup scheduler (disabled in test mode and local/PGlite mode)
+  if (!isTest() && !isLocalModeEnv()) {
     startCleanupScheduler({
       enabled: true,
       intervalMs: 24 * 60 * 60 * 1000, // 24 hours

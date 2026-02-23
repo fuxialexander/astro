@@ -654,15 +654,15 @@ authRoute.get('/session', async (c) => {
  * DELETE /api/auth/delete-account
  *
  * Permanently delete user account and all associated data.
- * Handles both IndexedDB mode (no-op) and Supabase mode (full deletion).
+ * Handles both local mode (no-op) and Supabase mode (full deletion).
  */
 authRoute.delete('/delete-account', async (c) => {
   try {
     if (isLocalMode()) {
-      // IndexedDB mode: Return success (client will clear local data)
+      // Local mode: Return success (client will clear local data)
       return c.json({
         success: true,
-        message: 'IndexedDB mode - clear local data on client'
+        message: 'Local mode - clear local data on client'
       })
     }
 

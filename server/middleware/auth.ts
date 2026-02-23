@@ -80,7 +80,7 @@ async function resolveTeams(userId: string, requestedTeamId?: string): Promise<{
  * from the X-User-Id header to provide per-browser user isolation.
  */
 export async function requireAuth(c: Context, next: Next) {
-  // If Supabase is not configured or IndexedDB-only mode, allow unauthenticated access (dev mode)
+  // In local mode (PGlite, no auth), allow unauthenticated access
   if (isLocalMode()) {
     // In local mode, use fixed local user and team IDs
     const browserUserId = c.req.header('X-User-Id')

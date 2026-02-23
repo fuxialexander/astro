@@ -697,7 +697,7 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
       count: machines.length,
     });
   } else {
-    // IndexedDB mode: Use manual filtering (SQLite)
+    // Local mode: Use manual filtering (SQLite)
     const machines = await getUserMachines(user.id);
     // Cross-reference DB status with live relay connections
     const liveIds = new Set(machineRegistry.getAll().map(m => m.machineId));
@@ -769,7 +769,7 @@ deviceAuthRoute.get('/machines/:id', requireAuth, async (c) => {
       },
     });
   } else {
-    // IndexedDB mode: Use manual ownership check
+    // Local mode: Use manual ownership check
     const machine = await getMachine(id);
 
     if (!machine) {
@@ -863,7 +863,7 @@ deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
       },
     });
   } else {
-    // IndexedDB mode: Manual ownership check
+    // Local mode: Manual ownership check
     const machine = await getMachine(id);
 
     if (!machine) {
@@ -969,7 +969,7 @@ deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
       message: `Machine "${machine.name}" has been revoked`,
     });
   } else {
-    // IndexedDB mode: Manual ownership check
+    // Local mode: Manual ownership check
     const machine = await getMachine(id);
 
     if (!machine) {

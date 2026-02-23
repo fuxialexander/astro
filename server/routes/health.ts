@@ -18,7 +18,7 @@ healthRoute.get('/health', async (c) => {
 
     return c.json({
       status: 'ok',
-      mode: isServerMode() ? 'supabase' : 'indexeddb',
+      mode: isServerMode() ? 'supabase' : 'pglite',
       // Server is always authenticated — it's a relay hub, not an AI provider
       authenticated: true,
       relay: {

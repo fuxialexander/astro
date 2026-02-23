@@ -9,7 +9,7 @@ import { db } from '../db/index.js'
 import { connectedAccounts } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import type { UserChannelConfig, ChannelType } from './channel-types.js'
-import { isIndexedDBMode } from '../environment.js'
+import { isLocalMode } from '../app-mode.js'
 
 interface CacheEntry<T> {
   data: T
@@ -51,7 +51,7 @@ class ChannelConfigManager {
     if (cached !== undefined) return cached
 
     // Try DB
-    if (!isIndexedDBMode()) {
+    if (!isLocalMode()) {
       try {
         const rows = await db
           .select()
@@ -94,7 +94,7 @@ class ChannelConfigManager {
 
   /** Get all configs for a specific user */
   async getConfigsForUser(userId: string): Promise<UserChannelConfig[]> {
-    if (isIndexedDBMode()) return []
+    if (isLocalMode()) return []
 
     try {
       const rows = await db
@@ -117,7 +117,7 @@ class ChannelConfigManager {
   // ─── Private helpers ──────────────────────────────────────────────
 
   private async loadFromDB(channel: ChannelType): Promise<UserChannelConfig[]> {
-    if (isIndexedDBMode()) return []
+    if (isLocalMode()) return []
 
     try {
       const rows = await db
