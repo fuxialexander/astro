@@ -284,6 +284,19 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
         wsClient.sendFileListResponse(correlationId, []);
         return;
       }
+      // Check if directory is a git repo before trying git ls-files
+      try {
+        execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
+          cwd,
+          encoding: 'utf-8',
+          timeout: 5000,
+          stdio: 'pipe',
+        });
+      } catch {
+        log('debug', `Not a git repo, returning empty file list: ${cwd}`, logLevel);
+        wsClient.sendFileListResponse(correlationId, []);
+        return;
+      }
       const output = execFileSync('git', ['ls-files'], {
         cwd,
         encoding: 'utf-8',
