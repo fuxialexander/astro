@@ -832,12 +832,17 @@ export class TaskExecutor {
 
 /**
  * Resolve a working directory value.
- * - Empty/missing → process.cwd()
+ * - Empty/missing → error (must be explicitly set to prevent operating on the agent runner's own repo)
  * - Git URL → error (repo setup should have resolved this to a local path)
  * - Otherwise → return as-is
  */
 function resolveWorkingDirectory(value: string | undefined): string {
-  if (!value) return process.cwd();
+  if (!value) {
+    throw new Error(
+      'workingDirectory is required but was not provided. ' +
+      'Configure a project directory or repository before dispatching tasks.'
+    );
+  }
 
   const isGitUrl = value.startsWith('http://') || value.startsWith('https://') || value.startsWith('git@');
   if (isGitUrl) {

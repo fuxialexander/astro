@@ -30,6 +30,9 @@ export default defineConfig(({ mode }) => {
     },
   },
   server: {
+    watch: {
+      ignored: ['**/.astro/worktrees/**', '**/.claude/worktrees/**'],
+    },
     host: true,
     allowedHosts: env.ALLOWED_HOSTS?.split(',') || true,
     hmr: env.VITE_HMR_PROTOCOL ? {
