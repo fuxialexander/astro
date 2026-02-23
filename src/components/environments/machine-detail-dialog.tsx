@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { formatRelativeTime } from "@/lib/date-utils"
+import { useSettingsStore } from "@/stores/settings-store"
 import type { RegisteredMachine } from "@/stores/machines-store"
 import type { MachineEntry } from "@/stores/realtime-store"
 
@@ -49,6 +50,9 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 }
 
 export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }: MachineDetailDialogProps) {
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
+  const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
+
   if (!machine) return null
 
   const isOnline = machine.isConnected || !!liveMachine
@@ -131,42 +135,75 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
         {/* Providers */}
         <div className="flex flex-col gap-2 mt-4">
           <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Agent Providers</h4>
+          <p className="text-[11px] text-muted-foreground">Click a provider to set it as the default for task execution.</p>
           {liveProviders && liveProviders.length > 0 ? (
             <div className="flex flex-col gap-1.5">
-              {liveProviders.map((p) => (
-                <div key={p.type} className="flex items-center justify-between rounded-lg bg-muted p-2.5">
-                  <div className="flex items-center gap-2">
-                    {p.status === "available" ? (
-                      <CheckCircle2 className="h-4 w-4 text-teal-600 dark:text-teal-400" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                    )}
-                    <span className="text-sm font-medium">{providerDisplayName[p.type] ?? p.type}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {p.currentTasks > 0 && (
-                      <span className="text-xs text-muted-foreground">{p.currentTasks}/{p.maxConcurrentTasks} tasks</span>
-                    )}
-                    <Badge variant={p.status === "available" ? "success" : "warning"} className="text-[10px]">
-                      {p.status === "available" ? "Ready" : "Unavailable"}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
+              {liveProviders.map((p) => {
+                const isDefault = defaultProvider === p.type
+                return (
+                  <button
+                    key={p.type}
+                    type="button"
+                    className={`flex items-center justify-between rounded-lg p-2.5 w-full text-left transition-colors ${
+                      isDefault
+                        ? "bg-primary/10 ring-1 ring-primary/30"
+                        : "bg-muted hover:bg-muted/80"
+                    }`}
+                    onClick={() => setDefaultProvider(isDefault ? "" : p.type)}
+                  >
+                    <div className="flex items-center gap-2">
+                      {p.status === "available" ? (
+                        <CheckCircle2 className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      )}
+                      <span className="text-sm font-medium">{providerDisplayName[p.type] ?? p.type}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {p.currentTasks > 0 && (
+                        <span className="text-xs text-muted-foreground">{p.currentTasks}/{p.maxConcurrentTasks} tasks</span>
+                      )}
+                      {isDefault ? (
+                        <Badge className="text-[10px] bg-primary/20 text-primary border-0">Default</Badge>
+                      ) : (
+                        <Badge variant={p.status === "available" ? "success" : "warning"} className="text-[10px]">
+                          {p.status === "available" ? "Ready" : "Unavailable"}
+                        </Badge>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           ) : registeredProviders.length > 0 ? (
             <div className="flex flex-col gap-1.5">
-              {registeredProviders.map((p) => (
-                <div key={p} className="flex items-center justify-between rounded-lg bg-muted p-2.5">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">{providerDisplayName[p] ?? p}</span>
-                  </div>
-                  <Badge variant="secondary" className="text-[10px]">
-                    {isOnline ? "Detected" : "Last known"}
-                  </Badge>
-                </div>
-              ))}
+              {registeredProviders.map((p) => {
+                const isDefault = defaultProvider === p
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    className={`flex items-center justify-between rounded-lg p-2.5 w-full text-left transition-colors ${
+                      isDefault
+                        ? "bg-primary/10 ring-1 ring-primary/30"
+                        : "bg-muted hover:bg-muted/80"
+                    }`}
+                    onClick={() => setDefaultProvider(isDefault ? "" : p)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">{providerDisplayName[p] ?? p}</span>
+                    </div>
+                    {isDefault ? (
+                      <Badge className="text-[10px] bg-primary/20 text-primary border-0">Default</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {isOnline ? "Detected" : "Last known"}
+                      </Badge>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">No providers detected</p>
