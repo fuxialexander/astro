@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" fill="none">
-  <rect width="480" height="120" fill="#fafafa"/>
-  <text x="240" y="52" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="42" font-weight="400" letter-spacing="0.12em" fill="#111111">ASTRO</text>
-  <text x="240" y="78" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" letter-spacing="0.08em" fill="rgba(17,17,17,0.45)">AGENT RUNNER</text>
-  <line x1="160" y1="92" x2="320" y2="92" stroke="rgba(91,163,208,0.25)" stroke-width="1"/>
-  <circle cx="200" cy="92" r="2" fill="#3a7fb0" opacity="0.6"/>
-  <circle cx="240" cy="92" r="2" fill="#b8854a" opacity="0.6"/>
-  <circle cx="280" cy="92" r="2" fill="#4a9a56" opacity="0.6"/>
-</svg>
