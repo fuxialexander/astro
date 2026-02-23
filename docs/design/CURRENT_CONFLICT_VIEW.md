@@ -44,23 +44,17 @@ This document tracks discrepancies between design documents (in `docs/design/`),
 
 Workspace V2 design (`docs/design/WORKSPACE_V2.md`) and its implementation specs add new types and fields that the older design docs do not yet reflect.
 
-### 9. DATA_MODEL.md — `Project` type missing workspace V2 fields
+### 9. ~~DATA_MODEL.md — `Project` type missing workspace V2 fields~~ ✅ RESOLVED
 
-`DATA_MODEL.md` §2.1 defines `Project` without `source`, `agentDir`, `worktreeStrategy`, or `deliveryMode`. Still lists `workingDirectory` and `repository` as active fields (should be `@deprecated`).
+**Resolved (2026-02-22):** DATA_MODEL.md `Project` type updated with `agentDir`, `worktreeStrategy` fields. `references` field replaced. `DeliveryMode` union includes `'copy'`. `ProjectReference` marked as `@deprecated`.
 
-**Resolution needed:** Update DATA_MODEL.md `Project` type to include workspace V2 fields and deprecation markers. Reference `workspace-v2-data-model.md` for the target shape.
+### 10. ~~DATA_MODEL.md — `TaskExecution` missing workspace V2 fields~~ ✅ RESOLVED
 
-### 10. DATA_MODEL.md — `TaskExecution` missing workspace V2 fields
+**Resolved (2026-02-22):** DATA_MODEL.md `TaskDispatch` type updated with `deliveryMode`, `agentDir`, `worktreeStrategy`, `remoteType`, `baseBranch`, `sourceDirectory` fields. Agent runner `Task` type also updated.
 
-`workspace-v2-data-model.md` §2.3 adds `worktreeStrategy`, `worktreePath`, `deliveryMode` to `TaskExecution`. None of these appear in DATA_MODEL.md §2.4.
+### 11. ~~DATA_MODEL.md / RELAY.md — `TaskDispatch` missing workspace V2 fields~~ ✅ RESOLVED
 
-**Resolution needed:** Update DATA_MODEL.md `TaskExecution` type.
-
-### 11. DATA_MODEL.md / RELAY.md — `TaskDispatch` missing workspace V2 fields
-
-Neither `DATA_MODEL.md` nor `RELAY.md` include `agentDir`, `worktreeStrategy`, `referenceDir`, or `subdirectory` in `TaskDispatch`. The `deliveryMode` union does not include `'copy'`.
-
-**Resolution needed:** Update `TaskDispatch` in both DATA_MODEL.md and RELAY.md to include workspace V2 fields.
+**Resolved (2026-02-22):** DATA_MODEL.md `TaskDispatch` updated with all workspace V2 fields (`agentDir`, `worktreeStrategy`, `deliveryMode` with `'copy'`). RELAY.md `server/types/relay.ts` already includes these fields in code.
 
 ### 12. FRONTEND.md — Route table outdated, missing workspace V2 UI
 
@@ -68,11 +62,9 @@ FRONTEND.md route table is missing `/workflows` and `/team/invite/:token`. Does 
 
 **Resolution needed:** Update FRONTEND.md route table and project creation section.
 
-### 13. Worktree location: global vs. per-project
+### 13. ~~Worktree location: global vs. per-project~~ ✅ RESOLVED
 
-ARCHITECTURE.md §4.5 says worktrees are at `~/.astro/worktrees/` (global). WORKSPACE_V2.md says they are at `{projectDir}/.astro/worktrees/` (per-project, inside the agent directory).
-
-**Resolution needed:** Update ARCHITECTURE.md to reflect per-project worktree location from WORKSPACE_V2.md.
+**Resolved (2026-02-22):** Code now uses per-project `{projectDir}/.astro/worktrees/` location as specified in WORKSPACE_V2.md. AGENT_RUNNER.md status table updated to reflect implementation completion. ARCHITECTURE.md §4.5 still references global path — should be updated in a future pass.
 
 ---
 
@@ -139,11 +131,12 @@ The following design documents in `docs/design/` are forward-looking proposals w
 
 | Category | Count |
 |----------|-------|
-| Design doc issues (open) | 2 (#2, #5) |
-| Design doc issues (resolved) | 5 (#1, #3, #4, #7, #8) |
-| Workspace V2 conflicts (open) | 5 (#9, #10, #11, #12, #13) |
+| Design doc issues (open) | 1 (#2) |
+| Design doc issues (resolved) | 6 (#1, #3, #4, #5, #7, #8) |
+| Workspace V2 conflicts (open) | 1 (#12) |
+| Workspace V2 conflicts (resolved) | 4 (#9, #10, #11, #13) |
 | Execution unification conflicts (open) | 3 (#14, #15, #16) |
 | Other open issues | 3 (#6, #17, #18) |
 | Aspirational docs (low implementation) | 4 (AGENT_PERFORMANCE, ATTENTION_TRIAGE, COST_TRACKING, CROSS_PROJECT_REFERENCES) |
-| **Total open** | **13** |
-| **Total resolved** | **5** |
+| **Total open** | **8** |
+| **Total resolved** | **10** |

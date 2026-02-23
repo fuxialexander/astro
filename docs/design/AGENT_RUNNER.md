@@ -1036,10 +1036,10 @@ interface TaskResult {
 | `workingDirectory` field semantics | ✅ RESOLVED | Added `sourceDirectory` field, `workingDirectory` deprecated |
 | `process.chdir()` race condition | ✅ RESOLVED | Code uses `options.cwd`, never `process.chdir()` |
 | Repo setup / dispatch overlap | ✅ RESOLVED | Dispatch throws on git URLs; repo setup always resolves to local path first |
-| Worktree path migration | 🔄 IN PROGRESS | Current: `.astro-tasks/`; V2 target: `{agentDir}/worktrees/` (see WORKSPACE_V2.md) |
-| Per-project workspace config | 🔄 PLANNED | V2: `{agentDir}/config.json` with baseBranch, branchPrefix, deliveryMode |
-| Non-git workspace strategies | 🔄 PLANNED | V2: direct (in-place), copy-to-worktree, reference folder |
-| Configurable agent dir name | 🔄 PLANNED | V2: default `.astro`, configurable to `.claude` etc. |
+| Worktree path migration | ✅ DONE | Migrated from `.astro-tasks/` to `{agentDir}/worktrees/` (default `.astro/worktrees/`) |
+| Per-project workspace config | ✅ DONE | `{agentDir}/config.json` with baseBranch, branchPrefix, remoteType, deliveryMode |
+| Non-git workspace strategies | ✅ DONE | `copy-worktree.ts`: copy-to-worktree (with .gitignore exclusions), reference folder, direct mode |
+| Configurable agent dir name | ✅ DONE | Default `.astro`, configurable via `agentDir` field on Task and dispatch schema |
 
 ---
 

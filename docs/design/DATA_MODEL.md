@@ -34,8 +34,9 @@ interface Project {
   workingDirectory?: string;       // @deprecated Use sourceDirectory instead. Kept for backward compatibility.
   sourceDirectory?: string;        // Resolved absolute path where the project repo lives on disk
   source?: ProjectSource;          // Detected project source metadata (git info, remote type, etc.)
-  deliveryMode?: DeliveryMode;     // How completed work is delivered: 'pr' | 'push' | 'branch' | 'direct'
-  references?: ProjectReference[]; // Additional repos/directories referenced by this project
+  deliveryMode?: DeliveryMode;     // How completed work is delivered: 'pr' | 'push' | 'branch' | 'copy' | 'direct'
+  agentDir?: string;               // Agent directory name (default '.astro'), holds config.json and worktrees
+  worktreeStrategy?: 'copy' | 'reference' | 'direct';  // Workspace isolation strategy for non-git projects
   repository?: string;             // Git SSH URL (e.g., git@github.com:user/repo.git)
   resourcePaths?: string[];        // Additional local folders (data, configs, docs) besides workingDirectory
   fileTree?: string[];             // Cached git ls-files output (relative paths)
@@ -57,7 +58,7 @@ interface Project {
 - A project may belong to a Team (via `teamId`)
 - A project has a visionDoc that is injected into every AI session
 - A project may have a `source` (ProjectSource) describing where its code lives
-- A project may have `references` (ProjectReference[]) linking to additional repos
+- A project may have an `agentDir` (default `.astro/`) with per-project config and worktrees
 
 ### 2.2 PlanNode (Task)
 
@@ -407,12 +408,12 @@ type SourceType = 'local-git' | 'cloned-git' | 'local-dir';
 type RemoteType = 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
 
 /** How completed work is delivered after task execution */
-type DeliveryMode = 'pr' | 'push' | 'branch' | 'direct';
+type DeliveryMode = 'pr' | 'push' | 'branch' | 'copy' | 'direct';
 ```
 
-- `SourceType`: Distinguishes how a project directory was set up. `local-git` means an existing local git repo; `cloned-git` means cloned from a remote URL; `local-dir` means a plain directory with no git history.
+- `SourceType`: @deprecated — Distinguishes how a project directory was set up. Workspace V2 uses `ProjectSource.isGit` instead.
 - `RemoteType`: Identifies the git hosting provider for PR creation and push operations.
-- `DeliveryMode`: Controls post-execution delivery. `pr` creates a pull request; `push` pushes to the remote branch; `branch` commits to a local branch only; `direct` modifies files in-place without git operations.
+- `DeliveryMode`: Controls post-execution delivery. `pr` creates a pull request; `push` pushes to the remote branch; `branch` commits to a local branch only; `copy` copies files to an isolated worktree directory; `direct` modifies files in-place without git operations (serial execution enforced).
 
 ### 4.4 ProjectSource
 
@@ -420,29 +421,18 @@ Detected metadata about where a project's code lives. Populated by the directory
 
 ```typescript
 interface ProjectSource {
-  type: SourceType;                // How the source was detected
   localPath: string;               // Absolute path on disk
-  gitRoot?: string;                // Git root directory (may differ from localPath for monorepos)
-  subdirectory?: string;           // Subdirectory within gitRoot (monorepo support)
+  isGit: boolean;                  // Whether the directory is a git repository
   remoteUrl?: string;              // Git remote URL (if any)
   remoteType: RemoteType;          // Hosting provider type
   baseBranch: string;              // Default branch name (e.g., 'main', 'master')
-  isGit: boolean;                  // Whether the directory is a git repository
+  subdirectory?: string;           // Subdirectory within gitRoot (monorepo support)
 }
 ```
 
-### 4.5 ProjectReference
+### 4.5 ProjectReference (@deprecated — removed in Workspace V2)
 
-A reference to an additional repository or directory that a project depends on or reads from.
-
-```typescript
-interface ProjectReference {
-  id: string;                      // UUID
-  url: string;                     // Git URL or local path identifier
-  localPath: string;               // Absolute path where this reference lives on disk
-  purpose: string;                 // Human-readable description of why this reference is needed
-}
-```
+Previously used to link additional repositories to a project. Removed in Workspace V2; agents now access data files via `resourcePaths` or the project's `sourceDirectory`.
 
 ---
 
@@ -530,6 +520,9 @@ interface Task {
   maxTurns?: number;
   outputFormat?: { type: 'json_schema'; schema: Record };
   executionStrategy?: 'direct' | 'slurm' | 'docker' | 'k8s-exec' | 'skypilot';
+  deliveryMode?: 'pr' | 'push' | 'branch' | 'copy' | 'direct';
+  agentDir?: string;                 // Agent directory name (default '.astro')
+  worktreeStrategy?: 'copy' | 'reference' | 'direct';
   createdAt: string;
 }
 ```
@@ -587,9 +580,15 @@ interface TaskDispatch {
   priority?: string;
   timeout?: number;
   workingDirectory?: string;
+  sourceDirectory?: string;          // Original project directory (for data access from worktrees)
   dependencies?: DependencyContext[];
   maxTurns?: number;
   outputFormat?: { type: string; schema: Record };
+  deliveryMode?: DeliveryMode;       // How results are delivered (pr, push, branch, copy, direct)
+  agentDir?: string;                 // Agent directory name (default '.astro')
+  worktreeStrategy?: 'copy' | 'reference' | 'direct';  // Workspace isolation strategy
+  remoteType?: RemoteType;           // Git hosting provider type
+  baseBranch?: string;               // Default branch for PR targets
 }
 ```
 
