@@ -25,7 +25,7 @@ function filterStreamText(text: string): string {
   result = result.replace(/```[\s\S]*?```/g, "")
 
   // Remove large JSON blobs (objects/arrays spanning multiple lines, 4+ lines)
-  result = result.replace(/[{\[]\s*\n(?:.*\n){3,}?\s*[}\]]/g, "")
+  result = result.replace(/[{[]\s*\n(?:.*\n){3,}?\s*[}\]]/g, "")
 
   // Collapse multiple blank lines into one
   result = result.replace(/\n{3,}/g, "\n\n")
