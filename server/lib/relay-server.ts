@@ -10,6 +10,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import { EventEmitter } from 'events';
 import jwt from 'jsonwebtoken';
+import { LOCAL_USER_ID } from './db/bootstrap-local.js';
 import {
   DEFAULT_RELAY_CONFIG,
   type RelayServerConfig,
@@ -789,7 +790,7 @@ export class RelayServer extends EventEmitter {
     try {
       // Extract userId from JWT payload stored on socket
       const jwtPayload = (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload;
-      const userId = jwtPayload?.userId || 'dev-user';
+      const userId = jwtPayload?.userId || LOCAL_USER_ID;
 
       const entry = machineRegistry.register(machineId, machineInfo, socket, userId);
       setMachineId(machineId);
@@ -1291,7 +1292,7 @@ export class RelayServer extends EventEmitter {
 
       // Extract userId from JWT payload stored on socket
       const jwtPayload = (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload;
-      const userId = jwtPayload?.userId || 'dev-user';
+      const userId = jwtPayload?.userId || LOCAL_USER_ID;
 
       machineRegistry.register(machineId, machineInfo, socket, userId);
       setMachineId(machineId);

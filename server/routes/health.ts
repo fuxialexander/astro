@@ -4,6 +4,7 @@ import { isServerMode } from '../lib/app-mode.js'
 import { detectLocalBackends, detectSingleBackend, buildContextString } from '../lib/local-backends.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 
 const healthRoute = new Hono()
 
@@ -235,7 +236,7 @@ healthRoute.get('/backends/remote/:machineId/:strategyId', requireAuth, async (c
       return c.json({ error: 'Machine not found' }, 404)
     }
 
-    if (machine.userId && machine.userId !== 'dev-user' && machine.userId !== user.id) {
+    if (machine.userId && machine.userId !== LOCAL_USER_ID && machine.userId !== user.id) {
       return c.json({ error: 'Machine not found' }, 404)
     }
 

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { db } from '../lib/db/index.js'
 import { pushTokens } from '../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
+import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 
 const app = new Hono()
 
@@ -84,7 +85,7 @@ app.patch('/preferences', async (c) => {
 
 // List registered tokens for a user (debug)
 app.get('/tokens', async (c) => {
-  const userId = c.req.query('userId') || 'dev-user'
+  const userId = c.req.query('userId') || LOCAL_USER_ID
   const tokens = await db.select().from(pushTokens).where(eq(pushTokens.userId, userId))
   return c.json({ tokens, count: tokens.length })
 })

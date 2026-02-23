@@ -13,6 +13,7 @@ import { machineRegistry } from '../lib/machine-registry.js';
 import { redisPubSub } from '../lib/redis-pubsub.js';
 import { getMachine } from '../lib/registered-machines-store.js';
 import type { TaskDispatch, ProviderType } from '../types/relay.js';
+import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 
 export const relayRoute = new Hono();
@@ -86,7 +87,7 @@ relayRoute.get('/machines', async (c) => {
   const user = c.get('user') as AuthUser | undefined;
   const snapshot = machineRegistry.getSnapshot();
   // Filter machines by authenticated user
-  const userMachines = snapshot.machines.filter(m => !m.userId || m.userId === user?.id || m.userId === 'dev-user');
+  const userMachines = snapshot.machines.filter(m => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID);
 
   // Cross-reference with persistent store to get user-set names
   const machinesWithDbNames = await Promise.all(
@@ -137,7 +138,7 @@ relayRoute.get('/machines/:machineId', (c) => {
   }
 
   // Verify ownership
-  if (machine.userId && machine.userId !== 'dev-user' && user?.id && machine.userId !== user.id) {
+  if (machine.userId && machine.userId !== LOCAL_USER_ID && user?.id && machine.userId !== user.id) {
     return c.json({ error: 'Machine not found' }, 404);
   }
 

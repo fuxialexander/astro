@@ -37,6 +37,7 @@ import type {
 } from '../types/relay.js';
 import type { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
+import { LOCAL_USER_ID } from './db/bootstrap-local.js';
 
 /** Connection metadata stored with each machine */
 export interface MachineConnection {
@@ -303,7 +304,7 @@ export class MachineRegistry extends EventEmitter {
    * Get machines owned by a specific user
    */
   getByUser(userId: string): MachineRegistryEntry[] {
-    return this.getAll().filter(m => !m.userId || m.userId === userId || m.userId === 'dev-user');
+    return this.getAll().filter(m => !m.userId || m.userId === userId || m.userId === LOCAL_USER_ID);
   }
 
   /**
@@ -326,7 +327,7 @@ export class MachineRegistry extends EventEmitter {
 
     // Filter by user ownership when provided
     if (userId) {
-      candidates = candidates.filter(m => !m.userId || m.userId === userId || m.userId === 'dev-user');
+      candidates = candidates.filter(m => !m.userId || m.userId === userId || m.userId === LOCAL_USER_ID);
     }
 
     const effectiveProvider = preferredProvider;

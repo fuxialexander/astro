@@ -18,6 +18,7 @@ import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import type { ProviderType } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 
 // Validation schemas
 const dispatchTaskSchema = z.object({
@@ -257,7 +258,7 @@ async function dispatchViaRelay(
   } else {
     // Verify ownership of explicitly targeted machine
     const targetMachine = machineRegistry.get(machineId)
-    if (targetMachine?.userId && targetMachine.userId !== 'dev-user' && user?.id && targetMachine.userId !== user.id) {
+    if (targetMachine?.userId && targetMachine.userId !== LOCAL_USER_ID && user?.id && targetMachine.userId !== user.id) {
       return c.json(
         { success: false, error: `Machine ${machineId} not found or not authorized` },
         403

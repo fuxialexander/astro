@@ -8,6 +8,7 @@
 
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
+import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { relayServer } from '../lib/relay-server.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { eventBuffer } from '../lib/event-buffer.js'
@@ -76,7 +77,7 @@ eventsRoute.get('/stream', async (c) => {
     // Send initial machine list (filtered by authenticated user)
     // Cross-reference with persistent store to prefer user-set names
     const allMachines = machineRegistry.getAll()
-    const machines = allMachines.filter(m => !m.userId || m.userId === user?.id || m.userId === 'dev-user')
+    const machines = allMachines.filter(m => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID)
     const machineData = await Promise.all(machines.map(async (m) => {
       const dbMachine = await getMachine(m.machineId)
       // Prefer user-set name from DB if it differs from hostname (i.e., user renamed it)
@@ -205,7 +206,7 @@ eventsRoute.get('/stream', async (c) => {
     const onMachineConnected = async (machineId: string, machineUserId: string) => {
       if (!alive) return
       // Filter: only send events for machines owned by this user
-      if (machineUserId && machineUserId !== 'dev-user' && user?.id && machineUserId !== user.id) return
+      if (machineUserId && machineUserId !== LOCAL_USER_ID && user?.id && machineUserId !== user.id) return
       const entry = machineRegistry.get(machineId)
       // Cross-reference with persistent store for user-set name
       const dbMachine = await getMachine(machineId)

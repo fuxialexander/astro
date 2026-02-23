@@ -198,12 +198,18 @@ export class WebSocketClient {
   private async ensureValidToken(): Promise<string | null> {
     let token = this.wsToken || configManager.getWsToken();
 
-    if (!token) {
-      // In dev mode (non-wss relay), allow connecting without auth
-      if (this.config.relayUrl.startsWith('ws://')) {
-        console.log('[ws-client] No access token configured — connecting without auth (dev mode)');
+    // In dev mode (non-wss relay), skip auth entirely
+    if (this.config.relayUrl.startsWith('ws://')) {
+      if (!token) {
         return null;
       }
+      // Even with a stale token, dev mode doesn't need auth
+      if (this.isTokenExpiring(token)) {
+        return null;
+      }
+    }
+
+    if (!token) {
       throw new Error('No access token configured. Please run setup to authenticate.');
     }
 
@@ -216,11 +222,6 @@ export class WebSocketClient {
         console.log('[ws-client] ✅ Access token refreshed successfully');
       } catch (error) {
         console.error('[ws-client] ❌ Failed to refresh token:', error instanceof Error ? error.message : String(error));
-        // In dev mode, fall back to unauthenticated
-        if (this.config.relayUrl.startsWith('ws://')) {
-          console.log('[ws-client] Falling back to unauthenticated connection (dev mode)');
-          return null;
-        }
         throw new Error(`Authentication failed: ${error instanceof Error ? error.message : 'Token refresh failed'}. Please run setup again.`);
       }
     }
