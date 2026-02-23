@@ -336,6 +336,36 @@ Complete documentation is in `docs/`:
 - [Data Model](docs/design/DATA_MODEL.md) — Database schema (28 tables)
 - [Full Index](docs/index.md) — All documentation
 
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for detailed guidelines on how to get started.
+
+### Quick Start for Contributors
+
+1. **Fork** the repository
+2. **Clone** your fork and install dependencies:
+   ```bash
+   git clone git@github.com:YOUR_USERNAME/astro.git
+   cd astro && npm install
+   ```
+3. **Create a branch** for your changes: `git checkout -b feature/your-feature-name`
+4. **Make your changes** and ensure tests pass: `npm test && npm run lint`
+5. **Submit a pull request** with a clear description
+
+### Good First Issues
+
+New to the project? Look for issues labeled [`good first issue`](https://github.com/fuxialexander/astro/labels/good%20first%20issue) — these are beginner-friendly tasks that help you get familiar with the codebase.
+
+### Reporting Issues
+
+- **Bug Reports**: Use the [Bug Report template](https://github.com/fuxialexander/astro/issues/new?template=bug_report.yml) to report bugs
+- **Feature Requests**: Use the [Feature Request template](https://github.com/fuxialexander/astro/issues/new?template=feature_request.yml) to suggest new features
+
+### Community
+
+- **[GitHub Discussions](https://github.com/fuxialexander/astro/discussions)** — Ask questions, share ideas, and connect with other users
+- **[Issue Tracker](https://github.com/fuxialexander/astro/issues)** — Browse and contribute to open issues
+
 ## Acknowledgments
 
 Built with [React](https://react.dev/), [Vite](https://vite.dev/), [Hono](https://hono.dev/), [Tailwind CSS](https://tailwindcss.com/), [React Flow](https://reactflow.dev/), [Zustand](https://zustand-demo.pmnd.rs/), [Drizzle ORM](https://orm.drizzle.team/), and [Anthropic Claude](https://www.anthropic.com/).
