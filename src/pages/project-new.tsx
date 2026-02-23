@@ -42,8 +42,8 @@ export function ProjectNew() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
 
-  // Directory detection — inline feedback as user types
-  const { detection, isDetecting } = useDirectoryDetection(workingDir)
+  // Directory detection — inline feedback as user types (requires machineId for relay)
+  const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
 
   // GitHub integration
   const { connected, repos, selectedRepoIds, fetchRepos } = useGitHubStore()
@@ -152,7 +152,7 @@ export function ProjectNew() {
 
   // Called when user confirms git init from the dialog
   const handleGitInitConfirm = async () => {
-    await confirmGitInit()
+    await confirmGitInit(selectedMachine?.machineId)
     if (pendingGeneration) {
       const pg = pendingGeneration
       setPendingGeneration(null)
@@ -469,6 +469,16 @@ export function ProjectNew() {
   const DetectionFeedback = () => {
     const trimmedDir = workingDir.trim()
     if (!trimmedDir) return null
+
+    // No machine selected — show hint
+    if (!selectedMachine) {
+      return (
+        <div className="flex items-center gap-2.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+          <Laptop className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">Connect a machine to detect directory info.</p>
+        </div>
+      )
+    }
 
     // Detecting state
     if (isDetecting) {

@@ -475,6 +475,49 @@ export interface SlashCommandsResponseMessage extends BaseMessage {
   commands: Array<{ name: string; description: string }>;
 }
 
+/** Repo detect request (relay → agent) */
+export interface RepoDetectRequestMessage extends BaseMessage {
+  type: 'repo_detect.request';
+  correlationId: string;
+  path: string;
+}
+
+/** Repo detect response (agent → relay) */
+export interface RepoDetectResponseMessage extends BaseMessage {
+  type: 'repo_detect.response';
+  correlationId: string;
+  exists: boolean;
+  isGit: boolean;
+  remoteUrl?: string;
+  remoteType: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
+  baseBranch?: string;
+  suggestedDeliveryMode: 'pr' | 'push' | 'branch' | 'direct';
+  dirSizeMB?: number | null;
+  error?: string;
+}
+
+/** Git init request (relay → agent) */
+export interface GitInitRequestMessage extends BaseMessage {
+  type: 'git_init.request';
+  correlationId: string;
+  workingDirectory: string;
+  projectId: string;
+  projectName: string;
+  projectDescription?: string;
+}
+
+/** Git init response (agent → relay) */
+export interface GitInitResponseMessage extends BaseMessage {
+  type: 'git_init.response';
+  correlationId: string;
+  success: boolean;
+  workingDirectory?: string;
+  fileTree?: string[];
+  source?: Record<string, unknown>;
+  deliveryMode?: string;
+  error?: string;
+}
+
 /** Error message */
 export interface ErrorMessage extends BaseMessage {
   type: 'error';
@@ -574,7 +617,9 @@ export type AgentToRelayMessage =
   | TaskApprovalRequestMessage
   | HeartbeatPongMessage
   | FileListResponseMessage
-  | SlashCommandsResponseMessage;
+  | SlashCommandsResponseMessage
+  | RepoDetectResponseMessage
+  | GitInitResponseMessage;
 
 /** All session-related messages from MCP bridge to relay */
 export type SessionToRelayMessage =
@@ -597,6 +642,8 @@ export type RelayToAgentMessage =
   | MachineRegisterAckMessage
   | FileListRequestMessage
   | SlashCommandsRequestMessage
+  | RepoDetectRequestMessage
+  | GitInitRequestMessage
   | ErrorMessage;
 
 /** All relay messages */

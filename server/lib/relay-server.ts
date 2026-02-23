@@ -64,6 +64,28 @@ export interface RepoSetupRelayResult {
   error?: string;
 }
 
+/** Result from remote repo detect relayed from agent runner */
+export interface RepoDetectRelayResult {
+  exists: boolean;
+  isGit: boolean;
+  remoteUrl?: string;
+  remoteType: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
+  baseBranch?: string;
+  suggestedDeliveryMode: 'pr' | 'push' | 'branch' | 'direct';
+  dirSizeMB?: number | null;
+  error?: string;
+}
+
+/** Result from remote git init relayed from agent runner */
+export interface GitInitRelayResult {
+  success: boolean;
+  workingDirectory?: string;
+  fileTree?: string[];
+  source?: Record<string, unknown>;
+  deliveryMode?: string;
+  error?: string;
+}
+
 // ============================================================================
 // Agent Runner Message Types (for compatibility with @astro/agent package)
 // ============================================================================
@@ -279,6 +301,38 @@ interface AgentRunnerSlashCommandsResponseMessage {
   };
 }
 
+/** Agent runner's repo detect response message format */
+interface AgentRunnerRepoDetectResponseMessage {
+  type: 'repo_detect_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    exists: boolean;
+    isGit: boolean;
+    remoteUrl?: string;
+    remoteType: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
+    baseBranch?: string;
+    suggestedDeliveryMode: 'pr' | 'push' | 'branch' | 'direct';
+    dirSizeMB?: number | null;
+    error?: string;
+  };
+}
+
+/** Agent runner's git init response message format */
+interface AgentRunnerGitInitResponseMessage {
+  type: 'git_init_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    success: boolean;
+    workingDirectory?: string;
+    fileTree?: string[];
+    source?: Record<string, unknown>;
+    deliveryMode?: string;
+    error?: string;
+  };
+}
+
 /** Agent runner's steer ack message format */
 interface AgentRunnerTaskSteerAckMessage {
   type: 'task_steer_ack';
@@ -370,6 +424,8 @@ export interface RelayServerEvents {
   'file_list:response': (data: { correlationId: string; files: string[] }) => void;
   'repo_setup:response': (data: { correlationId: string; result: RepoSetupRelayResult }) => void;
   'slash_commands:response': (data: { correlationId: string; commands: Array<{ name: string; description: string }> }) => void;
+  'repo_detect:response': (data: { correlationId: string; result: RepoDetectRelayResult }) => void;
+  'git_init:response': (data: { correlationId: string; result: GitInitRelayResult }) => void;
   'error': (error: Error) => void;
 }
 
@@ -764,6 +820,24 @@ export class RelayServer extends EventEmitter {
 
       case 'slash_commands_response':
         this.handleAgentRunnerSlashCommandsResponse(message as unknown as AgentRunnerSlashCommandsResponseMessage);
+        break;
+
+      // Repo detect response from agent runner
+      case 'repo_detect.response':
+        this.handleRepoDetectResponse(message as unknown as { type: 'repo_detect.response'; correlationId: string; result: RepoDetectRelayResult });
+        break;
+
+      case 'repo_detect_response':
+        this.handleAgentRunnerRepoDetectResponse(message as unknown as AgentRunnerRepoDetectResponseMessage);
+        break;
+
+      // Git init response from agent runner
+      case 'git_init.response':
+        this.handleGitInitResponse(message as unknown as { type: 'git_init.response'; correlationId: string; result: GitInitRelayResult });
+        break;
+
+      case 'git_init_response':
+        this.handleAgentRunnerGitInitResponse(message as unknown as AgentRunnerGitInitResponseMessage);
         break;
 
       // Session attachment messages (MCP bridge)
@@ -1742,6 +1816,113 @@ export class RelayServer extends EventEmitter {
     this.emit('slash_commands:response', {
       correlationId: message.payload.correlationId,
       commands: message.payload.commands,
+    });
+  }
+
+  // ============================================================================
+  // Repo Detect Handlers
+  // ============================================================================
+
+  /**
+   * Request repo detect from a connected machine
+   */
+  requestRepoDetect(machineId: string, path: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for repo detect request`);
+      return false;
+    }
+
+    const msg = {
+      type: 'repo_detect_request',
+      timestamp: new Date().toISOString(),
+      payload: { path, correlationId },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle repo_detect.response (dot notation)
+   */
+  private handleRepoDetectResponse(message: { correlationId: string; result: RepoDetectRelayResult }): void {
+    this.emit('repo_detect:response', {
+      correlationId: message.correlationId,
+      result: message.result,
+    });
+  }
+
+  /**
+   * Handle agent runner's repo_detect_response format
+   */
+  private handleAgentRunnerRepoDetectResponse(message: AgentRunnerRepoDetectResponseMessage): void {
+    const { correlationId, ...result } = message.payload;
+    this.emit('repo_detect:response', {
+      correlationId,
+      result,
+    });
+  }
+
+  // ============================================================================
+  // Git Init Handlers
+  // ============================================================================
+
+  /**
+   * Request git init from a connected machine
+   */
+  requestGitInit(
+    machineId: string,
+    payload: {
+      correlationId: string;
+      workingDirectory: string;
+      projectId: string;
+      projectName: string;
+      projectDescription?: string;
+    },
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for git init request`);
+      return false;
+    }
+
+    const msg = {
+      type: 'git_init_request',
+      timestamp: new Date().toISOString(),
+      payload,
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle git_init.response (dot notation)
+   */
+  private handleGitInitResponse(message: { correlationId: string; result: GitInitRelayResult }): void {
+    this.emit('git_init:response', {
+      correlationId: message.correlationId,
+      result: message.result,
+    });
+  }
+
+  /**
+   * Handle agent runner's git_init_response format
+   */
+  private handleAgentRunnerGitInitResponse(message: AgentRunnerGitInitResponseMessage): void {
+    const { correlationId, ...result } = message.payload;
+    this.emit('git_init:response', {
+      correlationId,
+      result,
     });
   }
 

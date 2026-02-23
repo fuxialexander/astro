@@ -88,7 +88,7 @@ export function useRepoSetup() {
     }
   }
 
-  async function confirmGitInit() {
+  async function confirmGitInit(targetMachineId?: string) {
     if (!gitInitPrompt) return
     const { projectId, dir, name, description } = gitInitPrompt
     setGitInitPrompt(null)
@@ -101,6 +101,7 @@ export function useRepoSetup() {
           projectId,
           projectName: name,
           projectDescription: description,
+          targetMachineId,
         }),
       })
       if (!res.ok) return

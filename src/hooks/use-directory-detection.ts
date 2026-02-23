@@ -10,13 +10,17 @@ export interface DetectionResult {
   remoteType: RemoteType
   baseBranch?: string
   suggestedDeliveryMode: DeliveryMode
+  dirSizeMB?: number | null
 }
 
 /**
  * Debounced hook that calls GET /api/repo/detect as the user types a directory path.
  * Returns detection info for inline feedback in the project creation form.
+ *
+ * Requires machineId — detection runs on the connected machine via relay.
+ * Returns null/empty when no machineId is provided.
  */
-export function useDirectoryDetection(path: string, delay = 500) {
+export function useDirectoryDetection(path: string, machineId?: string, delay = 500) {
   const [detection, setDetection] = useState<DetectionResult | null>(null)
   const [isDetecting, setIsDetecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -25,8 +29,8 @@ export function useDirectoryDetection(path: string, delay = 500) {
   useEffect(() => {
     const trimmed = path.trim()
 
-    // Clear detection if path is empty or too short
-    if (!trimmed || trimmed.length < 2) {
+    // Clear detection if path is empty, too short, or no machine connected
+    if (!trimmed || trimmed.length < 2 || !machineId) {
       setDetection(null)
       setIsDetecting(false)
       setError(null)
@@ -44,7 +48,7 @@ export function useDirectoryDetection(path: string, delay = 500) {
 
       try {
         const res = await fetch(
-          apiUrl(`/api/repo/detect?path=${encodeURIComponent(trimmed)}`),
+          apiUrl(`/api/repo/detect?path=${encodeURIComponent(trimmed)}&machineId=${encodeURIComponent(machineId)}`),
           { signal: controller.signal },
         )
 
@@ -72,7 +76,7 @@ export function useDirectoryDetection(path: string, delay = 500) {
       clearTimeout(timer)
       abortRef.current?.abort()
     }
-  }, [path, delay])
+  }, [path, machineId, delay])
 
   return { detection, isDetecting, error }
 }

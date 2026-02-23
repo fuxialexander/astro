@@ -1,23 +1,51 @@
 /**
  * Repo Routes
  *
- * HTTP API endpoints for project repository setup and file tree caching.
- * Provides git init/clone, .gitignore generation, CLAUDE.md generation,
- * and file tree listing.
+ * HTTP API endpoints for project repository setup, detection, and git init.
+ * All filesystem operations are routed through the relay to connected agent runners.
+ * The server never touches the filesystem directly.
  */
 
 import { Hono } from 'hono'
-import { execFileSync, execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
-import { setupProjectRepo, initializeGitRepo } from '../lib/repo-setup.js'
-import { relayServer, type RepoSetupRelayResult } from '../lib/relay-server.js'
-import { detectRemoteType } from '../lib/git-url-utils.js'
+import { relayServer, type RepoSetupRelayResult, type RepoDetectRelayResult, type GitInitRelayResult } from '../lib/relay-server.js'
+import { machineRegistry } from '../lib/machine-registry.js'
 import { errorMessage } from '../lib/error-utils.js'
 
 const repoRoute = new Hono()
+
+/**
+ * Request repo detect from a remote machine via relay WebSocket.
+ * Follows the same pattern as requestRemoteFileList in fs.ts.
+ */
+async function requestRemoteRepoDetect(
+  machineId: string,
+  path: string,
+): Promise<RepoDetectRelayResult> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<RepoDetectRelayResult>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('repo_detect:response', handler)
+      resolve({ exists: false, isGit: false, remoteType: 'none', suggestedDeliveryMode: 'branch', error: 'Remote repo detect timed out' })
+    }, 10_000)
+
+    function handler(data: { correlationId: string; result: RepoDetectRelayResult }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('repo_detect:response', handler)
+      resolve(data.result)
+    }
+
+    relayServer.on('repo_detect:response', handler)
+
+    const sent = relayServer.requestRepoDetect(machineId, path, correlationId)
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('repo_detect:response', handler)
+      resolve({ exists: false, isGit: false, remoteType: 'none', suggestedDeliveryMode: 'branch', error: `Machine ${machineId} is not connected` })
+    }
+  })
+}
 
 /**
  * Request repo setup from a remote machine via relay WebSocket.
@@ -63,119 +91,75 @@ async function requestRemoteRepoSetup(
 }
 
 /**
- * GET /api/repo/detect?path=<dir>
+ * Request git init from a remote machine via relay WebSocket.
+ */
+async function requestRemoteGitInit(
+  machineId: string,
+  body: {
+    workingDirectory: string
+    projectId: string
+    projectName: string
+    projectDescription?: string
+  },
+): Promise<GitInitRelayResult> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<GitInitRelayResult>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('git_init:response', handler)
+      resolve({ success: false, error: 'Remote git init timed out' })
+    }, 30_000)
+
+    function handler(data: { correlationId: string; result: GitInitRelayResult }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('git_init:response', handler)
+      resolve(data.result)
+    }
+
+    relayServer.on('git_init:response', handler)
+
+    const sent = relayServer.requestGitInit(machineId, {
+      correlationId,
+      ...body,
+    })
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('git_init:response', handler)
+      resolve({ success: false, error: `Machine ${machineId} is not connected` })
+    }
+  })
+}
+
+/**
+ * GET /api/repo/detect?path=<dir>&machineId=<id>
  *
  * Lightweight, read-only probe that returns detection info about a directory.
  * Does NOT modify anything — purely diagnostic. Used for inline detection
  * feedback as the user types a directory path in the project creation form.
  *
+ * Requires machineId — all FS operations go through relay.
+ *
  * Response: { exists, isGit, remoteUrl?, remoteType, baseBranch?, suggestedDeliveryMode }
  */
 repoRoute.get('/detect', async (c) => {
   const dirPath = c.req.query('path')
+  const machineId = c.req.query('machineId')
 
   if (!dirPath) {
     return c.json({ error: 'path query parameter is required' }, 400)
   }
 
+  if (!machineId) {
+    return c.json({ error: 'machineId query parameter is required. Connect a machine to detect directories.' }, 400)
+  }
+
   try {
-    const exists = existsSync(dirPath)
-    if (!exists) {
-      return c.json({
-        exists: false,
-        isGit: false,
-        remoteType: 'none' as const,
-        suggestedDeliveryMode: 'branch' as const,
-      })
+    const result = await requestRemoteRepoDetect(machineId, dirPath)
+    if (result.error) {
+      return c.json({ error: result.error }, 500)
     }
-
-    // Check if it's a git repo
-    let isGit = false
-    try {
-      execFileSync('git', ['-C', dirPath, 'rev-parse', '--is-inside-work-tree'], {
-        encoding: 'utf-8',
-        timeout: 5_000,
-        stdio: 'pipe',
-      })
-      isGit = true
-    } catch {
-      // Not a git repo
-    }
-
-    if (!isGit) {
-      // Compute directory size for non-git directories
-      let dirSizeMB: number | null = null
-      try {
-        const { stdout } = await execFileAsync('du', ['-sk', dirPath], { timeout: 10_000 })
-        const kb = parseInt(stdout.trim().split(/\s+/)[0], 10)
-        if (!isNaN(kb)) {
-          dirSizeMB = Math.round((kb / 1024) * 100) / 100
-        }
-      } catch {
-        // Non-fatal — dirSizeMB stays null
-      }
-
-      return c.json({
-        exists: true,
-        isGit: false,
-        remoteType: 'none' as const,
-        suggestedDeliveryMode: 'direct' as const,
-        dirSizeMB,
-      })
-    }
-
-    // Get remote URL
-    let remoteUrl: string | undefined
-    try {
-      const url = execFileSync('git', ['-C', dirPath, 'remote', 'get-url', 'origin'], {
-        encoding: 'utf-8',
-        timeout: 5_000,
-        stdio: 'pipe',
-      }).trim()
-      if (url) remoteUrl = url
-    } catch {
-      // No remote
-    }
-
-    // Get default branch
-    let baseBranch = 'main'
-    try {
-      const branch = execFileSync('git', ['-C', dirPath, 'symbolic-ref', '--short', 'HEAD'], {
-        encoding: 'utf-8',
-        timeout: 5_000,
-        stdio: 'pipe',
-      }).trim()
-      if (branch) baseBranch = branch
-    } catch {
-      // Default to 'main'
-    }
-
-    // Detect remote type and derive delivery mode
-    const remoteType = detectRemoteType(remoteUrl)
-    let suggestedDeliveryMode: 'pr' | 'push' | 'branch' | 'direct' = 'branch'
-    switch (remoteType) {
-      case 'github':
-      case 'gitlab':
-      case 'bitbucket':
-        suggestedDeliveryMode = 'pr'
-        break
-      case 'generic':
-        suggestedDeliveryMode = 'push'
-        break
-      case 'none':
-      default:
-        suggestedDeliveryMode = 'branch'
-        break
-    }
-
-    return c.json({
-      exists: true,
-      isGit: true,
-      remoteUrl,
-      remoteType,
-      baseBranch,
-      suggestedDeliveryMode,
-    })
+    return c.json(result)
   } catch (error) {
     const message = errorMessage(error)
     console.error('[repo] Detect failed:', message)
@@ -187,7 +171,8 @@ repoRoute.get('/detect', async (c) => {
  * POST /api/repo/setup
  *
  * Main endpoint called during project creation to set up a git-backed directory.
- * If targetMachineId is provided, relays the request to the remote machine.
+ * Routes request to connected machine via relay. If no targetMachineId,
+ * auto-selects the best available machine.
  *
  * Input: { projectId, projectName, projectDescription?, workingDirectory?, repository?, targetMachineId? }
  * Response: { workingDirectory, fileTree, needsGitInit?, claudeMdCreated?, gitignoreCreated? }
@@ -208,38 +193,28 @@ repoRoute.post('/setup', async (c) => {
     return c.json({ error: 'projectId and projectName are required' }, 400)
   }
 
-  // Remote machine: relay via WebSocket
-  if (targetMachineId) {
-    try {
-      const result = await requestRemoteRepoSetup(targetMachineId, {
-        projectId,
-        projectName,
-        projectDescription,
-        workingDirectory,
-        repository,
-      })
-
-      if (!result.success) {
-        return c.json({ error: result.error || 'Remote repo setup failed' }, 500)
-      }
-
-      return c.json(result)
-    } catch (error) {
-      const message = errorMessage(error)
-      console.error('[repo] Remote setup failed:', message)
-      return c.json({ error: `Remote repo setup failed: ${message}` }, 500)
+  // Determine target machine: use provided or auto-select best
+  let machineId = targetMachineId
+  if (!machineId) {
+    const bestMachine = machineRegistry.findBestMachine()
+    if (!bestMachine) {
+      return c.json({ error: 'No connected machine available. Connect an agent runner to set up repositories.' }, 503)
     }
+    machineId = bestMachine.machineId
   }
 
-  // Local: run setup directly
   try {
-    const result = setupProjectRepo({
+    const result = await requestRemoteRepoSetup(machineId, {
       projectId,
       projectName,
       projectDescription,
       workingDirectory,
       repository,
     })
+
+    if (!result.success) {
+      return c.json({ error: result.error || 'Remote repo setup failed' }, 500)
+    }
 
     return c.json(result)
   } catch (error) {
@@ -253,9 +228,10 @@ repoRoute.post('/setup', async (c) => {
  * POST /api/repo/git-init
  *
  * Called after user confirms git init for an existing non-git directory.
+ * Routes request to connected machine via relay.
  *
- * Input: { workingDirectory, projectId, projectName, projectDescription? }
- * Response: { workingDirectory, fileTree, claudeMdCreated?, gitignoreCreated? }
+ * Input: { workingDirectory, projectId, projectName, projectDescription?, targetMachineId? }
+ * Response: { workingDirectory, fileTree, source?, deliveryMode? }
  */
 repoRoute.post('/git-init', async (c) => {
   const body = await c.req.json<{
@@ -263,16 +239,37 @@ repoRoute.post('/git-init', async (c) => {
     projectId: string
     projectName: string
     projectDescription?: string
+    targetMachineId?: string
   }>()
 
-  const { workingDirectory, projectName, projectDescription } = body
+  const { workingDirectory, projectId, projectName, projectDescription, targetMachineId } = body
 
   if (!workingDirectory) {
     return c.json({ error: 'workingDirectory is required' }, 400)
   }
 
+  // Determine target machine: use provided or auto-select best
+  let machineId = targetMachineId
+  if (!machineId) {
+    const bestMachine = machineRegistry.findBestMachine()
+    if (!bestMachine) {
+      return c.json({ error: 'No connected machine available. Connect an agent runner to initialize git.' }, 503)
+    }
+    machineId = bestMachine.machineId
+  }
+
   try {
-    const result = initializeGitRepo(workingDirectory, projectName, projectDescription)
+    const result = await requestRemoteGitInit(machineId, {
+      workingDirectory,
+      projectId,
+      projectName,
+      projectDescription,
+    })
+
+    if (!result.success) {
+      return c.json({ error: result.error || 'Remote git init failed' }, 500)
+    }
+
     return c.json(result)
   } catch (error) {
     const message = errorMessage(error)
