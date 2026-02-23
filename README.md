@@ -116,41 +116,68 @@ Frontend: Render dependency graph in React Flow
 
 Redis is **not required** for local development.
 
-## Getting Started
+## Quick Start: Two Workflows
 
+Astro runs in two modes. Pick the one that fits your needs.
+
+### Workflow A: Local Mode (single user, no auth)
+
+Everything runs on your machine. PGlite (Postgres-in-WASM) runs in-process — no Docker, no Supabase, no external services.
+
+**Step 1.** Clone and install:
 ```bash
-# Clone and install
-git clone git@github.com:fuxialexander/astro.git
+git clone --recurse-submodules git@github.com:fuxialexander/astro.git
 cd astro
-
-# Install Node.js if needed
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-nvm install 25.6.0
-nvm use 25.6.0
-
-# Install dependencies
+nvm use         # Uses Node.js version from .nvmrc
 npm install
-
-# Copy environment template (optional)
-cp env.example .env
 ```
 
-### Running Locally
-
+**Step 2.** Start everything (frontend + backend + relay + agent runner):
 ```bash
-# Start everything: frontend + backend + relay + agent runner
-npm run dev
+npm run dev:local
 ```
 
-This starts:
-- **Vite dev server** on port 5173 (frontend)
-- **Hono API server** on port 3001 (backend)
-- **WebSocket relay** on port 3002
-- **Agent runner** subprocess (connects to relay after 2s delay)
+**Step 3.** Open http://localhost:5173. You're done.
 
-Open http://localhost:5173 — Vite proxies `/api` to the backend.
+The agent runner starts automatically as a subprocess — it connects to the local relay on `ws://localhost:3002` and executes AI tasks using your local Claude CLI credentials (`claude login`).
 
-Or run components separately:
+### Workflow B: Server Mode (multi-user, deployed)
+
+Backend runs on Fly.io, frontend on Cloudflare Pages, data in remote Supabase. Agent runners connect from user machines via WebSocket.
+
+**Step 1.** Clone and install (same as above):
+```bash
+git clone --recurse-submodules git@github.com:fuxialexander/astro.git
+cd astro
+nvm use
+npm install
+```
+
+**Step 2.** Create your prod env file from the template:
+```bash
+cp .env.example.prod .env.prod
+```
+Edit `.env.prod` with your actual values:
+- Supabase credentials (URL, anon key, service role key, database URL)
+- JWT secrets (generate with `openssl rand -hex 32`)
+- Frontend domain (for CORS, WebAuthn)
+- Fly.io app name and backend URL
+
+**Step 3.** Switch to prod mode and deploy:
+```bash
+npm run env:prod      # Symlinks .env.local → .env.prod
+npm run deploy        # Deploys backend (Fly.io) + frontend (Cloudflare Pages)
+```
+
+**Step 4.** Connect an agent runner from any machine:
+```bash
+npx tsx packages/agent-runner/src/cli.ts launch --force-setup \
+  --api https://<your-fly-app>.fly.dev \
+  --relay wss://<your-fly-app>.fly.dev:3002
+```
+This runs device auth (opens a browser for verification) and starts the agent in foreground mode. The agent connects to the relay and appears in the web UI under Environments.
+
+### Running Components Separately
 
 ```bash
 npm run dev:frontend   # Vite only (port 5173)
@@ -164,20 +191,132 @@ npm run dev:agent      # Agent runner only (connects to ws://localhost:3002)
 npm run verify    # Check Node version, deps, ports, config
 ```
 
-### Environment Variables
+## Agent Runner
 
-No environment variables are required for local development.
+The agent runner is the worker process that executes AI tasks. It lives in `packages/agent-runner/`, which is a **git submodule** pointing to [github.com/fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) (private). It will later be published as a standalone package (`@astro/agent`).
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PORT` | No | Backend port (default: 3001) |
-| `RELAY_PORT` | No | Relay port (default: 3002) |
-| `REDIS_URL` | No | Redis for horizontal scaling (not needed locally) |
-| `CLOUDFLARED_DOMAIN` | No | Domain for Cloudflare tunnel |
+```bash
+# Initialize the submodule (if you didn't clone with --recurse-submodules)
+git submodule update --init --recursive
+```
+
+### Running the Agent Runner
+
+From the repo root, use `npx tsx` to run the CLI directly from source:
+
+```bash
+# One-step: setup + start (recommended for first run)
+npx tsx packages/agent-runner/src/cli.ts launch --force-setup
+
+# Or separate steps:
+npx tsx packages/agent-runner/src/cli.ts setup      # Interactive setup (detect providers, device auth)
+npx tsx packages/agent-runner/src/cli.ts start -f    # Start in foreground
+```
+
+For local development, the agent runner starts automatically with `npm run dev:local`. For manual control: `npm run dev:agent`.
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `launch` | Setup (if needed) + start in foreground. Use `--force-setup` to re-run setup. |
+| `setup` | Interactive setup: detect providers, configure relay URL, device auth |
+| `start` | Start the agent. Runs in background by default; use `-f` / `--foreground` for foreground |
+| `stop` | Stop background agent (finds process via `pgrep`, sends SIGTERM) |
+| `status` | Show agent status (running/stopped, config, connection) |
+| `connect` | Alias for `start --foreground` |
+| `config` | View or modify config. `--show` to display, `--set key=value` to change, `--reset` to clear |
+| `auth` | Set Claude OAuth token (`--token <token>` or interactive) |
+| `providers` | List detected AI providers (Claude Code, Codex, etc.) |
+| `resources` | Show machine resources (CPU, memory, GPU) |
+| `hosts` | Discover remote hosts from SSH config |
+| `mcp` | Start MCP server for Claude Code integration (stdio mode) |
+
+### Connecting to Different Backends
+
+The agent runner needs to know which Astro backend to connect to. There are three ways to specify this (highest priority first):
+
+**1. CLI flags** (one-time override):
+```bash
+npx tsx packages/agent-runner/src/cli.ts launch --force-setup \
+  --api https://astro-backend-platform.fly.dev \
+  --relay wss://astro-backend-platform.fly.dev:3002
+```
+
+**2. Environment variables** (session-level):
+```bash
+export ASTRO_SERVER_URL=https://astro-backend-platform.fly.dev
+export ASTRO_RELAY_URL=wss://astro-backend-platform.fly.dev:3002
+npx tsx packages/agent-runner/src/cli.ts launch --force-setup
+```
+
+Or if `.env.local` is symlinked (e.g., via `npm run env:prod`), the runner reads `VITE_API_BASE_URL` and derives the relay URL automatically.
+
+**3. Saved config** (persistent):
+```bash
+npx tsx packages/agent-runner/src/cli.ts config --set api=https://astro-backend-platform.fly.dev
+npx tsx packages/agent-runner/src/cli.ts config --set relay=wss://astro-backend-platform.fly.dev:3002
+```
+
+Config is stored in `~/.config/astro-agent/config.json` (managed by the `conf` library).
+
+**Defaults** (if nothing is set): `https://api.astroanywhere.com` and `wss://relay.astroanywhere.com:3002`.
+
+#### Examples: Connecting to Different Deployments
+
+```bash
+# Local development (default when running `npm run dev:local`)
+npx tsx packages/agent-runner/src/cli.ts launch --force-setup \
+  --api http://localhost:3001 \
+  --relay ws://localhost:3002
+
+# Your Fly.io deployment
+npx tsx packages/agent-runner/src/cli.ts launch --force-setup \
+  --api https://astro-backend-platform.fly.dev \
+  --relay wss://astro-backend-platform.fly.dev:3002
+
+# Production (astroanywhere.com) — uses defaults, no flags needed
+npx tsx packages/agent-runner/src/cli.ts launch --force-setup
+```
+
+### Start / Stop Lifecycle
+
+**Starting** (background mode — default):
+```bash
+npx tsx packages/agent-runner/src/cli.ts start
+# Spawns a detached child process, prints the PID, and exits
+```
+
+**Starting** (foreground mode — recommended for testing):
+```bash
+npx tsx packages/agent-runner/src/cli.ts start --foreground
+# Runs in current terminal. Ctrl+C sends SIGTERM for graceful shutdown.
+# The `launch` and `connect` commands always run in foreground.
+```
+
+**Stopping**:
+```bash
+npx tsx packages/agent-runner/src/cli.ts stop
+# Finds running agent processes via `pgrep -f 'astro-agent.*start'` and sends SIGTERM.
+# Graceful shutdown: cancels running tasks, disconnects WebSocket, then exits.
+```
+
+**Checking status**:
+```bash
+npx tsx packages/agent-runner/src/cli.ts status
+```
+
+### Future: Standalone Package
+
+When published to npm as `@astro/agent`, the commands simplify to:
+```bash
+npx @astro/agent launch --force-setup
+npx @astro/agent stop
+npx @astro/agent status
+npx @astro/agent config
+```
 
 ## Operating Modes
-
-Astro has three operating modes. Each has a one-command start:
 
 | Mode | Database | Auth | Network | Command |
 |------|----------|------|---------|---------|
@@ -185,75 +324,30 @@ Astro has three operating modes. Each has a one-command start:
 | **dev** | Local Supabase | WebAuthn/passkeys via tunnel | Cloudflare tunnel → localhost | `npm run dev:dev` |
 | **prod** | Remote Supabase | WebAuthn/passkeys | Fly.io + Cloudflare Pages | `npm run env:prod && npm run deploy` |
 
-### Local Mode
-
-PGlite (Postgres compiled to WASM) runs in-process. No Docker, no Supabase, no auth. Data stored in `~/.astro/data/`. Best for quick iteration.
+### Switching Modes
 
 ```bash
-npm run dev:local        # Switches env + starts (PGlite, no auth)
-```
-
-### Dev Mode
-
-Local Supabase (via Docker) with a Cloudflare tunnel for HTTPS — required for WebAuthn/TouchID to work. Multi-user auth, real-time sync, everything in one terminal.
-
-```bash
-npm run env:init         # One-time: generate .env.local.dev and .env.prod
-npm run dev:dev          # Switches env + starts Supabase + frontend + backend + agent + tunnel
-```
-
-Requires `CLOUDFLARED_DOMAIN` in `.env` and Docker running.
-
-### Prod Mode
-
-Remote Supabase, Fly.io backend, Cloudflare Pages frontend. For deployment and testing against production infrastructure.
-
-```bash
-npm run env:prod         # Switch to prod profile
-npm run deploy           # Deploy backend (Fly.io) + frontend (Cloudflare Pages)
-```
-
-Requires remote Supabase credentials in `.env.prod`.
-
-### Switching Modes Manually
-
-The `dev:local` and `dev:dev` commands switch env automatically. For manual control:
-
-```bash
-npm run env:init         # One-time: generate both profiles from .env
-npm run env:local        # Switch to local (removes .env.local)
+npm run env:local        # Switch to local (removes .env.local → PGlite auto-detected)
 npm run env:dev          # Symlink .env.local → .env.local.dev
 npm run env:prod         # Symlink .env.local → .env.prod
 npm run env:switch       # Show current mode
 ```
 
-The env system layers two files: `.env` (shared secrets, never touched) and `.env.local` (mode-specific overrides, managed by `switch-env.sh` as a symlink).
+Vite and tsx both auto-load `.env.local`. The npm scripts just control which file `.env.local` points to — same build commands, different environment variables.
 
 ### Env File Layout
 
+Each mode has its own self-contained env file. Copy from the matching `.env.example.*` template and fill in your values.
+
 ```
-.env                  ← Shared secrets (JWT keys, CLOUDFLARED_DOMAIN) — git-ignored
-.env.local            ← Symlink → active profile — git-ignored
-.env.local.dev        ← Dev: tunnel domain, local Supabase, HMR over WSS
-.env.prod       ← Prod: Pages domain, Fly.io backend, remote Supabase
-.env.example          ← Template with documentation — committed
+.env.local            ← Symlink → active profile (managed by npm run env:*)
+.env.local.dev        ← Dev profile: tunnel domain, local Supabase, HMR over WSS
+.env.prod             ← Prod profile: Fly.io backend, Cloudflare Pages, remote Supabase
+.env.example          ← Reference template — committed to git
+.env.example.local    ← Local mode template (no config needed)
+.env.example.dev      ← Dev mode template
+.env.example.prod     ← Prod mode template
 ```
-
-## Agent Runner Setup
-
-The local agent runner starts automatically with `npm run dev`. For remote machines:
-
-**1. Start tunnel** (if connecting remote machines):
-```bash
-npm run tunnel
-```
-
-**2. Setup and start agent on remote machine**:
-```bash
-bash scripts/agent-setup.sh
-```
-
-The agent-setup script reads `ASTRO_BASE_URL`, `FRONTEND_URL`, and `FLY_APP` from `.env` / `.env.local` — no manual URL arguments needed. It runs device auth and starts the agent. See [packages/agent-runner/](packages/agent-runner/) for details.
 
 ## Project Structure
 
@@ -279,8 +373,10 @@ astro/
 │       └── repo-context.ts       # Repository context reading
 │
 ├── packages/
-│   └── agent-runner/             # Agent Runner (npm: @astro/agent, CLI: astro-agent)
-│       └── src/
+│   ├── core/                     # Shared code (db, schema, dispatch types, prompt templates)
+│   │   └── src/                  # Imported by both server/ and agent-runner
+│   └── agent-runner/             # Git submodule → github.com/fuxialexander/astro-agent
+│       └── src/                  # (private repo, ships as pre-built tarball)
 │           ├── cli.ts            # CLI entry (10 commands)
 │           ├── lib/              # Task executor, worktree, git-pr, safety
 │           ├── providers/        # Claude SDK, Claude CLI, Codex adapters
@@ -353,7 +449,88 @@ npm run lint          # ESLint
 npm run build              # TypeScript check + Vite production build
 npm run build:all          # Build everything including agent runner
 npm run deploy             # Deploy backend (Fly.io) + frontend (Cloudflare Pages)
+npm run deploy:backend     # Deploy backend only
+npm run deploy:frontend    # Deploy frontend only
 ```
+
+### Fly.io Backend Deployment
+
+The backend deploys as a single Docker container running both the Hono API server (port 3001) and the WebSocket relay (port 3002). Configuration is in `fly.toml` at the repo root.
+
+#### First-time setup
+
+**Step 1.** Install and authenticate the Fly CLI:
+```bash
+brew install flyctl        # macOS
+fly auth login
+```
+
+**Step 2.** Create the Fly.io app (once):
+```bash
+fly apps create <your-app-name> --org personal
+```
+
+**Step 3.** Update `fly.toml` to match your app name:
+```toml
+app = "<your-app-name>"
+```
+
+Also update `FLY_APP` in your `.env.prod` to match:
+```
+FLY_APP=<your-app-name>
+```
+
+> **Important:** The `app` field in `fly.toml` and `FLY_APP` in `.env.prod` must match. Fly.io app names are globally unique — if a name is taken by another user, you'll need to choose a different one. The deploy script reads `FLY_APP` from `.env.prod` to push secrets and run health checks.
+
+**Step 4.** Create your `.env.prod` from the template and fill in all values:
+```bash
+cp .env.example.prod .env.prod
+# Edit .env.prod: Supabase creds, JWT secrets, frontend domain, etc.
+```
+
+**Step 5.** Switch to prod mode and deploy:
+```bash
+npm run env:prod           # Symlinks .env.local → .env.prod
+npm run deploy:backend     # Pushes secrets to Fly.io + deploys Docker image
+```
+
+**Step 6.** Verify:
+```bash
+curl -s https://<your-app-name>.fly.dev/api/health | python3 -m json.tool
+```
+
+#### Subsequent deploys
+
+```bash
+npm run env:prod           # Ensure prod mode is active
+npm run deploy:backend     # Rebuilds Docker image + deploys
+```
+
+Or deploy everything (backend + frontend) at once:
+```bash
+npm run deploy
+```
+
+#### Debugging
+
+```bash
+fly logs --app <your-app-name> --no-tail    # Recent logs
+fly status --app <your-app-name>            # App status
+fly ssh console --app <your-app-name>       # SSH into the VM
+```
+
+See [docs/setup/fly-deployment.md](docs/setup/fly-deployment.md) for the full deployment guide (custom domains, scaling, cost, troubleshooting).
+
+### Cloudflare Pages Frontend Deployment
+
+The frontend builds as a static SPA and deploys to Cloudflare Pages. The `VITE_*` env vars are baked into the JS bundle at build time.
+
+```bash
+npm run env:prod            # Ensure .env.local has VITE_API_BASE_URL, VITE_SUPABASE_URL, etc.
+npm run deploy:frontend     # Builds + deploys to Cloudflare Pages
+```
+
+To use a custom domain (e.g., `astroanywhere.com`), add it in the Cloudflare Pages dashboard: Workers & Pages → your project → Custom domains.
 
 ## Documentation
 

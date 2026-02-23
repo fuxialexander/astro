@@ -47,12 +47,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Resolve API URL: explicit flag > env vars > Fly.io default
-API_URL="${ASTRO_BASE_URL:-${FRONTEND_URL:-}}"
+# Resolve API URL: explicit flag > VITE_API_BASE_URL > derive from FLY_APP
+# Note: the agent-runner needs the BACKEND API URL, not the frontend URL.
+# ASTRO_BASE_URL/FRONTEND_URL point to the frontend (Cloudflare Pages).
+# VITE_API_BASE_URL points to the backend (Fly.io).
+API_URL="${VITE_API_BASE_URL:-}"
 if [[ -z "$API_URL" ]]; then
   FLY_APP="${FLY_APP:-astro-backend-platform}"
   API_URL="https://${FLY_APP}.fly.dev"
-  echo "No ASTRO_BASE_URL or FRONTEND_URL set, using Fly.io default: $API_URL"
+  echo "No VITE_API_BASE_URL set, using Fly.io default: $API_URL"
 fi
 
 # Resolve Relay URL: explicit flag > env var > derive from API URL
@@ -83,7 +86,7 @@ npm run build
 cd "$REPO_ROOT"
 
 # Build setup command with flags
-SETUP_FLAGS="--api $API_URL --relay $RELAY_URL --type remote --hostname $MACHINE_NAME --install-mcp"
+SETUP_FLAGS="--api $API_URL --relay $RELAY_URL --hostname $MACHINE_NAME --install-mcp"
 if [[ "$AUTO_START" == "true" ]]; then
   SETUP_FLAGS="$SETUP_FLAGS --auto-start"
 fi
