@@ -171,7 +171,7 @@ describe('createWorktree', () => {
     (existsSync as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('should create worktree at {gitRoot}/.astro-tasks/', async () => {
+  it('should create worktree at {gitRoot}/.astro/worktrees/', async () => {
     // Setup mocks for the full createWorktree flow
     mockExecFileAsync
       .mockResolvedValueOnce({ stdout: '/project\n' })        // getGitRoot (rev-parse)
@@ -183,7 +183,7 @@ describe('createWorktree', () => {
       .mockResolvedValueOnce({ stdout: 'refs/remotes/origin/HEAD\nrefs/remotes/origin/main' }) // getDefaultBranch
       .mockResolvedValueOnce({ stdout: '' });                  // git worktree add
 
-    // mkdir should succeed (.astro-tasks inside project)
+    // mkdir should succeed (.astro/worktrees inside project)
     mockMkdir.mockResolvedValue(undefined);
 
     const result = await createWorktree({
@@ -193,13 +193,67 @@ describe('createWorktree', () => {
 
     expect(result).not.toBeNull();
     // Verify mkdir was called with the inside-project path
-    expect(mockMkdir).toHaveBeenCalledWith('/project/.astro-tasks', { recursive: true });
-    // Verify worktree path is under .astro-tasks inside project
+    expect(mockMkdir).toHaveBeenCalledWith('/project/.astro/worktrees', { recursive: true });
+    // Verify worktree path is under .astro/worktrees inside project
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       'git',
       expect.arrayContaining([
         'worktree', 'add', '-b', 'astro/test-task-123',
-        '/project/.astro-tasks/test-task-123',
+        '/project/.astro/worktrees/test-task-123',
+      ]),
+      expect.any(Object),
+    );
+  });
+
+  it('should use custom agentDir when provided', async () => {
+    mockExecFileAsync
+      .mockResolvedValueOnce({ stdout: '/project\n' })        // getGitRoot
+      .mockResolvedValueOnce({ stdout: '' })                   // hasCommits
+      .mockResolvedValueOnce({ stdout: '' })                   // removeLingeringWorktrees: list
+      .mockResolvedValueOnce({ stdout: '' })                   // ensureBranchAvailable
+      .mockResolvedValueOnce({ stdout: '' })                   // deleteRemoteBranch
+      .mockResolvedValueOnce({ stdout: '' })                   // git fetch
+      .mockResolvedValueOnce({ stdout: 'refs/remotes/origin/HEAD\nrefs/remotes/origin/main' }) // getDefaultBranch
+      .mockResolvedValueOnce({ stdout: '' });                  // git worktree add
+
+    mockMkdir.mockResolvedValue(undefined);
+
+    const result = await createWorktree({
+      workingDirectory: '/project',
+      taskId: 'test-task-custom',
+      agentDir: '.myagent',
+    });
+
+    expect(result).not.toBeNull();
+    expect(mockMkdir).toHaveBeenCalledWith('/project/.myagent/worktrees', { recursive: true });
+  });
+
+  it('should read branch prefix from config.json', async () => {
+    mockExecFileAsync
+      .mockResolvedValueOnce({ stdout: '/project\n' })        // getGitRoot
+      .mockResolvedValueOnce({ stdout: '' })                   // hasCommits
+      .mockResolvedValueOnce({ stdout: '' })                   // removeLingeringWorktrees: list
+      .mockResolvedValueOnce({ stdout: '' })                   // ensureBranchAvailable
+      .mockResolvedValueOnce({ stdout: '' })                   // deleteRemoteBranch
+      .mockResolvedValueOnce({ stdout: '' })                   // git fetch
+      .mockResolvedValueOnce({ stdout: 'refs/remotes/origin/HEAD\nrefs/remotes/origin/main' }) // getDefaultBranch
+      .mockResolvedValueOnce({ stdout: '' });                  // git worktree add
+
+    mockMkdir.mockResolvedValue(undefined);
+    // readFile returns config with custom branchPrefix
+    mockReadFile.mockResolvedValueOnce(JSON.stringify({ branchPrefix: 'custom/' }));
+
+    const result = await createWorktree({
+      workingDirectory: '/project',
+      taskId: 'test-task-prefix',
+    });
+
+    expect(result).not.toBeNull();
+    // Branch name should use the custom prefix
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      'git',
+      expect.arrayContaining([
+        'worktree', 'add', '-b', 'custom/test-task-prefix',
       ]),
       expect.any(Object),
     );
@@ -254,7 +308,7 @@ describe('createWorktree', () => {
     });
 
     expect(result).not.toBeNull();
-    // Trailing slash is resolved by path.resolve(), .astro-tasks goes inside git root
-    expect(mockMkdir).toHaveBeenCalledWith('/project/.astro-tasks', { recursive: true });
+    // Trailing slash is resolved by path.resolve(), .astro/worktrees goes inside git root
+    expect(mockMkdir).toHaveBeenCalledWith('/project/.astro/worktrees', { recursive: true });
   });
 });

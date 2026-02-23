@@ -7,8 +7,11 @@
  */
 
 import { Hono } from 'hono'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
 import { setupProjectRepo, initializeGitRepo, getFileTree } from '../lib/repo-setup.js'
 import { relayServer, type RepoSetupRelayResult } from '../lib/relay-server.js'
 import { detectRemoteType } from '../lib/git-url-utils.js'
@@ -100,11 +103,24 @@ repoRoute.get('/detect', async (c) => {
     }
 
     if (!isGit) {
+      // Compute directory size for non-git directories
+      let dirSizeMB: number | null = null
+      try {
+        const { stdout } = await execFileAsync('du', ['-sk', dirPath], { timeout: 10_000 })
+        const kb = parseInt(stdout.trim().split(/\s+/)[0], 10)
+        if (!isNaN(kb)) {
+          dirSizeMB = Math.round((kb / 1024) * 100) / 100
+        }
+      } catch {
+        // Non-fatal — dirSizeMB stays null
+      }
+
       return c.json({
         exists: true,
         isGit: false,
         remoteType: 'none' as const,
         suggestedDeliveryMode: 'direct' as const,
+        dirSizeMB,
       })
     }
 
@@ -183,11 +199,10 @@ repoRoute.post('/setup', async (c) => {
     projectDescription?: string
     workingDirectory?: string
     repository?: string
-    referenceUrls?: string[]
     targetMachineId?: string
   }>()
 
-  const { projectId, projectName, projectDescription, workingDirectory, repository, referenceUrls, targetMachineId } = body
+  const { projectId, projectName, projectDescription, workingDirectory, repository, targetMachineId } = body
 
   if (!projectId || !projectName) {
     return c.json({ error: 'projectId and projectName are required' }, 400)
@@ -224,7 +239,6 @@ repoRoute.post('/setup', async (c) => {
       projectDescription,
       workingDirectory,
       repository,
-      referenceUrls,
     })
 
     return c.json(result)

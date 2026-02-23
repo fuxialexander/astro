@@ -412,7 +412,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           computeBackend: options?.computeBackend,
           deliveryMode: project?.deliveryMode,
           remoteType: project?.source?.remoteType,
-          references: project?.references,
+          agentDir: project?.agentDir,
+          worktreeStrategy: project?.worktreeStrategy,
         }),
         signal: abortController.signal,
       })

@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, writeFileSync, statSync, readFileSync } from 'no
 import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { validateGitUrl, detectRemoteType, urlsMatchSameRepo } from './git-url-utils.js'
-import type { ProjectSource, DeliveryMode, ProjectReference } from '../../src/types/index.js'
+import type { ProjectSource, DeliveryMode } from '../../src/types/index.js'
 
 /** Common ignore patterns for .gitignore generation */
 const COMMON_IGNORES = [
@@ -32,7 +32,8 @@ const COMMON_IGNORES = [
   '.DS_Store',
   '.env',
   '.env.local',
-  '.astro-tasks/',
+  '.astro/worktrees/',
+  '.astro/cache/',
 ]
 
 /** Size threshold for auto-ignoring files (1 MB) */
@@ -44,7 +45,6 @@ export interface RepoSetupOptions {
   projectDescription?: string
   workingDirectory?: string
   repository?: string
-  referenceUrls?: string[]
 }
 
 export interface RepoSetupResult {
@@ -57,7 +57,7 @@ export interface RepoSetupResult {
   gitignoreCreated?: boolean
   source?: ProjectSource
   deliveryMode?: DeliveryMode
-  references?: ProjectReference[]
+  agentDir?: string
 }
 
 export interface DataMapEntry {
@@ -77,7 +77,7 @@ export interface DataMapEntry {
  * Note: workingDirectory must be an absolute path (enforced in frontend validation)
  */
 export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
-  const { projectId, projectName, projectDescription, workingDirectory, repository, referenceUrls } = options
+  const { projectId, projectName, projectDescription, workingDirectory, repository } = options
 
   // Validate repository URL if provided - ensure it's in SSH format
   let validatedRepository = repository
@@ -91,17 +91,7 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
   }
 
   // Run core setup logic
-  const result = setupProjectRepoCore(projectId, projectName, projectDescription, workingDirectory, validatedRepository)
-
-  // Clone explicit reference URLs if provided
-  if (referenceUrls && referenceUrls.length > 0 && result.workingDirectory) {
-    const refs = cloneReferenceUrls(result.workingDirectory, referenceUrls)
-    if (refs.length > 0) {
-      result.references = [...(result.references || []), ...refs]
-    }
-  }
-
-  return result
+  return setupProjectRepoCore(projectId, projectName, projectDescription, workingDirectory, validatedRepository)
 }
 
 /** Core setup logic (separated to allow reference URL handling as a post-step). */
@@ -120,10 +110,11 @@ function setupProjectRepoCore(
     const gitignoreCreated = generateGitignoreIfMissing(dir)
     const claudeMdCreated = generateClaudeMdIfMissing(dir, projectName, projectDescription)
     initialCommit(dir)
+    const { agentDir } = ensureAgentDir(dir)
     const fileTree = getFileTree(dir)
     const keyFiles = readKeyFiles(dir)
-    const { source, deliveryMode } = buildProjectSource(dir, { type: 'local-git' })
-    return { workingDirectory: dir, fileTree, keyFiles, claudeMdCreated, gitignoreCreated, source, deliveryMode }
+    const { source, deliveryMode } = buildProjectSource(dir, {})
+    return { workingDirectory: dir, fileTree, keyFiles, claudeMdCreated, gitignoreCreated, source, deliveryMode, agentDir }
   }
 
   // Case 2: Repository URL + working directory
@@ -135,35 +126,29 @@ function setupProjectRepoCore(
 
       if (existingRemote && urlsMatchSameRepo(existingRemote, validatedRepository)) {
         // Same repo — URL is redundant, treat working dir as the source
+        const { agentDir } = ensureAgentDir(workingDirectory)
         const fileTree = getFileTree(workingDirectory)
         const keyFiles = readKeyFiles(workingDirectory)
-        const { source, deliveryMode } = buildProjectSource(workingDirectory, { type: 'local-git', remoteUrl: existingRemote })
-        return { workingDirectory, fileTree, keyFiles, repository: existingRemote, source, deliveryMode }
+        const { source, deliveryMode } = buildProjectSource(workingDirectory, { remoteUrl: existingRemote })
+        return { workingDirectory, fileTree, keyFiles, repository: existingRemote, source, deliveryMode, agentDir }
       }
 
       if (existingRemote) {
-        // Different repo — classify provided URL as a reference
+        // Different repo — clone as a subdirectory reference
         const repoName = extractRepoName(validatedRepository)
         const refDir = join(workingDirectory, '.astro-refs', repoName)
         try {
           cloneRepo(validatedRepository, refDir)
-          // Add .astro-refs/ to .gitignore if not already there
           addToGitignore(workingDirectory, '.astro-refs/')
         } catch (refError) {
           console.warn(`[repo-setup] Failed to clone reference repo: ${refError}`)
         }
 
-        const reference: ProjectReference = {
-          id: crypto.randomUUID(),
-          url: validatedRepository,
-          localPath: refDir,
-          purpose: 'Reference repository',
-        }
-
+        const { agentDir } = ensureAgentDir(workingDirectory)
         const fileTree = getFileTree(workingDirectory)
         const keyFiles = readKeyFiles(workingDirectory)
-        const { source, deliveryMode } = buildProjectSource(workingDirectory, { type: 'local-git', remoteUrl: existingRemote })
-        return { workingDirectory, fileTree, keyFiles, repository: existingRemote, source, deliveryMode, references: [reference] }
+        const { source, deliveryMode } = buildProjectSource(workingDirectory, { remoteUrl: existingRemote })
+        return { workingDirectory, fileTree, keyFiles, repository: existingRemote, source, deliveryMode, agentDir }
       }
     }
 
@@ -171,10 +156,11 @@ function setupProjectRepoCore(
     const repoName = extractRepoName(validatedRepository)
     const cloneTarget = join(workingDirectory, repoName)
     const dir = cloneRepo(validatedRepository, cloneTarget)
+    const { agentDir } = ensureAgentDir(dir)
     const fileTree = getFileTree(dir)
     const keyFiles = readKeyFiles(dir)
-    const { source, deliveryMode } = buildProjectSource(dir, { type: 'cloned-git', remoteUrl: validatedRepository })
-    return { workingDirectory: dir, fileTree, keyFiles, repository: validatedRepository, source, deliveryMode }
+    const { source, deliveryMode } = buildProjectSource(dir, { remoteUrl: validatedRepository })
+    return { workingDirectory: dir, fileTree, keyFiles, repository: validatedRepository, source, deliveryMode, agentDir }
   }
 
   // Case 2b: Repository URL, no working directory — error
@@ -191,24 +177,25 @@ function setupProjectRepoCore(
       const gitignoreCreated = generateGitignoreIfMissing(workingDirectory)
       const claudeMdCreated = generateClaudeMdIfMissing(workingDirectory, projectName, projectDescription)
       initialCommit(workingDirectory)
+      const { agentDir } = ensureAgentDir(workingDirectory)
       const fileTree = getFileTree(workingDirectory)
       const keyFiles = readKeyFiles(workingDirectory)
-      const { source, deliveryMode } = buildProjectSource(workingDirectory, { type: 'local-git' })
-      return { workingDirectory, fileTree, keyFiles, claudeMdCreated, gitignoreCreated, source, deliveryMode }
+      const { source, deliveryMode } = buildProjectSource(workingDirectory, {})
+      return { workingDirectory, fileTree, keyFiles, claudeMdCreated, gitignoreCreated, source, deliveryMode, agentDir }
     }
 
     if (isGitRepo(workingDirectory)) {
       // Already a git repo — return file tree + auto-detect remote URL + key files
+      const { agentDir } = ensureAgentDir(workingDirectory)
       const fileTree = getFileTree(workingDirectory)
       const repository = getGitRemoteUrl(workingDirectory)
       const keyFiles = readKeyFiles(workingDirectory)
-      const { source, deliveryMode } = buildProjectSource(workingDirectory, { type: 'local-git', remoteUrl: repository })
-      return { workingDirectory, fileTree, keyFiles, repository, source, deliveryMode }
+      const { source, deliveryMode } = buildProjectSource(workingDirectory, { remoteUrl: repository })
+      return { workingDirectory, fileTree, keyFiles, repository, source, deliveryMode, agentDir }
     }
 
     // Not a git repo — return with needsGitInit and a preliminary source
     const nonGitSource: ProjectSource = {
-      type: 'local-dir',
       localPath: workingDirectory,
       remoteType: 'none',
       baseBranch: 'main',
@@ -236,10 +223,11 @@ export function initializeGitRepo(
   const gitignoreCreated = generateGitignoreIfMissing(workingDirectory)
   const claudeMdCreated = generateClaudeMdIfMissing(workingDirectory, projectName, projectDescription)
   initialCommit(workingDirectory)
+  const { agentDir } = ensureAgentDir(workingDirectory)
   const fileTree = getFileTree(workingDirectory)
   const keyFiles = readKeyFiles(workingDirectory)
-  const { source, deliveryMode } = buildProjectSource(workingDirectory, { type: 'local-git' })
-  return { workingDirectory, fileTree, keyFiles, claudeMdCreated, gitignoreCreated, source, deliveryMode }
+  const { source, deliveryMode } = buildProjectSource(workingDirectory, {})
+  return { workingDirectory, fileTree, keyFiles, claudeMdCreated, gitignoreCreated, source, deliveryMode, agentDir }
 }
 
 /**
@@ -345,7 +333,6 @@ function deriveDeliveryMode(source: ProjectSource): DeliveryMode {
 function buildProjectSource(
   dir: string,
   opts: {
-    type: ProjectSource['type']
     remoteUrl?: string
   }
 ): { source: ProjectSource; deliveryMode: DeliveryMode } {
@@ -362,9 +349,7 @@ function buildProjectSource(
   }
 
   const source: ProjectSource = {
-    type: opts.type,
     localPath: dir,
-    gitRoot,
     subdirectory,
     remoteUrl: opts.remoteUrl,
     remoteType,
@@ -376,30 +361,70 @@ function buildProjectSource(
 }
 
 /**
- * Clone explicit reference URLs into .astro-refs/ under the working directory.
- * Returns an array of ProjectReference for each successfully cloned URL.
+ * Ensure the agent directory exists with a config.json.
+ * Creates {workingDir}/{agentDirName}/ and writes config.json
+ * with auto-detected settings. Updates .gitignore.
  */
-function cloneReferenceUrls(workDir: string, urls: string[]): ProjectReference[] {
-  const refs: ProjectReference[] = []
-  for (const rawUrl of urls) {
-    const validation = validateGitUrl(rawUrl)
-    const url = validation.isValid && validation.sshUrl ? validation.sshUrl : rawUrl
-    const repoName = extractRepoName(url)
-    const refDir = join(workDir, '.astro-refs', repoName)
+export function ensureAgentDir(workingDir: string, agentDirName: string = '.astro'): { agentDir: string } {
+  const agentDirPath = join(workingDir, agentDirName)
+
+  mkdirSync(agentDirPath, { recursive: true })
+
+  // Write config.json if it doesn't exist
+  const configPath = join(agentDirPath, 'config.json')
+  if (!existsSync(configPath)) {
+    // Auto-detect settings
+    let baseBranch = 'main'
+    let remoteType = 'none'
+    let deliveryMode = 'branch'
+
     try {
-      cloneRepo(url, refDir)
-      addToGitignore(workDir, '.astro-refs/')
-      refs.push({
-        id: crypto.randomUUID(),
-        url,
-        localPath: refDir,
-        purpose: 'Reference repository',
-      })
-    } catch (refError) {
-      console.warn(`[repo-setup] Failed to clone reference repo ${url}: ${refError}`)
-    }
+      baseBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: workingDir,
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: 'pipe',
+      }).trim() || 'main'
+    } catch { /* use default */ }
+
+    try {
+      const url = execFileSync('git', ['remote', 'get-url', 'origin'], {
+        cwd: workingDir,
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: 'pipe',
+      }).trim()
+      if (url) {
+        const rt = detectRemoteType(url)
+        remoteType = rt
+        switch (rt) {
+          case 'github':
+          case 'gitlab':
+          case 'bitbucket':
+            deliveryMode = 'pr'
+            break
+          case 'generic':
+            deliveryMode = 'push'
+            break
+          default:
+            deliveryMode = 'branch'
+        }
+      }
+    } catch { /* no remote */ }
+
+    writeFileSync(configPath, JSON.stringify({
+      baseBranch,
+      branchPrefix: 'astro/',
+      remoteType,
+      deliveryMode,
+    }, null, 2) + '\n', 'utf-8')
   }
-  return refs
+
+  // Add agent dir entries to .gitignore
+  addToGitignore(workingDir, `${agentDirName}/worktrees/`)
+  addToGitignore(workingDir, `${agentDirName}/cache/`)
+
+  return { agentDir: agentDirName }
 }
 
 // --- Internal helpers ---

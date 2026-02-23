@@ -621,6 +621,9 @@ export class TaskExecutor {
           if (deliveryMode === 'direct') {
             // No git delivery — files modified in-place
             console.log(`[executor] Task ${task.id}: direct mode, skipping git delivery`);
+          } else if (deliveryMode === 'copy') {
+            // Copy mode: worktree preserved, no git operations
+            console.log(`[executor] Task ${task.id}: copy mode, worktree preserved at ${prepared.workingDirectory}`);
           } else if (deliveryMode === 'branch') {
             // Auto-commit but don't push — branch stays local
             console.log(`[executor] Task ${task.id}: branch mode, committing locally`);
@@ -739,6 +742,27 @@ export class TaskExecutor {
       return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
     }
 
+    // Copy delivery mode: copy project to worktree dir (non-git)
+    if (task.deliveryMode === 'copy') {
+      try {
+        const agentDirName = task.agentDir ?? '.astro';
+        if (task.worktreeStrategy === 'reference') {
+          const { createReferenceWorktree } = await import('./copy-worktree.js');
+          const ref = await createReferenceWorktree(task.workingDirectory, agentDirName, task.id);
+          console.log(`[executor] Task ${task.id}: reference worktree at ${ref.worktreePath}`);
+          return { workingDirectory: ref.worktreePath, cleanup: async () => { await ref.cleanup(); } };
+        }
+        const { createCopyWorktree } = await import('./copy-worktree.js');
+        const copy = await createCopyWorktree(task.workingDirectory, agentDirName, task.id);
+        console.log(`[executor] Task ${task.id}: copy worktree at ${copy.worktreePath}`);
+        return { workingDirectory: copy.worktreePath, cleanup: async () => { await copy.cleanup(); } };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[executor] Task ${task.id}: copy worktree failed: ${errorMsg}, using raw workdir`);
+        return { workingDirectory: task.workingDirectory, cleanup: async () => {} };
+      }
+    }
+
     try {
       console.log(`[executor] Task ${task.id}: creating worktree for workdir=${task.workingDirectory}`);
       const worktree = await createWorktree({
@@ -747,6 +771,7 @@ export class TaskExecutor {
         rootOverride: this.worktreeRoot,
         projectId: task.projectId,
         nodeId: task.planNodeId,
+        agentDir: task.agentDir,
         stdout: stream.stdout,
         stderr: stream.stderr,
       });

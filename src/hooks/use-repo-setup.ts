@@ -8,7 +8,6 @@ export interface RepoSetupParams {
   projectDescription?: string
   workingDirectory?: string
   repository?: string
-  referenceUrls?: string[]
   targetMachineId?: string
 }
 
@@ -42,7 +41,6 @@ export function useRepoSetup() {
           projectDescription: params.projectDescription,
           workingDirectory: params.workingDirectory,
           repository: params.repository,
-          referenceUrls: params.referenceUrls,
           targetMachineId: params.targetMachineId,
         }),
       })
@@ -73,7 +71,6 @@ export function useRepoSetup() {
           ...(data.repository ? { repository: data.repository } : {}),
           ...(data.source ? { source: data.source } : {}),
           ...(data.deliveryMode ? { deliveryMode: data.deliveryMode } : {}),
-          ...(data.references?.length ? { references: data.references } : {}),
         })
       }
       if (data.fileTree) {

@@ -49,14 +49,10 @@ const dispatchTaskSchema = z.object({
   force: z.boolean().optional(),
   dryRun: z.boolean().optional(),
   computeBackend: z.string().max(100).optional(),
-  deliveryMode: z.enum(['pr', 'push', 'branch', 'direct']).optional(),
+  deliveryMode: z.enum(['pr', 'push', 'branch', 'copy', 'direct']).optional(),
   remoteType: z.enum(['github', 'gitlab', 'bitbucket', 'generic', 'none']).optional(),
-  references: z.array(z.object({
-    id: z.string(),
-    url: z.string(),
-    localPath: z.string(),
-    purpose: z.string(),
-  })).optional(),
+  agentDir: z.string().max(100).optional(),
+  worktreeStrategy: z.enum(['copy', 'reference', 'direct']).optional(),
 })
 
 const dispatchRoute = new Hono()
@@ -103,7 +99,8 @@ dispatchRoute.post('/task', async (c) => {
     computeBackend,
     deliveryMode,
     remoteType,
-    references,
+    agentDir,
+    worktreeStrategy,
   } = body
 
   // Validate working directory
@@ -157,7 +154,7 @@ dispatchRoute.post('/task', async (c) => {
   // Serial execution constraint for 'direct' delivery mode (non-git directories).
   // Without git isolation, parallel execution on the same directory is unsafe.
   if (deliveryMode === 'direct') {
-    const stats = dispatchEngine.getStats()
+    const stats = await dispatchEngine.getStats()
     const activeForProject = stats.activePerProject?.[projectId] ?? 0
     if (activeForProject > 0) {
       return c.json(
@@ -192,7 +189,8 @@ dispatchRoute.post('/task', async (c) => {
     computeBackend,
     deliveryMode,
     remoteType,
-    references,
+    agentDir,
+    worktreeStrategy,
   })
 })
 
@@ -218,7 +216,8 @@ async function dispatchViaRelay(
     computeBackend?: string
     deliveryMode?: string
     remoteType?: string
-    references?: Array<{ id: string; url: string; localPath: string; purpose: string }>
+    agentDir?: string
+    worktreeStrategy?: string
   }
 ) {
   const {
@@ -238,7 +237,8 @@ async function dispatchViaRelay(
     computeBackend,
     deliveryMode,
     remoteType,
-    references,
+    agentDir,
+    worktreeStrategy,
   } = params
 
   // Extract user for ownership verification
@@ -291,14 +291,6 @@ async function dispatchViaRelay(
     promptParts.push(`## Data Access\n\nYour working directory is a git worktree (isolated branch) in a sibling directory next to the project.\nThe original project directory is: ${sourceDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
   }
 
-  // Inject reference repository paths into the agent prompt
-  if (references && references.length > 0) {
-    const refEntries = references
-      .map((ref) => `- ${ref.localPath}\n  Purpose: "${ref.purpose}"`)
-      .join('\n\n')
-    promptParts.push(`## Reference Repositories\n\nThe following repositories are available for reference. They are READ-ONLY — do not modify files in these directories.\n\n${refEntries}`)
-  }
-
   promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)
 
   promptParts.push(`## Instructions
@@ -346,6 +338,8 @@ The user can review your reasoning in the task output and provide guidance if th
     sourceDirectory,
     deliveryMode: deliveryMode ?? 'pr',
     remoteType,
+    agentDir,
+    worktreeStrategy,
   }
 
   return streamSSE(c, async (stream) => {

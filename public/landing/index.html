@@ -4,36 +4,38 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Astro — Your Mission Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600;700&family=Spectral:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap');
-
         :root {
-            --space-navy: #0a0e27;
-            --deep-blue: #1a2a4e;
-            --electric-cyan: #5ba3d0;
-            --star-orange: #d4a574;
-            --off-white: #f5f5f0;
-            --subtle-blue: #2a3a5e;
-            --soft-gray: #a8a8a0;
+            --bg-deep: #050510;
+            --bg-card: rgba(255, 255, 255, 0.03);
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-hover: rgba(255, 255, 255, 0.12);
+            --cyan: #5ba3d0;
+            --cyan-glow: rgba(91, 163, 208, 0.4);
+            --orange: #d4a574;
+            --orange-glow: rgba(212, 165, 116, 0.3);
+            --text-primary: #f0f0f0;
+            --text-secondary: rgba(240, 240, 240, 0.55);
+            --text-tertiary: rgba(240, 240, 240, 0.35);
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Spectral', serif;
-            background: var(--space-navy);
-            color: var(--off-white);
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-deep);
+            color: var(--text-primary);
             overflow-x: hidden;
             line-height: 1.7;
-            font-weight: 300;
+            font-weight: 400;
+            -webkit-font-smoothing: antialiased;
         }
 
-        /* Mission Blueprint Background System */
-        .blueprint-background {
+        /* Three.js Canvas */
+        #scene-canvas {
             position: fixed;
             top: 0;
             left: 0;
@@ -43,96 +45,7 @@
             pointer-events: none;
         }
 
-        /* Canvas for star field */
-        #starfield-canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            opacity: 0.4;
-        }
-
-        /* SVG layers container */
-        .svg-layers {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
-
-        .svg-layer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
-
-        /* Grid overlay - subtle blueprint grid */
-        .grid-layer {
-            opacity: 0.08;
-            animation: gridPulse 20s ease-in-out infinite;
-        }
-
-        /* Orbital trajectories layer */
-        .orbits-layer {
-            opacity: 0.15;
-        }
-
-        /* Constellation network layer */
-        .constellation-layer {
-            opacity: 0.2;
-        }
-
-        /* Technical overlay layer */
-        .technical-layer {
-            opacity: 0.12;
-        }
-
-        /* Scanning effect layer */
-        .scan-layer {
-            opacity: 0.1;
-            mix-blend-mode: screen;
-        }
-
-        /* Animations */
-        @keyframes gridPulse {
-            0%, 100% { opacity: 0.08; }
-            50% { opacity: 0.12; }
-        }
-
-        @keyframes drawPath {
-            to { stroke-dashoffset: 0; }
-        }
-
-        @keyframes orbitRotate {
-            to { transform: rotate(360deg); }
-        }
-
-        @keyframes nodePulse {
-            0%, 100% {
-                opacity: 0.4;
-                transform: scale(1);
-            }
-            50% {
-                opacity: 0.8;
-                transform: scale(1.2);
-            }
-        }
-
-        @keyframes scanSweep {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        @keyframes coordinateFade {
-            0%, 100% { opacity: 0.3; }
-            50% { opacity: 0.6; }
-        }
-
-        /* Content Container */
+        /* Content */
         .content {
             position: relative;
             z-index: 1;
@@ -143,46 +56,47 @@
             position: fixed;
             top: 0;
             width: 100%;
-            padding: 2rem 4rem;
+            padding: 1.25rem 3rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
             z-index: 100;
-            backdrop-filter: blur(10px);
-            background: rgba(10, 14, 39, 0.3);
-            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+            background: rgba(5, 5, 16, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-subtle);
             transform: translateY(-100%);
             transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        nav.scrolled {
-            transform: translateY(0);
-        }
+        nav.scrolled { transform: translateY(0); }
 
         .logo {
             font-family: 'Cormorant Garamond', serif;
-            font-size: 1.75rem;
+            font-size: 1.5rem;
             font-weight: 600;
-            letter-spacing: 0.1em;
-            color: var(--off-white);
+            letter-spacing: 0.15em;
+            color: var(--text-primary);
         }
 
         .nav-cta {
-            font-family: 'Spectral', serif;
-            padding: 0.5rem 1.5rem;
-            background: transparent;
-            border: 1px solid rgba(245, 245, 240, 0.3);
-            color: var(--off-white);
-            font-size: 0.875rem;
+            font-family: 'Inter', sans-serif;
+            padding: 0.5rem 1.25rem;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.8125rem;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.3s ease;
-            letter-spacing: 0.05em;
-            font-weight: 400;
+            transition: all 0.25s ease;
+            letter-spacing: 0.02em;
+            backdrop-filter: blur(10px);
         }
 
         .nav-cta:hover {
-            border-color: var(--off-white);
-            background: rgba(245, 245, 240, 0.05);
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
         }
 
         /* Hero Section */
@@ -193,462 +107,392 @@
             justify-content: center;
             align-items: center;
             text-align: center;
-            padding: 8rem 2rem 0;
+            padding: 6rem 2rem 4rem;
             position: relative;
-        }
-
-        .hero-label {
-            font-family: 'Spectral', serif;
-            font-size: 0.875rem;
-            letter-spacing: 0.2em;
-            color: var(--soft-gray);
-            margin-bottom: 2rem;
-            opacity: 0;
-            animation: fadeInUp 1s ease forwards;
-            font-weight: 300;
         }
 
         .hero-title {
             font-family: 'Cormorant Garamond', serif;
-            font-size: clamp(5rem, 15vw, 12rem);
+            font-size: clamp(5rem, 14vw, 11rem);
             font-weight: 300;
-            letter-spacing: 0.02em;
-            color: var(--off-white);
-            margin-bottom: 2rem;
-            opacity: 0;
-            animation: fadeInUp 1s ease 0.2s forwards;
+            letter-spacing: 0.04em;
+            color: var(--text-primary);
+            margin-bottom: 1.5rem;
             line-height: 0.9;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.2s;
         }
 
         .hero-subtitle {
-            font-size: clamp(1.25rem, 2.5vw, 2rem);
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(1.125rem, 2.5vw, 1.75rem);
             font-weight: 300;
-            color: var(--soft-gray);
-            margin-bottom: 4rem;
-            opacity: 0;
-            animation: fadeInUp 1s ease 0.4s forwards;
-            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 2.5rem;
+            letter-spacing: 0.06em;
             font-style: italic;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.4s;
         }
 
         .hero-description {
-            max-width: 700px;
-            font-size: 1.125rem;
-            line-height: 1.9;
-            color: rgba(245, 245, 240, 0.7);
-            margin-bottom: 4rem;
-            opacity: 0;
-            animation: fadeInUp 1s ease 0.6s forwards;
+            max-width: 580px;
+            font-size: 1rem;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            margin-bottom: 3rem;
             font-weight: 300;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.6s;
         }
 
-        .hero-cta {
+        /* Glassmorphic CTA Button */
+        .cta-button {
             display: inline-flex;
             align-items: center;
-            gap: 0.75rem;
-            padding: 1rem 2.5rem;
-            background: rgba(245, 245, 240, 0.05);
-            color: var(--off-white);
-            font-family: 'Spectral', serif;
-            font-weight: 400;
-            font-size: 1rem;
-            letter-spacing: 0.05em;
-            border: 1px solid rgba(245, 245, 240, 0.2);
+            gap: 0.625rem;
+            padding: 0.875rem 2rem;
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.12), rgba(212, 165, 116, 0.08));
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            font-size: 0.9375rem;
+            letter-spacing: 0.02em;
+            border: 1px solid rgba(91, 163, 208, 0.2);
+            border-radius: 12px;
             cursor: pointer;
             transition: all 0.3s ease;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            text-decoration: none;
             opacity: 0;
-            animation: fadeInUp 1s ease 0.8s forwards;
+            animation: fadeInUp 0.8s ease forwards 0.8s;
         }
 
-        .hero-cta:hover {
-            background: rgba(245, 245, 240, 0.1);
-            border-color: var(--off-white);
+        .cta-button:hover {
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.2), rgba(212, 165, 116, 0.14));
+            border-color: rgba(91, 163, 208, 0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 32px rgba(91, 163, 208, 0.15);
+        }
+
+        .cta-button .arrow {
+            transition: transform 0.25s ease;
+        }
+
+        .cta-button:hover .arrow {
+            transform: translateX(3px);
         }
 
         /* Feature Pills */
         .feature-pills {
             display: flex;
-            gap: 2rem;
+            gap: 0.75rem;
             margin-top: 4rem;
             flex-wrap: wrap;
             justify-content: center;
             opacity: 0;
-            animation: fadeInUp 1s ease 1s forwards;
+            animation: fadeInUp 0.8s ease forwards 1s;
         }
 
         .pill {
-            padding: 0.5rem 1.25rem;
-            background: transparent;
-            border: 1px solid rgba(245, 245, 240, 0.2);
+            padding: 0.4375rem 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-subtle);
             border-radius: 100px;
-            font-family: 'Spectral', serif;
-            font-size: 0.875rem;
-            color: var(--soft-gray);
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            font-weight: 400;
+            letter-spacing: 0.02em;
             transition: all 0.3s ease;
-            font-weight: 300;
         }
 
         .pill:hover {
-            border-color: rgba(245, 245, 240, 0.4);
-            color: var(--off-white);
+            border-color: var(--border-hover);
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
         }
 
-        /* Metaphor Section */
-        .metaphor-section {
-            padding: 10rem 4rem;
-            position: relative;
+        /* Sections — fade in on scroll */
+        .fade-section {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+
+        .fade-section.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* How It Works Section */
+        .how-section {
+            padding: 8rem 2rem 10rem;
+            max-width: 1200px;
+            margin: 0 auto;
         }
 
         .section-header {
             text-align: center;
-            margin-bottom: 6rem;
+            margin-bottom: 5rem;
         }
 
         .section-label {
-            font-family: 'Spectral', serif;
-            font-size: 0.875rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
             letter-spacing: 0.2em;
-            color: var(--soft-gray);
-            margin-bottom: 1.5rem;
-            font-weight: 300;
+            text-transform: uppercase;
+            color: var(--cyan);
+            margin-bottom: 1.25rem;
+            font-weight: 500;
         }
 
         .section-title {
             font-family: 'Cormorant Garamond', serif;
-            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-size: clamp(2.25rem, 4.5vw, 3.5rem);
             font-weight: 400;
-            color: var(--off-white);
-            margin-bottom: 2rem;
-            letter-spacing: 0.02em;
-        }
-
-        .section-description {
-            max-width: 700px;
-            margin: 0 auto;
-            font-size: 1.125rem;
-            color: rgba(232, 244, 248, 0.7);
-            line-height: 1.8;
-        }
-
-        /* Metaphor Grid */
-        .metaphor-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 3rem;
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        .metaphor-card {
-            background: transparent;
-            border-top: 1px solid rgba(245, 245, 240, 0.15);
-            padding: 3rem 0;
-            transition: all 0.3s ease;
-        }
-
-        .metaphor-card:hover {
-            border-top-color: rgba(245, 245, 240, 0.3);
-        }
-
-        .metaphor-icon {
-            display: none;
-        }
-
-        .metaphor-title {
-            font-family: 'Cormorant Garamond', serif;
-            font-size: 2rem;
-            font-weight: 400;
-            color: var(--off-white);
+            color: var(--text-primary);
             margin-bottom: 1.5rem;
             letter-spacing: 0.02em;
         }
 
-        .metaphor-description {
-            color: rgba(232, 244, 248, 0.8);
-            line-height: 1.8;
+        .section-description {
+            max-width: 600px;
+            margin: 0 auto;
             font-size: 1rem;
+            color: var(--text-secondary);
+            line-height: 1.75;
+            font-weight: 300;
         }
 
-        /* Mission Statement Section */
+        /* Cards Grid */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 2.5rem 2rem;
+            transition: all 0.35s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--cyan-glow), transparent);
+            opacity: 0;
+            transition: opacity 0.35s ease;
+        }
+
+        .card:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateY(-2px);
+        }
+
+        .card:hover::before { opacity: 1; }
+
+        .card-number {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.1em;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.75rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+            letter-spacing: 0.02em;
+        }
+
+        .card-text {
+            font-size: 0.9375rem;
+            color: var(--text-secondary);
+            line-height: 1.75;
+            font-weight: 300;
+        }
+
+        /* Mission Section */
         .mission-section {
-            padding: 10rem 4rem;
-            background: linear-gradient(135deg, rgba(26, 42, 78, 0.4) 0%, rgba(10, 14, 39, 0.8) 100%);
-            border-top: 1px solid rgba(0, 212, 255, 0.2);
-            border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+            padding: 8rem 2rem;
+            position: relative;
+        }
+
+        .mission-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
         }
 
         .mission-content {
-            max-width: 1000px;
+            max-width: 800px;
             margin: 0 auto;
             text-align: center;
         }
 
         .mission-statement {
-            font-size: clamp(1.125rem, 2vw, 1.375rem);
-            line-height: 1.9;
-            color: rgba(245, 245, 240, 0.8);
+            font-size: clamp(1rem, 1.5vw, 1.1875rem);
+            line-height: 2;
+            color: var(--text-secondary);
             font-weight: 300;
-            margin-bottom: 3rem;
         }
 
         .mission-statement strong {
-            color: var(--off-white);
-            font-weight: 400;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        /* Why Astro Link */
+        .why-link-section {
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+
+        .why-link {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            letter-spacing: 0.15em;
+            padding-bottom: 0.25rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .why-link:hover {
+            color: var(--text-secondary);
+            border-color: rgba(255, 255, 255, 0.3);
         }
 
         /* Footer CTA */
         .footer-cta {
-            padding: 8rem 4rem;
+            padding: 8rem 2rem 6rem;
             text-align: center;
+            position: relative;
+        }
+
+        .footer-cta::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
         }
 
         .footer-title {
             font-family: 'Cormorant Garamond', serif;
-            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-size: clamp(2.25rem, 4.5vw, 3.5rem);
             font-weight: 400;
-            color: var(--off-white);
-            margin-bottom: 2rem;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
             letter-spacing: 0.02em;
         }
 
         .footer-subtitle {
-            font-size: 1.25rem;
-            color: rgba(232, 244, 248, 0.7);
-            margin-bottom: 3rem;
+            font-size: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: 2.5rem;
+            font-weight: 300;
+        }
+
+        .footer-cta .cta-button {
+            opacity: 1;
+            animation: none;
+        }
+
+        /* Footer bottom */
+        .footer-bottom {
+            padding: 3rem 2rem;
+            text-align: center;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .footer-bottom p {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.05em;
         }
 
         /* Animations */
         @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         /* Responsive */
-        @media (max-width: 768px) {
-            nav {
-                padding: 1.5rem 2rem;
-            }
-
-            .metaphor-section,
-            .mission-section,
-            .footer-cta {
-                padding: 6rem 2rem;
-            }
-
-            .feature-pills {
+        @media (max-width: 960px) {
+            .cards-grid {
+                grid-template-columns: 1fr;
                 gap: 1rem;
             }
+        }
+
+        @media (max-width: 768px) {
+            nav { padding: 1rem 1.5rem; }
+
+            .hero { padding: 5rem 1.5rem 3rem; }
+
+            .how-section,
+            .mission-section,
+            .footer-cta {
+                padding: 5rem 1.5rem;
+            }
+
+            .feature-pills { gap: 0.5rem; }
 
             .pill {
                 font-size: 0.75rem;
-                padding: 0.5rem 1rem;
+                padding: 0.375rem 0.875rem;
             }
+
+            .card { padding: 2rem 1.5rem; }
         }
     </style>
 </head>
 <body>
-    <!-- Mission Blueprint Background System -->
-    <div class="blueprint-background">
-        <!-- Canvas for particle star field -->
-        <canvas id="starfield-canvas"></canvas>
-
-        <!-- SVG Layers -->
-        <div class="svg-layers">
-            <!-- Layer 1: Technical Grid -->
-            <svg class="svg-layer grid-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
-                <defs>
-                    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(91, 163, 208, 0.3)" stroke-width="0.5"/>
-                    </pattern>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#grid)" />
-            </svg>
-
-            <!-- Layer 2: Orbital Trajectories -->
-            <svg class="svg-layer orbits-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
-                <g transform="translate(960, 540)">
-                    <!-- Orbit 1 - Large ellipse -->
-                    <ellipse cx="0" cy="0" rx="600" ry="300"
-                        fill="none"
-                        stroke="rgba(91, 163, 208, 0.4)"
-                        stroke-width="1.5"
-                        stroke-dasharray="10 20"
-                        style="
-                            stroke-dashoffset: 3000;
-                            animation: drawPath 25s ease-in-out infinite alternate;
-                        "/>
-
-                    <!-- Orbit 2 - Medium ellipse -->
-                    <ellipse cx="0" cy="0" rx="450" ry="250"
-                        fill="none"
-                        stroke="rgba(212, 165, 116, 0.3)"
-                        stroke-width="1"
-                        stroke-dasharray="8 15"
-                        style="
-                            stroke-dashoffset: 2400;
-                            animation: drawPath 20s ease-in-out 2s infinite alternate;
-                        "/>
-
-                    <!-- Orbit 3 - Inner ellipse -->
-                    <ellipse cx="0" cy="0" rx="300" ry="150"
-                        fill="none"
-                        stroke="rgba(91, 163, 208, 0.35)"
-                        stroke-width="1"
-                        stroke-dasharray="6 12"
-                        style="
-                            stroke-dashoffset: 1800;
-                            animation: drawPath 18s ease-in-out 4s infinite alternate;
-                        "/>
-
-                    <!-- Mission waypoints on orbits -->
-                    <g class="waypoints">
-                        <!-- Waypoint 1 -->
-                        <g transform="translate(400, -150)">
-                            <circle r="4" fill="rgba(91, 163, 208, 0.6)" style="animation: nodePulse 3s ease-in-out infinite;"/>
-                            <circle r="8" fill="none" stroke="rgba(91, 163, 208, 0.3)" stroke-width="1"/>
-                            <text x="15" y="5" fill="rgba(245, 245, 240, 0.4)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 4s ease-in-out infinite;">WAY-01</text>
-                        </g>
-
-                        <!-- Waypoint 2 -->
-                        <g transform="translate(-300, 100)">
-                            <circle r="4" fill="rgba(212, 165, 116, 0.6)" style="animation: nodePulse 3s ease-in-out 1s infinite;"/>
-                            <circle r="8" fill="none" stroke="rgba(212, 165, 116, 0.3)" stroke-width="1"/>
-                            <text x="15" y="5" fill="rgba(245, 245, 240, 0.4)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 4s ease-in-out 1s infinite;">WAY-02</text>
-                        </g>
-
-                        <!-- Waypoint 3 -->
-                        <g transform="translate(200, 120)">
-                            <circle r="4" fill="rgba(91, 163, 208, 0.6)" style="animation: nodePulse 3s ease-in-out 2s infinite;"/>
-                            <circle r="8" fill="none" stroke="rgba(91, 163, 208, 0.3)" stroke-width="1"/>
-                            <text x="15" y="5" fill="rgba(245, 245, 240, 0.4)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 4s ease-in-out 2s infinite;">WAY-03</text>
-                        </g>
-                    </g>
-                </g>
-            </svg>
-
-            <!-- Layer 3: Constellation Network -->
-            <svg class="svg-layer constellation-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
-                <!-- Constellation nodes and connections -->
-                <g class="constellation">
-                    <!-- Connection lines -->
-                    <line x1="200" y1="150" x2="450" y2="280" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out infinite alternate;"/>
-                    <line x1="450" y1="280" x2="700" y2="200" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 1s infinite alternate;"/>
-                    <line x1="700" y1="200" x2="900" y2="350" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 2s infinite alternate;"/>
-                    <line x1="1100" y1="250" x2="1350" y2="180" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 3s infinite alternate;"/>
-                    <line x1="1350" y1="180" x2="1600" y2="320" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 4s infinite alternate;"/>
-
-                    <!-- Bottom connections -->
-                    <line x1="300" y1="750" x2="550" y2="850" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 2.5s infinite alternate;"/>
-                    <line x1="550" y1="850" x2="800" y2="780" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 3.5s infinite alternate;"/>
-                    <line x1="1200" y1="800" x2="1450" y2="900" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" stroke-dasharray="4 8" style="animation: drawPath 15s ease-in-out 4.5s infinite alternate;"/>
-
-                    <!-- Nodes -->
-                    <circle cx="200" cy="150" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out infinite;"/>
-                    <circle cx="450" cy="280" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 0.5s infinite;"/>
-                    <circle cx="700" cy="200" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 1s infinite;"/>
-                    <circle cx="900" cy="350" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 1.5s infinite;"/>
-                    <circle cx="1100" cy="250" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 2s infinite;"/>
-                    <circle cx="1350" cy="180" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 2.5s infinite;"/>
-                    <circle cx="1600" cy="320" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 3s infinite;"/>
-
-                    <circle cx="300" cy="750" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 1s infinite;"/>
-                    <circle cx="550" cy="850" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 2s infinite;"/>
-                    <circle cx="800" cy="780" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 3s infinite;"/>
-                    <circle cx="1200" cy="800" r="3" fill="rgba(212, 165, 116, 0.8)" style="animation: nodePulse 4s ease-in-out 1.5s infinite;"/>
-                    <circle cx="1450" cy="900" r="3" fill="rgba(91, 163, 208, 0.8)" style="animation: nodePulse 4s ease-in-out 2.5s infinite;"/>
-                </g>
-            </svg>
-
-            <!-- Layer 4: Technical Overlay (coordinates, labels) -->
-            <svg class="svg-layer technical-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
-                <!-- Corner coordinate frames -->
-                <g class="corner-frame top-left">
-                    <line x1="50" y1="50" x2="150" y2="50" stroke="rgba(91, 163, 208, 0.4)" stroke-width="1"/>
-                    <line x1="50" y1="50" x2="50" y2="150" stroke="rgba(91, 163, 208, 0.4)" stroke-width="1"/>
-                    <text x="60" y="70" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 5s ease-in-out infinite;">00°00'N</text>
-                    <text x="60" y="85" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 5s ease-in-out 0.5s infinite;">00°00'W</text>
-                </g>
-
-                <g class="corner-frame top-right">
-                    <line x1="1870" y1="50" x2="1770" y2="50" stroke="rgba(212, 165, 116, 0.4)" stroke-width="1"/>
-                    <line x1="1870" y1="50" x2="1870" y2="150" stroke="rgba(212, 165, 116, 0.4)" stroke-width="1"/>
-                    <text x="1780" y="70" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end" style="animation: coordinateFade 5s ease-in-out 1s infinite;">SECTOR-A</text>
-                </g>
-
-                <g class="corner-frame bottom-left">
-                    <line x1="50" y1="1030" x2="150" y2="1030" stroke="rgba(91, 163, 208, 0.4)" stroke-width="1"/>
-                    <line x1="50" y1="1030" x2="50" y2="930" stroke="rgba(91, 163, 208, 0.4)" stroke-width="1"/>
-                    <text x="60" y="1020" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" style="animation: coordinateFade 5s ease-in-out 1.5s infinite;">ALT: 400km</text>
-                </g>
-
-                <g class="corner-frame bottom-right">
-                    <line x1="1870" y1="1030" x2="1770" y2="1030" stroke="rgba(212, 165, 116, 0.4)" stroke-width="1"/>
-                    <line x1="1870" y1="1030" x2="1870" y2="930" stroke="rgba(212, 165, 116, 0.4)" stroke-width="1"/>
-                    <text x="1860" y="1020" fill="rgba(245, 245, 240, 0.3)" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end" style="animation: coordinateFade 5s ease-in-out 2s infinite;">MISSION: ACTIVE</text>
-                </g>
-
-                <!-- Radial coordinate system -->
-                <g transform="translate(960, 540)">
-                    <circle r="200" fill="none" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                    <circle r="400" fill="none" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                    <circle r="600" fill="none" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.5" stroke-dasharray="2 4"/>
-
-                    <!-- Radial lines -->
-                    <line x1="0" y1="0" x2="0" y2="-600" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                    <line x1="0" y1="0" x2="424" y2="-424" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                    <line x1="0" y1="0" x2="600" y2="0" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                    <line x1="0" y1="0" x2="424" y2="424" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                    <line x1="0" y1="0" x2="0" y2="600" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                    <line x1="0" y1="0" x2="-424" y2="424" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                    <line x1="0" y1="0" x2="-600" y2="0" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                    <line x1="0" y1="0" x2="-424" y2="-424" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" stroke-dasharray="2 4"/>
-                </g>
-            </svg>
-
-            <!-- Layer 5: Scanning Effect -->
-            <svg class="svg-layer scan-layer" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
-                <defs>
-                    <linearGradient id="scanGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" style="stop-color:rgba(91, 163, 208, 0); stop-opacity:0" />
-                        <stop offset="50%" style="stop-color:rgba(91, 163, 208, 0.3); stop-opacity:1" />
-                        <stop offset="100%" style="stop-color:rgba(91, 163, 208, 0); stop-opacity:0" />
-                    </linearGradient>
-                </defs>
-
-                <g transform="translate(960, 540)" style="animation: scanSweep 30s linear infinite; transform-origin: center;">
-                    <line x1="0" y1="0" x2="800" y2="0" stroke="url(#scanGradient)" stroke-width="2"/>
-                </g>
-            </svg>
-        </div>
-    </div>
+    <!-- Three.js Background -->
+    <canvas id="scene-canvas"></canvas>
 
     <div class="content">
         <!-- Navigation -->
         <nav>
             <div class="logo">ASTRO</div>
-            <button class="nav-cta">Get Early Access</button>
+            <button class="nav-cta" onclick="document.querySelector('.footer-cta').scrollIntoView({behavior:'smooth'})">Get Early Access</button>
         </nav>
 
-        <!-- Hero Section -->
+        <!-- Hero -->
         <section class="hero">
             <h1 class="hero-title">Astro</h1>
             <p class="hero-subtitle">The planning layer AI tools are missing</p>
             <p class="hero-description">
-                Apollo missions aren't executed in chat apps—they require strategic planning.
-                Astro turns your moonshot project into a coordinated mission: parallel workstreams
-                across laptop and HPC clusters, strategic decisions at every branch, all aligned to your North Star.
+                Apollo missions aren't executed in chat apps. Astro turns your moonshot into a coordinated mission: parallel workstreams across environments, strategic decisions at every branch, all aligned to your North Star.
             </p>
-            <button class="hero-cta">
+            <button class="cta-button" onclick="document.querySelector('.footer-cta').scrollIntoView({behavior:'smooth'})">
                 <span>Request Access</span>
-                <span>→</span>
+                <span class="arrow">&rarr;</span>
             </button>
-
             <div class="feature-pills">
                 <div class="pill">Plan the Work</div>
                 <div class="pill">Execute in Parallel</div>
@@ -656,8 +500,8 @@
             </div>
         </section>
 
-        <!-- Metaphor Section -->
-        <section class="metaphor-section">
+        <!-- How It Works -->
+        <section class="how-section fade-section">
             <div class="section-header">
                 <div class="section-label">How It Works</div>
                 <h2 class="section-title">Plan, Execute, Decide</h2>
@@ -666,163 +510,265 @@
                 </p>
             </div>
 
-            <div class="metaphor-grid">
-                <div class="metaphor-card">
-                    <div class="metaphor-icon">
-                        <!-- Placeholder for plan icon -->
-                    </div>
-                    <h3 class="metaphor-title">Plan the Work</h3>
-                    <p class="metaphor-description">
-                        Decompose complex goals into coordinated tasks with explicit dependencies. Turn your moonshot into structured missions—not a flat todo list, but a graph showing what can run in parallel and what must wait. Your plan guides all downstream execution.
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-number">01</div>
+                    <h3 class="card-title">Plan the Work</h3>
+                    <p class="card-text">
+                        Decompose complex goals into coordinated tasks with explicit dependencies. Not a flat todo list, but a graph showing what can run in parallel and what must wait.
                     </p>
                 </div>
-
-                <div class="metaphor-card">
-                    <div class="metaphor-icon">
-                        <!-- Placeholder for parallel execution icon -->
-                    </div>
-                    <h3 class="metaphor-title">Execute in Parallel</h3>
-                    <p class="metaphor-description">
-                        Launch multiple independent tasks simultaneously across environments. While one trains on HPC, another builds UI locally, a third deploys infrastructure—all from one plan. Turn-by-turn tools can only do one thing at a time. Astro orchestrates many.
+                <div class="card">
+                    <div class="card-number">02</div>
+                    <h3 class="card-title">Execute in Parallel</h3>
+                    <p class="card-text">
+                        Launch independent tasks simultaneously across environments. While one trains on HPC, another builds UI locally, a third deploys infrastructure&mdash;all from one plan.
                     </p>
                 </div>
-
-                <div class="metaphor-card">
-                    <div class="metaphor-icon">
-                        <!-- Placeholder for mobile decision icon -->
-                    </div>
-                    <h3 class="metaphor-title">Decide Anywhere</h3>
-                    <p class="metaphor-description">
-                        Make strategic decisions from your phone, laptop, anywhere. Approach A worked but B is stuck—pivot or debug? This branch looks promising—double down or explore alternatives? You're not tied to a terminal. Review progress and make calls on your schedule.
+                <div class="card">
+                    <div class="card-number">03</div>
+                    <h3 class="card-title">Decide Anywhere</h3>
+                    <p class="card-text">
+                        Make strategic decisions from your phone, laptop, anywhere. Approach A worked but B is stuck&mdash;pivot or debug? You're not tied to a terminal.
                     </p>
                 </div>
             </div>
         </section>
 
         <!-- Mission Statement -->
-        <section class="mission-section">
+        <section class="mission-section fade-section">
             <div class="mission-content">
-                <div class="section-label">Our Mission</div>
+                <div class="section-label" style="text-align:center; margin-bottom: 2rem;">Our Mission</div>
                 <p class="mission-statement">
-                    <strong>Astro is mission control for ambitious builders and scientists.</strong> We provide the planning and orchestration layer for long-horizon work—helping you structure complex goals, coordinate execution across environments, and surface the critical moments that require human judgment. When should you pivot? Which branches deserve continued investment? Where does your unique strategic insight matter most? <strong>Astro amplifies human decision-making at the scale of complexity that once required entire teams.</strong>
+                    <strong>Astro is mission control for ambitious builders and scientists.</strong> We provide the planning and orchestration layer for long-horizon work&mdash;helping you structure complex goals, coordinate execution across environments, and surface the critical moments that require human judgment. <strong>Astro amplifies human decision-making at the scale of complexity that once required entire teams.</strong>
                 </p>
             </div>
         </section>
 
-        <!-- Why Astro Link -->
-        <section style="padding: 4rem 2rem; text-align: center;">
-            <a href="/landing/about" style="
-                font-family: 'Spectral', serif;
-                font-size: 0.875rem;
-                color: var(--soft-gray);
-                text-decoration: none;
-                letter-spacing: 0.1em;
-                border-bottom: 1px solid rgba(245, 245, 240, 0.2);
-                padding-bottom: 0.25rem;
-                transition: all 0.3s ease;
-            " onmouseover="this.style.color='var(--off-white)'; this.style.borderColor='var(--off-white)'"
-               onmouseout="this.style.color='var(--soft-gray)'; this.style.borderColor='rgba(245, 245, 240, 0.2)'">
-                WHY ASTRO? →
-            </a>
+        <!-- Why Astro -->
+        <section class="why-link-section fade-section">
+            <a href="/landing/about" class="why-link">WHY ASTRO? &rarr;</a>
         </section>
 
         <!-- Footer CTA -->
-        <section class="footer-cta">
+        <section class="footer-cta fade-section">
             <h2 class="footer-title">Ready to launch?</h2>
             <p class="footer-subtitle">Join the waitlist for early access</p>
-            <button class="hero-cta">Get Early Access →</button>
+            <button class="cta-button">Get Early Access &rarr;</button>
         </section>
+
+        <!-- Footer -->
+        <footer class="footer-bottom">
+            <p>&copy; 2026 Astro</p>
+        </footer>
     </div>
 
-    <!-- Canvas star field script -->
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        const canvas = document.getElementById('starfield-canvas');
-        const ctx = canvas.getContext('2d');
+    (function() {
+        const canvas = document.getElementById('scene-canvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 0);
 
-        // Set canvas size
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 6;
 
-        // Star particles
-        const stars = [];
-        const starCount = 200;
+        const isMobile = window.innerWidth < 768;
 
-        class Star {
-            constructor() {
-                this.reset();
-                this.y = Math.random() * canvas.height;
-                this.opacity = Math.random() * 0.5 + 0.2;
+        // --- Central Icosahedron (wireframe with glow) ---
+        const icoGeo = new THREE.IcosahedronGeometry(1.4, 1);
+        const icoMat = new THREE.MeshBasicMaterial({
+            color: 0x5ba3d0,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.18
+        });
+        const icosahedron = new THREE.Mesh(icoGeo, icoMat);
+        scene.add(icosahedron);
+
+        // Inner glow icosahedron (slightly smaller, orange tint)
+        const innerGeo = new THREE.IcosahedronGeometry(1.35, 1);
+        const innerMat = new THREE.MeshBasicMaterial({
+            color: 0xd4a574,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.06
+        });
+        const innerIco = new THREE.Mesh(innerGeo, innerMat);
+        scene.add(innerIco);
+
+        // --- Torus ring ---
+        const torusGeo = new THREE.TorusGeometry(2.2, 0.008, 8, 100);
+        const torusMat = new THREE.MeshBasicMaterial({
+            color: 0x5ba3d0,
+            transparent: true,
+            opacity: 0.12
+        });
+        const torus = new THREE.Mesh(torusGeo, torusMat);
+        torus.rotation.x = Math.PI * 0.55;
+        torus.rotation.y = Math.PI * 0.1;
+        scene.add(torus);
+
+        // Second torus ring
+        const torus2Geo = new THREE.TorusGeometry(2.8, 0.006, 8, 120);
+        const torus2Mat = new THREE.MeshBasicMaterial({
+            color: 0xd4a574,
+            transparent: true,
+            opacity: 0.07
+        });
+        const torus2 = new THREE.Mesh(torus2Geo, torus2Mat);
+        torus2.rotation.x = Math.PI * 0.35;
+        torus2.rotation.y = Math.PI * -0.2;
+        scene.add(torus2);
+
+        // --- Orbital Particles ---
+        function createOrbitalRing(radius, count, color, size) {
+            const positions = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) {
+                const angle = (i / count) * Math.PI * 2;
+                const r = radius + (Math.random() - 0.5) * 0.15;
+                positions[i * 3] = Math.cos(angle) * r;
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 0.3;
+                positions[i * 3 + 2] = Math.sin(angle) * r;
             }
-
-            reset() {
-                this.x = Math.random() * canvas.width;
-                this.y = -10;
-                this.speed = Math.random() * 0.5 + 0.2;
-                this.size = Math.random() * 1.5 + 0.5;
-                this.twinkleSpeed = Math.random() * 0.02 + 0.01;
-                this.twinkleOffset = Math.random() * Math.PI * 2;
-            }
-
-            update() {
-                this.y += this.speed;
-
-                if (this.y > canvas.height) {
-                    this.reset();
-                }
-
-                // Twinkling effect
-                this.opacity = 0.3 + Math.sin(Date.now() * this.twinkleSpeed + this.twinkleOffset) * 0.3;
-            }
-
-            draw() {
-                ctx.fillStyle = `rgba(245, 245, 240, ${this.opacity})`;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-
-        // Initialize stars
-        for (let i = 0; i < starCount; i++) {
-            stars.push(new Star());
-        }
-
-        // Animation loop
-        function animate() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            stars.forEach(star => {
-                star.update();
-                star.draw();
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const mat = new THREE.PointsMaterial({
+                color: color,
+                size: size,
+                transparent: true,
+                opacity: 0.5,
+                sizeAttenuation: true
             });
+            return new THREE.Points(geo, mat);
+        }
 
+        const particleCount = isMobile ? 40 : 80;
+        const ring1 = createOrbitalRing(2.2, particleCount, 0x5ba3d0, 0.02);
+        ring1.rotation.x = Math.PI * 0.55;
+        ring1.rotation.y = Math.PI * 0.1;
+        scene.add(ring1);
+
+        const ring2 = createOrbitalRing(2.8, particleCount, 0xd4a574, 0.015);
+        ring2.rotation.x = Math.PI * 0.35;
+        ring2.rotation.y = Math.PI * -0.2;
+        scene.add(ring2);
+
+        const ring3 = createOrbitalRing(3.4, Math.floor(particleCount * 0.6), 0x5ba3d0, 0.012);
+        ring3.rotation.x = Math.PI * 0.7;
+        ring3.rotation.y = Math.PI * 0.3;
+        scene.add(ring3);
+
+        // --- Background Stars ---
+        const starCount = isMobile ? 200 : 500;
+        const starPositions = new Float32Array(starCount * 3);
+        for (let i = 0; i < starCount; i++) {
+            starPositions[i * 3] = (Math.random() - 0.5) * 30;
+            starPositions[i * 3 + 1] = (Math.random() - 0.5) * 30;
+            starPositions[i * 3 + 2] = (Math.random() - 0.5) * 20 - 5;
+        }
+        const starGeo = new THREE.BufferGeometry();
+        starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const starMat = new THREE.PointsMaterial({
+            color: 0xf0f0f0,
+            size: 0.02,
+            transparent: true,
+            opacity: 0.4,
+            sizeAttenuation: true
+        });
+        const stars = new THREE.Points(starGeo, starMat);
+        scene.add(stars);
+
+        // --- Mouse Parallax ---
+        const mouse = { x: 0, y: 0 };
+        const targetRotation = { x: 0, y: 0 };
+
+        if (!isMobile) {
+            document.addEventListener('mousemove', function(e) {
+                mouse.x = (e.clientX / window.innerWidth - 0.5) * 2;
+                mouse.y = (e.clientY / window.innerHeight - 0.5) * 2;
+            });
+        }
+
+        // --- Resize ---
+        window.addEventListener('resize', function() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- Animate ---
+        function animate() {
             requestAnimationFrame(animate);
+
+            const time = Date.now() * 0.001;
+
+            // Rotate geometry slowly
+            icosahedron.rotation.x = time * 0.08;
+            icosahedron.rotation.y = time * 0.12;
+
+            innerIco.rotation.x = time * 0.06;
+            innerIco.rotation.y = -time * 0.1;
+
+            torus.rotation.z = time * 0.04;
+            torus2.rotation.z = -time * 0.03;
+
+            ring1.rotation.z = time * 0.05;
+            ring2.rotation.z = -time * 0.04;
+            ring3.rotation.z = time * 0.025;
+
+            // Subtle breathing
+            const breathe = 1 + Math.sin(time * 0.5) * 0.03;
+            icosahedron.scale.setScalar(breathe);
+            innerIco.scale.setScalar(breathe);
+
+            // Subtle opacity pulsing on icosahedron
+            icoMat.opacity = 0.15 + Math.sin(time * 0.8) * 0.04;
+
+            // Mouse parallax (desktop only)
+            if (!isMobile) {
+                targetRotation.x += (mouse.y * 0.15 - targetRotation.x) * 0.03;
+                targetRotation.y += (mouse.x * 0.15 - targetRotation.y) * 0.03;
+                scene.rotation.x = targetRotation.x;
+                scene.rotation.y = targetRotation.y;
+            }
+
+            renderer.render(scene, camera);
         }
 
         animate();
+    })();
     </script>
 
-    <!-- Scroll-triggered navigation -->
+    <!-- Scroll nav + section fade-in -->
     <script>
+    (function() {
+        // Nav show on scroll
         const nav = document.querySelector('nav');
-        let lastScroll = 0;
-
-        window.addEventListener('scroll', () => {
-            const currentScroll = window.pageYOffset;
-
-            // Show nav when scrolled down more than 100px
-            if (currentScroll > 100) {
+        window.addEventListener('scroll', function() {
+            if (window.pageYOffset > 100) {
                 nav.classList.add('scrolled');
             } else {
                 nav.classList.remove('scrolled');
             }
-
-            lastScroll = currentScroll;
         });
+
+        // IntersectionObserver for fade-in sections
+        const sections = document.querySelectorAll('.fade-section');
+        const observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.15, rootMargin: '0px 0px -60px 0px' });
+
+        sections.forEach(function(s) { observer.observe(s); });
+    })();
     </script>
 </body>
 </html>

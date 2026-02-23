@@ -64,9 +64,9 @@ function sendAndReceive<T>(ws: WebSocket, message: object): Promise<T> {
   })
 }
 
-function waitForMessage<T>(ws: WebSocket, type: string): Promise<T> {
+function waitForMessage<T>(ws: WebSocket, type: string, timeoutMs = 5000): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(`Timeout waiting for ${type}`)), 5000)
+    const timeout = setTimeout(() => reject(new Error(`Timeout waiting for ${type}`)), timeoutMs)
 
     const handler = (data: WebSocket.Data) => {
       try {
@@ -169,7 +169,7 @@ describe.skipIf(!serverAvailable)('Relay Server Integration', () => {
       }
       await sendAndReceive<MachineRegisterAckMessage>(ws, registerMsg)
 
-      const ping = await waitForMessage<HeartbeatPingMessage>(ws, 'heartbeat.ping')
+      const ping = await waitForMessage<HeartbeatPingMessage>(ws, 'heartbeat.ping', 32_000)
       expect(ping.type).toBe('heartbeat.ping')
 
       const pong: HeartbeatPongMessage = {
@@ -227,7 +227,10 @@ describe.skipIf(!serverAvailable)('Relay Server Integration', () => {
       }
       await sendAndReceive<MachineRegisterAckMessage>(ws, registerMsg)
 
-      const taskReceived = waitForMessage<TaskDispatchMessage>(ws, 'task.dispatch')
+      // Allow registration to propagate through the machine registry
+      await new Promise((r) => setTimeout(r, 200))
+
+      const taskReceived = waitForMessage<TaskDispatchMessage>(ws, 'task.dispatch', 10_000)
 
       const response = await fetch(`${API_BASE}/api/relay/dispatch`, {
         method: 'POST',
@@ -259,7 +262,7 @@ describe.skipIf(!serverAvailable)('Relay Server Integration', () => {
     } finally {
       ws.close()
     }
-  })
+  }, 15_000)
 
   it('task result reporting', async () => {
     const ws = await createConnection()

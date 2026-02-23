@@ -472,11 +472,6 @@ export function OverviewTab({
                     {project.source.baseBranch}
                   </Badge>
                 )}
-                {project.references && project.references.length > 0 && (
-                  <Badge variant="outline" className="text-[10px] h-5 px-1.5">
-                    {project.references.length} ref{project.references.length !== 1 ? 's' : ''}
-                  </Badge>
-                )}
               </div>
             )}
             {/* Show loading state during repo setup */}

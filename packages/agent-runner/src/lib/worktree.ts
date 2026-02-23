@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, readFile, appendFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, appendFile, rm, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -15,6 +15,7 @@ export interface WorktreeOptions {
   rootOverride?: string;
   projectId?: string;
   nodeId?: string;
+  agentDir?: string;
   stdout?: (data: string) => void;
   stderr?: (data: string) => void;
 }
@@ -34,6 +35,7 @@ export async function createWorktree(
     rootOverride,
     projectId,
     nodeId,
+    agentDir,
     stdout,
     stderr,
   } = options;
@@ -55,9 +57,11 @@ export async function createWorktree(
     throw new Error(`Git repository has no commits: ${gitRoot}. Create an initial commit first.`);
   }
 
-  const baseRoot = rootOverride ?? await resolveWorktreeRoot(gitRoot);
+  const agentDirName = agentDir ?? '.astro';
+  const baseRoot = rootOverride ?? await resolveWorktreeRoot(gitRoot, agentDirName);
 
-  const branchName = `astro/${sanitize(taskId)}`;
+  const branchPrefix = await readBranchPrefix(gitRoot, agentDirName);
+  const branchName = `${branchPrefix}${sanitize(taskId)}`;
   const worktreePath = join(baseRoot, sanitize(taskId));
   await rm(worktreePath, { recursive: true, force: true });
   await pruneWorktrees(gitRoot);
@@ -119,6 +123,14 @@ export async function createWorktree(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     stderr?.(`setup script failed: ${msg}`);
+  }
+
+  // Copy CLAUDE.md if it exists in the git root but isn't tracked (non-fatal)
+  try {
+    await ensureClaudeMdInWorktree(gitRoot, worktreePath);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    stderr?.(`CLAUDE.md copy failed: ${msg}`);
   }
 
   const relativePath = relative(gitRoot, resolvedWorkingDirectory);
@@ -242,21 +254,41 @@ async function getDefaultBranch(gitRoot: string): Promise<string> {
 }
 
 /**
+ * Read the branch prefix from the agent directory config.
+ * Falls back to 'astro/' if config doesn't exist or is invalid.
+ */
+async function readBranchPrefix(gitRoot: string, agentDirName: string): Promise<string> {
+  try {
+    const configPath = join(gitRoot, agentDirName, 'config.json');
+    const content = await readFile(configPath, 'utf-8');
+    const config = JSON.parse(content);
+    if (config.branchPrefix && typeof config.branchPrefix === 'string') {
+      return config.branchPrefix;
+    }
+  } catch {
+    // Config doesn't exist or is invalid — use default
+  }
+  return 'astro/';
+}
+
+/**
  * Resolve the worktree root directory.
  *
- * Creates `.astro-tasks/` inside the git root so worktrees live alongside
- * the project (easy access to untracked data files, no bloat in ~/.astro/).
+ * Creates `{agentDirName}/worktrees/` inside the git root so worktrees live
+ * alongside the project (easy access to untracked data files, no bloat in ~/.astro/).
  *
- * Automatically adds `.astro-tasks/` to the repo's `.gitignore` if missing.
+ * Automatically adds `{agentDirName}/worktrees/` and `{agentDirName}/cache/`
+ * to the repo's `.gitignore` if missing.
  *
  * Falls back to `~/.astro/worktrees/{repoName}/` if the git root is read-only.
  */
-async function resolveWorktreeRoot(gitRoot: string): Promise<string> {
-  const tasksDir = join(gitRoot, '.astro-tasks');
+async function resolveWorktreeRoot(gitRoot: string, agentDirName: string): Promise<string> {
+  const worktreesDir = join(gitRoot, agentDirName, 'worktrees');
   try {
-    await mkdir(tasksDir, { recursive: true });
-    await ensureGitignoreEntry(gitRoot, '.astro-tasks/');
-    return tasksDir;
+    await mkdir(worktreesDir, { recursive: true });
+    await ensureGitignoreEntry(gitRoot, `${agentDirName}/worktrees/`);
+    await ensureGitignoreEntry(gitRoot, `${agentDirName}/cache/`);
+    return worktreesDir;
   } catch {
     // Git root is read-only — fall back to home dir
     const repoName = sanitize(basename(gitRoot));
@@ -281,13 +313,51 @@ async function ensureGitignoreEntry(gitRoot: string, pattern: string): Promise<v
       if (lines.includes(pattern)) return;
       // Append with a preceding newline if the file doesn't end with one
       const prefix = content.endsWith('\n') ? '' : '\n';
-      await appendFile(gitignorePath, `${prefix}\n# Astro task worktrees\n${pattern}\n`);
+      await appendFile(gitignorePath, `${prefix}\n# Astro agent directory\n${pattern}\n`);
     } else {
-      await appendFile(gitignorePath, `# Astro task worktrees\n${pattern}\n`);
+      await appendFile(gitignorePath, `# Astro agent directory\n${pattern}\n`);
     }
   } catch {
     // Non-fatal: .gitignore update failed (e.g., permissions)
     console.log(`[worktree] Could not update .gitignore at ${gitignorePath}`);
+  }
+}
+
+/**
+ * Ensure CLAUDE.md is available in the worktree.
+ *
+ * If CLAUDE.md is tracked by git it will already appear in the worktree
+ * automatically. But if it is untracked or gitignored in the source repo
+ * we need to copy it explicitly so the agent has access to project
+ * instructions inside the isolated worktree.
+ *
+ * This is intentionally non-fatal: a missing CLAUDE.md should never block
+ * task execution.
+ */
+export async function ensureClaudeMdInWorktree(
+  gitRoot: string,
+  worktreePath: string,
+): Promise<void> {
+  try {
+    const sourcePath = join(gitRoot, 'CLAUDE.md');
+    const destPath = join(worktreePath, 'CLAUDE.md');
+
+    // Nothing to copy if the source repo doesn't have a CLAUDE.md
+    if (!existsSync(sourcePath)) {
+      return;
+    }
+
+    // If it already exists in the worktree (i.e. it's tracked by git),
+    // there's nothing to do
+    if (existsSync(destPath)) {
+      return;
+    }
+
+    await copyFile(sourcePath, destPath);
+    console.log(`[worktree] Copied CLAUDE.md from ${gitRoot} to ${worktreePath}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[worktree] Failed to copy CLAUDE.md: ${msg}`);
   }
 }
 

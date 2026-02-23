@@ -93,25 +93,16 @@ export interface TeamMember {
 }
 
 export type RemoteType = 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none'
-export type DeliveryMode = 'pr' | 'push' | 'branch' | 'direct'
-export type SourceType = 'local-git' | 'cloned-git' | 'local-dir'
+export type DeliveryMode = 'pr' | 'push' | 'branch' | 'copy' | 'direct'
+export type WorktreeStrategy = 'copy' | 'reference' | 'direct'
 
 export interface ProjectSource {
-  type: SourceType
   localPath: string
-  gitRoot?: string
   subdirectory?: string
   remoteUrl?: string
   remoteType: RemoteType
   baseBranch: string
   isGit: boolean
-}
-
-export interface ProjectReference {
-  id: string
-  url: string
-  localPath: string
-  purpose: string
 }
 
 export interface Project {
@@ -145,7 +136,8 @@ export interface Project {
   mergeQueueMergeMethod?: 'merge' | 'squash' | 'rebase'
   source?: ProjectSource
   deliveryMode?: DeliveryMode
-  references?: ProjectReference[]
+  agentDir?: string
+  worktreeStrategy?: WorktreeStrategy
   createdAt: Date;
   updatedAt: Date;
 }

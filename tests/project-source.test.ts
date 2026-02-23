@@ -61,7 +61,6 @@ describe('detectRemoteType', () => {
 describe('deriveDeliveryMode', () => {
   it('returns "direct" for non-git sources', () => {
     const source: ProjectSource = {
-      type: 'local-dir',
       localPath: '/home/user/scripts',
       remoteType: 'none',
       baseBranch: 'main',
@@ -72,7 +71,6 @@ describe('deriveDeliveryMode', () => {
 
   it('returns "pr" for GitHub remotes', () => {
     const source: ProjectSource = {
-      type: 'local-git',
       localPath: '/home/user/project',
       remoteUrl: 'git@github.com:user/repo.git',
       remoteType: 'github',
@@ -84,7 +82,6 @@ describe('deriveDeliveryMode', () => {
 
   it('returns "pr" for GitLab remotes', () => {
     const source: ProjectSource = {
-      type: 'local-git',
       localPath: '/home/user/project',
       remoteUrl: 'git@gitlab.com:user/repo.git',
       remoteType: 'gitlab',
@@ -96,7 +93,6 @@ describe('deriveDeliveryMode', () => {
 
   it('returns "pr" for Bitbucket remotes', () => {
     const source: ProjectSource = {
-      type: 'local-git',
       localPath: '/home/user/project',
       remoteUrl: 'git@bitbucket.org:user/repo.git',
       remoteType: 'bitbucket',
@@ -108,7 +104,6 @@ describe('deriveDeliveryMode', () => {
 
   it('returns "push" for generic remotes', () => {
     const source: ProjectSource = {
-      type: 'local-git',
       localPath: '/home/user/project',
       remoteUrl: 'git@self-hosted.example.com:user/repo.git',
       remoteType: 'generic',
@@ -120,7 +115,6 @@ describe('deriveDeliveryMode', () => {
 
   it('returns "branch" for git repos with no remote', () => {
     const source: ProjectSource = {
-      type: 'local-git',
       localPath: '/home/user/analysis',
       remoteType: 'none',
       baseBranch: 'main',
@@ -181,7 +175,6 @@ describe('urlsMatchSameRepo', () => {
 describe('resolveProjectSource', () => {
   it('returns existing source if already populated', () => {
     const existingSource: ProjectSource = {
-      type: 'local-git',
       localPath: '/existing/path',
       remoteType: 'github',
       baseBranch: 'develop',
@@ -209,7 +202,6 @@ describe('resolveProjectSource', () => {
     expect(source).toBeDefined()
     expect(source!.localPath).toBe('/home/user/project')
     expect(source!.remoteType).toBe('github')
-    expect(source!.type).toBe('cloned-git')
     expect(source!.isGit).toBe(true)
   })
 
@@ -222,11 +214,10 @@ describe('resolveProjectSource', () => {
     expect(source).toBeDefined()
     expect(source!.localPath).toBe('/home/user/work')
     expect(source!.remoteType).toBe('none')
-    expect(source!.type).toBe('local-dir')
     expect(source!.isGit).toBe(false)
   })
 
-  it('infers local-git type when repository has a URL', () => {
+  it('infers git type when repository has a URL', () => {
     const project = {
       workingDirectory: '/home/user/project',
       repository: 'git@gitlab.company.com:team/repo.git',
@@ -235,7 +226,6 @@ describe('resolveProjectSource', () => {
     const source = resolveProjectSource(project)
     expect(source).toBeDefined()
     expect(source!.remoteType).toBe('gitlab')
-    expect(source!.type).toBe('cloned-git')
     expect(source!.isGit).toBe(true)
   })
 
@@ -256,6 +246,7 @@ describe('deliveryModeLabel', () => {
     expect(deliveryModeLabel('pr')).toBe('Pull Request')
     expect(deliveryModeLabel('push')).toBe('Push to Remote')
     expect(deliveryModeLabel('branch')).toBe('Local Branch')
+    expect(deliveryModeLabel('copy')).toBe('Copy to Worktree')
     expect(deliveryModeLabel('direct')).toBe('Direct (in-place)')
   })
 })

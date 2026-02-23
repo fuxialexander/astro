@@ -60,7 +60,7 @@ export function convertToHttpsUrl(url: string): string | null {
 }
 
 /**
- * Validate Git URL and ensure it's in SSH format
+ * Validate Git URL (supports SSH + HTTPS for any git host)
  */
 export function validateGitUrl(url: string): GitUrlValidation {
   if (!url || typeof url !== 'string') {
@@ -69,31 +69,34 @@ export function validateGitUrl(url: string): GitUrlValidation {
 
   const trimmed = url.trim();
 
-  // Check if it's a valid GitHub URL (SSH or HTTPS)
-  const isSsh = /^git@github\.com:[^/]+\/[^/]+\.git$/.test(trimmed);
-  const isHttps = /^https?:\/\/github\.com\/[^/]+\/[^/]+\.git$/.test(trimmed);
+  // SSH format: git@host:user/repo.git
+  const isSsh = /^git@[^:]+:.+/.test(trimmed);
+  // HTTPS format: https://host/user/repo.git (or without .git)
+  const isHttps = /^https?:\/\/.+\/.+/.test(trimmed);
+  // SSH protocol: ssh://git@host/user/repo.git
+  const isSshProtocol = /^ssh:\/\/.+/.test(trimmed);
 
-  if (!isSsh && !isHttps) {
+  if (!isSsh && !isHttps && !isSshProtocol) {
     return {
       isValid: false,
-      error: 'Invalid GitHub URL format. Expected: git@github.com:user/repo.git or https://github.com/user/repo.git',
+      error: 'Invalid Git URL format. Expected: git@host:user/repo.git, https://host/user/repo.git, or ssh://git@host/user/repo.git',
     };
   }
 
-  // Convert to SSH if HTTPS
-  const sshUrl = isSsh ? trimmed : convertToSshUrl(trimmed);
-  const httpsUrl = isHttps ? trimmed : convertToHttpsUrl(trimmed);
+  // For GitHub URLs, provide SSH conversion
+  let sshUrl: string | undefined = isSsh ? trimmed : undefined;
+  let httpsUrl: string | undefined = isHttps ? trimmed : undefined;
 
-  if (!sshUrl) {
-    return {
-      isValid: false,
-      error: 'Failed to convert URL to SSH format',
-    };
+  if (!sshUrl && isHttps) {
+    sshUrl = convertToSshUrl(trimmed) || undefined;
+  }
+  if (!httpsUrl && isSsh) {
+    httpsUrl = convertToHttpsUrl(trimmed) || undefined;
   }
 
   return {
     isValid: true,
-    sshUrl,
+    sshUrl: sshUrl || trimmed,
     httpsUrl: httpsUrl || undefined,
   };
 }

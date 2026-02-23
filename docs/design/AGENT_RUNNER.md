@@ -117,34 +117,35 @@ The server is a pure API + DB + relay hub. It **never** calls AI directly.
 
 ## 3. Complete User Workflows
 
-### 3.1 Workflow A: Create Project from GitHub Repo
+### 3.1 Workflow A: Create Project from Existing Directory (V2)
+
+> **V2 change:** Per WORKSPACE_V2, the creation form collects a description + directory path (no repo URL field). Users clone repos themselves before creating a project. See WORKSPACE_V2.md §4.
 
 ```
 STEP  COMPONENT          ACTION                           WHERE CODE LIVES
 ────  ─────────          ──────                           ──────────────────
- 1    Browser            User enters repo URL on          —
-                         welcome.tsx or project-new.tsx
+ 1    Browser            User enters description and      —
+                         directory path on project-new.tsx
+                         (defaults to ~/.astro/projects/{id}/)
 
- 2    Browser            Calls POST /api/repo/setup       —
-                         with { repository, projectId,
-                         targetMachineId? }
+ 2    Browser            Debounced detection probe:       —
+                         GET /api/repo/detect?path=...
+                         Returns: isGit, remoteUrl,
+                         remoteType, baseBranch,
+                         suggestedDeliveryMode, dirSizeMB
 
- 3a   Server (local)     If no targetMachine:             ~/.astro/repos/{projectId}/
-                         server/routes/repo.ts clones     (server's filesystem)
-                         repo, reads file tree, extracts
-                         CLAUDE.md, README, package.json
-
- 3b   Relay→Agent Runner If targetMachine specified:      ~/.astro/repos/{projectId}/
-                         sends repo_setup_request via     (agent runner's filesystem)
-                         WebSocket; agent runner clones
-                         repo via localRepoSetup()
+ 3    Browser            POST /api/repo/setup with        —
+                         { workingDirectory, projectId }
+                         Server creates agent dir
+                         ({workingDir}/.astro/),
+                         writes config.json, updates
+                         .gitignore, reads key files
 
  4    Browser            Receives { workingDirectory,     —
                          fileTree, keyFiles }
-                         Stores project in Zustand +
-                         IndexedDB
+                         Stores project in Zustand
 
- 5    Browser            User clicks "Use AI to           —
+ 5    Browser            User clicks "Create &            —
                          Generate Plan"
 
  6    Browser            POST /api/agent/generate-plan    —
@@ -152,36 +153,33 @@ STEP  COMPONENT          ACTION                           WHERE CODE LIVES
                          workingDirectory, fileTree,
                          keyFiles, projectId }
 
- 7    Server             Runs Claude with plan schema     (provider runs on server
-                         to generate nodes + edges.       or agent runner depending
-                         Streams SSE events back.         on mode)
+ 7    Server             Runs Claude with plan schema     (via relay → agent runner)
+                         to generate nodes + edges.
+                         Streams SSE events back.
 
  8    Browser            Receives plan_result SSE event.  —
                          Stores nodes/edges in plan store.
                          Displays graph.
 ```
 
-### 3.2 Workflow B: Create Project from Local Directory
+### 3.2 Workflow B: Create Project without Directory (Planner)
 
 ```
 STEP  COMPONENT          ACTION                           WHERE CODE LIVES
 ────  ─────────          ──────                           ──────────────────
- 1    Browser            User enters local path           —
-                         (e.g., /Users/me/my-project)
+ 1    Browser            User enters description, leaves  —
+                         directory as default
+                         (~/.astro/projects/{id}/)
 
- 2    Browser            POST /api/repo/setup with        —
-                         { workingDirectory: "/path",
-                         projectId }
+ 2    Browser            POST /api/repo/setup with        ~/.astro/projects/{id}/
+                         { workingDirectory, projectId }  (created automatically)
 
- 3    Server/Runner      Validates directory exists.      /Users/me/my-project
-                         Checks if git repo.              (user's existing dir)
-                         Reads file tree.
-                         If not git: returns
-                         needsGitInit=true
+ 3    Server             Creates directory. No git.       —
+                         Creates agent dir (.astro/).
+                         Returns key files (empty).
 
- 4    Browser            Stores resolved workingDirectory —
-                         in project. (workingDirectory
-                         stays as the local path)
+ 4    Browser            Stores project. User uses        —
+                         Astro for planning only.
 
  5+   Same as Workflow A steps 5-8
 ```
@@ -211,18 +209,21 @@ STEP  COMPONENT          ACTION
       task-executor      Run safety checks on directory.
 
  5    Agent Runner       Resolve workingDirectory:
-      task-executor      - If git URL → clone to ~/.astro/repos/{projectId}/
-                           (validates projectId, disables git hooks)
+      task-executor      - If git URL → REJECT (repo setup must resolve first)
                          - If empty → process.cwd()
                          - If local path → use as-is
 
- 6    Agent Runner       Create git worktree:
-      worktree.ts        ~/.astro/worktrees/{repo}/{taskId}/
-                         Branch: astro/{taskId}
+ 6    Agent Runner       Determine workspace strategy (per WORKSPACE_V2):
+      task-executor      - Git repo → worktree isolation (default)
+                           Create worktree at {agentDir}/worktrees/{taskId}/
+                           Branch: {branchPrefix}{taskId} (default: astro/)
+                         - Non-git, direct mode → work in-place (serial only)
+                         - Non-git, copy mode → cp -r to {agentDir}/worktrees/{taskId}/
+                         - Non-git, reference mode → empty worktree + file map
+                         Reads config from {workingDir}/{agentDir}/config.json
                          - Parses porcelain output for lingering worktrees
                          - Deletes remote branch if exists (prevents non-fast-forward)
                          - Fetches latest from origin
-                         - Runs .astro/.setup if exists
 
  7    Agent Runner       Run adapter.execute(task, stream, signal) with
       providers/         workingDirectory = worktree path.
@@ -249,19 +250,22 @@ STEP  COMPONENT          ACTION
 
 This is the critical piece that the previous doc did not make explicit.
 
-**The AI agent NEVER works directly in the user's repository.** It always works in a **worktree** — an isolated copy on a separate branch.
+**For git projects, the AI agent works in a worktree** — an isolated copy on a separate branch. For non-git projects, the isolation strategy depends on the workspace configuration (see WORKSPACE_V2.md for full design).
 
 ```
-User's original repo (or clone):
+User's original repo:
   /Users/me/my-project/                  ← on branch "main"
-  └── .git/
+  ├── .git/
+  └── .astro/                            ← agent dir (configurable name)
+      ├── config.json                    ← workspace settings
+      └── worktrees/                     ← execution worktrees (gitignored)
 
 Worktree created for task execution:
-  ~/.astro/worktrees/my-project/exec-node1-1234/   ← on branch "astro/node1"
+  /Users/me/my-project/.astro/worktrees/task-abc123/   ← on branch "astro/task-abc123"
   └── (full copy of repo files, isolated branch)
 
 After task completes:
-  The worktree branch "astro/node1" is pushed → PR created
+  The worktree branch is pushed → PR created (delivery mode dependent)
   Worktree directory is cleaned up (deleted)
   Branch is kept if PR exists, deleted otherwise
 ```
@@ -271,27 +275,35 @@ After task completes:
 ```
 workingDirectory (from frontend)
   │
-  │  Could be: "/Users/me/my-project"  (local path)
-  │            "git@github.com:user/repo.git"  (git URL)
-  │            "https://github.com/user/repo.git"  (git URL)
+  │  Must be a local path: "/Users/me/my-project"
+  │  (git URLs rejected — repo setup resolves them first)
   │
   ▼
 resolveWorkingDirectory()
   │
-  │  Git URL → clone to ~/.astro/repos/{projectId}/
+  │  Git URL → ERROR (repo setup must resolve first)
   │  Local path → use as-is
+  │  Empty → process.cwd()
   │
   ▼
-Resolved repo path (e.g. /Users/me/my-project)
+Resolved path (e.g. /Users/me/my-project)
   │
   ▼
-createWorktree()
+Determine workspace strategy (from task.deliveryMode + agentDir config)
   │
-  │  Creates ~/.astro/worktrees/{repoName}/{taskId}/
-  │  On branch: astro/{nodeId} (server) or astro/{taskId} (runner)
+  ├─ Git repo → createWorktree()
+  │  Creates {workingDir}/{agentDir}/worktrees/{taskId}/
+  │  On branch: {branchPrefix}{taskId} (default: astro/{taskId})
+  │
+  ├─ Non-git, direct → work in-place (serial enforced)
+  │
+  ├─ Non-git, copy → createCopyWorktree()
+  │  Copies directory to {agentDir}/worktrees/{taskId}/
+  │
+  └─ Non-git, reference → empty worktree + file map injection
   │
   ▼
-Worktree path ← THIS is what the AI actually uses as cwd
+Working directory ← THIS is what the AI actually uses as cwd
 ```
 
 ---
@@ -473,14 +485,16 @@ submitTask(task)
  │ Queue  │ │ 3. EXECUTE                              │
  │ (wait) │ │                                         │
  └────────┘ │ a. resolveWorkingDirectory()            │
-            │    git URL → clone to ~/.astro/repos/   │
+            │    git URL → REJECT (setup first)       │
             │    local path → use as-is               │
             │    empty → process.cwd()                │
             │                                         │
-            │ b. createWorktree()                     │
-            │    → ~/.astro/worktrees/{repo}/{taskId} │
-            │    → branch: astro/{taskId}             │
-            │    → run .astro/.setup if exists         │
+            │ b. Workspace strategy (per V2):         │
+            │    Git → {agentDir}/worktrees/{taskId}  │
+            │    Non-git direct → work in-place       │
+            │    Non-git copy → cp -r to worktree     │
+            │    Non-git ref → empty + file map       │
+            │    branch: {branchPrefix}{taskId}       │
             │                                         │
             │ c. Create provider adapter               │
             │    → claude-sdk / claude-code / codex    │
@@ -548,10 +562,11 @@ interface ProviderAdapter {
 │  │ WORKTREE PATH    │     │ query({                  │  │
 │  └─────────────────┘     │   prompt,                │  │
 │                           │   maxTurns: 10-100,     │  │
-│  ┌─────────────────┐     │   model: claude-opus-4,  │  │
-│  │ process.chdir()  │     │   tools: [MCP tools],   │  │
-│  │ to worktree dir  │     │ })                      │  │
-│  │ (restored after) │     └──────────┬─────────────┘  │
+│                           │   model: claude-opus-4,  │  │
+│                           │   tools: [MCP tools],   │  │
+│  ┌─────────────────┐     │   options: { cwd }      │  │
+│  │ options.cwd =    │     │ })                      │  │
+│  │ worktree path    │     └──────────┬─────────────┘  │
 │  └─────────────────┘                 │                 │
 │                                       ▼                 │
 │                           ┌────────────────────────┐  │
@@ -576,7 +591,7 @@ interface ProviderAdapter {
 └──────────────────────────────────────────────────────┘
 ```
 
-**Critical detail: `process.chdir()`** — The SDK adapter temporarily changes the Node.js process's working directory to the worktree path before calling `query()`. This is because the Claude Agent SDK's built-in tools (file read, file write, bash) operate relative to `process.cwd()`. The original cwd is restored in a `finally` block.
+**Critical detail: `options.cwd`** — The SDK adapter passes the worktree path via `options.cwd` to the Claude Agent SDK's `query()`. It does NOT use `process.chdir()` (see §15.6). Claude Code and Codex adapters pass `cwd` to `spawn()` similarly.
 
 ### 6.2 Claude Code Adapter
 
@@ -682,7 +697,7 @@ Codex            │    ✓     │    ✓     │    —    │     —     │
 
 ```typescript
 interface ExecutionStrategy {
-  readonly id: 'direct' | 'slurm' | 'docker' | 'k8s-exec' | 'skypilot';
+  readonly id: 'direct' | 'slurm' | 'docker' | 'k8s-exec';
   readonly isAsync: boolean;  // true = submit-and-poll
   detect(): Promise<ExecutionStrategyDetection>;
   buildContext?(): Promise<string>;  // Inject environment info into AI prompt
@@ -753,16 +768,24 @@ Each task gets its own worktree (branch + working copy) so:
 
 `packages/agent-runner/src/lib/worktree.ts` — the **only** worktree implementation (server-side `worktree-manager.ts` was deleted).
 
+> **V2 migration note:** The current code creates worktrees at `{gitRoot}/.astro-tasks/{taskId}/` with a fallback to `~/.astro/worktrees/{repoName}/`. Per WORKSPACE_V2, the target location is `{workingDir}/{agentDir}/worktrees/{taskId}/` (default: `.astro/worktrees/{taskId}/`), with branch prefix configurable in `{agentDir}/config.json`. See WORKSPACE_V2.md §5.2 and §9.5.
+
 ```
-createWorktree(taskId, workingDirectory)
+createWorktree(taskId, workingDirectory, agentDir?)
        │
        ├── Validate taskId format (alphanumeric + hyphens/underscores/dots)
        ├── Resolve git root: git rev-parse --show-toplevel
        ├── Verify commits exist: git rev-parse --verify HEAD
        │
-       ├── Base dir: ~/.astro/worktrees/{repoName}/
-       ├── Branch: astro/{sanitized-taskId}
-       ├── Path: ~/.astro/worktrees/{repoName}/{sanitized-taskId}/
+       ├── V2 target paths:
+       │   Base dir: {gitRoot}/{agentDir}/worktrees/  (default: .astro/worktrees/)
+       │   Branch: {branchPrefix}{sanitized-taskId}   (default prefix: astro/)
+       │   Path: {gitRoot}/{agentDir}/worktrees/{sanitized-taskId}/
+       │   Config: read branchPrefix from {gitRoot}/{agentDir}/config.json
+       │
+       ├── Current paths (pre-V2):
+       │   Base dir: {gitRoot}/.astro-tasks/  (fallback: ~/.astro/worktrees/{repoName}/)
+       │   Branch: astro/{sanitized-taskId}   (hardcoded prefix)
        │
        ├── Remove lingering worktrees (porcelain parsing)
        │   └── git worktree list --porcelain → find matching branch → force-remove
@@ -851,6 +874,7 @@ interface ConfigSchema {
   machineId: string;             // Hardware-based (MAC/UUID) or random
   machineName?: string;          // Friendly name (e.g., "my-laptop")
   environmentType: string;       // 'local' | 'remote' | 'hpc' | 'cloud'
+  deviceToken?: string;          // Device auth token
   apiUrl: string;                // Default: http://localhost:3001
   relayUrl: string;              // Default: ws://localhost:3002
   accessToken?: string;          // JWT from device auth
@@ -859,9 +883,10 @@ interface ConfigSchema {
   claudeOauthToken?: string;     // From `claude setup-token`
   providers: ProviderType[];     // Detected providers
   autoStart: boolean;            // Start on login
-  logLevel: string;              // debug/info/warn/error
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  lastConnected?: string;        // ISO timestamp of last successful connection
   setupCompleted: boolean;
-  mcpServers?: Record<string, { command, args, env }>;
+  mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
 }
 ```
 
@@ -882,13 +907,24 @@ interface Task {
   planNodeId: string;
   provider: ProviderType;           // Which AI to use
   prompt: string;                   // Instructions for the AI
-  workingDirectory: string;         // Where to work (path or git URL)
+  workingDirectory: string;         // Where to work (local path only; git URLs rejected)
   environment?: Record<string, string>;
   timeout?: number;                 // ms, default 1 hour
   maxTurns?: number;
   outputFormat?: { type: 'json_schema'; schema: Record };
   executionStrategy?: ExecutionStrategyType;
   createdAt: string;
+
+  type?: TaskDispatchType;
+  systemPrompt?: string;
+  messages?: ConversationMessage[];
+  model?: string;
+
+  /** How results should be delivered (V2 adds 'copy' for non-git projects) */
+  deliveryMode?: 'pr' | 'push' | 'branch' | 'copy' | 'direct';
+
+  /** Remote type of the source repository */
+  remoteType?: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
 }
 ```
 
@@ -914,23 +950,36 @@ interface TaskResult {
 
 ## 14. Data Directory Layout
 
-```
-~/.astro/                          # Working data
-├── worktrees/                     # Git worktrees per repo
-│   └── {repoName}/               # One worktree per task
-│       └── {taskId}/
-├── repos/                         # Cloned repositories (cached)
-│   └── {projectId}/
-├── projects/                      # Fresh project directories
-│   └── {projectId}/
-├── logs/                          # SDK debug logs
-├── hpc/
-│   └── config.json               # HPC overrides
-└── astro.db                       # Agent runner's SQLite database
+### Per-project agent directory (V2 — see WORKSPACE_V2.md §3)
 
-~/.config/astro-agent/             # Configuration
-└── config.json                    # See section 12
 ```
+/home/user/my-project/              # user's working directory
+├── .astro/                         # agent dir (name configurable: .astro, .claude, etc.)
+│   ├── config.json                 # workspace config (baseBranch, branchPrefix, deliveryMode)
+│   ├── worktrees/                  # execution worktrees (gitignored)
+│   │   ├── task-abc123/            # git worktree or directory copy
+│   │   └── task-def456/
+│   └── cache/                      # ephemeral caches (gitignored)
+├── CLAUDE.md                       # agent instructions (user-managed)
+└── src/
+```
+
+### Global data directory
+
+```
+~/.astro/                           # Metadata only (no worktrees — those live in project dirs)
+├── projects/                       # Default project directories (when user provides no path)
+│   └── {projectId}/
+├── logs/                           # SDK debug logs
+├── hpc/
+│   └── config.json                 # HPC overrides
+└── astro.db                        # Agent runner's SQLite database
+
+~/.config/astro-agent/              # Configuration
+└── config.json                     # Runner-level config (see section 12)
+```
+
+> **Migration note:** Pre-V2 code creates worktrees at `{gitRoot}/.astro-tasks/{taskId}/` with a fallback to `~/.astro/worktrees/{repoName}/`. V2 moves all worktrees into the per-project agent directory. Old `.astro-tasks/` directories can be deleted manually.
 
 ---
 
@@ -968,7 +1017,7 @@ interface TaskResult {
 
 ~~When a project is created, `/api/repo/setup` cloned the repo and built the file tree. Then `resolveWorkingDirectory()` in `task-executor.ts` could clone the same repo again.~~
 
-**Resolution:** `resolveWorkingDirectory()` in `task-executor.ts` no longer handles git URLs. If a git URL reaches dispatch time, it throws an error — repo setup must have resolved it to a local path first. Clones now go to user-specified directories (not `~/.astro/repos/`). Worktrees are created at `{gitRoot}/.astro-tasks/{taskId}/` instead of `~/.astro/worktrees/`. `~/.astro/` is now metadata-only (DB, logs, config).
+**Resolution:** `resolveWorkingDirectory()` in `task-executor.ts` no longer handles git URLs. If a git URL reaches dispatch time, it throws an error — repo setup must have resolved it to a local path first. Per WORKSPACE_V2, worktrees move from `{gitRoot}/.astro-tasks/{taskId}/` (current) to `{workingDir}/{agentDir}/worktrees/{taskId}/` (V2 target, default agent dir: `.astro`). `~/.astro/` is metadata-only (DB, logs, config).
 
 ### 15.6 ~~`process.chdir()` in SDK Adapter~~ ✅ RESOLVED
 
@@ -982,11 +1031,15 @@ interface TaskResult {
 |-------|--------|-------|
 | Duplicated `resolveWorkingDirectory()` | ✅ RESOLVED | Server version deleted |
 | Duplicated worktree management | ✅ RESOLVED | Server version deleted, features backported to agent runner |
-| Branch naming inconsistency (nodeId vs taskId) | ✅ RESOLVED | Always `astro/{taskId}` (only agent runner path remains) |
+| Branch naming inconsistency (nodeId vs taskId) | ✅ RESOLVED | Always `{branchPrefix}{taskId}` (only agent runner path remains) |
 | "Who manages the workspace" | ✅ RESOLVED | Always the agent runner |
 | `workingDirectory` field semantics | ✅ RESOLVED | Added `sourceDirectory` field, `workingDirectory` deprecated |
 | `process.chdir()` race condition | ✅ RESOLVED | Code uses `options.cwd`, never `process.chdir()` |
 | Repo setup / dispatch overlap | ✅ RESOLVED | Dispatch throws on git URLs; repo setup always resolves to local path first |
+| Worktree path migration | 🔄 IN PROGRESS | Current: `.astro-tasks/`; V2 target: `{agentDir}/worktrees/` (see WORKSPACE_V2.md) |
+| Per-project workspace config | 🔄 PLANNED | V2: `{agentDir}/config.json` with baseBranch, branchPrefix, deliveryMode |
+| Non-git workspace strategies | 🔄 PLANNED | V2: direct (in-place), copy-to-worktree, reference folder |
+| Configurable agent dir name | 🔄 PLANNED | V2: default `.astro`, configurable to `.claude` etc. |
 
 ---
 
@@ -1000,6 +1053,7 @@ interface TaskResult {
 | `index.ts` | — | Public API exports |
 | `types.ts` | ~620 | All type definitions |
 | **Commands** (`commands/`) | | |
+| `index.ts` | ~9 | Command exports |
 | `setup.ts` | ~260 | First-time setup + device auth |
 | `start.ts` | ~340 | Main runner loop |
 | `status.ts` | — | Health check |
@@ -1007,8 +1061,8 @@ interface TaskResult {
 | `mcp.ts` | — | MCP server start |
 | **Libraries** (`lib/`) | | |
 | `websocket-client.ts` | ~855 | WebSocket + auto-reconnect |
-| `task-executor.ts` | ~700 | Task queue + lifecycle |
-| `worktree.ts` | ~226 | Git worktree management |
+| `task-executor.ts` | ~823 | Task queue + lifecycle |
+| `worktree.ts` | ~406 | Git worktree management |
 | `workdir-safety.ts` | ~300 | Safety tier system |
 | `repo-utils.ts` | ~220 | Repo clone + file tree |
 | `git-pr.ts` | ~237 | Push branch + create PR |
@@ -1023,12 +1077,12 @@ interface TaskResult {
 | `slurm-job-monitor.ts` | — | SLURM job tracking |
 | `streaming-prompt.ts` | — | Prompt assembly |
 | `prompt-templates.ts` | ~450 | Plan/chat/execution/summary prompt builders (from server) |
-| `repo-context.ts` | ~200 | Reads CLAUDE.md, README, package files, file tree (from server) |
+| `repo-context.ts` | ~74 | Reads CLAUDE.md, README, package files, file tree (from server) |
 | `ssh-discovery.ts` | — | SSH host discovery |
 | `ssh-installer.ts` | — | Remote agent installation |
 | **Providers** (`providers/`) | | |
 | `base-adapter.ts` | ~60 | ProviderAdapter interface |
-| `claude-sdk-adapter.ts` | ~500 | Claude SDK integration |
+| `claude-sdk-adapter.ts` | ~683 | Claude SDK integration |
 | `claude-code-adapter.ts` | ~315 | Claude CLI subprocess |
 | `codex-adapter.ts` | ~230 | Codex CLI subprocess |
 | `slurm-adapter.ts` | ~80 | SLURM adapter (deprecated) |
@@ -1039,11 +1093,11 @@ interface TaskResult {
 | `docker-strategy.ts` | ~266 | Docker container execution |
 | `slurm-strategy.ts` | ~245 | SLURM job submission |
 | `kubernetes-exec-strategy.ts` | ~285 | K8s pod execution |
-| `skypilot-strategy.ts` | ~388 | Cloud VM (experimental) |
+| `index.ts` | ~30 | Strategy exports |
 | **MCP** (`mcp/`) | | |
 | `server.ts` | ~200 | MCP server setup |
-| `session-bridge.ts` | — | Session attachment |
-| `tools.ts` | ~200 | Tool definitions |
+| `session-bridge.ts` | ~410 | Session attachment |
+| `tools.ts` | ~278 | Tool definitions |
 | `types.ts` | — | MCP types |
 
 ### Server-side counterparts (historical)

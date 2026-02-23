@@ -214,13 +214,27 @@ export interface TaskDispatch {
    *
    * Defaults to 'pr' for backward compatibility.
    */
-  deliveryMode?: 'pr' | 'push' | 'branch' | 'direct';
+  deliveryMode?: 'pr' | 'push' | 'branch' | 'copy' | 'direct';
 
   /**
    * Remote type of the source repository.
    * Helps the agent runner decide how to create PRs or push.
    */
   remoteType?: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
+
+  /**
+   * Agent directory name (default '.astro').
+   * Used by the agent runner to find config and create worktrees.
+   */
+  agentDir?: string;
+
+  /**
+   * Worktree strategy for non-git or copy-based execution.
+   * - 'copy': Copy project files to worktree dir (default for 'copy' deliveryMode)
+   * - 'reference': Create empty dir with file map (for large datasets)
+   * - 'direct': Work in-place (same as 'direct' deliveryMode)
+   */
+  worktreeStrategy?: 'copy' | 'reference' | 'direct';
 }
 
 /** Task result from agent runner */

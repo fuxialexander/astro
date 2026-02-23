@@ -2,18 +2,27 @@
 
 > **Status:** PARTIALLY IMPLEMENTED — Passkeys + magic link are live.
 > Teams with auto-creation and data isolation are implemented.
-> OAuth (Google/GitHub) and email verification gates are designed but not yet implemented.
+> OAuth (Google/GitHub) is designed but not yet implemented.
 > This document specifies the production-grade auth system and documents
 > critical implementation lessons from production debugging.
+>
+> **Design revision (2026-02-22):** Removed the email verification gate.
+> Astro is a coordination layer — the backend never calls AI directly, and
+> agents bring their own compute (Claude API keys + machines). There is no
+> server-side cost to protect, so there is no reason to gate features behind
+> email verification. All registration methods grant full access immediately.
+> Agents (e.g., OpenClaw) are welcome as first-class users — they are a
+> distribution channel, not a threat.
 
 ---
 
 ## 1. Design Principles
 
-1. **Low barrier to entry.** Anyone with an email can register in seconds.
-2. **Verified before trusted.** Unverified accounts exist but cannot run agents, invite members, or access sensitive operations. This prevents throwaway-account abuse.
-3. **Multiple login methods.** Passkeys, magic link, Google, GitHub. Users choose; the system links them to one identity by email.
-4. **Teams are first-class.** Every user belongs to at least one team (their personal workspace). All data is team-scoped. Team switching is explicit in the UI.
+1. **Zero friction registration.** Anyone with an email can register in seconds and immediately use all features. No verification gates, no feature walls.
+2. **Multiple login methods, all equal.** Passkeys, magic link, Google, GitHub. All grant full access. Users choose based on convenience; the system links them to one identity by email.
+3. **Agents are welcome.** Astro is a coordination layer — the backend never calls AI directly. Agents bring their own compute (Claude API keys + machines via the relay). There is no server-side cost to protect, so agents (e.g., OpenClaw) can self-register and use the platform freely. They are a distribution channel: agent discovers Astro → human owner sees value → becomes a user → invites team.
+4. **Passkey is optional, not required.** Passkey provides phishing-resistant login and faster sign-in (biometric), but it is never mandatory. Users can register and operate entirely via magic link or OAuth.
+5. **Teams are first-class.** Every user belongs to at least one team (their personal workspace). All data is team-scoped. Team switching is explicit in the UI.
 
 ---
 
@@ -30,55 +39,78 @@
     │ passkey            └────────┬───────┘            OAuth   │
     │                             │ magic link                 │
     ▼                             ▼                            ▼
-┌──────────┐            ┌──────────────┐            ┌──────────────┐
-│ Unverified│◄──────────│  Unverified  │            │   Verified   │
-│ (passkey) │           │ (pending OTP)│            │  (OAuth)     │
-└─────┬────┘            └──────┬───────┘            └──────┬───────┘
-      │ clicks verify          │ clicks link                │
-      │ email link             │ in email                   │
-      ▼                        ▼                            │
-┌──────────────────────────────────────────────────────────┐│
-│                     Verified Account                     │◄┘
-│  • Can execute tasks         • Can invite team members   │
-│  • Can register machines     • Can create API keys       │
-│  • Can create teams          • Full platform access      │
-└──────────────────────────────────────────────────────────┘
+┌──────────────┐       ┌──────────────────┐       ┌──────────────────┐
+│ Full Account │       │  Full Account    │       │  Full Account    │
+│ (passkey)    │       │  (magic link)    │       │  (OAuth)         │
+└──────┬───────┘       └────────┬─────────┘       └────────┬─────────┘
+       │                        │                           │
+       └────────────────────────┼───────────────────────────┘
+                                ▼
+                   ┌──────────────────────────┐
+                   │      Active Account      │
+                   │  • Full platform access   │
+                   │  • Execute tasks          │
+                   │  • Register machines      │
+                   │  • Create/join teams      │
+                   │  • Invite members         │
+                   │  • Create API keys        │
+                   └──────────────────────────┘
 ```
 
-### 2.1 What Unverified Accounts CAN Do
+All registration methods grant **full access immediately**. There is no verification gate.
 
-- Browse the UI and create projects (within their personal workspace)
-- Create and edit plans (plan graph, tasks, descriptions)
-- Use AI plan generation (chat-based planning — cheap, bounded cost)
-- View settings, edit profile
+### 2.1 Why No Verification Gate?
 
-### 2.2 What Unverified Accounts CANNOT Do
+The original design gated task execution behind email verification to prevent compute abuse. This was based on the assumption that unverified accounts could consume expensive server-side AI resources.
 
-- **Execute tasks** (dispatch to agent runners) — this is the expensive operation
-- **Register machines** (device auth flow)
-- **Create or join teams** (beyond their auto-created personal workspace)
-- **Invite members**
-- **Create API keys**
+**This assumption is wrong for Astro's architecture:**
 
-This means a bad actor who mass-creates accounts with fake emails can see the UI but cannot consume compute resources. The verification gate sits exactly where cost begins.
+1. **The backend never calls AI directly** (see `ARCHITECTURE.md` §1.3). All AI execution flows through the Relay to Agent Runners on the user's own machines.
+2. **Agents bring their own Claude API keys.** The cost of task execution is borne by the user/agent, not by Astro.
+3. **Agents bring their own compute.** Agent runners connect to the relay with their own hardware. Astro is a coordination layer.
+4. **Storage costs are negligible.** Projects, plans, and metadata are small. The Postgres cost of a million empty accounts is trivial.
 
-### 2.3 Verification Triggers
+The only server-side resource worth protecting is **API endpoint bandwidth**, which is handled by standard rate limiting (§6.3), not feature gating.
 
-> **Note:** The backend currently creates passkey-registered users with `email_confirm: true` (see `register-verify` in `server/routes/auth.ts`), which means Supabase sets `email_confirmed_at` immediately at registration. No verification gate is actually enforced — unverified accounts are not blocked from dispatching tasks or registering machines. The design below describes the intended behavior, but the gate (checking `email_confirmed_at` in the dispatch engine and device-auth routes) has not been implemented.
+### 2.2 Agents as First-Class Users
 
-An account becomes verified when any of these occur:
+Agents (e.g., OpenClaw) can register and use Astro the same way humans do. The expected virality loop:
 
-1. **OAuth login** — Google or GitHub confirms the email. Verified immediately.
-2. **Magic link click** — User clicks the OTP link in their email. Supabase sets `email_confirmed_at`.
-3. **Explicit verification email** — System sends a "verify your account" email; user clicks the link. Same mechanism as magic link under the hood.
+```
+Agent discovers Astro → creates account (magic link or device-auth)
+  → creates projects, dispatches tasks to own machines
+  → human owner sees value in the planning layer
+  → human creates their own account or takes over agent's account
+  → human invites teammates → organic growth
+```
 
-The system checks verification by reading `auth.users.email_confirmed_at IS NOT NULL` from Supabase.
+Blocking agent registration would block this distribution channel. Since agents can't consume our resources (they bring their own), there is no reason to gate them.
+
+### 2.3 Adding Passkey After Registration
+
+Users who registered via magic link or OAuth can add a passkey later for faster login:
+
+```
+POST /api/auth/webauthn/add-passkey
+  → requires authenticated session (any method)
+  → generates WebAuthn registration options for existing user
+  → browser biometric ceremony
+  → stores new credential against user_id
+```
+
+The UI nudges this with a non-blocking banner:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ Add a passkey for faster sign-in.  [Add passkey]  [Later]│
+└──────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 3. Registration Flows
 
-### 3.1 Email + Passkey Registration (current, enhanced)
+### 3.1 Email + Passkey Registration (current)
 
 ```
 Frontend                          Backend                         Supabase
@@ -98,18 +130,15 @@ Frontend                          Backend                         Supabase
    │                                │                                │
    │                                │── store passkey_credential ───▶│
    │                                │── create personal team ───────▶│
-   │                                │── send verification email ────▶│
    │                                │                                │
    │◄── { verified: true,          │                                │
-   │      emailVerified: false,    │                                │
    │      session } ───────────────│                                │
    │                                │                                │
    │  [User lands in app with      │                                │
-   │   banner: "Verify your email  │                                │
-   │   to unlock full features"]   │                                │
+   │   full access immediately]    │                                │
 ```
 
-**Key change from current:** Registration creates the account with `email_confirm: false` and sends a verification email. The user can use the app immediately (plan, browse) but cannot execute tasks until they click the verification link.
+Registration creates the account with `email_confirm: true` and grants full access immediately. No verification email, no feature gates.
 
 ### 3.2 Email + Magic Link Registration
 
@@ -277,77 +306,44 @@ This is the correct behavior and Supabase handles it automatically when `GOTRUE_
 
 ### 6.1 Threat Model
 
-| Threat | Mitigation |
-|--------|------------|
-| Mass account creation with fake emails | Unverified accounts can't execute tasks (no compute cost) |
-| Use throwaway email to run expensive agents | Verification required before task dispatch |
-| Credential stuffing (try leaked passwords) | No passwords in the system. Passkeys + OTP only |
-| Passkey phishing | RP ID binding makes passkeys unphishable |
-| Email enumeration via `/check-user` | Rate limited (30 req/15min per IP), returns minimal info |
-| OAuth token theft | Short-lived JWTs, refresh tokens rotated on use |
-| Team invitation spam | Only verified admins/owners can send invites |
-| Invite link sharing/forwarding | Invite is bound to specific email; accept endpoint verifies match |
+Astro's abuse surface is narrow because the backend is a **coordination layer**, not a compute provider. The backend never calls AI directly — agents bring their own Claude API keys and machines. The primary resources to protect are API endpoint bandwidth and Postgres storage.
 
-### 6.2 Verification Gate — Implementation
+| Threat | Risk | Mitigation |
+|--------|------|------------|
+| Mass account creation (bots) | **Low** — accounts are cheap (Postgres rows). No compute to steal. | Rate limiting on registration endpoints |
+| Agents creating accounts | **Not a threat** — agents are welcome. They bring their own compute. | N/A (this is a feature, not a bug) |
+| Credential stuffing (try leaked passwords) | **None** — no passwords in the system | Passkeys + OTP only |
+| Passkey phishing | **None** | RP ID binding makes passkeys unphishable |
+| Email enumeration via `/check-user` | **Low** | Rate limited (30 req/15min per IP), returns minimal info |
+| OAuth token theft | **Low** | Short-lived JWTs, refresh tokens rotated on use |
+| Team invitation spam | **Medium** | Only admins/owners can send invites; rate limited |
+| Invite link sharing/forwarding | **Low** | Invite is bound to specific email; accept endpoint verifies match |
+| API endpoint DDoS | **Medium** | Per-IP and per-user rate limiting on all endpoints |
 
-The verification check belongs in the **dispatch engine**, not in the auth middleware. This way, unverified users can still call most API endpoints (fetching their own data, editing plans, etc.) but are blocked at the point of compute.
+### 6.2 No Verification Gate
 
-```
-File: server/lib/dispatch/dispatch-engine.ts
+The previous design gated task dispatch and machine registration behind email verification (`email_confirmed_at`). **This gate has been removed** because:
 
-// Before dispatching a task:
-const { data: authUser } = await supabase.auth.admin.getUserById(userId)
-if (!authUser?.user?.email_confirmed_at) {
-  throw new DispatchError(
-    'EMAIL_NOT_VERIFIED',
-    'Please verify your email before running tasks. Check your inbox for a verification link.'
-  )
-}
-```
+1. Task execution runs on the user's/agent's own machines via the relay — no server-side AI cost
+2. Plan generation runs on the user's/agent's own machines via the relay — no server-side AI cost
+3. Storage costs for projects/plans are negligible
+4. The gate would block legitimate agents (OpenClaw, etc.) from using the platform
 
-Similarly, in `server/routes/device-auth.ts` (machine registration):
-```
-// Before issuing device codes:
-if (!authUser?.user?.email_confirmed_at) {
-  return c.json({ error: 'Email verification required to register machines' }, 403)
-}
-```
+All features are available immediately after registration, regardless of method.
 
-### 6.3 Rate Limits (Current + Additions)
+### 6.3 Rate Limits
 
-| Endpoint | Current | Proposed |
-|----------|---------|----------|
+Rate limiting is the primary abuse prevention mechanism. It protects API bandwidth without blocking features.
+
+| Endpoint | Current | Target |
+|----------|---------|--------|
 | `/auth/webauthn/check-user` | 30/15min per IP | Keep |
 | `/auth/webauthn/register-options` | 30/15min per IP | Keep |
 | `/auth/webauthn/login-options` | 30/15min per IP | Keep |
-| `/api/dispatch/task` | None | 10/min per user (verified only) |
+| `/api/dispatch/task` | None | 10/min per user |
 | `/api/teams/invite` | None | 20/hour per user |
-| `/api/device/authorize` | None | 5/hour per user (verified only) |
-
-### 6.4 Email Verification Flow
-
-After passkey registration:
-
-```
-Backend (register-verify):
-  1. Create user with email_confirm: false
-  2. Store passkey credential
-  3. Create personal team
-  4. Generate magic link → extract verification URL
-  5. Send verification email using email-service.ts
-  6. Return session (user can use app immediately)
-
-Email contains:
-  Subject: "Verify your Astro account"
-  Body: "Click to verify your email and unlock full features"
-  Link: https://astro.example.com/auth/callback#token_hash=xxx&type=magiclink
-
-When user clicks:
-  1. Supabase verifies the OTP token
-  2. Sets email_confirmed_at on auth.users
-  3. onAuthStateChange fires with updated user
-  4. Frontend removes the "verify your email" banner
-```
+| `/api/device/authorize` | None | 10/hour per user |
+| `/api/data/*` | None | 100/min per user |
 
 ---
 
@@ -539,18 +535,17 @@ The personal workspace concept means a user who never creates or joins a team st
 └──────────────────────────────────────┘
 ```
 
-### 9.3 Verification Banner
+### 9.3 Passkey Nudge Banner
 
-After passkey registration (user is logged in but email not verified):
+For users who registered via magic link or OAuth (no passkey), show a non-blocking nudge:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ ⚠️  Verify your email to unlock task execution and team     │
-│     features. Check your inbox or [resend verification].     │
+│ Add a passkey for faster sign-in.  [Add passkey]  [Later]    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-This banner appears at the top of every page until `email_confirmed_at` is set. It includes a "resend" button that calls `supabase.auth.resend({ type: 'signup', email })`.
+This banner appears until the user either adds a passkey or dismisses it. Dismissal is persisted in `user_profiles` metadata. The banner does NOT block any features — it is purely a convenience suggestion.
 
 ---
 
@@ -680,7 +675,7 @@ client_id = "env(GITHUB_CLIENT_ID)"
 secret = "env(GITHUB_CLIENT_SECRET)"
 ```
 
-### 11.2 Email Verification Settings
+### 11.2 Email Settings
 
 ```toml
 [auth]
@@ -689,7 +684,7 @@ double_confirm_changes = true  # Require email confirmation for email changes
 
 [auth.email]
 enable_signup = true
-enable_confirmations = true  # Send verification emails
+enable_confirmations = false  # No verification emails — full access on registration
 ```
 
 ### 11.3 Redirect URLs
@@ -706,22 +701,16 @@ Configure allowed redirect URLs in Supabase dashboard:
 
 **`server/routes/auth.ts`**
 
-1. **`register-verify`**: Change `email_confirm: true` to `email_confirm: false` for passkey registration. Send verification email after account creation.
+1. **`register-verify`**: Keep `email_confirm: true`. No verification email needed — full access is granted immediately.
 
-2. **New endpoint: `POST /api/auth/resend-verification`**
+2. **New endpoint: `POST /api/auth/webauthn/add-passkey`**
    ```typescript
-   // Resend the verification email
-   const { error } = await supabase.auth.resend({
-     type: 'signup',
-     email,
-   })
+   // Allows authenticated users to add a passkey to their existing account.
+   // Same WebAuthn registration ceremony, but skips admin.createUser().
+   // Stores credential against the existing user_id.
    ```
 
-3. **New endpoint: `GET /api/auth/user-status`**
-   ```typescript
-   // Returns { verified: boolean, providers: string[], teams: number }
-   // Frontend uses this to show/hide the verification banner
-   ```
+3. **No verification endpoints needed.** The `resend-verification` and `user-status` endpoints from the previous design are not needed since there is no verification gate.
 
 ### 12.2 OAuth Session Handling
 
@@ -754,39 +743,9 @@ if (event === 'SIGNED_IN' && session) {
 // Idempotent — safe to call on every login
 ```
 
-### 12.3 Dispatch Engine — Verification Gate
+### 12.3 No Dispatch or Device Auth Gates
 
-**`server/lib/dispatch/dispatch-engine.ts`**
-
-Add verification check before task dispatch:
-
-```typescript
-async function verifyUserCanDispatch(userId: string): Promise<void> {
-  const supabase = getServiceClient()
-  const { data } = await supabase.auth.admin.getUserById(userId)
-
-  if (!data?.user?.email_confirmed_at) {
-    throw new Error(
-      'Email verification required. Please check your inbox and click the verification link before running tasks.'
-    )
-  }
-}
-```
-
-### 12.4 Device Auth — Verification Gate
-
-**`server/routes/device-auth.ts`**
-
-Add verification check before issuing device codes:
-
-```typescript
-// In POST /api/device/authorize:
-if (!authUser?.email_confirmed_at) {
-  return c.json({
-    error: 'Email verification required to register machines',
-  }, 403)
-}
-```
+The previous design added `email_confirmed_at` checks in the dispatch engine and device-auth routes. **These are not needed.** The backend never calls AI directly — agents bring their own compute. All authenticated users can dispatch tasks and register machines immediately.
 
 ---
 
@@ -821,40 +780,38 @@ const handleGitHubLogin = async () => {
 }
 ```
 
-### 13.2 Verification Banner Component
+### 13.2 Passkey Nudge Banner Component
 
-New component: `src/components/verification-banner.tsx`
+New component: `src/components/passkey-nudge-banner.tsx`
 
 ```typescript
-export function VerificationBanner() {
+export function PasskeyNudgeBanner() {
   const user = useAuthStore((s) => s.user)
-  const [resending, setResending] = useState(false)
+  const profile = useUserProfileStore((s) => s.profile)
+  const [dismissed, setDismissed] = useState(false)
 
-  // email_confirmed_at is in user.user_metadata or user object
-  const isVerified = !!user?.email_confirmed_at
-  if (isVerified) return null
+  // Check if user already has passkeys (via profile metadata or identities)
+  const hasPasskey = profile?.metadata?.hasPasskey
+  if (hasPasskey || dismissed) return null
 
-  const handleResend = async () => {
-    setResending(true)
-    await fetch(apiUrl('/api/auth/resend-verification'), {
-      method: 'POST',
-      headers: { /* auth headers */ },
-    })
-    setResending(false)
+  const handleAddPasskey = async () => {
+    // Navigate to passkey registration flow
+    // POST /api/auth/webauthn/add-passkey
   }
 
   return (
-    <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 text-sm">
-      Verify your email to unlock task execution and team features.
-      <button onClick={handleResend}>
-        {resending ? 'Sending...' : 'Resend verification email'}
-      </button>
+    <div className="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 text-sm flex items-center justify-between">
+      <span>Add a passkey for faster sign-in.</span>
+      <div className="flex gap-2">
+        <button onClick={handleAddPasskey}>Add passkey</button>
+        <button onClick={() => setDismissed(true)}>Later</button>
+      </div>
     </div>
   )
 }
 ```
 
-Add this to `app-layout.tsx` above `<Outlet />`.
+Add this to `app-layout.tsx` above `<Outlet />`. Dismissal state persisted via user profile metadata.
 
 ### 13.3 Team Context Store
 
@@ -881,21 +838,9 @@ Fetches invite details from `GET /api/teams/invite/:token`, shows team name and 
 
 ## 14. Implementation Phases
 
-### Phase 1: Verification Gate (Immediate Priority)
+### Phase 1: OAuth Providers (Immediate Priority)
 
-**Goal:** Prevent unverified accounts from consuming compute.
-
-1. Change `register-verify` to set `email_confirm: false`
-2. Send verification email on registration
-3. Add `POST /api/auth/resend-verification`
-4. Add `GET /api/auth/user-status`
-5. Add verification check in dispatch engine
-6. Add `VerificationBanner` component
-7. Frontend: check `email_confirmed_at` and show banner
-
-### Phase 2: OAuth Providers
-
-**Goal:** Google and GitHub login.
+**Goal:** Google and GitHub login — the fastest registration paths.
 
 1. Configure Google OAuth in Supabase
 2. Configure GitHub OAuth in Supabase
@@ -904,6 +849,15 @@ Fetches invite details from `GET /api/teams/invite/:token`, shows team name and 
 5. Wire `onAuthStateChange` to call ensure-profile for OAuth users
 6. Test: new Google user → gets profile + personal team
 7. Test: existing passkey user → links Google identity
+
+### Phase 2: Add-Passkey Flow
+
+**Goal:** Let existing users add passkeys for faster login.
+
+1. Add `POST /api/auth/webauthn/add-passkey` endpoint
+2. Add passkey nudge banner component
+3. Add passkey management to settings → security tab
+4. Test: magic link user → adds passkey → can login with passkey
 
 ### Phase 3: Team UI Enhancements
 
@@ -920,11 +874,11 @@ Fetches invite details from `GET /api/teams/invite/:token`, shows team name and 
 
 **Goal:** Production readiness.
 
-1. Rate limits on dispatch and device-auth
+1. Rate limits on all API endpoints (§6.3)
 2. Audit logging for auth events
 3. Account deletion cascade improvements
 4. Session management UI (active sessions, revoke)
-5. Email templates (branded HTML for verification + invite)
+5. Email templates (branded HTML for invites)
 
 ---
 
@@ -962,15 +916,17 @@ Magic links are single-use, expire in 1 hour (Supabase default), and are bound t
 
 The current system works. The changes are additive — no breaking migrations.
 
-1. Existing passkey users: unaffected. Their `email_confirmed_at` is set (because `createUser` was called with `email_confirm: true`).
-2. Existing magic link users: already verified (clicked the link).
-3. New passkey users after Phase 1: unverified until they click the verification email. But they can still browse and plan.
+1. Existing passkey users: unaffected. Their `email_confirmed_at` is set (because `createUser` was called with `email_confirm: true`). They continue to have full access.
+2. Existing magic link users: unaffected.
+3. New users: can register via any method (passkey, magic link, OAuth) and get full access immediately.
+
+No verification gate was ever enforced in production, so removing it from the design requires zero code changes to the dispatch engine or device-auth routes.
 
 ### Database Changes
 
 No schema changes needed. All auth state lives in Supabase's `auth.users` table (managed by Supabase, not our migrations). The `user_profiles`, `teams`, `team_members`, and `invite_tokens` tables already exist.
 
-The only new table consideration is if we want a `user_auth_methods` table to track which methods a user has configured (for the settings → security page). But Supabase's `auth.identities` already provides this information.
+Supabase's `auth.identities` table tracks which login methods a user has configured (passkey, Google, GitHub). No additional table needed.
 
 ---
 
@@ -1000,7 +956,7 @@ DataLoader (src/app.tsx):
 
 | Concern | Server Mode | Local Mode |
 |---------|-------------|------------|
-| Authentication | WebAuthn passkeys + magic link + (future) OAuth | None |
+| Authentication | Passkeys (optional) + magic link + Google/GitHub OAuth | None |
 | User identity | Supabase `auth.users.id` | Fixed `LOCAL_USER_ID` constant |
 | Team scoping | `X-Team-Id` header on all API calls | Fixed `LOCAL_TEAM_ID` constant |
 | Session management | Supabase JWT + refresh tokens | No sessions |
@@ -1108,6 +1064,8 @@ This section documents the **actual implemented flow** as of 2026-02-22, includi
 │  │       │                                                   │      │
 │  │  Backend does:                                            │      │
 │  │    1. admin.createUser({ email, email_confirm: true })    │      │
+│  │       (email_confirm: true → full access immediately,     │      │
+│  │        no verification gate — see §2.1)                   │      │
 │  │    2. Store passkey credential in passkey_credentials     │      │
 │  │    3. Create user_profiles row with name                  │      │
 │  │    4. Auto-create personal team                           │      │
@@ -1345,13 +1303,23 @@ These invariants must be maintained. Violating any of them produces the bugs des
 ## 20. Testing Checklist
 
 ### Registration
-- [ ] New user: enter email → enter name → passkey ceremony → lands in app with correct data
-- [ ] New user: enter email → click "Email link instead" → receive email → click link → lands in app
+- [ ] New user: enter email → enter name → passkey ceremony → lands in app with full access
+- [ ] New user: enter email → click "Email link instead" → receive email → click link → lands in app with full access
+- [ ] New user: click "Continue with Google" → OAuth flow → lands in app with profile + personal team
+- [ ] New user: click "Continue with GitHub" → OAuth flow → lands in app with profile + personal team
 - [ ] Returning user without passkey: enter email → sees "Welcome back!" with pre-filled name → register passkey → lands in app
+- [ ] All registration methods: user can immediately dispatch tasks, register machines, create teams (no gates)
 
 ### Login
 - [ ] Existing user with passkey: enter email → auto-authenticates → lands in app
-- [ ] Existing user, passkey fails: sees error → can try magic link
+- [ ] Existing user, passkey fails: sees error → can try magic link or OAuth
+- [ ] Existing passkey user logs in via Google (same email) → same account, data preserved
+
+### Add Passkey (post-registration)
+- [ ] Magic link user: sees passkey nudge banner → clicks "Add passkey" → WebAuthn ceremony → passkey stored
+- [ ] OAuth user: can add passkey from settings → security tab
+- [ ] After adding passkey: can login with passkey on next visit
+- [ ] Dismissing nudge banner: banner does not reappear
 
 ### User Switching
 - [ ] Sign out → sign in as different user → sees new user's data (not old user's)

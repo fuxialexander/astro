@@ -26,11 +26,9 @@ This document tracks discrepancies between design documents (in `docs/design/`),
 
 **Resolved (2026-02-22):** The migration described in this plan has been completed by the Execution Path Unification.
 
-### 5. Agent Runner Config vs. Data Directory
+### 5. ~~Agent Runner Config vs. Data Directory~~ ✅ RESOLVED
 
-`AGENT_RUNNER.md` says `~/.config/astro-agent/` but doesn't mention `~/.astro/` for data. Both paths are correct but serve different purposes (config vs. data).
-
-**Resolution needed:** Clarify in AGENT_RUNNER.md.
+**Resolved (2026-02-22):** AGENT_RUNNER.md §14 now clearly separates runner config (`~/.config/astro-agent/`), global data (`~/.astro/`), and per-project agent dir (`{workingDir}/.astro/`). Aligned with WORKSPACE_V2.md.
 
 ### 7. ~~FRONTEND.md — Stale IndexedDB References~~ ✅ RESOLVED
 

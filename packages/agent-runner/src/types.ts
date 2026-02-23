@@ -125,11 +125,17 @@ export interface Task {
   /** Explicit model selection — e.g. 'claude-sonnet-4-20250514' */
   model?: string;
 
-  /** How results should be delivered: 'pr' | 'push' | 'branch' | 'direct' */
-  deliveryMode?: 'pr' | 'push' | 'branch' | 'direct';
+  /** How results should be delivered: 'pr' | 'push' | 'branch' | 'copy' | 'direct' */
+  deliveryMode?: 'pr' | 'push' | 'branch' | 'copy' | 'direct';
 
   /** Remote type of the source repository */
   remoteType?: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
+
+  /** Agent directory name (default '.astro') */
+  agentDir?: string;
+
+  /** Worktree strategy for non-git or copy-based execution */
+  worktreeStrategy?: 'copy' | 'reference' | 'direct';
 }
 
 export interface TaskResult {

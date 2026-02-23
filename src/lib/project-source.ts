@@ -8,6 +8,9 @@
 
 import type { Project, ProjectSource, DeliveryMode, RemoteType } from '@/types'
 
+/** @deprecated Use ProjectSource without 'type' field. Kept for backward compat. */
+export type SourceType = 'local-git' | 'cloned-git' | 'local-dir'
+
 /**
  * Detect the remote type from a git URL.
  */
@@ -61,16 +64,7 @@ export function resolveProjectSource(project: Project): ProjectSource | undefine
   const remoteType = detectRemoteType(remoteUrl)
   const isGit = !!remoteUrl || remoteType !== 'none'
 
-  // Infer source type from available info
-  let type: ProjectSource['type'] = 'local-dir'
-  if (isGit && remoteUrl) {
-    type = 'cloned-git'
-  } else if (isGit) {
-    type = 'local-git'
-  }
-
   return {
-    type,
     localPath,
     remoteUrl,
     remoteType,
@@ -115,6 +109,7 @@ export function deliveryModeLabel(mode: DeliveryMode): string {
     case 'pr': return 'Pull Request'
     case 'push': return 'Push to Remote'
     case 'branch': return 'Local Branch'
+    case 'copy': return 'Copy to Worktree'
     case 'direct': return 'Direct (in-place)'
   }
 }

@@ -47,8 +47,6 @@ export function ProjectNew() {
   const [repoUrl, setRepoUrl] = useState("")
   const [workingDir, setWorkingDir] = useState("")
   const [showRepoUrl, setShowRepoUrl] = useState(false)
-  const [showReferences, setShowReferences] = useState(false)
-  const [referenceUrls, setReferenceUrls] = useState<string[]>([])
   const [showGitHubRepos, setShowGitHubRepos] = useState(false)
   const [selectedEnvironment, setSelectedEnvironment] = useState<EnvironmentType>("local")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
@@ -152,9 +150,6 @@ export function ProjectNew() {
     const id = crypto.randomUUID()
     const projectName = description.slice(0, 50).trim() || "New Project"
 
-    // Collect non-empty reference URLs
-    const refs = referenceUrls.map(u => u.trim()).filter(Boolean)
-
     if (useAI) {
       // --- AI path: create project, navigate, then setup repo + generate ---
       addProject({
@@ -189,7 +184,6 @@ export function ProjectNew() {
           projectDescription: description.trim(),
           workingDirectory: workingDir.trim() || undefined,
           repository: repoUrl.trim() || undefined,
-          referenceUrls: refs.length > 0 ? refs : undefined,
           targetMachineId: selectedMachine?.machineId || undefined,
         })
 
@@ -231,7 +225,6 @@ export function ProjectNew() {
           projectDescription: description.trim(),
           workingDirectory: workingDir.trim() || undefined,
           repository: repoUrl.trim() || undefined,
-          referenceUrls: refs.length > 0 ? refs : undefined,
           targetMachineId: selectedMachine?.machineId || undefined,
         })
 
@@ -737,64 +730,6 @@ export function ProjectNew() {
             >
               <Plus className="h-3.5 w-3.5" />
               Add repository URL
-            </button>
-          )}
-
-          {/* Reference repos — collapsed by default */}
-          {showReferences ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-foreground">Reference repos</label>
-                <button
-                  type="button"
-                  onClick={() => { setShowReferences(false); setReferenceUrls([]) }}
-                  className="p-1 rounded-md hover:bg-muted transition-colors cursor-pointer"
-                >
-                  <X className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              </div>
-              {referenceUrls.map((url, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={url}
-                    onChange={(e) => {
-                      const updated = [...referenceUrls]
-                      updated[i] = e.target.value
-                      setReferenceUrls(updated)
-                    }}
-                    placeholder="git@github.com:team/api-spec.git"
-                    className="flex-1 h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setReferenceUrls(referenceUrls.filter((_, j) => j !== i))}
-                    className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
-                  >
-                    <X className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setReferenceUrls([...referenceUrls, ""])}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add another
-              </button>
-              <p className="text-[11px] text-muted-foreground">
-                Reference repos are cloned as read-only context. Agents can read them but won't modify them.
-              </p>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => { setShowReferences(true); setReferenceUrls([""]) }}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add reference code
             </button>
           )}
 
