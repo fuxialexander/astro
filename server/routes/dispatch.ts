@@ -17,6 +17,7 @@ import { relayServer } from '../lib/relay-server.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import type { ProviderType } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { executionEventBus } from '../lib/execution-event-bus.js'
 
 // Validation schemas
 const dispatchTaskSchema = z.object({
@@ -378,6 +379,10 @@ The user can review your reasoning in the task output and provide guidance if th
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:stdout', {
+        output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() },
+      })
     }
 
     const onSessionInit = (msg: import('../types/relay.js').TaskSessionInitMessage) => {
@@ -387,6 +392,12 @@ The user can review your reasoning in the task output and provide guidance if th
         event: 'session_init',
         data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
       }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:session_init', {
+        taskId: executionId,
+        sessionId: msg.sessionId,
+        model: msg.model || 'unknown',
+      })
     }
 
     const onProgress = (msg: import('../types/relay.js').TaskProgressMessage) => {
@@ -396,6 +407,12 @@ The user can review your reasoning in the task output and provide guidance if th
         event: 'progress',
         data: JSON.stringify({ message: msg.message, percentage: msg.progress }),
       }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:progress', {
+        taskId: executionId,
+        progress: msg.progress,
+        message: msg.message || '',
+      })
     }
 
     const onToolTrace = (msg: import('../types/relay.js').TaskToolTraceMessage) => {
@@ -405,11 +422,24 @@ The user can review your reasoning in the task output and provide guidance if th
         event: 'tool_use',
         data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
       }).catch(() => { alive = false })
+      // Bridge tool_use to executionEventBus for observability
+      executionEventBus.emit('task:tool_trace', {
+        taskId: executionId,
+        toolName: msg.toolName,
+        toolInput: msg.toolInput,
+      })
       if (msg.toolResult !== undefined) {
         stream.writeSSE({
           event: 'tool_result',
           data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
         }).catch(() => { alive = false })
+        // Bridge tool_result to executionEventBus for observability
+        executionEventBus.emit('task:tool_trace', {
+          taskId: executionId,
+          toolName: msg.toolName,
+          toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult,
+          success: msg.success ?? true,
+        })
       }
     }
 
@@ -420,6 +450,12 @@ The user can review your reasoning in the task output and provide guidance if th
         event: 'file_change',
         data: JSON.stringify({ path: msg.path, action: msg.action, linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved }),
       }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:file_change', {
+        taskId: executionId,
+        path: msg.path,
+        action: msg.action,
+      })
     }
 
     const onMachineDisconnected = (disconnectedId: string) => {

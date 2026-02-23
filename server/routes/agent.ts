@@ -7,6 +7,7 @@ import { relayServer } from '../lib/relay-server.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { requireAuth } from '../middleware/auth.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, TaskStdoutMessage } from '../types/relay.js'
+import { executionEventBus } from '../lib/execution-event-bus.js'
 
 // Validation schemas
 const generatePlanSchema = z.object({
@@ -86,6 +87,10 @@ async function streamChatViaRelay(
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:stdout', {
+        output: { taskId: opts.taskId, data: msg.text, stream: 'stdout', timestamp: new Date() },
+      })
     }
 
     const onResult = (msg: TaskResultMessage) => {
@@ -105,11 +110,24 @@ async function streamChatViaRelay(
         event: 'tool_use',
         data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
       }).catch(() => { alive = false })
+      // Bridge tool_use to executionEventBus for observability
+      executionEventBus.emit('task:tool_trace', {
+        taskId: opts.taskId,
+        toolName: msg.toolName,
+        toolInput: msg.toolInput,
+      })
       if (msg.toolResult !== undefined) {
         stream.writeSSE({
           event: 'tool_result',
           data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
         }).catch(() => { alive = false })
+        // Bridge tool_result to executionEventBus for observability
+        executionEventBus.emit('task:tool_trace', {
+          taskId: opts.taskId,
+          toolName: msg.toolName,
+          toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult,
+          success: msg.success ?? true,
+        })
       }
     }
 
@@ -120,6 +138,12 @@ async function streamChatViaRelay(
         event: 'file_change',
         data: JSON.stringify({ path: msg.path, action: msg.action }),
       }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:file_change', {
+        taskId: opts.taskId,
+        path: msg.path,
+        action: msg.action,
+      })
     }
 
     const onSessionInit = (msg: TaskSessionInitMessage) => {
@@ -129,6 +153,12 @@ async function streamChatViaRelay(
         event: 'session_init',
         data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
       }).catch(() => { alive = false })
+      // Bridge to executionEventBus for observability
+      executionEventBus.emit('task:session_init', {
+        taskId: opts.taskId,
+        sessionId: msg.sessionId,
+        model: msg.model || 'unknown',
+      })
     }
 
     const onMachineDisconnected = (disconnectedMachineId: string) => {
