@@ -369,7 +369,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   // Sync defaults from settings on first load
   useEffect(() => {
     if (providersLoaded && !selectedProvider && defaultProvider) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync from settings
       setSelectedProvider(defaultProvider)
     }
   }, [providersLoaded, defaultProvider, selectedProvider])
@@ -605,7 +604,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     } catch {
       setIsStreaming(false)
     }
-  }, [isStreaming, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, applyMutations, project, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])
+  }, [isStreaming, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, applyMutations, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])
 
   function handleSend() {
     const text = input.trim()
