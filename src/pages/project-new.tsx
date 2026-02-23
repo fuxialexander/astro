@@ -223,67 +223,64 @@ export function ProjectNew() {
         setIsSubmitting(false)
       }
     } else {
-      // --- Non-AI path: setup repo, create project, optionally add first task ---
-      try {
-        const repoResult = await setupRepo({
-          projectId: id,
-          projectName,
-          projectDescription: description.trim(),
-          workingDirectory: workingDir.trim() || undefined,
-          repository: repoUrl.trim() || undefined,
-          referenceUrls: refs.length > 0 ? refs : undefined,
-          targetMachineId: selectedMachine?.machineId || undefined,
-        })
+      // --- Non-AI path: create project first, navigate, then setup repo async ---
+      addProject({
+        id,
+        name: projectName,
+        description: description.trim(),
+        visionDoc: "",
+        status: "active",
+        teamId: teamIdParam || undefined,
+        color: getRandomColor(),
+        icon: getRandomProjectIcon(),
+        sourceDirectory: workingDir.trim() || undefined,
+        workingDirectory: workingDir.trim() || undefined,
+        repository: repoUrl.trim() || undefined,
+        defaultEnvironment: isRemote ? selectedEnvironment : undefined,
+        defaultMachineId: selectedMachine?.machineId || undefined,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
 
-        const resolvedDir = repoResult?.workingDirectory || workingDir.trim() || undefined
-        addProject({
-          id,
-          name: projectName,
-          description: description.trim(),
-          visionDoc: "",
-          status: "active",
-          teamId: teamIdParam || undefined,
-          color: getRandomColor(),
-          icon: getRandomProjectIcon(),
-          sourceDirectory: resolvedDir,
-          workingDirectory: resolvedDir,
-          repository: repoUrl.trim() || undefined,
-          defaultEnvironment: isRemote ? selectedEnvironment : undefined,
-          defaultMachineId: selectedMachine?.machineId || undefined,
+      // Add first task node if provided
+      if (firstTask.trim()) {
+        const taskId = crypto.randomUUID()
+        const today = new Date().toISOString().split('T')[0]
+        addNode({
+          id: taskId,
+          projectId: id,
+          type: "task",
+          title: firstTask.trim(),
+          description: "",
+          status: "planned",
+          parentId: null,
+          dependencies: [],
+          verification: "auto",
+          position: { x: 0, y: 0 },
+          priority: "medium",
+          dueDate: today,
           createdAt: new Date(),
           updatedAt: new Date(),
         })
-
-        // Add first task node if provided
-        if (firstTask.trim()) {
-          const taskId = crypto.randomUUID()
-          const today = new Date().toISOString().split('T')[0]
-          addNode({
-            id: taskId,
-            projectId: id,
-            type: "task",
-            title: firstTask.trim(),
-            description: "",
-            status: "planned",
-            parentId: null,
-            dependencies: [],
-            verification: "auto",
-            position: { x: 0, y: 0 },
-            priority: "medium",
-            dueDate: today,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          })
-        }
-
-        setIsSubmitting(false)
-        navigate(`/project/${id}/list`)
-      } catch (error) {
-        console.error('[project-new] Repo setup failed:', error)
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-        setRepoSetupError(errorMsg)
-        setIsSubmitting(false)
       }
+
+      // Navigate immediately — don't block on repo setup
+      navigate(`/project/${id}/list`)
+
+      // Repo setup runs in background; updates project store when done
+      setupRepo({
+        projectId: id,
+        projectName,
+        projectDescription: description.trim(),
+        workingDirectory: workingDir.trim() || undefined,
+        repository: repoUrl.trim() || undefined,
+        referenceUrls: refs.length > 0 ? refs : undefined,
+        targetMachineId: selectedMachine?.machineId || undefined,
+      }).catch((error) => {
+        console.error('[project-new] Repo setup failed:', error)
+      }).finally(() => {
+        setIsSubmitting(false)
+      })
     }
   }
 
