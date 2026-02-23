@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react"
-import { BrowserRouter, Routes, Route } from "react-router"
+import { BrowserRouter, Routes, Route, Navigate } from "react-router"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppLayout } from "@/components/layout/app-layout"
@@ -204,6 +204,31 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+/**
+ * Root route: redirect to dashboard if authenticated, landing page if not.
+ * In local mode (no auth), always go to dashboard.
+ */
+function RootRedirect() {
+  const session = useAuthStore((s) => s.session)
+  const initialized = useAuthStore((s) => s.initialized)
+
+  if (isLocalMode()) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  if (!initialized) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+        </div>
+      </div>
+    )
+  }
+
+  return session ? <Navigate to="/dashboard" replace /> : <Navigate to="/landing/" replace />
+}
+
 export default function App() {
   const initializeAuth = useAuthStore((s) => s.initialize)
 
@@ -221,6 +246,9 @@ export default function App() {
             <CommandPalette />
             <GenerationToasts />
             <Routes>
+              {/* Root: landing if unauthenticated, dashboard if authenticated */}
+              <Route index element={<RootRedirect />} />
+
               {/* Public routes (no auth required) */}
               <Route path="login" element={<Login />} />
               <Route path="device" element={<DeviceAuth />} />
@@ -229,7 +257,6 @@ export default function App() {
 
               {/* Authenticated routes - Responsive */}
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
-                <Route index element={<MyTasks />} />
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="projects/new" element={<ProjectNew />} />
