@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useMemo } from "react"
 import { ChevronDown, ChevronRight, FilePlus, FileEdit, FileX, Plus, Minus, ExternalLink } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { buildFileUrlSync } from "@/lib/path-utils"
@@ -103,7 +103,6 @@ function DiffRenderer({ diff }: { diff: string }) {
 
 function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change: FileChange; machineId?: string; useLocalUrls: boolean; useVSCode: boolean }) {
   const [expanded, setExpanded] = useState(false)
-  const [fileUrl, setFileUrl] = useState<string | undefined>()
   const config = actionConfig[change.action] || actionConfig.modified
   const Icon = config.icon
 
@@ -111,12 +110,12 @@ function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change
   const machine = machineId ? machines.find((m) => m.id === machineId) : undefined
 
   // Build file URL for editor integration
-  useEffect(() => {
-    const editorType = useVSCode ? 'vscode' : 'cursor'
-    const forceLocal = useLocalUrls ? true : 'remote' as const
-    const url = buildFileUrlSync(change.path, undefined, machine, forceLocal, editorType)
-    setFileUrl(url)
-  }, [change.path, machine, useLocalUrls, useVSCode])
+  const editorType = useVSCode ? 'vscode' : 'cursor'
+  const forceLocal = useLocalUrls ? true : 'remote' as const
+  const fileUrl = useMemo(
+    () => buildFileUrlSync(change.path, undefined, machine, forceLocal, editorType),
+    [change.path, machine, forceLocal, editorType]
+  )
 
   // Extract filename from path
   const parts = change.path.split("/")
