@@ -44,7 +44,6 @@ import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
 import { Agents } from "@/pages/agents"
 import { MyTasks } from "@/pages/my-tasks"
-import { Welcome } from "@/pages/welcome"
 import { Workflows } from "@/pages/workflows"
 import { TeamInvite } from "@/pages/team-invite"
 
@@ -225,7 +224,7 @@ export default function App() {
               {/* Public routes (no auth required) */}
               <Route path="login" element={<Login />} />
               <Route path="device" element={<DeviceAuth />} />
-              <Route path="welcome" element={<Welcome />} />
+              <Route path="welcome" element={<ProjectNew />} />
               <Route path="invite/:token" element={<TeamInvite />} />
 
               {/* Authenticated routes - Responsive */}

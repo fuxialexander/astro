@@ -77,7 +77,7 @@ export function Dashboard() {
   // Redirect first-time users to welcome screen (dashboard is now secondary)
   useEffect(() => {
     if (projectsLoaded && projects.length === 0) {
-      navigate("/welcome")
+      navigate("/projects/new")
     }
   }, [projectsLoaded, projects.length, navigate])
 

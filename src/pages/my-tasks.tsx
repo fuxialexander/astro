@@ -360,7 +360,7 @@ export function MyTasks() {
         hasActiveFilters
           ? { label: "Clear Filters", onClick: clearFilters }
           : projects.length === 0
-          ? { label: "Create Project", href: "/welcome" }
+          ? { label: "Create Project", href: "/projects/new" }
           : { label: "View Projects", href: "/projects" }
       }
       className="h-full"

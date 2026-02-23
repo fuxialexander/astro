@@ -143,7 +143,7 @@ export function DeviceAuth() {
       setStatus("success")
 
       // Redirect to welcome page after a short delay with refresh flag
-      setTimeout(() => navigate("/welcome?registered=true"), 2000)
+      setTimeout(() => navigate("/environments"), 2000)
     } catch (err) {
       console.error('[device-auth] Authorization error:', err)
       setStatus("error")
