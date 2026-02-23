@@ -10,6 +10,104 @@ export function isLive<T extends { deletedAt?: Date }>(item: T): boolean {
   return item.deletedAt == null
 }
 
+const COMPLETED_STATUSES: PlanNode["status"][] = ["completed", "auto_verified"]
+
+/**
+ * Recompute milestone node statuses based on their upstream dependencies.
+ * Handles cascading: completing milestone A may satisfy milestone B's deps.
+ * Also handles reversion: resetting a task reverts auto-completed milestones.
+ *
+ * Returns an array of { id, status } patches to apply (may be empty).
+ */
+function computeMilestoneUpdates(
+  changedNodeId: string,
+  nodes: PlanNode[],
+  edges: PlanEdge[],
+): Array<{ id: string; status: PlanNode["status"] }> {
+  const liveNodes = nodes.filter(isLive)
+  const liveEdges = edges.filter(isLive)
+  // Work on a mutable status map so cascading updates see prior changes
+  const statusMap = new Map(liveNodes.map((n) => [n.id, n.status]))
+
+  const changedNode = liveNodes.find((n) => n.id === changedNodeId)
+  if (!changedNode) return []
+
+  const projectMilestones = liveNodes.filter(
+    (n) => n.projectId === changedNode.projectId && n.type === "milestone"
+  )
+  if (projectMilestones.length === 0) return []
+
+  // Build upstream map: milestoneId → [depId, ...]
+  const upstreamMap = new Map<string, string[]>()
+  for (const ms of projectMilestones) {
+    const deps = liveEdges.filter((e) => e.target === ms.id).map((e) => e.source)
+    upstreamMap.set(ms.id, deps)
+  }
+
+  // Iterate until stable (handles cascading milestone → milestone deps)
+  const updates = new Map<string, PlanNode["status"]>()
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const ms of projectMilestones) {
+      const deps = upstreamMap.get(ms.id) ?? []
+      if (deps.length === 0) continue
+
+      const currentStatus = statusMap.get(ms.id)!
+      const allDepsCompleted = deps.every((depId) => {
+        const s = statusMap.get(depId)
+        return s && COMPLETED_STATUSES.includes(s)
+      })
+
+      if (allDepsCompleted && !COMPLETED_STATUSES.includes(currentStatus)) {
+        statusMap.set(ms.id, "auto_verified")
+        updates.set(ms.id, "auto_verified")
+        changed = true
+      } else if (!allDepsCompleted && currentStatus === "auto_verified") {
+        statusMap.set(ms.id, "planned")
+        updates.set(ms.id, "planned")
+        changed = true
+      }
+    }
+  }
+
+  return Array.from(updates, ([id, status]) => ({ id, status }))
+}
+
+/**
+ * Reconcile milestone statuses on load — mutates the nodes array in place.
+ * Persists any corrections to the API.
+ */
+function reconcileMilestones(nodes: PlanNode[], edges: PlanEdge[]): void {
+  // Use a synthetic "load" trigger: check all milestones across all projects
+  const liveNodes = nodes.filter(isLive)
+  const liveEdges = edges.filter(isLive)
+  const projectIds = new Set(liveNodes.map((n) => n.projectId))
+
+  for (const projectId of projectIds) {
+    const projectNodes = liveNodes.filter((n) => n.projectId === projectId)
+    const milestones = projectNodes.filter((n) => n.type === "milestone")
+    if (milestones.length === 0) continue
+
+    const nodeIds = new Set(projectNodes.map((n) => n.id))
+    const projectEdges = liveEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+
+    // Use computeMilestoneUpdates with an arbitrary node from this project
+    const updates = computeMilestoneUpdates(projectNodes[0].id, projectNodes, projectEdges)
+    for (const { id, status } of updates) {
+      const node = nodes.find((n) => n.id === id)
+      if (node) {
+        console.log(`[plan-store] Reconciling milestone "${node.title}" → ${status}`)
+        node.status = status
+        node.updatedAt = new Date()
+        dataClient.updateNode(id, { status }).catch((err) => {
+          console.error('[plan-store] Failed to reconcile milestone in API:', err)
+        })
+      }
+    }
+  }
+}
+
 /**
  * Fire-and-forget worktree cleanup when a task is completed or pruned.
  */
@@ -116,6 +214,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
       const nodes = apiNodes
       ensurePositions(nodes, edges)
+      // Reconcile milestone statuses on load (handles stale data)
+      reconcileMilestones(nodes, edges)
       set({ nodes, edges, loaded: true })
     } catch {
       // API unavailable — start with empty data
@@ -165,6 +265,26 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const node = get().nodes.find((n) => n.id === id)
       if (node?.executionId) {
         cleanupWorktree(node.executionId, id)
+      }
+    }
+
+    // Auto-complete or revert milestone nodes when a dependency's status changes
+    if (updates.status !== undefined) {
+      const milestoneUpdates = computeMilestoneUpdates(id, get().nodes, get().edges)
+      if (milestoneUpdates.length > 0) {
+        const updateMap = new Map(milestoneUpdates.map((mu) => [mu.id, mu.status]))
+        const now = new Date()
+        const muNodes = get().nodes.map((n) => {
+          const newStatus = updateMap.get(n.id)
+          return newStatus ? { ...n, status: newStatus, updatedAt: now } : n
+        })
+        set({ nodes: muNodes })
+        for (const mu of milestoneUpdates) {
+          console.log(`[plan-store] Auto-updating milestone ${mu.id} → ${mu.status}`)
+          dataClient.updateNode(mu.id, { status: mu.status }).catch((err) => {
+            console.error('[plan-store] Failed to update milestone in API:', err)
+          })
+        }
       }
     }
   },

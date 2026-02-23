@@ -1,4 +1,4 @@
-import { memo, useState } from "react"
+import { memo, useState, useRef, useCallback } from "react"
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -28,6 +28,21 @@ export const DeletableEdge = memo(function DeletableEdge({
   animated,
 }: EdgeProps & { data?: DeletableEdgeData }) {
   const [hovered, setHovered] = useState(false)
+  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showEdge = useCallback(() => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current)
+      hideTimeoutRef.current = null
+    }
+    setHovered(true)
+  }, [])
+
+  const hideEdge = useCallback(() => {
+    hideTimeoutRef.current = setTimeout(() => {
+      setHovered(false)
+    }, 200)
+  }, [])
 
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -47,8 +62,8 @@ export const DeletableEdge = memo(function DeletableEdge({
         strokeWidth={16}
         stroke="transparent"
         className="react-flow__edge-interaction"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseEnter={showEdge}
+        onMouseLeave={hideEdge}
       />
       <BaseEdge
         id={id}
@@ -69,7 +84,8 @@ export const DeletableEdge = memo(function DeletableEdge({
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             }}
-            onMouseEnter={() => setHovered(true)}
+            onMouseEnter={showEdge}
+            onMouseLeave={hideEdge}
             onClick={(e) => {
               e.stopPropagation()
               data?.onDelete?.(source, target)
