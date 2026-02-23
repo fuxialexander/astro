@@ -11,7 +11,7 @@
  */
 
 // Must set before any server imports
-process.env.USE_INDEXEDDB_ONLY = 'true'
+process.env.ASTRO_LOCAL_MODE = 'true'
 
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { mkdtempSync } from 'node:fs'

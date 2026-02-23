@@ -395,7 +395,7 @@ The Backend applies several layers of security to protect against common web att
 
 Browsers have a built-in security rule: a webpage at `example.com` cannot make requests to `api.other-site.com` unless `api.other-site.com` explicitly says "I allow requests from example.com." CORS is this "allow list."
 
-- Allowed origins: `localhost:5173` (local development), `astro.fuxialexander.work` (production frontend), `astro.pages.dev` (Cloudflare Pages), plus any custom origins set via `CORS_ORIGIN` or `FRONTEND_URL` environment variables
+- Allowed origins: `localhost:5173` (local development), `astro.your-domain.com` (production frontend), `astro.pages.dev` (Cloudflare Pages), plus any custom origins set via `CORS_ORIGIN` or `FRONTEND_URL` environment variables
 - Production: strict origin match (only the exact listed domains are allowed)
 - Dev: allows localhost + explicit origins (more permissive for developer convenience)
 
@@ -780,7 +780,7 @@ The Backend's behavior is controlled by environment variables -- settings that a
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `USE_INDEXEDDB_ONLY` | Force local mode (PGlite embedded database, no external Postgres). The name is a legacy holdover from when local mode used browser IndexedDB; it now triggers PGlite instead. | Auto-detect based on whether Supabase vars are set |
+| `ASTRO_LOCAL_MODE` | Force local mode (PGlite embedded database, no external Postgres). The name is a legacy holdover from when local mode used browser IndexedDB; it now triggers PGlite instead. | Auto-detect based on whether Supabase vars are set |
 | `DATABASE_URL` | Postgres connection string (where the database lives) | `postgresql://postgres:postgres@127.0.0.1:54322/postgres` |
 | `SUPABASE_URL` | Supabase API URL | (none -- if not set, system auto-detects local mode) |
 | `SUPABASE_ANON_KEY` | Supabase anonymous key (for unauthenticated API access) | (none) |

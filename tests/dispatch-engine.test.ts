@@ -10,7 +10,7 @@
  */
 
 // Must be set BEFORE any server/ imports so PGlite is used instead of Supabase
-process.env.USE_INDEXEDDB_ONLY = 'true'
+process.env.ASTRO_LOCAL_MODE = 'true'
 
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { runMigrations } from '../server/lib/db/migrate.js'
@@ -49,7 +49,6 @@ function createTestNodes(): PlanNode[] {
       status: 'completed',
       parentId: null,
       dependencies: [],
-      environment: 'local',
       verification: 'auto',
       position: { x: 40, y: 40 },
       createdAt: now,
@@ -65,7 +64,6 @@ function createTestNodes(): PlanNode[] {
       status: 'completed',
       parentId: null,
       dependencies: ['n1'],
-      environment: 'local',
       verification: 'auto',
       position: { x: 40, y: 140 },
       createdAt: now,
@@ -81,7 +79,6 @@ function createTestNodes(): PlanNode[] {
       status: 'planned',
       parentId: null,
       dependencies: ['n2'],
-      environment: 'local',
       verification: 'auto',
       position: { x: 40, y: 240 },
       createdAt: now,
@@ -110,7 +107,6 @@ function createTestNodes(): PlanNode[] {
       status: 'planned',
       parentId: null,
       dependencies: ['n4'],
-      environment: 'local',
       verification: 'auto',
       position: { x: 300, y: 400 },
       createdAt: now,
@@ -125,7 +121,6 @@ function createTestNodes(): PlanNode[] {
       status: 'planned',
       parentId: null,
       dependencies: ['n4'],
-      environment: 'local',
       verification: 'auto',
       position: { x: 300, y: 470 },
       createdAt: now,
@@ -140,7 +135,6 @@ function createTestNodes(): PlanNode[] {
       status: 'planned',
       parentId: null,
       dependencies: ['n5', 'n6'],
-      environment: 'local',
       verification: 'human',
       position: { x: 300, y: 540 },
       createdAt: now,

@@ -43,22 +43,27 @@ export function isTest(): boolean {
 }
 
 /**
- * Check if IndexedDB-only mode is enabled
- * (no Supabase, no authentication, single-user)
+ * Check if local mode is enabled
+ * (PGlite database, no Supabase, no authentication, single-user)
  */
-export function isIndexedDBMode(): boolean {
+export function isLocalMode(): boolean {
   // Explicit override
-  if (process.env.USE_INDEXEDDB_ONLY === 'true') {
+  if (process.env.ASTRO_LOCAL_MODE === 'true') {
     return true;
   }
 
-  // Auto-detect: if Supabase env vars not set, use IndexedDB
+  // Auto-detect: if Supabase env vars not set, use local mode
   const hasSupabase = !!(
     process.env.SUPABASE_URL &&
     process.env.SUPABASE_ANON_KEY
   );
 
   return !hasSupabase;
+}
+
+/** @deprecated Use isLocalMode() instead */
+export function isIndexedDBMode(): boolean {
+  return isLocalMode();
 }
 
 /**

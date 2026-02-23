@@ -70,11 +70,11 @@ export function createUserClient(accessToken: string): SupabaseClient {
  * Check if Supabase should be used.
  * Returns false if:
  * - Supabase is not configured
- * - USE_INDEXEDDB_ONLY flag is explicitly set
+ * - ASTRO_LOCAL_MODE flag is explicitly set
  */
 export function shouldUseSupabase(): boolean {
-  // Explicit override to force IndexedDB-only mode
-  if (process.env.USE_INDEXEDDB_ONLY === 'true') {
+  // Explicit override to force local-only mode
+  if (process.env.ASTRO_LOCAL_MODE === 'true') {
     return false
   }
   return !!(SUPABASE_URL && (SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY))

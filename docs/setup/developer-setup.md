@@ -321,14 +321,14 @@ curl http://localhost:3001/api/health
 If you want to skip Supabase entirely and use browser-only storage:
 
 ```bash
-npm run dev:indexeddb
-# Or: USE_INDEXEDDB_ONLY=true VITE_USE_INDEXEDDB_ONLY=true npm run dev
+npm run dev:local
+# Or: ASTRO_LOCAL_MODE=true VITE_ASTRO_LOCAL_MODE=true npm run dev
 ```
 
 No authentication required, single-user, all data in browser IndexedDB.
 
 **Mode detection priority:**
-1. `USE_INDEXEDDB_ONLY=true` -> IndexedDB (explicit override)
+1. `ASTRO_LOCAL_MODE=true` -> IndexedDB (explicit override)
 2. No Supabase env vars -> IndexedDB (auto-detected)
 3. Supabase env vars set -> Supabase mode
 
@@ -394,7 +394,7 @@ npm run db:reset:indexeddb  # Shows IndexedDB reset instructions
 | `npm run dev:tunnel` | Full stack + Cloudflare tunnel |
 | `npm run dev:frontend` | Vite only |
 | `npm run dev:backend` | Hono + Relay only |
-| `npm run dev:indexeddb` | IndexedDB mode (no Supabase needed) |
+| `npm run dev:local` | Local mode (no Supabase needed) |
 | `npm run dev:supabase` | Setup Supabase + start dev |
 | `npm run build` | TypeScript check + production build |
 | `npm run lint` | ESLint |

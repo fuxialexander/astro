@@ -24,7 +24,7 @@ Frontend: pages/login.tsx
 Backend: Generates challenge
   ├─ Random challenge (32 bytes)
   ├─ User ID (new UUID)
-  └─ RP ID (astro.fuxialexander.work)
+  └─ RP ID (astro.your-domain.com)
   ↓
 Frontend: navigator.credentials.create()
   ├─ User approves with biometric/PIN
@@ -95,7 +95,7 @@ Generate registration challenge for new user.
     "challenge": "base64-encoded-challenge",
     "rp": {
       "name": "Astro",
-      "id": "astro.fuxialexander.work"
+      "id": "astro.your-domain.com"
     },
     "user": {
       "id": "base64-user-id",
@@ -168,7 +168,7 @@ Generate assertion challenge for login.
 {
   "options": {
     "challenge": "base64-challenge",
-    "rpId": "astro.fuxialexander.work",
+    "rpId": "astro.your-domain.com",
     "allowCredentials": [
       {
         "type": "public-key",
@@ -346,7 +346,7 @@ try await verifyAssertion(assertion: assertion)
 WebAuthn requires HTTPS in production. Use `localhost` for development.
 
 ### RP ID Configuration
-- **Production**: `astro.fuxialexander.work`
+- **Production**: `astro.your-domain.com`
 - **Development**: `localhost`
 - **iOS**: Must match app's associated domain
 

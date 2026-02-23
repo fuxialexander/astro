@@ -81,7 +81,7 @@ If the callback fails:
 
 ## Production vs Development
 
-- **Production** uses: `https://astro-api.fuxialexander.work/api/github/callback`
+- **Production** uses: `https://astro-api.your-domain.com/api/github/callback`
 - **Local Dev** uses: `http://localhost:3001/api/github/callback`
 
 You need separate GitHub OAuth Apps for each environment.

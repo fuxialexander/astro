@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR_TMP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$(cd "$SCRIPT_DIR_TMP/.." && pwd)/.env"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+RUNNER_DIR="$REPO_ROOT/packages/agent-runner"
+
+# Load env files (.env then .env.local, later values override)
+for f in "$REPO_ROOT/.env" "$REPO_ROOT/.env.local" "$REPO_ROOT/.env.prod"; do
+  if [[ -f "$f" ]]; then
+    set -a
+    source "$f"
+    set +a
+  fi
+done
 
 # Parse flags
 WITH_SSH_CONFIG=""
 MACHINE_NAME=""
 AUTO_START="false"
-DOMAIN=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --with-ssh-config)
@@ -23,29 +32,35 @@ while [[ $# -gt 0 ]]; do
       AUTO_START="true"
       shift
       ;;
+    --api)
+      ASTRO_BASE_URL="$2"
+      shift 2
+      ;;
+    --relay)
+      ASTRO_RELAY_URL="$2"
+      shift 2
+      ;;
     *)
-      DOMAIN="$1"
-      shift
+      echo "Unknown option: $1"
+      exit 1
       ;;
   esac
 done
 
-# Use argument, or fall back to CLOUDFLARED_DOMAIN from .env
-if [[ -z "$DOMAIN" && -f "$ENV_FILE" ]]; then
-  DOMAIN="$(grep -E '^CLOUDFLARED_DOMAIN=' "$ENV_FILE" | cut -d= -f2- | tr -d '[:space:]')"
+# Resolve API URL: explicit flag > env vars > Fly.io default
+API_URL="${ASTRO_BASE_URL:-${FRONTEND_URL:-}}"
+if [[ -z "$API_URL" ]]; then
+  FLY_APP="${FLY_APP:-astro-backend-platform}"
+  API_URL="https://${FLY_APP}.fly.dev"
+  echo "No ASTRO_BASE_URL or FRONTEND_URL set, using Fly.io default: $API_URL"
 fi
 
-if [[ -z "$DOMAIN" ]]; then
-  echo "Usage: ./scripts/agent-setup.sh [domain] [options]"
-  echo "If no domain is given, reads CLOUDFLARED_DOMAIN from .env"
-  echo "Example: ./scripts/agent-setup.sh fuxialexander.work"
-  echo ""
-  echo "Options:"
-  echo "  --with-ssh-config         Discover and configure remote hosts from SSH config"
-  echo "  --hostname <name>         Set machine hostname (defaults to system hostname)"
-  echo "  --machine-name <name>     Alias for --hostname"
-  echo "  --auto-start              Enable auto-start on login (default: false)"
-  exit 1
+# Resolve Relay URL: explicit flag > env var > derive from API URL
+RELAY_URL="${ASTRO_RELAY_URL:-}"
+if [[ -z "$RELAY_URL" ]]; then
+  FLY_APP="${FLY_APP:-astro-backend-platform}"
+  RELAY_URL="wss://${FLY_APP}.fly.dev:3002"
+  echo "No ASTRO_RELAY_URL set, using Fly.io default: $RELAY_URL"
 fi
 
 # Auto-detect machine name if not provided
@@ -53,13 +68,6 @@ if [[ -z "$MACHINE_NAME" ]]; then
   MACHINE_NAME="$(uname -n)"
   echo "Auto-detected machine hostname: $MACHINE_NAME"
 fi
-
-API_URL="https://astro.$DOMAIN"
-RELAY_URL="wss://astro-relay.$DOMAIN"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-RUNNER_DIR="$REPO_ROOT/packages/agent-runner"
 
 # Check Node.js is available
 if ! command -v node &>/dev/null; then
@@ -86,9 +94,9 @@ fi
 # Run setup (device auth flow)
 echo ""
 echo "Starting agent setup..."
-echo "  API:      $API_URL"
-echo "  Relay:    $RELAY_URL"
-echo "  Hostname: $MACHINE_NAME"
+echo "  API:        $API_URL"
+echo "  Relay:      $RELAY_URL"
+echo "  Hostname:   $MACHINE_NAME"
 echo "  Auto-start: $AUTO_START"
 echo ""
 echo "You will be prompted to approve the device in your browser."

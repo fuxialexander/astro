@@ -1229,7 +1229,7 @@ Branch deploys require updating Fly.io secrets for the branch URL. See `docs/set
 ```bash
 # 1. Build frontend with production env vars
 VITE_API_BASE_URL=https://astro-backend.fly.dev \
-VITE_SUPABASE_URL=https://astro-supabase.fuxialexander.work \
+VITE_SUPABASE_URL=https://astro-supabase.your-domain.com \
 VITE_SUPABASE_ANON_KEY=<your-anon-key> \
 npm run build
 

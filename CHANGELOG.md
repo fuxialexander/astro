@@ -96,11 +96,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - User authentication with Supabase
 - HPC cluster integration via SLURM
 - Distributed task execution with queue management
-- **Dual database mode support**: IndexedDB-only mode for local development alongside Supabase multi-user mode
-  - Environment variable `USE_INDEXEDDB_ONLY` to force IndexedDB mode
-  - Convenience scripts: `npm run dev:indexeddb` and `npm run dev:supabase`
+- **Dual database mode support**: local mode for local development alongside Supabase multi-user mode
+  - Environment variable `ASTRO_LOCAL_MODE` to force Local mode
+  - Convenience scripts: `npm run dev:local` and `npm run dev:supabase`
   - Visual mode indicator in sidebar
-  - Automatic migration prevention in IndexedDB-only mode
+  - Automatic migration prevention in local mode
   - Updated documentation for both modes
 
 ### Changed

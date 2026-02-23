@@ -2,28 +2,28 @@
  * Application Mode Detection (Server)
  *
  * Wraps the underlying environment detection with clearer semantics.
- * - Local Mode: IndexedDB only, no auth middleware, single-user
+ * - Local Mode: PGlite database, no auth, single-user
  * - Server Mode: Supabase-backed, auth required, multi-user
  */
 
-import { isIndexedDBMode } from './environment.js'
+import { isLocalMode as isLocalModeEnv } from './environment.js'
 
 export type AppMode = 'local' | 'server'
 
 export function getAppMode(): AppMode {
-  return isIndexedDBMode() ? 'local' : 'server'
+  return isLocalModeEnv() ? 'local' : 'server'
 }
 
 /**
- * Returns true when running in local-only mode (no Supabase).
+ * Returns true when running in local-only mode (PGlite database, no auth).
  */
 export function isLocalMode(): boolean {
-  return isIndexedDBMode()
+  return isLocalModeEnv()
 }
 
 /**
  * Returns true when running in server mode (Supabase + Postgres).
  */
 export function isServerMode(): boolean {
-  return !isIndexedDBMode()
+  return !isLocalModeEnv()
 }

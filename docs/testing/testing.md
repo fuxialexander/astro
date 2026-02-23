@@ -105,7 +105,7 @@ scripts/
 
 ```bash
 # Start backend first
-USE_INDEXEDDB_ONLY=true npm run dev:backend
+ASTRO_LOCAL_MODE=true npm run dev:backend
 
 # Then run tests
 ./scripts/test-runner.sh           # All tests

@@ -22,7 +22,7 @@ Agent runners use the OAuth2 Device Authorization Grant to obtain access tokens 
 2. Backend: Generate device code + user code
    ↓ Returns { device_code, user_code, verification_uri }
 3. Agent Runner: Display user code
-   └─ "Go to https://astro.fuxialexander.work/device and enter: BDWD-HQPK"
+   └─ "Go to https://astro.your-domain.com/device and enter: BDWD-HQPK"
 4. Agent Runner: Poll for token
    ↓ POST /api/device/token (every 5 seconds)
 5. User: Opens browser → enters user code → approves
@@ -112,7 +112,7 @@ After obtaining access token, agent runner registers:
 
 **Request:**
 ```bash
-curl -X POST https://astro-api.fuxialexander.work/api/device/register \
+curl -X POST https://astro-api.your-domain.com/api/device/register \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -141,7 +141,7 @@ curl -X POST https://astro-api.fuxialexander.work/api/device/register \
 Access tokens expire after 1 hour. Use refresh token to get new access token:
 
 ```bash
-curl -X POST https://astro-api.fuxialexander.work/api/device/refresh \
+curl -X POST https://astro-api.your-domain.com/api/device/refresh \
   -H "Content-Type: application/json" \
   -d '{
     "grant_type": "refresh_token",
@@ -181,7 +181,7 @@ Backend:
 ### Machine-Initiated Revocation (Logout)
 
 ```bash
-curl -X POST https://astro-api.fuxialexander.work/api/device/revoke \
+curl -X POST https://astro-api.your-domain.com/api/device/revoke \
   -H "Content-Type: application/json" \
   -d '{ "token": "refresh-token" }'
 ```
@@ -211,7 +211,7 @@ npm install -g @astro/agent
 
 # Authenticate
 astro-agent auth login
-# → Displays: "Go to https://astro.fuxialexander.work/device and enter: BDWD-HQPK"
+# → Displays: "Go to https://astro.your-domain.com/device and enter: BDWD-HQPK"
 # → Waits for user approval...
 # → ✓ Authenticated! Machine registered as "macbook-pro"
 

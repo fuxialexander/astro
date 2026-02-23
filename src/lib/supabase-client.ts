@@ -37,11 +37,11 @@ export function getSupabase(): SupabaseClient | null {
  * Check if Supabase should be used.
  * Returns false if:
  * - Supabase is not configured
- * - VITE_USE_INDEXEDDB_ONLY flag is explicitly set
+ * - VITE_ASTRO_LOCAL_MODE flag is explicitly set
  */
 export function shouldUseSupabase(): boolean {
   // Explicit override to force local-only mode
-  if (import.meta.env.VITE_USE_INDEXEDDB_ONLY === 'true') {
+  if (import.meta.env.VITE_ASTRO_LOCAL_MODE === 'true') {
     return false
   }
   return !!(SUPABASE_URL && SUPABASE_ANON_KEY)

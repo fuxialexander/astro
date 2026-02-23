@@ -74,11 +74,11 @@ echo "  Supabase Studio: $STUDIO_URL"
 # ── 5. Configure .env.local for localhost ────────────────────────────
 ENV_FILE="$REPO_ROOT/.env.local"
 
-# Backup existing if it has tunnel config
-if [[ -f "$ENV_FILE" ]] && grep -q "fuxialexander\.work" "$ENV_FILE" 2>/dev/null; then
+# Backup existing if it has non-localhost config (e.g. tunnel or server mode)
+if [[ -f "$ENV_FILE" ]] && grep -q "WEBAUTHN_RP_ID=" "$ENV_FILE" && ! grep -q "WEBAUTHN_RP_ID=localhost" "$ENV_FILE" 2>/dev/null; then
   cp "$ENV_FILE" "$ENV_FILE.tunnel-backup"
   echo ""
-  echo "  ✓ Backed up tunnel .env.local → .env.local.tunnel-backup"
+  echo "  ✓ Backed up non-local .env.local → .env.local.tunnel-backup"
 fi
 
 cat > "$ENV_FILE" << EOF

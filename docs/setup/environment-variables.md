@@ -10,7 +10,7 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 
 # Local Mode (overrides Supabase)
-USE_INDEXEDDB_ONLY=true
+ASTRO_LOCAL_MODE=true
 
 # Backend URL (development)
 VITE_API_URL=http://localhost:3001
@@ -41,7 +41,7 @@ GITHUB_CLIENT_SECRET=your-client-secret
 
 ```json
 {
-  "ASTRO_SERVER_URL": "https://astro-api.fuxialexander.work",
+  "ASTRO_SERVER_URL": "https://astro-api.your-domain.com",
   "ASTRO_AUTH_TOKEN": "machine-access-token",
   "ASTRO_MACHINE_NAME": "dev-laptop"
 }

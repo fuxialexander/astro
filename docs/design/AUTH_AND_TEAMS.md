@@ -690,7 +690,7 @@ enable_confirmations = false  # No verification emails — full access on regist
 ### 11.3 Redirect URLs
 
 Configure allowed redirect URLs in Supabase dashboard:
-- `https://astro.fuxialexander.work/**`
+- `https://astro.your-domain.com/**`
 - `http://localhost:5173/**`
 
 ---
@@ -932,7 +932,7 @@ Supabase's `auth.identities` table tracks which login methods a user has configu
 
 ## 17. Local Mode — No Authentication
 
-Local mode (`USE_INDEXEDDB_ONLY=true` or no Supabase env vars) uses a completely different path that bypasses the entire auth system. **None of the authentication bugs described in this document affect local mode.**
+Local mode (`ASTRO_LOCAL_MODE=true` or no Supabase env vars) uses a completely different path that bypasses the entire auth system. **None of the authentication bugs described in this document affect local mode.**
 
 ### 17.1 How Local Mode Works
 
@@ -1156,13 +1156,13 @@ The WebAuthn Relying Party ID (RP ID) determines which domain passkeys are bound
 
 ```
 RP_ID must match the FRONTEND domain (where the browser runs):
-  ✓  RP_ID = "astro.fuxialexander.work"     (frontend domain)
-  ✗  RP_ID = "astro-api.fuxialexander.work"  (backend domain — WRONG)
+  ✓  RP_ID = "astro.your-domain.com"     (frontend domain)
+  ✗  RP_ID = "astro-api.your-domain.com"  (backend domain — WRONG)
   ✗  RP_ID = "localhost"                      (dev only — breaks production)
 
 RP_ORIGIN must match the FRONTEND origin:
-  ✓  RP_ORIGIN = "https://astro.fuxialexander.work"
-  ✗  RP_ORIGIN = "https://astro-api.fuxialexander.work"
+  ✓  RP_ORIGIN = "https://astro.your-domain.com"
+  ✗  RP_ORIGIN = "https://astro-api.your-domain.com"
 
 server/routes/auth.ts reads these from env:
   const RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost'
@@ -1327,6 +1327,6 @@ These invariants must be maintained. Violating any of them produces the bugs des
 - [ ] Sign out → sign in → team ID in network requests matches new user's team
 
 ### Local Mode
-- [ ] Start with `npm run dev:indexeddb` → app loads immediately, no login page
+- [ ] Start with `npm run dev:local` → app loads immediately, no login page
 - [ ] No auth-related errors in console
 - [ ] All features work without authentication

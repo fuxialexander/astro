@@ -600,7 +600,7 @@ Slurm job stdout/stderr streaming.
 
 ```
 1. Machine opens WebSocket connection
-   └─ wss://astro-relay.fuxialexander.work
+   └─ wss://astro-relay.your-domain.com
 
 2. Machine sends machine.register
    └─ Relay validates JWT, registers machine
@@ -729,7 +729,7 @@ Max wait: 60 seconds
 **Negotiation:** Via WebSocket subprotocol:
 
 ```javascript
-const ws = new WebSocket('wss://astro-relay.fuxialexander.work', 'astro-relay-v1')
+const ws = new WebSocket('wss://astro-relay.your-domain.com', 'astro-relay-v1')
 ```
 
 **Future versions:** `astro-relay-v2`, etc.

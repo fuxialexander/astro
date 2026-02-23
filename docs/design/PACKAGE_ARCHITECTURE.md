@@ -429,7 +429,7 @@ astro plan generate --project-id abc123
 # macOS
 brew install astro
 # Linux
-curl -fsSL https://astro.fuxialexander.work/install.sh | sh
+curl -fsSL https://astro.your-domain.com/install.sh | sh
 # Windows
 winget install astro
 

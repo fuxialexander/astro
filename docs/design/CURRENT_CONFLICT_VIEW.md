@@ -96,7 +96,7 @@ ARCHITECTURE.md says provider adapters were deleted from the server. BACKEND.md 
 
 ### 6. Production Domain References
 
-Inconsistent across docs: `astro.fuxialexander.work` (dev tunnel), `astroanywhere.com` (prod), `astro-backend-platform.fly.dev` (Fly default). Dev tunnel URLs are used in examples that should be generic.
+Inconsistent across docs: `astro.your-domain.com` (dev tunnel), `astroanywhere.com` (prod), `astro-backend-platform.fly.dev` (Fly default). Dev tunnel URLs are used in examples that should be generic.
 
 **Resolution needed:** Clearly distinguish dev vs. prod URL references.
 

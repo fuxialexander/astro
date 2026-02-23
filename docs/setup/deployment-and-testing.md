@@ -10,9 +10,9 @@ Local mode is the simplest — everything runs on your machine, no accounts need
 
 ```bash
 # Start in local mode (IndexedDB only)
-npm run dev:indexeddb
+npm run dev:local
 # or equivalently:
-USE_INDEXEDDB_ONLY=true npm run dev
+ASTRO_LOCAL_MODE=true npm run dev
 ```
 
 **What to verify:**
@@ -174,11 +174,11 @@ npm run dev
 
 #### Step 4: (Optional) Custom Domain
 
-If you have `fuxialexander.work` or want a custom domain:
+If you have `your-domain.com` or want a custom domain:
 
 1. Add domain to Cloudflare (change nameservers at registrar)
-2. In Cloudflare Pages > Custom domains > Add `astro.fuxialexander.work`
-3. In Fly.io: `fly certs add astro-api.fuxialexander.work`
+2. In Cloudflare Pages > Custom domains > Add `astro.your-domain.com`
+3. In Fly.io: `fly certs add astro-api.your-domain.com`
 4. Add DNS records in Cloudflare:
    - `astro` → CNAME to `astro-app.pages.dev`
    - `astro-api` → CNAME to `astro-backend-platform.fly.dev`
@@ -329,7 +329,7 @@ Total estimated cost: ~$30-50/month to start, scales with users.
 |----------|----------|-------------|
 | `VITE_SUPABASE_URL` | Server mode | Supabase project URL |
 | `VITE_SUPABASE_ANON_KEY` | Server mode | Supabase anon/public key |
-| `VITE_USE_INDEXEDDB_ONLY` | Optional | Set to "true" to force local mode |
+| `VITE_ASTRO_LOCAL_MODE` | Optional | Set to "true" to force local mode |
 | `VITE_API_BASE_URL` | Production | Backend URL (not needed in dev, Vite proxies) |
 
 ### Backend (Node.js)
@@ -338,7 +338,7 @@ Total estimated cost: ~$30-50/month to start, scales with users.
 | `SUPABASE_URL` | Server mode | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Server mode | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server mode | Supabase service role key (SECRET) |
-| `USE_INDEXEDDB_ONLY` | Optional | Set to "true" to force local mode |
+| `ASTRO_LOCAL_MODE` | Optional | Set to "true" to force local mode |
 | `RELAY_JWT_SECRET` | Production | JWT secret for machine auth |
 | `DEVICE_AUTH_JWT_SECRET` | Production | JWT secret for device auth |
 | `ANTHROPIC_API_KEY` | AI features | Claude API key |

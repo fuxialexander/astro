@@ -175,41 +175,69 @@ No environment variables are required for local development.
 | `REDIS_URL` | No | Redis for horizontal scaling (not needed locally) |
 | `CLOUDFLARED_DOMAIN` | No | Domain for Cloudflare tunnel |
 
-## Database Modes
+## Operating Modes
 
-### Local Mode (default)
+Astro has three operating modes. Each has a one-command start:
 
-PGlite (Postgres compiled to WASM) runs in-process. No Docker, no external DB. Data stored in `~/.astro/data/`.
+| Mode | Database | Auth | Network | Command |
+|------|----------|------|---------|---------|
+| **local** | PGlite (in-process) | None (single user) | All localhost | `npm run dev:local` |
+| **dev** | Local Supabase | WebAuthn/passkeys via tunnel | Cloudflare tunnel → localhost | `npm run dev:dev` |
+| **prod** | Remote Supabase | WebAuthn/passkeys | Fly.io + Cloudflare Pages | `npm run env:prod && npm run deploy` |
+
+### Local Mode
+
+PGlite (Postgres compiled to WASM) runs in-process. No Docker, no Supabase, no auth. Data stored in `~/.astro/data/`. Best for quick iteration.
 
 ```bash
-npm run dev              # Auto-detected if no Supabase env vars
-npm run dev:indexeddb    # Explicit local mode
+npm run dev:local        # Switches env + starts (PGlite, no auth)
 ```
 
-### Server Mode (multi-user)
+### Dev Mode
 
-External Postgres (Supabase, Fly.io Postgres, AWS RDS). WebAuthn/passkey authentication.
+Local Supabase (via Docker) with a Cloudflare tunnel for HTTPS — required for WebAuthn/TouchID to work. Multi-user auth, real-time sync, everything in one terminal.
 
 ```bash
-npm run dev:supabase     # Local Supabase via Docker
+npm run env:init         # One-time: generate .env.local.dev and .env.prod
+npm run dev:dev          # Switches env + starts Supabase + frontend + backend + agent + tunnel
 ```
 
-Requires: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+Requires `CLOUDFLARED_DOMAIN` in `.env` and Docker running.
 
-### Mode Detection
+### Prod Mode
 
-1. `USE_INDEXEDDB_ONLY=true` → Local mode
-2. No Supabase env vars → Local mode
-3. Supabase env vars set → Server mode
+Remote Supabase, Fly.io backend, Cloudflare Pages frontend. For deployment and testing against production infrastructure.
 
-The backend code is identical in both modes — Drizzle ORM queries work against any Postgres.
+```bash
+npm run env:prod         # Switch to prod profile
+npm run deploy           # Deploy backend (Fly.io) + frontend (Cloudflare Pages)
+```
 
-| Aspect | Local Mode | Server Mode |
-|--------|-----------|-------------|
-| Database | PGlite (in-process) | External Postgres |
-| Auth | None (single user) | WebAuthn/passkeys |
-| Relay | ws://localhost:3002 | wss:// with JWT |
-| Agent runners | Local subprocess | Any machine via internet |
+Requires remote Supabase credentials in `.env.prod`.
+
+### Switching Modes Manually
+
+The `dev:local` and `dev:dev` commands switch env automatically. For manual control:
+
+```bash
+npm run env:init         # One-time: generate both profiles from .env
+npm run env:local        # Switch to local (removes .env.local)
+npm run env:dev          # Symlink .env.local → .env.local.dev
+npm run env:prod         # Symlink .env.local → .env.prod
+npm run env:switch       # Show current mode
+```
+
+The env system layers two files: `.env` (shared secrets, never touched) and `.env.local` (mode-specific overrides, managed by `switch-env.sh` as a symlink).
+
+### Env File Layout
+
+```
+.env                  ← Shared secrets (JWT keys, CLOUDFLARED_DOMAIN) — git-ignored
+.env.local            ← Symlink → active profile — git-ignored
+.env.local.dev        ← Dev: tunnel domain, local Supabase, HMR over WSS
+.env.prod       ← Prod: Pages domain, Fly.io backend, remote Supabase
+.env.example          ← Template with documentation — committed
+```
 
 ## Agent Runner Setup
 
@@ -217,15 +245,15 @@ The local agent runner starts automatically with `npm run dev`. For remote machi
 
 **1. Start tunnel** (if connecting remote machines):
 ```bash
-bash ./scripts/start-tunnel.sh
+npm run tunnel
 ```
 
 **2. Setup and start agent on remote machine**:
 ```bash
-bash ./scripts/agent-setup.sh
+bash scripts/agent-setup.sh
 ```
 
-This builds the agent runner, runs device auth, and starts the agent. See [packages/agent-runner/](packages/agent-runner/) for details.
+The agent-setup script reads `ASTRO_BASE_URL`, `FRONTEND_URL`, and `FLY_APP` from `.env` / `.env.local` — no manual URL arguments needed. It runs device auth and starts the agent. See [packages/agent-runner/](packages/agent-runner/) for details.
 
 ## Project Structure
 

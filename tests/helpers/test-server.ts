@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // ── Environment setup (must happen before any server imports) ────────
-process.env.USE_INDEXEDDB_ONLY = 'true'
+process.env.ASTRO_LOCAL_MODE = 'true'
 process.env.NODE_ENV = 'test'
 
 // Each test file gets its own PGlite data directory for isolation

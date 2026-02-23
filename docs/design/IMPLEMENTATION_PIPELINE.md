@@ -483,7 +483,7 @@ The **alpha** milestone focuses on **server mode**: deploying the Fly.io backend
 
 - Backend on Fly.io — no AI credentials, just coordination
 - Each user authenticates via WebAuthn (passkeys) on the frontend
-- Each user runs `npx astro-agent start --relay wss://astro-relay.fuxialexander.work` on their laptop
+- Each user runs `npx astro-agent start --relay wss://astro-relay.your-domain.com` on their laptop
 - Agent runner authenticates via device code flow, connects to remote relay
 - Users create projects, generate plans, dispatch tasks — all through relay → their own agent runner
 - Multiple users can work simultaneously on the same or different projects

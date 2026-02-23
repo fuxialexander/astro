@@ -5,7 +5,7 @@ Complete reference for all Hono.js backend API endpoints.
 ## Base URL
 
 - **Development**: `http://localhost:3001/api`
-- **Production**: `https://astro-api.fuxialexander.work/api`
+- **Production**: `https://astro-api.your-domain.com/api`
 - **Via Vite proxy**: `/api` (automatically proxied to port 3001 in development)
 
 ## Authentication
@@ -337,7 +337,7 @@ Request a device code for machine registration.
 {
   "device_code": "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS",
   "user_code": "BDWD-HQPK",
-  "verification_uri": "https://astro.fuxialexander.work/device",
+  "verification_uri": "https://astro.your-domain.com/device",
   "expires_in": 900,
   "interval": 5
 }

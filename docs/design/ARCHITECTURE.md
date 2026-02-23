@@ -267,7 +267,7 @@ Frontend on CDN. Backend + Relay on cloud VM. Agent Runners on users' machines.
 ### 3.3 Mode Detection
 
 **Backend** (`server/lib/app-mode.ts`):
-1. `USE_INDEXEDDB_ONLY=true` → Local mode (explicit override)
+1. `ASTRO_LOCAL_MODE=true` → Local mode (explicit override)
 2. Supabase env vars absent → Local mode (auto-detect)
 3. Otherwise → Server mode
 

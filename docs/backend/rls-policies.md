@@ -711,7 +711,7 @@ ALTER TABLE plan_nodes DISABLE ROW LEVEL SECURITY;
 
 **Local Mode Detection:**
 - No Supabase env vars → RLS disabled
-- `USE_INDEXEDDB_ONLY=true` → RLS disabled
+- `ASTRO_LOCAL_MODE=true` → RLS disabled
 - Single-user only, no authentication
 
 ## Related Documentation

@@ -19,43 +19,51 @@ The product vision is documented in `vision.md`. The UI design is in `UI.pen` (r
 ## Build & Dev Commands
 
 ```bash
-npm run dev              # Start frontend (Vite) + backend (Hono + relay) concurrently
+npm run dev:local        # Local mode: PGlite, no auth (switches env + starts)
+npm run dev:dev          # Dev mode: Supabase + tunnel + everything (switches env + starts)
+npm run dev              # Start with current env (no switch)
 npm run dev:frontend     # Vite dev server only (http://localhost:5173)
 npm run dev:backend      # Hono API server (port 3001) + WebSocket relay (port 3002)
-npm run dev:indexeddb    # Local-only mode (PGlite, no Supabase, no auth)
-npm run dev:supabase     # Supabase mode (setup + start)
 npm run build            # TypeScript check + Vite production build
 npm run lint             # ESLint
 npm test                 # Vitest (29 test files, integration tests auto-skip without server/API key)
-npm run deploy           # Build + deploy to Cloudflare Pages
+npm run deploy           # Build + deploy to Fly.io + Cloudflare Pages
 ```
 
-### Database Modes
+### Operating Modes
 
-Astro supports two persistence modes:
+Astro has three operating modes:
 
-**Local Mode** (default for local dev):
-- PGlite (Postgres-in-WASM) is the primary data store, running in the backend process
-- No authentication required, no Docker, no Supabase
-- Single-user only
-- Perfect for rapid iteration
-- Start with: `npm run dev:indexeddb` or `npm run dev` (if no Supabase env vars)
-- Mode detection: `isLocalMode()` from `src/lib/app-mode.ts` (frontend) or `server/lib/app-mode.ts` (backend)
+**Local** — PGlite, no auth, all localhost:
+- PGlite (Postgres-in-WASM) runs in the backend process, no Docker or external DB
+- No authentication, single-user, perfect for rapid iteration
+- Start with: `npm run dev:local`
+- Mode detection: `isLocalMode()` from `src/lib/app-mode.ts` or `server/lib/app-mode.ts`
 
-**Server Mode** (multi-user production):
-- Supabase/Postgres is the single source of truth
-- WebAuthn/passkey authentication
-- Multi-user with data isolation via RLS
-- Real-time collaboration
-- Start with: `npm run dev:supabase` or `npm run dev` (if Supabase env vars set)
-- Mode detection: `isServerMode()` from `src/lib/app-mode.ts` (frontend) or `server/lib/app-mode.ts` (backend)
+**Dev** — Local Supabase + Cloudflare tunnel:
+- Local Supabase (Docker) as the data store
+- WebAuthn/passkey auth works via Cloudflare tunnel (HTTPS required for TouchID)
+- Multi-user with RLS, real-time collaboration
+- Start with: `npm run dev:dev`
+- Requires `CLOUDFLARED_DOMAIN` in `.env` and Docker running
 
-**Mode Detection:**
-1. If `USE_INDEXEDDB_ONLY=true` → Local mode (explicit override)
-2. If Supabase env vars not set → Local mode (auto-detected)
-3. If Supabase env vars set → Server mode
+**Prod** — Remote Supabase + Fly.io + Cloudflare Pages:
+- Remote Supabase/Postgres as the data store
+- Fly.io backend, Cloudflare Pages frontend
+- Start with: `npm run env:prod && npm run deploy`
 
-**Data Layer:** Both modes use the same Drizzle ORM schema (`server/lib/db/schema.ts`). Frontend stores use `dataClient` (`src/lib/data-client.ts`) which calls `/api/data/*` endpoints — no direct IndexedDB or PGlite access from the frontend.
+**Switching modes (if you prefer manual control):**
+```bash
+npm run env:init         # One-time: generate .env.local.dev and .env.prod
+npm run env:local        # Switch to local (removes .env.local, auto-detects PGlite)
+npm run env:dev          # Switch to dev (symlink .env.local → .env.local.dev)
+npm run env:prod         # Switch to prod (symlink .env.local → .env.prod)
+npm run env:switch       # Show current mode
+```
+
+The `dev:local` and `dev:dev` commands switch env automatically before starting. Each mode switch also kills stale processes on ports 5173/3001/3002.
+
+**Data Layer:** All modes use the same Drizzle ORM schema (`server/lib/db/schema.ts`). Frontend stores use `dataClient` (`src/lib/data-client.ts`) which calls `/api/data/*` endpoints — no direct PGlite access from the frontend.
 
 **Visual Indicator:** Sidebar shows "Local Mode" badge when in local mode.
 
@@ -472,11 +480,11 @@ npm run dev:backend
 ### Domains
 | Service | URL | Target |
 |---------|-----|--------|
-| Frontend | `https://astro.fuxialexander.work` | Vite dev (tunnel) or Cloudflare Pages (prod) |
-| Backend API | `https://astro-api.fuxialexander.work` | Hono server (port 3001) |
-| WebSocket Relay | `https://astro-relay.fuxialexander.work` | Relay server (port 3002) |
-| Supabase | `https://astro-supabase.fuxialexander.work` | Local Supabase (port 54321) |
-| Landing Page | `https://astro.fuxialexander.work/landing/` | Static HTML in `public/landing/` |
+| Frontend | `https://astro.your-domain.com` | Vite dev (tunnel) or Cloudflare Pages (prod) |
+| Backend API | `https://astro-api.your-domain.com` | Hono server (port 3001) |
+| WebSocket Relay | `https://astro-relay.your-domain.com` | Relay server (port 3002) |
+| Supabase | `https://astro-supabase.your-domain.com` | Local Supabase (port 54321) |
+| Landing Page | `https://astro.your-domain.com/landing/` | Static HTML in `public/landing/` |
 
 ### Cloudflare Tunnel (Development)
 - Tunnel name: `astro`

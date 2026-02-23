@@ -105,7 +105,7 @@ Supabase Realtime handles reconnection automatically with exponential backoff. E
 ```bash
 VITE_SUPABASE_URL=...       # Supabase project URL
 VITE_SUPABASE_ANON_KEY=...  # Public anon key (RLS enforced)
-VITE_USE_INDEXEDDB_ONLY=true # Set to disable realtime sync
+VITE_ASTRO_LOCAL_MODE=true # Set to disable realtime sync
 ```
 
 ### Database Setup

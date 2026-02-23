@@ -12,10 +12,10 @@ This creates a Cloudflare Tunnel and routes all `astro.*` subdomains to local po
 
 ## Routes
 
-- `astro.fuxialexander.work` → localhost:5173 (Vite)
-- `astro-api.fuxialexander.work` → localhost:3001 (Hono)
-- `astro-relay.fuxialexander.work` → localhost:3002 (Relay)
-- `astro-supabase.fuxialexander.work` → localhost:54321 (Supabase)
+- `astro.your-domain.com` → localhost:5173 (Vite)
+- `astro-api.your-domain.com` → localhost:3001 (Hono)
+- `astro-relay.your-domain.com` → localhost:3002 (Relay)
+- `astro-supabase.your-domain.com` → localhost:54321 (Supabase)
 
 ## Related Documentation
 - [Developer Setup](./developer-setup.md)

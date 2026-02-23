@@ -8,7 +8,7 @@ Local Mode uses IndexedDB as the sole data store. No authentication, no Supabase
 
 ## Enabling Local Mode
 
-Set `USE_INDEXEDDB_ONLY=true` or omit Supabase env vars.
+Set `ASTRO_LOCAL_MODE=true` or omit Supabase env vars.
 
 ## Limitations
 - Single-user only
