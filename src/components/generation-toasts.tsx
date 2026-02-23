@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { Loader2, CheckCircle2, AlertCircle, X, ChevronDown, ChevronUp, FolderGit2 } from "lucide-react"
 import { useAgentStore, type GenerationSession } from "@/stores/agent-store"
@@ -8,12 +8,38 @@ import { cn } from "@/lib/utils"
 
 const AUTO_DISMISS_MS = 4000
 
+/**
+ * Strip tool use blocks, code fences, and JSON from stream text,
+ * keeping only the natural-language reasoning/thinking text.
+ */
+function filterStreamText(text: string): string {
+  let result = text
+
+  // Remove XML-style tool use blocks: <tool_use>...</tool_use>, <tool_result>...</tool_result>, etc.
+  result = result.replace(/<tool_use>[\s\S]*?<\/tool_use>/g, "")
+  result = result.replace(/<tool_result>[\s\S]*?<\/tool_result>/g, "")
+  result = result.replace(/<tool_use>[\s\S]*?<\/antml:tool_use>/g, "")
+  result = result.replace(/<tool_result>[\s\S]*?<\/antml:tool_result>/g, "")
+
+  // Remove fenced code blocks: ```...```
+  result = result.replace(/```[\s\S]*?```/g, "")
+
+  // Remove large JSON blobs (objects/arrays spanning multiple lines, 4+ lines)
+  result = result.replace(/[{\[]\s*\n(?:.*\n){3,}?\s*[}\]]/g, "")
+
+  // Collapse multiple blank lines into one
+  result = result.replace(/\n{3,}/g, "\n\n")
+
+  return result.trim()
+}
+
 function SessionCard({ session }: { session: GenerationSession }) {
   const abort = useAgentStore((s) => s.abort)
   const dismiss = useAgentStore((s) => s.dismissSession)
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   // Look up project and machine for richer status during repo_setup
   const project = useProjectStore((s) => s.projects.find((p) => p.id === session.projectId))
@@ -22,9 +48,30 @@ function SessionCard({ session }: { session: GenerationSession }) {
     ? machines.find((m) => m.id === project.defaultMachineId)?.name || "remote machine"
     : null
 
-  // Auto-dismiss completed sessions
+  // Filter stream text to show only reasoning (no tool use, no code)
+  const displayText = useMemo(
+    () => filterStreamText(session.streamText),
+    [session.streamText],
+  )
+
+  // Auto-scroll to bottom when new text arrives while expanded
   useEffect(() => {
-    if (session.status === "completed") {
+    if (expanded && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [expanded, displayText])
+
+  // Cancel auto-dismiss when user expands the card
+  useEffect(() => {
+    if (expanded && dismissTimer.current) {
+      clearTimeout(dismissTimer.current)
+      dismissTimer.current = null
+    }
+  }, [expanded])
+
+  // Auto-dismiss completed sessions (only if not expanded)
+  useEffect(() => {
+    if (session.status === "completed" && !expanded) {
       dismissTimer.current = setTimeout(() => {
         dismiss(session.projectId)
       }, AUTO_DISMISS_MS)
@@ -32,10 +79,11 @@ function SessionCard({ session }: { session: GenerationSession }) {
     return () => {
       if (dismissTimer.current) clearTimeout(dismissTimer.current)
     }
-  }, [session.status, session.projectId, dismiss])
+  }, [session.status, session.projectId, dismiss, expanded])
 
   const isActive = session.status === "active"
   const isError = session.status === "error"
+  const hasText = displayText.length > 0
 
   function handleClose() {
     if (isActive) {
@@ -89,11 +137,12 @@ function SessionCard({ session }: { session: GenerationSession }) {
           </p>
         </div>
 
-        {/* Expand toggle */}
-        {isActive && session.streamText && (
+        {/* Expand toggle — show whenever there's text, even after completion */}
+        {hasText && (
           <button
             onClick={() => setExpanded(!expanded)}
             className="p-1 rounded hover:bg-muted transition-colors cursor-pointer"
+            title={expanded ? "Collapse" : "Show generation log"}
           >
             {expanded ? (
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -119,11 +168,14 @@ function SessionCard({ session }: { session: GenerationSession }) {
       </div>
 
       {/* Expandable stream text */}
-      {expanded && session.streamText && (
-        <div className="border-t border-border px-3 py-2 max-h-[120px] overflow-auto bg-muted/50">
-          <pre className="whitespace-pre-wrap text-[11px] text-muted-foreground leading-relaxed font-mono">
-            {session.streamText.slice(-2000)}
-          </pre>
+      {expanded && hasText && (
+        <div
+          ref={scrollRef}
+          className="border-t border-border px-3 py-2 max-h-[400px] overflow-auto bg-muted/50"
+        >
+          <div className="whitespace-pre-wrap text-[11px] text-muted-foreground leading-relaxed">
+            {displayText.slice(-5000)}
+          </div>
         </div>
       )}
 
@@ -140,11 +192,15 @@ function SessionCard({ session }: { session: GenerationSession }) {
 export function GenerationToasts() {
   const sessions = useAgentStore((s) => s.sessions)
   const entries = Array.from(sessions.values())
+  const hasExpanded = entries.some((s) => s.streamText.length > 0)
 
   if (entries.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[340px] flex flex-col-reverse gap-2">
+    <div className={cn(
+      "fixed bottom-4 right-4 z-50 flex flex-col-reverse gap-2 transition-all",
+      hasExpanded ? "w-[480px]" : "w-[340px]",
+    )}>
       {entries.map((session) => (
         <SessionCard key={session.projectId} session={session} />
       ))}
