@@ -21,8 +21,9 @@ COPY . .
 
 # Server runs via tsx (runtime transpilation), so tsc is not required.
 # Frontend is deployed separately to Cloudflare Pages — skip vite build.
-# Only install production-relevant native modules (better-sqlite3, etc.)
-RUN npm rebuild
+# Rebuild native modules (better-sqlite3, sharp) for the target platform.
+# Use pnpm rebuild (not npm rebuild) to match pnpm's node_modules layout.
+RUN pnpm rebuild
 
 # --------------- Production Stage ---------------
 FROM node:22-alpine AS production
@@ -41,6 +42,9 @@ COPY --from=builder --chown=astro:astro /app/package.json ./
 
 # Server source (runs via tsx at runtime)
 COPY --from=builder --chown=astro:astro /app/server ./server
+
+# Shared core package (db, schema, dispatch types, prompt templates, etc.)
+COPY --from=builder --chown=astro:astro /app/packages/core ./packages/core
 
 # Frontend types imported by server (src/types/*.ts)
 COPY --from=builder --chown=astro:astro /app/src/types ./src/types
