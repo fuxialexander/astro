@@ -21,8 +21,9 @@ COPY . .
 
 # Server runs via tsx (runtime transpilation), so tsc is not required.
 # Frontend is deployed separately to Cloudflare Pages — skip vite build.
-# Only install production-relevant native modules (better-sqlite3, etc.)
-RUN npm rebuild
+# Only rebuild native modules — target better-sqlite3 specifically to avoid
+# unrelated postinstall failures (e.g. globals@14 generate-types).
+RUN pnpm rebuild better-sqlite3
 
 # --------------- Production Stage ---------------
 FROM node:22-alpine AS production
