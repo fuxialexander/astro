@@ -1995,97 +1995,109 @@
             <!-- Workspace Pipeline Flow — inspired by workflow execution model -->
             <div class="workspace-flow">
                 <div class="workspace-flow-label"><span>How Work Flows</span></div>
-                <svg viewBox="0 0 800 180" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" style="max-width: 720px; margin: 0 auto; display: block;">
+                <svg viewBox="0 0 800 170" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" style="max-width: 720px; margin: 0 auto; display: block;">
                     <defs>
                         <marker id="flow-arrow" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0 0L7 2.5L0 5" fill="var(--cyan)" opacity="0.5" /></marker>
                     </defs>
 
-                    <!-- Pipeline: Directory → Detection → Isolation → Delivery -->
-                    <!-- Flow arrows with animated dashes -->
-                    <line x1="178" y1="42" x2="228" y2="42" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.3" marker-end="url(#flow-arrow)">
+                    <!-- ====== MAIN BRANCH ====== -->
+                    <line x1="60" y1="118" x2="760" y2="118" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" opacity="0.2" stroke-dasharray="700" stroke-dashoffset="700">
+                        <animate attributeName="stroke-dashoffset" from="700" to="0" dur="1.5s" fill="freeze" begin="0.3s" />
+                    </line>
+                    <!-- Commits on main (spread across all 4 stages) -->
+                    <circle cx="103" cy="118" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;4.5;4" dur="0.4s" fill="freeze" begin="0.5s" /></circle>
+                    <circle cx="230" cy="118" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;4.5;4" dur="0.4s" fill="freeze" begin="0.7s" /></circle>
+                    <circle cx="380" cy="118" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;4.5;4" dur="0.4s" fill="freeze" begin="0.9s" /></circle>
+                    <circle cx="620" cy="118" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;4.5;4" dur="0.4s" fill="freeze" begin="1.5s" /></circle>
+                    <circle cx="740" cy="118" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;4.5;4" dur="0.4s" fill="freeze" begin="2s" /></circle>
+                    <text x="63" y="134" fill="var(--text-tertiary)" font-size="7.5" font-family="'JetBrains Mono', monospace" opacity="0.4">main</text>
+
+                    <!-- ====== BRANCH 1 (green) — forks at Detection, merges at Delivery ====== -->
+                    <path d="M310 118 C310 104, 320 86, 345 86 L640 86 C665 86, 680 100, 695 118" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" opacity="0.25" stroke-dasharray="450" stroke-dashoffset="450">
+                        <animate attributeName="stroke-dashoffset" from="450" to="0" dur="1.2s" fill="freeze" begin="0.9s" />
+                    </path>
+                    <!-- Commits on branch 1 -->
+                    <circle cx="310" cy="118" r="0" fill="var(--green)"><animate attributeName="r" values="0;4.5;4" dur="0.4s" fill="freeze" begin="0.9s" /></circle>
+                    <circle cx="420" cy="86" r="0" fill="var(--green)"><animate attributeName="r" values="0;3.5;3" dur="0.4s" fill="freeze" begin="1.2s" /></circle>
+                    <circle cx="520" cy="86" r="0" fill="var(--green)"><animate attributeName="r" values="0;3.5;3" dur="0.4s" fill="freeze" begin="1.4s" /></circle>
+                    <circle cx="600" cy="86" r="0" fill="var(--green)"><animate attributeName="r" values="0;3.5;3" dur="0.4s" fill="freeze" begin="1.6s" /></circle>
+                    <text x="430" y="80" fill="var(--green)" font-size="7.5" font-family="'JetBrains Mono', monospace" opacity="0.5">astro/task-1</text>
+
+                    <!-- ====== BRANCH 2 (orange) — forks slightly after, merges at Delivery ====== -->
+                    <path d="M380 118 C380 132, 390 152, 415 152 L660 152 C685 152, 700 138, 715 118" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" opacity="0.25" stroke-dasharray="420" stroke-dashoffset="420">
+                        <animate attributeName="stroke-dashoffset" from="420" to="0" dur="1.2s" fill="freeze" begin="1.1s" />
+                    </path>
+                    <!-- Commits on branch 2 -->
+                    <circle cx="380" cy="118" r="0" fill="var(--orange)"><animate attributeName="r" values="0;4.5;4" dur="0.4s" fill="freeze" begin="1.1s" /></circle>
+                    <circle cx="490" cy="152" r="0" fill="var(--orange)"><animate attributeName="r" values="0;3.5;3" dur="0.4s" fill="freeze" begin="1.4s" /></circle>
+                    <circle cx="580" cy="152" r="0" fill="var(--orange)"><animate attributeName="r" values="0;3.5;3" dur="0.4s" fill="freeze" begin="1.6s" /></circle>
+                    <text x="500" y="166" fill="var(--orange)" font-size="7.5" font-family="'JetBrains Mono', monospace" opacity="0.5">astro/task-2</text>
+
+                    <!-- ====== MERGE INDICATORS (PR badges at Delivery) ====== -->
+                    <rect x="680" y="99" width="20" height="11" rx="3" fill="rgba(110, 192, 122, 0.1)" stroke="rgba(110, 192, 122, 0.15)" stroke-width="0.5" opacity="0">
+                        <animate attributeName="opacity" from="0" to="1" dur="0.4s" fill="freeze" begin="1.8s" />
+                    </rect>
+                    <text x="690" y="107" fill="var(--green)" font-size="5.5" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0">PR
+                        <animate attributeName="opacity" from="0" to="0.6" dur="0.4s" fill="freeze" begin="1.8s" />
+                    </text>
+                    <rect x="700" y="127" width="20" height="11" rx="3" fill="rgba(212, 165, 116, 0.1)" stroke="rgba(212, 165, 116, 0.15)" stroke-width="0.5" opacity="0">
+                        <animate attributeName="opacity" from="0" to="1" dur="0.4s" fill="freeze" begin="2s" />
+                    </rect>
+                    <text x="710" y="135" fill="var(--orange)" font-size="5.5" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0">PR
+                        <animate attributeName="opacity" from="0" to="0.6" dur="0.4s" fill="freeze" begin="2s" />
+                    </text>
+
+                    <!-- Active head pulse -->
+                    <circle cx="740" cy="118" r="4" fill="none" stroke="var(--cyan)" stroke-width="1" opacity="0">
+                        <animate attributeName="r" from="4" to="14" dur="2s" repeatCount="indefinite" begin="2.2s" />
+                        <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" begin="2.2s" />
+                    </circle>
+
+                    <!-- ====== SUBTLE ZONE INDICATORS connecting boxes to branches ====== -->
+                    <!-- Connector from Isolation center down to fork zone -->
+                    <line x1="520" y1="62" x2="520" y2="86" stroke="var(--green)" stroke-width="0.8" opacity="0.1" stroke-dasharray="2 2" />
+                    <!-- Connector from Delivery center down to merge zone -->
+                    <line x1="721" y1="62" x2="721" y2="118" stroke="var(--orange)" stroke-width="0.8" opacity="0.1" stroke-dasharray="2 2" />
+
+                    <!-- ====== PIPELINE BOXES (on top, connected to branches below) ====== -->
+                    <!-- Flow arrows between boxes -->
+                    <line x1="178" y1="37" x2="228" y2="37" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.3" marker-end="url(#flow-arrow)">
                         <animate attributeName="stroke-dashoffset" from="7" to="0" dur="1s" repeatCount="indefinite" />
                     </line>
-                    <line x1="388" y1="42" x2="438" y2="42" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.3" marker-end="url(#flow-arrow)">
+                    <line x1="388" y1="37" x2="438" y2="37" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.3" marker-end="url(#flow-arrow)">
                         <animate attributeName="stroke-dashoffset" from="7" to="0" dur="1s" repeatCount="indefinite" />
                     </line>
-                    <line x1="598" y1="42" x2="648" y2="42" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.3" marker-end="url(#flow-arrow)">
+                    <line x1="598" y1="37" x2="648" y2="37" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.3" marker-end="url(#flow-arrow)">
                         <animate attributeName="stroke-dashoffset" from="7" to="0" dur="1s" repeatCount="indefinite" />
                     </line>
 
                     <!-- Box 1: Your Directory -->
                     <g style="animation: flowNodeAppear 0.5s ease-out forwards">
-                        <rect x="28" y="17" width="150" height="50" rx="10" fill="rgba(255,255,255,0.025)" stroke="var(--border-subtle)" stroke-width="1" />
-                        <text x="103" y="39" fill="var(--text-primary)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Your Directory</text>
-                        <text x="103" y="54" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">auto-detected</text>
+                        <rect x="28" y="12" width="150" height="50" rx="10" fill="rgba(255,255,255,0.025)" stroke="var(--border-subtle)" stroke-width="1" />
+                        <text x="103" y="34" fill="var(--text-primary)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Your Directory</text>
+                        <text x="103" y="49" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">auto-detected</text>
                     </g>
 
                     <!-- Box 2: Detection -->
                     <g style="animation: flowNodeAppear 0.5s ease-out 0.15s forwards; opacity: 0">
-                        <rect x="232" y="17" width="156" height="50" rx="10" fill="rgba(91, 163, 208, 0.05)" stroke="rgba(91, 163, 208, 0.18)" stroke-width="1" />
-                        <text x="310" y="39" fill="var(--cyan)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Detection</text>
-                        <text x="310" y="54" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">git? remote? size?</text>
+                        <rect x="232" y="12" width="156" height="50" rx="10" fill="rgba(91, 163, 208, 0.05)" stroke="rgba(91, 163, 208, 0.18)" stroke-width="1" />
+                        <text x="310" y="34" fill="var(--cyan)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Detection</text>
+                        <text x="310" y="49" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">git? remote? size?</text>
                     </g>
 
                     <!-- Box 3: Isolation -->
                     <g style="animation: flowNodeAppear 0.5s ease-out 0.3s forwards; opacity: 0">
-                        <rect x="442" y="17" width="156" height="50" rx="10" fill="rgba(110, 192, 122, 0.05)" stroke="rgba(110, 192, 122, 0.18)" stroke-width="1" />
-                        <text x="520" y="39" fill="var(--green)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Isolation</text>
-                        <text x="520" y="54" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">worktree / copy</text>
+                        <rect x="442" y="12" width="156" height="50" rx="10" fill="rgba(110, 192, 122, 0.05)" stroke="rgba(110, 192, 122, 0.18)" stroke-width="1" />
+                        <text x="520" y="34" fill="var(--green)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Isolation</text>
+                        <text x="520" y="49" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">worktree / copy</text>
                     </g>
 
                     <!-- Box 4: Delivery -->
                     <g style="animation: flowNodeAppear 0.5s ease-out 0.45s forwards; opacity: 0">
-                        <rect x="652" y="17" width="138" height="50" rx="10" fill="rgba(212, 165, 116, 0.05)" stroke="rgba(212, 165, 116, 0.18)" stroke-width="1" />
-                        <text x="721" y="39" fill="var(--orange)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Delivery</text>
-                        <text x="721" y="54" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">PR / push / diff</text>
+                        <rect x="652" y="12" width="138" height="50" rx="10" fill="rgba(212, 165, 116, 0.05)" stroke="rgba(212, 165, 116, 0.18)" stroke-width="1" />
+                        <text x="721" y="34" fill="var(--orange)" font-size="10.5" font-weight="500" font-family="'Inter', sans-serif" text-anchor="middle">Delivery</text>
+                        <text x="721" y="49" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" text-anchor="middle">PR / push / diff</text>
                     </g>
-
-                    <!-- Git Worktree Branch Visualization below the pipeline -->
-                    <!-- Main branch — horizontal line -->
-                    <line x1="100" y1="120" x2="700" y2="120" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" opacity="0.3" stroke-dasharray="200" stroke-dashoffset="200">
-                        <animate attributeName="stroke-dashoffset" from="200" to="0" dur="1.2s" fill="freeze" begin="0.6s" />
-                    </line>
-
-                    <!-- Branch 1 (top): curve from main at x=280 up to y=95 -->
-                    <path d="M280 120 C280 120, 280 95, 320 95 L560 95" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" opacity="0.25" stroke-dasharray="200" stroke-dashoffset="200">
-                        <animate attributeName="stroke-dashoffset" from="200" to="0" dur="1s" fill="freeze" begin="1s" />
-                    </path>
-
-                    <!-- Branch 2 (bottom): curve from main at x=400 down to y=148 -->
-                    <path d="M400 120 C400 120, 400 148, 440 148 L580 148" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" opacity="0.25" stroke-dasharray="200" stroke-dashoffset="200">
-                        <animate attributeName="stroke-dashoffset" from="200" to="0" dur="1s" fill="freeze" begin="1.2s" />
-                    </path>
-
-                    <!-- Commit dots on main branch -->
-                    <circle cx="140" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="0.8s" /></circle>
-                    <circle cx="280" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="1s" /></circle>
-                    <circle cx="400" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="1.2s" /></circle>
-                    <circle cx="540" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="1.4s" /></circle>
-                    <circle cx="660" cy="120" r="0" fill="var(--cyan)"><animate attributeName="r" values="0;5;4" dur="0.4s" fill="freeze" begin="1.6s" /></circle>
-
-                    <!-- Commit dots on branch 1 -->
-                    <circle cx="380" cy="95" r="0" fill="var(--green)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.3s" /></circle>
-                    <circle cx="440" cy="95" r="0" fill="var(--green)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.5s" /></circle>
-                    <circle cx="520" cy="95" r="0" fill="var(--green)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.7s" /></circle>
-
-                    <!-- Commit dots on branch 2 -->
-                    <circle cx="480" cy="148" r="0" fill="var(--orange)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.5s" /></circle>
-                    <circle cx="540" cy="148" r="0" fill="var(--orange)"><animate attributeName="r" values="0;4;3.5" dur="0.4s" fill="freeze" begin="1.7s" /></circle>
-
-                    <!-- Active head pulses -->
-                    <circle cx="660" cy="120" r="4" fill="none" stroke="var(--cyan)" stroke-width="1" opacity="0">
-                        <animate attributeName="r" from="4" to="14" dur="2s" repeatCount="indefinite" begin="2s" />
-                        <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" begin="2s" />
-                    </circle>
-                    <circle cx="520" cy="95" r="3.5" fill="none" stroke="var(--green)" stroke-width="1" opacity="0">
-                        <animate attributeName="r" from="3.5" to="12" dur="2s" repeatCount="indefinite" begin="2.2s" />
-                        <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" begin="2.2s" />
-                    </circle>
-
-                    <!-- Branch labels -->
-                    <text x="120" y="140" fill="var(--text-tertiary)" font-size="8" font-family="'JetBrains Mono', monospace" opacity="0.5">main</text>
-                    <text x="350" y="88" fill="var(--green)" font-size="8" font-family="'JetBrains Mono', monospace" opacity="0.5">astro/task-1</text>
-                    <text x="450" y="166" fill="var(--orange)" font-size="8" font-family="'JetBrains Mono', monospace" opacity="0.5">astro/task-2</text>
                 </svg>
             </div>
         </section>
