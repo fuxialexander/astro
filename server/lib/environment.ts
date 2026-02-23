@@ -5,6 +5,8 @@
  * for development, test, and production environments.
  */
 
+import { isLocalMode } from './app-mode.js'
+
 /**
  * Current environment mode
  */
@@ -45,21 +47,10 @@ export function isTest(): boolean {
 /**
  * Check if local mode is enabled
  * (PGlite database, no Supabase, no authentication, single-user)
+ *
+ * Re-exported from @astro/core for backward compatibility.
  */
-export function isLocalMode(): boolean {
-  // Explicit override
-  if (process.env.ASTRO_LOCAL_MODE === 'true') {
-    return true;
-  }
-
-  // Auto-detect: if Supabase env vars not set, use local mode
-  const hasSupabase = !!(
-    process.env.SUPABASE_URL &&
-    process.env.SUPABASE_ANON_KEY
-  );
-
-  return !hasSupabase;
-}
+export { isLocalMode } from '../../packages/core/src/app-mode.js'
 
 
 /**

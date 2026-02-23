@@ -25,9 +25,14 @@ export default defineConfig(({ mode }) => {
     tailwindcss(),
   ],
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    alias: [
+      // @astro/core subpath imports (must come before bare @astro/core)
+      { find: /^@astro\/core\/(.+)$/, replacement: path.resolve(__dirname, './packages/core/src/$1') },
+      // @astro/core bare import
+      { find: /^@astro\/core$/, replacement: path.resolve(__dirname, './packages/core/src/index.ts') },
+      // src alias (must come after @astro/core to avoid matching @astro)
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+    ],
   },
   server: {
     watch: {

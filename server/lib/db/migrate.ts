@@ -1,26 +1,6 @@
-import { isLocalMode } from '../app-mode.js'
-import { initDb } from './index.js'
-
 /**
- * Run database migrations.
+ * Database Migrations
  *
- * - Local mode: runs Drizzle migrations against PGlite (creates tables on first run, idempotent on restart)
- * - Server mode: no-op — Supabase manages migrations via supabase/migrations/
+ * Re-exports from @astro/core for backward compatibility.
  */
-export async function runMigrations() {
-  // Initialize the database connection first
-  await initDb()
-
-  if (!isLocalMode()) {
-    // Server mode: Supabase manages migrations
-    console.log('[db] Using Supabase migrations (managed via npx supabase db)')
-    return
-  }
-
-  // Local mode: run Drizzle migrations against PGlite
-  console.log('[db] Running Drizzle migrations against PGlite...')
-  const { migrate } = await import('drizzle-orm/pglite/migrator')
-  const { db } = await import('./index.js')
-  await migrate(db as Parameters<typeof migrate>[0], { migrationsFolder: './drizzle' })
-  console.log('[db] PGlite migrations complete')
-}
+export { runMigrations } from '../../../packages/core/src/db/migrate.js'

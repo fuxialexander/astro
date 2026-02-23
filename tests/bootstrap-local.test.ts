@@ -22,7 +22,8 @@ const mockDb = {
   insert: mockInsert,
 }
 
-vi.mock('../server/lib/db/index.js', () => ({
+// Mock both the core and server paths (core is the actual source, server re-exports)
+const dbMock = {
   db: new Proxy({}, {
     get(_, prop) {
       if (prop === 'select') return mockSelect
@@ -30,13 +31,18 @@ vi.mock('../server/lib/db/index.js', () => ({
       return undefined
     },
   }),
-}))
-
-vi.mock('../server/lib/db/schema.js', () => ({
+}
+const schemaMock = {
   teams: { id: 'teams.id' },
   teamMembers: { userId: 'teamMembers.userId' },
   userProfiles: { id: 'userProfiles.id' },
-}))
+}
+
+vi.mock('../packages/core/src/db/index.js', () => dbMock)
+vi.mock('../server/lib/db/index.js', () => dbMock)
+
+vi.mock('../packages/core/src/db/schema.js', () => schemaMock)
+vi.mock('../server/lib/db/schema.js', () => schemaMock)
 
 vi.mock('drizzle-orm', () => ({
   eq: (field: string, value: string) => ({ field, value, type: 'eq' }),

@@ -37,9 +37,10 @@
     "clear-data": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/clear-user-data.ts",
     "clear-data:force": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/clear-user-data.ts --force",
     "cleanup-duplicates": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/cleanup-duplicate-machines.ts",
-    "postinstall": "cd packages/agent-runner && npm install",
+    "postinstall": "cd packages/agent-runner && npm install --ignore-scripts",
     "prepare": "husky"
   },
+  "packageManager": "pnpm@9.15.4",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.32",
     "@anthropic-ai/sdk": "^0.74.0",

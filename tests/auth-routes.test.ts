@@ -236,7 +236,7 @@ describe('DELETE /api/auth/delete-account (local mode)', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.success).toBe(true)
-    expect(body.message).toContain('IndexedDB mode')
+    expect(body.message).toContain('Local mode')
   })
 
   it('is idempotent (multiple deletes succeed in local mode)', async () => {

@@ -21,6 +21,9 @@ describe('db/index.ts — dual-driver factory', () => {
     const mockDrizzle = vi.fn().mockReturnValue({ $client: 'pglite-mock' })
     let pgliteCallCount = 0
 
+    vi.doMock('../packages/core/src/app-mode.js', () => ({
+      isLocalMode: () => true,
+    }))
     vi.doMock('../server/lib/app-mode.js', () => ({
       isLocalMode: () => true,
     }))
@@ -30,6 +33,7 @@ describe('db/index.ts — dual-driver factory', () => {
     vi.doMock('drizzle-orm/pglite', () => ({
       drizzle: mockDrizzle,
     }))
+    vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
 
     const { initDb } = await import('../server/lib/db/index.js')
@@ -44,6 +48,9 @@ describe('db/index.ts — dual-driver factory', () => {
     const mockDrizzle = vi.fn().mockReturnValue({ $client: 'postgres-mock' })
     const mockPostgres = vi.fn().mockReturnValue({})
 
+    vi.doMock('../packages/core/src/app-mode.js', () => ({
+      isLocalMode: () => false,
+    }))
     vi.doMock('../server/lib/app-mode.js', () => ({
       isLocalMode: () => false,
     }))
@@ -53,6 +60,7 @@ describe('db/index.ts — dual-driver factory', () => {
     vi.doMock('drizzle-orm/postgres-js', () => ({
       drizzle: mockDrizzle,
     }))
+    vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
 
     const { initDb } = await import('../server/lib/db/index.js')
@@ -67,6 +75,9 @@ describe('db/index.ts — dual-driver factory', () => {
     const mockDrizzle = vi.fn().mockReturnValue({ $client: 'pglite-mock' })
     let pgliteCallCount = 0
 
+    vi.doMock('../packages/core/src/app-mode.js', () => ({
+      isLocalMode: () => true,
+    }))
     vi.doMock('../server/lib/app-mode.js', () => ({
       isLocalMode: () => true,
     }))
@@ -76,6 +87,7 @@ describe('db/index.ts — dual-driver factory', () => {
     vi.doMock('drizzle-orm/pglite', () => ({
       drizzle: mockDrizzle,
     }))
+    vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
 
     const { initDb } = await import('../server/lib/db/index.js')
@@ -89,9 +101,13 @@ describe('db/index.ts — dual-driver factory', () => {
   })
 
   it('db proxy throws descriptive error if not initialized', async () => {
+    vi.doMock('../packages/core/src/app-mode.js', () => ({
+      isLocalMode: () => true,
+    }))
     vi.doMock('../server/lib/app-mode.js', () => ({
       isLocalMode: () => true,
     }))
+    vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
 
     const { db } = await import('../server/lib/db/index.js')
@@ -107,6 +123,9 @@ describe('db/index.ts — dual-driver factory', () => {
 
     process.env.PGLITE_DATA_DIR = '/tmp/test-pglite'
 
+    vi.doMock('../packages/core/src/app-mode.js', () => ({
+      isLocalMode: () => true,
+    }))
     vi.doMock('../server/lib/app-mode.js', () => ({
       isLocalMode: () => true,
     }))
@@ -116,6 +135,7 @@ describe('db/index.ts — dual-driver factory', () => {
     vi.doMock('drizzle-orm/pglite', () => ({
       drizzle: mockDrizzle,
     }))
+    vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
 
     const { initDb } = await import('../server/lib/db/index.js')
@@ -133,6 +153,9 @@ describe('db/index.ts — dual-driver factory', () => {
     // Ensure the env var is not set
     delete process.env.PGLITE_DATA_DIR
 
+    vi.doMock('../packages/core/src/app-mode.js', () => ({
+      isLocalMode: () => true,
+    }))
     vi.doMock('../server/lib/app-mode.js', () => ({
       isLocalMode: () => true,
     }))
@@ -142,6 +165,7 @@ describe('db/index.ts — dual-driver factory', () => {
     vi.doMock('drizzle-orm/pglite', () => ({
       drizzle: mockDrizzle,
     }))
+    vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
 
     const { initDb } = await import('../server/lib/db/index.js')
@@ -164,6 +188,9 @@ describe('db/index.ts — dual-driver factory', () => {
 
     process.env.DATABASE_URL = 'postgresql://user:pass@remote-host:5432/mydb'
 
+    vi.doMock('../packages/core/src/app-mode.js', () => ({
+      isLocalMode: () => false,
+    }))
     vi.doMock('../server/lib/app-mode.js', () => ({
       isLocalMode: () => false,
     }))
@@ -173,6 +200,7 @@ describe('db/index.ts — dual-driver factory', () => {
     vi.doMock('drizzle-orm/postgres-js', () => ({
       drizzle: mockDrizzle,
     }))
+    vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
 
     const { initDb } = await import('../server/lib/db/index.js')
@@ -194,6 +222,9 @@ describe('db/index.ts — dual-driver factory', () => {
     // Ensure DATABASE_URL is not set
     delete process.env.DATABASE_URL
 
+    vi.doMock('../packages/core/src/app-mode.js', () => ({
+      isLocalMode: () => false,
+    }))
     vi.doMock('../server/lib/app-mode.js', () => ({
       isLocalMode: () => false,
     }))
@@ -203,6 +234,7 @@ describe('db/index.ts — dual-driver factory', () => {
     vi.doMock('drizzle-orm/postgres-js', () => ({
       drizzle: mockDrizzle,
     }))
+    vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
 
     const { initDb } = await import('../server/lib/db/index.js')

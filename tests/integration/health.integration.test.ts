@@ -15,12 +15,12 @@ beforeAll(async () => {
 })
 
 describe('GET /api/health', () => {
-  it('returns status ok with indexeddb mode', async () => {
+  it('returns status ok with pglite mode', async () => {
     const res = await request('/api/health')
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.status).toBe('ok')
-    expect(body.mode).toBe('indexeddb')
+    expect(body.mode).toBe('pglite')
     expect(body.authenticated).toBe(true)
     expect(body.relay).toBeDefined()
     expect(body.relay.connectedRunners).toBe(0)
