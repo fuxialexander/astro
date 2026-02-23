@@ -12,9 +12,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { VoiceInputButton } from "@/components/ui/voice-input-button"
-import { FileCompletionTextarea, type MentionItem } from "@/components/ui/file-completion-textarea"
+import { FileCompletionTextarea, type MentionItem, type SlashCommand } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
-import { chatWithAgent, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { chatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -279,10 +279,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     clearActiveSessionId(projectId, "plan-chat")
   }, [planChatSessions, deleteSession, projectId, clearActiveSessionId])
 
-  const handleInputChange = useCallback((value: string) => {
-    setInput(value)
-  }, [])
-
   const messages: Message[] = (currentSession?.messages || []).map((m) => ({
     role: m.role as "user" | "assistant",
     content: m.content,
@@ -342,6 +338,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
       kind: n.type === "milestone" ? "milestone" as const : "task" as const,
     }))
   }, [planNodes, projectId])
+
+  // Slash commands from connected machine
+  const [slashCmds, setSlashCmds] = useState<SlashCommand[]>([])
+  useEffect(() => {
+    const mid = project?.defaultMachineId
+    if (!mid) return
+    fetchSlashCommands(mid, project?.workingDirectory).then(setSlashCmds).catch(() => {})
+  }, [project?.defaultMachineId, project?.workingDirectory])
 
   // Settings defaults
   const settingsModel = useSettingsStore((s) => s.model)
@@ -933,21 +937,21 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
           disabled={isStreaming}
           className="h-9 w-9 shrink-0"
         />
-        <div className="relative flex-1">
-          <FileCompletionTextarea
-            projectId={projectId}
-            workingDirectory={project?.workingDirectory}
-            fileTree={project?.fileTree}
-            mentionItems={mentionItems}
-            value={input}
-            onChange={handleInputChange}
-            placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Type a message, @ for files or tasks..."}
-            rows={1}
-            disabled={isStreaming}
-            onSubmit={handleSend}
-            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-        </div>
+        <FileCompletionTextarea
+          projectId={projectId}
+          machineId={project?.defaultMachineId}
+          workingDirectory={project?.workingDirectory}
+          fileTree={project?.fileTree}
+          slashCommands={slashCmds}
+          mentionItems={mentionItems}
+          value={input}
+          onChange={setInput}
+          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Type a message, @ for files or tasks..."}
+          rows={1}
+          disabled={isStreaming}
+          onSubmit={handleSend}
+          className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        />
         <Button
           size="icon"
           className="h-9 w-9 shrink-0"
