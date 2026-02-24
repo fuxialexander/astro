@@ -27,6 +27,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
 import { MachineDetailDialog } from "@/components/environments/machine-detail-dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { compactGpuName } from "@/lib/utils"
@@ -158,6 +159,8 @@ function ConnectedMachinesCard({ machines, onRemove, onMachineClick }: {
   onRemove?: (machineId: string) => void
   onMachineClick?: (machine: MachineEntry) => void
 }) {
+  const [confirmingMachine, setConfirmingMachine] = useState<MachineEntry | null>(null)
+
   return (
     <Card>
       <div className="flex items-center justify-between p-6">
@@ -216,7 +219,10 @@ function ConnectedMachinesCard({ machines, onRemove, onMachineClick }: {
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 text-muted-foreground hover:text-destructive hidden md:flex"
-                      onClick={() => onRemove(machine.machineId)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setConfirmingMachine(machine)
+                      }}
                     >
                       <Trash2 className="h-3 w-3" />
                     </Button>
@@ -242,6 +248,37 @@ function ConnectedMachinesCard({ machines, onRemove, onMachineClick }: {
           )
         })}
       </div>
+
+      {/* Unregister confirmation dialog */}
+      <Dialog open={!!confirmingMachine} onOpenChange={(open) => { if (!open) setConfirmingMachine(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Unregister Machine</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to unregister{" "}
+              <span className="font-medium text-foreground">{confirmingMachine?.name || confirmingMachine?.machineId}</span>?
+              The machine will need to re-authenticate to reconnect.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setConfirmingMachine(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (confirmingMachine) {
+                  onRemove?.(confirmingMachine.machineId)
+                  setConfirmingMachine(null)
+                }
+              }}
+            >
+              Unregister
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
