@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { Send, Loader2, CheckCircle2, XCircle, RotateCw } from "lucide-react"
 import { apiUrl } from "@/lib/api-url"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -11,7 +10,6 @@ import { useSessionStore } from "@/stores/session-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { fetchSlashCommands } from "@/lib/api-client"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
 import { parseSSEStream } from "@/lib/sse-parser"
@@ -59,26 +57,6 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
     if (!resolvedMachineId) return
     fetchSlashCommands(resolvedMachineId, project?.workingDirectory).then(setSlashCmds).catch(() => {})
   }, [resolvedMachineId, project?.workingDirectory])
-
-  // Voice transcription for steering input
-  const handleTranscript = useCallback((text: string) => {
-    setInput((prev) => {
-      if (prev.trim()) {
-        return prev.trim() + " " + text
-      }
-      return text
-    })
-  }, [])
-
-  const {
-    isRecording,
-    isTranscribing,
-    isAvailable,
-    duration,
-    toggleRecording,
-  } = useVoiceTranscription({
-    onTranscript: handleTranscript,
-  })
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -216,8 +194,8 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
         <span className="text-sm font-semibold">Steer Agent</span>
         {resuming && (
           <div className="flex items-center gap-1.5">
-            <RotateCw className="h-3 w-3 animate-spin text-blue-500" />
-            <span className="text-[10px] text-blue-600">Resumed</span>
+            <RotateCw className="h-3 w-3 animate-spin text-info" />
+            <span className="text-[10px] text-info">Resumed</span>
           </div>
         )}
       </div>
@@ -248,15 +226,15 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
                 <div className="flex items-center gap-1.5 justify-end">
                   {msg.accepted ? (
                     <>
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      <span className="text-[10px] text-green-600">Accepted</span>
+                      <CheckCircle2 className="h-3 w-3 text-success" />
+                      <span className="text-[10px] text-success">Accepted</span>
                     </>
                   ) : (
                     <>
-                      <XCircle className="h-3 w-3 text-red-500" />
-                      <span className="text-[10px] text-red-600 max-w-[240px]">
+                      <XCircle className="h-3 w-3 text-error" />
+                      <span className="text-[10px] text-error max-w-[240px]">
                         {msg.ackMessage ? (
-                          <MarkdownRenderer content={msg.ackMessage} className="text-[10px] text-red-600 inline" />
+                          <MarkdownRenderer content={msg.ackMessage} className="text-[10px] text-error inline" />
                         ) : "Rejected"}
                       </span>
                     </>
@@ -276,15 +254,6 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
 
       {/* Input */}
       <div className="flex items-end gap-2 border-t border-border p-3">
-        <VoiceInputButton
-          isRecording={isRecording}
-          isTranscribing={isTranscribing}
-          isAvailable={isAvailable}
-          duration={duration}
-          onClick={toggleRecording}
-          disabled={sending || resuming}
-          className="h-9 w-9 shrink-0"
-        />
         <FileCompletionTextarea
           projectId={projectId}
           machineId={resolvedMachineId}
@@ -295,7 +264,7 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
           value={input}
           onChange={setInput}
           onSubmit={handleSend}
-          placeholder={resuming ? "Session resumed..." : isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Guide the agent... (@ for files/tasks)"}
+          placeholder={resuming ? "Session resumed..." : "Guide the agent... (@ for files/tasks)"}
           rows={1}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
@@ -303,7 +272,7 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
           size="icon"
           className="h-9 w-9 shrink-0"
           onClick={handleSend}
-          disabled={!input.trim() || sending || resuming || isRecording || isTranscribing}
+          disabled={!input.trim() || sending || resuming}
         >
           {sending || resuming ? (
             <Loader2 className="h-4 w-4 animate-spin" />

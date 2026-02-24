@@ -33,7 +33,7 @@ export function AgentRow({
       {/* Progress bar: 4px height, rounded */}
       <div className="relative w-full h-1 bg-muted rounded-full overflow-hidden">
         <div
-          className="absolute left-0 top-0 h-full bg-blue-500 transition-all duration-300"
+          className="absolute left-0 top-0 h-full bg-info transition-all duration-300"
           style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
         />
       </div>

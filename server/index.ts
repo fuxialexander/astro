@@ -14,7 +14,7 @@ import { relayRoute } from './routes/relay.js'
 import { dispatchRoute } from './routes/dispatch.js'
 import { deviceAuthRoute } from './routes/device-auth.js'
 import { eventsRoute } from './routes/events.js'
-import { transcribeRoute } from './routes/transcribe.js'
+
 import { fsRoute } from './routes/fs.js'
 import { repoRoute } from './routes/repo.js'
 import { dataRoute } from './routes/data.js'
@@ -158,7 +158,7 @@ export function createApp() {
   app.route('/api/dispatch', dispatchRoute)
   app.route('/api/device', deviceAuthRoute)
   app.route('/api/events', eventsRoute)
-  app.route('/api/transcribe', transcribeRoute)
+
   app.route('/api/fs', fsRoute)
   app.route('/api/repo', repoRoute)
   app.route('/api/data', dataRoute)

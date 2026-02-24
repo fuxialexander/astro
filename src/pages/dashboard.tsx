@@ -33,11 +33,11 @@ import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
 
 const activityIcons: Record<string, { icon: typeof Activity; bg: string; color: string }> = {
-  success: { icon: CheckCircle2, bg: "bg-green-500/10", color: "text-green-600" },
-  failure: { icon: XCircle, bg: "bg-red-500/10", color: "text-red-600" },
-  progress: { icon: Activity, bg: "bg-blue-500/10", color: "text-blue-600" },
-  machine: { icon: Monitor, bg: "bg-purple-500/10", color: "text-purple-600" },
-  file_change: { icon: FileText, bg: "bg-amber-500/10", color: "text-amber-600" },
+  success: { icon: CheckCircle2, bg: "bg-success/10", color: "text-success" },
+  failure: { icon: XCircle, bg: "bg-error/10", color: "text-error" },
+  progress: { icon: Activity, bg: "bg-info/10", color: "text-info" },
+  machine: { icon: Monitor, bg: "bg-primary/10", color: "text-primary" },
+  file_change: { icon: FileText, bg: "bg-warning/10", color: "text-warning" },
 }
 
 function ActivityItem({ event }: { event: ActivityEvent }) {
@@ -225,9 +225,9 @@ export function Dashboard() {
                         ) : summary ? (
                           <div className={cn(
                             "rounded-lg border p-3.5",
-                            summary.status === 'success' ? "border-green-500/30 bg-green-500/5" :
-                            summary.status === 'partial' ? "border-yellow-500/30 bg-yellow-500/5" :
-                            "border-red-500/30 bg-red-500/5"
+                            summary.status === 'success' ? "border-success/30 bg-success/5" :
+                            summary.status === 'partial' ? "border-warning/30 bg-warning/5" :
+                            "border-error/30 bg-error/5"
                           )}>
                             <div className="flex items-center gap-2 mb-1.5">
                               <Badge variant={summary.status === 'success' ? 'success' : summary.status === 'partial' ? 'warning' : 'destructive'} className="text-[10px]">
@@ -249,10 +249,10 @@ export function Dashboard() {
                             )}
                           </div>
                         ) : error ? (
-                          <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3.5">
+                          <div className="rounded-lg border border-error/30 bg-error/5 p-3.5">
                             <div className="flex items-start gap-2">
-                              <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-                              <p className="text-sm text-red-600 line-clamp-3">{error}</p>
+                              <AlertCircle className="h-4 w-4 text-error mt-0.5 shrink-0" />
+                              <p className="text-sm text-error line-clamp-3">{error}</p>
                             </div>
                           </div>
                         ) : executionsLoaded && execution ? (
@@ -261,28 +261,28 @@ export function Dashboard() {
                             <span>Generating summary...</span>
                           </div>
                         ) : executionsLoaded && !execution ? (
-                          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3.5">
+                          <div className="rounded-lg border border-warning/30 bg-warning/5 p-3.5">
                             <div className="flex items-start gap-2">
-                              <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                              <p className="text-sm text-amber-700">Execution data not found. The task may have completed before execution tracking was enabled.</p>
+                              <AlertCircle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
+                              <p className="text-sm text-warning">Execution data not found. The task may have completed before execution tracking was enabled.</p>
                             </div>
                           </div>
                         ) : null}
 
                         {/* Plan Mode Data: Todos */}
                         {execution?.planTodos && execution.planTodos.length > 0 && (
-                          <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3.5">
+                          <div className="rounded-lg border border-info/30 bg-info/5 p-3.5">
                             <div className="flex items-center gap-2 mb-2">
-                              <FileText className="h-4 w-4 text-blue-600" />
-                              <span className="text-xs font-semibold text-blue-700">Plan Todos</span>
+                              <FileText className="h-4 w-4 text-info" />
+                              <span className="text-xs font-semibold text-info">Plan Todos</span>
                             </div>
                             <ul className="space-y-1.5">
                               {execution.planTodos.map((todo, i) => (
                                 <li key={i} className="flex items-start gap-2 text-xs">
                                   {todo.status === 'completed' ? (
-                                    <Check className="h-3.5 w-3.5 text-green-600 mt-0.5 shrink-0" />
+                                    <Check className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
                                   ) : todo.status === 'in_progress' ? (
-                                    <Loader2 className="h-3.5 w-3.5 text-blue-600 mt-0.5 shrink-0 animate-spin" />
+                                    <Loader2 className="h-3.5 w-3.5 text-info mt-0.5 shrink-0 animate-spin" />
                                   ) : (
                                     <div className="h-3.5 w-3.5 mt-0.5 shrink-0 rounded-full border border-muted-foreground" />
                                   )}
@@ -297,10 +297,10 @@ export function Dashboard() {
 
                         {/* Plan Mode Data: Questions */}
                         {execution?.planQuestions && execution.planQuestions.length > 0 && (
-                          <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-3.5">
+                          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3.5">
                             <div className="flex items-center gap-2 mb-2">
-                              <AlertCircle className="h-4 w-4 text-purple-600" />
-                              <span className="text-xs font-semibold text-purple-700">Plan Questions</span>
+                              <AlertCircle className="h-4 w-4 text-primary" />
+                              <span className="text-xs font-semibold text-primary">Plan Questions</span>
                             </div>
                             <ul className="space-y-2">
                               {execution.planQuestions.map((q, i) => (
@@ -312,7 +312,7 @@ export function Dashboard() {
                                     ))}
                                   </ul>
                                   {q.answer && (
-                                    <p className="mt-1 text-purple-700 font-medium">Answer: {q.answer}</p>
+                                    <p className="mt-1 text-primary font-medium">Answer: {q.answer}</p>
                                   )}
                                 </li>
                               ))}
@@ -427,13 +427,13 @@ export function Dashboard() {
                   <div
                     className={cn(
                       "h-2 w-2 rounded-full",
-                      connected ? "bg-green-500" : "bg-muted-foreground"
+                      connected ? "bg-success" : "bg-muted-foreground"
                     )}
                   />
                   <span
                     className={cn(
                       "text-xs font-medium",
-                      connected ? "text-green-600" : "text-muted-foreground"
+                      connected ? "text-success" : "text-muted-foreground"
                     )}
                   >
                     {connected ? "Live" : "Offline"}
@@ -469,7 +469,7 @@ export function Dashboard() {
                           className={cn(
                             "h-2 w-2 rounded-full",
                             machine.connectionStatus === "connected"
-                              ? "bg-green-500"
+                              ? "bg-success"
                               : "bg-muted-foreground"
                           )}
                         />

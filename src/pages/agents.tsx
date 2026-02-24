@@ -66,7 +66,7 @@ export function Agents() {
                   key={node.id}
                   className={cn(
                     "flex flex-col gap-4 rounded-xl border border-border bg-card p-5 transition-colors hover:bg-accent/5",
-                    isRunning && "border-blue-500/30 bg-blue-500/5"
+                    isRunning && "border-info/30 bg-info/5"
                   )}
                 >
                   {/* Header Row */}
@@ -86,7 +86,7 @@ export function Agents() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {isRunning && (
-                        <Activity className="h-4 w-4 text-blue-500 animate-pulse" />
+                        <Activity className="h-4 w-4 text-info animate-pulse" />
                       )}
                       {node.executionStartedAt && (
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -102,11 +102,11 @@ export function Agents() {
                     <div className="flex items-center gap-3">
                       <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                          className="h-full rounded-full bg-info transition-all duration-500"
                           style={{ width: `${progress}%` }}
                         />
                       </div>
-                      <span className="text-xs font-medium text-blue-500 shrink-0 w-10 text-right">
+                      <span className="text-xs font-medium text-info shrink-0 w-10 text-right">
                         {progress}%
                       </span>
                     </div>
@@ -117,7 +117,7 @@ export function Agents() {
                     <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t border-border">
                       {execution.machineId && (
                         <div className="flex items-center gap-1.5">
-                          <div className="h-2 w-2 rounded-full bg-green-500" />
+                          <div className="h-2 w-2 rounded-full bg-success" />
                           <span className="font-mono">{execution.machineId.slice(0, 16)}</span>
                         </div>
                       )}

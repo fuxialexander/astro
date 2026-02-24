@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
-import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
+import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
@@ -244,6 +244,7 @@ async function executeViaRelay(opts: {
     systemPrompt: opts.systemPrompt,
     type: opts.type,
     maxTurns: opts.maxTurns ?? 1,
+    workingDirectory: '/tmp',
   }
 
   return new Promise((resolve) => {
@@ -777,6 +778,134 @@ agentRoute.post('/summarize', async (c) => {
   }
 
   return c.json({ error: result.error || 'Failed to generate summary' }, 500)
+})
+
+agentRoute.post('/generate-title', async (c) => {
+  const body = await c.req.json<{ description: string }>()
+  const { description } = body
+
+  if (!description || typeof description !== 'string' || description.length < 1) {
+    return c.json({ error: 'Description is required' }, 400)
+  }
+
+  const prompt = buildTitleGenerationPrompt(description)
+  const taskId = `title-${Date.now()}`
+  const result = await executeViaRelay({
+    taskId,
+    projectId: '',
+    nodeId: '',
+    prompt,
+    type: 'summarize',
+    maxTurns: 1,
+  })
+
+  if (result.success && result.output) {
+    // Clean up: take first line, trim whitespace and quotes
+    const title = result.output.trim().split('\n')[0].replace(/^["']|["']$/g, '').trim().slice(0, 80)
+    return c.json({ title })
+  }
+
+  // Fallback: first 80 chars of description
+  const fallback = description.trim().slice(0, 80)
+  return c.json({ title: fallback })
+})
+
+agentRoute.post('/refine', async (c) => {
+  const refineSchema = z.object({
+    title: z.string().max(500).default(''),
+    description: z.string().max(50000).default(''),
+    context: z.enum(['task', 'project']),
+  })
+
+  let body: z.infer<typeof refineSchema>
+  try {
+    const rawBody = await c.req.json()
+    body = refineSchema.parse(rawBody)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: 'Invalid input', details: err.errors }, 400)
+    }
+    return c.json({ error: 'Invalid JSON' }, 400)
+  }
+
+  if (!body.title.trim() && !body.description.trim()) {
+    return c.json({ error: 'At least one of title or description is required' }, 400)
+  }
+
+  const prompt = buildRefinementPrompt({ title: body.title, description: body.description, context: body.context })
+  const taskId = `refine-${Date.now()}`
+  const result = await executeViaRelay({
+    taskId,
+    projectId: '',
+    nodeId: '',
+    prompt,
+    type: 'summarize',
+    maxTurns: 1,
+  })
+
+  if (result.success && result.output) {
+    try {
+      const jsonMatch = result.output.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const refinement = JSON.parse(jsonMatch[0])
+        return c.json({ refinement })
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Fallback: return original content
+  return c.json({
+    refinement: {
+      refinedTitle: body.title,
+      refinedDescription: body.description,
+      confidence: 'low' as const,
+    },
+  })
+})
+
+agentRoute.post('/suggest-labels', async (c) => {
+  const labelSchema = z.object({
+    title: z.string().max(500).default(''),
+    description: z.string().max(50000).default(''),
+  })
+
+  let body: z.infer<typeof labelSchema>
+  try {
+    const rawBody = await c.req.json()
+    body = labelSchema.parse(rawBody)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: 'Invalid input', details: err.errors }, 400)
+    }
+    return c.json({ error: 'Invalid JSON' }, 400)
+  }
+
+  const prompt = buildLabelSuggestionPrompt(body.title, body.description)
+  const taskId = `labels-${Date.now()}`
+  const result = await executeViaRelay({
+    taskId,
+    projectId: '',
+    nodeId: '',
+    prompt,
+    type: 'summarize',
+    maxTurns: 1,
+  })
+
+  if (result.success && result.output) {
+    try {
+      const jsonMatch = result.output.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        const validIds = ['l1', 'l2', 'l3', 'l4', 'l5']
+        const labelIds = Array.isArray(parsed.labelIds)
+          ? parsed.labelIds.filter((id: unknown) => typeof id === 'string' && validIds.includes(id))
+          : []
+        return c.json({ labelIds })
+      }
+    } catch { /* fall through */ }
+  }
+
+  return c.json({ labelIds: [] })
 })
 
 /**

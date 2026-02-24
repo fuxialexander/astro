@@ -46,10 +46,10 @@ const COMPLETED_STATUSES = new Set(["completed", "auto_verified", "pruned"])
 
 // --- Priority columns ---
 const PRIORITY_COLUMNS: ColumnDef[] = [
-  { id: "urgent", label: "Urgent", icon: <AlertTriangle className="h-3.5 w-3.5 text-red-500" /> },
-  { id: "high", label: "High", icon: <ArrowUp className="h-3.5 w-3.5 text-orange-500" /> },
-  { id: "medium", label: "Medium", icon: <Minus className="h-3.5 w-3.5 text-yellow-500" /> },
-  { id: "low", label: "Low", icon: <ArrowDown className="h-3.5 w-3.5 text-blue-500" /> },
+  { id: "urgent", label: "Urgent", icon: <AlertTriangle className="h-3.5 w-3.5 text-error" /> },
+  { id: "high", label: "High", icon: <ArrowUp className="h-3.5 w-3.5 text-warning" /> },
+  { id: "medium", label: "Medium", icon: <Minus className="h-3.5 w-3.5 text-warning" /> },
+  { id: "low", label: "Low", icon: <ArrowDown className="h-3.5 w-3.5 text-info" /> },
   { id: "none", label: "None", icon: <Circle className="h-3.5 w-3.5 text-muted-foreground" /> },
 ]
 

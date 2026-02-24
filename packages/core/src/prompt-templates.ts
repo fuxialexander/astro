@@ -29,6 +29,11 @@ export const PLAN_GRAPH_SCHEMA = {
           estimate: { type: "string" as const, enum: ["XS", "S", "M", "L", "XL"], description: "T-shirt effort estimate." },
           dueDate: { type: "string" as const, description: "Due date YYYY-MM-DD. Optional for tasks." },
           milestoneId: { type: "string" as const, description: "REQUIRED for tasks. Node ID of the milestone this task belongs to. Every task must reference a milestone." },
+          labelIds: {
+            type: "array" as const,
+            items: { type: "string" as const },
+            description: "Label IDs from: l1=Frontend, l2=Backend, l3=Testing, l4=Infrastructure, l5=Research. Assign 0-2 based on task content.",
+          },
         },
         required: ["id", "type", "title", "description", "status", "parentId", "dependencies", "verification", "position"],
       },
@@ -158,6 +163,7 @@ ${visionSection}${repoSection}${gitStateSection}
 - priority: "urgent" | "high" | "medium" | "low" | "none". Default "medium" for most tasks, "high" for critical path items.
 - estimate: "XS" | "S" | "M" | "L" | "XL". T-shirt estimate for effort. Target each task at ~20 minutes of expert work time or <1000 lines of code changed. Tasks should be ≤ M.
 - milestoneId: REQUIRED for tasks. Every task MUST have a milestoneId pointing to the milestone it contributes toward. This is how tasks are grouped under milestones in the UI.
+- labelIds: assign from {l1: Frontend/UI, l2: Backend/API, l3: Testing/QA, l4: Infrastructure/DevOps, l5: Research/investigation}. 0-2 per task based on content.
 
 ## Edge rules
 - type: "dependency" for sequential, "branch" for parallel paths from a common node.
@@ -439,6 +445,83 @@ Execute the task described above. Focus on completing the task thoroughly and co
 - Be thorough but efficient`)
 
   return parts.join('\n\n---\n\n')
+}
+
+/**
+ * Build a prompt for generating a concise task title from a description.
+ * Single-turn, no tools, returns plain text.
+ */
+export function buildTitleGenerationPrompt(description: string): string {
+  return `Generate a concise task title (max 80 characters) from the following task description. Return ONLY the title text — no quotes, no explanation, no punctuation at the end unless it's part of a proper name.
+
+Description:
+${description}
+
+Title:`
+}
+
+export interface RefinementInput {
+  title: string
+  description: string
+  context: 'task' | 'project'
+}
+
+/**
+ * Build a prompt for AI-assisted refinement of task/project titles and descriptions.
+ * Single-turn, no tools, returns structured JSON.
+ */
+export function buildRefinementPrompt(input: RefinementInput): string {
+  const contextLabel = input.context === 'project' ? 'project description' : 'task'
+  const titlePart = input.title ? `Title: ${input.title}` : '(no title provided)'
+  const descPart = input.description ? `Description: ${input.description}` : '(no description provided)'
+
+  return `You are a technical writing assistant. Refine the following ${contextLabel} to be clear, actionable, and well-structured.
+
+${titlePart}
+${descPart}
+
+Rules:
+- refinedTitle: imperative form, 5-10 words, concise and specific
+- refinedDescription: structured with Goal, Acceptance Criteria, and Technical Hints sections. Use markdown formatting.
+- If only a title is provided, expand it into a full description.
+- If only a description is provided, derive a concise title from it.
+- If the input is ambiguous or could mean multiple things, include a "clarification" field with a question and 2-3 options.
+- Set confidence to "high" if the intent is clear, "medium" if somewhat ambiguous, "low" if very unclear.
+- Only include the "clarification" field when confidence is "medium" or "low".
+
+Respond with ONLY a JSON object in this exact format (no markdown fences, no extra text):
+{
+  "refinedTitle": "Imperative title here",
+  "refinedDescription": "Structured description here",
+  "confidence": "high"
+}
+
+Or if clarification is needed:
+{
+  "refinedTitle": "Best-guess title",
+  "refinedDescription": "Best-guess description",
+  "clarification": { "question": "Did you mean X or Y?", "options": ["Option A", "Option B"] },
+  "confidence": "medium"
+}`
+}
+
+/**
+ * Build a prompt for suggesting labels for a task based on its content.
+ * Single-turn, no tools, returns JSON with label IDs.
+ */
+export function buildLabelSuggestionPrompt(title: string, description: string): string {
+  return `Classify the following task into 0-2 labels from this set:
+- l1: Frontend (UI, components, styling, UX)
+- l2: Backend (API, database, server, auth)
+- l3: Testing (tests, QA, validation)
+- l4: Infrastructure (DevOps, CI/CD, deployment, config)
+- l5: Research (investigation, analysis, spikes)
+
+Task title: ${title}
+Task description: ${description}
+
+Respond with ONLY a JSON object (no markdown fences, no extra text):
+{"labelIds": ["l2"]}`
 }
 
 /**

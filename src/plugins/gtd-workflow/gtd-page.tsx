@@ -241,8 +241,8 @@ function WaitingForColumn({
                   className={cn(
                     "text-[10px] px-1.5 py-0",
                     node.status === "awaiting_approval"
-                      ? "border-amber-500/30 text-amber-600 dark:text-amber-400"
-                      : "border-blue-500/30 text-blue-600 dark:text-blue-400"
+                      ? "border-warning/30 text-warning"
+                      : "border-info/30 text-info"
                   )}
                 >
                   {node.status === "awaiting_approval" ? "Approval" : "Judgment"}

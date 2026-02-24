@@ -11,7 +11,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { FileCompletionTextarea, type MentionItem, type SlashCommand } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { chatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
@@ -22,7 +21,6 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { SessionDialog } from "@/components/session-dialog"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
-import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
 import type { PlanNode, ProviderStatus, Session } from "@/types"
 
@@ -385,19 +383,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     if (isClaudeProvider) return settingsModel
     return undefined
   })()
-
-  // Voice transcription
-  const handleTranscript = useCallback((text: string) => {
-    setInput((prev) => (prev.trim() ? prev.trim() + " " + text : text))
-  }, [])
-
-  const {
-    isRecording,
-    isTranscribing,
-    isAvailable,
-    duration,
-    toggleRecording,
-  } = useVoiceTranscription({ onTranscript: handleTranscript })
 
   // Abort any in-flight SSE stream on unmount (e.g. page navigation)
   useEffect(() => {
@@ -898,7 +883,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
                   {msg.appliedMutations.edgeOps.map((op, j) => (
                     <div
                       key={`e-${j}`}
-                      className="flex items-center gap-1.5 rounded-md bg-blue-500/10 border border-blue-500/20 px-2.5 py-1.5 text-[11px] text-blue-600 dark:text-blue-400"
+                      className="flex items-center gap-1.5 rounded-md bg-info/10 border border-info/20 px-2.5 py-1.5 text-[11px] text-info"
                     >
                       <GitBranch className="h-3 w-3 shrink-0" />
                       <span className="truncate">
@@ -910,7 +895,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
                   {msg.appliedMutations.newNodes.map((n, j) => (
                     <div
                       key={`n-${j}`}
-                      className="flex items-center gap-1.5 rounded-md bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 text-[11px] text-green-600 dark:text-green-400"
+                      className="flex items-center gap-1.5 rounded-md bg-success/10 border border-success/20 px-2.5 py-1.5 text-[11px] text-success"
                     >
                       <PlusCircle className="h-3 w-3 shrink-0" />
                       <span className="truncate">
@@ -928,15 +913,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
 
       {/* Input */}
       <div className="flex items-end gap-2 border-t border-border p-3">
-        <VoiceInputButton
-          isRecording={isRecording}
-          isTranscribing={isTranscribing}
-          isAvailable={isAvailable}
-          duration={duration}
-          onClick={toggleRecording}
-          disabled={isStreaming}
-          className="h-9 w-9 shrink-0"
-        />
         <FileCompletionTextarea
           projectId={projectId}
           machineId={resolvedMachineId}
@@ -946,7 +922,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
           mentionItems={mentionItems}
           value={input}
           onChange={setInput}
-          placeholder={isRecording ? "Listening..." : isTranscribing ? "Transcribing..." : "Type a message, @ for files or tasks..."}
+          placeholder="Type a message, @ for files or tasks..."
           rows={1}
           disabled={isStreaming}
           onSubmit={handleSend}
@@ -956,7 +932,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
           size="icon"
           className="h-9 w-9 shrink-0"
           onClick={handleSend}
-          disabled={!input.trim() || isStreaming || isRecording || isTranscribing}
+          disabled={!input.trim() || isStreaming}
         >
           {isStreaming ? (
             <Loader2 className="h-4 w-4 animate-spin" />

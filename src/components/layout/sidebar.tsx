@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react"
 import { NavLink, useNavigate, useParams } from "react-router"
-import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, Puzzle, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code } from "lucide-react"
+import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, Puzzle, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2 } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -12,6 +12,8 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useUIStore } from "@/stores/ui-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { useToastStore } from "@/stores/toast-store"
+import { useExecutionStore } from "@/stores/execution-store"
+import { useAgentStore } from "@/stores/agent-store"
 import { isServerMode } from "@/lib/app-mode"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -37,16 +39,16 @@ const iconMap: Record<string, typeof CheckSquare> = {
   Code,
 }
 
-// Project color palette (matching ios.pen design)
+// Project color palette — Morandi muted tones
 const projectColors = [
-  "#3B82F6", // Blue
-  "#10B981", // Green
-  "#F97316", // Coral/Orange
-  "#8B5CF6", // Purple
-  "#EC4899", // Pink
-  "#F59E0B", // Amber
-  "#06B6D4", // Cyan
-  "#EF4444", // Red
+  "#5B7F9A", // Steel blue
+  "#7B9B7D", // Sage green
+  "#C09070", // Dusty terracotta
+  "#8B7BAD", // Dusty lavender
+  "#B07B8B", // Dusty rose
+  "#BDA26B", // Dusty gold
+  "#7B97AD", // Dusty sky
+  "#A08B7B", // Warm taupe
 ]
 
 export function Sidebar() {
@@ -74,6 +76,44 @@ export function Sidebar() {
 
   const activeProjectId = params.id
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
+
+  // Active task tracking for sidebar indicators
+  const executions = useExecutionStore((s) => s.executions)
+  const agentSessions = useAgentStore((s) => s.sessions)
+
+  // Count total active tasks + generations, and which projects have running work
+  const { activeCount, projectsWithRunning } = useMemo(() => {
+    let count = 0
+    const running = new Set<string>()
+
+    // Count running executions
+    for (const [nodeId, exec] of executions) {
+      if (exec.status === "pending" || exec.status === "running") {
+        count++
+        const node = planNodes.find((n) => n.id === nodeId)
+        if (node?.projectId) running.add(node.projectId)
+        if (exec.projectId) running.add(exec.projectId)
+      }
+    }
+
+    // Count active plan generations
+    for (const [projectId, session] of agentSessions) {
+      if (session.status === "active") {
+        count++
+        running.add(projectId)
+      }
+    }
+
+    // Also check node statuses for running tasks not in execution store
+    for (const node of planNodes) {
+      if ((node.status === "in_progress" || node.status === "dispatched") && !executions.has(node.id)) {
+        count++
+        running.add(node.projectId)
+      }
+    }
+
+    return { activeCount: count, projectsWithRunning: running }
+  }, [executions, agentSessions, planNodes])
 
   // Long press state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
@@ -247,7 +287,7 @@ export function Sidebar() {
       <div className="flex h-14 shrink-0 items-center gap-2 px-5 py-5">
         <div className="relative">
           {/* Gradient hex with shadow */}
-          <div className="relative flex h-7 w-7 items-center justify-center rounded-[10px] bg-gradient-to-br from-[#60A5FA] via-[#3B82F6] to-[#2563EB]" style={{ boxShadow: '0px 2px 8px rgba(59, 130, 246, 0.25)' }}>
+          <div className="relative flex h-7 w-7 items-center justify-center rounded-[10px] bg-primary" style={{ boxShadow: '0px 2px 8px color-mix(in srgb, var(--primary) 30%, transparent)' }}>
             <Hexagon className="h-4 w-4 text-white fill-white" />
           </div>
           <div
@@ -318,8 +358,8 @@ export function Sidebar() {
                       className={cn(
                         "flex h-5 w-5 items-center justify-center rounded-full transition-colors",
                         isHidden
-                          ? "bg-green-500 hover:bg-green-600 text-white"
-                          : "bg-red-500 hover:bg-red-600 text-white"
+                          ? "bg-success hover:bg-success/90 text-white"
+                          : "bg-error hover:bg-error/90 text-white"
                       )}
                     >
                       {isHidden ? <Plus className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
@@ -341,6 +381,14 @@ export function Sidebar() {
                 >
                   <Icon className="h-5 w-5" />
                   <span className="flex-1">{item.label}</span>
+                  {item.id === "active" && activeCount > 0 && (
+                    <span className="flex items-center gap-1 rounded-full bg-info/10 px-1.5 py-0.5 text-[10px] font-semibold text-info">
+                      <div className="relative h-1.5 w-1.5">
+                        <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
+                      </div>
+                      {activeCount}
+                    </span>
+                  )}
                 </NavLink>
               ) : null}
             </div>
@@ -448,13 +496,17 @@ export function Sidebar() {
                     </span>
                   )}
 
-                  {/* Health bar */}
-                  <div className="w-10 h-1 bg-muted rounded-sm overflow-hidden shrink-0">
-                    <div
-                      className="h-full rounded-sm bg-gradient-to-b from-[#60A5FA] to-[#3B82F6]"
-                      style={{ width: `${healthWidth}px` }}
-                    />
-                  </div>
+                  {/* Running indicator or health bar */}
+                  {projectsWithRunning.has(project.id) ? (
+                    <Loader2 className="h-3.5 w-3.5 text-info animate-spin shrink-0" />
+                  ) : (
+                    <div className="w-10 h-1 bg-muted rounded-sm overflow-hidden shrink-0">
+                      <div
+                        className="h-full rounded-sm bg-primary"
+                        style={{ width: `${healthWidth}px` }}
+                      />
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -468,17 +520,19 @@ export function Sidebar() {
       {/* Local Mode Badge */}
       {!showAuth && (
         <div className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground border-t border-border dark:border-border">
-          <div className="h-2 w-2 rounded-full bg-yellow-500" />
+          <div className="h-2 w-2 rounded-full bg-warning" />
           Local Mode
         </div>
       )}
 
-      {/* Theme Toggle */}
+      {/* Theme Toggle — Light ↔ Dark */}
       <div className="px-4 py-2">
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={() => {
+            setTheme(theme === "dark" ? "light" : "dark")
+          }}
           className="w-full justify-start gap-3 rounded-[10px] px-3.5 py-2.5 h-auto font-medium text-[15px] text-muted-foreground hover:bg-muted/50"
         >
           {theme === "dark" ? (

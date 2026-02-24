@@ -310,8 +310,8 @@ function K8sDetail({ meta }: { meta: Record<string, unknown> }) {
 
       {hasPodFallback && (
         <div className="flex flex-col gap-2">
-          <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3">
-            <p className="text-xs text-blue-700 dark:text-blue-400">
+          <div className="rounded-lg border border-info/20 bg-info/5 p-3">
+            <p className="text-xs text-info">
               Node listing may be restricted by RBAC or nodes may be auto-scaled to zero.
               Showing pod-level data instead.
             </p>

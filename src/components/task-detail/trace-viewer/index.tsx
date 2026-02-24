@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react"
 import { Loader2, AlertCircle, Layers } from "lucide-react"
 import { useObservationStore } from "@/stores/observation-store"
+import { useExecutionStore } from "@/stores/execution-store"
 import { TraceSummaryCard } from "./trace-summary-card"
 import { TurnList } from "./turn-list"
 import { TurnDetail } from "./turn-detail"
@@ -16,6 +17,12 @@ export function TraceViewer({ executionId, isRunning }: TraceViewerProps) {
   const trace = useObservationStore((s) => s.traces.get(executionId))
   const loading = useObservationStore((s) => s.loading.get(executionId) ?? false)
   const error = useObservationStore((s) => s.errors.get(executionId))
+  const executionMetrics = useExecutionStore((s) => {
+    for (const exec of s.executions.values()) {
+      if (exec.executionId === executionId) return exec.metrics
+    }
+    return undefined
+  })
   const [selectedTurn, setSelectedTurn] = useState<number | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -105,7 +112,7 @@ export function TraceViewer({ executionId, isRunning }: TraceViewerProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Summary banner */}
-      <TraceSummaryCard trace={trace} isRunning={isRunning} />
+      <TraceSummaryCard trace={trace} isRunning={isRunning} executionMetrics={executionMetrics} />
 
       {/* Split panel: turn list (left) + detail (right) */}
       <div className="flex flex-1 min-h-0">
@@ -142,7 +149,7 @@ function FlatEventItem({ obs }: { obs: RawObservation }) {
       </span>
       <span className="font-mono truncate">{obs.name}</span>
       {obs.level === "error" && (
-        <AlertCircle className="h-3 w-3 text-red-500 shrink-0" />
+        <AlertCircle className="h-3 w-3 text-error shrink-0" />
       )}
     </div>
   )

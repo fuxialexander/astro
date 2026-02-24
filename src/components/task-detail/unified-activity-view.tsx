@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import {
   Send,
   Loader2,
@@ -16,14 +16,12 @@ import {
 } from "lucide-react"
 import { apiUrl } from "@/lib/api-url"
 import { Button } from "@/components/ui/button"
-import { VoiceInputButton } from "@/components/ui/voice-input-button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { useRealtimeStore, type TaskStream } from "@/stores/realtime-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { chatWithTask } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { cn } from "@/lib/utils"
@@ -206,12 +204,12 @@ function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunni
         <div className={cn(
           "flex h-3.5 w-3.5 items-center justify-center shrink-0",
           success === false
-            ? "text-red-500"
+            ? "text-error"
             : success === true
-              ? "text-green-500"
+              ? "text-success"
               : isComplete
                 ? "text-muted-foreground"
-                : "text-blue-500"
+                : "text-info"
         )}>
           {!isComplete ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -308,12 +306,12 @@ function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEvent[]; is
                 className={cn(
                   "flex h-3.5 w-3.5 items-center justify-center shrink-0",
                   success === false
-                    ? "text-red-500"
+                    ? "text-error"
                     : success === true
-                      ? "text-green-500"
+                      ? "text-success"
                       : isComplete
                         ? "text-muted-foreground"
-                        : "text-blue-500"
+                        : "text-info"
                 )}
                 title={pair.toolUse.toolName}
               >
@@ -355,12 +353,12 @@ function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEvent[]; is
                   <div className={cn(
                     "flex h-3.5 w-3.5 items-center justify-center shrink-0",
                     success === false
-                      ? "text-red-500"
+                      ? "text-error"
                       : success === true
-                        ? "text-green-500"
+                        ? "text-success"
                         : isComplete
                           ? "text-muted-foreground"
-                          : "text-blue-500"
+                          : "text-info"
                   )}>
                     {!isComplete ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
@@ -425,7 +423,7 @@ function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'stee
       <div className={cn(
         "rounded-lg px-3 py-2 text-sm max-w-[80%]",
         isInterrupted
-          ? "bg-orange-500 text-white"
+          ? "bg-warning text-white"
           : "bg-primary text-primary-foreground"
       )}>
         <div className="flex items-center gap-1.5">
@@ -436,16 +434,16 @@ function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'stee
       <div className="flex items-center gap-1.5">
         {event.accepted === true && (
           <>
-            <CheckCircle2 className="h-3 w-3 text-green-500" />
-            <span className="text-[10px] text-green-600">
+            <CheckCircle2 className="h-3 w-3 text-success" />
+            <span className="text-[10px] text-success">
               {isInterrupted ? "Interrupted" : "Queued"}
             </span>
           </>
         )}
         {event.accepted === false && (
           <>
-            <XCircle className="h-3 w-3 text-red-500" />
-            <span className="text-[10px] text-red-600">{event.ackMessage || "Failed"}</span>
+            <XCircle className="h-3 w-3 text-error" />
+            <span className="text-[10px] text-error">{event.ackMessage || "Failed"}</span>
           </>
         )}
         {event.accepted === undefined && (
@@ -468,12 +466,12 @@ function FileChangeBlock({ event }: { event: Extract<TaskActivityEvent, { type: 
       <span className="font-medium text-foreground">{filename}</span>
       <span className="truncate">{event.path}</span>
       {event.linesAdded != null && event.linesAdded > 0 && (
-        <span className="flex items-center gap-0.5 text-green-600 font-mono shrink-0">
+        <span className="flex items-center gap-0.5 text-success font-mono shrink-0">
           <Plus className="h-2.5 w-2.5" />{event.linesAdded}
         </span>
       )}
       {event.linesRemoved != null && event.linesRemoved > 0 && (
-        <span className="flex items-center gap-0.5 text-red-600 font-mono shrink-0">
+        <span className="flex items-center gap-0.5 text-error font-mono shrink-0">
           <Minus className="h-2.5 w-2.5" />{event.linesRemoved}
         </span>
       )}
@@ -483,16 +481,16 @@ function FileChangeBlock({ event }: { event: Extract<TaskActivityEvent, { type: 
 
 function SummaryCard({ summary }: { summary: ExecutionSummary }) {
   const statusColor = summary.status === 'success'
-    ? 'border-green-500/30 bg-green-500/5'
+    ? 'border-success/30 bg-success/5'
     : summary.status === 'partial'
-      ? 'border-yellow-500/30 bg-yellow-500/5'
-      : 'border-red-500/30 bg-red-500/5'
+      ? 'border-warning/30 bg-warning/5'
+      : 'border-error/30 bg-error/5'
 
   const statusBadge = summary.status === 'success'
-    ? 'bg-green-500/10 text-green-600'
+    ? 'bg-success/10 text-success'
     : summary.status === 'partial'
-      ? 'bg-yellow-500/10 text-yellow-600'
-      : 'bg-red-500/10 text-red-600'
+      ? 'bg-warning/10 text-warning'
+      : 'bg-error/10 text-error'
 
   return (
     <div className={cn("mx-4 my-2 rounded-lg border p-3", statusColor)}>
@@ -529,7 +527,7 @@ function SummaryCard({ summary }: { summary: ExecutionSummary }) {
 
 function ErrorBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'error' }> }) {
   return (
-    <div className="flex items-start gap-2 mx-4 my-1.5 px-3 py-2 rounded-md bg-red-500/10 border border-red-500/20 text-sm text-red-600">
+    <div className="flex items-start gap-2 mx-4 my-1.5 px-3 py-2 rounded-md bg-error/10 border border-error/20 text-sm text-error">
       <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
       <pre className="font-mono text-xs whitespace-pre-wrap break-all">{event.error}</pre>
     </div>
@@ -597,19 +595,6 @@ export function UnifiedActivityView({
       createSessionAction({ type: "task-chat", projectId, nodeId: node.id })
     }
   }, [chatSession, createSessionAction, node.id, projectId])
-
-  // Voice transcription
-  const handleTranscript = useCallback((text: string) => {
-    setInput((prev) => prev.trim() ? prev.trim() + " " + text : text)
-  }, [])
-
-  const {
-    isRecording,
-    isTranscribing,
-    isAvailable,
-    duration,
-    toggleRecording,
-  } = useVoiceTranscription({ onTranscript: handleTranscript })
 
   // Merge activity events from execution store + realtime store
   // Execution store has text/tool/file events from local dispatch SSE.
@@ -875,7 +860,7 @@ export function UnifiedActivityView({
     }
   }
 
-  const isInputDisabled = sending || isChatStreaming || isRecording || isTranscribing
+  const isInputDisabled = sending || isChatStreaming
 
   return (
     <div className="flex flex-col h-full relative">
@@ -962,7 +947,48 @@ export function UnifiedActivityView({
 
         {/* Streaming cursor */}
         {isRunning && activityEvents.length > 0 && (
-          <span className="px-4 animate-pulse text-blue-500 text-xs font-mono">|</span>
+          <span className="px-4 animate-pulse text-info text-xs font-mono">|</span>
+        )}
+
+        {/* Completion footer */}
+        {!isRunning && (execution?.status === "success" || execution?.status === "failure") && activityEvents.length > 0 && (
+          <div className={cn(
+            "flex items-center gap-2 mx-4 my-3 px-3 py-2 rounded-lg border text-xs font-medium",
+            execution.status === "success"
+              ? "border-success/30 bg-success/5 text-success"
+              : "border-error/30 bg-error/5 text-error"
+          )}>
+            {execution.status === "success" ? (
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <XCircle className="h-3.5 w-3.5 shrink-0" />
+            )}
+            <span>
+              {execution.status === "success"
+                ? "Execution completed successfully"
+                : "Execution failed"}
+            </span>
+            {execution.fileChanges.length > 0 && (
+              <>
+                <span className="opacity-50">&middot;</span>
+                <span className="opacity-70">{execution.fileChanges.length} file{execution.fileChanges.length !== 1 ? "s" : ""} changed</span>
+              </>
+            )}
+            {execution.startedAt && execution.completedAt && (
+              <>
+                <span className="opacity-50">&middot;</span>
+                <span className="opacity-70 tabular-nums">
+                  {(() => {
+                    const ms = new Date(execution.completedAt).getTime() - new Date(execution.startedAt).getTime()
+                    if (ms < 60_000) return `${Math.round(ms / 1000)}s`
+                    const m = Math.floor(ms / 60_000)
+                    const s = Math.round((ms % 60_000) / 1000)
+                    return `${m}m ${s}s`
+                  })()}
+                </span>
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -992,15 +1018,6 @@ export function UnifiedActivityView({
         </div>
       )}
       <div className="flex items-end gap-2 p-3 pt-1.5">
-        <VoiceInputButton
-          isRecording={isRecording}
-          isTranscribing={isTranscribing}
-          isAvailable={isAvailable}
-          duration={duration}
-          onClick={toggleRecording}
-          disabled={sending || isChatStreaming}
-          className="h-9 w-9 shrink-0"
-        />
         <FileCompletionTextarea
           projectId={projectId}
           machineId={machineId || project?.defaultMachineId}
@@ -1010,15 +1027,11 @@ export function UnifiedActivityView({
           onChange={setInput}
           onSubmit={(opts) => handleSend(opts?.interrupt ?? false)}
           placeholder={
-            isRecording
-              ? "Listening..."
-              : isTranscribing
-                ? "Transcribing..."
-                : canSteer
-                  ? isRunning
-                    ? "Steer the agent... (type @ to reference files)"
-                    : "Resume session in worktree... (type @ to reference files)"
-                  : "Ask about this task... (type @ to reference files)"
+            canSteer
+              ? isRunning
+                ? "Steer the agent... (type @ to reference files)"
+                : "Resume session in worktree... (type @ to reference files)"
+              : "Ask about this task... (type @ to reference files)"
           }
           rows={1}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"

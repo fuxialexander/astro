@@ -50,6 +50,7 @@ interface PlanGraphResult {
     estimate?: string
     dueDate?: string
     milestoneId?: string
+    labelIds?: string[]
   }>
   edges: Array<{
     id: string
@@ -222,6 +223,77 @@ export async function chatWithTask(
     onDone: callbacks.onDone,
     onError: callbacks.onError,
   })
+}
+
+/**
+ * Generate a concise AI title from a task description.
+ * Returns heuristic fallback on network/relay failure.
+ */
+export async function generateTitle(description: string): Promise<string> {
+  try {
+    const res = await fetch(apiUrl("/api/agent/generate-title"), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ description }),
+    })
+    if (!res.ok) return description.trim().slice(0, 80)
+    const data = await res.json()
+    return data.title || description.trim().slice(0, 80)
+  } catch {
+    return description.trim().slice(0, 80)
+  }
+}
+
+// Refinement types
+export interface RefinementResult {
+  refinedTitle: string
+  refinedDescription: string
+  clarification?: { question: string; options: string[] }
+  confidence: 'high' | 'medium' | 'low'
+}
+
+/**
+ * Refine a task/project title and description via AI.
+ * Returns null on failure.
+ */
+export async function refineContent(
+  title: string,
+  description: string,
+  context: 'task' | 'project',
+  signal?: AbortSignal,
+): Promise<RefinementResult | null> {
+  try {
+    const res = await fetch(apiUrl("/api/agent/refine"), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ title, description, context }),
+      signal,
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.refinement || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Suggest labels for a task based on its title and description.
+ * Returns empty array on failure.
+ */
+export async function suggestLabels(title: string, description: string): Promise<string[]> {
+  try {
+    const res = await fetch(apiUrl("/api/agent/suggest-labels"), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ title, description }),
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data.labelIds) ? data.labelIds : []
+  } catch {
+    return []
+  }
 }
 
 // Provider status types

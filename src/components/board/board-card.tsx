@@ -99,7 +99,7 @@ export function BoardCard({ node, visibleProperties, projectName, onNodeSelect, 
           {visibleProperties.includes("dueDate") && node.dueDate && (
             <span className={cn(
               "inline-flex items-center gap-1 text-[11px]",
-              isOverdue(node.dueDate, node.status) ? "text-red-500" : "text-muted-foreground"
+              isOverdue(node.dueDate, node.status) ? "text-error" : "text-muted-foreground"
             )}>
               <Calendar className="h-3 w-3" />
               {formatShortDate(node.dueDate)}
@@ -119,7 +119,7 @@ export function BoardCard({ node, visibleProperties, projectName, onNodeSelect, 
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="inline-flex items-center gap-1 text-[11px] text-purple-500 hover:text-purple-600 transition-colors"
+              className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
               title={node.branchName ?? `PR #${node.prNumber}`}
             >
               {node.status === "completed" || node.status === "auto_verified" ? (
@@ -133,7 +133,7 @@ export function BoardCard({ node, visibleProperties, projectName, onNodeSelect, 
 
           {/* Auto-PR indicator - shows when autoPr is enabled but no PR exists yet */}
           {visibleProperties.includes("pr") && node.autoPr && !node.prUrl && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-blue-400" title="Auto-PR enabled">
+            <span className="inline-flex items-center gap-1 text-[11px] text-info" title="Auto-PR enabled">
               <GitPullRequestCreateArrow className="h-3.5 w-3.5" />
             </span>
           )}

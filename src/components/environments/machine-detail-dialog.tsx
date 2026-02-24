@@ -158,7 +158,7 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
                       {p.status === "available" ? (
                         <CheckCircle2 className="h-4 w-4 text-teal-600 dark:text-teal-400" />
                       ) : (
-                        <XCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                        <XCircle className="h-4 w-4 text-warning" />
                       )}
                       <span className="text-sm font-medium">{providerDisplayName[p.type] ?? p.type}</span>
                     </div>
@@ -215,9 +215,9 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
 
         {/* Active Tasks (only when online) */}
         {load && load.activeTasks > 0 && (
-          <div className="flex items-center justify-between rounded-lg bg-blue-500/10 p-3 mt-2">
-            <span className="text-sm font-medium text-blue-600 dark:text-blue-400">Active Tasks</span>
-            <Badge className="bg-blue-500/20 text-blue-600 dark:text-blue-400 border-0">{load.activeTasks}</Badge>
+          <div className="flex items-center justify-between rounded-lg bg-info/10 p-3 mt-2">
+            <span className="text-sm font-medium text-info">Active Tasks</span>
+            <Badge className="bg-info/20 text-info border-0">{load.activeTasks}</Badge>
           </div>
         )}
       </DialogContent>

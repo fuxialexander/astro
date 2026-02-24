@@ -73,6 +73,8 @@ function applyTheme(theme: Theme, customThemes: ThemeDefinition[]) {
 export function ThemeProvider({ children, defaultTheme = "system" }: { children: ReactNode; defaultTheme?: Theme }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const stored = localStorage.getItem("astro-theme") as Theme | null
+    // Migrate legacy "bright" theme → "light"
+    if (stored === "bright") return "light"
     return stored || defaultTheme
   })
   const [customThemes, setCustomThemes] = useState<ThemeDefinition[]>([])

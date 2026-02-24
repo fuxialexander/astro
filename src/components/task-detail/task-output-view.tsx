@@ -43,7 +43,7 @@ export function TaskOutputView({ text, isStreaming }: TaskOutputViewProps) {
     const parts = text.split(regex)
     return parts.map((part, i) =>
       regex.test(part) ? (
-        <mark key={i} className="bg-yellow-300/40 text-foreground rounded-sm px-0.5">{part}</mark>
+        <mark key={i} className="bg-warning/30 text-foreground rounded-sm px-0.5">{part}</mark>
       ) : (
         part
       )
@@ -82,7 +82,7 @@ export function TaskOutputView({ text, isStreaming }: TaskOutputViewProps) {
         </Button>
         <div className="flex-1" />
         {isStreaming && (
-          <span className="text-xs text-blue-500 font-medium animate-pulse">Streaming...</span>
+          <span className="text-xs text-info font-medium animate-pulse">Streaming...</span>
         )}
       </div>
 
@@ -108,7 +108,7 @@ export function TaskOutputView({ text, isStreaming }: TaskOutputViewProps) {
       >
         <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-all text-foreground">
           {renderText()}
-          {isStreaming && <span className="animate-pulse text-blue-500">|</span>}
+          {isStreaming && <span className="animate-pulse text-info">|</span>}
         </pre>
       </div>
 

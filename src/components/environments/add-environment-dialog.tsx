@@ -88,13 +88,13 @@ export function AddEnvironmentDialog({ open, onOpenChange }: AddEnvironmentDialo
               {hasLocalProvider ? (
                 // Provider detected - show ready state
                 <div className="flex flex-col gap-4">
-                  <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 p-4">
-                    <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-3 rounded-lg border border-success/20 bg-success/5 p-4">
+                    <CheckCircle2 className="h-5 w-5 text-success shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-green-900 dark:text-green-100">
+                      <p className="text-sm font-medium text-foreground">
                         Local environment ready
                       </p>
-                      <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                      <p className="text-xs text-success mt-1">
                         {claudeCode?.available && `Claude Code is installed and authenticated`}
                         {codex?.available && !claudeCode?.available && `Codex is installed and authenticated`}
                         {claudeCode?.available && codex?.available && ` (both Claude Code and Codex available)`}
@@ -108,13 +108,13 @@ export function AddEnvironmentDialog({ open, onOpenChange }: AddEnvironmentDialo
               ) : (
                 // No provider detected - show setup instructions
                 <div className="flex flex-col gap-4">
-                  <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 p-4">
-                    <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-3 rounded-lg border border-warning/20 bg-warning/5 p-4">
+                    <AlertCircle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                      <p className="text-sm font-medium text-foreground">
                         No local agent detected
                       </p>
-                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                      <p className="text-xs text-warning mt-1">
                         Install and authenticate Claude Code or Codex to run tasks locally
                       </p>
                     </div>

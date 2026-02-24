@@ -218,7 +218,7 @@ function JobCard({ job, showCluster }: JobCardProps) {
         {job.exitCode !== undefined && ['COMPLETED', 'FAILED'].includes(job.state) && (
           <div className="mt-2 pt-2 border-t text-xs">
             <span className="text-muted-foreground">Exit code: </span>
-            <span className={job.exitCode === 0 ? "text-green-600" : "text-red-600"}>
+            <span className={job.exitCode === 0 ? "text-success" : "text-error"}>
               {job.exitCode}
             </span>
           </div>

@@ -288,21 +288,21 @@ export const useSlurmStore = create<SlurmState>((set, get) => ({
 export function getJobStateColor(state: SlurmJobState): string {
   switch (state) {
     case 'PENDING':
-      return 'text-yellow-600'
+      return 'text-warning'
     case 'RUNNING':
     case 'COMPLETING':
-      return 'text-blue-600'
+      return 'text-info'
     case 'COMPLETED':
-      return 'text-green-600'
+      return 'text-success'
     case 'FAILED':
     case 'NODE_FAIL':
     case 'OUT_OF_MEMORY':
-      return 'text-red-600'
+      return 'text-error'
     case 'CANCELLED':
     case 'PREEMPTED':
-      return 'text-orange-600'
+      return 'text-warning'
     case 'TIMEOUT':
-      return 'text-purple-600'
+      return 'text-primary'
     case 'SUSPENDED':
       return 'text-gray-600'
     default:

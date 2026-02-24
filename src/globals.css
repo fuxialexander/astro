@@ -50,36 +50,39 @@
   --radius-2xl: 24px;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   LIGHT MODE — Clean precision, cool Morandi tones
+   ═══════════════════════════════════════════════════════════════════════════ */
 :root {
-  --background: #F8FAFC;
-  --foreground: #1E293B;
-  --card: #FFFFFF;
-  --card-foreground: #1E293B;
+  --background: #FFFFFF;
+  --foreground: #1A1A1A;
+  --card: #FAFAFA;
+  --card-foreground: #1A1A1A;
   --popover: #FFFFFF;
-  --popover-foreground: #1E293B;
+  --popover-foreground: #1A1A1A;
   --primary: #4A6D8A;
   --primary-foreground: #FFFFFF;
-  --secondary: #64748B;
+  --secondary: #71717A;
   --secondary-foreground: #FFFFFF;
-  --muted: #F1F5F9;
-  --muted-foreground: #64748B;
-  --accent: #EDF2F7;
+  --muted: #F4F4F5;
+  --muted-foreground: #71717A;
+  --accent: #F0F0F2;
   --accent-foreground: #2C4A6B;
-  --destructive: #EF4444;
+  --destructive: #B06060;
   --destructive-foreground: #FFFFFF;
-  --border: #E2E8F0;
-  --input: #E2E8F0;
+  --border: #E4E4E7;
+  --input: #E4E4E7;
   --ring: #4A6D8A;
-  --tile: #F8FAFC;
+  --tile: #FFFFFF;
 
-  --sidebar: #FFFFFF;
-  --sidebar-foreground: #64748B;
-  --sidebar-accent: #F1F5F9;
-  --sidebar-accent-foreground: #1E293B;
-  --sidebar-border: #E2E8F0;
+  --sidebar: #FAFAFA;
+  --sidebar-foreground: #71717A;
+  --sidebar-accent: #F4F4F5;
+  --sidebar-accent-foreground: #1A1A1A;
+  --sidebar-border: #E4E4E7;
   --sidebar-primary: #4A6D8A;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-ring: #E2E8F0;
+  --sidebar-ring: #E4E4E7;
 
   --success: #5F8D6B;
   --success-foreground: #FFFFFF;
@@ -87,86 +90,56 @@
   --warning-foreground: #FFFFFF;
   --error: #B06060;
   --error-foreground: #FFFFFF;
-  --info: #4A6D8A;
+  --info: #5B7F9A;
   --info-foreground: #FFFFFF;
-
-  /* Accent colors from ios.pen */
-  --accent-coral: #E85A4F;
-  --accent-green: #32D583;
-  --accent-amber: #F59E0B;
-  --accent-blue: #3B82F6;
-  --accent-indigo: #6366F1;
-  --accent-red: #EF4444;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   DARK MODE — Deep cinematic, cool Morandi tones with clear readability
+   ═══════════════════════════════════════════════════════════════════════════ */
 .dark {
-  /* Background layers from ios.pen */
-  --background: #0B0B0E;
-  --foreground: #FAFAF9;
-  --card: #16161A;
-  --card-foreground: #FAFAF9;
-  --popover: #16161A;
-  --popover-foreground: #FAFAF9;
-  --primary: #8AAEC8;
-  --primary-foreground: #0B0B0E;
-  --secondary: #6B6B70;
-  --secondary-foreground: #FFFFFF;
-  --muted: #1A1A1E;
-  --muted-foreground: #6B6B70;
-  --accent: rgba(138, 174, 200, 0.08);
-  --accent-foreground: #C8DCEA;
-  --destructive: #EF4444;
-  --destructive-foreground: #FFFFFF;
+  --background: #0C0C0E;
+  --foreground: #ECECEA;
+  --card: #151517;
+  --card-foreground: #ECECEA;
+  --popover: #151517;
+  --popover-foreground: #ECECEA;
+  --primary: #7FA8C4;
+  --primary-foreground: #0C0C0E;
+  --secondary: #7A7A7E;
+  --secondary-foreground: #ECECEA;
+  --muted: #1C1C1F;
+  --muted-foreground: #808085;
+  --accent: rgba(127, 168, 196, 0.08);
+  --accent-foreground: #B8D0E0;
+  --destructive: #D08080;
+  --destructive-foreground: #0C0C0E;
+  --border: #262629;
+  --border-subtle: #262629;
+  --border-strong: #363639;
+  --input: #262629;
+  --ring: #7FA8C4;
+  --tile: #151517;
 
-  /* Borders from ios.pen */
-  --border: #2A2A2E;
-  --border-subtle: #2A2A2E;
-  --border-strong: #3A3A40;
-  --input: #2A2A2E;
-  --ring: #8AAEC8;
-  --tile: #16161A;
+  --bg-elevated: #1C1C1F;
 
-  /* Elevated background */
-  --bg-elevated: #1A1A1E;
+  --sidebar: #151517;
+  --sidebar-foreground: #808085;
+  --sidebar-accent: #1C1C1F;
+  --sidebar-accent-foreground: #ECECEA;
+  --sidebar-border: #262629;
+  --sidebar-primary: #7FA8C4;
+  --sidebar-primary-foreground: #0C0C0E;
+  --sidebar-ring: #262629;
 
-  --sidebar: #16161A;
-  --sidebar-foreground: #6B6B70;
-  --sidebar-accent: #1A1A1E;
-  --sidebar-accent-foreground: #FAFAF9;
-  --sidebar-border: #2A2A2E;
-  --sidebar-primary: #8AAEC8;
-  --sidebar-primary-foreground: #0B0B0E;
-  --sidebar-ring: #2A2A2E;
-
-  /* Status colors from ios.pen */
-  --success: #16A34A;
-  --success-foreground: #FFFFFF;
-  --warning: #F59E0B;
-  --warning-foreground: #1E293B;
-  --error: #EF4444;
-  --error-foreground: #FFFFFF;
-  --info: #3B82F6;
-  --info-foreground: #FFFFFF;
-
-  /* Text hierarchy from ios.pen */
-  --text-primary: #FAFAF9;
-  --text-secondary: #6B6B70;
-  --text-tertiary: #4A4A50;
-
-  /* Status-specific colors */
-  --status-planned: #9CA3AF;
-  --status-inprogress: #3B82F6;
-  --status-completed: #16A34A;
-  --status-awaiting: #F59E0B;
-  --status-error: #EF4444;
-
-  /* Accent colors from ios.pen */
-  --accent-coral: #E85A4F;
-  --accent-green: #32D583;
-  --accent-amber: #F59E0B;
-  --accent-blue: #3B82F6;
-  --accent-indigo: #6366F1;
-  --accent-red: #EF4444;
+  --success: #82B888;
+  --success-foreground: #0C0C0E;
+  --warning: #CDB47A;
+  --warning-foreground: #0C0C0E;
+  --error: #D08080;
+  --error-foreground: #0C0C0E;
+  --info: #8AAEC4;
+  --info-foreground: #0C0C0E;
 }
 
 /* Sheet slide-in animations */
@@ -227,7 +200,9 @@ body.timeline-dragging {
   user-select: none;
 }
 
-/* Syntax highlighting for code blocks */
+/* ═══════════════════════════════════════════════════════════════════════════
+   SYNTAX HIGHLIGHTING — Morandi-tinted for light themes
+   ═══════════════════════════════════════════════════════════════════════════ */
 .hljs {
   background: transparent;
   color: var(--foreground);
@@ -235,14 +210,14 @@ body.timeline-dragging {
 
 .hljs-comment,
 .hljs-quote {
-  color: #6B7280;
+  color: #8B8B85;
   font-style: italic;
 }
 
 .hljs-keyword,
 .hljs-selector-tag,
 .hljs-subst {
-  color: #EC4899;
+  color: #B07B8B;
   font-weight: 600;
 }
 
@@ -251,59 +226,59 @@ body.timeline-dragging {
 .hljs-variable,
 .hljs-template-variable,
 .hljs-tag .hljs-attr {
-  color: #F59E0B;
+  color: #BDA26B;
 }
 
 .hljs-string,
 .hljs-doctag {
-  color: #10B981;
+  color: #7B9B7D;
 }
 
 .hljs-title,
 .hljs-section,
 .hljs-selector-id {
-  color: #3B82F6;
+  color: #5B7F9A;
   font-weight: 600;
 }
 
 .hljs-type,
 .hljs-class .hljs-title {
-  color: #8B5CF6;
+  color: #8B7BAD;
 }
 
 .hljs-tag,
 .hljs-name,
 .hljs-attribute {
-  color: #EC4899;
+  color: #B07B8B;
 }
 
 .hljs-regexp,
 .hljs-link {
-  color: #06B6D4;
+  color: #7B97AD;
 }
 
 .hljs-symbol,
 .hljs-bullet {
-  color: #F59E0B;
+  color: #BDA26B;
 }
 
 .hljs-built_in,
 .hljs-builtin-name {
-  color: #6366F1;
+  color: #7B7BAD;
 }
 
 .hljs-meta {
-  color: #9CA3AF;
+  color: #8B8B85;
 }
 
 .hljs-deletion {
-  background: #FEE2E2;
-  color: #991B1B;
+  background: #F2E0E0;
+  color: #8B4040;
 }
 
 .hljs-addition {
-  background: #D1FAE5;
-  color: #065F46;
+  background: #E0EDDF;
+  color: #3D6640;
 }
 
 .hljs-emphasis {
@@ -314,16 +289,16 @@ body.timeline-dragging {
   font-weight: bold;
 }
 
-/* Dark mode syntax highlighting */
+/* Dark mode syntax highlighting — cool Morandi tones */
 .dark .hljs-comment,
 .dark .hljs-quote {
-  color: #6B7280;
+  color: #606065;
 }
 
 .dark .hljs-keyword,
 .dark .hljs-selector-tag,
 .dark .hljs-subst {
-  color: #F472B6;
+  color: #CCA0AF;
 }
 
 .dark .hljs-number,
@@ -331,31 +306,31 @@ body.timeline-dragging {
 .dark .hljs-variable,
 .dark .hljs-template-variable,
 .dark .hljs-tag .hljs-attr {
-  color: #FBBF24;
+  color: #CDB47A;
 }
 
 .dark .hljs-string,
 .dark .hljs-doctag {
-  color: #34D399;
+  color: #82B888;
 }
 
 .dark .hljs-title,
 .dark .hljs-section,
 .dark .hljs-selector-id {
-  color: #60A5FA;
+  color: #8AAEC4;
 }
 
 .dark .hljs-type,
 .dark .hljs-class .hljs-title {
-  color: #A78BFA;
+  color: #A898C0;
 }
 
 .dark .hljs-deletion {
-  background: #7F1D1D;
-  color: #FCA5A5;
+  background: #301818;
+  color: #D0A0A0;
 }
 
 .dark .hljs-addition {
-  background: #064E3B;
-  color: #6EE7B7;
+  background: #183018;
+  color: #82B888;
 }

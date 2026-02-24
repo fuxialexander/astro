@@ -20,9 +20,9 @@ interface FileChangesViewProps {
 }
 
 const actionConfig: Record<string, { icon: typeof FileEdit; color: string; label: string }> = {
-  created: { icon: FilePlus, color: "text-green-500", label: "Created" },
-  modified: { icon: FileEdit, color: "text-blue-500", label: "Modified" },
-  deleted: { icon: FileX, color: "text-red-500", label: "Deleted" },
+  created: { icon: FilePlus, color: "text-success", label: "Created" },
+  modified: { icon: FileEdit, color: "text-info", label: "Modified" },
+  deleted: { icon: FileX, color: "text-error", label: "Deleted" },
 }
 
 // Parse hunk header to extract line numbers: @@ -oldStart,oldCount +newStart,newCount @@
@@ -72,9 +72,9 @@ function DiffRenderer({ diff }: { diff: string }) {
               <tr
                 key={i}
                 className={cn(
-                  isAdd && "bg-green-500/10",
-                  isDel && "bg-red-500/10",
-                  isHunk && "bg-blue-500/5",
+                  isAdd && "bg-success/10",
+                  isDel && "bg-error/10",
+                  isHunk && "bg-info/5",
                 )}
               >
                 <td className="w-10 pr-1 text-right text-muted-foreground/50 select-none align-top border-r border-border/50 px-1">
@@ -85,9 +85,9 @@ function DiffRenderer({ diff }: { diff: string }) {
                 </td>
                 <td className={cn(
                   "pl-2 pr-4 whitespace-pre-wrap break-all",
-                  isAdd && "text-green-700 dark:text-green-400",
-                  isDel && "text-red-700 dark:text-red-400",
-                  isHunk && "text-blue-500 font-semibold py-1",
+                  isAdd && "text-success",
+                  isDel && "text-error",
+                  isHunk && "text-info font-semibold py-1",
                   isHeader && "text-muted-foreground",
                 )}>
                   {line}
@@ -146,12 +146,12 @@ function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {change.linesAdded != null && change.linesAdded > 0 && (
-            <span className="flex items-center gap-0.5 text-xs font-mono text-green-600">
+            <span className="flex items-center gap-0.5 text-xs font-mono text-success">
               <Plus className="h-3 w-3" />{change.linesAdded}
             </span>
           )}
           {change.linesRemoved != null && change.linesRemoved > 0 && (
-            <span className="flex items-center gap-0.5 text-xs font-mono text-red-600">
+            <span className="flex items-center gap-0.5 text-xs font-mono text-error">
               <Minus className="h-3 w-3" />{change.linesRemoved}
             </span>
           )}
@@ -222,11 +222,11 @@ export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4 text-sm text-muted-foreground">
           <span>{changes.length} file{changes.length !== 1 ? "s" : ""} changed</span>
-          {created > 0 && <span className="text-green-600">{created} created</span>}
-          {modified > 0 && <span className="text-blue-600">{modified} modified</span>}
-          {deleted > 0 && <span className="text-red-600">{deleted} deleted</span>}
-          <span className="text-green-600 font-mono">+{totalAdded}</span>
-          <span className="text-red-600 font-mono">-{totalRemoved}</span>
+          {created > 0 && <span className="text-success">{created} created</span>}
+          {modified > 0 && <span className="text-info">{modified} modified</span>}
+          {deleted > 0 && <span className="text-error">{deleted} deleted</span>}
+          <span className="text-success font-mono">+{totalAdded}</span>
+          <span className="text-error font-mono">-{totalRemoved}</span>
         </div>
 
         {/* Editor Controls */}

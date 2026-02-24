@@ -5,6 +5,8 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { PRIORITIES, ESTIMATES } from "@/lib/constants"
 import { cn } from "@/lib/utils"
+import { extractTitle } from "@/lib/text-utils"
+import { generateTitle, suggestLabels } from "@/lib/api-client"
 import type { PlanNode, PlanEdge, Priority, Estimate, EdgeType } from "@/types"
 
 interface TaskCreationFormProps {
@@ -85,10 +87,14 @@ export function TaskCreationForm({
   }, [defaultMilestoneId])
 
   const handleCreate = useCallback(() => {
-    if (!title.trim()) return
+    if (!title.trim() && !description.trim()) return
 
     const nodeId = crypto.randomUUID()
     const now = new Date()
+
+    // If title is empty but description exists, derive title from description
+    const effectiveTitle = title.trim() || extractTitle(description.trim())
+    const effectiveDescription = description.trim()
 
     // In predecessor mode (childNodeId), the new node has no dependencies from this relation
     // In successor mode (parentNodeId), the new node depends on the parent
@@ -96,8 +102,8 @@ export function TaskCreationForm({
       id: nodeId,
       projectId,
       type: nodeType,
-      title: title.trim(),
-      description: description.trim(),
+      title: effectiveTitle,
+      description: effectiveDescription,
       status: "planned",
       parentId: null,
       dependencies: parentNodeId ? [parentNodeId] : [],
@@ -112,6 +118,24 @@ export function TaskCreationForm({
     }
 
     addNode(newNode)
+
+    // Fire-and-forget AI title refinement when title was derived from long description
+    if (!title.trim() && effectiveDescription.length > 80) {
+      generateTitle(effectiveDescription).then((aiTitle) => {
+        if (aiTitle && aiTitle !== effectiveTitle) {
+          usePlanStore.getState().updateNode(nodeId, { title: aiTitle })
+        }
+      }).catch(() => {}) // silent — heuristic title is fine
+    }
+
+    // Fire-and-forget AI label suggestion
+    if (effectiveDescription.length > 20 || effectiveTitle.length > 10) {
+      suggestLabels(effectiveTitle, effectiveDescription).then((labelIds) => {
+        if (labelIds.length > 0) {
+          usePlanStore.getState().updateNode(nodeId, { labelIds })
+        }
+      }).catch(() => {})
+    }
 
     if (parentNodeId) {
       // Successor mode: parentNodeId → newNode
@@ -322,7 +346,7 @@ export function TaskCreationForm({
         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onCancel}>
           Cancel
         </Button>
-        <Button size="sm" className="h-7 text-xs" onClick={handleCreate} disabled={!title.trim()}>
+        <Button size="sm" className="h-7 text-xs" onClick={handleCreate} disabled={!title.trim() && !description.trim()}>
           Create
         </Button>
       </div>

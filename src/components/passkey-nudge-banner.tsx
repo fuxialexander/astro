@@ -137,9 +137,9 @@ export function PasskeyNudgeBanner() {
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-blue-500/20 bg-blue-500/5 px-4 py-2 text-sm">
+    <div className="flex items-center justify-between gap-3 border-b border-info/20 bg-info/5 px-4 py-2 text-sm">
       <div className="flex items-center gap-2">
-        <Fingerprint className="h-4 w-4 text-blue-500" />
+        <Fingerprint className="h-4 w-4 text-info" />
         <span className="text-muted-foreground">
           Add a passkey for faster sign-in with Face ID or Touch ID.
         </span>

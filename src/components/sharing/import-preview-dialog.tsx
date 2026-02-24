@@ -97,7 +97,7 @@ export function ImportPreviewDialog({ open, onOpenChange, bundle }: ImportPrevie
           {versionWarnings.length > 0 && (
             <div className="flex flex-col gap-1">
               {versionWarnings.map((w, i) => (
-                <div key={i} className="flex items-start gap-2 text-sm text-amber-600">
+                <div key={i} className="flex items-start gap-2 text-sm text-warning">
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>{w}</span>
                 </div>

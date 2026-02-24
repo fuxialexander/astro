@@ -49,6 +49,9 @@ import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColor
 import { formatDueDateShort } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
+import { extractTitle } from "@/lib/text-utils"
+import { generateTitle } from "@/lib/api-client"
+import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import type { PlanNode, Priority } from "@/types"
@@ -71,6 +74,7 @@ const planListDisplayConfig: DisplayPopoverConfig = {
     { value: "status", label: "Status" },
     { value: "priority", label: "Priority" },
     { value: "dueDate", label: "Due date" },
+    { value: "dependency", label: "Dependency order" },
   ],
   propertyOptions: [
     { value: "priority", label: "Priority" },
@@ -96,6 +100,7 @@ const planTimelineDisplayConfig: DisplayPopoverConfig = {
     { value: "status", label: "Status" },
     { value: "priority", label: "Priority" },
     { value: "dueDate", label: "Due date" },
+    { value: "dependency", label: "Dependency order" },
   ],
   propertyOptions: [
     { value: "priority", label: "Priority" },
@@ -146,6 +151,10 @@ const planBoardDisplayConfig: DisplayPopoverConfig = {
 
 // --- Shared sorting logic for plan nodes ---
 function sortPlanNodes(nodes: PlanNode[], orderBy: string, dir: number): PlanNode[] {
+  if (orderBy === "dependency") {
+    const topoSorted = topologicalSortNodes([...nodes])
+    return dir === 1 ? topoSorted : topoSorted.reverse()
+  }
   const sorted = [...nodes]
   sorted.sort((a, b) => {
     switch (orderBy) {
@@ -321,7 +330,7 @@ function makePlanColumns(
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1 text-xs text-purple-500 hover:text-purple-600 transition-colors"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
             title={node.branchName ?? `PR #${node.prNumber}`}
           >
             <PrIcon className="h-3.5 w-3.5 shrink-0" />
@@ -379,12 +388,16 @@ function InlineListCreationRow({
   const createTask = useCallback((targetProjectId: string) => {
     if (!taskName.trim()) return
 
+    const taskText = taskName.trim()
+    const taskTitle = extractTitle(taskText)
+    const nodeId = crypto.randomUUID()
+
     addNode({
-      id: crypto.randomUUID(),
+      id: nodeId,
       projectId: targetProjectId,
       type: "task",
-      title: taskName.trim(),
-      description: "",
+      title: taskTitle,
+      description: taskText,
       status,
       parentId: null,
       dependencies: [],
@@ -397,6 +410,15 @@ function InlineListCreationRow({
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+
+    // Fire-and-forget AI title refinement for long descriptions
+    if (taskText.length > 80) {
+      generateTitle(taskText).then((aiTitle) => {
+        if (aiTitle && aiTitle !== taskTitle) {
+          usePlanStore.getState().updateNode(nodeId, { title: aiTitle })
+        }
+      }).catch(() => {}) // silent — heuristic title is fine
+    }
 
     // Reset form
     setTaskName("")

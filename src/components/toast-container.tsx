@@ -13,17 +13,17 @@ function ToastCard({ toast }: { toast: Toast }) {
   }
 
   const styles = {
-    info: "border-blue-500/40 bg-blue-50 dark:bg-blue-950/20",
-    success: "border-green-500/40 bg-green-50 dark:bg-green-950/20",
-    warning: "border-amber-500/40 bg-amber-50 dark:bg-amber-950/20",
-    error: "border-destructive/40 bg-red-50 dark:bg-red-950/20",
+    info: "border-info/40 bg-info/5",
+    success: "border-success/40 bg-success/5",
+    warning: "border-warning/40 bg-warning/5",
+    error: "border-error/40 bg-error/5",
   }
 
   const iconStyles = {
-    info: "text-blue-500",
-    success: "text-green-500",
-    warning: "text-amber-500",
-    error: "text-destructive",
+    info: "text-info",
+    success: "text-success",
+    warning: "text-warning",
+    error: "text-error",
   }
 
   const Icon = icons[toast.type]

@@ -583,7 +583,7 @@ export function FileCompletionTextarea({
                     onMouseEnter={() => setSelectedIndex(i)}
                   >
                     {item.kind === "special" ? (
-                      <FileCode2 className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                      <FileCode2 className="h-3.5 w-3.5 shrink-0 text-info" />
                     ) : item.kind === "milestone" ? (
                       <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-primary">◆</span>
                     ) : (

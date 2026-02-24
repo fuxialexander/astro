@@ -45,9 +45,9 @@ const healthLabels: Record<string, string> = {
 }
 
 const healthColors: Record<string, string> = {
-  on_track: "bg-green-500",
-  at_risk: "bg-amber-500",
-  off_track: "bg-red-500",
+  on_track: "bg-success",
+  at_risk: "bg-warning",
+  off_track: "bg-error",
 }
 
 import { formatDate, formatRelativeTime } from "@/lib/date-utils"
@@ -493,17 +493,17 @@ export function OverviewTab({
             {/* Show repository warning when NOT configured and NOT setting up */}
             {!(project.workingDirectory || project.repository) && !isRepoSetupInProgress && (
               <div
-                className="flex items-center gap-3 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 px-4 cursor-pointer hover:bg-amber-500/15 transition-colors"
+                className="flex items-center gap-3 rounded-lg bg-warning/10 border border-warning/20 p-3 px-4 cursor-pointer hover:bg-warning/15 transition-colors"
                 onClick={() => setRepoOpen(true)}
               >
-                <FolderGit2 className="h-[18px] w-[18px] text-amber-600 dark:text-amber-500" />
+                <FolderGit2 className="h-[18px] w-[18px] text-warning" />
                 <div className="flex-1 flex flex-col gap-0.5">
-                  <span className="text-sm font-medium text-amber-900 dark:text-amber-100">Repository Not Configured</span>
-                  <span className="text-xs text-amber-700 dark:text-amber-300">
+                  <span className="text-sm font-medium text-foreground">Repository Not Configured</span>
+                  <span className="text-xs text-warning">
                     Click to configure working directory for agents
                   </span>
                 </div>
-                <span className="text-xs font-medium text-amber-600 dark:text-amber-500">
+                <span className="text-xs font-medium text-warning">
                   Add
                 </span>
               </div>
@@ -747,22 +747,22 @@ export function OverviewTab({
               {recentActivities.map((activity) => {
                 // Map activity types to icons
                 const iconMap = {
-                  "task.completed": { Icon: CircleCheck, color: "text-green-500" },
-                  "task.started": { Icon: Play, color: "text-blue-500" },
-                  "task.failed": { Icon: User, color: "text-red-500" },
-                  "task.cancelled": { Icon: User, color: "text-orange-500" },
+                  "task.completed": { Icon: CircleCheck, color: "text-success" },
+                  "task.started": { Icon: Play, color: "text-info" },
+                  "task.failed": { Icon: User, color: "text-error" },
+                  "task.cancelled": { Icon: User, color: "text-warning" },
                   "milestone.created": { Icon: Plus, color: "text-primary" },
                   "milestone.updated": { Icon: Pencil, color: "text-primary" },
-                  "milestone.deleted": { Icon: User, color: "text-red-500" },
+                  "milestone.deleted": { Icon: User, color: "text-error" },
                   "vision.updated": { Icon: FileText, color: "text-primary" },
                   "repo.configured": { Icon: FolderGit2, color: "text-primary" },
-                  "plan.refined": { Icon: User, color: "text-purple-500" },
+                  "plan.refined": { Icon: User, color: "text-primary" },
                   "project.updated": { Icon: Pencil, color: "text-muted-foreground" },
-                  "project.created": { Icon: Rocket, color: "text-purple-500" },
-                  "task.created": { Icon: Plus, color: "text-blue-500" },
-                  "task.deleted": { Icon: User, color: "text-red-500" },
-                  "task.bulk_deleted": { Icon: User, color: "text-red-500" },
-                  "task.bulk_executed": { Icon: Play, color: "text-blue-500" },
+                  "project.created": { Icon: Rocket, color: "text-primary" },
+                  "task.created": { Icon: Plus, color: "text-info" },
+                  "task.deleted": { Icon: User, color: "text-error" },
+                  "task.bulk_deleted": { Icon: User, color: "text-error" },
+                  "task.bulk_executed": { Icon: Play, color: "text-info" },
                 }
 
                 const config = iconMap[activity.type] || { Icon: User, color: "text-muted-foreground" }

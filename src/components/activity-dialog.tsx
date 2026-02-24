@@ -33,22 +33,22 @@ const activityConfig: Record<
   ActivityType,
   { icon: typeof CircleCheck; color: string; label: string }
 > = {
-  "task.created": { icon: Play, color: "text-blue-500", label: "Created" },
-  "task.started": { icon: Play, color: "text-blue-500", label: "Started" },
-  "task.completed": { icon: CircleCheck, color: "text-green-500", label: "Completed" },
-  "task.failed": { icon: XCircle, color: "text-red-500", label: "Failed" },
-  "task.cancelled": { icon: PauseCircle, color: "text-orange-500", label: "Cancelled" },
-  "task.deleted": { icon: Trash2, color: "text-red-500", label: "Deleted" },
-  "task.bulk_deleted": { icon: Trash2, color: "text-red-500", label: "Bulk Deleted" },
-  "task.bulk_executed": { icon: Play, color: "text-blue-500", label: "Bulk Executed" },
-  "project.created": { icon: Sparkles, color: "text-purple-500", label: "Created" },
+  "task.created": { icon: Play, color: "text-info", label: "Created" },
+  "task.started": { icon: Play, color: "text-info", label: "Started" },
+  "task.completed": { icon: CircleCheck, color: "text-success", label: "Completed" },
+  "task.failed": { icon: XCircle, color: "text-error", label: "Failed" },
+  "task.cancelled": { icon: PauseCircle, color: "text-warning", label: "Cancelled" },
+  "task.deleted": { icon: Trash2, color: "text-error", label: "Deleted" },
+  "task.bulk_deleted": { icon: Trash2, color: "text-error", label: "Bulk Deleted" },
+  "task.bulk_executed": { icon: Play, color: "text-info", label: "Bulk Executed" },
+  "project.created": { icon: Sparkles, color: "text-primary", label: "Created" },
   "project.updated": { icon: Pencil, color: "text-muted-foreground", label: "Updated" },
   "milestone.created": { icon: Diamond, color: "text-primary", label: "Created" },
   "milestone.updated": { icon: Diamond, color: "text-primary", label: "Updated" },
-  "milestone.deleted": { icon: Trash2, color: "text-red-500", label: "Deleted" },
+  "milestone.deleted": { icon: Trash2, color: "text-error", label: "Deleted" },
   "vision.updated": { icon: FileText, color: "text-primary", label: "Updated" },
   "repo.configured": { icon: FolderGit2, color: "text-primary", label: "Configured" },
-  "plan.refined": { icon: Sparkles, color: "text-purple-500", label: "Refined" },
+  "plan.refined": { icon: Sparkles, color: "text-primary", label: "Refined" },
 }
 
 const activityTypeGroups = {

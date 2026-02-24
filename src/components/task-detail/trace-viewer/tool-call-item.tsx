@@ -23,10 +23,10 @@ export function ToolCallItem({ tool }: ToolCallItemProps) {
           className={cn(
             "flex h-3.5 w-3.5 items-center justify-center shrink-0",
             !tool.success
-              ? "text-red-500"
+              ? "text-error"
               : isComplete
-                ? "text-green-500"
-                : "text-blue-500"
+                ? "text-success"
+                : "text-info"
           )}
         >
           {!isComplete ? (

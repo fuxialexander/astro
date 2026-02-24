@@ -3,10 +3,10 @@ import type { LucideIcon } from "lucide-react"
 import type { Priority, Estimate } from "@/types"
 
 export const PRIORITY_CONFIG: Record<Priority, { icon: typeof Circle; color: string; label: string }> = {
-  urgent: { icon: AlertTriangle, color: "text-red-500", label: "Urgent" },
-  high: { icon: ArrowUp, color: "text-orange-500", label: "High" },
-  medium: { icon: Minus, color: "text-yellow-500", label: "Medium" },
-  low: { icon: ArrowDown, color: "text-blue-500", label: "Low" },
+  urgent: { icon: AlertTriangle, color: "text-error", label: "Urgent" },
+  high: { icon: ArrowUp, color: "text-warning", label: "High" },
+  medium: { icon: Minus, color: "text-muted-foreground", label: "Medium" },
+  low: { icon: ArrowDown, color: "text-info", label: "Low" },
   none: { icon: Circle, color: "text-muted-foreground", label: "None" },
 }
 
@@ -22,11 +22,11 @@ export const PRIORITIES: Priority[] = ["urgent", "high", "medium", "low", "none"
 export const ESTIMATES: Estimate[] = ["XS", "S", "M", "L", "XL"]
 
 export const DEFAULT_LABELS = [
-  { id: "l1", name: "Frontend", color: "#3b82f6" },
-  { id: "l2", name: "Backend", color: "#10b981" },
-  { id: "l3", name: "Testing", color: "#f59e0b" },
-  { id: "l4", name: "Infrastructure", color: "#8b5cf6" },
-  { id: "l5", name: "Research", color: "#ec4899" },
+  { id: "l1", name: "Frontend", color: "#4A6D8A" },
+  { id: "l2", name: "Backend", color: "#5F8D6B" },
+  { id: "l3", name: "Testing", color: "#A07D4F" },
+  { id: "l4", name: "Infrastructure", color: "#7B6B9A" },
+  { id: "l5", name: "Research", color: "#9A6878" },
 ]
 
 /* ── Picker option type ── */
@@ -53,10 +53,10 @@ export const ESTIMATE_OPTIONS: PickerOption[] = ESTIMATES.map((e) => ({ id: e, l
 /* ── Status picker options ── */
 export const STATUS_OPTIONS: PickerOption[] = [
   { id: "planned", label: "Planned", icon: Circle, iconColor: "text-muted-foreground" },
-  { id: "dispatched", label: "Dispatched", icon: Send, iconColor: "text-blue-500" },
-  { id: "in_progress", label: "In Progress", icon: Loader, iconColor: "text-blue-500" },
-  { id: "auto_verified", label: "Auto Verified", icon: CheckCircle2, iconColor: "text-green-500" },
-  { id: "awaiting_judgment", label: "Needs Review", icon: Eye, iconColor: "text-amber-500" },
-  { id: "completed", label: "Completed", icon: CheckCircle2, iconColor: "text-green-500" },
+  { id: "dispatched", label: "Dispatched", icon: Send, iconColor: "text-info" },
+  { id: "in_progress", label: "In Progress", icon: Loader, iconColor: "text-info" },
+  { id: "auto_verified", label: "Auto Verified", icon: CheckCircle2, iconColor: "text-success" },
+  { id: "awaiting_judgment", label: "Needs Review", icon: Eye, iconColor: "text-warning" },
+  { id: "completed", label: "Completed", icon: CheckCircle2, iconColor: "text-success" },
   { id: "pruned", label: "Pruned", icon: Scissors, iconColor: "text-muted-foreground" },
 ]

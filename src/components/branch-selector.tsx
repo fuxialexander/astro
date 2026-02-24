@@ -152,7 +152,7 @@ function BranchItem({
           </span>
         )}
         {branch.isCurrent && (
-          <span className="text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">
+          <span className="text-[10px] font-medium bg-warning/10 text-warning px-1.5 py-0.5 rounded">
             current
           </span>
         )}

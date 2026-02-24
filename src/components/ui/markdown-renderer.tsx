@@ -59,7 +59,7 @@ export const MarkdownRenderer = memo(({ content, className, onLinkClick }: Markd
           href={isCustom ? undefined : href}
           target={isCustom ? undefined : "_blank"}
           rel={isCustom ? undefined : "noopener noreferrer"}
-          className={cn("hover:underline cursor-pointer", isCustom ? "text-primary font-medium" : "text-blue-500")}
+          className={cn("hover:underline cursor-pointer", isCustom ? "text-primary font-medium" : "text-info")}
           onClick={(e) => {
             if (href && onLinkClick?.(href, e)) {
               e.preventDefault()
