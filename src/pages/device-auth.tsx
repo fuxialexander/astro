@@ -37,14 +37,25 @@ function getPlatformLabel(platform?: string) {
 
 /** Human-readable labels for machine token scopes */
 const scopeLabels: Record<string, string> = {
-  "machine:connect": "Relay Connection",
+  "machine:connect": "Server Connection",
   "machine:execute": "Task Execution",
-  "machine:read": "Read Results",
+  "machine:read": "Task Execution",
   "machine:*": "Full Access",
 }
 
 function formatScope(scope: string): string {
   return scopeLabels[scope] ?? scope.replace("machine:", "")
+}
+
+/** Deduplicate scopes that map to the same display label */
+function uniqueScopeLabels(scopes: string[]): string[] {
+  const seen = new Set<string>()
+  return scopes.filter((s) => {
+    const label = formatScope(s)
+    if (seen.has(label)) return false
+    seen.add(label)
+    return true
+  })
 }
 
 export function DeviceAuth() {
@@ -352,7 +363,7 @@ export function DeviceAuth() {
                     <div className="flex flex-col gap-1.5">
                       <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Permissions</span>
                       <div className="flex flex-wrap gap-1.5">
-                        {deviceInfo.scopes.map((scope) => (
+                        {uniqueScopeLabels(deviceInfo.scopes).map((scope) => (
                           <Badge key={scope} variant="secondary" className="text-xs">
                             {formatScope(scope)}
                           </Badge>
