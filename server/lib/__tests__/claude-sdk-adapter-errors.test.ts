@@ -10,7 +10,7 @@
  * 4. Error propagation to task results
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 /**
  * Simulates the Claude SDK adapter's error handling logic.
@@ -333,7 +333,7 @@ describe('production auth error chain', () => {
     // Simulate EventSource reconnection behavior
     let reconnectCount = 0
     const maxReconnects = 5
-    let tokenExpired = true
+    const tokenExpired = true
 
     while (tokenExpired && reconnectCount < maxReconnects) {
       reconnectCount++
