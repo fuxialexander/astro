@@ -26,6 +26,7 @@
     "env:dev": "bash scripts/switch-env.sh dev",
     "env:prod": "bash scripts/switch-env.sh prod",
     "env:init": "bash scripts/switch-env.sh init",
+    "astro-cli": "tsx packages/cli/src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
@@ -38,7 +39,6 @@
     "clear-data:force": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/clear-user-data.ts --force",
     "cleanup-duplicates": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/cleanup-duplicate-machines.ts",
     "postinstall": "[ -d packages/agent-runner ] && cd packages/agent-runner && npm install --ignore-scripts || true",
-    "astro-cli": "tsx packages/cli/src/index.ts",
     "prepare": "husky"
   },
   "packageManager": "pnpm@9.15.4",

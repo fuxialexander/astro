@@ -137,6 +137,15 @@ export async function requireAuth(c: Context, next: Next) {
     const { data: { user }, error } = await supabase.auth.getUser(token)
 
     if (error || !user) {
+      // Try device auth JWT fallback (CLI tokens)
+      const { verifyAccessToken } = await import('../lib/token-manager.js')
+      const payload = verifyAccessToken(token)
+      if (payload) {
+        const requestedTeamId = c.req.header('X-Team-Id')
+        const { teamId, teamIds } = await resolveTeams(payload.userId, requestedTeamId || undefined)
+        c.set('user', { id: payload.userId, teamId, teamIds } satisfies AuthUser)
+        return next()
+      }
       console.error('[auth] Token validation failed:', error?.message || 'No user')
       return c.json({ error: 'Invalid or expired token' }, 401)
     }
@@ -198,6 +207,15 @@ export async function optionalAuth(c: Context, next: Next) {
         teamId,
         teamIds,
       } satisfies AuthUser)
+    } else {
+      // Try device auth JWT fallback (CLI tokens)
+      const { verifyAccessToken } = await import('../lib/token-manager.js')
+      const payload = verifyAccessToken(token)
+      if (payload) {
+        const requestedTeamId = c.req.header('X-Team-Id')
+        const { teamId, teamIds } = await resolveTeams(payload.userId, requestedTeamId || undefined)
+        c.set('user', { id: payload.userId, teamId, teamIds } satisfies AuthUser)
+      }
     }
   } catch {
     // Continue without auth

@@ -69,7 +69,6 @@ The design docs in `docs/design/` are the authoritative reference for the system
 - [Server Mode](./setup/server-mode.md) - Supabase multi-user mode
 - [Environment Variables](./setup/environment-variables.md) - Complete env var reference
 - [Fly Deployment](./setup/fly-deployment.md) - Fly.io deployment guide
-- [Xi Fu Deployment](./setup/xi-fu-deployment.md) - Production deployment runbook
 - [Deployment & Testing](./setup/deployment-and-testing.md) - Pre-deployment testing
 - [Cloudflare Tunnel](./setup/cloudflare-tunnel.md) - Local HTTPS tunneling
 - [Docker Setup](./setup/docker-setup.md) - Docker Compose configuration
@@ -87,7 +86,6 @@ The design docs in `docs/design/` are the authoritative reference for the system
 ### MCP Tools
 
 - [Tools Reference](./mcp/tools-reference.md) - Complete MCP tool catalog
-- [Tools Implementation](./mcp/tools-implementation.md) - Implementation details
 - [Installation](./mcp/installation.md) - MCP installation and setup
 
 ### Integrations
