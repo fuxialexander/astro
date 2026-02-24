@@ -257,7 +257,7 @@ export function Sidebar() {
             )}
           />
         </div>
-        <span className="font-secondary text-xl font-semibold text-foreground">
+        <span className="font-secondary text-2xl font-bold text-foreground">
           Astro
         </span>
       </div>
