@@ -149,6 +149,11 @@ export function buildContextString(backend: LocalBackendInfo): string {
       if (accounts && accounts.length > 0) {
         str += ` Accounts: ${accounts.join(', ')}.`
       }
+      const totalGpus = meta.totalGpus as number | undefined
+      const gpuNodeCount = meta.gpuNodeCount as number | undefined
+      if (totalGpus) {
+        str += ` ${totalGpus} GPUs available across ${gpuNodeCount ?? '?'} nodes.`
+      }
       str += ` NEVER run compute on the login node -- use srun/sbatch.`
       return str
     }
@@ -482,6 +487,29 @@ async function detectSlurm(): Promise<LocalBackendInfo | null> {
         })
       }
       if (partitions.length > 0) metadata.partitions = partitions
+    } catch {
+      // Ignore
+    }
+
+    // Cluster-wide GPU summary from GRES
+    try {
+      const { stdout: gresOut } = await execAsync(
+        'sinfo -h -N -o "%N|%G" 2>/dev/null',
+        { timeout: 5_000 },
+      )
+      let gpuNodeCount = 0
+      let totalGpus = 0
+      for (const line of gresOut.trim().split('\n')) {
+        if (!line.trim()) continue
+        const [, gres] = line.split('|')
+        if (!gres || gres === '(null)' || !gres.includes('gpu')) continue
+        gpuNodeCount++
+        // Parse "gpu:a100:4(S:0-1)" or "gpu:4" → extract count
+        const countMatch = gres.match(/gpu(?::[^:]+)?:(\d+)/)
+        if (countMatch) totalGpus += parseInt(countMatch[1], 10)
+      }
+      if (totalGpus > 0) metadata.totalGpus = totalGpus
+      if (gpuNodeCount > 0) metadata.gpuNodeCount = gpuNodeCount
     } catch {
       // Ignore
     }

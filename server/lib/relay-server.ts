@@ -1351,6 +1351,9 @@ export class RelayServer extends EventEmitter {
           gpuMemoryMB: resources.gpu.length > 0
             ? Math.round(resources.gpu.reduce((sum, g) => sum + g.memoryTotal, 0) / (1024 * 1024))
             : undefined,
+          gpuType: resources.gpu.length > 0
+            ? [...new Set(resources.gpu.map((g: { name: string }) => g.name))].join(', ')
+            : undefined,
         },
         load: {
           cpuPercent: resources.cpu.loadAvg[0] ? resources.cpu.loadAvg[0] * 100 / resources.cpu.cores : 0,

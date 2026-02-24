@@ -29,6 +29,7 @@ import { BackendDetailDialog } from "@/components/environments/backend-detail-di
 import { MachineDetailDialog } from "@/components/environments/machine-detail-dialog"
 import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
+import { compactGpuName } from "@/lib/utils"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
   label: string
@@ -79,7 +80,8 @@ function formatResourceSummary(resources?: MachineEntry["resources"]): string | 
   parts.push(`${memGb}GB RAM`)
   if (resources.gpuCount && resources.gpuCount > 0) {
     const gpuMemGb = resources.gpuMemoryMB ? Math.round(resources.gpuMemoryMB / 1024) : null
-    parts.push(`${resources.gpuCount} GPU${resources.gpuCount > 1 ? "s" : ""}${gpuMemGb ? ` (${gpuMemGb}GB)` : ""}`)
+    const gpuLabel = resources.gpuType ? compactGpuName(resources.gpuType) : 'GPU'
+    parts.push(`${resources.gpuCount}× ${gpuLabel}${gpuMemGb ? ` (${gpuMemGb}GB)` : ""}`)
   }
   return parts.join(" · ")
 }
@@ -388,9 +390,13 @@ function backendSubtitle(b: ComputeBackendInfo): string | null {
     case 'slurm': {
       const clusterName = meta.clusterName as string | undefined
       const partitions = meta.partitions as unknown[] | undefined
+      const totalGpus = meta.totalGpus as number | undefined
+      const gpuNodeCount = meta.gpuNodeCount as number | undefined
       const parts: string[] = []
       if (clusterName) parts.push(clusterName)
       if (partitions?.length) parts.push(`${partitions.length} partitions`)
+      if (totalGpus) parts.push(`${totalGpus} GPUs`)
+      else if (gpuNodeCount) parts.push(`${gpuNodeCount} GPU nodes`)
       return parts.length > 0 ? parts.join(' · ') : null
     }
     default:
