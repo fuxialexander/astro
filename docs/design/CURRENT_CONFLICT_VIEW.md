@@ -1,6 +1,6 @@
 # Current Conflicts: Design Docs vs. Code/Technical Docs
 
-This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-02-23.
+This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-02-24.
 
 ---
 
@@ -36,11 +36,9 @@ Added clear "PROPOSED — Not yet implemented" banners to:
 
 **Resolved (2026-02-22):** All gaps are resolved in code. RELAY.md §8 still needs updating to reflect this.
 
-### 2. IMPLEMENTATION_PIPELINE.md Phase A Blocker
+### 2. ~~IMPLEMENTATION_PIPELINE.md Phase A Blocker~~ ✅ RESOLVED
 
-§3 states `isServerMode()` is missing from AI endpoints. Commit `a11b35e` added guards to all 7 endpoints. Phase A should be `✅ DONE`, not `[!] BLOCKER`.
-
-**Resolution needed:** Update §3 evidence, Phase A status, and component percentages.
+**Resolved (2026-02-24):** IMPLEMENTATION_PIPELINE.md updated to reflect Phase A and Phase B completion. Commit `a11b35e` added `isServerMode()` guards, commit `01772cb` unified execution paths (deleted ~3500 lines of provider code). §3 evidence updated, Phase A/B marked as DONE, component percentages updated.
 
 ### 3. ~~ARCHITECTURE.md §1.3 — Backend AI Calls~~ ✅ RESOLVED
 
@@ -155,12 +153,12 @@ The following design documents in `docs/design/` are forward-looking proposals w
 
 | Category | Count |
 |----------|-------|
-| Design doc issues (open) | 1 (#2) |
-| Design doc issues (resolved) | 6 (#1, #3, #4, #5, #7, #8) |
+| Design doc issues (open) | 0 |
+| Design doc issues (resolved) | 7 (#1, #2, #3, #4, #5, #7, #8) |
 | Workspace V2 conflicts (open) | 1 (#12) |
 | Workspace V2 conflicts (resolved) | 4 (#9, #10, #11, #13) |
 | Execution unification conflicts (open) | 3 (#14, #15, #16) |
 | Other open issues | 3 (#6, #17, #18) |
 | Aspirational docs (low implementation) | 4 (AGENT_PERFORMANCE, ATTENTION_TRIAGE, COST_TRACKING, CROSS_PROJECT_REFERENCES) |
-| **Total open** | **8** |
-| **Total resolved** | **10** |
+| **Total open** | **7** |
+| **Total resolved** | **11** |

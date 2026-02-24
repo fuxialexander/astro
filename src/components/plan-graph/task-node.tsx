@@ -109,7 +109,24 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <Handle type="target" position={Position.Top} className="!bg-border !w-2 !h-2 !border-none" />
+      {/* Target handle - grows into draggable '+' button on hover for adding parent nodes */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        className={cn(
+          "!border-none !rounded-full transition-all duration-150",
+          hovered && data.status !== "pruned"
+            ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
+            : "!w-2 !h-2 !bg-border"
+        )}
+      />
+
+      {/* Plus icon overlaid on target handle (top) */}
+      {hovered && data.status !== "pruned" && (
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+          <Plus className="h-3 w-3 text-primary-foreground" />
+        </div>
+      )}
 
       {/* Active glow effect for running tasks */}
       {isRunning && (

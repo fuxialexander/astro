@@ -233,6 +233,14 @@ export interface TaskDispatch {
    * - 'direct': Work in-place (same as 'direct' deliveryMode)
    */
   worktreeStrategy?: 'copy' | 'reference' | 'direct';
+
+  /**
+   * Per-task worktree control. When set to `false`, the agent runner skips
+   * worktree creation and runs directly in the working directory.
+   * This is an explicit user opt-out, not a silent fallback.
+   * Defaults to `true` (use worktree when applicable).
+   */
+  useWorktree?: boolean;
 }
 
 /** Task result from agent runner */

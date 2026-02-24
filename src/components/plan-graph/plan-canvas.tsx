@@ -34,7 +34,7 @@ import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
-import { calculateChildPosition } from "@/lib/graph-utils"
+import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 
@@ -70,9 +70,16 @@ interface PlanCanvasProps {
 }
 
 interface AddChildState {
-  parentNodeId: string
+  /** Node ID that initiated the drag */
+  originNodeId: string
   position: { x: number; y: number }
   screenPosition: { x: number; y: number }
+  /**
+   * True if connection started from target handle (upward drag = creating parent).
+   * When true: new node becomes a parent/dependency of originNodeId
+   * When false: new node becomes a child/dependent of originNodeId
+   */
+  isUpwardDrag?: boolean
 }
 
 function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanvasProps) {
@@ -118,7 +125,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const onlineMachines = machines.filter((m) => m.status !== 'offline')
   const selectedMachine = selectedMachineId ? machines.find((m) => m.machineId === selectedMachineId) ?? null : null
   const [addChildState, setAddChildState] = useState<AddChildState | null>(null)
-  const connectingNodeId = useRef<string | null>(null)
+  const connectingNodeRef = useRef<{ nodeId: string; handleType: "source" | "target" } | null>(null)
   const justCreatedChild = useRef(false)
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -326,8 +333,14 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   // Connection handlers for mindmap-like drag interactions
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onConnectStart = useCallback((_: any, params: any) => {
-    if (params.handleType === "source") {
-      connectingNodeId.current = params.nodeId
+    // Track both nodeId and handleType to detect drag direction
+    // source handle = downward drag (creating child/dependent)
+    // target handle = upward drag (creating parent/dependency)
+    if (params.nodeId && (params.handleType === "source" || params.handleType === "target")) {
+      connectingNodeRef.current = {
+        nodeId: params.nodeId,
+        handleType: params.handleType,
+      }
     }
   }, [])
 
@@ -350,7 +363,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     if (targetNode && !targetNode.dependencies.includes(connection.source)) {
       updateNode(connection.target, { dependencies: [...targetNode.dependencies, connection.source] })
     }
-    connectingNodeId.current = null
+    connectingNodeRef.current = null
     // Auto-reorganize after adding a link (defer to ensure edge is in store)
     setTimeout(() => {
       reorganizeProject(projectId)
@@ -360,17 +373,19 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, connectionState?: any) => {
-    if (!connectingNodeId.current) return
+    if (!connectingNodeRef.current) return
+
+    const { nodeId, handleType } = connectingNodeRef.current
 
     // If connection was valid (connected to another handle), onConnect handled it
     if (connectionState?.isValid) {
-      connectingNodeId.current = null
+      connectingNodeRef.current = null
       return
     }
 
-    const parentNode = projectNodes.find((n) => n.id === connectingNodeId.current)
-    if (!parentNode) {
-      connectingNodeId.current = null
+    const originNode = projectNodes.find((n) => n.id === nodeId)
+    if (!originNode) {
+      connectingNodeRef.current = null
       return
     }
 
@@ -379,13 +394,23 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       : event
     const dropPosition = screenToFlowPosition({ x: clientX, y: clientY })
 
-    // If drop is close to the source node (click or very short drag), use calculated child position
-    const dx = dropPosition.x - parentNode.position.x
-    const dy = dropPosition.y - parentNode.position.y
+    // Detect drag direction based on which handle initiated the connection:
+    // - source handle (bottom) = downward drag = creating a child/dependent task
+    // - target handle (top) = upward drag = creating a parent/dependency task
+    const isUpwardDrag = handleType === "target"
+
+    // If drop is close to the origin node (click or very short drag), use calculated position
+    const dx = dropPosition.x - originNode.position.x
+    const dy = dropPosition.y - originNode.position.y
     const distance = Math.sqrt(dx * dx + dy * dy)
 
+    // Use appropriate position calculation based on drag direction:
+    // - Upward drag (target handle): calculate parent position (above origin)
+    // - Downward drag (source handle): calculate child position (below origin)
     const position = distance < 60
-      ? calculateChildPosition(parentNode, projectNodes, projectEdges)
+      ? (isUpwardDrag
+          ? calculateParentPosition(originNode, projectNodes, projectEdges)
+          : calculateChildPosition(originNode, projectNodes, projectEdges))
       : dropPosition
 
     // Center the popup on the node position
@@ -398,12 +423,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
     justCreatedChild.current = true
     setAddChildState({
-      parentNodeId: connectingNodeId.current,
+      originNodeId: nodeId,
       position,
       screenPosition: screenPos,
+      isUpwardDrag,
     })
 
-    connectingNodeId.current = null
+    connectingNodeRef.current = null
   }, [projectNodes, projectEdges, screenToFlowPosition, flowToScreenPosition])
 
   const handleNodeClick = useCallback(
@@ -508,7 +534,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                 type="button"
                 onClick={() => {
                   setAddChildState({
-                    parentNodeId: "",
+                    originNodeId: "",
                     position: { x: 40, y: 40 },
                     screenPosition: { x: 0, y: 0 },
                   })
@@ -871,7 +897,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         </div>
       )}
 
-      {/* Floating creation form when adding child from graph */}
+      {/* Floating creation form when adding node from graph */}
       {addChildState && (
         <div
           className="absolute z-50"
@@ -883,7 +909,10 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           <TaskCreationForm
             mode="popover"
             projectId={projectId}
-            parentNodeId={addChildState.parentNodeId}
+            // Upward drag: new node is a parent/dependency of originNode (pass childNodeId)
+            // Downward drag: new node is a child/dependent of originNode (pass parentNodeId)
+            parentNodeId={addChildState.isUpwardDrag ? undefined : addChildState.originNodeId || undefined}
+            childNodeId={addChildState.isUpwardDrag ? addChildState.originNodeId : undefined}
             position={addChildState.position}
             onCreated={handleTaskCreated}
             onCancel={() => setAddChildState(null)}

@@ -24,6 +24,7 @@ import { db } from '../lib/db/index.js'
 import { projects } from '../lib/db/schema.js'
 import { eq, isNull, and } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
+import type { Project } from '../../src/types/index.js'
 
 // Validation schemas
 const dispatchTaskSchema = z.object({
@@ -59,6 +60,7 @@ const dispatchTaskSchema = z.object({
   remoteType: z.enum(['github', 'gitlab', 'bitbucket', 'generic', 'none']).optional(),
   agentDir: z.string().max(100).optional(),
   worktreeStrategy: z.enum(['copy', 'reference', 'direct']).optional(),
+  useWorktree: z.boolean().optional(),
 })
 
 const dispatchRoute = new Hono()
@@ -107,6 +109,7 @@ dispatchRoute.post('/task', async (c) => {
     remoteType,
     agentDir,
     worktreeStrategy,
+    useWorktree,
   } = body
 
   // Validate working directory
@@ -197,6 +200,7 @@ dispatchRoute.post('/task', async (c) => {
     remoteType,
     agentDir,
     worktreeStrategy,
+    useWorktree,
   })
 })
 
@@ -224,6 +228,7 @@ async function dispatchViaRelay(
     remoteType?: string
     agentDir?: string
     worktreeStrategy?: string
+    useWorktree?: boolean
   }
 ) {
   const {
@@ -245,6 +250,7 @@ async function dispatchViaRelay(
     remoteType,
     agentDir,
     worktreeStrategy,
+    useWorktree,
   } = params
 
   // Extract user for ownership verification
@@ -346,6 +352,16 @@ The user can review your reasoning in the task output and provide guidance if th
     remoteType,
     agentDir,
     worktreeStrategy,
+    useWorktree,
+  }
+
+  // Fetch project record from DB for event hooks (git-pull-hook needs workingDirectory)
+  let projectRecord: Project | undefined
+  try {
+    const [row] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+    projectRecord = row as unknown as Project | undefined
+  } catch (err) {
+    console.warn('[dispatch] Failed to fetch project for event hooks:', err)
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
@@ -418,10 +434,12 @@ The user can review your reasoning in the task output and provide guidance if th
           parentId: null,
           dependencies: [],
           verification: 'auto',
+          autoPr: true,
           position: { x: 0, y: 0 },
           createdAt: new Date(),
           updatedAt: new Date(),
         },
+        project: projectRecord,
         timestamp: new Date(),
       }).catch((err) => {
         console.error('[dispatch] Error emitting task.completed event:', err)

@@ -427,6 +427,9 @@ interface AgentRunnerTaskResultMessage {
       model?: string;
       numTurns?: number;
     };
+    branchName?: string;
+    prUrl?: string;
+    prNumber?: number;
   };
 }
 
@@ -1151,6 +1154,15 @@ export class RelayServer extends EventEmitter {
         ...(task.systemPrompt && { systemPrompt: task.systemPrompt }),
         ...(task.messages && { messages: task.messages }),
         ...(task.model && { model: task.model }),
+        // Workspace/delivery fields
+        ...(task.deliveryMode && { deliveryMode: task.deliveryMode }),
+        ...(task.remoteType && { remoteType: task.remoteType }),
+        ...(task.agentDir && { agentDir: task.agentDir }),
+        ...(task.worktreeStrategy && { worktreeStrategy: task.worktreeStrategy }),
+        ...(task.useWorktree !== undefined && { useWorktree: task.useWorktree }),
+        // Task metadata for PR titles
+        ...(task.title && { title: task.title }),
+        ...(task.description && { description: task.description }),
       },
     };
 
@@ -1737,7 +1749,7 @@ export class RelayServer extends EventEmitter {
 
   private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {
     const { payload } = message;
-    const { taskId, status, exitCode, output, error, artifacts, metrics } = payload;
+    const { taskId, status, exitCode, output, error, artifacts, metrics, branchName, prUrl, prNumber } = payload;
 
     // Convert to standard result message
     const resultMsg: TaskResultMessage = {
@@ -1759,6 +1771,9 @@ export class RelayServer extends EventEmitter {
           path: a.path,
         })),
         metrics,
+        branchName,
+        prUrl,
+        prNumber,
       },
     };
     this.emit('task:result', resultMsg);

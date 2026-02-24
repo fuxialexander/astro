@@ -538,7 +538,7 @@ export class DispatchEngine extends EventEmitter {
 
       // Handle result
       if (result) {
-        await this.handleResult(queueEntry, node, result, fullOutput, nodes, edges)
+        await this.handleResult(queueEntry, node, result, fullOutput, nodes, edges, project)
       }
     } catch (error) {
       const isAbort = error instanceof Error && error.name === 'AbortError'
@@ -621,7 +621,8 @@ export class DispatchEngine extends EventEmitter {
     result: TaskResult,
     output: string,
     nodes: PlanNode[],
-    edges: PlanEdge[]
+    edges: PlanEdge[],
+    project?: Project
   ): Promise<void> {
     // Find downstream nodes
     const downstreamNodes = this.branchManager.findDownstreamNodes(node.id, edges)
@@ -668,6 +669,7 @@ export class DispatchEngine extends EventEmitter {
       executionId: result.taskId,
       result,
       node,
+      project,
       timestamp: new Date(),
     } satisfies AstroTaskCompletedEvent)
 
