@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react'
-import { ShieldAlert, X } from 'lucide-react'
+import { Info, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,6 +20,7 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { useRealtimeStore } from '@/stores/realtime-store'
+import { cn } from '@/lib/utils'
 
 export function SafetyPromptDialog() {
   const safetyPrompts = useRealtimeStore((s) => s.safetyPrompts)
@@ -62,7 +63,7 @@ export function SafetyPromptDialog() {
   }
 
   const handleCancel = async () => {
-    if (!pendingPrompt) return
+    if (!pendingPrompt || responding) return
 
     setResponding(true)
     setError(null)
@@ -76,14 +77,19 @@ export function SafetyPromptDialog() {
   }
 
   return (
-    <Dialog open={!!pendingPrompt} onOpenChange={(open) => { if (!open) handleCancel() }}>
-      <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => e.preventDefault()}>
+    <Dialog
+      open={!!pendingPrompt}
+      onOpenChange={(open) => {
+        if (!open && !responding) handleCancel()
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <div className="flex items-center gap-3 mb-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/15">
-              <ShieldAlert className="h-5 w-5 text-warning" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-info/20 to-info/10">
+              <Info className="h-6 w-6 text-info" />
             </div>
-            <DialogTitle className="text-xl">Safety Check</DialogTitle>
+            <DialogTitle className="text-xl">Working Directory Review</DialogTitle>
           </div>
           <DialogDescription className="text-base">
             {pendingPrompt?.warning || 'The working directory requires attention before proceeding.'}
@@ -100,7 +106,12 @@ export function SafetyPromptDialog() {
               {pendingPrompt.options.map((option) => (
                 <div
                   key={option.id}
-                  className="flex items-start space-x-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
+                  className={cn(
+                    "flex items-start space-x-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors",
+                    selectedOption === option.id
+                      ? "border-primary bg-primary/5"
+                      : "border-border"
+                  )}
                 >
                   <RadioGroupItem value={option.id} id={`safety-option-${option.id}`} className="mt-0.5" />
                   <Label
@@ -126,14 +137,14 @@ export function SafetyPromptDialog() {
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={handleCancel}
             disabled={responding}
+            className="text-muted-foreground hover:text-destructive"
           >
-            <X className="h-4 w-4 mr-1.5" />
             Cancel Task
           </Button>
           <Button
@@ -141,7 +152,14 @@ export function SafetyPromptDialog() {
             onClick={handleConfirm}
             disabled={responding || !selectedOption}
           >
-            {responding ? 'Sending...' : 'Confirm'}
+            {responding ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                Sending...
+              </>
+            ) : (
+              'Confirm'
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

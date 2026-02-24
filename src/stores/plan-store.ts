@@ -155,10 +155,15 @@ async function retryAsync(
  */
 const pendingSaveNodeIds = new Set<string>()
 
+/** Timer for markNodesAsUpdating auto-clear. Stored externally to prevent race conditions. */
+let markNodesTimer: number | undefined
+
 interface PlanState {
   nodes: PlanNode[]
   edges: PlanEdge[]
   loaded: boolean
+  /** Node IDs recently updated via chat mutations — briefly highlighted in graph */
+  recentlyUpdatedNodeIds: Set<string>
   load: () => Promise<void>
   addNode: (node: PlanNode) => void
   updateNode: (id: string, updates: Partial<PlanNode>) => void
@@ -168,6 +173,8 @@ interface PlanState {
   setProjectPlan: (projectId: string, nodes: PlanNode[], edges: PlanEdge[]) => void
   reorganizeProject: (projectId: string) => void
   removeProjectPlan: (projectId: string) => void
+  /** Mark node IDs as recently updated (visual pulse). Auto-clears after 2s. */
+  markNodesAsUpdating: (nodeIds: string[]) => void
 }
 
 // Empty seed data — new users start with no plans and create via /projects/new
@@ -199,6 +206,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   nodes: [],
   edges: [],
   loaded: false,
+  recentlyUpdatedNodeIds: new Set<string>(),
 
   load: async () => {
     try {
@@ -431,5 +439,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         console.error(`[plan-store] Failed to update position for node ${nodeId}:`, err)
       })
     }
+  },
+
+  markNodesAsUpdating: (nodeIds: string[]) => {
+    if (nodeIds.length === 0) return
+    // Clear any pending timer to prevent a stale timeout from clearing
+    // a newer batch of IDs prematurely (race condition).
+    if (markNodesTimer !== undefined) clearTimeout(markNodesTimer)
+    set({ recentlyUpdatedNodeIds: new Set(nodeIds) })
+    markNodesTimer = setTimeout(() => {
+      markNodesTimer = undefined
+      set({ recentlyUpdatedNodeIds: new Set() })
+    }, 2000) as unknown as number
   },
 }))

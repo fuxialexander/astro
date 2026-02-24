@@ -241,6 +241,15 @@ export interface TaskDispatch {
    * Defaults to `true` (use worktree when applicable).
    */
   useWorktree?: boolean;
+
+  /**
+   * Skip the agent runner's safety check (non-git working directory prompt).
+   *
+   * Set to `true` for text-only tasks (refinement, summarization, title generation)
+   * that don't touch the filesystem and don't need working directory validation.
+   * Older agent runners will ignore this field (backward-compatible).
+   */
+  skipSafetyCheck?: boolean;
 }
 
 /** Task result from agent runner */

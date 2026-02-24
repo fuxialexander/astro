@@ -294,6 +294,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   const addEdge = usePlanStore((s) => s.addEdge)
   const removeEdge = usePlanStore((s) => s.removeEdge)
   const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
+  const markNodesAsUpdating = usePlanStore((s) => s.markNodesAsUpdating)
 
   // Project store — for file tree and working directory
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
@@ -400,9 +401,11 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     }
   }, [messages])
 
-  /** Apply all mutations (node updates + edge operations + new nodes) to the plan store. */
-  const applyMutations = useCallback((mutations: AppliedMutations) => {
+  /** Apply all mutations (node updates + edge operations + new nodes) to the plan store.
+   *  Returns the real (prefixed) node IDs that were affected. */
+  const applyMutations = useCallback((mutations: AppliedMutations): string[] => {
     const { nodeUpdates, edgeOps, newNodes } = mutations
+    const affectedNodeIds: string[] = []
 
     // Create new nodes (from decomposition)
     const prefix = projectId.slice(0, 8)
@@ -410,6 +413,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     const idMap = new Map<string, string>() // map AI-generated IDs to real IDs
     for (const n of newNodes) {
       const realId = n.id ? safePrefixId(n.id) : `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+      affectedNodeIds.push(realId)
       if (n.id) idMap.set(n.id, realId)
 
       const now = new Date()
@@ -445,6 +449,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
 
     // Apply node property updates
     for (const u of nodeUpdates) {
+      affectedNodeIds.push(u.nodeId)
       const patch: Partial<PlanNode> = {}
       for (const [key, value] of Object.entries(u)) {
         if (key === "nodeId") continue // not a property
@@ -499,6 +504,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         }
       }
     }
+
+    return affectedNodeIds
   }, [planNodes, projectId, updateNode, addNode, addEdge, removeEdge, reorganizeProject])
 
   const sendMessage = useCallback(async (text: string) => {
@@ -567,7 +574,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
             if (hasMutations) {
               // Apply side-effects outside setState to avoid React StrictMode
               // double-invocation duplicating nodes/edges.
-              applyMutations(mutations)
+              const affectedNodeIds = applyMutations(mutations)
+              if (affectedNodeIds.length > 0) {
+                markNodesAsUpdating(affectedNodeIds)
+              }
 
               // Update message display with clean content and mutation record
               updateLastAssistantMessage(sid, cleanContent, mutations)
@@ -589,7 +599,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     } catch {
       setIsStreaming(false)
     }
-  }, [isStreaming, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, applyMutations, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])
+  }, [isStreaming, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, applyMutations, markNodesAsUpdating, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])
 
   function handleSend() {
     const text = input.trim()
