@@ -259,6 +259,12 @@ export default function App() {
     <ThemeProvider defaultTheme="light">
       <TooltipProvider>
         <BrowserRouter>
+          {/* Public routes that must render immediately (no DataLoader dependency) */}
+          <Routes>
+            <Route path="login" element={<Login />} />
+            <Route path="device" element={<DeviceAuth />} />
+            <Route path="invite/:token" element={<TeamInvite />} />
+            <Route path="*" element={
           <DataLoader>
             <PluginLoader>
             <CommandPalette />
@@ -267,11 +273,7 @@ export default function App() {
               {/* Root: landing if unauthenticated, dashboard if authenticated */}
               <Route index element={<RootRedirect />} />
 
-              {/* Public routes (no auth required) */}
-              <Route path="login" element={<Login />} />
-              <Route path="device" element={<DeviceAuth />} />
               <Route path="welcome" element={<ProjectNew />} />
-              <Route path="invite/:token" element={<TeamInvite />} />
 
               {/* Authenticated routes - Responsive */}
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
@@ -297,6 +299,8 @@ export default function App() {
             </Routes>
             </PluginLoader>
           </DataLoader>
+            } />
+          </Routes>
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
