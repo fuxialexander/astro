@@ -94,11 +94,11 @@ app.get('/callback', async (c) => {
     });
 
     // Redirect to frontend settings page with success
-    const frontendUrl = process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
     return c.redirect(`${frontendUrl}/settings?github=connected`);
   } catch (error) {
     console.error('GitHub OAuth callback error:', error);
-    const frontendUrl = process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
     return c.redirect(`${frontendUrl}/settings?github=error`);
   }
 });
