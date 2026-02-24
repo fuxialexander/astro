@@ -5,7 +5,7 @@
  * automatic reconnection, Last-Event-ID replay, and typed events.
  */
 
-import { getAccessToken } from './supabase-client'
+import { getAccessToken, shouldUseSupabase } from './supabase-client'
 import { apiUrl } from './api-url'
 
 export type RealtimeEventType =
@@ -44,6 +44,8 @@ export class RealtimeClient {
   private globalHandlers = new Set<RealtimeEventHandler>()
   private _connected = false
   private url: string
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private lastProjectId?: string
 
   constructor(baseUrl = '/api/events/stream') {
     this.url = apiUrl(baseUrl)
@@ -57,9 +59,17 @@ export class RealtimeClient {
     if (this.eventSource) {
       this.disconnect()
     }
+    this.lastProjectId = projectId
 
     // Get auth token for SSE connection (EventSource doesn't support headers)
     const token = await getAccessToken()
+
+    // In server mode, don't connect without a token — retry until auth is ready
+    if (!token && shouldUseSupabase()) {
+      this.scheduleReconnect(2000)
+      return
+    }
+
     const params = new URLSearchParams()
     if (projectId) params.set('projectId', projectId)
     if (token) params.set('token', token)
@@ -74,7 +84,9 @@ export class RealtimeClient {
 
     this.eventSource.onerror = () => {
       this._connected = false
-      // EventSource handles reconnection automatically
+      // Close stale connection and reconnect with a fresh token
+      this.disconnect()
+      this.scheduleReconnect(3000)
     }
 
     // Register known event types
@@ -122,11 +134,23 @@ export class RealtimeClient {
   }
 
   disconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     if (this.eventSource) {
       this.eventSource.close()
       this.eventSource = null
     }
     this._connected = false
+  }
+
+  private scheduleReconnect(delayMs: number): void {
+    if (this.reconnectTimer) return // already scheduled
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.connect(this.lastProjectId)
+    }, delayMs)
   }
 
   on(type: RealtimeEventType | '*', handler: RealtimeEventHandler): () => void {

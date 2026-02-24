@@ -251,50 +251,70 @@ app.patch('/initiatives/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
-  const [existing] = await db.select().from(initiatives).where(
-    and(eq(initiatives.id, id), or(
+  try {
+    const teamFilter = or(
       eq(initiatives.teamId, user.teamId),
       and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
-    ))
-  )
-  if (!existing) return c.json({ error: 'Not found' }, 404)
+    )
 
-  const body = await c.req.json()
-  const patch: Record<string, unknown> = { updatedAt: new Date() }
-  if (body.name !== undefined) patch.name = body.name
-  if (body.description !== undefined) patch.description = body.description
-  if (body.goal !== undefined) patch.goal = body.goal || null
-  if (body.status !== undefined) patch.status = body.status
-  if (body.startDate !== undefined) patch.startDate = body.startDate || null
-  if (body.targetDate !== undefined) patch.targetDate = body.targetDate || null
-  if (body.lead !== undefined) patch.lead = body.lead || null
-  if (body.color !== undefined) patch.color = body.color
-  if (body.icon !== undefined) patch.icon = body.icon
+    const [existing] = await db.select().from(initiatives).where(
+      and(eq(initiatives.id, id), teamFilter)
+    )
+    if (!existing) return c.json({ error: 'Not found' }, 404)
 
-  await db.update(initiatives).set(patch).where(eq(initiatives.id, id))
-  const [updated] = await db.select().from(initiatives).where(eq(initiatives.id, id))
-  return c.json(updated)
+    const body = await c.req.json()
+    const patch: Record<string, unknown> = { updatedAt: new Date() }
+    if (body.name !== undefined) patch.name = body.name
+    if (body.description !== undefined) patch.description = body.description
+    if (body.goal !== undefined) patch.goal = body.goal || null
+    if (body.status !== undefined) patch.status = body.status
+    if (body.startDate !== undefined) patch.startDate = body.startDate || null
+    if (body.targetDate !== undefined) patch.targetDate = body.targetDate || null
+    if (body.lead !== undefined) patch.lead = body.lead || null
+    if (body.color !== undefined) patch.color = body.color
+    if (body.icon !== undefined) patch.icon = body.icon
+
+    await db.update(initiatives).set(patch).where(
+      and(eq(initiatives.id, id), teamFilter)
+    )
+    const [updated] = await db.select().from(initiatives).where(
+      and(eq(initiatives.id, id), teamFilter)
+    )
+    return c.json(updated)
+  } catch (err) {
+    console.error('[data] initiatives PATCH error:', err)
+    return c.json({ error: 'Failed to update initiative' }, 500)
+  }
 })
 
 app.delete('/initiatives/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const initiativeId = c.req.param('id')
 
-  const [existing] = await db.select().from(initiatives).where(
-    and(eq(initiatives.id, initiativeId), or(
+  try {
+    const teamFilter = or(
       eq(initiatives.teamId, user.teamId),
       and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
-    ))
-  )
-  if (!existing) return c.json({ error: 'Not found' }, 404)
+    )
 
-  // Unassign projects from this initiative
-  await db.update(projects)
-    .set({ initiativeId: null })
-    .where(eq(projects.initiativeId, initiativeId))
+    const [existing] = await db.select().from(initiatives).where(
+      and(eq(initiatives.id, initiativeId), teamFilter)
+    )
+    if (!existing) return c.json({ error: 'Not found' }, 404)
 
-  await db.delete(initiatives).where(eq(initiatives.id, initiativeId))
-  return c.json({ ok: true })
+    // Unassign projects from this initiative
+    await db.update(projects)
+      .set({ initiativeId: null })
+      .where(eq(projects.initiativeId, initiativeId))
+
+    await db.delete(initiatives).where(
+      and(eq(initiatives.id, initiativeId), teamFilter)
+    )
+    return c.json({ ok: true })
+  } catch (err) {
+    console.error('[data] initiatives DELETE error:', err)
+    return c.json({ error: 'Failed to delete initiative' }, 500)
+  }
 })
 
 // ── Plan (nodes + edges) ──────────────────────────────────────────────
