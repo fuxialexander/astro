@@ -181,13 +181,19 @@ export function ProjectNew() {
     }
   }
 
+  const [justRefined, setJustRefined] = useState(false)
+
   // Refine project description via AI
   async function handleRefine() {
     if (!description.trim() || isSubmitting || isRefining) return
     setIsRefining(true)
     try {
       const result = await refineContent("", description.trim(), "project")
-      if (result) setDescription(result.refinedDescription)
+      if (result) {
+        setDescription(result.refinedDescription)
+        setJustRefined(true)
+        setTimeout(() => setJustRefined(false), 1500)
+      }
     } catch { /* refinement is best-effort */ }
     setIsRefining(false)
   }
@@ -684,9 +690,22 @@ export function ProjectNew() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="A personal finance app with budgeting and transaction tracking..."
-                className="h-[100px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                className={cn(
+                  "h-[100px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring transition-all",
+                  isRefining && "opacity-60",
+                  justRefined && "ring-1 ring-success/30"
+                )}
+                disabled={isRefining}
                 autoFocus
               />
+              {isRefining && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-xl">
+                  <div className="flex items-center gap-2 rounded-full bg-background/80 border border-border px-3 py-1.5 shadow-sm">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">AI is refining...</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

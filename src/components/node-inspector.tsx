@@ -116,12 +116,16 @@ export function NodeInspectorContent({
     handleUpdate({ status: "pruned" })
   }, [handleUpdate])
 
+  const [justRefined, setJustRefined] = useState(false)
+
   const handleRefine = useCallback(async () => {
     setIsRefining(true)
     try {
       const result = await refineContent(node.title, node.description ?? "", "task")
       if (result) {
         handleUpdate({ title: result.refinedTitle, description: result.refinedDescription })
+        setJustRefined(true)
+        setTimeout(() => setJustRefined(false), 1500)
       }
     } catch { /* refinement is best-effort */ }
     setIsRefining(false)
@@ -275,17 +279,31 @@ export function NodeInspectorContent({
         <div className="flex items-center justify-between">
           <h4 className="text-[13px] font-semibold text-muted-foreground">Description</h4>
         </div>
-        <FileCompletionTextarea
-          projectId={project.id}
-          machineId={project.defaultMachineId}
-          workingDirectory={project.workingDirectory}
-          fileTree={project.fileTree}
-          value={node.description ?? ""}
-          onChange={(val) => handleUpdate({ description: val })}
-          placeholder="Describe this task... Use @ to reference files"
-          rows={4}
-          className="w-full resize-none rounded-md border-none bg-transparent px-0 py-0 text-[13px] leading-[1.5] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0"
-        />
+        <div className="relative">
+          <FileCompletionTextarea
+            projectId={project.id}
+            machineId={project.defaultMachineId}
+            workingDirectory={project.workingDirectory}
+            fileTree={project.fileTree}
+            value={node.description ?? ""}
+            onChange={(val) => handleUpdate({ description: val })}
+            placeholder="Describe this task... Use @ to reference files"
+            rows={4}
+            className={cn(
+              "w-full resize-none rounded-md border-none bg-transparent px-0 py-0 text-[13px] leading-[1.5] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0 transition-all",
+              isRefining && "opacity-60",
+              justRefined && "ring-1 ring-success/30 rounded-md"
+            )}
+          />
+          {isRefining && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/50">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>AI is refining...</span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
       <Separator />
 

@@ -315,29 +315,34 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 
   respondToSafetyPrompt: async (taskId: string, decision: string) => {
-    // taskId is the executionId — find the nodeId first
+    // taskId is the executionId — find the nodeId to look up machineId
     const planStore = usePlanStore.getState()
     const node = planStore.nodes.find((n) => n.executionId === taskId)
-    if (!node) {
-      // Remove prompt so dialog doesn't stay stuck
-      set((state) => {
-        const newPrompts = new Map(state.safetyPrompts)
-        newPrompts.delete(taskId)
-        return { safetyPrompts: newPrompts }
-      })
-      throw new Error(`No node found for execution: ${taskId}`)
+
+    // Resolve machineId: try execution store first, then fall back to
+    // the single connected machine (covers refinement tasks like refine-xxx
+    // where no plan node exists).
+    let machineId: string | undefined
+    if (node) {
+      const execution = useExecutionStore.getState().getExecution(node.id)
+      machineId = execution?.machineId
+    }
+    if (!machineId) {
+      // Fall back: pick the first connected machine from realtime store
+      const machines = get().machines
+      if (machines.size > 0) {
+        machineId = machines.values().next().value?.machineId
+      }
     }
 
-    // Get the machine ID for this task from execution store
-    const execution = useExecutionStore.getState().getExecution(node.id)
-    if (!execution?.machineId) {
-      // Remove prompt so dialog doesn't stay stuck
+    if (!machineId) {
+      // Remove from map so the dialog doesn't get stuck
       set((state) => {
         const newPrompts = new Map(state.safetyPrompts)
         newPrompts.delete(taskId)
         return { safetyPrompts: newPrompts }
       })
-      throw new Error(`No machine ID for task: ${taskId}`)
+      throw new Error(`No machine found for safety prompt task: ${taskId}`)
     }
 
     try {
@@ -346,7 +351,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           taskId,
-          machineId: execution.machineId,
+          machineId,
           decision,
         }),
       })
@@ -355,18 +360,24 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         throw new Error(`Failed to send safety decision: ${response.status}`)
       }
 
-      // Remove from pending safety prompts
+      console.log('[realtime] Safety decision sent:', { taskId, decision })
+    } catch (error) {
+      console.error('[realtime] Failed to send safety decision:', error)
+      // Still remove from map to prevent dialog from being stuck
       set((state) => {
         const newPrompts = new Map(state.safetyPrompts)
         newPrompts.delete(taskId)
         return { safetyPrompts: newPrompts }
       })
-
-      console.log('[realtime] Safety decision sent:', { taskId, decision })
-    } catch (error) {
-      console.error('[realtime] Failed to send safety decision:', error)
       throw error
     }
+
+    // Remove from pending safety prompts (always, even on error paths above)
+    set((state) => {
+      const newPrompts = new Map(state.safetyPrompts)
+      newPrompts.delete(taskId)
+      return { safetyPrompts: newPrompts }
+    })
   },
 }))
 

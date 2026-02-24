@@ -245,6 +245,7 @@ async function executeViaRelay(opts: {
     type: opts.type,
     maxTurns: opts.maxTurns ?? 1,
     workingDirectory: '/tmp',
+    skipSafetyCheck: true,
   }
 
   return new Promise((resolve) => {

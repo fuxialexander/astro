@@ -167,6 +167,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const isReexecution = node.status === "completed" || node.status === "auto_verified" || !!node.executionOutput
 
   const [isRefining, setIsRefining] = useState(false)
+  const [justRefined, setJustRefined] = useState(false)
   const updateNode = usePlanStore((s) => s.updateNode)
 
   const handleExecute = () => {
@@ -185,6 +186,8 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
       const result = await refineContent(node.title, node.description ?? "", "task")
       if (result) {
         updateNode(node.id, { title: result.refinedTitle, description: result.refinedDescription })
+        setJustRefined(true)
+        setTimeout(() => setJustRefined(false), 1500)
       }
     } catch { /* refinement is best-effort */ }
     setIsRefining(false)
@@ -446,8 +449,14 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
               onClick={handleExecute}
               disabled={!canExecuteNow || isRefining}
             >
-              {isRefining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              {isRefining ? "Refining..." : isReexecution ? "Re-execute" : "Execute"}
+              {justRefined ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+              ) : isRefining ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              {justRefined ? "Refined!" : isRefining ? "Refining..." : isReexecution ? "Re-execute" : "Execute"}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

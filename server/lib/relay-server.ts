@@ -1160,6 +1160,7 @@ export class RelayServer extends EventEmitter {
         ...(task.agentDir && { agentDir: task.agentDir }),
         ...(task.worktreeStrategy && { worktreeStrategy: task.worktreeStrategy }),
         ...(task.useWorktree !== undefined && { useWorktree: task.useWorktree }),
+        ...(task.skipSafetyCheck !== undefined && { skipSafetyCheck: task.skipSafetyCheck }),
         // Task metadata for PR titles
         ...(task.title && { title: task.title }),
         ...(task.description && { description: task.description }),

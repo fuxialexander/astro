@@ -4,6 +4,7 @@ import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMe
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
+import { usePlanStore } from "@/stores/plan-store"
 
 const statusConfig: Record<string, { bg: string; border: string; dotColor: string }> = {
   planned: { bg: "bg-card", border: "border-border", dotColor: "bg-muted-foreground" },
@@ -53,6 +54,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const focusedId = useKeyboardNavStore((s) => s.focusedId)
   const isFocused = focusedId === id
+  const isRecentlyUpdated = usePlanStore((s) => s.recentlyUpdatedNodeIds.has(id))
 
   // Show tooltip with delay to avoid flicker on quick mouse passes
   useEffect(() => {
@@ -120,7 +122,8 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         isOverdue && "border-l-error border-l-[3px]",
         isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
         isRunning && "shadow-lg shadow-primary/20",
-        isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50"
+        isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50",
+        isRecentlyUpdated && "ring-2 ring-info/50 animate-pulse"
       )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
