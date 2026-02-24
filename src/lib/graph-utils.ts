@@ -30,6 +30,48 @@ function overlapsAny(
 }
 
 /**
+ * Calculate a position for a new parent node above the given child.
+ * Offsets horizontally if nodes already exist at that level,
+ * then shifts further right if the position overlaps any existing node.
+ */
+export function calculateParentPosition(
+  childNode: PlanNode,
+  allNodes: PlanNode[],
+  allEdges: PlanEdge[]
+): { x: number; y: number } {
+  // If child has no position, return default
+  if (!childNode.position) {
+    return { x: 0, y: 0 }
+  }
+
+  // Find existing parents of this child (nodes that point to the child)
+  const parentIds = new Set(
+    allEdges.filter((e) => e.target === childNode.id).map((e) => e.source)
+  )
+  const parentNodes = allNodes.filter((n) => parentIds.has(n.id) && n.position)
+
+  // Calculate base Y position (above the child node)
+  const baseY = childNode.position.y - NODE_HEIGHT - VERTICAL_GAP
+
+  let x: number
+  if (parentNodes.length === 0) {
+    // No existing parents, start at the child's x position
+    x = childNode.position.x
+  } else {
+    // Offset to the right of existing parents
+    const maxX = Math.max(...parentNodes.map((n) => n.position!.x))
+    x = maxX + NODE_WIDTH + HORIZONTAL_GAP
+  }
+
+  // Shift right until clear of all existing nodes (max 20 attempts)
+  for (let i = 0; i < 20 && overlapsAny(x, baseY, allNodes); i++) {
+    x += NODE_WIDTH + HORIZONTAL_GAP
+  }
+
+  return { x, y: baseY }
+}
+
+/**
  * Calculate a position for a new child node below the given parent.
  * Offsets horizontally if siblings already exist at that level,
  * then shifts further right if the position overlaps any existing node.
