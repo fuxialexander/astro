@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { getModelItemStyle } from "../execution-panel"
+import { getModelItemStyle } from "../model-utils"
 
 describe("getModelItemStyle", () => {
   const defaultModel = "claude-sonnet-4-20250514"
