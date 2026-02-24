@@ -151,6 +151,8 @@ The agent runner starts automatically as a subprocess — it connects to the loc
 
 Backend runs on Fly.io, frontend on Cloudflare Pages, data in remote Supabase. Agent runners connect from user machines via WebSocket.
 
+> **Org deployment:** If multiple team members need to deploy independently from their own machines, see [docs/setup/org-deployment.md](docs/setup/org-deployment.md).
+
 **Step 1.** Clone and install (same as above):
 ```bash
 git clone --recurse-submodules git@github.com:fuxialexander/astro.git
@@ -247,14 +249,14 @@ The agent runner needs to know which Astro backend to connect to. There are thre
 **1. CLI flags** (one-time override):
 ```bash
 npx tsx packages/agent-runner/src/cli.ts launch --force-setup \
-  --api https://astro-backend-platform.fly.dev \
-  --relay wss://astro-backend-platform.fly.dev:3002
+  --api https://<your-fly-app>.fly.dev \
+  --relay wss://<your-fly-app>.fly.dev:3002
 ```
 
 **2. Environment variables** (session-level):
 ```bash
-export ASTRO_SERVER_URL=https://astro-backend-platform.fly.dev
-export ASTRO_RELAY_URL=wss://astro-backend-platform.fly.dev:3002
+export ASTRO_SERVER_URL=https://<your-fly-app>.fly.dev
+export ASTRO_RELAY_URL=wss://<your-fly-app>.fly.dev:3002
 npx tsx packages/agent-runner/src/cli.ts launch --force-setup
 ```
 
@@ -262,8 +264,8 @@ Or if `.env.local` is symlinked (e.g., via `npm run env:prod`), the runner reads
 
 **3. Saved config** (persistent):
 ```bash
-npx tsx packages/agent-runner/src/cli.ts config --set api=https://astro-backend-platform.fly.dev
-npx tsx packages/agent-runner/src/cli.ts config --set relay=wss://astro-backend-platform.fly.dev:3002
+npx tsx packages/agent-runner/src/cli.ts config --set api=https://<your-fly-app>.fly.dev
+npx tsx packages/agent-runner/src/cli.ts config --set relay=wss://<your-fly-app>.fly.dev:3002
 ```
 
 Config is stored in `~/.config/astro-agent/config.json` (managed by the `conf` library).
@@ -280,8 +282,8 @@ npx tsx packages/agent-runner/src/cli.ts launch --force-setup \
 
 # Your Fly.io deployment
 npx tsx packages/agent-runner/src/cli.ts launch --force-setup \
-  --api https://astro-backend-platform.fly.dev \
-  --relay wss://astro-backend-platform.fly.dev:3002
+  --api https://<your-fly-app>.fly.dev \
+  --relay wss://<your-fly-app>.fly.dev:3002
 
 # Production (astroanywhere.com) — uses defaults, no flags needed
 npx tsx packages/agent-runner/src/cli.ts launch --force-setup
@@ -455,11 +457,15 @@ npm run lint          # ESLint
 
 ```bash
 npm run build              # TypeScript check + Vite production build
+npm run build:frontend     # Same as build (explicit name)
+npm run build:server       # TypeScript check only (server runs via tsx, no compile needed)
 npm run build:all          # Build everything including agent runner
 npm run deploy             # Deploy backend (Fly.io) + frontend (Cloudflare Pages)
 npm run deploy:backend     # Deploy backend only
 npm run deploy:frontend    # Deploy frontend only
 ```
+
+For multi-user org deployments (multiple people deploying to the same infrastructure), see [docs/setup/org-deployment.md](docs/setup/org-deployment.md).
 
 ### Fly.io Backend Deployment
 

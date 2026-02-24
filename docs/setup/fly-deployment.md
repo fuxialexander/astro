@@ -66,7 +66,7 @@ This diagram shows what happens **after deployment**, when end users are using t
 │                                                         │
 │  The React app boots in the browser, renders the UI,    │
 │  and makes API calls to the Fly.io backend via          │
-│  fetch("https://astro-backend-platform.fly.dev/api/...").
+│  fetch("https://<your-fly-app>.fly.dev/api/...").
 │  This is a cross-origin request, so the backend must    │
 │  allow it via CORS.                                     │
 └──────────────────────┬──────────────────────────────────┘
@@ -129,7 +129,7 @@ YOU (operator, on your dev machine)
 │
 ├── fly deploy                          → pushes Docker image to Fly.io
 │                                         Fly.io runs it as a VM
-│                                         Backend is live at https://astro-backend-platform.fly.dev
+│                                         Backend is live at https://<your-fly-app>.fly.dev
 │
 ├── VITE_API_BASE_URL=... \
 │   VITE_SUPABASE_URL=... \
@@ -150,7 +150,7 @@ The frontend build step bakes in three `VITE_*` env vars. `VITE_API_BASE_URL` te
 - **Frontend on CDN**: Cloudflare Pages is free, globally distributed, scales infinitely. No backend CPU spent serving static files. End users get fast page loads regardless of location.
 - **Single backend process**: The Hono API and WebSocket relay share in-memory state (`machineRegistry`, `dispatchEngine`, `astroEventTransport`). Splitting them into two processes would require Redis for all shared state — complexity for zero gain at our scale.
 - **No AI on server**: In server mode, every AI endpoint checks `isServerMode()` and dispatches through the relay to agent runners on user machines. The Fly.io VM never calls Claude directly — it has no API keys, no providers. This keeps the server lightweight and means users bring their own AI credentials.
-- **Relay on port 3002**: Fly.io exposes it with TLS directly. Agent runners connect to `wss://astro-backend-platform.fly.dev:3002`. Some corporate firewalls block non-443 ports; this is a known limitation for beta.
+- **Relay on port 3002**: Fly.io exposes it with TLS directly. Agent runners connect to `wss://<your-fly-app>.fly.dev:3002`. Some corporate firewalls block non-443 ports; this is a known limitation for beta.
 - **Monorepo is fine**: The three components share no runtime code. The only coupling is one git repo and one root `package.json`. The Docker image for the backend carries frontend npm dependencies (React, Radix, etc.) in `node_modules/` — needed at build time but dead weight at runtime. This makes the image ~200MB larger than it could be, but not worth restructuring for beta.
 
 ---
@@ -198,10 +198,10 @@ export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
 
 ```bash
 # Only needed once. Skip if app already exists.
-fly apps create astro-backend-platform --org personal
+fly apps create <your-fly-app> --org personal
 ```
 
-Verify: `fly apps list` should show `astro-backend-platform`.
+Verify: `fly apps list` should show `<your-fly-app>`.
 
 ### Step 2: Set up Supabase
 
@@ -252,8 +252,8 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...
 DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true
 
 # --- WebAuthn (passkey login) ---
-WEBAUTHN_RP_ID=astro-backend-platform.fly.dev
-WEBAUTHN_ORIGIN=https://astro-backend-platform.fly.dev
+WEBAUTHN_RP_ID=<your-fly-app>.fly.dev
+WEBAUTHN_ORIGIN=https://<your-fly-app>.fly.dev
 
 # --- Frontend URLs (set to your actual frontend domain) ---
 ASTRO_BASE_URL=https://your-frontend-domain.com
@@ -264,10 +264,10 @@ FRONTEND_URL=https://your-frontend-domain.com
 Push secrets to Fly.io:
 
 ```bash
-fly secrets import --app astro-backend-platform < .env
+fly secrets import --app <your-fly-app> < .env
 
 # Verify (shows names only, not values)
-fly secrets list --app astro-backend-platform
+fly secrets list --app <your-fly-app>
 ```
 
 Fly.io encrypts secrets at rest and injects them as environment variables at runtime. They never appear in your Docker image or git history.
@@ -292,7 +292,7 @@ All migrations should complete without errors (NOTICEs about "already exists" ar
 ### Step 5: Deploy backend
 
 ```bash
-fly deploy --app astro-backend-platform
+fly deploy --app <your-fly-app>
 ```
 
 What happens:
@@ -308,7 +308,7 @@ The Dockerfile does NOT run `tsc` or `vite build` — the server uses `tsx` (run
 Verify:
 
 ```bash
-curl -s https://astro-backend-platform.fly.dev/api/health | python3 -m json.tool
+curl -s https://<your-fly-app>.fly.dev/api/health | python3 -m json.tool
 ```
 
 Expected response:
@@ -338,7 +338,7 @@ The frontend build requires three `VITE_*` env vars baked in at build time:
 
 ```bash
 # Build with all three env vars
-VITE_API_BASE_URL=https://astro-backend-platform.fly.dev \
+VITE_API_BASE_URL=https://<your-fly-app>.fly.dev \
 VITE_SUPABASE_URL=https://<ref>.supabase.co \
 VITE_SUPABASE_ANON_KEY=eyJ... \
 npm run build
@@ -377,7 +377,7 @@ fly secrets set \
   FRONTEND_URL="$BRANCH_URL" \
   WEBAUTHN_ORIGIN="$BRANCH_URL" \
   WEBAUTHN_RP_ID="astro-app-29q.pages.dev" \
-  --app astro-backend-platform
+  --app <your-fly-app>
 ```
 
 Fly.io restarts both machines automatically when secrets change (rolling deploy, no downtime).
@@ -395,7 +395,7 @@ fly secrets set \
   FRONTEND_URL="https://your-production-domain.com" \
   WEBAUTHN_ORIGIN="https://your-production-domain.com" \
   WEBAUTHN_RP_ID="your-production-domain.com" \
-  --app astro-backend-platform
+  --app <your-fly-app>
 ```
 
 ### Step 7: Connect an agent runner
@@ -404,7 +404,7 @@ From a user machine (your laptop, an HPC node, etc.):
 
 ```bash
 npm install -g @astroanywhere/agent
-astro-agent setup --relay wss://astro-backend-platform.fly.dev:3002
+astro-agent setup --relay wss://<your-fly-app>.fly.dev:3002
 astro-agent start
 ```
 
@@ -451,15 +451,15 @@ Then `fly deploy` to apply.
 **Option B: CLI commands** (immediate, overrides fly.toml):
 
 ```bash
-fly scale memory 2048 --app astro-backend-platform         # 2 GB RAM
-fly scale vm shared-cpu-2x --app astro-backend-platform     # 2 shared vCPUs
-fly scale vm performance-1x --app astro-backend-platform    # 1 dedicated vCPU
+fly scale memory 2048 --app <your-fly-app>         # 2 GB RAM
+fly scale vm shared-cpu-2x --app <your-fly-app>     # 2 shared vCPUs
+fly scale vm performance-1x --app <your-fly-app>    # 1 dedicated vCPU
 ```
 
 ### Scaling to multiple instances
 
 ```bash
-fly scale count 2 --app astro-backend-platform
+fly scale count 2 --app <your-fly-app>
 ```
 
 Multiple instances require `REDIS_URL` for relay state sharing (machine registry, task routing). Without Redis, each instance has its own in-memory state and agent runners may connect to a different instance than the one handling their task.
@@ -478,8 +478,8 @@ In `fly.toml`, change the services blocks:
 Or destroy the extra machine:
 
 ```bash
-fly machines list --app astro-backend-platform
-fly machines destroy <second-machine-id> --app astro-backend-platform
+fly machines list --app <your-fly-app>
+fly machines destroy <second-machine-id> --app <your-fly-app>
 ```
 
 ---
@@ -505,11 +505,11 @@ No Anthropic API costs on the server — users bring their own Claude credential
 git push origin main
 
 # Backend — manual deploy
-fly deploy --app astro-backend-platform
+fly deploy --app <your-fly-app>
 # or: bash scripts/deploy-fly.sh
 
 # Frontend (production) — requires all three VITE_* env vars
-VITE_API_BASE_URL=https://astro-backend-platform.fly.dev \
+VITE_API_BASE_URL=https://<your-fly-app>.fly.dev \
 VITE_SUPABASE_URL=https://<ref>.supabase.co \
 VITE_SUPABASE_ANON_KEY=eyJ... \
 npm run build && wrangler pages deploy dist --project-name=astro-app
@@ -532,17 +532,17 @@ done
 
 ```bash
 # Live streaming logs (most useful for watching boot + requests)
-fly logs --app astro-backend-platform
+fly logs --app <your-fly-app>
 
 # Last 100 lines
-fly logs --app astro-backend-platform -n 100
+fly logs --app <your-fly-app> -n 100
 
 # Filter for specific component
-fly logs --app astro-backend-platform | grep "\[relay\]"
-fly logs --app astro-backend-platform | grep "\[dispatch\]"
-fly logs --app astro-backend-platform | grep "\[db\]"
-fly logs --app astro-backend-platform | grep "\[env\]"
-fly logs --app astro-backend-platform | grep "\[cleanup\]"
+fly logs --app <your-fly-app> | grep "\[relay\]"
+fly logs --app <your-fly-app> | grep "\[dispatch\]"
+fly logs --app <your-fly-app> | grep "\[db\]"
+fly logs --app <your-fly-app> | grep "\[env\]"
+fly logs --app <your-fly-app> | grep "\[cleanup\]"
 ```
 
 ### Successful server boot sequence
@@ -578,13 +578,13 @@ If you don't see `listening on http://localhost:3001`, the server crashed during
 
 ```bash
 # Is the VM running?
-fly status --app astro-backend-platform
+fly status --app <your-fly-app>
 
 # Machine events (OOM, crash loops, restarts)
-fly machines list --app astro-backend-platform
+fly machines list --app <your-fly-app>
 
 # SSH into the running container to inspect
-fly ssh console --app astro-backend-platform
+fly ssh console --app <your-fly-app>
 
 # Inside the container:
 ps aux                                    # is the node process alive?
@@ -597,7 +597,7 @@ curl -s http://localhost:3001/api/health  # health check from inside
 Missing or invalid secrets. The server exits immediately.
 
 ```bash
-fly secrets list --app astro-backend-platform
+fly secrets list --app <your-fly-app>
 ```
 
 Common causes:
@@ -623,7 +623,7 @@ Check `DATABASE_URL`:
 #### 4. CORS errors in browser console
 
 ```
-Access to fetch at 'https://astro-backend-platform.fly.dev/api/...' from origin
+Access to fetch at 'https://<your-fly-app>.fly.dev/api/...' from origin
 'https://astro-app.pages.dev' has been blocked by CORS policy
 ```
 
@@ -635,7 +635,7 @@ The backend allows these origins:
 There are **no hardcoded production domains** in the source code — all production origins must be configured via environment variables. If your frontend URL isn't in that list, add it:
 
 ```bash
-fly secrets set CORS_ORIGIN="https://your-frontend-url.com" --app astro-backend-platform
+fly secrets set CORS_ORIGIN="https://your-frontend-url.com" --app <your-fly-app>
 # Fly.io restarts the VM automatically when secrets change.
 ```
 
@@ -645,24 +645,24 @@ The relevant code is in `server/index.ts` — the `ALLOWED_ORIGINS` array.
 
 Fly.io has a 60-second idle timeout for HTTP connections. The Astro backend sends heartbeat events on the SSE stream to keep connections alive. If SSE drops:
 
-- Check `fly logs --app astro-backend-platform | grep -i timeout`
-- Check `fly logs --app astro-backend-platform | grep heartbeat`
+- Check `fly logs --app <your-fly-app> | grep -i timeout`
+- Check `fly logs --app <your-fly-app> | grep heartbeat`
 - The SSE endpoint is `/api/events/stream` — make sure it's sending heartbeat events at least every 30s
 
 #### 6. WebSocket relay not reachable
 
-Agent runners connect to `wss://astro-backend-platform.fly.dev:3002`. If connection fails:
+Agent runners connect to `wss://<your-fly-app>.fly.dev:3002`. If connection fails:
 
 ```bash
 # Verify port 3002 is exposed
-fly services list --app astro-backend-platform
+fly services list --app <your-fly-app>
 
 # Check relay logs
-fly logs --app astro-backend-platform | grep "\[relay\]"
+fly logs --app <your-fly-app> | grep "\[relay\]"
 
 # Test WebSocket connectivity (from your machine)
 # Should connect and receive a response, or timeout if blocked
-wscat -c wss://astro-backend-platform.fly.dev:3002
+wscat -c wss://<your-fly-app>.fly.dev:3002
 ```
 
 Common causes:
@@ -676,14 +676,14 @@ The VM has 1GB RAM by default. If the server crashes under load:
 
 ```bash
 # Check for OOM events
-fly machines list --app astro-backend-platform --json | python3 -c "
+fly machines list --app <your-fly-app> --json | python3 -c "
 import json, sys
 for m in json.load(sys.stdin):
     print(m.get('id'), m.get('state'), m.get('events', [{}])[-1].get('type', ''))
 "
 
 # Scale up memory (immediate)
-fly scale memory 2048 --app astro-backend-platform
+fly scale memory 2048 --app <your-fly-app>
 
 # Or edit fly.toml for a persistent change:
 # [vm]
@@ -705,7 +705,7 @@ docker build -f docker/Dockerfile -t astro-test .
 
 ```bash
 # SSH into the VM
-fly ssh console --app astro-backend-platform
+fly ssh console --app <your-fly-app>
 
 # Check environment (secrets are injected at runtime, values masked here)
 env | grep -E "^(SUPABASE|DATABASE|RELAY|DEVICE|ANTHROPIC|WEBAUTHN|CORS|FRONTEND|NODE_ENV)" | sed 's/=.*/=***/'
@@ -728,12 +728,12 @@ curl -s http://localhost:3001/api/health | python3 -m json.tool
 
 ```bash
 # Restart individual machines
-fly machines list --app astro-backend-platform
-fly machines restart <machine-id> --app astro-backend-platform
+fly machines list --app <your-fly-app>
+fly machines restart <machine-id> --app <your-fly-app>
 
 # If that doesn't help — destroy and redeploy (nuclear option)
-fly machines destroy <machine-id> --app astro-backend-platform
-fly deploy --app astro-backend-platform
+fly machines destroy <machine-id> --app <your-fly-app>
+fly deploy --app <your-fly-app>
 ```
 
 ---
@@ -742,21 +742,21 @@ fly deploy --app astro-backend-platform
 
 ```bash
 # 1. Allocate a dedicated IP (needed for custom domains)
-fly ips allocate-v4 --app astro-backend-platform
-fly ips allocate-v6 --app astro-backend-platform
+fly ips allocate-v4 --app <your-fly-app>
+fly ips allocate-v6 --app <your-fly-app>
 
 # 2. Add certificate (Fly.io auto-provisions via Let's Encrypt)
-fly certs create api.yourdomain.com --app astro-backend-platform
+fly certs create api.yourdomain.com --app <your-fly-app>
 
 # 3. Get the IPs
-fly ips list --app astro-backend-platform
+fly ips list --app <your-fly-app>
 
 # 4. Add DNS records at your registrar:
 #   A    api.yourdomain.com → <fly-ipv4>
 #   AAAA api.yourdomain.com → <fly-ipv6>
 
 # 5. Wait for certificate provisioning (usually < 5 minutes)
-fly certs show api.yourdomain.com --app astro-backend-platform
+fly certs show api.yourdomain.com --app <your-fly-app>
 ```
 
 Then update secrets to use the new domain:
@@ -766,7 +766,7 @@ fly secrets set \
   WEBAUTHN_RP_ID="yourdomain.com" \
   WEBAUTHN_ORIGIN="https://api.yourdomain.com" \
   CORS_ORIGIN="https://yourdomain.com" \
-  --app astro-backend-platform
+  --app <your-fly-app>
 ```
 
 ---
@@ -799,7 +799,7 @@ fly secrets set \
   WEBAUTHN_ORIGIN="https://astro.com" \
   WEBAUTHN_RP_ID="astro.com" \
   ASTRO_NOREPLY_EMAIL="noreply@astro.com" \
-  --app astro-backend-platform
+  --app <your-fly-app>
 
 # 2. Rebuild and deploy frontend with the new API URL
 VITE_API_BASE_URL=https://api.astro.com \
