@@ -9,7 +9,18 @@ import type { PlanNode, PlanEdge, Priority, Estimate, EdgeType } from "@/types"
 
 interface TaskCreationFormProps {
   projectId: string
+  /**
+   * Parent node ID - the new node will depend on this node.
+   * Creates edge: parentNodeId → newNode
+   */
   parentNodeId?: string
+  /**
+   * Child node ID - the new node will be a predecessor of this node.
+   * Creates edge: newNode → childNodeId
+   * Also updates childNode's dependencies to include the new node.
+   * Mutually exclusive with parentNodeId.
+   */
+  childNodeId?: string
   defaultMilestoneId?: string
   position?: { x: number; y: number }
   mode: "inline" | "popover" | "dialog"
@@ -22,6 +33,7 @@ interface TaskCreationFormProps {
 export function TaskCreationForm({
   projectId,
   parentNodeId,
+  childNodeId,
   defaultMilestoneId,
   position,
   mode,
@@ -31,6 +43,8 @@ export function TaskCreationForm({
 }: TaskCreationFormProps) {
   const addNode = usePlanStore((s) => s.addNode)
   const addEdge = usePlanStore((s) => s.addEdge)
+  const updateNode = usePlanStore((s) => s.updateNode)
+  const nodes = usePlanStore((s) => s.nodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
 
   const [title, setTitle] = useState("")
@@ -76,6 +90,8 @@ export function TaskCreationForm({
     const nodeId = crypto.randomUUID()
     const now = new Date()
 
+    // In predecessor mode (childNodeId), the new node has no dependencies from this relation
+    // In successor mode (parentNodeId), the new node depends on the parent
     const newNode: PlanNode = {
       id: nodeId,
       projectId,
@@ -98,6 +114,7 @@ export function TaskCreationForm({
     addNode(newNode)
 
     if (parentNodeId) {
+      // Successor mode: parentNodeId → newNode
       const edgeId = crypto.randomUUID()
       const newEdge: PlanEdge = {
         id: edgeId,
@@ -106,6 +123,23 @@ export function TaskCreationForm({
         type: edgeType,
       }
       addEdge(newEdge)
+    } else if (childNodeId) {
+      // Predecessor mode: newNode → childNodeId
+      const edgeId = crypto.randomUUID()
+      const newEdge: PlanEdge = {
+        id: edgeId,
+        source: nodeId,
+        target: childNodeId,
+        type: edgeType,
+      }
+      addEdge(newEdge)
+
+      // Update the child node's dependencies to include the new node
+      const childNode = nodes.find((n) => n.id === childNodeId)
+      if (childNode) {
+        const updatedDependencies = [...(childNode.dependencies || []), nodeId]
+        updateNode(childNodeId, { dependencies: updatedDependencies })
+      }
     }
 
     onCreated?.(newNode)
@@ -118,8 +152,8 @@ export function TaskCreationForm({
     }
   }, [
     title, description, nodeType, priority, estimate, dueDate, milestoneId, edgeType,
-    projectId, parentNodeId, position, createMore,
-    addNode, addEdge, onCreated, onCancel, resetForm,
+    projectId, parentNodeId, childNodeId, position, createMore, nodes,
+    addNode, addEdge, updateNode, onCreated, onCancel, resetForm,
   ])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -242,7 +276,7 @@ export function TaskCreationForm({
           </>
         )}
 
-        {parentNodeId && (
+        {(parentNodeId || childNodeId) && (
           <select
             value={edgeType}
             onChange={(e) => setEdgeType(e.target.value as EdgeType)}
