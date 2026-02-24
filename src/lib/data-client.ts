@@ -86,7 +86,7 @@ function mapProject(row: Record<string, unknown>): Project {
     updatedAt: toDate(r.updatedAt),
     labels: (r.labels as Project["labels"]) ?? [],
     source: r.source as Project["source"],
-    deliveryMode: r.deliveryMode as Project["deliveryMode"],
+    deliveryMode: (['pr', 'push', 'branch', 'copy', 'direct'].includes(r.deliveryMode as string) ? r.deliveryMode : undefined) as Project["deliveryMode"],
   } as Project
 }
 

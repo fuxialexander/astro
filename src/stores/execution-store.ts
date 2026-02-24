@@ -371,7 +371,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           maxTurns: options?.maxTurns ?? 100,
           workingDirectory: resolvedDir,
           computeBackend: options?.computeBackend,
-          deliveryMode: project?.deliveryMode,
+          deliveryMode: project?.deliveryMode || undefined,
           remoteType: project?.source?.remoteType,
           agentDir: project?.agentDir,
           worktreeStrategy: project?.worktreeStrategy,
