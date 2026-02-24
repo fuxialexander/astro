@@ -160,11 +160,10 @@ The frontend build step bakes in three `VITE_*` env vars. `VITE_API_BASE_URL` te
 ```
 docker/
 ├── Dockerfile              # Backend + relay production image
-├── docker-compose.yml      # Local self-hosted: app + redis
 └── .dockerignore
 fly.toml                    # Fly.io app config (must be at repo root)
 .dockerignore               # Root-level Docker build context filter
-scripts/deploy-fly.sh       # Manual deploy script
+scripts/deploy.sh           # Deploy script (backend + frontend)
 .github/workflows/fly-deploy.yml  # Auto-deploy on push to main
 ```
 
@@ -272,6 +271,25 @@ fly secrets list --app <your-fly-app>
 
 Fly.io encrypts secrets at rest and injects them as environment variables at runtime. They never appear in your Docker image or git history.
 
+#### Using env profiles (recommended)
+
+Instead of manually setting `VITE_*` vars every time you deploy, use the env profile system:
+
+```bash
+# One-time: generate .env.prod profile
+npm run env:init
+
+# Edit .env.prod with your remote Supabase credentials + deployment config:
+#   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL
+#   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_API_BASE_URL
+#   FLY_APP (must match fly.toml, default: astro-backend-deploy)
+
+# Switch to prod profile (symlinks .env.local → .env.prod)
+npm run env:prod
+```
+
+Once activated, `scripts/deploy.sh` sources `.env` + `.env.local` automatically — no need to pass `VITE_*` vars on the command line.
+
 ### Step 4: Run database migrations
 
 The Supabase database starts empty. Run migrations to create all required tables:
@@ -292,6 +310,10 @@ All migrations should complete without errors (NOTICEs about "already exists" ar
 ### Step 5: Deploy backend
 
 ```bash
+# Recommended: uses env profiles, sets CORS/WebAuthn secrets automatically
+npm run deploy:backend
+
+# Or manual:
 fly deploy --app <your-fly-app>
 ```
 
@@ -337,7 +359,10 @@ The frontend build requires three `VITE_*` env vars baked in at build time:
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon key (used by the Supabase JS client for session management) |
 
 ```bash
-# Build with all three env vars
+# Recommended: reads VITE_* vars from env profiles, builds + deploys
+npm run deploy:frontend
+
+# Or manual (pass VITE_* vars explicitly):
 VITE_API_BASE_URL=https://<your-fly-app>.fly.dev \
 VITE_SUPABASE_URL=https://<ref>.supabase.co \
 VITE_SUPABASE_ANON_KEY=eyJ... \
@@ -501,12 +526,25 @@ No Anthropic API costs on the server — users bring their own Claude credential
 ## Subsequent Deploys
 
 ```bash
+# Deploy everything (backend + frontend)
+npm run deploy
+
+# Deploy individually
+npm run deploy:backend       # Backend only (Fly.io)
+npm run deploy:frontend      # Frontend only (Cloudflare Pages)
+```
+
+These commands read config from your env profile (`.env` + `.env.local`), handle CORS/WebAuthn secrets, and pass `VITE_*` vars to the frontend build automatically.
+
+**Alternative: manual commands**
+
+```bash
 # Backend — auto-deploys on push to main (via GitHub Actions)
 git push origin main
 
 # Backend — manual deploy
 fly deploy --app <your-fly-app>
-# or: bash scripts/deploy-fly.sh
+# or: bash scripts/deploy.sh backend
 
 # Frontend (production) — requires all three VITE_* env vars
 VITE_API_BASE_URL=https://<your-fly-app>.fly.dev \
