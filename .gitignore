@@ -187,3 +187,4 @@ docs/setup/xi-fu-deployment.md
 *.xcuserstate
 xcuserdata/
 *.xcworkspace/xcuserdata/
+trajectories.jsonl
