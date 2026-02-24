@@ -71,8 +71,27 @@ export interface RepoDetectRelayResult {
   remoteUrl?: string;
   remoteType: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
   baseBranch?: string;
+  currentBranch?: string;
+  isDirty?: boolean;
+  dirtyDetails?: {
+    staged: number;
+    unstaged: number;
+    untracked: number;
+  };
   suggestedDeliveryMode: 'pr' | 'push' | 'branch' | 'direct';
   dirSizeMB?: number | null;
+  error?: string;
+}
+
+/** Result from remote branch list relayed from agent runner */
+export interface BranchListRelayResult {
+  branches: Array<{
+    name: string;
+    isRemote: boolean;
+    isCurrent: boolean;
+    isDefault: boolean;
+  }>;
+  defaultBranch?: string;
   error?: string;
 }
 
@@ -312,8 +331,32 @@ interface AgentRunnerRepoDetectResponseMessage {
     remoteUrl?: string;
     remoteType: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
     baseBranch?: string;
+    currentBranch?: string;
+    isDirty?: boolean;
+    dirtyDetails?: {
+      staged: number;
+      unstaged: number;
+      untracked: number;
+    };
     suggestedDeliveryMode: 'pr' | 'push' | 'branch' | 'direct';
     dirSizeMB?: number | null;
+    error?: string;
+  };
+}
+
+/** Agent runner's branch list response message format */
+interface AgentRunnerBranchListResponseMessage {
+  type: 'branch_list_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    branches: Array<{
+      name: string;
+      isRemote: boolean;
+      isCurrent: boolean;
+      isDefault: boolean;
+    }>;
+    defaultBranch?: string;
     error?: string;
   };
 }
@@ -427,6 +470,7 @@ export interface RelayServerEvents {
   'slash_commands:response': (data: { correlationId: string; commands: Array<{ name: string; description: string }> }) => void;
   'repo_detect:response': (data: { correlationId: string; result: RepoDetectRelayResult }) => void;
   'git_init:response': (data: { correlationId: string; result: GitInitRelayResult }) => void;
+  'branch_list:response': (data: { correlationId: string; result: BranchListRelayResult }) => void;
   'error': (error: Error) => void;
 }
 
@@ -839,6 +883,15 @@ export class RelayServer extends EventEmitter {
 
       case 'git_init_response':
         this.handleAgentRunnerGitInitResponse(message as unknown as AgentRunnerGitInitResponseMessage);
+        break;
+
+      // Branch list response from agent runner
+      case 'branch_list.response':
+        this.handleBranchListResponse(message as unknown as { type: 'branch_list.response'; correlationId: string; result: BranchListRelayResult });
+        break;
+
+      case 'branch_list_response':
+        this.handleAgentRunnerBranchListResponse(message as unknown as AgentRunnerBranchListResponseMessage);
         break;
 
       // Session attachment messages (MCP bridge)
@@ -1969,6 +2022,55 @@ export class RelayServer extends EventEmitter {
   private handleAgentRunnerGitInitResponse(message: AgentRunnerGitInitResponseMessage): void {
     const { correlationId, ...result } = message.payload;
     this.emit('git_init:response', {
+      correlationId,
+      result,
+    });
+  }
+
+  // ============================================================================
+  // Branch List Handlers
+  // ============================================================================
+
+  /**
+   * Request branch list from a connected machine
+   */
+  requestBranchList(machineId: string, path: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for branch list request`);
+      return false;
+    }
+
+    const msg = {
+      type: 'branch_list_request',
+      timestamp: new Date().toISOString(),
+      payload: { path, correlationId },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle branch_list.response (dot notation)
+   */
+  private handleBranchListResponse(message: { correlationId: string; result: BranchListRelayResult }): void {
+    this.emit('branch_list:response', {
+      correlationId: message.correlationId,
+      result: message.result,
+    });
+  }
+
+  /**
+   * Handle agent runner's branch_list_response format
+   */
+  private handleAgentRunnerBranchListResponse(message: AgentRunnerBranchListResponseMessage): void {
+    const { correlationId, ...result } = message.payload;
+    this.emit('branch_list:response', {
       correlationId,
       result,
     });

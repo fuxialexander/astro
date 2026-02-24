@@ -7,7 +7,7 @@
  */
 
 import { Hono } from 'hono'
-import { relayServer, type RepoSetupRelayResult, type RepoDetectRelayResult, type GitInitRelayResult } from '../lib/relay-server.js'
+import { relayServer, type RepoSetupRelayResult, type RepoDetectRelayResult, type GitInitRelayResult, type BranchListRelayResult } from '../lib/relay-server.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { errorMessage } from '../lib/error-utils.js'
 
@@ -59,6 +59,7 @@ async function requestRemoteRepoSetup(
     projectDescription?: string
     workingDirectory?: string
     repository?: string
+    baseBranch?: string
   },
 ): Promise<RepoSetupRelayResult> {
   const correlationId = crypto.randomUUID()
@@ -86,6 +87,39 @@ async function requestRemoteRepoSetup(
       clearTimeout(timeout)
       relayServer.removeListener('repo_setup:response', handler)
       resolve({ success: false, error: `Machine ${machineId} is not connected` })
+    }
+  })
+}
+
+/**
+ * Request branch list from a remote machine via relay WebSocket.
+ */
+async function requestRemoteBranchList(
+  machineId: string,
+  path: string,
+): Promise<BranchListRelayResult> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<BranchListRelayResult>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('branch_list:response', handler)
+      resolve({ branches: [], error: 'Remote branch list timed out' })
+    }, 10_000)
+
+    function handler(data: { correlationId: string; result: BranchListRelayResult }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('branch_list:response', handler)
+      resolve(data.result)
+    }
+
+    relayServer.on('branch_list:response', handler)
+
+    const sent = relayServer.requestBranchList(machineId, path, correlationId)
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('branch_list:response', handler)
+      resolve({ branches: [], error: `Machine ${machineId} is not connected` })
     }
   })
 }
@@ -168,13 +202,46 @@ repoRoute.get('/detect', async (c) => {
 })
 
 /**
+ * GET /api/repo/branches?path=<dir>&machineId=<id>
+ *
+ * Fetches the list of local and remote branches for a git repository.
+ * Requires machineId — all FS operations go through relay.
+ *
+ * Response: { branches: [...], defaultBranch? }
+ */
+repoRoute.get('/branches', async (c) => {
+  const dirPath = c.req.query('path')
+  const machineId = c.req.query('machineId')
+
+  if (!dirPath) {
+    return c.json({ error: 'path query parameter is required' }, 400)
+  }
+
+  if (!machineId) {
+    return c.json({ error: 'machineId query parameter is required. Connect a machine to list branches.' }, 400)
+  }
+
+  try {
+    const result = await requestRemoteBranchList(machineId, dirPath)
+    if (result.error) {
+      return c.json({ error: result.error }, 500)
+    }
+    return c.json(result)
+  } catch (error) {
+    const message = errorMessage(error)
+    console.error('[repo] Branch list failed:', message)
+    return c.json({ error: `Branch list failed: ${message}` }, 500)
+  }
+})
+
+/**
  * POST /api/repo/setup
  *
  * Main endpoint called during project creation to set up a git-backed directory.
  * Routes request to connected machine via relay. If no targetMachineId,
  * auto-selects the best available machine.
  *
- * Input: { projectId, projectName, projectDescription?, workingDirectory?, repository?, targetMachineId? }
+ * Input: { projectId, projectName, projectDescription?, workingDirectory?, repository?, baseBranch?, targetMachineId? }
  * Response: { workingDirectory, fileTree, needsGitInit?, claudeMdCreated?, gitignoreCreated? }
  */
 repoRoute.post('/setup', async (c) => {
@@ -184,10 +251,11 @@ repoRoute.post('/setup', async (c) => {
     projectDescription?: string
     workingDirectory?: string
     repository?: string
+    baseBranch?: string
     targetMachineId?: string
   }>()
 
-  const { projectId, projectName, projectDescription, workingDirectory, repository, targetMachineId } = body
+  const { projectId, projectName, projectDescription, workingDirectory, repository, baseBranch, targetMachineId } = body
 
   if (!projectId || !projectName) {
     return c.json({ error: 'projectId and projectName are required' }, 400)
@@ -210,6 +278,7 @@ repoRoute.post('/setup', async (c) => {
       projectDescription,
       workingDirectory,
       repository,
+      baseBranch,
     })
 
     if (!result.success) {

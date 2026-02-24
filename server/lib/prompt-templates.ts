@@ -14,6 +14,7 @@ export {
 
 export type {
   RepoContextForPrompt,
+  GitStateForPrompt,
   ChatPlanNode,
   ChatPlanEdge,
   TaskExecutionContext,
