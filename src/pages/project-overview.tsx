@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
 import { useParams } from "react-router"
 import {
   Rocket,
@@ -24,6 +24,7 @@ import { MilestoneDialog } from "@/components/milestone-dialog"
 import { ActivityDialog } from "@/components/activity-dialog"
 import { ColorIconBadge } from "@/components/color-icon-picker"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
+import { InlineRenameInput } from "@/components/inline-rename-input"
 import { PlanListView } from "@/pages/plan-view"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -32,6 +33,7 @@ import { useActivityStore } from "@/stores/activity-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { cn } from "@/lib/utils"
+import { validateProjectName } from "@/lib/project-validation"
 import { deliveryModeLabel, remoteTypeLabel } from "@/lib/project-source"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
 import type { Project, PlanNode } from "@/types"
@@ -791,9 +793,23 @@ export function OverviewTab({
 export function ProjectOverview() {
   const { id } = useParams()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
+  const allProjects = useProjectStore((s) => s.projects)
   const updateProject = useProjectStore((s) => s.updateProject)
   const [activeView, setActiveView] = useState<"plan" | "overview">("plan") // Default to Plan view
   const [, setSelectedNode] = useState<PlanNode | null>(null)
+  const [isRenaming, setIsRenaming] = useState(false)
+
+  const handleRename = useCallback((newName: string) => {
+    if (project) {
+      updateProject(project.id, { name: newName })
+    }
+    setIsRenaming(false)
+  }, [project, updateProject])
+
+  const handleValidate = useCallback((name: string): string | null => {
+    if (!project) return null
+    return validateProjectName(name, project.id, allProjects)
+  }, [project, allProjects])
 
   // Auto-fetch file tree in the background when stale or missing
   useFileTreeRefresh(project)
@@ -818,7 +834,23 @@ export function ProjectOverview() {
           onColorChange={(color) => updateProject(project.id, { color })}
           onIconChange={(icon) => updateProject(project.id, { icon })}
         />
-        <span className="text-lg font-semibold shrink-0">{project.name}</span>
+        {isRenaming ? (
+          <InlineRenameInput
+            value={project.name}
+            onSave={handleRename}
+            onCancel={() => setIsRenaming(false)}
+            validate={handleValidate}
+            className="text-lg font-semibold"
+          />
+        ) : (
+          <span
+            className="text-lg font-semibold shrink-0 group/name cursor-default"
+            onDoubleClick={() => setIsRenaming(true)}
+          >
+            {project.name}
+            <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 transition-opacity" />
+          </span>
+        )}
         <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
 
         {/* Plan | Overview Toggle */}

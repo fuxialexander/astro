@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { FileText, Plus, MessageSquare, Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Download, Folder, Check } from "lucide-react"
+import { FileText, Plus, MessageSquare, Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Download, Folder, Check, Pencil } from "lucide-react"
 
 // Media query hook for responsive rendering
 function useMediaQuery(query: string) {
@@ -36,6 +36,8 @@ import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from 
 import { ItemTimelineView, TimelineAddTaskFooter, type TimelineRow } from "@/components/views/item-timeline-view"
 import { PropertyPicker } from "@/components/property-picker"
 import { ColorIconBadge } from "@/components/color-icon-picker"
+import { InlineRenameInput } from "@/components/inline-rename-input"
+import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -64,6 +66,7 @@ const planListDisplayConfig: DisplayPopoverConfig = {
     { value: "priority", label: "Priority" },
   ],
   orderByOptions: [
+    { value: "number", label: "Number" },
     { value: "name", label: "Name" },
     { value: "status", label: "Status" },
     { value: "priority", label: "Priority" },
@@ -146,6 +149,8 @@ function sortPlanNodes(nodes: PlanNode[], orderBy: string, dir: number): PlanNod
   const sorted = [...nodes]
   sorted.sort((a, b) => {
     switch (orderBy) {
+      case "number":
+        return dir * ((a.number ?? Infinity) - (b.number ?? Infinity))
       case "name":
         return dir * a.title.localeCompare(b.title)
       case "status":
@@ -1101,6 +1106,7 @@ export function PlanView() {
   const location = useLocation()
   const navigate = useNavigate()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
+  const allProjects = useProjectStore((s) => s.projects)
   const updateProject = useProjectStore((s) => s.updateProject)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
@@ -1121,6 +1127,17 @@ export function PlanView() {
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
+  const [isRenaming, setIsRenaming] = useState(false)
+
+  const handleRename = useCallback((newName: string) => {
+    if (project) updateProject(project.id, { name: newName })
+    setIsRenaming(false)
+  }, [project, updateProject])
+
+  const handleValidateRename = useCallback((name: string): string | null => {
+    if (!project) return null
+    return validateProjectName(name, project.id, allProjects)
+  }, [project, allProjects])
 
   // Determine view mode and active tab from URL path
   const { viewMode, activeTab } = useMemo(() => {
@@ -1198,7 +1215,23 @@ export function PlanView() {
             onColorChange={(color) => updateProject(project.id, { color })}
             onIconChange={(icon) => updateProject(project.id, { icon })}
           />
-          <span className="text-lg font-semibold shrink-0">{project.name}</span>
+          {isRenaming ? (
+            <InlineRenameInput
+              value={project.name}
+              onSave={handleRename}
+              onCancel={() => setIsRenaming(false)}
+              validate={handleValidateRename}
+              className="text-lg font-semibold"
+            />
+          ) : (
+            <span
+              className="text-lg font-semibold shrink-0 group/name cursor-default"
+              onDoubleClick={() => setIsRenaming(true)}
+            >
+              {project.name}
+              <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 transition-opacity" />
+            </span>
+          )}
           <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
         </div>
 

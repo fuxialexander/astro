@@ -30,7 +30,7 @@ interface ColorIconPickerProps {
 
 export function ColorIconPicker({
   color = "#6366f1",
-  icon = "FaBox",
+  icon = "🚀",
   type = "project",
   onColorChange,
   onIconChange,
@@ -38,7 +38,8 @@ export function ColorIconPicker({
 }: ColorIconPickerProps) {
   const [selectedColor, setSelectedColor] = useState(color);
   const [searchQuery, setSearchQuery] = useState("");
-  const [tabValue, setTabValue] = useState<"icons" | "emojis">("icons");
+  // Default to emojis tab
+  const [tabValue, setTabValue] = useState<"emojis" | "icons">("emojis");
 
   const faIcons = type === "initiative" ? INITIATIVE_FA_ICONS : PROJECT_FA_ICONS;
   const emojiIcons = type === "initiative" ? INITIATIVE_EMOJI_ICONS : PROJECT_EMOJI_ICONS;
@@ -52,7 +53,6 @@ export function ColorIconPicker({
 
   const filteredEmojiIcons = useMemo(() => {
     if (!searchQuery) return emojiIcons;
-    // For emojis, we can't really search by name, so just return all
     return emojiIcons;
   }, [emojiIcons, searchQuery]);
 
@@ -70,7 +70,6 @@ export function ColorIconPicker({
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      {/* Combined Icon & Color Picker */}
       <Popover>
         <PopoverTrigger asChild>
           <Button
@@ -86,78 +85,16 @@ export function ColorIconPicker({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[520px] p-0" align="start">
-          <Tabs value={tabValue} onValueChange={(v) => setTabValue(v as "icons" | "emojis")} className="w-full">
+          <Tabs value={tabValue} onValueChange={(v) => setTabValue(v as "emojis" | "icons")} className="w-full">
             <div className="border-b px-4 pt-3">
               <TabsList className="grid w-full grid-cols-2 mb-3">
-                <TabsTrigger value="icons">Icons</TabsTrigger>
                 <TabsTrigger value="emojis">Emojis</TabsTrigger>
+                <TabsTrigger value="icons">Icons</TabsTrigger>
               </TabsList>
             </div>
 
-            <div className="p-4 space-y-3">
-              {/* Color Palette */}
-              <div className="flex items-center gap-2 pb-3 border-b">
-                {COLOR_PALETTE.map((c) => (
-                  <button
-                    key={c}
-                    className={cn(
-                      "h-8 w-8 rounded-full transition-all flex items-center justify-center",
-                      selectedColor === c && "ring-2 ring-offset-2 ring-primary"
-                    )}
-                    style={{ backgroundColor: c }}
-                    onClick={() => handleColorChange(c)}
-                  >
-                    {selectedColor === c && <Check className="h-4 w-4 text-white" />}
-                  </button>
-                ))}
-                {/* Rainbow/custom color picker */}
-                <button
-                  className="h-8 w-8 rounded-full bg-gradient-to-br from-red-500 via-yellow-500 to-blue-500"
-                  title="More colors"
-                  onClick={() => {/* TODO: Custom color picker */}}
-                />
-              </div>
-
-              {/* Search */}
-              <Input
-                placeholder="Search icons..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-9"
-              />
-            </div>
-
-            {/* Icons Tab */}
-            <TabsContent value="icons" className="px-4 pb-4 mt-0 max-h-[300px] overflow-y-auto">
-              <div className="grid grid-cols-12 gap-1">
-                {filteredFaIcons.map((iconName) => {
-                  const IconComponent = getFaIcon(iconName);
-                  if (!IconComponent) return null;
-
-                  return (
-                    <Button
-                      key={iconName}
-                      variant="ghost"
-                      className={cn(
-                        "h-9 w-9 p-0 hover:bg-accent",
-                        icon === iconName && "bg-accent"
-                      )}
-                      onClick={() => handleIconChange(iconName)}
-                    >
-                      <IconComponent size={18} style={{ color: selectedColor }} />
-                    </Button>
-                  );
-                })}
-              </div>
-              {filteredFaIcons.length === 0 && (
-                <div className="text-center text-sm text-muted-foreground py-8">
-                  No icons found
-                </div>
-              )}
-            </TabsContent>
-
-            {/* Emojis Tab */}
-            <TabsContent value="emojis" className="px-4 pb-4 mt-0 max-h-[300px] overflow-y-auto">
+            {/* Emojis Tab — no color palette needed */}
+            <TabsContent value="emojis" className="px-4 py-4 mt-0 max-h-[300px] overflow-y-auto">
               <div className="grid grid-cols-12 gap-1">
                 {filteredEmojiIcons.map((emoji) => (
                   <Button
@@ -172,6 +109,64 @@ export function ColorIconPicker({
                     {emoji}
                   </Button>
                 ))}
+              </div>
+            </TabsContent>
+
+            {/* Icons Tab — color palette + search + FA icons */}
+            <TabsContent value="icons" className="mt-0">
+              <div className="p-4 space-y-3">
+                {/* Color Palette */}
+                <div className="flex items-center gap-2 pb-3 border-b">
+                  {COLOR_PALETTE.map((c) => (
+                    <button
+                      key={c}
+                      className={cn(
+                        "h-8 w-8 rounded-full transition-all flex items-center justify-center cursor-pointer",
+                        selectedColor === c && "ring-2 ring-offset-2 ring-primary"
+                      )}
+                      style={{ backgroundColor: c }}
+                      onClick={() => handleColorChange(c)}
+                    >
+                      {selectedColor === c && <Check className="h-4 w-4 text-white" />}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Search */}
+                <Input
+                  placeholder="Search icons..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="px-4 pb-4 max-h-[220px] overflow-y-auto">
+                <div className="grid grid-cols-12 gap-1">
+                  {filteredFaIcons.map((iconName) => {
+                    const IconComponent = getFaIcon(iconName);
+                    if (!IconComponent) return null;
+
+                    return (
+                      <Button
+                        key={iconName}
+                        variant="ghost"
+                        className={cn(
+                          "h-9 w-9 p-0 hover:bg-accent",
+                          icon === iconName && "bg-accent"
+                        )}
+                        onClick={() => handleIconChange(iconName)}
+                      >
+                        <IconComponent size={18} style={{ color: selectedColor }} />
+                      </Button>
+                    );
+                  })}
+                </div>
+                {filteredFaIcons.length === 0 && (
+                  <div className="text-center text-sm text-muted-foreground py-8">
+                    No icons found
+                  </div>
+                )}
               </div>
             </TabsContent>
           </Tabs>
@@ -194,7 +189,7 @@ interface ColorIconBadgeProps {
 
 export function ColorIconBadge({
   color = "#6366f1",
-  icon = "FaBox",
+  icon = "🚀",
   type = "project",
   editable = false,
   onColorChange,
@@ -205,6 +200,14 @@ export function ColorIconBadge({
   const IconComponent = useMemo(() => getFaIcon(icon), [icon]);
 
   if (!editable) {
+    // Emoji: render plain (no background), FA icon: render with tinted background
+    if (!IconComponent) {
+      return (
+        <div className={cn("inline-flex items-center", className)}>
+          <span className="text-lg">{icon}</span>
+        </div>
+      );
+    }
     return (
       <div
         className={cn(
@@ -213,11 +216,7 @@ export function ColorIconBadge({
         )}
         style={{ backgroundColor: `${color}15`, color }}
       >
-        {IconComponent ? (
-          <IconComponent size={14} />
-        ) : (
-          <span className="text-base">{icon}</span>
-        )}
+        <IconComponent size={14} />
       </div>
     );
   }
