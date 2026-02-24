@@ -76,7 +76,7 @@ export function SafetyPromptDialog() {
   }
 
   return (
-    <Dialog open={!!pendingPrompt} onOpenChange={() => {}}>
+    <Dialog open={!!pendingPrompt} onOpenChange={(open) => { if (!open) handleCancel() }}>
       <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <div className="flex items-center gap-3 mb-2">

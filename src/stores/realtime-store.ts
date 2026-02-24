@@ -262,15 +262,25 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     const planStore = usePlanStore.getState()
     const node = planStore.nodes.find((n) => n.executionId === taskId)
     if (!node) {
-      console.error('[realtime] No node found for executionId:', taskId)
-      return
+      // Remove from pending so dialog doesn't stay stuck
+      set((state) => {
+        const newApprovals = new Map(state.dynamicApprovals)
+        newApprovals.delete(requestId)
+        return { dynamicApprovals: newApprovals }
+      })
+      throw new Error(`No node found for execution: ${taskId}`)
     }
 
     // Get the machine ID for this task from execution store
     const execution = useExecutionStore.getState().getExecution(node.id)
     if (!execution?.machineId) {
-      console.error('[realtime] No machine ID for task:', taskId)
-      return
+      // Remove from pending so dialog doesn't stay stuck
+      set((state) => {
+        const newApprovals = new Map(state.dynamicApprovals)
+        newApprovals.delete(requestId)
+        return { dynamicApprovals: newApprovals }
+      })
+      throw new Error(`No machine ID for task: ${taskId}`)
     }
 
     try {
@@ -309,15 +319,25 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     const planStore = usePlanStore.getState()
     const node = planStore.nodes.find((n) => n.executionId === taskId)
     if (!node) {
-      console.error('[realtime] No node found for executionId:', taskId)
-      return
+      // Remove prompt so dialog doesn't stay stuck
+      set((state) => {
+        const newPrompts = new Map(state.safetyPrompts)
+        newPrompts.delete(taskId)
+        return { safetyPrompts: newPrompts }
+      })
+      throw new Error(`No node found for execution: ${taskId}`)
     }
 
     // Get the machine ID for this task from execution store
     const execution = useExecutionStore.getState().getExecution(node.id)
     if (!execution?.machineId) {
-      console.error('[realtime] No machine ID for task:', taskId)
-      return
+      // Remove prompt so dialog doesn't stay stuck
+      set((state) => {
+        const newPrompts = new Map(state.safetyPrompts)
+        newPrompts.delete(taskId)
+        return { safetyPrompts: newPrompts }
+      })
+      throw new Error(`No machine ID for task: ${taskId}`)
     }
 
     try {
