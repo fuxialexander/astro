@@ -25,11 +25,19 @@ interface RepoKeyFiles {
   packageInfo?: string
 }
 
+interface GitState {
+  currentBranch: string
+  targetBranch: string
+  isDirty: boolean
+  dirtyDetails?: { staged: number; unstaged: number; untracked: number }
+}
+
 interface RepoContext {
   workingDirectory: string
   fileTree?: string[]
   keyFiles?: RepoKeyFiles
   targetMachineId?: string
+  gitState?: GitState
 }
 
 interface AgentState {
@@ -189,6 +197,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           fileTree: repoContext?.fileTree,
           keyFiles: repoContext?.keyFiles,
           targetMachineId: repoContext?.targetMachineId,
+          gitState: repoContext?.gitState,
         },
         {
           onText: (text) => {

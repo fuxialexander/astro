@@ -45,6 +45,7 @@ export interface RepoSetupOptions {
   projectDescription?: string
   workingDirectory?: string
   repository?: string
+  baseBranch?: string
 }
 
 export interface RepoSetupResult {
@@ -77,7 +78,7 @@ export interface DataMapEntry {
  * Note: workingDirectory must be an absolute path (enforced in frontend validation)
  */
 export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
-  const { projectId, projectName, projectDescription, workingDirectory, repository } = options
+  const { projectId, projectName, projectDescription, workingDirectory, repository, baseBranch } = options
 
   // Validate repository URL if provided - ensure it's in SSH format
   let validatedRepository = repository
@@ -91,7 +92,7 @@ export function setupProjectRepo(options: RepoSetupOptions): RepoSetupResult {
   }
 
   // Run core setup logic
-  return setupProjectRepoCore(projectId, projectName, projectDescription, workingDirectory, validatedRepository)
+  return setupProjectRepoCore(projectId, projectName, projectDescription, workingDirectory, validatedRepository, baseBranch)
 }
 
 /** Core setup logic (separated to allow reference URL handling as a post-step). */
@@ -101,6 +102,7 @@ function setupProjectRepoCore(
   projectDescription: string | undefined,
   workingDirectory: string | undefined,
   validatedRepository: string | undefined,
+  baseBranchOverride?: string,
 ): RepoSetupResult {
   // Case 1: No directory and no repository — create a fresh project dir
   if (!workingDirectory && !validatedRepository) {
@@ -110,10 +112,10 @@ function setupProjectRepoCore(
     const gitignoreCreated = generateGitignoreIfMissing(dir)
     const claudeMdCreated = generateClaudeMdIfMissing(dir, projectName, projectDescription)
     initialCommit(dir)
-    const { agentDir } = ensureAgentDir(dir)
+    const { agentDir } = ensureAgentDir(dir, '.astro', baseBranchOverride)
     const fileTree = getFileTree(dir)
     const keyFiles = readKeyFiles(dir)
-    const { source, deliveryMode } = buildProjectSource(dir, {})
+    const { source, deliveryMode } = buildProjectSource(dir, { baseBranch: baseBranchOverride })
     return { workingDirectory: dir, fileTree, keyFiles, claudeMdCreated, gitignoreCreated, source, deliveryMode, agentDir }
   }
 
@@ -126,10 +128,10 @@ function setupProjectRepoCore(
 
       if (existingRemote && urlsMatchSameRepo(existingRemote, validatedRepository)) {
         // Same repo — URL is redundant, treat working dir as the source
-        const { agentDir } = ensureAgentDir(workingDirectory)
+        const { agentDir } = ensureAgentDir(workingDirectory, '.astro', baseBranchOverride)
         const fileTree = getFileTree(workingDirectory)
         const keyFiles = readKeyFiles(workingDirectory)
-        const { source, deliveryMode } = buildProjectSource(workingDirectory, { remoteUrl: existingRemote })
+        const { source, deliveryMode } = buildProjectSource(workingDirectory, { remoteUrl: existingRemote, baseBranch: baseBranchOverride })
         return { workingDirectory, fileTree, keyFiles, repository: existingRemote, source, deliveryMode, agentDir }
       }
 
@@ -144,10 +146,10 @@ function setupProjectRepoCore(
           console.warn(`[repo-setup] Failed to clone reference repo: ${refError}`)
         }
 
-        const { agentDir } = ensureAgentDir(workingDirectory)
+        const { agentDir } = ensureAgentDir(workingDirectory, '.astro', baseBranchOverride)
         const fileTree = getFileTree(workingDirectory)
         const keyFiles = readKeyFiles(workingDirectory)
-        const { source, deliveryMode } = buildProjectSource(workingDirectory, { remoteUrl: existingRemote })
+        const { source, deliveryMode } = buildProjectSource(workingDirectory, { remoteUrl: existingRemote, baseBranch: baseBranchOverride })
         return { workingDirectory, fileTree, keyFiles, repository: existingRemote, source, deliveryMode, agentDir }
       }
     }
@@ -156,10 +158,10 @@ function setupProjectRepoCore(
     const repoName = extractRepoName(validatedRepository)
     const cloneTarget = join(workingDirectory, repoName)
     const dir = cloneRepo(validatedRepository, cloneTarget)
-    const { agentDir } = ensureAgentDir(dir)
+    const { agentDir } = ensureAgentDir(dir, '.astro', baseBranchOverride)
     const fileTree = getFileTree(dir)
     const keyFiles = readKeyFiles(dir)
-    const { source, deliveryMode } = buildProjectSource(dir, { remoteUrl: validatedRepository })
+    const { source, deliveryMode } = buildProjectSource(dir, { remoteUrl: validatedRepository, baseBranch: baseBranchOverride })
     return { workingDirectory: dir, fileTree, keyFiles, repository: validatedRepository, source, deliveryMode, agentDir }
   }
 
@@ -177,20 +179,20 @@ function setupProjectRepoCore(
       const gitignoreCreated = generateGitignoreIfMissing(workingDirectory)
       const claudeMdCreated = generateClaudeMdIfMissing(workingDirectory, projectName, projectDescription)
       initialCommit(workingDirectory)
-      const { agentDir } = ensureAgentDir(workingDirectory)
+      const { agentDir } = ensureAgentDir(workingDirectory, '.astro', baseBranchOverride)
       const fileTree = getFileTree(workingDirectory)
       const keyFiles = readKeyFiles(workingDirectory)
-      const { source, deliveryMode } = buildProjectSource(workingDirectory, {})
+      const { source, deliveryMode } = buildProjectSource(workingDirectory, { baseBranch: baseBranchOverride })
       return { workingDirectory, fileTree, keyFiles, claudeMdCreated, gitignoreCreated, source, deliveryMode, agentDir }
     }
 
     if (isGitRepo(workingDirectory)) {
       // Already a git repo — return file tree + auto-detect remote URL + key files
-      const { agentDir } = ensureAgentDir(workingDirectory)
+      const { agentDir } = ensureAgentDir(workingDirectory, '.astro', baseBranchOverride)
       const fileTree = getFileTree(workingDirectory)
       const repository = getGitRemoteUrl(workingDirectory)
       const keyFiles = readKeyFiles(workingDirectory)
-      const { source, deliveryMode } = buildProjectSource(workingDirectory, { remoteUrl: repository })
+      const { source, deliveryMode } = buildProjectSource(workingDirectory, { remoteUrl: repository, baseBranch: baseBranchOverride })
       return { workingDirectory, fileTree, keyFiles, repository, source, deliveryMode, agentDir }
     }
 
@@ -334,11 +336,12 @@ function buildProjectSource(
   dir: string,
   opts: {
     remoteUrl?: string
+    baseBranch?: string
   }
 ): { source: ProjectSource; deliveryMode: DeliveryMode } {
   const gitRoot = getGitRoot(dir)
   const isGit = !!gitRoot
-  const baseBranch = isGit ? getDefaultBranch(dir) : 'main'
+  const baseBranch = opts.baseBranch || (isGit ? getDefaultBranch(dir) : 'main')
   const remoteType = detectRemoteType(opts.remoteUrl)
 
   // Compute subdirectory relative to git root
@@ -365,56 +368,68 @@ function buildProjectSource(
  * Creates {workingDir}/{agentDirName}/ and writes config.json
  * with auto-detected settings. Updates .gitignore.
  */
-export function ensureAgentDir(workingDir: string, agentDirName: string = '.astro'): { agentDir: string } {
+export function ensureAgentDir(workingDir: string, agentDirName: string = '.astro', baseBranchOverride?: string): { agentDir: string } {
   const agentDirPath = join(workingDir, agentDirName)
 
   mkdirSync(agentDirPath, { recursive: true })
 
-  // Write config.json if it doesn't exist
+  // Write or update config.json
   const configPath = join(agentDirPath, 'config.json')
-  if (!existsSync(configPath)) {
-    // Auto-detect settings
-    let baseBranch = 'main'
-    let remoteType = 'none'
-    let deliveryMode = 'branch'
+  const shouldWrite = !existsSync(configPath) || !!baseBranchOverride
+  if (shouldWrite) {
+    // Read existing config if present
+    let existingConfig: Record<string, unknown> = {}
+    if (existsSync(configPath)) {
+      try { existingConfig = JSON.parse(readFileSync(configPath, 'utf-8')) } catch { /* ignore */ }
+    }
 
-    try {
-      baseBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-        cwd: workingDir,
-        encoding: 'utf-8',
-        timeout: 5_000,
-        stdio: 'pipe',
-      }).trim() || 'main'
-    } catch { /* use default */ }
+    // Auto-detect settings (only if creating new config)
+    let baseBranch = baseBranchOverride || (existingConfig.baseBranch as string) || 'main'
+    let remoteType = (existingConfig.remoteType as string) || 'none'
+    let deliveryMode = (existingConfig.deliveryMode as string) || 'branch'
 
-    try {
-      const url = execFileSync('git', ['remote', 'get-url', 'origin'], {
-        cwd: workingDir,
-        encoding: 'utf-8',
-        timeout: 5_000,
-        stdio: 'pipe',
-      }).trim()
-      if (url) {
-        const rt = detectRemoteType(url)
-        remoteType = rt
-        switch (rt) {
-          case 'github':
-          case 'gitlab':
-          case 'bitbucket':
-            deliveryMode = 'pr'
-            break
-          case 'generic':
-            deliveryMode = 'push'
-            break
-          default:
-            deliveryMode = 'branch'
+    if (!existingConfig.baseBranch && !baseBranchOverride) {
+      try {
+        baseBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+          cwd: workingDir,
+          encoding: 'utf-8',
+          timeout: 5_000,
+          stdio: 'pipe',
+        }).trim() || 'main'
+      } catch { /* use default */ }
+    }
+
+    if (!existingConfig.remoteType) {
+      try {
+        const url = execFileSync('git', ['remote', 'get-url', 'origin'], {
+          cwd: workingDir,
+          encoding: 'utf-8',
+          timeout: 5_000,
+          stdio: 'pipe',
+        }).trim()
+        if (url) {
+          const rt = detectRemoteType(url)
+          remoteType = rt
+          switch (rt) {
+            case 'github':
+            case 'gitlab':
+            case 'bitbucket':
+              deliveryMode = 'pr'
+              break
+            case 'generic':
+              deliveryMode = 'push'
+              break
+            default:
+              deliveryMode = 'branch'
+          }
         }
-      }
-    } catch { /* no remote */ }
+      } catch { /* no remote */ }
+    }
 
     writeFileSync(configPath, JSON.stringify({
+      ...existingConfig,
       baseBranch,
-      branchPrefix: 'astro/',
+      branchPrefix: (existingConfig.branchPrefix as string) || 'astro/',
       remoteType,
       deliveryMode,
     }, null, 2) + '\n', 'utf-8')

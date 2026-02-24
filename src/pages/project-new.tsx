@@ -14,12 +14,14 @@ import { useTeamStore } from "@/stores/team-store"
 import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
+import { BranchSelector } from "@/components/branch-selector"
 import { GitInitDialog } from "@/components/git-init-dialog"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { isServerMode } from "@/lib/app-mode"
 import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { remoteTypeLabel, deliveryModeLabel } from "@/lib/project-source"
+import { extractRepoInfo } from "@/lib/git-url-utils"
 
 export function ProjectNew() {
   const [searchParams] = useSearchParams()
@@ -32,6 +34,7 @@ export function ProjectNew() {
   const [showRepoUrl, setShowRepoUrl] = useState(false)
   const [showGitHubRepos, setShowGitHubRepos] = useState(false)
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(null)
   const [repoSetupError, setRepoSetupError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const navigate = useNavigate()
@@ -44,6 +47,13 @@ export function ProjectNew() {
 
   // Directory detection — inline feedback as user types (requires machineId for relay)
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
+
+  // Derive GitHub repo fullName from repoUrl (e.g. "owner/repo") for GitHub API branch fetching
+  const githubRepoInfo = repoUrl ? extractRepoInfo(repoUrl.trim()) : null
+  const githubRepoFullName = githubRepoInfo ? `${githubRepoInfo.owner}/${githubRepoInfo.repo}` : null
+
+  // Auto-select baseBranch when detection result arrives (derived state, no effect needed)
+  const effectiveBranch = selectedBranch || (detection?.isGit ? detection.baseBranch : null)
 
   // GitHub integration
   const { connected, repos, selectedRepoIds, fetchRepos } = useGitHubStore()
@@ -144,7 +154,7 @@ export function ProjectNew() {
     projectId: string,
     name: string,
     desc: string,
-    repoContext?: { workingDirectory: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string },
+    repoContext?: { workingDirectory: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string; gitState?: { currentBranch: string; targetBranch: string; isDirty: boolean; dirtyDetails?: { staged: number; unstaged: number; untracked: number } } },
   ) {
     navigate(`/project/${projectId}/graph`)
     startGeneration(projectId, name, desc, undefined, repoContext)
@@ -173,6 +183,17 @@ export function ProjectNew() {
         workingDirectory: pg.workingDir,
         targetMachineId: pg.machineId,
       })
+    }
+  }
+
+  // Build gitState from detection + selected branch
+  function buildGitState() {
+    if (!detection?.isGit) return undefined
+    return {
+      currentBranch: detection.currentBranch || detection.baseBranch || 'main',
+      targetBranch: effectiveBranch || detection.baseBranch || 'main',
+      isDirty: detection.isDirty || false,
+      dirtyDetails: detection.dirtyDetails,
     }
   }
 
@@ -211,6 +232,7 @@ export function ProjectNew() {
       }
 
       setGenerationPhase(id, 'repo_setup')
+      const gitState = buildGitState()
       try {
         const repoResult = await setupRepo({
           projectId: id,
@@ -218,6 +240,7 @@ export function ProjectNew() {
           projectDescription: description.trim(),
           workingDirectory: workingDir.trim() || undefined,
           repository: repoUrl.trim() || undefined,
+          baseBranch: effectiveBranch || undefined,
           targetMachineId: selectedMachine?.machineId || undefined,
         })
 
@@ -242,11 +265,13 @@ export function ProjectNew() {
             fileTree: repoResult.fileTree,
             keyFiles: repoResult.keyFiles,
             targetMachineId: selectedMachine?.machineId,
+            gitState,
           })
         } else if (resolvedWorkDir) {
           navigateAndGenerate(id, projectName, description.trim(), {
             workingDirectory: resolvedWorkDir,
             targetMachineId: selectedMachine?.machineId,
+            gitState,
           })
         } else {
           navigate(`/project/${id}/graph`)
@@ -270,6 +295,7 @@ export function ProjectNew() {
         startGeneration(id, projectName, description.trim(), undefined, fallbackDir ? {
           workingDirectory: fallbackDir,
           targetMachineId: selectedMachine?.machineId,
+          gitState,
         } : undefined)
       } finally {
         setIsSubmitting(false)
@@ -283,6 +309,7 @@ export function ProjectNew() {
           projectDescription: description.trim(),
           workingDirectory: workingDir.trim() || undefined,
           repository: repoUrl.trim() || undefined,
+          baseBranch: effectiveBranch || undefined,
           targetMachineId: selectedMachine?.machineId || undefined,
         })
 
@@ -510,16 +537,22 @@ export function ProjectNew() {
       Icon = GitPullRequest
       const label = remoteTypeLabel(detection.remoteType)
       const modeLabel = deliveryModeLabel(detection.suggestedDeliveryMode)
+      const branchInfo = detection.currentBranch ? ` on \`${detection.currentBranch}\`` : ''
+      const dirtyInfo = detection.isDirty && detection.dirtyDetails
+        ? ` — **${detection.dirtyDetails.unstaged + detection.dirtyDetails.staged} modified, ${detection.dirtyDetails.untracked} untracked files**`
+        : ''
       message = detection.suggestedDeliveryMode === 'pr'
-        ? `Git repo detected (${label}). PRs will be created for review.`
-        : `Git repo detected (${label}). ${modeLabel}.`
+        ? `Git repo (${label})${branchInfo}${dirtyInfo}. PRs will target \`${effectiveBranch || 'main'}\`.`
+        : `Git repo (${label})${branchInfo}${dirtyInfo}. ${modeLabel}.`
       borderColor = 'border-blue-200 dark:border-blue-900'
       bgColor = 'bg-blue-50/50 dark:bg-blue-950/20'
       textColor = 'text-blue-700 dark:text-blue-300'
       iconColor = 'text-blue-600 dark:text-blue-400'
     } else if (detection.isGit) {
       Icon = GitBranch
-      message = 'Local git repo (no remote). Changes saved as local branches.'
+      const branchInfo = detection.currentBranch ? ` on \`${detection.currentBranch}\`` : ''
+      const dirtyInfo = detection.isDirty ? ' (has uncommitted changes)' : ''
+      message = `Local git repo${branchInfo}${dirtyInfo}. Changes saved as local branches.`
       borderColor = 'border-amber-200 dark:border-amber-900'
       bgColor = 'bg-amber-50/50 dark:bg-amber-950/20'
       textColor = 'text-amber-700 dark:text-amber-300'
@@ -533,10 +566,23 @@ export function ProjectNew() {
       iconColor = 'text-amber-600 dark:text-amber-400'
     }
 
+    // Dirty + different branch warning
+    const showBranchSwapNote = detection.isGit && detection.isDirty && effectiveBranch && detection.currentBranch && effectiveBranch !== detection.currentBranch
+
     return (
-      <div className={cn("flex items-start gap-2.5 rounded-lg border px-3 py-2.5", borderColor, bgColor)}>
-        <Icon className={cn("h-4 w-4 shrink-0 mt-0.5", iconColor)} />
-        <p className={cn("text-xs leading-relaxed", textColor)}>{message}</p>
+      <div className="flex flex-col gap-2">
+        <div className={cn("flex items-start gap-2.5 rounded-lg border px-3 py-2.5", borderColor, bgColor)}>
+          <Icon className={cn("h-4 w-4 shrink-0 mt-0.5", iconColor)} />
+          <p className={cn("text-xs leading-relaxed", textColor)}>{message}</p>
+        </div>
+        {showBranchSwapNote && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2">
+            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+            <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+              The repo has uncommitted changes on <code className="font-mono bg-amber-100 dark:bg-amber-900/30 px-1 rounded">{detection.currentBranch}</code>. The AI plan will include steps to handle the branch switch.
+            </p>
+          </div>
+        )}
       </div>
     )
   }
@@ -653,6 +699,18 @@ export function ProjectNew() {
               className="h-10 rounded-lg border border-border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
             />
             <DetectionFeedback />
+            {/* Branch selector — shown when git repo detected via directory OR GitHub repo URL set */}
+            {detection?.isGit && selectedMachine && !githubRepoFullName && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
+                <BranchSelector
+                  value={effectiveBranch || 'main'}
+                  onChange={setSelectedBranch}
+                  path={workingDir.trim()}
+                  machineId={selectedMachine.machineId}
+                />
+              </div>
+            )}
           </div>
 
           {/* Repository URL — collapsed by default */}
@@ -690,6 +748,7 @@ export function ProjectNew() {
                           key={repo.id}
                           onClick={() => {
                             setRepoUrl(repo.sshUrl)
+                            setSelectedBranch(repo.defaultBranch || null)
                             setShowGitHubRepos(false)
                             setSearchQuery("")
                           }}
@@ -747,6 +806,18 @@ export function ProjectNew() {
               <Plus className="h-3.5 w-3.5" />
               Add repository URL
             </button>
+          )}
+
+          {/* Branch selector for GitHub repos — shown when repo URL is a GitHub URL */}
+          {githubRepoFullName && connected && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
+              <BranchSelector
+                value={effectiveBranch || selectedBranch || 'main'}
+                onChange={setSelectedBranch}
+                repository={githubRepoFullName}
+              />
+            </div>
           )}
 
           {/* First task */}

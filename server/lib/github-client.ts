@@ -155,6 +155,63 @@ export class GitHubClient {
   }
 
   /**
+   * List branches for a repository
+   */
+  async getBranches(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    options: { perPage?: number } = {}
+  ): Promise<Array<{ name: string; isDefault: boolean }>> {
+    const { perPage = 100 } = options
+    const branches: Array<{ name: string; isDefault: boolean }> = []
+    let page = 1
+    let hasMore = true
+
+    // Fetch repo to get default branch name
+    const repoData = await this.getRepository(accessToken, owner, repo)
+    const defaultBranch = repoData.defaultBranch
+
+    while (hasMore) {
+      const params = new URLSearchParams({
+        per_page: perPage.toString(),
+        page: page.toString(),
+      })
+
+      const response = await fetch(`${this.baseUrl}/repos/${owner}/${repo}/branches?${params}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+
+      if (data.length === 0) {
+        hasMore = false
+      } else {
+        branches.push(
+          ...data.map((b: { name: string }) => ({
+            name: b.name,
+            isDefault: b.name === defaultBranch,
+          }))
+        )
+        if (data.length < perPage) {
+          hasMore = false
+        } else {
+          page++
+        }
+      }
+    }
+
+    return branches
+  }
+
+  /**
    * Get a specific repository
    */
   async getRepository(

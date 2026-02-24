@@ -492,8 +492,36 @@ export interface RepoDetectResponseMessage extends BaseMessage {
   remoteUrl?: string;
   remoteType: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none';
   baseBranch?: string;
+  currentBranch?: string;
+  isDirty?: boolean;
+  dirtyDetails?: {
+    staged: number;
+    unstaged: number;
+    untracked: number;
+  };
   suggestedDeliveryMode: 'pr' | 'push' | 'branch' | 'direct';
   dirSizeMB?: number | null;
+  error?: string;
+}
+
+/** Branch list request (relay → agent) */
+export interface BranchListRequestMessage extends BaseMessage {
+  type: 'branch_list.request';
+  correlationId: string;
+  path: string;
+}
+
+/** Branch list response (agent → relay) */
+export interface BranchListResponseMessage extends BaseMessage {
+  type: 'branch_list.response';
+  correlationId: string;
+  branches: Array<{
+    name: string;
+    isRemote: boolean;
+    isCurrent: boolean;
+    isDefault: boolean;
+  }>;
+  defaultBranch?: string;
   error?: string;
 }
 
@@ -620,7 +648,8 @@ export type AgentToRelayMessage =
   | FileListResponseMessage
   | SlashCommandsResponseMessage
   | RepoDetectResponseMessage
-  | GitInitResponseMessage;
+  | GitInitResponseMessage
+  | BranchListResponseMessage;
 
 /** All session-related messages from MCP bridge to relay */
 export type SessionToRelayMessage =
@@ -645,6 +674,7 @@ export type RelayToAgentMessage =
   | SlashCommandsRequestMessage
   | RepoDetectRequestMessage
   | GitInitRequestMessage
+  | BranchListRequestMessage
   | ErrorMessage;
 
 /** All relay messages */
