@@ -296,14 +296,13 @@ deviceAuthRoute.post('/token', async (c) => {
         // Mark code as used
         await markDeviceCodeUsed(body.userCode);
 
-        // Create tokens (machine ID will be assigned during registration)
-        // For now, create a temporary access token for registration
-        // Note: Refresh token will be created during machine registration
-        const tempMachineId = `temp-${body.userCode}`;
         const scopes = entry.scopes.length > 0 ? entry.scopes : DEFAULT_MACHINE_SCOPES;
 
+        // CLI login: create access token without a machine ID.
+        // The CLI authenticates a user, not a machine — machine registration
+        // happens separately via /device/register for agent runners.
         const accessToken = createAccessToken({
-          machineId: tempMachineId,
+          machineId: 'cli',
           userId: entry.authorizedBy,
           scopes,
           expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
@@ -318,17 +317,13 @@ deviceAuthRoute.post('/token', async (c) => {
           }, 500);
         }
 
-        // Create refresh token so CLI clients can refresh without machine registration
-        const { token: refreshToken } = await createRefreshToken({
-          machineId: tempMachineId,
-          userId: entry.authorizedBy,
-          scopes,
-          expiresIn: TOKEN_EXPIRY.REFRESH_TOKEN,
-        });
-
+        // Note: No refresh token for CLI login — the refresh_tokens table
+        // has an FK to registered_machines, and the CLI isn't a machine.
+        // CLI will re-login when the access token expires.
+        // Agent runners get proper refresh tokens via /device/register.
         const response: DeviceTokenResponse = {
           accessToken,
-          refreshToken,
+          refreshToken: '',
           tokenType: 'Bearer',
           expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
           scopes,
