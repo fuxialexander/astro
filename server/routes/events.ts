@@ -206,6 +206,13 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
     }
 
+    const onTaskSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
+      if (!alive) return
+      const data = JSON.stringify(msg)
+      const id = eventBuffer.push('task:safety_prompt', data)
+      stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+    }
+
     const onMachineConnected = async (machineId: string, machineUserId: string) => {
       if (!alive) return
       // Filter: only send events for machines owned by this user
@@ -302,6 +309,7 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('task:file_change', onTaskFileChange)
     relayServer.on('task:session_init', onTaskSessionInit)
     relayServer.on('task:approval_request', onTaskApprovalRequest)
+    relayServer.on('task:safety_prompt', onTaskSafetyPrompt)
     relayServer.on('machine:connected', onMachineConnected)
     relayServer.on('machine:disconnected', onMachineDisconnected)
     // Session events
@@ -374,6 +382,7 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('task:file_change', onTaskFileChange)
       relayServer.off('task:session_init', onTaskSessionInit)
       relayServer.off('task:approval_request', onTaskApprovalRequest)
+      relayServer.off('task:safety_prompt', onTaskSafetyPrompt)
       relayServer.off('machine:connected', onMachineConnected)
       relayServer.off('machine:disconnected', onMachineDisconnected)
       // Session events cleanup

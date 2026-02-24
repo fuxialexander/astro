@@ -640,6 +640,49 @@ dispatchRoute.post('/approval', async (c) => {
 })
 
 /**
+ * Send safety decision back to agent runner
+ */
+dispatchRoute.post('/safety-decision', async (c) => {
+  const { taskId, machineId, decision } = await c.req.json<{
+    taskId: string
+    machineId: string
+    decision: string
+  }>()
+
+  if (!taskId) {
+    return c.json({ success: false, error: 'taskId is required' }, 400)
+  }
+
+  if (!machineId) {
+    return c.json({ success: false, error: 'machineId is required' }, 400)
+  }
+
+  if (!decision) {
+    return c.json({ success: false, error: 'decision is required' }, 400)
+  }
+
+  const validDecisions = ['proceed', 'init-git', 'sandbox', 'cancel']
+  if (!validDecisions.includes(decision)) {
+    return c.json({ success: false, error: `Invalid decision. Must be one of: ${validDecisions.join(', ')}` }, 400)
+  }
+
+  const sent = relayServer.sendSafetyDecision(
+    taskId,
+    machineId,
+    decision as 'proceed' | 'init-git' | 'sandbox' | 'cancel'
+  )
+
+  if (!sent) {
+    return c.json(
+      { success: false, error: `Failed to send safety decision for task ${taskId} on machine ${machineId}` },
+      500
+    )
+  }
+
+  return c.json({ success: true, taskId, machineId, decision, message: 'Safety decision sent' })
+})
+
+/**
  * Cancel a task
  */
 dispatchRoute.post('/cancel', async (c) => {

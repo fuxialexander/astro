@@ -1,6 +1,7 @@
 import { Outlet } from "react-router"
 import { Sidebar } from "./sidebar"
 import { DynamicApprovalDialog } from "@/components/dynamic-approval-dialog"
+import { SafetyPromptDialog } from "@/components/safety-prompt-dialog"
 import { WelcomeProfileDialog } from "@/components/welcome-profile-dialog"
 import { PasskeyNudgeBanner } from "@/components/passkey-nudge-banner"
 import { ToastContainer } from "@/components/toast-container"
@@ -14,6 +15,7 @@ export function AppLayout() {
         <Outlet />
       </main>
       <DynamicApprovalDialog />
+      <SafetyPromptDialog />
       <WelcomeProfileDialog />
       <ToastContainer />
     </div>
