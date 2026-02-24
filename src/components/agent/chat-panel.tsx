@@ -166,6 +166,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId)
   const getSession = useSessionStore((s) => s.getSession)
   const renameSession = useSessionStore((s) => s.renameSession)
+  const truncateAfterMessage = useSessionStore((s) => s.truncateAfterMessage)
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const clearActiveSessionId = useSessionStore((s) => s.clearActiveSessionId)
   // Subscribe to sessions and activeSessionIds so memos recompute on changes
@@ -270,6 +271,15 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     }
   }, [currentSession?.id, deleteSession, planChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
 
+  // Handler to edit a user message: truncate history and populate input
+  const handleEditMessage = useCallback((messageId: string) => {
+    if (!currentSession || isStreaming) return
+    const content = truncateAfterMessage(currentSession.id, messageId)
+    if (content !== undefined) {
+      setInput(content)
+    }
+  }, [currentSession, isStreaming, truncateAfterMessage])
+
   // Handler to clear all sessions
   const handleClearAllSessions = useCallback(() => {
     for (const session of planChatSessions) {
@@ -278,7 +288,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     clearActiveSessionId(projectId, "plan-chat")
   }, [planChatSessions, deleteSession, projectId, clearActiveSessionId])
 
-  const messages: Message[] = (currentSession?.messages || []).map((m) => ({
+  const messages: (Message & { id: string })[] = (currentSession?.messages || []).map((m) => ({
+    id: m.id,
     role: m.role as "user" | "assistant",
     content: m.content,
     appliedMutations: m.appliedMutations as AppliedMutations | undefined,
@@ -829,12 +840,23 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
           )}
           {messages.map((msg, i) => (
             <div
-              key={i}
-              className={`flex flex-col gap-1 ${msg.role === "user" ? "items-end" : "items-start"}`}
+              key={msg.id}
+              className={`group/msg flex flex-col gap-1 ${msg.role === "user" ? "items-end" : "items-start"}`}
             >
-              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                {msg.role === "user" ? "You" : providerLabel}
-              </span>
+              <div className="flex items-center gap-1.5">
+                {msg.role === "user" && !isStreaming && (
+                  <button
+                    onClick={() => handleEditMessage(msg.id)}
+                    className="opacity-0 group-hover/msg:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                    title="Edit & resend"
+                  >
+                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                )}
+                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {msg.role === "user" ? "You" : providerLabel}
+                </span>
+              </div>
               <div
                 className={`rounded-lg px-3 py-2 text-sm leading-relaxed max-w-[320px] ${
                   msg.role === "user"
