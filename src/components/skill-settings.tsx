@@ -42,10 +42,10 @@ function Toggle({
 }
 
 const sourceColors: Record<OpenClawSkill["source"], string> = {
-  builtin: "bg-blue-500/10 text-blue-600",
-  workspace: "bg-green-500/10 text-green-600",
-  clawhub: "bg-purple-500/10 text-purple-600",
-  plugin: "bg-orange-500/10 text-orange-600",
+  builtin: "bg-info/10 text-info",
+  workspace: "bg-success/10 text-success",
+  clawhub: "bg-primary/10 text-primary",
+  plugin: "bg-warning/10 text-warning",
 }
 
 function SkillCard({ skill }: { skill: OpenClawSkill }) {

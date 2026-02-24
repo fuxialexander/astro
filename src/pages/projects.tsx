@@ -24,9 +24,9 @@ import { cn } from "@/lib/utils"
 import type { Project } from "@/types"
 
 const healthConfig: Record<string, { label: string; dotClass: string; textClass: string }> = {
-  on_track: { label: "On track", dotClass: "bg-green-500", textClass: "text-green-600" },
-  at_risk: { label: "At risk", dotClass: "bg-amber-500", textClass: "text-amber-600" },
-  off_track: { label: "Off track", dotClass: "bg-red-500", textClass: "text-red-600" },
+  on_track: { label: "On track", dotClass: "bg-success", textClass: "text-success" },
+  at_risk: { label: "At risk", dotClass: "bg-warning", textClass: "text-warning" },
+  off_track: { label: "Off track", dotClass: "bg-error", textClass: "text-error" },
 }
 
 const initiativeIcons: Record<string, typeof Rocket> = {
@@ -166,7 +166,7 @@ function getProjectColumns(
         <span className={cn(
           "text-xs",
           isOverdue(p.targetDate, (p.progress ?? 0) >= 100 ? "completed" : "planned")
-            ? "text-red-500"
+            ? "text-error"
             : "text-muted-foreground"
         )}>
           {formatShortDate(p.targetDate) || "\u2014"}
@@ -178,13 +178,13 @@ function getProjectColumns(
 
 function getProjectBarColors(project: Project) {
   const pct = project.progress ?? 0
-  if (pct >= 95) return { bg: "bg-green-400/80", progress: "bg-green-600" }
+  if (pct >= 95) return { bg: "bg-success/80", progress: "bg-success" }
   switch (project.health) {
-    case "off_track": return { bg: "bg-red-400/80", progress: "bg-red-600" }
-    case "at_risk": return { bg: "bg-amber-400/80", progress: "bg-amber-600" }
+    case "off_track": return { bg: "bg-error/80", progress: "bg-error" }
+    case "at_risk": return { bg: "bg-warning/80", progress: "bg-warning" }
     default:
       if (pct === 0) return { bg: "bg-slate-300 dark:bg-slate-600", progress: "" }
-      return { bg: "bg-blue-400/80", progress: "bg-blue-600" }
+      return { bg: "bg-info/80", progress: "bg-info" }
   }
 }
 
@@ -330,7 +330,7 @@ export function Projects() {
     }, {})
     return Object.entries(grouped).map(([label, items]) => {
       const Icon = displaySettings.groupBy === "initiative" ? (initiativeIcons[label] ?? Users) : Folder
-      const iconColor = displaySettings.groupBy === "initiative" ? (initiativeIconColors[label] ?? "text-green-600") : "text-muted-foreground"
+      const iconColor = displaySettings.groupBy === "initiative" ? (initiativeIconColors[label] ?? "text-success") : "text-muted-foreground"
       return {
         key: label,
         label,
@@ -731,9 +731,9 @@ export function Projects() {
             ) : (
               (() => {
                 const boardColumns: { key: string; label: string; dotClass: string; projects: Project[] }[] = [
-                  { key: "on_track", label: "On track", dotClass: "bg-green-500", projects: [] },
-                  { key: "at_risk", label: "At risk", dotClass: "bg-amber-500", projects: [] },
-                  { key: "off_track", label: "Off track", dotClass: "bg-red-500", projects: [] },
+                  { key: "on_track", label: "On track", dotClass: "bg-success", projects: [] },
+                  { key: "at_risk", label: "At risk", dotClass: "bg-warning", projects: [] },
+                  { key: "off_track", label: "Off track", dotClass: "bg-error", projects: [] },
                 ]
                 for (const p of sortedProjects) {
                   const h = p.health ?? "on_track"
@@ -776,7 +776,7 @@ export function Projects() {
                                 <div
                                   className={cn(
                                     "h-full rounded-full transition-all",
-                                    pct >= 95 ? "bg-green-500" : pct > 0 ? "bg-primary" : ""
+                                    pct >= 95 ? "bg-success" : pct > 0 ? "bg-primary" : ""
                                   )}
                                   style={{ width: `${pct}%` }}
                                 />
@@ -790,7 +790,7 @@ export function Projects() {
                                 <span className={cn(
                                   "shrink-0",
                                   isOverdue(project.targetDate, pct >= 100 ? "completed" : "planned")
-                                    ? "text-red-500"
+                                    ? "text-error"
                                     : ""
                                 )}>
                                   {formatShortDate(project.targetDate)}

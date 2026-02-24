@@ -31,8 +31,8 @@ function formatDueDate(dateStr?: string): { text: string; className: string } {
   const diffMs = due.getTime() - today.getTime()
   const diffDays = Math.ceil(diffMs / 86400000)
   const text = due.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-  if (diffDays < 0) return { text, className: "text-red-500 font-medium" }
-  if (diffDays < 7) return { text, className: "text-orange-500" }
+  if (diffDays < 0) return { text, className: "text-error font-medium" }
+  if (diffDays < 7) return { text, className: "text-warning" }
   return { text, className: "text-foreground" }
 }
 

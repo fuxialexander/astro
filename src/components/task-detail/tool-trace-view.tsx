@@ -27,15 +27,15 @@ function TraceItem({ trace }: { trace: ToolTrace; index: number }) {
         <div className={cn(
           "flex h-7 w-7 items-center justify-center rounded-full border-2",
           trace.success === false
-            ? "border-red-500 bg-red-500/10"
+            ? "border-error bg-error/10"
             : trace.success === true
-              ? "border-green-500 bg-green-500/10"
+              ? "border-success bg-success/10"
               : "border-border bg-muted"
         )}>
           {trace.success === true ? (
-            <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
           ) : trace.success === false ? (
-            <XCircle className="h-3.5 w-3.5 text-red-500" />
+            <XCircle className="h-3.5 w-3.5 text-error" />
           ) : (
             <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
           )}

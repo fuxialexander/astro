@@ -456,7 +456,7 @@ export function Login() {
         {/* Dev mode banner */}
         {devMode && (
           <div className="space-y-3">
-            <div className="flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-400">
+            <div className="flex items-center gap-2 rounded-lg border border-warning/20 bg-warning/5 p-3 text-sm text-warning">
               <Code2 className="h-4 w-4 shrink-0" />
               <span>Development mode — Supabase not configured</span>
             </div>

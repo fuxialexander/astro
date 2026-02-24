@@ -1,10 +1,12 @@
 import { Badge } from "@/components/ui/badge"
 import { Hourglass } from "lucide-react"
 import type { TraceTree } from "@/types/observations"
+import type { UsageMetrics } from "@/types"
 
 interface TraceSummaryCardProps {
   trace: TraceTree
   isRunning?: boolean
+  executionMetrics?: UsageMetrics
 }
 
 function formatDurationMs(ms: number | null): string {
@@ -28,14 +30,25 @@ function formatTokens(n: number): string {
   return `${(n / 1000).toFixed(1)}k`
 }
 
-export function TraceSummaryCard({ trace, isRunning }: TraceSummaryCardProps) {
+export function TraceSummaryCard({ trace, isRunning, executionMetrics }: TraceSummaryCardProps) {
   const { stats } = trace
   const errorCount = trace.events.filter(
     (e) => e.level === "error"
   ).length
 
-  const pendingTokens = isRunning && stats.totalTokens === 0
-  const pendingCost = isRunning && stats.totalCost === 0
+  // Fall back to execution metrics when observation store has no token data
+  const effectiveTokens = stats.totalTokens > 0
+    ? stats.totalTokens
+    : (executionMetrics?.inputTokens || 0) + (executionMetrics?.outputTokens || 0) + (executionMetrics?.tokensUsed || 0)
+  const effectiveCost = stats.totalCost > 0
+    ? stats.totalCost
+    : executionMetrics?.estimatedCostUsd || 0
+
+  const pendingTokens = isRunning && effectiveTokens === 0
+  const pendingCost = isRunning && effectiveCost === 0
+  // Show dash when task is completed but no token data available from any source
+  const unavailableTokens = !isRunning && effectiveTokens === 0
+  const unavailableCost = !isRunning && effectiveCost === 0
 
   return (
     <div className="flex items-center gap-3 flex-wrap px-4 py-2.5 border-b border-border bg-muted/20 text-xs text-muted-foreground">
@@ -63,20 +76,25 @@ export function TraceSummaryCard({ trace, isRunning }: TraceSummaryCardProps) {
             <Hourglass className="h-3 w-3 text-muted-foreground animate-pulse" />
             <span>tokens</span>
           </>
+        ) : unavailableTokens ? (
+          <>
+            <span className="font-medium text-foreground tabular-nums">&mdash;</span>
+            <span>tokens</span>
+          </>
         ) : (
           <>
             <span className="font-medium text-foreground tabular-nums">
-              {formatTokens(stats.totalTokens)}
+              {formatTokens(effectiveTokens)}
             </span>
             <span>tokens</span>
           </>
         )}
       </div>
-      {stats.totalCost > 0 ? (
+      {effectiveCost > 0 ? (
         <>
           <div className="h-3 w-px bg-border" />
           <span className="font-medium text-foreground tabular-nums">
-            {formatCost(stats.totalCost)}
+            {formatCost(effectiveCost)}
           </span>
         </>
       ) : pendingCost ? (
@@ -86,6 +104,11 @@ export function TraceSummaryCard({ trace, isRunning }: TraceSummaryCardProps) {
             <Hourglass className="h-3 w-3 text-muted-foreground animate-pulse" />
             <span>cost</span>
           </div>
+        </>
+      ) : unavailableCost ? (
+        <>
+          <div className="h-3 w-px bg-border" />
+          <span className="font-medium text-foreground tabular-nums">&mdash;</span>
         </>
       ) : null}
       <div className="h-3 w-px bg-border" />

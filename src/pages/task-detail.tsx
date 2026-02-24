@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate, useSearchParams } from "react-router"
-import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, Layers, FileText, FolderEdit } from "lucide-react"
+import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, XCircle, Layers, FileText, FolderEdit } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -67,16 +67,17 @@ export function TaskDetail() {
   const isRunning = node.status === "in_progress" || node.status === "dispatched"
 
   // Combine file changes from execution store and realtime store, then deduplicate
-  const rawFileChanges = execution?.fileChanges?.length
-    ? execution.fileChanges.map(f => ({
-        path: f.path,
-        action: f.action,
-        linesAdded: f.linesAdded,
-        linesRemoved: f.linesRemoved,
-        diff: f.diff,
-        timestamp: f.timestamp,
-      }))
-    : taskStream?.fileChanges || []
+  const rawFileChanges = [
+    ...(execution?.fileChanges?.map(f => ({
+      path: f.path,
+      action: f.action,
+      linesAdded: f.linesAdded,
+      linesRemoved: f.linesRemoved,
+      diff: f.diff,
+      timestamp: f.timestamp,
+    })) || []),
+    ...(taskStream?.fileChanges || []),
+  ]
   const fileChanges = deduplicateFileChanges(rawFileChanges)
 
   // Get machine ID for steering (from execution or realtime stream)
@@ -130,7 +131,7 @@ export function TaskDetail() {
           <div className="flex items-center gap-1.5 shrink-0">
             <div className="h-1.5 w-16 md:w-24 rounded-full bg-muted overflow-hidden">
               <div
-                className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                className="h-full rounded-full bg-info transition-all duration-500"
                 style={{ width: `${taskStream.progress}%` }}
               />
             </div>
@@ -146,7 +147,7 @@ export function TaskDetail() {
             {execution.subroutineProgress.status === 'running' && (
               <div className="h-1.5 w-12 rounded-full bg-muted overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-blue-500 animate-pulse"
+                  className="h-full rounded-full bg-info animate-pulse"
                   style={{ width: `${((execution.subroutineProgress.index + 0.5) / execution.subroutineProgress.total) * 100}%` }}
                 />
               </div>
@@ -178,7 +179,7 @@ export function TaskDetail() {
             <span className="font-mono text-xs">{node.branchName || execution?.branchName}</span>
           </div>
         ) : project?.deliveryMode === 'direct' && !isRunning && execution?.status === 'success' ? (
-          <div className="hidden md:flex items-center gap-1.5 text-amber-600 shrink-0">
+          <div className="hidden md:flex items-center gap-1.5 text-warning shrink-0">
             <FolderEdit className="h-3.5 w-3.5" />
             <span className="text-xs">Changes applied directly</span>
           </div>
@@ -219,7 +220,7 @@ export function TaskDetail() {
           </Button>
         )}
         {isExecuting && (
-          <div className="flex items-center gap-1.5 text-blue-500 shrink-0">
+          <div className="flex items-center gap-1.5 text-info shrink-0">
             <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
             <span className="text-[10px] md:text-xs font-medium">Running</span>
           </div>
@@ -239,15 +240,15 @@ export function TaskDetail() {
       {/* Judgment Banner for awaiting_judgment tasks */}
       {node.status === "awaiting_judgment" && (
         <div className="px-4 md:px-6 pt-4">
-          <Card className="rounded-2xl shadow-lg border-amber-500/40">
+          <Card className="rounded-2xl shadow-lg border-warning/40">
             <CardContent className="flex flex-col gap-0 p-0">
               {/* Summary or Error */}
               {execution?.summary ? (
                 <div className={cn(
                   "m-4 rounded-lg border p-3",
-                  execution.summary.status === 'success' ? "border-green-500/30 bg-green-500/5" :
-                  execution.summary.status === 'partial' ? "border-yellow-500/30 bg-yellow-500/5" :
-                  "border-red-500/30 bg-red-500/5"
+                  execution.summary.status === 'success' ? "border-success/30 bg-success/5" :
+                  execution.summary.status === 'partial' ? "border-warning/30 bg-warning/5" :
+                  "border-error/30 bg-error/5"
                 )}>
                   <div className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
@@ -278,10 +279,10 @@ export function TaskDetail() {
                   </div>
                 </div>
               ) : (node.executionError || execution?.error) ? (
-                <div className="m-4 rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+                <div className="m-4 rounded-lg border border-error/30 bg-error/5 p-3">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-                    <p className="text-sm text-red-600">{node.executionError || execution?.error}</p>
+                    <AlertCircle className="h-4 w-4 text-error mt-0.5 shrink-0" />
+                    <p className="text-sm text-error">{node.executionError || execution?.error}</p>
                   </div>
                 </div>
               ) : (
@@ -293,18 +294,18 @@ export function TaskDetail() {
 
               {/* Plan Mode Data: Todos */}
               {execution?.planTodos && execution.planTodos.length > 0 && (
-                <div className="mx-4 mb-4 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3.5">
+                <div className="mx-4 mb-4 rounded-lg border border-info/30 bg-info/5 p-3.5">
                   <div className="flex items-center gap-2 mb-2">
-                    <FileText className="h-4 w-4 text-blue-600" />
-                    <span className="text-xs font-semibold text-blue-700">Plan Todos</span>
+                    <FileText className="h-4 w-4 text-info" />
+                    <span className="text-xs font-semibold text-info">Plan Todos</span>
                   </div>
                   <ul className="space-y-1.5">
                     {execution.planTodos.map((todo, i) => (
                       <li key={i} className="flex items-start gap-2 text-xs">
                         {todo.status === 'completed' ? (
-                          <Check className="h-3.5 w-3.5 text-green-600 mt-0.5 shrink-0" />
+                          <Check className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
                         ) : todo.status === 'in_progress' ? (
-                          <Loader2 className="h-3.5 w-3.5 text-blue-600 mt-0.5 shrink-0 animate-spin" />
+                          <Loader2 className="h-3.5 w-3.5 text-info mt-0.5 shrink-0 animate-spin" />
                         ) : (
                           <div className="h-3.5 w-3.5 mt-0.5 shrink-0 rounded-full border border-muted-foreground" />
                         )}
@@ -319,10 +320,10 @@ export function TaskDetail() {
 
               {/* Plan Mode Data: Questions */}
               {execution?.planQuestions && execution.planQuestions.length > 0 && (
-                <div className="mx-4 mb-4 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3.5">
+                <div className="mx-4 mb-4 rounded-lg border border-primary/30 bg-primary/5 p-3.5">
                   <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle className="h-4 w-4 text-purple-600" />
-                    <span className="text-xs font-semibold text-purple-700">Plan Questions</span>
+                    <AlertCircle className="h-4 w-4 text-primary" />
+                    <span className="text-xs font-semibold text-primary">Plan Questions</span>
                   </div>
                   <ul className="space-y-2">
                     {execution.planQuestions.map((q, i) => (
@@ -334,7 +335,7 @@ export function TaskDetail() {
                           ))}
                         </ul>
                         {q.answer && (
-                          <p className="mt-1 text-purple-700 font-medium">Answer: {q.answer}</p>
+                          <p className="mt-1 text-primary font-medium">Answer: {q.answer}</p>
                         )}
                       </li>
                     ))}
@@ -359,6 +360,45 @@ export function TaskDetail() {
               </div>
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* Completion Banner for finished tasks */}
+      {(node.status === "auto_verified" || node.status === "completed") && node.executionCompletedAt && !isRunning && (
+        <div className="px-4 md:px-6 pt-3">
+          <div className={cn(
+            "flex items-center gap-2.5 rounded-lg border px-4 py-2.5 text-sm",
+            execution?.status === "failure"
+              ? "border-error/30 bg-error/5 text-error"
+              : "border-success/30 bg-success/5 text-success"
+          )}>
+            {execution?.status === "failure" ? (
+              <XCircle className="h-4 w-4 shrink-0" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+            )}
+            <span className="font-medium">
+              {execution?.status === "failure" ? "Task execution failed" : "Task completed successfully"}
+            </span>
+            {node.executionStartedAt && node.executionCompletedAt && (
+              <>
+                <span className="text-xs opacity-70">&middot;</span>
+                <span className="text-xs opacity-70">{formatDuration(node.executionStartedAt, node.executionCompletedAt)}</span>
+              </>
+            )}
+            {fileChanges.length > 0 && (
+              <>
+                <span className="text-xs opacity-70">&middot;</span>
+                <span className="text-xs opacity-70">{fileChanges.length} file{fileChanges.length !== 1 ? "s" : ""}</span>
+              </>
+            )}
+            {execution?.summary && (
+              <>
+                <span className="text-xs opacity-70">&middot;</span>
+                <span className="text-xs opacity-70 truncate max-w-[300px]">{execution.summary.workCompleted}</span>
+              </>
+            )}
+          </div>
         </div>
       )}
 

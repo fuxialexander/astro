@@ -80,8 +80,8 @@ export function SafetyPromptDialog() {
       <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <div className="flex items-center gap-3 mb-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/15">
-              <ShieldAlert className="h-5 w-5 text-amber-500" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/15">
+              <ShieldAlert className="h-5 w-5 text-warning" />
             </div>
             <DialogTitle className="text-xl">Safety Check</DialogTitle>
           </div>

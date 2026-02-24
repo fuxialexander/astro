@@ -67,7 +67,7 @@ export function formatRelativeTime(date: Date): string {
   return `${years}y ago`
 }
 
-/** Due-date with urgency coloring: { text: "Jan 5", className: "text-red-500" } */
+/** Due-date with urgency coloring: { text: "Jan 5", className: "text-error" } */
 export function formatDueDateShort(dateStr?: string): { text: string; className: string } {
   if (!dateStr) return { text: "\u2014", className: "text-muted-foreground" }
   const due = new Date(dateStr + "T00:00:00Z")
@@ -76,8 +76,8 @@ export function formatDueDateShort(dateStr?: string): { text: string; className:
   const diffMs = due.getTime() - today.getTime()
   const diffDays = Math.ceil(diffMs / 86400000)
   const text = due.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-  if (diffDays < 0) return { text, className: "text-red-500" }
-  if (diffDays < 7) return { text, className: "text-orange-500" }
+  if (diffDays < 0) return { text, className: "text-error" }
+  if (diffDays < 7) return { text, className: "text-warning" }
   return { text, className: "text-muted-foreground" }
 }
 

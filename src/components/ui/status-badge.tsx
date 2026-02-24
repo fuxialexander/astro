@@ -7,33 +7,33 @@ export interface StatusBadgeProps {
 
 const statusConfig = {
   "in-progress": {
-    bg: "bg-blue-500/10",
-    dot: "bg-blue-500",
-    text: "text-blue-500",
+    bg: "bg-info/10",
+    dot: "bg-info",
+    text: "text-info",
     label: "In Progress",
   },
   awaiting: {
-    bg: "bg-amber-500/10",
-    dot: "bg-amber-500",
-    text: "text-amber-500",
+    bg: "bg-warning/10",
+    dot: "bg-warning",
+    text: "text-warning",
     label: "Awaiting",
   },
   completed: {
-    bg: "bg-green-600/10",
-    dot: "bg-green-600",
-    text: "text-green-600",
+    bg: "bg-success/10",
+    dot: "bg-success",
+    text: "text-success",
     label: "Completed",
   },
   error: {
-    bg: "bg-red-500/10",
-    dot: "bg-red-500",
-    text: "text-red-500",
+    bg: "bg-error/10",
+    dot: "bg-error",
+    text: "text-error",
     label: "Error",
   },
   planned: {
-    bg: "bg-gray-400/10",
-    dot: "bg-gray-400",
-    text: "text-gray-400",
+    bg: "bg-muted",
+    dot: "bg-muted-foreground",
+    text: "text-muted-foreground",
     label: "Planned",
   },
 } as const;

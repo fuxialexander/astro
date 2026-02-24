@@ -249,7 +249,7 @@ export function ChannelAccountCard({
                     <span
                       className={cn(
                         'text-[13px]',
-                        testResult.success ? 'text-green-600' : 'text-destructive'
+                        testResult.success ? 'text-success' : 'text-destructive'
                       )}
                     >
                       {testResult.message}

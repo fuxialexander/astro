@@ -18,12 +18,12 @@ export function TaskRow({ task, projectName, showProject = false, onClick, class
     switch (task.status) {
       case "in_progress":
       case "dispatched":
-        return { border: "border-blue-600", bg: "bg-blue-600" };
+        return { border: "border-info", bg: "bg-info" };
       case "completed":
       case "auto_verified":
-        return { border: "border-green-600", bg: "bg-green-600" };
+        return { border: "border-success", bg: "bg-success" };
       case "awaiting_judgment":
-        return { border: "border-amber-600", bg: "bg-amber-600" };
+        return { border: "border-warning", bg: "bg-warning" };
       case "planned":
       case "pruned":
       default:

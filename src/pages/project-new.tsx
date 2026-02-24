@@ -1,8 +1,8 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { Sparkles, Loader2, X, Laptop, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, GitBranch, Plus, Users, GitPullRequest, FolderEdit } from "lucide-react"
+import { Sparkles, Loader2, X, Laptop, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, GitBranch, Plus, Users, GitPullRequest, FolderEdit, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { VoiceInputButton } from "@/components/ui/voice-input-button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
@@ -11,7 +11,6 @@ import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useTeamStore } from "@/stores/team-store"
-import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { BranchSelector } from "@/components/branch-selector"
@@ -20,6 +19,8 @@ import { AddEnvironmentDialog } from "@/components/environments/add-environment-
 import { isServerMode } from "@/lib/app-mode"
 import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
+import { extractTitle } from "@/lib/text-utils"
+import { generateTitle, suggestLabels, refineContent } from "@/lib/api-client"
 import { remoteTypeLabel, deliveryModeLabel } from "@/lib/project-source"
 import { extractRepoInfo } from "@/lib/git-url-utils"
 import { validateAbsolutePath } from "@/lib/path-utils"
@@ -45,6 +46,7 @@ export function ProjectNew() {
   const addNode = usePlanStore((s) => s.addNode)
   const startGeneration = useAgentStore((s) => s.startGeneration)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isRefining, setIsRefining] = useState(false)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
 
   // Directory detection — inline feedback as user types (requires machineId for relay)
@@ -120,26 +122,6 @@ export function ProjectNew() {
   }, [isMultiTenant, selectedMachine, availableMachines])
   const isRemote = isMultiTenant ? true : !!selectedMachine
 
-  // Voice transcription for project description
-  const handleTranscript = useCallback((text: string) => {
-    setDescription((prev) => {
-      if (prev.trim()) {
-        return prev.trim() + " " + text
-      }
-      return text
-    })
-  }, [])
-
-  const {
-    isRecording,
-    isTranscribing,
-    isAvailable,
-    duration,
-    toggleRecording,
-  } = useVoiceTranscription({
-    onTranscript: handleTranscript,
-  })
-
   const setGenerationPhase = useAgentStore((s) => s.setGenerationPhase)
 
   // Pending AI generation context — set when git init dialog is shown, consumed after user chooses
@@ -197,6 +179,17 @@ export function ProjectNew() {
       isDirty: detection.isDirty || false,
       dirtyDetails: detection.dirtyDetails,
     }
+  }
+
+  // Refine project description via AI
+  async function handleRefine() {
+    if (!description.trim() || isSubmitting || isRefining) return
+    setIsRefining(true)
+    try {
+      const result = await refineContent("", description.trim(), "project")
+      if (result) setDescription(result.refinedDescription)
+    } catch { /* refinement is best-effort */ }
+    setIsRefining(false)
   }
 
   // Unified create handler
@@ -337,12 +330,14 @@ export function ProjectNew() {
         if (firstTask.trim()) {
           const taskId = crypto.randomUUID()
           const today = new Date().toISOString().split('T')[0]
+          const taskText = firstTask.trim()
+          const taskTitle = extractTitle(taskText)
           addNode({
             id: taskId,
             projectId: id,
             type: "task",
-            title: firstTask.trim(),
-            description: "",
+            title: taskTitle,
+            description: taskText,
             status: "planned",
             parentId: null,
             dependencies: [],
@@ -353,6 +348,24 @@ export function ProjectNew() {
             createdAt: new Date(),
             updatedAt: new Date(),
           })
+
+          // Fire-and-forget AI title refinement for long descriptions
+          if (taskText.length > 80) {
+            generateTitle(taskText).then((aiTitle) => {
+              if (aiTitle && aiTitle !== taskTitle) {
+                usePlanStore.getState().updateNode(taskId, { title: aiTitle })
+              }
+            }).catch(() => {}) // silent — heuristic title is fine
+          }
+
+          // Fire-and-forget AI label suggestion
+          if (taskText.length > 20 || taskTitle.length > 10) {
+            suggestLabels(taskTitle, taskText).then((labelIds) => {
+              if (labelIds.length > 0) {
+                usePlanStore.getState().updateNode(taskId, { labelIds })
+              }
+            }).catch(() => {})
+          }
         }
 
         setIsSubmitting(false)
@@ -401,9 +414,9 @@ export function ProjectNew() {
                       )}
                       <div className={cn(
                         "flex items-center gap-1 text-xs",
-                        machine.isConnected ? "text-green-600" : "text-muted-foreground"
+                        machine.isConnected ? "text-success" : "text-muted-foreground"
                       )}>
-                        <span className={cn("h-1.5 w-1.5 rounded-full", machine.isConnected ? "bg-green-600" : "bg-muted-foreground")} />
+                        <span className={cn("h-1.5 w-1.5 rounded-full", machine.isConnected ? "bg-success" : "bg-muted-foreground")} />
                         <span>{machine.isConnected ? "Online" : "Offline"}</span>
                       </div>
                       {isSelected && <CheckCircle2 className="h-4 w-4 text-primary" />}
@@ -460,8 +473,8 @@ export function ProjectNew() {
                     <div className="text-xs text-muted-foreground truncate">{machine.hostname || machine.machineId}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="flex items-center gap-1 text-xs text-green-600">
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-600" />
+                    <div className="flex items-center gap-1 text-xs text-success">
+                      <span className="h-1.5 w-1.5 rounded-full bg-success" />
                       <span>Online</span>
                     </div>
                     {isSelected && <CheckCircle2 className="h-4 w-4 text-primary" />}
@@ -546,26 +559,26 @@ export function ProjectNew() {
       message = detection.suggestedDeliveryMode === 'pr'
         ? `Git repo (${label})${branchInfo}${dirtyInfo}. PRs will target \`${effectiveBranch || 'main'}\`.`
         : `Git repo (${label})${branchInfo}${dirtyInfo}. ${modeLabel}.`
-      borderColor = 'border-blue-200 dark:border-blue-900'
-      bgColor = 'bg-blue-50/50 dark:bg-blue-950/20'
-      textColor = 'text-blue-700 dark:text-blue-300'
-      iconColor = 'text-blue-600 dark:text-blue-400'
+      borderColor = 'border-info'
+      bgColor = 'bg-info/5'
+      textColor = 'text-info'
+      iconColor = 'text-info'
     } else if (detection.isGit) {
       Icon = GitBranch
       const branchInfo = detection.currentBranch ? ` on \`${detection.currentBranch}\`` : ''
       const dirtyInfo = detection.isDirty ? ' (has uncommitted changes)' : ''
       message = `Local git repo${branchInfo}${dirtyInfo}. Changes saved as local branches.`
-      borderColor = 'border-amber-200 dark:border-amber-900'
-      bgColor = 'bg-amber-50/50 dark:bg-amber-950/20'
-      textColor = 'text-amber-700 dark:text-amber-300'
-      iconColor = 'text-amber-600 dark:text-amber-400'
+      borderColor = 'border-warning'
+      bgColor = 'bg-warning/5'
+      textColor = 'text-warning'
+      iconColor = 'text-warning'
     } else {
       Icon = AlertCircle
       message = 'No git history. Initialize Git recommended for safe parallel execution.'
-      borderColor = 'border-amber-200 dark:border-amber-900'
-      bgColor = 'bg-amber-50/50 dark:bg-amber-950/20'
-      textColor = 'text-amber-700 dark:text-amber-300'
-      iconColor = 'text-amber-600 dark:text-amber-400'
+      borderColor = 'border-warning'
+      bgColor = 'bg-warning/5'
+      textColor = 'text-warning'
+      iconColor = 'text-warning'
     }
 
     // Dirty + different branch warning
@@ -578,10 +591,10 @@ export function ProjectNew() {
           <p className={cn("text-xs leading-relaxed", textColor)}>{message}</p>
         </div>
         {showBranchSwapNote && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2">
-            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
-            <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
-              The repo has uncommitted changes on <code className="font-mono bg-amber-100 dark:bg-amber-900/30 px-1 rounded">{detection.currentBranch}</code>. The AI plan will include steps to handle the branch switch.
+          <div className="flex items-start gap-2.5 rounded-lg border border-warning bg-warning/5 px-3 py-2">
+            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-warning" />
+            <p className="text-[11px] leading-relaxed text-warning">
+              The repo has uncommitted changes on <code className="font-mono bg-warning/10 px-1 rounded">{detection.currentBranch}</code>. The AI plan will include steps to handle the branch switch.
             </p>
           </div>
         )}
@@ -674,16 +687,6 @@ export function ProjectNew() {
                 className="h-[100px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 autoFocus
               />
-              <div className="absolute right-3 top-3">
-                <VoiceInputButton
-                  isRecording={isRecording}
-                  isTranscribing={isTranscribing}
-                  isAvailable={isAvailable}
-                  duration={duration}
-                  onClick={toggleRecording}
-                  disabled={isSubmitting}
-                />
-              </div>
             </div>
           </div>
 
@@ -842,14 +845,14 @@ export function ProjectNew() {
           {/* First task */}
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-foreground">
-              First task <span className="text-muted-foreground font-normal">(optional)</span>
+              First task — describe what needs to be done <span className="text-muted-foreground font-normal">(optional)</span>
             </label>
-            <input
-              type="text"
+            <textarea
               value={firstTask}
               onChange={(e) => setFirstTask(e.target.value)}
-              placeholder="e.g., Add user authentication, refactor API endpoints..."
-              className="h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="e.g., Add user authentication with email/password login, session management, and a protected dashboard route..."
+              rows={3}
+              className="min-h-[80px] w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
 
@@ -859,18 +862,38 @@ export function ProjectNew() {
 
         {/* Actions */}
         <div className="flex w-full flex-col gap-3">
-          <Button
-            onClick={() => handleCreate(true)}
-            disabled={!description.trim() || isSubmitting || connectionStatus !== "connected"}
-            className="h-12 w-full rounded-xl text-base font-semibold"
-          >
-            {isSubmitting ? (
-              <Loader2 className="h-[18px] w-[18px] animate-spin" />
-            ) : (
-              <Sparkles className="h-[18px] w-[18px]" />
-            )}
-            {isSubmitting ? "Creating..." : "Create & Generate Plan"}
-          </Button>
+          <div className="flex w-full gap-0">
+            <Button
+              onClick={() => handleCreate(true)}
+              disabled={!description.trim() || isSubmitting || isRefining || connectionStatus !== "connected"}
+              className="h-12 flex-1 rounded-xl rounded-r-none text-base font-semibold"
+            >
+              {isRefining ? (
+                <Loader2 className="h-[18px] w-[18px] animate-spin" />
+              ) : isSubmitting ? (
+                <Loader2 className="h-[18px] w-[18px] animate-spin" />
+              ) : (
+                <Sparkles className="h-[18px] w-[18px]" />
+              )}
+              {isRefining ? "Refining..." : isSubmitting ? "Creating..." : "Create & Generate Plan"}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  disabled={!description.trim() || isSubmitting || isRefining || connectionStatus !== "connected"}
+                  className="h-12 rounded-xl rounded-l-none border-l border-primary-foreground/20 px-3"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleRefine} className="gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  Refine
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <Button
             variant="outline"
             onClick={() => handleCreate(false)}

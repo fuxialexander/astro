@@ -12,17 +12,17 @@ export function getFaIcon(name: string): IconComponent | null {
     ?? null;
 }
 
-// Color palette for projects and initiatives
+// Color palette for projects and initiatives — cool Morandi tones
 export const COLOR_PALETTE = [
-  '#64748b', // slate
-  '#71717a', // zinc
-  '#6366f1', // indigo
-  '#06b6d4', // cyan
-  '#22c55e', // green
-  '#eab308', // yellow
-  '#f97316', // orange
-  '#dc2626', // red
-  '#e11d48', // rose
+  '#4A6D8A', // steel blue
+  '#5F8D6B', // sage green
+  '#A07D4F', // bronze gold
+  '#7B6B9A', // dusty lavender
+  '#9A6878', // dusty rose
+  '#A8785E', // terracotta
+  '#5B7F9A', // teal sky
+  '#8A7A6E', // cool taupe
+  '#71717A', // neutral gray
 ] as const;
 
 // Font Awesome icon names for projects (kept for backwards compatibility with existing projects)

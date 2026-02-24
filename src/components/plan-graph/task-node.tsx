@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from "react"
+import { memo, useState, useCallback, useEffect, useRef } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
 import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -7,19 +7,19 @@ import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 
 const statusConfig: Record<string, { bg: string; border: string; dotColor: string }> = {
   planned: { bg: "bg-card", border: "border-border", dotColor: "bg-muted-foreground" },
-  dispatched: { bg: "bg-card", border: "border-blue-500", dotColor: "bg-blue-500" },
-  in_progress: { bg: "bg-card", border: "border-blue-500", dotColor: "bg-blue-500" },
-  auto_verified: { bg: "bg-card", border: "border-green-500", dotColor: "bg-green-500" },
-  awaiting_judgment: { bg: "bg-card", border: "border-amber-500", dotColor: "bg-amber-500" },
-  completed: { bg: "bg-card", border: "border-green-500", dotColor: "bg-green-500" },
+  dispatched: { bg: "bg-card", border: "border-info", dotColor: "bg-info" },
+  in_progress: { bg: "bg-card", border: "border-info", dotColor: "bg-info" },
+  auto_verified: { bg: "bg-card", border: "border-success", dotColor: "bg-success" },
+  awaiting_judgment: { bg: "bg-card", border: "border-warning", dotColor: "bg-warning" },
+  completed: { bg: "bg-card", border: "border-success", dotColor: "bg-success" },
   pruned: { bg: "bg-muted", border: "border-border", dotColor: "bg-muted-foreground" },
 }
 
 const priorityHighlight: Record<string, { bg: string; border: string }> = {
-  urgent: { bg: "bg-red-500/10", border: "border-red-500" },
-  high: { bg: "bg-orange-500/10", border: "border-orange-500" },
-  medium: { bg: "bg-yellow-500/10", border: "border-yellow-500" },
-  low: { bg: "bg-blue-500/10", border: "border-blue-400" },
+  urgent: { bg: "bg-error/10", border: "border-error" },
+  high: { bg: "bg-warning/10", border: "border-warning" },
+  medium: { bg: "bg-warning/10", border: "border-warning" },
+  low: { bg: "bg-info/10", border: "border-info" },
   none: { bg: "bg-card", border: "border-border" },
 }
 
@@ -27,6 +27,7 @@ const neutralHighlight = { bg: "bg-card", border: "border-border" }
 
 type TaskNodeData = Node<{
   title: string
+  description?: string
   number?: number
   status: string
   nodeType: string
@@ -48,8 +49,22 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   const isMilestone = data.nodeType === "milestone"
   const isTask = data.nodeType === "task"
   const [hovered, setHovered] = useState(false)
+  const [showTooltip, setShowTooltip] = useState(false)
+  const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const focusedId = useKeyboardNavStore((s) => s.focusedId)
   const isFocused = focusedId === id
+
+  // Show tooltip with delay to avoid flicker on quick mouse passes
+  useEffect(() => {
+    if (hovered && (data.title.length > 25 || data.description)) {
+      tooltipTimer.current = setTimeout(() => setShowTooltip(true), 150)
+    } else {
+      setShowTooltip(false)
+    }
+    return () => {
+      if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
+    }
+  }, [hovered, data.title, data.description])
 
   // Resolve highlight colors based on highlightBy mode
   const highlight = (() => {
@@ -74,7 +89,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
 
   // Priority dot for urgent/high
   const showPriorityDot = data.priority === "urgent" || data.priority === "high"
-  const priorityDotColor = data.priority === "urgent" ? "bg-red-500" : "bg-orange-500"
+  const priorityDotColor = data.priority === "urgent" ? "bg-error" : "bg-warning"
 
   // Selection state
   const showCheckbox = hovered || data.selectionActive
@@ -102,7 +117,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         highlight.border,
         isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-xl",
         data.status === "pruned" && "opacity-50",
-        isOverdue && "border-l-red-500 border-l-[3px]",
+        isOverdue && "border-l-error border-l-[3px]",
         isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
         isRunning && "shadow-lg shadow-primary/20",
         isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50"
@@ -129,6 +144,20 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         </div>
       )}
 
+      {/* Hover tooltip showing full title + description */}
+      {showTooltip && (
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-[280px] z-30 pointer-events-none bg-popover border shadow-lg rounded-lg p-3">
+          <p className="text-xs font-semibold text-foreground leading-snug">
+            {data.number != null && <span className="text-muted-foreground font-normal mr-1">#{data.number}</span>}{data.title}
+          </p>
+          {data.description && (
+            <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed line-clamp-4">
+              {data.description.slice(0, 200)}{data.description.length > 200 ? "..." : ""}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Active glow effect for running tasks */}
       {isRunning && (
         <div className="absolute -inset-4 -z-10 opacity-20 pointer-events-none">
@@ -148,7 +177,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           isMilestone ? "rounded-[20px]" : "rounded-xl"
         )}>
           <div
-            className="absolute left-0 top-0 bottom-0 bg-blue-500/10 transition-all duration-500"
+            className="absolute left-0 top-0 bottom-0 bg-info/10 transition-all duration-500"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -181,7 +210,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
 
       {/* Progress percentage for running tasks */}
       {isRunning && progress > 0 && (
-        <span className="text-[10px] font-medium text-blue-500 relative z-10 ml-auto">
+        <span className="text-[10px] font-medium text-info relative z-10 ml-auto">
           {progress}%
         </span>
       )}
@@ -189,22 +218,22 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       {/* Merge queue status badge */}
       {data.mergeQueueStatus && (
         <span className="relative z-10 ml-auto shrink-0" title={`Merge queue: ${data.mergeQueueStatus}`}>
-          {data.mergeQueueStatus === 'queued' && <GitMerge className="h-3 w-3 text-blue-500" />}
-          {data.mergeQueueStatus === 'testing' && <Loader2 className="h-3 w-3 text-amber-500 animate-spin" />}
-          {data.mergeQueueStatus === 'merged' && <CheckCircle2 className="h-3 w-3 text-green-500" />}
-          {data.mergeQueueStatus === 'failed' && <XCircle className="h-3 w-3 text-red-500" />}
+          {data.mergeQueueStatus === 'queued' && <GitMerge className="h-3 w-3 text-info" />}
+          {data.mergeQueueStatus === 'testing' && <Loader2 className="h-3 w-3 text-warning animate-spin" />}
+          {data.mergeQueueStatus === 'merged' && <CheckCircle2 className="h-3 w-3 text-success" />}
+          {data.mergeQueueStatus === 'failed' && <XCircle className="h-3 w-3 text-error" />}
         </span>
       )}
 
       {/* PR indicator */}
       {data.prUrl && !data.mergeQueueStatus && (
-        <GitPullRequest className="h-3 w-3 shrink-0 text-purple-500 relative z-10 ml-auto" />
+        <GitPullRequest className="h-3 w-3 shrink-0 text-primary relative z-10 ml-auto" />
       )}
 
       {/* Auto-PR indicator - shows when autoPr is enabled but no PR exists yet */}
       {data.autoPr && !data.prUrl && !data.mergeQueueStatus && (
         <span className="relative z-10 ml-auto shrink-0" title="Auto-PR enabled">
-          <GitPullRequestCreateArrow className="h-3 w-3 text-blue-400" />
+          <GitPullRequestCreateArrow className="h-3 w-3 text-info" />
         </span>
       )}
 

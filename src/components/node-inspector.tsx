@@ -1,15 +1,15 @@
 import { useState, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus } from "lucide-react"
-import { useVoiceTranscription } from "@/hooks/use-voice-transcription"
-import { VoiceInputButton } from "@/components/ui/voice-input-button"
+import { FileText, XCircle, RotateCcw, X, Plus, ChevronDown, Sparkles, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { PropertyPicker } from "@/components/property-picker"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ExecutionPanel } from "@/components/execution"
+import { refineContent } from "@/lib/api-client"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
@@ -47,6 +47,7 @@ export function NodeInspectorContent({
   const updateNode = usePlanStore((s) => s.updateNode)
   const resetExecution = useExecutionStore((s) => s.resetExecution)
   const [isResetting, setIsResetting] = useState(false)
+  const [isRefining, setIsRefining] = useState(false)
 
   const allNodes = usePlanStore((s) => s.nodes)
   const allEdges = usePlanStore((s) => s.edges)
@@ -115,22 +116,16 @@ export function NodeInspectorContent({
     handleUpdate({ status: "pruned" })
   }, [handleUpdate])
 
-  // Voice transcription for description
-  const handleTranscript = useCallback((text: string) => {
-    const currentDescription = node.description ?? ""
-    const newDescription = currentDescription ? `${currentDescription} ${text}` : text
-    handleUpdate({ description: newDescription })
-  }, [node.description, handleUpdate])
-
-  const {
-    isRecording,
-    isTranscribing,
-    isAvailable,
-    duration,
-    toggleRecording,
-  } = useVoiceTranscription({
-    onTranscript: handleTranscript,
-  })
+  const handleRefine = useCallback(async () => {
+    setIsRefining(true)
+    try {
+      const result = await refineContent(node.title, node.description ?? "", "task")
+      if (result) {
+        handleUpdate({ title: result.refinedTitle, description: result.refinedDescription })
+      }
+    } catch { /* refinement is best-effort */ }
+    setIsRefining(false)
+  }, [node, handleUpdate])
 
   return (
     <>
@@ -229,9 +224,9 @@ export function NodeInspectorContent({
                     className={cn(
                       "h-1.5 w-1.5 rounded-full shrink-0",
                       dep.status === "completed" || dep.status === "auto_verified"
-                        ? "bg-green-500"
+                        ? "bg-success"
                         : dep.status === "in_progress" || dep.status === "dispatched"
-                          ? "bg-orange-500"
+                          ? "bg-warning"
                           : "border border-muted-foreground/40"
                     )}
                   />
@@ -270,7 +265,7 @@ export function NodeInspectorContent({
         {node.executionId && (
           <div className="flex items-center justify-between text-[13px]">
             <span className="text-muted-foreground">Elapsed</span>
-            <span className="text-[13px] font-medium text-blue-500">3:24</span>
+            <span className="text-[13px] font-medium text-info">3:24</span>
           </div>
         )}
       </div>
@@ -279,14 +274,6 @@ export function NodeInspectorContent({
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <h4 className="text-[13px] font-semibold text-muted-foreground">Description</h4>
-          <VoiceInputButton
-            isRecording={isRecording}
-            isTranscribing={isTranscribing}
-            isAvailable={isAvailable}
-            duration={duration}
-            onClick={toggleRecording}
-            size="sm"
-          />
         </div>
         <FileCompletionTextarea
           projectId={project.id}
@@ -312,23 +299,45 @@ export function NodeInspectorContent({
               <FileText className="h-4 w-4" />
               View Execution
             </Link>
-            <button
-              disabled={isResetting}
-              onClick={async () => {
-                setIsResetting(true)
-                try {
-                  await resetExecution(node.id)
-                  const freshNode = usePlanStore.getState().nodes.find((n) => n.id === node.id)
-                  if (freshNode) onNodeUpdate(freshNode)
-                } finally {
-                  setIsResetting(false)
-                }
-              }}
-              className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
-            >
-              <RotateCcw className={cn("h-4 w-4", isResetting && "animate-spin")} />
-              {isResetting ? "Resetting..." : "Re-execute"}
-            </button>
+            <div className="flex gap-0">
+              <button
+                disabled={isResetting || isRefining}
+                onClick={async () => {
+                  setIsResetting(true)
+                  try {
+                    await resetExecution(node.id)
+                    const freshNode = usePlanStore.getState().nodes.find((n) => n.id === node.id)
+                    if (freshNode) onNodeUpdate(freshNode)
+                  } finally {
+                    setIsResetting(false)
+                  }
+                }}
+                className="flex flex-1 items-center justify-center gap-2 h-10 rounded-l-[10px] border border-r-0 border-border bg-transparent text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
+              >
+                {isRefining ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className={cn("h-4 w-4", isResetting && "animate-spin")} />
+                )}
+                {isRefining ? "Refining..." : isResetting ? "Resetting..." : "Re-execute"}
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    disabled={isResetting || isRefining}
+                    className="flex items-center justify-center h-10 px-2 rounded-r-[10px] border border-border bg-transparent hover:bg-muted/50 transition-colors disabled:opacity-50"
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleRefine} className="gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    Refine
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </>
         ) : (
           <div className="flex flex-col gap-3">

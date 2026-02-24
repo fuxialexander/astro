@@ -255,7 +255,7 @@ export function MyTasks() {
     return Object.entries(grouped).map(([label, items]) => {
       let icon = undefined
       if (displaySettings.groupBy === "project") {
-        icon = <Folder className="h-4 w-4 text-blue-500" />
+        icon = <Folder className="h-4 w-4 text-info" />
       } else if (displaySettings.groupBy === "status") {
         const entry = Object.values(STATUS_CONFIG).find((s) => s.label === label)
         if (entry) {

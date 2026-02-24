@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { Loader2, CheckCircle2, AlertCircle, X, ChevronDown, ChevronUp, FolderGit2 } from "lucide-react"
+import { Loader2, CheckCircle2, AlertCircle, X, ChevronDown, ChevronUp, FolderGit2, Minimize2, Maximize2 } from "lucide-react"
 import { useAgentStore, type GenerationSession } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useMachinesStore } from "@/stores/machines-store"
@@ -87,7 +87,7 @@ function SessionCard({ session }: { session: GenerationSession }) {
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
         )}
         {session.status === "completed" && (
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
         )}
         {isError && (
           <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
@@ -178,14 +178,49 @@ export function GenerationToasts() {
   const sessions = useAgentStore((s) => s.sessions)
   const entries = Array.from(sessions.values())
   const hasExpanded = entries.some((s) => s.streamText.length > 0)
+  const [minimized, setMinimized] = useState(false)
 
   if (entries.length === 0) return null
 
+  const activeCount = entries.filter((s) => s.status === "active").length
+  const label = activeCount > 0
+    ? `${activeCount} generating`
+    : `${entries.length} session${entries.length !== 1 ? "s" : ""}`
+
+  if (minimized) {
+    return (
+      <div className="fixed top-16 right-4 z-40">
+        <button
+          onClick={() => setMinimized(false)}
+          className="flex items-center gap-2 h-8 px-3 rounded-full border border-border bg-card shadow-lg text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+        >
+          {activeCount > 0 && (
+            <Loader2 className="h-3 w-3 animate-spin text-primary" />
+          )}
+          <span>{label}</span>
+          <Maximize2 className="h-3 w-3 text-muted-foreground" />
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className={cn(
-      "fixed bottom-4 right-4 z-50 flex flex-col-reverse gap-2 transition-all",
+      "fixed top-16 right-4 z-40 flex flex-col gap-2 transition-all",
       hasExpanded ? "w-[480px]" : "w-[340px]",
     )}>
+      {entries.length > 1 && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => setMinimized(true)}
+            className="flex items-center gap-1.5 h-6 px-2 rounded-md text-[10px] font-medium text-muted-foreground hover:bg-muted transition-colors cursor-pointer"
+            title="Minimize all"
+          >
+            <Minimize2 className="h-3 w-3" />
+            Minimize
+          </button>
+        </div>
+      )}
       {entries.map((session) => (
         <SessionCard key={session.projectId} session={session} />
       ))}

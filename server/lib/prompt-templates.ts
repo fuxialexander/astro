@@ -9,6 +9,9 @@ export {
   buildChatSystemPrompt,
   buildTaskChatSystemPrompt,
   buildTaskExecutionPrompt,
+  buildTitleGenerationPrompt,
+  buildRefinementPrompt,
+  buildLabelSuggestionPrompt,
   buildSummaryPrompt,
 } from '../../packages/core/src/prompt-templates.js'
 
@@ -19,4 +22,5 @@ export type {
   ChatPlanEdge,
   TaskExecutionContext,
   TaskChatContext,
+  RefinementInput,
 } from '../../packages/core/src/prompt-templates.js'

@@ -281,6 +281,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         position: n.position || { x: 0, y: 0 }, // Defensive: ensure position is always defined
         data: {
           title: n.title,
+          description: n.description,
           number: n.number,
           status: n.status,
           nodeType: n.type,
@@ -580,9 +581,9 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           </div>
 
           {!isConnected && (
-            <div className="flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 px-4 py-3 text-sm">
-              <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span className="text-amber-900 dark:text-amber-100">
+            <div className="flex items-center gap-2 rounded-lg bg-warning/5 border border-warning/20 px-4 py-3 text-sm">
+              <Info className="h-4 w-4 text-warning shrink-0" />
+              <span className="text-foreground">
                 Connect to backend in <a href="/settings" className="underline font-medium">Settings</a> to enable AI plan generation
               </span>
             </div>
@@ -643,15 +644,15 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         {/* Status legend */}
         <div className="react-flow__panel absolute bottom-3 left-14 z-10 flex items-center gap-3 rounded-lg border border-border bg-card/85 backdrop-blur-sm px-2.5 py-1.5 shadow-sm text-[10px] font-medium">
           <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-green-500" />
+            <div className="h-2 w-2 rounded-full bg-success" />
             <span className="text-muted-foreground">Completed</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-orange-500" />
+            <div className="h-2 w-2 rounded-full bg-warning" />
             <span className="text-muted-foreground">In Progress</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-amber-500" />
+            <div className="h-2 w-2 rounded-full bg-warning" />
             <span className="text-muted-foreground">Awaiting</span>
           </div>
           <div className="flex items-center gap-1.5">

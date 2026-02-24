@@ -6,9 +6,9 @@ type BadgeVariant = "default" | "secondary" | "destructive" | "warning" | "succe
 export interface StatusEntry {
   icon: typeof Circle
   label: string
-  /** Text color class (e.g. "text-blue-600") */
+  /** Text color class */
   color: string
-  /** Background class for chips/badges (e.g. "bg-blue-500/10") */
+  /** Background class for chips/badges */
   bg: string
   /** Badge component variant */
   badgeVariant: BadgeVariant
@@ -30,52 +30,52 @@ export const STATUS_CONFIG: Record<PlanNode["status"], StatusEntry> = {
   dispatched: {
     icon: Send,
     label: "Dispatched",
-    color: "text-blue-600",
-    bg: "bg-blue-500/10",
+    color: "text-info",
+    bg: "bg-info/10",
     badgeVariant: "info",
-    barClass: "bg-blue-500",
-    progressClass: "bg-blue-700",
+    barClass: "bg-info",
+    progressClass: "bg-info/80",
   },
   in_progress: {
     icon: Loader,
     label: "In Progress",
-    color: "text-blue-600",
-    bg: "bg-blue-500/10",
+    color: "text-info",
+    bg: "bg-info/10",
     badgeVariant: "info",
-    barClass: "bg-blue-500",
-    progressClass: "bg-blue-700",
+    barClass: "bg-info",
+    progressClass: "bg-info/80",
   },
   auto_verified: {
     icon: CheckCircle2,
     label: "Auto Verified",
-    color: "text-green-600",
-    bg: "bg-green-500/10",
+    color: "text-success",
+    bg: "bg-success/10",
     badgeVariant: "success",
-    barClass: "bg-green-500",
+    barClass: "bg-success",
   },
   awaiting_judgment: {
     icon: Eye,
     label: "Needs Review",
-    color: "text-amber-600",
-    bg: "bg-amber-500/10",
+    color: "text-warning",
+    bg: "bg-warning/10",
     badgeVariant: "warning",
-    barClass: "bg-amber-500",
+    barClass: "bg-warning",
   },
   awaiting_approval: {
     icon: Eye,
     label: "Awaiting Approval",
-    color: "text-amber-600",
-    bg: "bg-amber-500/10",
+    color: "text-warning",
+    bg: "bg-warning/10",
     badgeVariant: "warning",
-    barClass: "bg-amber-500",
+    barClass: "bg-warning",
   },
   completed: {
     icon: CheckCircle2,
     label: "Completed",
-    color: "text-green-600",
-    bg: "bg-green-500/10",
+    color: "text-success",
+    bg: "bg-success/10",
     badgeVariant: "success",
-    barClass: "bg-green-500",
+    barClass: "bg-success",
   },
   pruned: {
     icon: Scissors,

@@ -235,6 +235,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               priority: n.priority as PlanNode["priority"],
               estimate: n.estimate as PlanNode["estimate"],
               dueDate: n.dueDate,
+              labelIds: n.labelIds,
               milestoneId: n.milestoneId ? prefixId(n.milestoneId) : n.milestoneId,
               createdAt: now,
               updatedAt: now,

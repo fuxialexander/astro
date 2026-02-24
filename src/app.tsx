@@ -45,6 +45,7 @@ import { Environments } from "@/pages/environments"
 import { Agents } from "@/pages/agents"
 import { MyTasks } from "@/pages/my-tasks"
 import { Workflows } from "@/pages/workflows"
+import { ActiveTasks } from "@/pages/active-tasks"
 import { TeamInvite } from "@/pages/team-invite"
 
 /**
@@ -286,6 +287,7 @@ export default function App() {
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
                 <Route path="initiatives" element={<Initiatives />} />
                 <Route path="tasks" element={<MyTasks />} />
+                <Route path="active" element={<ActiveTasks />} />
                 <Route path="agents" element={<Agents />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />

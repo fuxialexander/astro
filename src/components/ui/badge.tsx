@@ -15,12 +15,12 @@ const badgeVariants = cva(
         success: "border-transparent bg-success text-success-foreground",
         warning: "border-transparent bg-warning text-warning-foreground",
         info: "border-transparent bg-info text-info-foreground",
-        // Status variants matching design system
-        "in-progress": "border-transparent bg-blue-500/10 text-blue-500",
-        awaiting: "border-transparent bg-amber-500/10 text-amber-500",
-        completed: "border-transparent bg-green-600/10 text-green-600",
-        error: "border-transparent bg-red-500/10 text-red-500",
-        planned: "border-transparent bg-gray-400/10 text-gray-400",
+        // Status variants — semantic Morandi tokens
+        "in-progress": "border-transparent bg-info/10 text-info",
+        awaiting: "border-transparent bg-warning/10 text-warning",
+        completed: "border-transparent bg-success/10 text-success",
+        error: "border-transparent bg-error/10 text-error",
+        planned: "border-transparent bg-muted text-muted-foreground",
       },
     },
     defaultVariants: {

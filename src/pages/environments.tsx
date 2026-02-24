@@ -56,8 +56,8 @@ function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
 
 const backendStyleMap: Record<string, { color: string; bg: string }> = {
   direct: { color: "text-gray-600 dark:text-gray-400", bg: "bg-gray-100 dark:bg-gray-800" },
-  slurm: { color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30" },
-  docker: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30" },
+  slurm: { color: "text-primary", bg: "bg-primary/10" },
+  docker: { color: "text-info", bg: "bg-info/10" },
   "k8s-exec": { color: "text-sky-600 dark:text-sky-400", bg: "bg-sky-100 dark:bg-sky-900/30" },
   ssh: { color: "text-teal-700 dark:text-teal-400", bg: "bg-teal-50 dark:bg-teal-900/25" },
 }
@@ -183,7 +183,7 @@ function ConnectedMachinesCard({ machines, onRemove, onMachineClick }: {
       <div className="flex flex-col gap-2 px-6 pb-6">
         {machines.map((machine) => {
           const loadPercent = Math.round(machine.load.cpuPercent)
-          const loadColor = loadPercent > 75 ? "bg-amber-500" : "bg-blue-500"
+          const loadColor = loadPercent > 75 ? "bg-warning" : "bg-info"
           const resourceSummary = formatResourceSummary(machine.resources)
 
           return (
@@ -446,8 +446,8 @@ function LocalBackendsCard({ backends, onBackendClick, title, subtitle }: { back
     <Card>
       <div className="flex items-center justify-between p-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
-            <Boxes className="h-5 w-5 text-purple-500" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+            <Boxes className="h-5 w-5 text-primary" />
           </div>
           <div>
             <p className="font-medium">{title ?? "This Machine"}</p>
@@ -696,8 +696,8 @@ export function Environments() {
           label="Total Machines"
           value={totalMachines}
           icon={Monitor}
-          iconBg="bg-blue-500/10"
-          iconColor="text-blue-500"
+          iconBg="bg-info/10"
+          iconColor="text-info"
         />
         <StatCard
           label="Connected"
@@ -710,15 +710,15 @@ export function Environments() {
           label="Active Tasks"
           value={activeTasks}
           icon={Activity}
-          iconBg="bg-blue-500/10"
-          iconColor="text-blue-500"
+          iconBg="bg-info/10"
+          iconColor="text-info"
         />
         <StatCard
           label="Compute Backends"
           value={computeBackendCount}
           icon={Boxes}
-          iconBg="bg-purple-500/10"
-          iconColor="text-purple-500"
+          iconBg="bg-primary/10"
+          iconColor="text-primary"
         />
       </div>
 

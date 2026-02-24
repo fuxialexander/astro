@@ -50,9 +50,9 @@ export function TurnList({ turns, selectedIndex, onSelect }: TurnListProps) {
                 {turn.toolCalls.length > 0 && (
                   <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                     {hasErrors ? (
-                      <XCircle className="h-2.5 w-2.5 text-red-500" />
+                      <XCircle className="h-2.5 w-2.5 text-error" />
                     ) : allSuccess ? (
-                      <CheckCircle2 className="h-2.5 w-2.5 text-green-500" />
+                      <CheckCircle2 className="h-2.5 w-2.5 text-success" />
                     ) : null}
                     {turn.toolCalls.length} tool{turn.toolCalls.length !== 1 ? "s" : ""}
                   </span>

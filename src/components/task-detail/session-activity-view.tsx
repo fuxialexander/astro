@@ -18,7 +18,7 @@ function getEventIcon(type: string) {
     case "message":
       return <MessageSquare className="h-3.5 w-3.5" />
     case "error":
-      return <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+      return <AlertCircle className="h-3.5 w-3.5 text-error" />
     default:
       return <Monitor className="h-3.5 w-3.5" />
   }
@@ -28,13 +28,13 @@ function getEventColor(type: string): string {
   switch (type) {
     case "tool_call":
     case "tool_result":
-      return "border-blue-500 bg-blue-500/10"
+      return "border-info bg-info/10"
     case "file_change":
-      return "border-amber-500 bg-amber-500/10"
+      return "border-warning bg-warning/10"
     case "message":
-      return "border-green-500 bg-green-500/10"
+      return "border-success bg-success/10"
     case "error":
-      return "border-red-500 bg-red-500/10"
+      return "border-error bg-error/10"
     default:
       return "border-border bg-muted"
   }
@@ -117,8 +117,8 @@ function SessionCard({ session }: { session: AttachedSession }) {
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-3 w-full px-4 py-3 bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
       >
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500/10 border border-green-500">
-          <Link2 className="h-4 w-4 text-green-500" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10 border border-success">
+          <Link2 className="h-4 w-4 text-success" />
         </div>
         <div className="flex-1 text-left min-w-0">
           <div className="flex items-center gap-2">
