@@ -90,6 +90,7 @@ async function streamChatViaRelay(
     model: opts.model,
     maxTurns: opts.maxTurns ?? 50,
     workingDirectory: opts.workingDirectory,
+    useWorktree: false,
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
@@ -392,6 +393,7 @@ agentRoute.post('/generate-plan', async (c) => {
     maxTurns: 100,
     outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
     type: 'plan', // Mark as plan task to skip safety checks (no file system access)
+    useWorktree: false,
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)

@@ -64,6 +64,7 @@ interface SessionState {
   addMessage: (sessionId: string, message: Omit<SessionMessage, "id" | "timestamp">) => void
   appendToLastAssistantMessage: (sessionId: string, chunk: string) => void
   updateLastAssistantMessage: (sessionId: string, content: string, appliedMutations?: SessionMessage["appliedMutations"]) => void
+  truncateAfterMessage: (sessionId: string, messageId: string) => string | undefined
 
   // Session state
   setProviderSessionId: (sessionId: string, providerSessionId: string) => void
@@ -294,6 +295,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     // Fire-and-forget API call
     dataClient.updateSession(sessionId, { messages: updatedMessages, updatedAt: updated.updatedAt }).catch(() => {})
+  },
+
+  truncateAfterMessage: (sessionId, messageId) => {
+    const sessions = new Map(get().sessions)
+    const session = sessions.get(sessionId)
+    if (!session) return undefined
+
+    const idx = session.messages.findIndex((m) => m.id === messageId)
+    if (idx === -1) return undefined
+
+    // Keep messages up to but not including the target message
+    const truncatedMessages = session.messages.slice(0, idx)
+    const removedMessage = session.messages[idx]
+
+    const updated = {
+      ...session,
+      messages: truncatedMessages,
+      updatedAt: new Date(),
+    }
+
+    sessions.set(sessionId, updated)
+    set({ sessions })
+
+    // Fire-and-forget API call
+    dataClient.updateSession(sessionId, { messages: truncatedMessages, updatedAt: updated.updatedAt }).catch(() => {})
+
+    return removedMessage.content
   },
 
   setProviderSessionId: (sessionId, providerSessionId) => {
