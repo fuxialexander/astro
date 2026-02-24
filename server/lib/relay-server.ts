@@ -415,6 +415,7 @@ export interface RelayServerEvents {
   'task:file_change': (change: TaskFileChangeMessage) => void;
   'task:session_init': (msg: TaskSessionInitMessage) => void;
   'task:approval_request': (msg: { taskId: string; requestId: string; question: string; options: string[] }) => void;
+  'task:safety_prompt': (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }> }) => void;
   'machine:connected': (machineId: string) => void;
   'machine:disconnected': (machineId: string, reason?: string) => void;
   // Session attachment events (MCP bridge)
@@ -853,6 +854,20 @@ export class RelayServer extends EventEmitter {
         this.handleSessionEvent(message as SessionEventMessage);
         break;
 
+      // Acknowledgment messages from agent runner — log and discard (no forwarding needed)
+      case 'resource_update':
+        // Heartbeat already carries load info; resource_update is redundant
+        console.log(`[relay] Resource update received (ignored — load info via heartbeat)`);
+        break;
+
+      case 'task_approval_response':
+        console.log(`[relay] Approval response ack received for task ${(message as { payload?: { taskId?: string } }).payload?.taskId ?? 'unknown'}`);
+        break;
+
+      case 'task_safety_response':
+        console.log(`[relay] Safety response ack received for task ${(message as { payload?: { taskId?: string } }).payload?.taskId ?? 'unknown'}`);
+        break;
+
       default:
         console.warn(`[relay] Unknown message type: ${(message as { type: string }).type}`);
         this.sendError(socket, 'UNKNOWN_MESSAGE', `Unknown message type: ${(message as { type: string }).type}`);
@@ -1184,6 +1199,36 @@ export class RelayServer extends EventEmitter {
     }
     socket.send(JSON.stringify(responseMsg));
     console.log(`[relay] Approval response sent for task ${taskId} request ${requestId} to machine ${machineId}`);
+    return true;
+  }
+
+  /**
+   * Send safety decision back to agent runner
+   */
+  sendSafetyDecision(
+    taskId: string,
+    machineId: string,
+    decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel'
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for safety decision`);
+      return false;
+    }
+
+    const responseMsg = {
+      type: 'task_safety_decision',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, decision },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      console.error(`[relay] Failed to send safety decision for task ${taskId} to machine ${machineId} (socket not open)`);
+      return false;
+    }
+    socket.send(JSON.stringify(responseMsg));
+    console.log(`[relay] Safety decision sent for task ${taskId} to machine ${machineId}: ${decision}`);
     return true;
   }
 

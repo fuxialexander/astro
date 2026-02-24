@@ -71,6 +71,14 @@ export interface DynamicApprovalRequest {
   timestamp: Date
 }
 
+export interface SafetyPromptRequest {
+  taskId: string
+  safetyTier: string
+  warning?: string
+  options: Array<{ id: string; label: string; description?: string }>
+  timestamp: Date
+}
+
 export interface TaskStream {
   taskId: string
   machineId?: string
@@ -146,6 +154,8 @@ interface RealtimeState {
   attachedSessions: Map<string, AttachedSession>
   // Dynamic approval requests (AskUserQuestion tool)
   dynamicApprovals: Map<string, DynamicApprovalRequest>
+  // Safety prompt requests (non-git working directory)
+  safetyPrompts: Map<string, SafetyPromptRequest>
 
   // Actions
   connect: () => void
@@ -156,6 +166,7 @@ interface RealtimeState {
   getSessionsForTask: (taskId: string) => AttachedSession[]
   getDynamicApproval: (requestId: string) => DynamicApprovalRequest | undefined
   respondToDynamicApproval: (taskId: string, requestId: string, answer: string) => Promise<void>
+  respondToSafetyPrompt: (taskId: string, decision: string) => Promise<void>
 }
 
 let activityCounter = 0
@@ -167,6 +178,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   taskStreams: new Map(),
   attachedSessions: new Map(),
   dynamicApprovals: new Map(),
+  safetyPrompts: new Map(),
 
   connect: () => {
     realtimeClient.connect()
@@ -288,6 +300,51 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       console.log('[realtime] Approval response sent:', { taskId, requestId, answer })
     } catch (error) {
       console.error('[realtime] Failed to send approval response:', error)
+      throw error
+    }
+  },
+
+  respondToSafetyPrompt: async (taskId: string, decision: string) => {
+    // taskId is the executionId — find the nodeId first
+    const planStore = usePlanStore.getState()
+    const node = planStore.nodes.find((n) => n.executionId === taskId)
+    if (!node) {
+      console.error('[realtime] No node found for executionId:', taskId)
+      return
+    }
+
+    // Get the machine ID for this task from execution store
+    const execution = useExecutionStore.getState().getExecution(node.id)
+    if (!execution?.machineId) {
+      console.error('[realtime] No machine ID for task:', taskId)
+      return
+    }
+
+    try {
+      const response = await fetch(apiUrl('/api/dispatch/safety-decision'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId,
+          machineId: execution.machineId,
+          decision,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to send safety decision: ${response.status}`)
+      }
+
+      // Remove from pending safety prompts
+      set((state) => {
+        const newPrompts = new Map(state.safetyPrompts)
+        newPrompts.delete(taskId)
+        return { safetyPrompts: newPrompts }
+      })
+
+      console.log('[realtime] Safety decision sent:', { taskId, decision })
+    } catch (error) {
+      console.error('[realtime] Failed to send safety decision:', error)
       throw error
     }
   },
@@ -812,6 +869,37 @@ function handleRealtimeEvent(
       )
 
       console.log('[realtime] Dynamic approval request received:', { taskId, requestId, question, options })
+      break
+    }
+
+    case 'task:safety_prompt': {
+      const taskId = data.taskId as string
+      const safetyTier = data.safetyTier as string
+      const warning = data.warning as string | undefined
+      const options = data.options as Array<{ id: string; label: string; description?: string }>
+      const timestamp = new Date()
+
+      // Add to safety prompts map (keyed by taskId)
+      set((state) => {
+        const newPrompts = new Map(state.safetyPrompts)
+        newPrompts.set(taskId, {
+          taskId,
+          safetyTier,
+          warning,
+          options,
+          timestamp,
+        })
+        return { safetyPrompts: newPrompts }
+      })
+
+      addActivity(
+        set,
+        'safety',
+        `Safety prompt: ${warning || `Working directory requires attention (${safetyTier})`}`,
+        { taskId }
+      )
+
+      console.log('[realtime] Safety prompt received:', { taskId, safetyTier, warning })
       break
     }
   }
