@@ -1,6 +1,30 @@
 # Current Conflicts: Design Docs vs. Code/Technical Docs
 
-This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-02-22.
+This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-02-23.
+
+---
+
+## Documentation Consolidation (2026-02-23)
+
+The following consolidation work has been completed:
+
+### Superseded Design Docs Moved to `docs/deprecated/`
+- `SERVER_ARCHITECTURE_V2.md` — Consolidated into ARCHITECTURE.md
+- `LOCAL_SERVER_REFACTOR.md` — Implementation complete, historical reference only
+- `SERVER_LOCAL_MODE_SEPARATION.md` — Core goals achieved
+- `EXECUTION_PATH_DUPLICATION.md` — Resolved, historical reference only
+
+### Duplicate Docs Removed
+- `docs/testing/approval-testing-guide.md` — Merged into `approval-testing.md`
+- `docs/backend/teams-schema.md` — Content already in `database-schema.md`
+- `docs/architecture/deployment.md` — Redundant with `fly-deployment.md`; moved to deprecated
+
+### Proposal Banners Added
+Added clear "PROPOSED — Not yet implemented" banners to:
+- `AGENT_PERFORMANCE.md` (0% implemented)
+- `ATTENTION_TRIAGE.md` (~5% implemented)
+- `COST_TRACKING.md` (~20% implemented)
+- `CROSS_PROJECT_REFERENCES.md` (~5% implemented)
 
 ---
 

@@ -50,7 +50,20 @@ cd packages/agent-runner && node dist/cli.js connect
 ./scripts/test-e2e-with-approval.sh
 ```
 
-Tests the complete flow: authentication, machine registration, project/task creation, task dispatch, SSE monitoring, agent `ask_user_question` call, approval response, file generation, worktree verification, cleanup.
+Tests the complete flow:
+1. Authentication and device registration
+2. Machine registration
+3. Project creation
+4. Task creation with approval requirement
+5. Task dispatch to agent runner
+6. SSE event monitoring
+7. Agent calls `ask_user_question` during execution
+8. Approval request detected via SSE
+9. Auto-response sent to approval
+10. Agent continues with user's selection
+11. File created based on user's choice
+12. Worktree capture and verification
+13. Cleanup
 
 ### Level 4: Manual UI Testing
 
@@ -76,27 +89,72 @@ npm run dev
 | SSE Streaming | - | Yes | Yes |
 | ApprovalCard UI | - | - | Yes |
 | Agent Integration | - | Yes | Yes |
+| End-to-End Flow | - | Yes | Yes |
+
+Legend:
+- Yes / Full coverage
+- Partial / Some coverage
+- `-` / Not tested at this level
+
+## What Each Test Verifies
+
+### Demo (Visual)
+- Understanding of approval flow architecture
+- Event flow visualization
+- Component interactions
+
+### Unit Tests
+- MCP server starts correctly
+- `ask_user_question` tool is exposed
+- HTTP endpoint accepts requests
+- Approval flow initiates
+
+### E2E Integration
+- Real agent execution
+- MCP tool call from agent
+- HTTP request to dispatch engine
+- Approval event emission
+- SSE streaming to clients
+- Approval response processing
+- Promise resolution in dispatch engine
+- Tool result returned to agent
+- Agent continues with selection
+- Correct file/code generated based on choice
+
+### Manual UI
+- ApprovalCard renders correctly
+- Options display properly
+- User can select options
+- Confirm/Cancel buttons work
+- Real-time updates via SSE
+- Task status changes correctly
 
 ## Troubleshooting
 
 ### Unit Tests
+
 | Issue | Fix |
 |-------|-----|
 | "Server not running" | `pkill -f "tsx.*server/index.ts"` then retry |
 | "MCP server failed" | Check Node.js 18+, run `npm run build` |
+| "MCP server failed to start" | Check directly: `node --import=tsx/esm server/lib/mcp/astro-tools-server.ts` |
 
 ### E2E Tests
+
 | Issue | Fix |
 |-------|-----|
 | "No approval detected" | Check agent runner logs in `/tmp/astro-e2e-logs-*/` |
 | "Approval response failed" | Verify SSE: `curl -N http://localhost:3001/api/events/stream` |
 | "Timeout" | Check agent logs for exceptions |
+| "Execution timeout" | Verify working directory is accessible, check git init |
 
 ### Manual UI
+
 | Issue | Fix |
 |-------|-----|
 | ApprovalCard missing | Check console errors, verify SSE in Network tab |
 | Selection doesn't work | Check POST to `/api/dispatch/approve` in Network tab |
+| Dialog doesn't appear | Check React DevTools -> Zustand -> execution-store -> pendingApprovals |
 
 ## Test Artifacts
 
@@ -108,10 +166,34 @@ E2E test logs saved to `/tmp/astro-e2e-logs-<timestamp>/`:
 
 ## CI/CD Integration
 
+### GitHub Actions
+
 ```yaml
-# GitHub Actions
-- name: Run approval tests
-  run: npm run test:approval:quick
+name: Approval System Tests
+
+on: [push, pull_request]
+
+jobs:
+  approval-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run approval system tests
+        run: npm run test:approval:quick
+```
+
+### Pre-commit Hook
+
+```bash
+# .husky/pre-commit
+npm run test:approval:quick
 ```
 
 ## Adding New Approval Tests
@@ -120,8 +202,33 @@ E2E test logs saved to `/tmp/astro-e2e-logs-<timestamp>/`:
 2. Add scenario to E2E test if it involves agent execution
 3. Update demo script if it changes the user-facing flow
 
+### Example: Testing Timeout Behavior
+
+```typescript
+// In test-approval-system.ts
+async function testApprovalTimeout(): Promise<boolean> {
+  info('Test: Approval Timeout')
+
+  // Send approval request but don't respond
+  // Wait for timeout (5 minutes)
+  // Verify error is returned
+
+  return true
+}
+```
+
+```bash
+# In test-e2e-with-approval.sh
+log_step "Testing Approval Timeout Handling"
+
+# Dispatch task that asks question
+# Don't respond to approval
+# Wait for timeout
+# Verify agent receives error
+```
+
 ## Related Docs
 
-- [Approval System](../features/approval-system.md) - Architecture
-- [Approval Quickstart](./approval-quickstart.md) - Developer guide
-- [Testing Guide](./testing.md) - Overall testing strategy
+- [Approval System Architecture](../features/approval-system.md)
+- [Approval Quickstart (Developer Guide)](./approval-quickstart.md)
+- [Testing Guide](./testing.md)

@@ -1,6 +1,8 @@
 # Agent Performance Tracking — Design Document
 
 > **Status: PROPOSED** — Not yet implemented (0%)
+>
+> This is a design proposal document. The features described here are not yet implemented in the codebase.
 
 ## 1. Overview
 

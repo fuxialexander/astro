@@ -33,12 +33,11 @@ The design docs in `docs/design/` are the authoritative reference for the system
 ### Backend
 
 - [API Reference](./backend/api-reference.md) - API endpoint documentation
-- [Database Schema](./backend/database-schema.md) - Drizzle schema, tables, relationships
+- [Database Schema](./backend/database-schema.md) - Drizzle schema, tables, relationships (includes Teams schema)
 - [RLS Policies](./backend/rls-policies.md) - Row-level security policies
 - [Data Flows](./backend/data-flows.md) - How data moves through the system
 - [Authentication](./backend/authentication.md) - WebAuthn/passkey implementation
 - [Device Authorization](./backend/device-authorization.md) - OAuth2 device code flow
-- [Teams Schema](./backend/teams-schema.md) - Teams and collaboration schema
 - [Observability](./backend/observability-and-safety.md) - Logging, metrics, safety
 - [User Behavior Tracking](./backend/user-behavior-tracking.md) - Activity and analytics
 - [Machine Names](./backend/machine-names.md) - Machine naming conventions
@@ -106,16 +105,23 @@ The design docs in `docs/design/` are the authoritative reference for the system
 ### Testing
 
 - [Testing Guide](./testing/testing.md) - Testing strategy and tools
-- [Approval Testing](./testing/approval-testing.md) - Approval system tests
+- [Approval Testing](./testing/approval-testing.md) - Approval system tests (consolidated)
 - [Approval Quickstart](./testing/approval-quickstart.md) - Approval developer guide
 
 ### Deprecated
+
+Historical documents kept for context. Do not reference for current implementation.
 
 - [Architecture v1](./deprecated/architecture-v1.md) - Old architecture doc (SQLite era)
 - [Cyrus Integration](./deprecated/cyrus-integration.md) - Legacy integration
 - [Local Server Mode Changes](./deprecated/local-server-mode-changes.md) - Migration notes
 - [Sidebar Supabase Sync](./deprecated/sidebar-supabase-sync.md) - Old sync approach
 - [Frontend User Workflows](./deprecated/frontend-user-workflows.md) - Superseded by design/USER_WORKFLOWS.md
+- [SERVER_ARCHITECTURE_V2](./deprecated/SERVER_ARCHITECTURE_V2.md) - Consolidated into ARCHITECTURE.md
+- [LOCAL_SERVER_REFACTOR](./deprecated/LOCAL_SERVER_REFACTOR.md) - Implementation complete
+- [SERVER_LOCAL_MODE_SEPARATION](./deprecated/SERVER_LOCAL_MODE_SEPARATION.md) - Core goals achieved
+- [EXECUTION_PATH_DUPLICATION](./deprecated/EXECUTION_PATH_DUPLICATION.md) - Resolved
+- [Deployment Architecture](./deprecated/deployment.md) - Superseded by fly-deployment.md
 
 ## Root Documents
 
@@ -131,4 +137,3 @@ These files remain at the project root by convention:
 ## Other
 
 - `scripts/README.md` - Test scripts documentation
-- `docs/testing/approval-testing-guide.md` - Approval testing guide (canonical source)

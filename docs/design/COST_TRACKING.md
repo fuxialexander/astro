@@ -1,6 +1,8 @@
 # Cost Tracking and Resource Management — Design Document
 
 > **Status: PROPOSED** — Partially implemented (~20%, basic usage tracking exists)
+>
+> This is a design proposal document. Basic usage tracking exists, but most features described here are not yet implemented.
 
 ## 1. Overview
 

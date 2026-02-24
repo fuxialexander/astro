@@ -1,10 +1,10 @@
 # Cross-Project References & Overleaf Integration
 
 > **Status: PROPOSED** — Not yet implemented (~5%)
-
-**Status:** Proposal
-**Last updated:** 2026-02-22
-**Depends on:** DATA_MODEL.md, BACKEND.md, AGENT_RUNNER.md
+>
+> This is a design proposal document. The features described here are not yet implemented in the codebase.
+>
+> **Depends on:** DATA_MODEL.md, BACKEND.md, AGENT_RUNNER.md
 
 ---
 
