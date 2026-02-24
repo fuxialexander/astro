@@ -53,8 +53,7 @@ COPY --from=builder --chown=astro:astro /app/src/types ./src/types
 COPY --from=builder --chown=astro:astro /app/tsconfig*.json ./
 
 # Landing page HTML files
-COPY --from=builder --chown=astro:astro /app/public/landing/index.html ./astro-landing.html
-COPY --from=builder --chown=astro:astro /app/public/landing/about.html ./astro-about.html
+COPY --from=builder --chown=astro:astro /app/public/landing ./public/landing
 
 # Supabase migrations (for reference / future use)
 COPY --from=builder --chown=astro:astro /app/supabase ./supabase
