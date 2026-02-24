@@ -6,6 +6,7 @@
 #   - TLS on 3002  → WebSocket relay (port 3002)
 
 app = "astro-backend-deploy"
+org = "zhuoran-yang"
 primary_region = "sjc"
 
 [build]
