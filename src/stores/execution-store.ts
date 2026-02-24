@@ -853,14 +853,20 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const newExecutions = new Map(state.executions)
       const exec = newExecutions.get(nodeId)
       if (exec && exec.toolTraces.length > 0) {
-        const lastTrace = exec.toolTraces[exec.toolTraces.length - 1]
-        if (lastTrace.toolName === toolName) {
-          lastTrace.toolResult = result
-          lastTrace.success = success
-          lastTrace.duration = duration
+        // Search backwards for the last UNPAIRED trace with the matching tool name.
+        // This handles parallel/out-of-order tool calls correctly (e.g.,
+        // tool_use "Read" → tool_use "Bash" → tool_result "Read").
+        const matchingTrace = [...exec.toolTraces].reverse().find(
+          t => t.toolName === toolName && !t.toolResult
+        ) || exec.toolTraces[exec.toolTraces.length - 1]
+
+        if (matchingTrace.toolName === toolName) {
+          matchingTrace.toolResult = result
+          matchingTrace.success = success
+          matchingTrace.duration = duration
           exec.activityEvents = [...exec.activityEvents, {
             type: 'tool_result' as const,
-            id: lastTrace.id,
+            id: matchingTrace.id,
             toolName,
             toolResult: result,
             success,
@@ -1043,6 +1049,7 @@ function handleSSEEvent(
             if (matchingTrace.toolName === parsed.toolName) {
               matchingTrace.toolResult = parsed.result
               matchingTrace.success = parsed.success
+              matchingTrace.duration = parsed.duration
             }
             exec.activityEvents = [...exec.activityEvents, {
               type: 'tool_result' as const,
