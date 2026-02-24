@@ -21,6 +21,7 @@ import { isServerMode } from "@/lib/app-mode"
 import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { remoteTypeLabel, deliveryModeLabel } from "@/lib/project-source"
+import { extractRepoInfo } from "@/lib/git-url-utils"
 
 export function ProjectNew() {
   const [searchParams] = useSearchParams()
@@ -46,6 +47,10 @@ export function ProjectNew() {
 
   // Directory detection — inline feedback as user types (requires machineId for relay)
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
+
+  // Derive GitHub repo fullName from repoUrl (e.g. "owner/repo") for GitHub API branch fetching
+  const githubRepoInfo = repoUrl ? extractRepoInfo(repoUrl.trim()) : null
+  const githubRepoFullName = githubRepoInfo ? `${githubRepoInfo.owner}/${githubRepoInfo.repo}` : null
 
   // Auto-select baseBranch when detection result arrives (derived state, no effect needed)
   const effectiveBranch = selectedBranch || (detection?.isGit ? detection.baseBranch : null)
@@ -694,8 +699,8 @@ export function ProjectNew() {
               className="h-10 rounded-lg border border-border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
             />
             <DetectionFeedback />
-            {/* Branch selector — shown when git repo detected */}
-            {detection?.isGit && selectedMachine && (
+            {/* Branch selector — shown when git repo detected via directory OR GitHub repo URL set */}
+            {detection?.isGit && selectedMachine && !githubRepoFullName && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
                 <BranchSelector
@@ -743,6 +748,7 @@ export function ProjectNew() {
                           key={repo.id}
                           onClick={() => {
                             setRepoUrl(repo.sshUrl)
+                            setSelectedBranch(repo.defaultBranch || null)
                             setShowGitHubRepos(false)
                             setSearchQuery("")
                           }}
@@ -800,6 +806,18 @@ export function ProjectNew() {
               <Plus className="h-3.5 w-3.5" />
               Add repository URL
             </button>
+          )}
+
+          {/* Branch selector for GitHub repos — shown when repo URL is a GitHub URL */}
+          {githubRepoFullName && connected && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
+              <BranchSelector
+                value={effectiveBranch || selectedBranch || 'main'}
+                onChange={setSelectedBranch}
+                repository={githubRepoFullName}
+              />
+            </div>
           )}
 
           {/* First task */}

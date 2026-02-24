@@ -9,31 +9,41 @@ interface BranchSelectorProps {
   value?: string
   /** Callback when branch changes */
   onChange: (branch: string) => void
-  /** Directory path on the remote machine */
-  path: string
-  /** Machine ID for relay */
-  machineId: string
+  /** Directory path on the remote machine (relay mode) */
+  path?: string
+  /** Machine ID for relay (relay mode) */
+  machineId?: string
+  /** GitHub repo full name e.g. "owner/repo" (GitHub API mode) */
+  repository?: string
   /** Whether the selector is disabled */
   disabled?: boolean
 }
 
-export function BranchSelector({ value, onChange, path, machineId, disabled }: BranchSelectorProps) {
+export function BranchSelector({ value, onChange, path, machineId, repository, disabled }: BranchSelectorProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const { branches, isLoading, error, fetchBranches } = useBranchList()
+  const { branches, isLoading, error, fetchBranches, fetchGitHubBranches } = useBranchList()
   const fetchedKeyRef = useRef<string>('')
 
-  // Fetch on open, using a ref to track which path+machine combo was fetched
+  // Fetch on open, using a ref to track which source was fetched
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen)
-    if (nextOpen && path && machineId) {
-      const key = `${path}:${machineId}`
-      if (fetchedKeyRef.current !== key) {
-        fetchedKeyRef.current = key
-        fetchBranches(path, machineId)
+    if (nextOpen) {
+      if (repository) {
+        const key = `github:${repository}`
+        if (fetchedKeyRef.current !== key) {
+          fetchedKeyRef.current = key
+          fetchGitHubBranches(repository)
+        }
+      } else if (path && machineId) {
+        const key = `relay:${path}:${machineId}`
+        if (fetchedKeyRef.current !== key) {
+          fetchedKeyRef.current = key
+          fetchBranches(path, machineId)
+        }
       }
     }
-  }, [path, machineId, fetchBranches])
+  }, [path, machineId, repository, fetchBranches, fetchGitHubBranches])
 
   const filtered = branches.filter((b) =>
     b.name.toLowerCase().includes(search.toLowerCase())
