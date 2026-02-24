@@ -79,7 +79,7 @@ deploy_backend() {
   # Push CORS/WebAuthn secrets to Fly.io
   if [[ -n "$frontend_url" ]]; then
     local domain
-    domain=$(echo "$frontend_url" | sed 's|https\?://||' | sed 's|/.*||')
+    domain=$(echo "$frontend_url" | sed -E 's|https?://||' | sed 's|/.*||')
     echo "  Updating Fly secrets (rpId: $domain)"
     fly secrets set \
       --app "$APP" \
@@ -119,9 +119,10 @@ deploy_frontend() {
   npm run build
 
   # Deploy to Cloudflare Pages
-  npx wrangler pages deploy dist \
+  CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}" npx wrangler pages deploy dist \
     --project-name="$PAGES_PROJECT" \
-    --branch="$BRANCH"
+    --branch="$BRANCH" \
+    --commit-dirty=true
 
   echo ""
   if [[ "$BRANCH" == "main" ]]; then
