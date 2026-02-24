@@ -29,7 +29,7 @@ for f in "$REPO_ROOT/.env" "$REPO_ROOT/.env.local"; do
 done
 
 # ── Resolve config ────────────────────────────────────────────────────
-APP="${FLY_APP:-astro-backend-platform}"
+APP="${FLY_APP:-astro-backend-deploy}"
 PAGES_PROJECT="${CLOUDFLARE_PAGES_PROJECT:-astro-app}"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
@@ -147,7 +147,7 @@ case "${1:-all}" in
     deploy_frontend
     ;;
   --status)
-    fly status --app "${FLY_APP:-astro-backend-platform}"
+    fly status --app "${FLY_APP:-astro-backend-deploy}"
     ;;
   *)
     echo "Usage: bash scripts/deploy.sh [backend|frontend|all|--status]"
