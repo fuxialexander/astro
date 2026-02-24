@@ -34,7 +34,7 @@ import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
-import { calculateChildPosition } from "@/lib/graph-utils"
+import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 
@@ -70,10 +70,15 @@ interface PlanCanvasProps {
 }
 
 interface AddChildState {
-  parentNodeId: string
+  /** Node ID that initiated the drag */
+  originNodeId: string
   position: { x: number; y: number }
   screenPosition: { x: number; y: number }
-  /** True if connection started from target handle (upward drag = creating parent) */
+  /**
+   * True if connection started from target handle (upward drag = creating parent).
+   * When true: new node becomes a parent/dependency of originNodeId
+   * When false: new node becomes a child/dependent of originNodeId
+   */
   isUpwardDrag?: boolean
 }
 
@@ -394,13 +399,18 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     // - target handle (top) = upward drag = creating a parent/dependency task
     const isUpwardDrag = handleType === "target"
 
-    // If drop is close to the origin node (click or very short drag), use calculated child position
+    // If drop is close to the origin node (click or very short drag), use calculated position
     const dx = dropPosition.x - originNode.position.x
     const dy = dropPosition.y - originNode.position.y
     const distance = Math.sqrt(dx * dx + dy * dy)
 
+    // Use appropriate position calculation based on drag direction:
+    // - Upward drag (target handle): calculate parent position (above origin)
+    // - Downward drag (source handle): calculate child position (below origin)
     const position = distance < 60
-      ? calculateChildPosition(originNode, projectNodes, projectEdges)
+      ? (isUpwardDrag
+          ? calculateParentPosition(originNode, projectNodes, projectEdges)
+          : calculateChildPosition(originNode, projectNodes, projectEdges))
       : dropPosition
 
     // Center the popup on the node position
@@ -413,10 +423,10 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
     justCreatedChild.current = true
     setAddChildState({
-      parentNodeId: nodeId,
+      originNodeId: nodeId,
       position,
       screenPosition: screenPos,
-      isUpwardDrag, // Pass drag direction to the state
+      isUpwardDrag,
     })
 
     connectingNodeRef.current = null
@@ -524,7 +534,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                 type="button"
                 onClick={() => {
                   setAddChildState({
-                    parentNodeId: "",
+                    originNodeId: "",
                     position: { x: 40, y: 40 },
                     screenPosition: { x: 0, y: 0 },
                   })
@@ -887,7 +897,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         </div>
       )}
 
-      {/* Floating creation form when adding child from graph */}
+      {/* Floating creation form when adding node from graph */}
       {addChildState && (
         <div
           className="absolute z-50"
@@ -899,7 +909,10 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           <TaskCreationForm
             mode="popover"
             projectId={projectId}
-            parentNodeId={addChildState.parentNodeId}
+            // Upward drag: new node is a parent/dependency of originNode (pass childNodeId)
+            // Downward drag: new node is a child/dependent of originNode (pass parentNodeId)
+            parentNodeId={addChildState.isUpwardDrag ? undefined : addChildState.originNodeId || undefined}
+            childNodeId={addChildState.isUpwardDrag ? addChildState.originNodeId : undefined}
             position={addChildState.position}
             onCreated={handleTaskCreated}
             onCancel={() => setAddChildState(null)}
