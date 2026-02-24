@@ -185,10 +185,20 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Re-run when teams loaded or auth changes
   }, [shouldLoadData, teamsLoaded])
 
-  // After projects load, background-refresh file trees for @ autocomplete
+  // Background-refresh file trees after projects load.
+  // In local mode (no relay), fire immediately when projects load.
+  // In server mode, also re-trigger when machines connect via realtime (SSE),
+  // since the relay must register machines before file-list requests succeed.
+  const realtimeMachines = useRealtimeStore((s) => s.machines)
+
   useEffect(() => {
-    if (projectsLoaded) refreshAllFileTrees()
-  }, [projectsLoaded])
+    if (!projectsLoaded) return
+    // In local mode there are no realtime machines — refresh immediately.
+    // In server mode, wait until at least one machine connects.
+    if (isLocalMode() || realtimeMachines.size > 0) {
+      refreshAllFileTrees()
+    }
+  }, [projectsLoaded, realtimeMachines.size])
 
   const allLoaded = teamsLoaded && projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && sidebarLoaded && pluginsLoaded && skillsLoaded
 

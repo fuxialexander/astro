@@ -18,6 +18,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import type { PlanNode, ProviderStatus } from "@/types"
+import { deriveAvailableProviders, isProviderAvailable } from "./provider-utils"
 
 interface ExecutionPanelProps {
   node: PlanNode
@@ -85,10 +86,28 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
     ? selectedMachine.executionStrategies.filter((s) => s.available && s.id !== 'direct')
     : []
 
-  // Derived: selected provider object
+  // Derive available providers directly from the machine's relay-reported providers.
+  // The global `providers` list is unreliable (API returns `machines`, not `providers`),
+  // so we build ProviderStatus objects from the machine data instead.
+  const availableProviders: ProviderStatus[] = useMemo(
+    () => deriveAvailableProviders(selectedMachine?.providers, providers),
+    [selectedMachine, providers],
+  )
+
+  // Derived: selected provider object (use availableProviders which may be machine-derived)
   const selectedProviderObj: ProviderStatus | null = selectedProvider
-    ? providers.find((p) => p.id === selectedProvider) ?? null
+    ? availableProviders.find((p) => p.id === selectedProvider) ?? null
     : null
+
+  // Reset provider/model selection when machine changes and current provider isn't available
+  useEffect(() => {
+    if (selectedProvider && availableProviders.length > 0) {
+      if (!isProviderAvailable(selectedProvider, availableProviders)) {
+        setSelectedProvider("")
+        setSelectedModel("")
+      }
+    }
+  }, [selectedMachineId]) // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on machine change
 
   // Resolve working directory
   const dirCheck = getProjectWorkingDir(project)
@@ -271,11 +290,11 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
         </div>
       )}
 
-      {/* Provider Selection */}
-      {providersLoaded && !selectedMachineId && (
+      {/* Provider Selection — always visible when providers loaded */}
+      {providersLoaded && (
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Agent</span>
-          {providers.length > 0 ? (
+          <span className="text-sm text-muted-foreground">Provider</span>
+          {availableProviders.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-1.5 max-w-[200px]">
@@ -287,7 +306,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Select Agent</DropdownMenuLabel>
+                <DropdownMenuLabel>Select Provider</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
@@ -296,14 +315,14 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
                   <Bot className="h-4 w-4" />
                   <div className="flex flex-col">
                     <span>Auto</span>
-                    <span className="text-xs text-muted-foreground">Best available agent</span>
+                    <span className="text-xs text-muted-foreground">Best available provider</span>
                   </div>
                   {!selectedProvider && (
                     <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
                   )}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                {providers.map((provider) => (
+                {availableProviders.map((provider) => (
                   <DropdownMenuItem
                     key={provider.id}
                     onClick={() => { setSelectedProvider(provider.id); setSelectedModel("") }}
@@ -331,7 +350,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
           ) : (
             <Badge variant="warning" className="gap-1">
               <AlertCircle className="h-3 w-3" />
-              No agent available
+              No provider available
             </Badge>
           )}
         </div>

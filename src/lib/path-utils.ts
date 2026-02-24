@@ -31,11 +31,12 @@ export function validateAbsolutePath(path: string): PathValidationResult {
     return { isValid: true } // Empty is okay (user can leave it blank)
   }
 
-  // Reject tilde paths
+  // Reject tilde paths — ~ is a shell feature, not expanded by Node.js APIs.
+  // Tilde paths also resolve differently across machines.
   if (trimmed.startsWith('~')) {
     return {
       isValid: false,
-      error: 'Relative paths not allowed. Please use an absolute path (e.g., /Users/username/projects)'
+      error: 'Paths starting with ~ are not supported — they resolve differently across machines. Use the full absolute path (e.g., /Users/username/projects instead of ~/projects)'
     }
   }
 
