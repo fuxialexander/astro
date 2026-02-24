@@ -52,6 +52,8 @@ export const prCreationHook: EventHook = async (event: AstroEvent) => {
 
   const { result, node, project } = event
 
+  console.log(`[pr-creation-hook] Processing task.completed: nodeId=${node.id}, status=${result.status}, prUrl=${result.prUrl}, prNumber=${result.prNumber}, branchName=${result.branchName}`)
+
   // Only process successful tasks
   if (result.status !== 'success') return
 
