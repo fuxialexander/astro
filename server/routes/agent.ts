@@ -390,6 +390,7 @@ agentRoute.post('/generate-plan', async (c) => {
     model: model || undefined,
     maxTurns: 100,
     outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
+    type: 'plan', // Mark as plan task to skip safety checks (no file system access)
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
