@@ -49,6 +49,9 @@ export interface PlanNode {
   executionCompletedAt: string | null
   branchName: string | null
   prUrl: string | null
+  prNumber: number | null
+  mergeQueueStatus: string | null
+  autoPr: boolean | null
   deletedAt?: string | null
   createdAt: string
   updatedAt: string

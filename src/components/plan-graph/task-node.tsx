@@ -1,6 +1,6 @@
 import { memo, useState, useCallback } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { Plus, GitPullRequest, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle } from "lucide-react"
+import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
@@ -35,6 +35,7 @@ type TaskNodeData = Node<{
   dueDate?: string
   prUrl?: string
   mergeQueueStatus?: string
+  autoPr?: boolean
   highlightBy?: string
   checked?: boolean
   selectionActive?: boolean
@@ -198,6 +199,13 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       {/* PR indicator */}
       {data.prUrl && !data.mergeQueueStatus && (
         <GitPullRequest className="h-3 w-3 shrink-0 text-purple-500 relative z-10 ml-auto" />
+      )}
+
+      {/* Auto-PR indicator - shows when autoPr is enabled but no PR exists yet */}
+      {data.autoPr && !data.prUrl && !data.mergeQueueStatus && (
+        <span className="relative z-10 ml-auto shrink-0" title="Auto-PR enabled">
+          <GitPullRequestCreateArrow className="h-3 w-3 text-blue-400" />
+        </span>
       )}
 
       {/* Priority dot for urgent/high */}

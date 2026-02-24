@@ -289,6 +289,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           executionId: n.executionId,
           prUrl: n.prUrl,
           mergeQueueStatus: n.mergeQueueStatus,
+          autoPr: n.autoPr,
           highlightBy,
           checked: checkedIds.has(n.id),
           selectionActive: selectionActive,

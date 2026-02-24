@@ -4,6 +4,7 @@ import {
   Circle,
   Folder,
   GitPullRequest,
+  GitPullRequestCreateArrow,
   GitPullRequestDraft,
 } from "lucide-react"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
@@ -128,6 +129,13 @@ export function BoardCard({ node, visibleProperties, projectName, onNodeSelect, 
               )}
               {node.prNumber != null && <span>#{node.prNumber}</span>}
             </a>
+          )}
+
+          {/* Auto-PR indicator - shows when autoPr is enabled but no PR exists yet */}
+          {visibleProperties.includes("pr") && node.autoPr && !node.prUrl && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-blue-400" title="Auto-PR enabled">
+              <GitPullRequestCreateArrow className="h-3.5 w-3.5" />
+            </span>
           )}
         </div>
       </div>
