@@ -1,8 +1,10 @@
 import { Badge } from "@/components/ui/badge"
+import { Hourglass } from "lucide-react"
 import type { TraceTree } from "@/types/observations"
 
 interface TraceSummaryCardProps {
   trace: TraceTree
+  isRunning?: boolean
 }
 
 function formatDurationMs(ms: number | null): string {
@@ -26,11 +28,14 @@ function formatTokens(n: number): string {
   return `${(n / 1000).toFixed(1)}k`
 }
 
-export function TraceSummaryCard({ trace }: TraceSummaryCardProps) {
+export function TraceSummaryCard({ trace, isRunning }: TraceSummaryCardProps) {
   const { stats } = trace
   const errorCount = trace.events.filter(
     (e) => e.level === "error"
   ).length
+
+  const pendingTokens = isRunning && stats.totalTokens === 0
+  const pendingCost = isRunning && stats.totalCost === 0
 
   return (
     <div className="flex items-center gap-3 flex-wrap px-4 py-2.5 border-b border-border bg-muted/20 text-xs text-muted-foreground">
@@ -53,19 +58,36 @@ export function TraceSummaryCard({ trace }: TraceSummaryCardProps) {
       )}
       <div className="h-3 w-px bg-border" />
       <div className="flex items-center gap-1.5">
-        <span className="font-medium text-foreground tabular-nums">
-          {formatTokens(stats.totalTokens)}
-        </span>
-        <span>tokens</span>
+        {pendingTokens ? (
+          <>
+            <Hourglass className="h-3 w-3 text-muted-foreground animate-pulse" />
+            <span>tokens</span>
+          </>
+        ) : (
+          <>
+            <span className="font-medium text-foreground tabular-nums">
+              {formatTokens(stats.totalTokens)}
+            </span>
+            <span>tokens</span>
+          </>
+        )}
       </div>
-      {stats.totalCost > 0 && (
+      {stats.totalCost > 0 ? (
         <>
           <div className="h-3 w-px bg-border" />
           <span className="font-medium text-foreground tabular-nums">
             {formatCost(stats.totalCost)}
           </span>
         </>
-      )}
+      ) : pendingCost ? (
+        <>
+          <div className="h-3 w-px bg-border" />
+          <div className="flex items-center gap-1.5">
+            <Hourglass className="h-3 w-3 text-muted-foreground animate-pulse" />
+            <span>cost</span>
+          </div>
+        </>
+      ) : null}
       <div className="h-3 w-px bg-border" />
       <span className="tabular-nums">{formatDurationMs(stats.durationMs)}</span>
       {errorCount > 0 && (

@@ -54,6 +54,9 @@ eventsRoute.get('/stream', async (c) => {
   // Extract authenticated user for filtering machine events
   const user = c.get('user') as AuthUser | undefined
 
+  // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
+  c.header('X-Accel-Buffering', 'no')
+
   return streamSSE(c, async (stream) => {
     let alive = true
 

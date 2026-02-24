@@ -343,6 +343,9 @@ The user can review your reasoning in the task output and provide guidance if th
     worktreeStrategy,
   }
 
+  // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
+  c.header('X-Accel-Buffering', 'no')
+
   return streamSSE(c, async (stream) => {
     let alive = true
     let lastActivity = Date.now()

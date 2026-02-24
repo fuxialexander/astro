@@ -80,6 +80,9 @@ async function streamChatViaRelay(
     workingDirectory: opts.workingDirectory,
   }
 
+  // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
+  c.header('X-Accel-Buffering', 'no')
+
   return streamSSE(c, async (stream) => {
     let alive = true
     let lastActivity = Date.now()
@@ -374,6 +377,9 @@ agentRoute.post('/generate-plan', async (c) => {
     maxTurns: 100,
     outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
   }
+
+  // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
+  c.header('X-Accel-Buffering', 'no')
 
   return streamSSE(c, async (stream) => {
     let alive = true

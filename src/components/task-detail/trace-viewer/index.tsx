@@ -105,7 +105,7 @@ export function TraceViewer({ executionId, isRunning }: TraceViewerProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Summary banner */}
-      <TraceSummaryCard trace={trace} />
+      <TraceSummaryCard trace={trace} isRunning={isRunning} />
 
       {/* Split panel: turn list (left) + detail (right) */}
       <div className="flex flex-1 min-h-0">
