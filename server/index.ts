@@ -184,7 +184,7 @@ export function createApp() {
 
   app.get('/landing', (c) => {
     try {
-      const html = readFileSync(join(__dirname, '../astro-landing.html'), 'utf-8')
+      const html = readFileSync(join(__dirname, '../public/landing/index.html'), 'utf-8')
       return c.html(html)
     } catch (err) {
       console.error('[landing] Failed to read landing page:', err)
@@ -194,7 +194,7 @@ export function createApp() {
 
   app.get('/landing/about', (c) => {
     try {
-      const html = readFileSync(join(__dirname, '../astro-about.html'), 'utf-8')
+      const html = readFileSync(join(__dirname, '../public/landing/about.html'), 'utf-8')
       return c.html(html)
     } catch (err) {
       console.error('[landing] Failed to read about page:', err)

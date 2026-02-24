@@ -107,6 +107,8 @@ export interface ExecutionOptions {
   computeBackend?: string
   model?: string
   maxTurns?: number
+  /** Whether to use git worktree isolation (defaults to true in agent runner) */
+  useWorktree?: boolean
 }
 
 // Batch execution state for "Execute All" mode
@@ -375,6 +377,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           remoteType: project?.source?.remoteType,
           agentDir: project?.agentDir,
           worktreeStrategy: project?.worktreeStrategy,
+          useWorktree: options?.useWorktree,
         }),
         signal: abortController.signal,
       })

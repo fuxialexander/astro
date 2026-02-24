@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useMemo } from "react"
 import { Link, useNavigate } from "react-router"
-import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, ChevronDown, Bot, Boxes, Sparkles } from "lucide-react"
+import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, ChevronDown, Bot, Boxes, Sparkles, GitBranch } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,6 +81,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider || "")
   const [selectedModel, setSelectedModel] = useState<string>("")
   const [selectedBackend, setSelectedBackend] = useState<string>("")
+  const [useWorktree, setUseWorktree] = useState(true)
 
   const selectedMachine = selectedMachineId ? machines.find((m) => m.machineId === selectedMachineId) ?? null : null
 
@@ -176,6 +178,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
       preferredProvider: selectedProvider || undefined,
       model: selectedModel || undefined,
       computeBackend: selectedBackend || undefined,
+      useWorktree,
     })
     navigate(`/project/${projectId}/task/${node.id}${viewMode ? `?from=${viewMode}` : ''}`)
   }
@@ -415,6 +418,15 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
         </div>
       )}
 
+
+      {/* Worktree Isolation Toggle */}
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground flex items-center gap-1.5">
+          <GitBranch className="h-3.5 w-3.5" />
+          Worktree
+        </span>
+        <Switch checked={useWorktree} onCheckedChange={setUseWorktree} />
+      </div>
 
       {/* Dependency Status */}
       {!canExecuteResult.ready && (

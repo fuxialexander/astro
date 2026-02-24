@@ -251,14 +251,13 @@ describe('safety-prompt-dialog.tsx source code', () => {
     expect(source).not.toContain('>Safety Check<')
   })
 
-  it('uses Info icon (not AlertTriangle or Shield)', () => {
-    expect(source).toContain('import { Info')
-    expect(source).toContain('<Info')
+  it('uses ShieldAlert icon for warning', () => {
+    expect(source).toContain('ShieldAlert')
+    expect(source).toContain('<ShieldAlert')
   })
 
-  it('uses info color gradient for icon container', () => {
-    expect(source).toContain('from-info/20')
-    expect(source).toContain('to-info/10')
+  it('uses warning color for icon container', () => {
+    expect(source).toContain('bg-warning/15')
   })
 
   it('onOpenChange calls handleCancel (not empty function)', () => {
@@ -294,9 +293,9 @@ describe('safety-prompt-dialog.tsx source code', () => {
     expect(source).toContain('border-t')
   })
 
-  it('icon container is h-12 w-12 rounded-xl', () => {
-    expect(source).toContain('h-12')
-    expect(source).toContain('w-12')
-    expect(source).toContain('rounded-xl')
+  it('icon container is h-10 w-10 rounded-lg', () => {
+    expect(source).toContain('h-10')
+    expect(source).toContain('w-10')
+    expect(source).toContain('rounded-lg')
   })
 })

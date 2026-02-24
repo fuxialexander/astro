@@ -173,20 +173,20 @@ describe('CLI e2e', () => {
       expect(Array.isArray(projects)).toBe(true)
     })
 
-    it('project list outputs human table', () => {
-      if (!serverAvailable) return
-      const output = cli('project list')
-      expect(output).toContain('ID')
-      expect(output).toContain('NAME')
-      expect(output).toContain('STATUS')
-    })
-
     it('project create creates a project', () => {
       if (!serverAvailable) return
       const project = cliJson<{ id: string; name: string }>('project create --name "E2E Test Project" --description "e2e test"')
       expect(project.id).toBeTruthy()
       expect(project.name).toBe('E2E Test Project')
       testProjectId = project.id
+    })
+
+    it('project list outputs human table', () => {
+      if (!serverAvailable || !testProjectId) return
+      const output = cli('project list')
+      expect(output).toContain('ID')
+      expect(output).toContain('NAME')
+      expect(output).toContain('STATUS')
     })
 
     it('project show displays project details', () => {
@@ -394,8 +394,8 @@ describe('CLI e2e', () => {
       const machines = cliJson<Array<{ id: string }>>('env list')
       if (machines.length === 0) return
 
-      // Use enough of the ID to be unambiguous
-      const machine = cliJson<{ id: string; name: string }>(`env show ${machines[0].id.slice(0, 16)}`)
+      // Use full ID to avoid ambiguity with leftover test machines
+      const machine = cliJson<{ id: string; name: string }>(`env show ${machines[0].id}`)
       expect(machine.id).toBeTruthy()
       expect(machine.name).toBeTruthy()
     })
@@ -405,8 +405,8 @@ describe('CLI e2e', () => {
       const machines = cliJson<Array<{ id: string }>>('env list')
       if (machines.length === 0) return
 
-      // Use enough of the ID to be unambiguous
-      const output = cli(`env show ${machines[0].id.slice(0, 16)}`)
+      // Use full ID to avoid ambiguity with leftover test machines
+      const output = cli(`env show ${machines[0].id}`)
       expect(output).toContain('Machine:')
       expect(output).toContain('ID')
       expect(output).toContain('Platform')

@@ -258,8 +258,8 @@ describe('AstroClient integration', () => {
       const active = machines.filter(m => !m.isRevoked)
       if (active.length === 0) return
 
-      // Use enough of the ID to be unambiguous
-      const prefix = active[0].id.slice(0, 16)
+      // Use full ID to avoid ambiguity with leftover test machines
+      const prefix = active[0].id
       const resolved = await client.resolveMachine(prefix)
       expect(resolved.id).toBe(active[0].id)
     })

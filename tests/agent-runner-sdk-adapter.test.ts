@@ -165,8 +165,9 @@ describe('agent runner SDK adapter — permissions', () => {
     expect(source).toContain("permissionMode: 'bypassPermissions'")
   })
 
-  it('disables sandbox', () => {
-    expect(source).toContain('sandbox: { enabled: false }')
+  it('does not pass sandbox option (crashes Claude Code on Bedrock)', () => {
+    // The adapter deliberately omits the sandbox option entirely
+    expect(source).toContain('Do NOT pass `sandbox` option')
   })
 
   it('sets additional directories for file operations', () => {

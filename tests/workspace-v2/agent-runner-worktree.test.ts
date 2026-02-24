@@ -59,10 +59,10 @@ function createTestGitRepo(): { repoDir: string; bareDir: string } {
   tmpDirs.push(repoDir, bareDir);
 
   // Create bare remote
-  execFileSync('git', ['init', '--bare'], { cwd: bareDir });
+  execFileSync('git', ['init', '--bare', '-b', 'main'], { cwd: bareDir });
 
   // Create local repo
-  execFileSync('git', ['init'], { cwd: repoDir });
+  execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir });
   execFileSync('git', ['config', 'user.email', 'test@test.com'], {
     cwd: repoDir,
   });
@@ -269,7 +269,7 @@ describe('agent-runner worktree (real git)', { timeout: 30_000 }, () => {
     const emptyGitDir = mkdtempSync(join(tmpdir(), 'astro-wt-test-empty-'));
     tmpDirs.push(emptyGitDir);
 
-    execFileSync('git', ['init'], { cwd: emptyGitDir });
+    execFileSync('git', ['init', '-b', 'main'], { cwd: emptyGitDir });
 
     await expect(
       createWorktree({

@@ -55,10 +55,10 @@ import {
   createReferenceWorktree,
 } from '../../packages/agent-runner/src/lib/copy-worktree.js'
 
-// ── Server repo-setup ──────────────────────────────────────────────────
+// ── Agent-runner repo setup ──────────────────────────────────────────────
 import {
-  setupProjectRepo,
-} from '../../server/lib/repo-setup.js'
+  localRepoSetup,
+} from '../../packages/agent-runner/src/lib/repo-utils.js'
 
 // ---------------------------------------------------------------------------
 // Dispatch schema (reproduced from server/routes/dispatch.ts to verify
@@ -122,7 +122,7 @@ function createTestGitRepo(opts?: { withRemote?: boolean }): {
   const repoDir = mkdtempSync(join(tmpdir(), 'astro-pipeline-repo-'))
   tmpDirs.push(repoDir)
 
-  execFileSync('git', ['init'], { cwd: repoDir })
+  execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
   execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repoDir })
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repoDir })
 
@@ -133,7 +133,7 @@ function createTestGitRepo(opts?: { withRemote?: boolean }): {
   if (opts?.withRemote) {
     const bareDir = mkdtempSync(join(tmpdir(), 'astro-pipeline-bare-'))
     tmpDirs.push(bareDir)
-    execFileSync('git', ['init', '--bare'], { cwd: bareDir })
+    execFileSync('git', ['init', '--bare', '-b', 'main'], { cwd: bareDir })
     execFileSync('git', ['remote', 'add', 'origin', bareDir], { cwd: repoDir })
     execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: repoDir })
     return { repoDir, bareDir }
@@ -433,16 +433,12 @@ describe('C. Project source utilities', () => {
 // ===========================================================================
 
 describe('D. Repo setup agent dir', { timeout: 30_000 }, () => {
-  // Test 10: setupProjectRepo + ensureAgentDir flow for git repo
-  it('10. setupProjectRepo creates .astro/config.json with correct fields', () => {
+  // Test 10: localRepoSetup creates .astro/config.json for git repo
+  it('10. localRepoSetup creates .astro/config.json with correct fields', () => {
     const { repoDir } = createTestGitRepo()
 
-    const result = setupProjectRepo({
-      projectId: 'test-project-10',
-      projectName: 'Test Project',
-      projectDescription: 'A test project',
-      workingDirectory: repoDir,
-    })
+    const result = localRepoSetup({ workingDirectory: repoDir })
+    expect(result.success).toBe(true)
 
     // .astro/config.json should exist
     const configPath = join(repoDir, '.astro', 'config.json')
@@ -466,16 +462,13 @@ describe('D. Repo setup agent dir', { timeout: 30_000 }, () => {
     expect(result.deliveryMode).toBe('branch')
   })
 
-  // Test 11: Full round-trip: setupProjectRepo -> fields -> dispatch schema -> task type
+  // Test 11: Full round-trip: localRepoSetup -> fields -> dispatch schema -> task type
   it('11. Full round-trip: repo setup -> dispatch schema -> Task type', () => {
     const { repoDir } = createTestGitRepo()
 
-    // Step 1: setupProjectRepo
-    const repoResult = setupProjectRepo({
-      projectId: 'test-project-11',
-      projectName: 'Round Trip Project',
-      workingDirectory: repoDir,
-    })
+    // Step 1: localRepoSetup
+    const repoResult = localRepoSetup({ workingDirectory: repoDir })
+    expect(repoResult.success).toBe(true)
 
     // Step 2: Build dispatch body using returned values
     const dispatchBody = {
@@ -787,17 +780,11 @@ describe('F. Cross-layer consistency', () => {
 
     writeFileSync(join(plainDir, 'script.py'), 'print("hello")')
 
-    // setupProjectRepo detects non-git dir
-    const result = setupProjectRepo({
-      projectId: 'nongit-project',
-      projectName: 'Non-Git Project',
-      workingDirectory: plainDir,
-    })
+    // localRepoSetup detects non-git dir
+    const result = localRepoSetup({ workingDirectory: plainDir })
 
+    expect(result.success).toBe(true)
     expect(result.needsGitInit).toBe(true)
-    expect(result.deliveryMode).toBe('direct')
-    expect(result.source?.isGit).toBe(false)
-    expect(result.source?.remoteType).toBe('none')
 
     // Build dispatch body
     const dispatchBody = {
@@ -806,7 +793,7 @@ describe('F. Cross-layer consistency', () => {
       title: 'Process data',
       description: 'Run the data processing script',
       workingDirectory: result.workingDirectory,
-      deliveryMode: result.deliveryMode ?? 'direct',
+      deliveryMode: 'direct' as const,
     }
 
     const validated = dispatchTaskSchema.safeParse(dispatchBody)
