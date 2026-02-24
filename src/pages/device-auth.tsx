@@ -35,6 +35,18 @@ function getPlatformLabel(platform?: string) {
   }
 }
 
+/** Human-readable labels for machine token scopes */
+const scopeLabels: Record<string, string> = {
+  "machine:connect": "Relay Connection",
+  "machine:execute": "Task Execution",
+  "machine:read": "Read Results",
+  "machine:*": "Full Access",
+}
+
+function formatScope(scope: string): string {
+  return scopeLabels[scope] ?? scope.replace("machine:", "")
+}
+
 export function DeviceAuth() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -336,13 +348,18 @@ export function DeviceAuth() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5">
-                    {deviceInfo.scopes.map((scope) => (
-                      <Badge key={scope} variant="secondary" className="text-xs">
-                        {scope.replace("machine:", "")}
-                      </Badge>
-                    ))}
-                  </div>
+                  {deviceInfo.scopes.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Permissions</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {deviceInfo.scopes.map((scope) => (
+                          <Badge key={scope} variant="secondary" className="text-xs">
+                            {formatScope(scope)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="text-xs text-muted-foreground">
                     Code: <code className="font-mono">{deviceInfo.deviceCode}</code>
