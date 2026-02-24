@@ -28,7 +28,7 @@ interface SidebarStore {
 }
 
 const defaultItems: SidebarItem[] = [
-  { id: "tasks", to: "/", icon: "CheckSquare", label: "Tasks", visible: true, protected: true },
+  { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: true, protected: true },
   { id: "active", to: "/active", icon: "Zap", label: "Active", visible: true, protected: false },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Terminal", label: "Environments", visible: true, protected: true },
