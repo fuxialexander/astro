@@ -1033,15 +1033,20 @@ function handleSSEEvent(
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec && exec.toolTraces.length > 0) {
-            // Update the last tool trace with the result
-            const lastTrace = exec.toolTraces[exec.toolTraces.length - 1]
-            if (lastTrace.toolName === parsed.toolName) {
-              lastTrace.toolResult = parsed.result
-              lastTrace.success = parsed.success
+            // Find the last UNPAIRED trace with the matching tool name.
+            // Searching backwards handles parallel/out-of-order tool calls
+            // (e.g., tool_use "Read" → tool_use "Bash" → tool_result "Read").
+            const matchingTrace = [...exec.toolTraces].reverse().find(
+              t => t.toolName === parsed.toolName && !t.toolResult
+            ) || exec.toolTraces[exec.toolTraces.length - 1]
+
+            if (matchingTrace.toolName === parsed.toolName) {
+              matchingTrace.toolResult = parsed.result
+              matchingTrace.success = parsed.success
             }
             exec.activityEvents = [...exec.activityEvents, {
               type: 'tool_result' as const,
-              id: lastTrace.id,
+              id: matchingTrace.id,
               toolName: parsed.toolName,
               toolResult: parsed.result,
               success: parsed.success,
