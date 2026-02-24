@@ -1,7 +1,7 @@
 export const PLAN_GRAPH_SCHEMA = {
   type: "object" as const,
   properties: {
-    projectName: { type: "string" as const, description: "A concise name for the project" },
+    projectName: { type: "string" as const, description: "A concise project name: at most 7 words, no filler words, no trailing punctuation" },
     nodes: {
       type: "array" as const,
       items: {
@@ -127,6 +127,7 @@ ${visionSection}${repoSection}
 ## Constraints
 - 6–15 nodes. Valid DAG (no cycles).
 - Every task node MUST have a milestoneId set. Group related tasks under milestones.
+- projectName MUST be at most 7 words. Use title case. No articles or filler words (avoid 'A', 'The', 'An' at the start). No trailing punctuation.
 - Output MUST be a single JSON object with keys: projectName (string), nodes (array), edges (array).
 - Do NOT include any text before or after the JSON. Do NOT wrap in markdown code fences.
 

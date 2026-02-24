@@ -436,7 +436,7 @@ agentRoute.post('/generate-plan', async (c) => {
 
       // Auto-assign defaultMachineId on the project if not yet set
       if (planResultSent && targetMachineId) {
-        db().update(projects)
+        db.update(projects)
           .set({ defaultMachineId: targetMachineId, updatedAt: new Date() })
           .where(and(eq(projects.id, projectId), isNull(projects.defaultMachineId)))
           .execute()

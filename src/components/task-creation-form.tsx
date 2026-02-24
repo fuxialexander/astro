@@ -13,6 +13,8 @@ interface TaskCreationFormProps {
   defaultMilestoneId?: string
   position?: { x: number; y: number }
   mode: "inline" | "popover" | "dialog"
+  /** When true, the description field is expanded by default */
+  defaultShowDescription?: boolean
   onCreated?: (node: PlanNode) => void
   onCancel?: () => void
 }
@@ -23,6 +25,7 @@ export function TaskCreationForm({
   defaultMilestoneId,
   position,
   mode,
+  defaultShowDescription = false,
   onCreated,
   onCancel,
 }: TaskCreationFormProps) {
@@ -32,7 +35,7 @@ export function TaskCreationForm({
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
-  const [showDescription, setShowDescription] = useState(false)
+  const [showDescription, setShowDescription] = useState(defaultShowDescription)
   const [nodeType, setNodeType] = useState<"task" | "milestone">("task")
   const [priority, setPriority] = useState<Priority>("none")
   const [estimate, setEstimate] = useState<Estimate | "">("")
@@ -187,8 +190,11 @@ export function TaskCreationForm({
           value={description}
           onChange={setDescription}
           placeholder="Add description... (type @ to reference files)"
-          rows={2}
-          className="w-full resize-none bg-transparent text-sm text-muted-foreground outline-none placeholder:text-muted-foreground"
+          rows={mode === "dialog" ? 4 : 2}
+          className={cn(
+            "w-full bg-transparent text-sm text-muted-foreground outline-none placeholder:text-muted-foreground",
+            mode === "dialog" ? "resize-y min-h-[80px]" : "resize-none"
+          )}
         />
       ) : (
         <button

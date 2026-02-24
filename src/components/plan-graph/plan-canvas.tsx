@@ -503,36 +503,53 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
             </button>
 
             {/* Option 2: Manual Add Task */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                // Calculate center of viewport for form positioning
-                const container = canvasRef.current
-                const centerX = container ? container.clientWidth / 2 - POPOVER_WIDTH / 2 : 300
-                const centerY = container ? container.clientHeight / 2 - POPOVER_HEIGHT / 2 : 200
-                setAddChildState({
-                  parentNodeId: "", // Root level task
-                  position: { x: centerX, y: centerY },
-                  screenPosition: { x: centerX, y: centerY },
-                })
-              }}
-              className={cn(
-                "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all",
-                "border-border bg-card hover:border-foreground/20"
-              )}
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-                  <ListPlus className="h-5 w-5 text-muted-foreground" />
+            {!addChildState ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setAddChildState({
+                    parentNodeId: "",
+                    position: { x: 40, y: 40 },
+                    screenPosition: { x: 0, y: 0 },
+                  })
+                }}
+                className={cn(
+                  "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all",
+                  "border-border bg-card hover:border-foreground/20"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
+                    <ListPlus className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-base font-semibold text-foreground">Add your first task</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">Start planning manually with individual tasks</div>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <div className="text-base font-semibold text-foreground">Add your first task</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">Start planning manually with individual tasks</div>
+              </button>
+            ) : (
+              <div className="rounded-xl border border-primary/30 bg-card p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                    <ListPlus className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-base font-semibold text-foreground">Create your first task</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">Add a title and optional description</div>
+                  </div>
                 </div>
+                <TaskCreationForm
+                  mode="dialog"
+                  projectId={projectId}
+                  parentNodeId=""
+                  position={{ x: 40, y: 40 }}
+                  defaultShowDescription
+                  onCreated={handleTaskCreated}
+                  onCancel={() => setAddChildState(null)}
+                />
               </div>
-            </button>
+            )}
           </div>
 
           {!isConnected && (
@@ -554,25 +571,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           )}
         </div>
 
-        {/* Floating creation form when adding first task */}
-        {addChildState && (
-          <div
-            className="absolute z-50"
-            style={{
-              left: `${addChildState.screenPosition.x}px`,
-              top: `${addChildState.screenPosition.y}px`,
-            }}
-          >
-            <TaskCreationForm
-              mode="popover"
-              projectId={projectId}
-              parentNodeId={addChildState.parentNodeId}
-              position={addChildState.position}
-              onCreated={handleTaskCreated}
-              onCancel={() => setAddChildState(null)}
-            />
-          </div>
-        )}
       </div>
     )
   }

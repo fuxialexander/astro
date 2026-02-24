@@ -353,21 +353,24 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Select Model</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {selectedProviderObj.capabilities.availableModels.map((model) => (
-                <DropdownMenuItem
-                  key={model}
-                  onClick={() => setSelectedModel(model)}
-                  className="gap-2"
-                >
-                  <span className="text-sm">{model}</span>
-                  {model === selectedProviderObj.capabilities?.defaultModel && (
-                    <Badge variant="secondary" className="ml-auto text-[10px]">default</Badge>
-                  )}
-                  {selectedModel === model && (
-                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                  )}
-                </DropdownMenuItem>
-              ))}
+              {selectedProviderObj.capabilities.availableModels.map((model) => {
+                const style = getModelItemStyle(model, selectedModel, selectedProviderObj.capabilities?.defaultModel)
+                return (
+                  <DropdownMenuItem
+                    key={model}
+                    onClick={() => setSelectedModel(model)}
+                    className={style.itemClassName}
+                  >
+                    <span className="text-sm">{model}</span>
+                    {style.isDefault && (
+                      <Badge variant={style.badgeVariant} className="ml-auto text-[10px]">default</Badge>
+                    )}
+                    {style.isSelected && (
+                      <CheckCircle2 className="h-4 w-4 ml-auto text-success" />
+                    )}
+                  </DropdownMenuItem>
+                )
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -507,3 +510,21 @@ function ExecutionStatusBadge({ status }: { status: string }) {
 }
 
 import { formatTime, formatDuration } from "@/lib/date-utils"
+
+/**
+ * Returns styling info for a model item in the dropdown.
+ * Exported for testing.
+ */
+export function getModelItemStyle(
+  model: string,
+  selectedModel: string,
+  defaultModel: string | undefined
+): { itemClassName: string; isSelected: boolean; isDefault: boolean; badgeVariant: "completed" | "secondary" } {
+  const isSelected = selectedModel === model
+  const isDefault = model === defaultModel
+  const itemClassName = isSelected
+    ? "gap-2 bg-success/10 text-success font-medium"
+    : "gap-2"
+  const badgeVariant = isSelected && isDefault ? "completed" as const : "secondary" as const
+  return { itemClassName, isSelected, isDefault, badgeVariant }
+}

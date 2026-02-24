@@ -25,7 +25,7 @@ export const COLOR_PALETTE = [
   '#e11d48', // rose
 ] as const;
 
-// Font Awesome icon names for projects (from react-icons/fa)
+// Font Awesome icon names for projects (kept for backwards compatibility with existing projects)
 export const PROJECT_FA_ICONS = [
   'FaBox', 'FaSmile', 'FaFrown', 'FaGrinTongue', 'FaMeh', 'FaGrimace',
   'FaMask', 'FaHandsClapping', 'FaRunning', 'FaFootball', 'FaAccessibleIcon',
@@ -46,16 +46,78 @@ export const PROJECT_FA_ICONS = [
   'FaMountain', 'FaMapPin', 'FaCompass', 'FaAnchor', 'FaKiwiBird',
 ] as const;
 
-// Emoji icons for projects (kept for backwards compatibility)
+// Emoji icons for projects — comprehensive list
 export const PROJECT_EMOJI_ICONS = [
-  '📋', '📝', '💻', '🚀', '⚡', '🎯',
-  '📊', '🔬', '🧪', '📈', '🎨', '🏗️',
-  '🔧', '⚙️', '🛠️', '📱', '🌐', '🔐',
-  '📦', '🎮', '🎬', '📷', '🎵', '📚',
-  '🧬', '🔭', '🌟', '💡', '🧠', '🎓',
+  // Smileys & people
+  '😀', '😎', '🤓', '🥳', '🤩', '😈', '👻', '🤖',
+  '👾', '🧑‍💻', '👩‍🔬', '👨‍🎨', '👩‍🚀', '🧙', '🦸', '🥷',
+  // Hands & gestures
+  '👋', '✌️', '🤞', '🤙', '👊', '✊', '👏', '🙌',
+  // Hearts & emotions
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍',
+  '💖', '💝', '💗', '💞', '❤️‍🔥', '💔', '💕', '💘',
+  // Animals & nature
+  '🐱', '🐶', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁',
+  '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🦅',
+  '🦆', '🦉', '🦇', '🐝', '🐛', '🦋', '🐌', '🐞',
+  '🐙', '🦑', '🦀', '🐠', '🐬', '🐳', '🦈', '🐊',
+  '🐉', '🦕', '🦖', '🐢', '🐍', '🦎', '🐲', '🦄',
+  '🐴', '🐺', '🐗', '🐾', '🐿️', '🦔', '🦩', '🦚',
+  // Plants & flowers
+  '🌱', '🌿', '🍀', '🍃', '🌲', '🌳', '🌴', '🌵',
+  '🌻', '🌺', '🌸', '🌷', '🌹', '💐', '🪻', '🪷',
+  '🍄', '🪴', '🎋', '🎍', '☘️', '🍂', '🍁', '🌾',
+  // Food & drink
+  '🍎', '🍊', '🍋', '🍇', '🍉', '🍓', '🫐', '🍒',
+  '🥝', '🍑', '🥭', '🍍', '🥥', '🥑', '🍌', '🌶️',
+  '🍕', '🍔', '🌮', '🍣', '🍜', '🍝', '🥗', '🍱',
+  '🍩', '🧁', '🎂', '🍪', '🍫', '🍬', '🍭', '🍰',
+  '☕', '🍵', '🧃', '🥤', '🧋', '🍺', '🍷', '🥂',
+  // Sports & activities
+  '⚽', '🏀', '🏈', '⚾', '🎾', '🏐', '🏓', '🏸',
+  '🥊', '🎿', '🏂', '🏄', '🚴', '🏋️', '🤸', '⛷️',
+  '🎯', '🏹', '🥋', '⛳', '🎣', '🤿', '🧗', '🏇',
+  // Travel & places
+  '🚗', '🚕', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒',
+  '✈️', '🚀', '🛸', '🚁', '⛵', '🚢', '🚂', '🚲',
+  '🛰️', '🎢', '🗼', '🏰', '🗽', '🎡', '⛩️', '🕌',
+  '🏛️', '🏟️', '🏝️', '🏜️', '🌋', '🗻', '🏔️', '⛰️',
+  // Sky & weather
+  '☀️', '🌤️', '⛅', '🌦️', '🌧️', '⛈️', '🌩️', '🌈',
+  '❄️', '☃️', '🌊', '💧', '🌙', '🌛', '🌜', '⭐',
+  '🌟', '💫', '✨', '☄️', '🪐', '🌍', '🌎', '🌏',
+  // Tech & objects
+  '💻', '🖥️', '⌨️', '🖱️', '📱', '📟', '🔌', '💾',
+  '💿', '📀', '🖨️', '📠', '📺', '📻', '🎙️', '🎧',
+  '📷', '📸', '🎥', '📹', '🔍', '🔎', '🔬', '🔭',
+  '🧪', '🧫', '🧬', '⚗️', '🦠', '🧮', '🧲', '🪫',
+  // Tools & building
+  '🔧', '🔩', '⚙️', '🛠️', '⛏️', '🪚', '🔨', '🪛',
+  '🏗️', '🧱', '🏭', '🪜', '🧰', '🪤', '🔗', '⛓️',
+  // Office & productivity
+  '📋', '📝', '📊', '📈', '📉', '🗂️', '📁', '🗃️',
+  '📌', '📎', '🖇️', '📐', '📏', '✂️', '🗑️', '📦',
+  '📚', '📖', '📓', '📔', '📒', '📕', '📗', '📘',
+  '✏️', '🖊️', '🖋️', '🖌️', '🖍️', '📝', '✒️', '🔖',
+  // Music & arts
+  '🎨', '🎭', '🎬', '🎤', '🎵', '🎶', '🎹', '🥁',
+  '🎸', '🎺', '🎻', '🪗', '🎷', '🎮', '🎲', '🎰',
+  '🧩', '🎪', '🎠', '🎡', '♟️', '🪁', '🎳', '🏆',
+  // Symbols & signs
+  '⚡', '🔥', '💥', '💢', '💦', '💨', '🕳️', '💣',
+  '💎', '🔑', '🗝️', '🔐', '🔒', '🔓', '🛡️', '⚔️',
+  '🪄', '🔮', '🧿', '🪬', '📿', '💈', '⚖️', '🏴‍☠️',
+  '🎯', '🏅', '🥇', '🥈', '🥉', '🎖️', '👑', '💡',
+  '🧠', '🎓', '💬', '📣', '📢', '🔔', '✉️', '📡',
+  '🌐', '♻️', '⚠️', '🚧', '🏁', '🚩', '🎌', '🏳️‍🌈',
+  // Flags & misc
+  '❓', '❗', '‼️', '⁉️', '💯', '🆕', '🆓', '🔝',
+  '✅', '❌', '⭕', '🔴', '🟠', '🟡', '🟢', '🔵',
+  '🟣', '⚫', '⚪', '🟤', '🔶', '🔷', '🔸', '🔹',
+  '♠️', '♥️', '♦️', '♣️', '🃏', '🀄', '🎴', '🔲',
 ] as const;
 
-// Font Awesome icon names for initiatives
+// Font Awesome icon names for initiatives (kept for backwards compatibility)
 export const INITIATIVE_FA_ICONS = [
   'FaBullseye', 'FaRocket', 'FaStar', 'FaTrophy', 'FaGem', 'FaFire',
   'FaBolt', 'FaMagic', 'FaCrown', 'FaMedal', 'FaAward', 'FaFlag',
@@ -64,12 +126,13 @@ export const INITIATIVE_FA_ICONS = [
   'FaDiamond', 'FaFlask', 'FaAtom', 'FaDna', 'FaMicroscope',
 ] as const;
 
-// Emoji icons for initiatives (kept for backwards compatibility)
+// Emoji icons for initiatives
 export const INITIATIVE_EMOJI_ICONS = [
   '🎯', '🚀', '⭐', '🏆', '💎', '🔥',
   '⚡', '🌟', '💫', '✨', '🎪', '🎭',
-  '🎨', '🎬', '🎯', '🏅', '🎖️', '👑',
-  '🔮', '🌈', '🎁', '🎊', '🎉', '🎈',
+  '🎨', '🎬', '🏅', '🎖️', '👑', '🌈',
+  '🔮', '💡', '🎁', '🎊', '🎉', '🎈',
+  '🧠', '💪', '🌍', '🛡️', '⚔️', '🪄',
 ] as const;
 
 // Get a random color from the palette
@@ -77,24 +140,24 @@ export function getRandomColor(): string {
   return COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)];
 }
 
-// Get a random project icon (Font Awesome)
+// Get a random project icon (emoji)
 export function getRandomProjectIcon(): string {
-  return PROJECT_FA_ICONS[Math.floor(Math.random() * PROJECT_FA_ICONS.length)];
-}
-
-// Get a random initiative icon (Font Awesome)
-export function getRandomInitiativeIcon(): string {
-  return INITIATIVE_FA_ICONS[Math.floor(Math.random() * INITIATIVE_FA_ICONS.length)];
-}
-
-// Get a random project emoji (backwards compatibility)
-export function getRandomProjectEmoji(): string {
   return PROJECT_EMOJI_ICONS[Math.floor(Math.random() * PROJECT_EMOJI_ICONS.length)];
 }
 
-// Get a random initiative emoji (backwards compatibility)
-export function getRandomInitiativeEmoji(): string {
+// Get a random initiative icon (emoji)
+export function getRandomInitiativeIcon(): string {
   return INITIATIVE_EMOJI_ICONS[Math.floor(Math.random() * INITIATIVE_EMOJI_ICONS.length)];
+}
+
+// Get a random project emoji (backwards compatibility alias)
+export function getRandomProjectEmoji(): string {
+  return getRandomProjectIcon();
+}
+
+// Get a random initiative emoji (backwards compatibility alias)
+export function getRandomInitiativeEmoji(): string {
+  return getRandomInitiativeIcon();
 }
 
 // Get a color that's distinct from the given colors

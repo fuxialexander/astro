@@ -4,34 +4,10 @@ import { Loader2, CheckCircle2, AlertCircle, X, ChevronDown, ChevronUp, FolderGi
 import { useAgentStore, type GenerationSession } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useMachinesStore } from "@/stores/machines-store"
+import { filterStreamText } from "@/lib/stream-text-utils"
 import { cn } from "@/lib/utils"
 
 const AUTO_DISMISS_MS = 4000
-
-/**
- * Strip tool use blocks, code fences, and JSON from stream text,
- * keeping only the natural-language reasoning/thinking text.
- */
-function filterStreamText(text: string): string {
-  let result = text
-
-  // Remove XML-style tool use blocks: <tool_use>...</tool_use>, <tool_result>...</tool_result>, etc.
-  result = result.replace(/<tool_use>[\s\S]*?<\/tool_use>/g, "")
-  result = result.replace(/<tool_result>[\s\S]*?<\/tool_result>/g, "")
-  result = result.replace(/<tool_use>[\s\S]*?<\/antml:tool_use>/g, "")
-  result = result.replace(/<tool_result>[\s\S]*?<\/antml:tool_result>/g, "")
-
-  // Remove fenced code blocks: ```...```
-  result = result.replace(/```[\s\S]*?```/g, "")
-
-  // Remove large JSON blobs (objects/arrays spanning multiple lines, 4+ lines)
-  result = result.replace(/[{[]\s*\n(?:.*\n){3,}?\s*[}\]]/g, "")
-
-  // Collapse multiple blank lines into one
-  result = result.replace(/\n{3,}/g, "\n\n")
-
-  return result.trim()
-}
 
 function SessionCard({ session }: { session: GenerationSession }) {
   const abort = useAgentStore((s) => s.abort)
@@ -166,6 +142,15 @@ function SessionCard({ session }: { session: GenerationSession }) {
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {/* Collapsed text preview — shows last 5 lines of reasoning */}
+      {!expanded && hasText && (
+        <div className="border-t border-border px-3 py-1.5 bg-muted/30">
+          <div className="text-[10px] text-muted-foreground/80 leading-relaxed font-mono line-clamp-5 whitespace-pre-wrap">
+            {displayText.split('\n').filter(Boolean).slice(-5).join('\n')}
+          </div>
+        </div>
+      )}
 
       {/* Expandable stream text */}
       {expanded && hasText && (
