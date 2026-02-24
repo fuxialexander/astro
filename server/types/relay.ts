@@ -479,6 +479,31 @@ export interface FileListResponseMessage extends BaseMessage {
   files: string[];
 }
 
+/** Directory list request (relay → agent) - for remote path browsing */
+export interface DirectoryListRequestMessage extends BaseMessage {
+  type: 'directory_list.request';
+  correlationId: string;
+  path: string;
+}
+
+/** Directory entry info */
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  isSymlink?: boolean;
+}
+
+/** Directory list response (agent → relay) */
+export interface DirectoryListResponseMessage extends BaseMessage {
+  type: 'directory_list.response';
+  correlationId: string;
+  path: string;
+  entries: DirectoryEntry[];
+  error?: string;
+  homeDirectory?: string;
+}
+
 /** Slash commands request (relay → agent) */
 export interface SlashCommandsRequestMessage extends BaseMessage {
   type: 'slash_commands.request';

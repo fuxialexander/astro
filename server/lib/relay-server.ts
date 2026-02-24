@@ -298,6 +298,27 @@ interface AgentRunnerFileListResponseMessage {
   };
 }
 
+/** Directory entry info */
+interface DirectoryEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  isSymlink?: boolean;
+}
+
+/** Agent runner's directory list response message format */
+interface AgentRunnerDirectoryListResponseMessage {
+  type: 'directory_list_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    path: string;
+    entries: DirectoryEntry[];
+    error?: string;
+    homeDirectory?: string;
+  };
+}
+
 /** Agent runner's repo setup response message format */
 interface AgentRunnerRepoSetupResponseMessage {
   type: 'repo_setup_response';
@@ -475,6 +496,7 @@ export interface RelayServerEvents {
   'session:detached': (sessionId: string, taskId: string, reason?: string) => void;
   'session:event': (sessionId: string, taskId: string, event: SessionEvent) => void;
   'file_list:response': (data: { correlationId: string; files: string[] }) => void;
+  'directory_list:response': (data: { correlationId: string; path: string; entries: DirectoryEntry[]; error?: string; homeDirectory?: string }) => void;
   'repo_setup:response': (data: { correlationId: string; result: RepoSetupRelayResult }) => void;
   'slash_commands:response': (data: { correlationId: string; commands: Array<{ name: string; description: string }> }) => void;
   'repo_detect:response': (data: { correlationId: string; result: RepoDetectRelayResult }) => void;
@@ -872,6 +894,15 @@ export class RelayServer extends EventEmitter {
 
       case 'file_list_response':
         this.handleAgentRunnerFileListResponse(message as unknown as AgentRunnerFileListResponseMessage);
+        break;
+
+      // Directory list response from agent runner (for path browsing)
+      case 'directory_list.response':
+        this.handleDirectoryListResponse(message as unknown as { type: 'directory_list.response'; correlationId: string; path: string; entries: DirectoryEntry[]; error?: string; homeDirectory?: string });
+        break;
+
+      case 'directory_list_response':
+        this.handleAgentRunnerDirectoryListResponse(message as unknown as AgentRunnerDirectoryListResponseMessage);
         break;
 
       // Repo setup response from agent runner
@@ -1848,6 +1879,61 @@ export class RelayServer extends EventEmitter {
     this.emit('file_list:response', {
       correlationId: message.payload.correlationId,
       files: message.payload.files,
+    });
+  }
+
+  // ============================================================================
+  // Directory List Handlers (for remote path browsing)
+  // ============================================================================
+
+  /**
+   * Request a directory listing from a connected machine
+   */
+  requestDirectoryList(machineId: string, path: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for directory list request`);
+      return false;
+    }
+
+    // Send in agent-runner's expected format
+    const msg = {
+      type: 'directory_list_request',
+      timestamp: new Date().toISOString(),
+      payload: { path, correlationId },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle directory_list.response (dot notation)
+   */
+  private handleDirectoryListResponse(message: { correlationId: string; path: string; entries: DirectoryEntry[]; error?: string; homeDirectory?: string }): void {
+    this.emit('directory_list:response', {
+      correlationId: message.correlationId,
+      path: message.path,
+      entries: message.entries,
+      error: message.error,
+      homeDirectory: message.homeDirectory,
+    });
+  }
+
+  /**
+   * Handle agent runner's directory_list_response format
+   */
+  private handleAgentRunnerDirectoryListResponse(message: AgentRunnerDirectoryListResponseMessage): void {
+    this.emit('directory_list:response', {
+      correlationId: message.payload.correlationId,
+      path: message.payload.path,
+      entries: message.payload.entries,
+      error: message.payload.error,
+      homeDirectory: message.payload.homeDirectory,
     });
   }
 

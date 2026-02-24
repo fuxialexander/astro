@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { Sparkles, Loader2, X, Laptop, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, GitBranch, Plus, Users, GitPullRequest, FolderEdit, ChevronDown } from "lucide-react"
+import { Sparkles, Loader2, X, Laptop, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, GitBranch, Plus, Users, GitPullRequest, FolderEdit, ChevronDown, FolderOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useProjectStore } from "@/stores/project-store"
@@ -16,6 +16,7 @@ import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { BranchSelector } from "@/components/branch-selector"
 import { GitInitDialog } from "@/components/git-init-dialog"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
+import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { isServerMode } from "@/lib/app-mode"
 import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
@@ -93,6 +94,7 @@ export function ProjectNew() {
   const registeredMachines = useMachinesStore((s) => s.machines)
   const fetchRegisteredMachines = useMachinesStore((s) => s.fetchMachines)
   const [showAddEnvironment, setShowAddEnvironment] = useState(false)
+  const [showPathBrowser, setShowPathBrowser] = useState(false)
 
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
@@ -715,21 +717,36 @@ export function ProjectNew() {
               Project directory
               <WorkingDirectoryHelp />
             </label>
-            <input
-              type="text"
-              value={workingDir}
-              onChange={(e) => {
-                const val = e.target.value
-                setWorkingDir(val)
-                const result = validateAbsolutePath(val)
-                setPathError(result.isValid ? null : result.error ?? null)
-              }}
-              placeholder={isRemote ? "/remote/path/to/project" : "/absolute/path/to/project"}
-              className={cn(
-                "h-10 rounded-lg border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring",
-                pathError ? "border-destructive" : "border-border",
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={workingDir}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setWorkingDir(val)
+                  const result = validateAbsolutePath(val)
+                  setPathError(result.isValid ? null : result.error ?? null)
+                }}
+                placeholder={isRemote ? "/remote/path/to/project" : "/absolute/path/to/project"}
+                className={cn(
+                  "flex-1 h-10 rounded-lg border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring",
+                  pathError ? "border-destructive" : "border-border",
+                )}
+              />
+              {/* Browse button - only shown when a machine is selected */}
+              {selectedMachine && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowPathBrowser(true)}
+                  title="Browse remote directories"
+                  className="h-10 w-10 shrink-0"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                </Button>
               )}
-            />
+            </div>
             {pathError && (
               <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
@@ -936,6 +953,21 @@ export function ProjectNew() {
           open={showAddEnvironment}
           onOpenChange={setShowAddEnvironment}
         />
+
+        {/* Remote path browser dialog */}
+        {selectedMachine && (
+          <RemotePathBrowser
+            open={showPathBrowser}
+            onOpenChange={setShowPathBrowser}
+            machineId={selectedMachine.machineId}
+            machineName={selectedMachine.name}
+            currentPath={workingDir || undefined}
+            onSelect={(path) => {
+              setWorkingDir(path)
+              setPathError(null)
+            }}
+          />
+        )}
       </div>
     </div>
   )

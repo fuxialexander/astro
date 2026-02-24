@@ -43,6 +43,84 @@ fsRoute.get('/files', async (c) => {
   }
 })
 
+/** Directory entry info for path browser */
+interface DirectoryEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+  isSymlink?: boolean
+}
+
+/** Response type for directory listing */
+interface DirectoryListResult {
+  path: string
+  entries: DirectoryEntry[]
+  error?: string
+  homeDirectory?: string
+}
+
+/**
+ * GET /directories?machineId=yyy&path=/some/path
+ *
+ * Lists directories for remote path browsing via relay to a connected machine.
+ * If path is empty or '~', returns the home directory listing.
+ */
+fsRoute.get('/directories', async (c) => {
+  const machineId = c.req.query('machineId')
+  const path = c.req.query('path') || '~'
+
+  if (!machineId) {
+    return c.json({ error: 'machineId is required' }, 400)
+  }
+
+  try {
+    const result = await requestDirectoryList(machineId, path)
+    return c.json(result)
+  } catch (error) {
+    console.error('[fs] Error listing directories:', error)
+    return c.json({ path, entries: [], error: 'Failed to list directory' })
+  }
+})
+
+/**
+ * Request directory listing from a remote machine via relay
+ */
+async function requestDirectoryList(
+  machineId: string,
+  path: string,
+): Promise<DirectoryListResult> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<DirectoryListResult>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('directory_list:response', handler)
+      resolve({ path, entries: [], error: 'Request timed out' })
+    }, 10000) // 10 second timeout for directory listing
+
+    function handler(data: { correlationId: string; path: string; entries: DirectoryEntry[]; error?: string; homeDirectory?: string }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('directory_list:response', handler)
+
+      resolve({
+        path: data.path,
+        entries: data.entries || [],
+        error: data.error,
+        homeDirectory: data.homeDirectory,
+      })
+    }
+
+    relayServer.on('directory_list:response', handler)
+
+    const sent = relayServer.requestDirectoryList(machineId, path, correlationId)
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('directory_list:response', handler)
+      resolve({ path, entries: [], error: 'Machine not connected' })
+    }
+  })
+}
+
 /**
  * Request file list from a remote machine via relay
  */
