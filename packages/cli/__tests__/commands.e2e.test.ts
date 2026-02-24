@@ -5,7 +5,7 @@
  * Auto-skips if the server at http://localhost:3001 is not available.
  * Start the server with `npm run dev:local` before running these tests.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { execSync, type ExecSyncOptionsWithStringEncoding } from 'node:child_process'
 import { join } from 'node:path'
 import { checkServer } from './setup.js'
@@ -52,6 +52,7 @@ describe('CLI e2e', () => {
       expect(output).toContain('search')
       expect(output).toContain('env')
       expect(output).toContain('config')
+      expect(output).toContain('completion')
     })
 
     it('project --help shows subcommands', () => {
@@ -59,6 +60,8 @@ describe('CLI e2e', () => {
       expect(output).toContain('list')
       expect(output).toContain('show')
       expect(output).toContain('create')
+      expect(output).toContain('update')
+      expect(output).toContain('stats')
       expect(output).toContain('delete')
     })
 
@@ -67,6 +70,11 @@ describe('CLI e2e', () => {
       expect(output).toContain('list')
       expect(output).toContain('show')
       expect(output).toContain('tree')
+      expect(output).toContain('create-node')
+      expect(output).toContain('update-node')
+      expect(output).toContain('delete-node')
+      expect(output).toContain('stats')
+      expect(output).toContain('export')
     })
 
     it('task --help shows subcommands', () => {
@@ -74,6 +82,10 @@ describe('CLI e2e', () => {
       expect(output).toContain('list')
       expect(output).toContain('show')
       expect(output).toContain('dispatch')
+      expect(output).toContain('cancel')
+      expect(output).toContain('steer')
+      expect(output).toContain('update-status')
+      expect(output).toContain('watch')
     })
 
     it('env --help shows subcommands', () => {
@@ -82,6 +94,17 @@ describe('CLI e2e', () => {
       expect(output).toContain('show')
       expect(output).toContain('remove')
       expect(output).toContain('set-default')
+      expect(output).toContain('status')
+      expect(output).toContain('providers')
+      expect(output).toContain('clusters')
+    })
+
+    it('trace --help shows subcommands', () => {
+      const output = cli('trace --help')
+      expect(output).toContain('list')
+      expect(output).toContain('show')
+      expect(output).toContain('summary')
+      expect(output).toContain('stats')
     })
 
     it('config --help shows subcommands', () => {
@@ -89,6 +112,28 @@ describe('CLI e2e', () => {
       expect(output).toContain('show')
       expect(output).toContain('set')
       expect(output).toContain('get')
+    })
+  })
+
+  // ── Completion (no server needed) ──────────────────────────────────
+
+  describe('completion', () => {
+    it('completion --shell bash outputs script', () => {
+      const output = cli('completion --shell bash')
+      expect(output).toContain('_astro_cli_completions')
+      expect(output).toContain('complete -F')
+      expect(output).toContain('astro-cli')
+    })
+
+    it('completion --shell zsh outputs script', () => {
+      const output = cli('completion --shell zsh')
+      expect(output).toContain('#compdef astro-cli')
+      expect(output).toContain('_astro-cli')
+    })
+
+    it('completion --shell fish outputs script', () => {
+      const output = cli('completion --shell fish')
+      expect(output).toContain('complete -c astro-cli')
     })
   })
 
@@ -160,6 +205,24 @@ describe('CLI e2e', () => {
       expect(output).toContain('Status')
     })
 
+    it('project update modifies project', () => {
+      if (!serverAvailable || !testProjectId) return
+      const updated = cliJson<{ id: string; description: string }>(
+        `project update ${testProjectId.slice(0, 8)} --description "updated via e2e"`
+      )
+      expect(updated.id).toBe(testProjectId)
+      expect(updated.description).toBe('updated via e2e')
+    })
+
+    it('project stats shows statistics', () => {
+      if (!serverAvailable || !testProjectId) return
+      const stats = cliJson<{ project: { id: string }; plan: { totalNodes: number } }>(
+        `project stats ${testProjectId.slice(0, 8)}`
+      )
+      expect(stats.project.id).toBe(testProjectId)
+      expect(stats.plan).toHaveProperty('totalNodes')
+    })
+
     it('project delete removes the project', () => {
       if (!serverAvailable || !testProjectId) return
       const output = cli(`project delete ${testProjectId}`)
@@ -193,6 +256,47 @@ describe('CLI e2e', () => {
       // Should output either tree or "No plan nodes found."
       expect(output).toBeTruthy()
     })
+
+    it('plan stats returns plan statistics', () => {
+      if (!serverAvailable) return
+      const projects = cliJson<Array<{ id: string }>>('project list')
+      if (projects.length === 0) return
+
+      const stats = cliJson<{ totalNodes: number; totalEdges: number }>(
+        `plan stats --project-id ${projects[0].id}`
+      )
+      expect(stats).toHaveProperty('totalNodes')
+      expect(stats).toHaveProperty('totalEdges')
+    })
+
+    it('plan export --format json outputs JSON', () => {
+      if (!serverAvailable) return
+      const projects = cliJson<Array<{ id: string }>>('project list')
+      if (projects.length === 0) return
+
+      const output = cli(`plan export --project-id ${projects[0].id} --format json`)
+      const parsed = JSON.parse(output)
+      expect(parsed).toHaveProperty('nodes')
+      expect(parsed).toHaveProperty('edges')
+    })
+
+    it('plan export --format dot outputs DOT', () => {
+      if (!serverAvailable) return
+      const projects = cliJson<Array<{ id: string }>>('project list')
+      if (projects.length === 0) return
+
+      const output = cli(`plan export --project-id ${projects[0].id} --format dot`)
+      expect(output).toContain('digraph plan')
+    })
+
+    it('plan export --format mermaid outputs Mermaid', () => {
+      if (!serverAvailable) return
+      const projects = cliJson<Array<{ id: string }>>('project list')
+      if (projects.length === 0) return
+
+      const output = cli(`plan export --project-id ${projects[0].id} --format mermaid`)
+      expect(output).toContain('graph LR')
+    })
   })
 
   // ── Task commands ──────────────────────────────────────────────────
@@ -223,6 +327,12 @@ describe('CLI e2e', () => {
       expect(Array.isArray(tasks)).toBe(true)
     })
 
+    it('task list with --since filter works', () => {
+      if (!serverAvailable) return
+      const tasks = cliJson<Array<{ id: string }>>('task list --since 7d')
+      expect(Array.isArray(tasks)).toBe(true)
+    })
+
     it('task show with nonexistent ID exits with error', () => {
       if (!serverAvailable) return
       try {
@@ -245,6 +355,13 @@ describe('CLI e2e', () => {
       expect(results).toHaveProperty('projects')
       expect(results).toHaveProperty('tasks')
       expect(results).toHaveProperty('executions')
+    })
+
+    it('search with --type filter works', () => {
+      if (!serverAvailable) return
+      const results = cliJson<{ projects: unknown[]; tasks: unknown[]; executions: unknown[] }>('search "test" --type projects')
+      expect(results.tasks).toHaveLength(0)
+      expect(results.executions).toHaveLength(0)
     })
 
     it('search human output shows sections', () => {
@@ -277,7 +394,8 @@ describe('CLI e2e', () => {
       const machines = cliJson<Array<{ id: string }>>('env list')
       if (machines.length === 0) return
 
-      const machine = cliJson<{ id: string; name: string }>(`env show ${machines[0].id.slice(0, 8)}`)
+      // Use enough of the ID to be unambiguous
+      const machine = cliJson<{ id: string; name: string }>(`env show ${machines[0].id.slice(0, 16)}`)
       expect(machine.id).toBeTruthy()
       expect(machine.name).toBeTruthy()
     })
@@ -287,10 +405,17 @@ describe('CLI e2e', () => {
       const machines = cliJson<Array<{ id: string }>>('env list')
       if (machines.length === 0) return
 
-      const output = cli(`env show ${machines[0].id.slice(0, 8)}`)
+      // Use enough of the ID to be unambiguous
+      const output = cli(`env show ${machines[0].id.slice(0, 16)}`)
       expect(output).toContain('Machine:')
       expect(output).toContain('ID')
       expect(output).toContain('Platform')
+    })
+
+    it('env providers lists providers', () => {
+      if (!serverAvailable) return
+      const providers = cliJson<Array<{ provider: string }>>('env providers')
+      expect(Array.isArray(providers)).toBe(true)
     })
   })
 
@@ -309,6 +434,18 @@ describe('CLI e2e', () => {
       expect(Array.isArray(activities)).toBe(true)
       expect(activities.length).toBeLessThanOrEqual(5)
     })
+
+    it('activity list with --type filter works', () => {
+      if (!serverAvailable) return
+      const activities = cliJson<Array<{ type: string }>>('activity list --type task:completed')
+      expect(Array.isArray(activities)).toBe(true)
+    })
+
+    it('activity list with --since filter works', () => {
+      if (!serverAvailable) return
+      const activities = cliJson<unknown[]>('activity list --since 7d')
+      expect(Array.isArray(activities)).toBe(true)
+    })
   })
 
   // ── Trace commands ─────────────────────────────────────────────────
@@ -326,15 +463,32 @@ describe('CLI e2e', () => {
 
     it('trace list returns JSON for valid execution', () => {
       if (!serverAvailable) return
-      const executions = cliJson<Record<string, { executionId: string }>>('--json task list')
-      // Get an execution ID from task list might not work, let's try the executions endpoint directly
-      // Use the client to find a valid execution ID
       // For simplicity, we just verify the command doesn't crash with a nonexistent ID
       try {
         const result = cliJson<{ traces: unknown[] }>('trace list --execution-id nonexistent')
         expect(result).toHaveProperty('traces')
       } catch {
         // Expected - might return error for nonexistent execution
+      }
+    })
+
+    it('trace summary requires --execution-id', () => {
+      try {
+        cli('trace summary')
+        expect.fail('Should have thrown')
+      } catch (err: unknown) {
+        const error = err as { stderr?: string }
+        expect(error.stderr || '').toContain('execution-id')
+      }
+    })
+
+    it('trace stats requires --execution-id', () => {
+      try {
+        cli('trace stats')
+        expect.fail('Should have thrown')
+      } catch (err: unknown) {
+        const error = err as { stderr?: string }
+        expect(error.stderr || '').toContain('execution-id')
       }
     })
   })
@@ -371,6 +525,45 @@ describe('CLI e2e', () => {
       // 6. Verify deletion
       const afterDelete = cliJson<Array<{ id: string }>>('project list')
       expect(afterDelete.some(p => p.id === id)).toBe(false)
+    })
+
+    it('plan node CRUD: create → update → delete', () => {
+      if (!serverAvailable) return
+
+      // Create a project first
+      const project = cliJson<{ id: string }>('project create --name "Node CRUD Test"')
+      const projectId = project.id
+
+      try {
+        // Create node
+        const created = cliJson<{ ok: boolean; id: string }>(
+          `plan create-node --project-id ${projectId} --title "Test Node" --type task`
+        )
+        expect(created.ok).toBe(true)
+        expect(created.id).toBeTruthy()
+        const nodeId = created.id
+
+        // Update node
+        const updated = cliJson<{ ok: boolean }>(
+          `plan update-node ${nodeId} --title "Updated Node" --status in_progress`
+        )
+        expect(updated.ok).toBe(true)
+
+        // Verify update
+        const plan = cliJson<Array<{ id: string; title: string; status: string }>>(
+          `plan list --project-id ${projectId}`
+        )
+        const found = plan.find(n => n.id === nodeId)
+        expect(found).toBeDefined()
+        expect(found!.title).toBe('Updated Node')
+        expect(found!.status).toBe('in_progress')
+
+        // Delete node
+        const deleted = cliJson<{ ok: boolean }>(`plan delete-node ${nodeId}`)
+        expect(deleted.ok).toBe(true)
+      } finally {
+        cli(`project delete ${projectId}`)
+      }
     })
   })
 })

@@ -233,4 +233,260 @@ export function registerPlanCommands(program: Command): void {
       }
       console.log()
     })
+
+  // ── plan create-node ──────────────────────────────────────────────
+  plan
+    .command('create-node')
+    .description('Create a new plan node')
+    .requiredOption('--project-id <id>', 'Project ID')
+    .requiredOption('--title <title>', 'Node title')
+    .option('--type <type>', 'Node type: task, milestone, decision', 'task')
+    .option('--description <desc>', 'Node description')
+    .option('--status <status>', 'Initial status', 'planned')
+    .option('--parent-id <id>', 'Parent node ID')
+    .option('--priority <priority>', 'Priority: critical, high, normal, low')
+    .action(async (cmdOpts: {
+      projectId: string
+      title: string
+      type: string
+      description?: string
+      status: string
+      parentId?: string
+      priority?: string
+    }) => {
+      const opts = program.opts()
+      const client = getClient(opts.serverUrl)
+
+      // Generate a client ID
+      const id = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+      try {
+        await client.createPlanNode({
+          id,
+          projectId: cmdOpts.projectId,
+          title: cmdOpts.title,
+          type: cmdOpts.type,
+          description: cmdOpts.description,
+          status: cmdOpts.status,
+          parentId: cmdOpts.parentId ?? null,
+          priority: cmdOpts.priority ?? null,
+        })
+
+        if (opts.json) {
+          print({ ok: true, id, projectId: cmdOpts.projectId, title: cmdOpts.title }, { json: true })
+        } else {
+          console.log(chalk.green('Node created:'))
+          console.log(`  ${chalk.bold('ID')}     ${id}`)
+          console.log(`  ${chalk.bold('Title')}  ${cmdOpts.title}`)
+          console.log(`  ${chalk.bold('Type')}   ${cmdOpts.type}`)
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (opts.json) {
+          print({ error: msg }, { json: true })
+        } else {
+          console.error(chalk.red(`Create failed: ${msg}`))
+        }
+        process.exitCode = 1
+      }
+    })
+
+  // ── plan update-node ──────────────────────────────────────────────
+  plan
+    .command('update-node <nodeId>')
+    .description('Update a plan node')
+    .option('--title <title>', 'New title')
+    .option('--status <status>', 'New status')
+    .option('--description <desc>', 'New description')
+    .option('--priority <priority>', 'New priority: critical, high, normal, low')
+    .option('--type <type>', 'New type: task, milestone, decision')
+    .action(async (nodeId: string, cmdOpts: {
+      title?: string
+      status?: string
+      description?: string
+      priority?: string
+      type?: string
+    }) => {
+      const opts = program.opts()
+      const client = getClient(opts.serverUrl)
+
+      const patch: Record<string, unknown> = {}
+      if (cmdOpts.title !== undefined) patch.title = cmdOpts.title
+      if (cmdOpts.status !== undefined) patch.status = cmdOpts.status
+      if (cmdOpts.description !== undefined) patch.description = cmdOpts.description
+      if (cmdOpts.priority !== undefined) patch.priority = cmdOpts.priority
+      if (cmdOpts.type !== undefined) patch.type = cmdOpts.type
+
+      if (Object.keys(patch).length === 0) {
+        console.error(chalk.red('No update fields provided. Use --title, --status, --description, --priority, or --type.'))
+        process.exitCode = 1
+        return
+      }
+
+      try {
+        const result = await client.updatePlanNode(nodeId, patch)
+
+        if (opts.json) {
+          print({ ...result, nodeId, updated: Object.keys(patch) }, { json: true })
+        } else {
+          console.log(chalk.green(`Node ${nodeId} updated: ${Object.keys(patch).join(', ')}`))
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (opts.json) {
+          print({ error: msg }, { json: true })
+        } else {
+          console.error(chalk.red(`Update failed: ${msg}`))
+        }
+        process.exitCode = 1
+      }
+    })
+
+  // ── plan delete-node ──────────────────────────────────────────────
+  plan
+    .command('delete-node <nodeId>')
+    .description('Delete a plan node')
+    .action(async (nodeId: string) => {
+      const opts = program.opts()
+      const client = getClient(opts.serverUrl)
+
+      try {
+        const result = await client.deletePlanNode(nodeId)
+
+        if (opts.json) {
+          print({ ...result, nodeId }, { json: true })
+        } else {
+          console.log(chalk.green(`Node ${nodeId} deleted.`))
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (opts.json) {
+          print({ error: msg }, { json: true })
+        } else {
+          console.error(chalk.red(`Delete failed: ${msg}`))
+        }
+        process.exitCode = 1
+      }
+    })
+
+  // ── plan stats ────────────────────────────────────────────────────
+  plan
+    .command('stats')
+    .description('Show plan statistics for a project')
+    .requiredOption('--project-id <id>', 'Project ID')
+    .action(async (cmdOpts: { projectId: string }) => {
+      const opts = program.opts()
+      const client = getClient(opts.serverUrl)
+
+      try {
+        const { nodes, edges } = await client.getPlan(cmdOpts.projectId)
+        const active = nodes.filter(n => !n.deletedAt)
+
+        // Status counts
+        const statusCounts: Record<string, number> = {}
+        for (const n of active) {
+          statusCounts[n.status] = (statusCounts[n.status] || 0) + 1
+        }
+
+        // Execution coverage
+        const withExecution = active.filter(n => n.executionId).length
+
+        // Date range
+        const dates = active
+          .flatMap(n => [n.startDate, n.endDate].filter(Boolean) as string[])
+          .map(d => new Date(d).getTime())
+          .filter(d => !isNaN(d))
+        const minDate = dates.length > 0 ? new Date(Math.min(...dates)).toISOString().split('T')[0] : null
+        const maxDate = dates.length > 0 ? new Date(Math.max(...dates)).toISOString().split('T')[0] : null
+
+        const stats = {
+          totalNodes: active.length,
+          totalEdges: edges.length,
+          statusCounts,
+          executionCoverage: active.length > 0 ? `${withExecution}/${active.length} (${Math.round(withExecution / active.length * 100)}%)` : '0/0',
+          dateRange: minDate && maxDate ? `${minDate} \u2192 ${maxDate}` : '\u2014',
+        }
+
+        if (opts.json) {
+          print(stats, { json: true })
+          return
+        }
+
+        console.log()
+        console.log(chalk.bold('  Plan Statistics'))
+        console.log(chalk.dim('  ' + '\u2500'.repeat(40)))
+        console.log(`  ${chalk.dim('Total Nodes:')}       ${stats.totalNodes}`)
+        console.log(`  ${chalk.dim('Total Edges:')}       ${stats.totalEdges}`)
+        console.log(`  ${chalk.dim('Execution Coverage:')} ${stats.executionCoverage}`)
+        console.log(`  ${chalk.dim('Date Range:')}        ${stats.dateRange}`)
+        console.log()
+        console.log(chalk.bold('  Status Breakdown'))
+        for (const [status, count] of Object.entries(statusCounts).sort((a, b) => b[1] - a[1])) {
+          console.log(`    ${formatStatus(status).padEnd(25)} ${count}`)
+        }
+        console.log()
+      } catch (err) {
+        console.error(chalk.red((err as Error).message))
+        process.exitCode = 1
+      }
+    })
+
+  // ── plan export ───────────────────────────────────────────────────
+  plan
+    .command('export')
+    .description('Export plan in various formats')
+    .requiredOption('--project-id <id>', 'Project ID')
+    .option('--format <fmt>', 'Output format: json, dot, mermaid', 'json')
+    .action(async (cmdOpts: { projectId: string; format: string }) => {
+      const opts = program.opts()
+      const client = getClient(opts.serverUrl)
+
+      let nodes, edges
+      try {
+        const result = await client.getPlan(cmdOpts.projectId)
+        nodes = result.nodes.filter(n => !n.deletedAt)
+        edges = result.edges
+      } catch (err) {
+        console.error(chalk.red((err as Error).message))
+        process.exitCode = 1
+        return
+      }
+
+      switch (cmdOpts.format) {
+        case 'json':
+          console.log(JSON.stringify({ nodes, edges }, null, 2))
+          break
+
+        case 'dot': {
+          const lines = ['digraph plan {', '  rankdir=LR;', '  node [shape=box];']
+          for (const n of nodes) {
+            const label = n.title.replace(/"/g, '\\"')
+            lines.push(`  "${n.id}" [label="${label}\\n[${n.status}]"];`)
+          }
+          for (const e of edges) {
+            lines.push(`  "${e.source}" -> "${e.target}";`)
+          }
+          lines.push('}')
+          console.log(lines.join('\n'))
+          break
+        }
+
+        case 'mermaid': {
+          const lines = ['graph LR']
+          for (const n of nodes) {
+            const label = n.title.replace(/"/g, "'")
+            lines.push(`  ${n.id}["${label}<br/>${n.status}"]`)
+          }
+          for (const e of edges) {
+            lines.push(`  ${e.source} --> ${e.target}`)
+          }
+          console.log(lines.join('\n'))
+          break
+        }
+
+        default:
+          console.error(chalk.red(`Unknown format "${cmdOpts.format}". Use json, dot, or mermaid.`))
+          process.exitCode = 1
+      }
+    })
 }

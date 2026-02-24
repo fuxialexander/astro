@@ -9,6 +9,7 @@ import { registerTraceCommands } from './commands/trace.js'
 import { registerEnvCommands } from './commands/env.js'
 import { registerConfigCommands } from './commands/config.js'
 import { registerAuthCommands } from './commands/auth.js'
+import { registerCompletionCommands } from './commands/completion.js'
 
 const program = new Command()
 
@@ -29,5 +30,6 @@ registerTraceCommands(program)
 registerEnvCommands(program)
 registerConfigCommands(program)
 registerAuthCommands(program)
+registerCompletionCommands(program)
 
 program.parse()

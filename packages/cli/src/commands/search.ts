@@ -1,17 +1,21 @@
 import type { Command } from 'commander'
 import chalk from 'chalk'
 import { getClient } from '../client.js'
-import { print, formatStatus, type ColumnDef } from '../output.js'
+import type { Project, PlanNode, Execution } from '../client.js'
+import { print, formatStatus, parseDateFilter, type ColumnDef } from '../output.js'
 
 export function registerSearchCommands(program: Command): void {
   program
     .command('search <query>')
     .description('Search across projects, tasks, and executions')
-    .action(async (query: string) => {
+    .option('--type <type>', 'Filter by type: projects, tasks, executions')
+    .option('--since <date>', 'Show results updated after date (e.g. 2d, 1h, today, ISO)')
+    .option('--until <date>', 'Show results updated before date (e.g. 2d, 1h, yesterday, ISO)')
+    .action(async (query: string, cmdOpts: { type?: string; since?: string; until?: string }) => {
       const client = getClient()
       const isJson = program.opts().json
 
-      let projectResults, taskResults, executionResults
+      let projectResults: Project[], taskResults: Array<PlanNode & { projectName?: string }>, executionResults: Execution[]
       try {
         const results = await client.search(query)
         projectResults = results.projects
@@ -21,6 +25,27 @@ export function registerSearchCommands(program: Command): void {
         console.error(chalk.red((err as Error).message))
         process.exitCode = 1
         return
+      }
+
+      // Apply date filters (client-side)
+      if (cmdOpts.since) {
+        const since = parseDateFilter(cmdOpts.since)
+        projectResults = projectResults.filter(p => p.updatedAt && new Date(p.updatedAt) >= since)
+        taskResults = taskResults.filter(t => t.updatedAt && new Date(t.updatedAt) >= since)
+        executionResults = executionResults.filter(e => e.startedAt && new Date(e.startedAt) >= since)
+      }
+      if (cmdOpts.until) {
+        const until = parseDateFilter(cmdOpts.until)
+        projectResults = projectResults.filter(p => p.updatedAt && new Date(p.updatedAt) <= until)
+        taskResults = taskResults.filter(t => t.updatedAt && new Date(t.updatedAt) <= until)
+        executionResults = executionResults.filter(e => e.startedAt && new Date(e.startedAt) <= until)
+      }
+
+      // Apply type filter
+      if (cmdOpts.type) {
+        if (cmdOpts.type !== 'projects') projectResults = []
+        if (cmdOpts.type !== 'tasks') taskResults = []
+        if (cmdOpts.type !== 'executions') executionResults = []
       }
 
       if (isJson) {

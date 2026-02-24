@@ -111,6 +111,145 @@ export function registerProjectCommands(program: Command): void {
       }
     })
 
+  // ── project update <id> ───────────────────────────────────────────
+  project
+    .command('update <id>')
+    .description('Update a project')
+    .option('--name <name>', 'New project name')
+    .option('--description <desc>', 'New description')
+    .option('--status <status>', 'New status')
+    .option('--dir <path>', 'New working directory')
+    .option('--vision-doc <text>', 'Update vision document')
+    .action(async (id: string, cmdOpts: {
+      name?: string
+      description?: string
+      status?: string
+      dir?: string
+      visionDoc?: string
+    }) => {
+      const opts = program.opts()
+      const client = getClient(opts.serverUrl)
+
+      let p: Project
+      try {
+        p = await client.resolveProject(id)
+      } catch (err) {
+        console.error(chalk.red((err as Error).message))
+        process.exitCode = 1
+        return
+      }
+
+      const patch: Record<string, unknown> = {}
+      if (cmdOpts.name !== undefined) patch.name = cmdOpts.name
+      if (cmdOpts.description !== undefined) patch.description = cmdOpts.description
+      if (cmdOpts.status !== undefined) patch.status = cmdOpts.status
+      if (cmdOpts.dir !== undefined) patch.workingDirectory = cmdOpts.dir
+      if (cmdOpts.visionDoc !== undefined) patch.visionDoc = cmdOpts.visionDoc
+
+      if (Object.keys(patch).length === 0) {
+        console.error(chalk.red('No update fields provided. Use --name, --description, --status, --dir, or --vision-doc.'))
+        process.exitCode = 1
+        return
+      }
+
+      try {
+        const updated = await client.updateProject(p.id, patch)
+
+        if (opts.json) {
+          print(updated, { json: true })
+        } else {
+          console.log(chalk.green(`Project "${updated.name}" updated: ${Object.keys(patch).join(', ')}`))
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (opts.json) {
+          print({ error: msg }, { json: true })
+        } else {
+          console.error(chalk.red(`Update failed: ${msg}`))
+        }
+        process.exitCode = 1
+      }
+    })
+
+  // ── project stats <id> ────────────────────────────────────────────
+  project
+    .command('stats <id>')
+    .description('Show project statistics')
+    .action(async (id: string) => {
+      const opts = program.opts()
+      const client = getClient(opts.serverUrl)
+
+      let p: Project
+      try {
+        p = await client.resolveProject(id)
+      } catch (err) {
+        console.error(chalk.red((err as Error).message))
+        process.exitCode = 1
+        return
+      }
+
+      try {
+        const { nodes, edges } = await client.getPlan(p.id)
+        const active = nodes.filter(n => !n.deletedAt)
+        const executions = await client.getExecutions()
+
+        // Status counts
+        const statusCounts: Record<string, number> = {}
+        for (const n of active) {
+          statusCounts[n.status] = (statusCounts[n.status] || 0) + 1
+        }
+
+        // Execution stats for this project
+        const projectExecs = Object.values(executions).filter(e => e.projectId === p.id)
+        const successCount = projectExecs.filter(e => e.status === 'success').length
+        const totalTokens = projectExecs.reduce((sum, e) => sum + (e.tokensUsed ?? 0), 0)
+        const totalCost = projectExecs.reduce((sum, e) => sum + (e.estimatedCostUsd ?? 0), 0)
+
+        const stats = {
+          project: { id: p.id, name: p.name, status: p.status },
+          plan: {
+            totalNodes: active.length,
+            totalEdges: edges.length,
+            statusCounts,
+          },
+          executions: {
+            total: projectExecs.length,
+            successRate: projectExecs.length > 0 ? `${Math.round(successCount / projectExecs.length * 100)}%` : '\u2014',
+            totalTokens,
+            totalCost: `$${totalCost.toFixed(4)}`,
+          },
+        }
+
+        if (opts.json) {
+          print(stats, { json: true })
+          return
+        }
+
+        console.log()
+        console.log(chalk.bold(`  Project: ${p.name}`))
+        console.log(chalk.dim('  ' + '\u2500'.repeat(50)))
+        console.log(`  ${chalk.dim('Status:')}          ${formatStatus(p.status)}`)
+        console.log(`  ${chalk.dim('Progress:')}        ${p.progress ?? 0}%`)
+        console.log()
+        console.log(chalk.bold('  Plan'))
+        console.log(`    ${chalk.dim('Nodes:')}  ${active.length}`)
+        console.log(`    ${chalk.dim('Edges:')}  ${edges.length}`)
+        for (const [status, count] of Object.entries(statusCounts).sort((a, b) => b[1] - a[1])) {
+          console.log(`    ${formatStatus(status).padEnd(25)} ${count}`)
+        }
+        console.log()
+        console.log(chalk.bold('  Executions'))
+        console.log(`    ${chalk.dim('Total:')}        ${projectExecs.length}`)
+        console.log(`    ${chalk.dim('Success Rate:')} ${stats.executions.successRate}`)
+        console.log(`    ${chalk.dim('Tokens:')}       ${totalTokens.toLocaleString()}`)
+        console.log(`    ${chalk.dim('Cost:')}         ${stats.executions.totalCost}`)
+        console.log()
+      } catch (err) {
+        console.error(chalk.red((err as Error).message))
+        process.exitCode = 1
+      }
+    })
+
   // ── project delete <id> ───────────────────────────────────────────
   project
     .command('delete <id>')

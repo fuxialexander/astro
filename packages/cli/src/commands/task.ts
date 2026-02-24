@@ -2,7 +2,7 @@ import type { Command } from 'commander'
 import chalk from 'chalk'
 import { getClient, streamDispatchToStdout } from '../client.js'
 import type { PlanNode } from '../client.js'
-import { print, formatRelativeTime, formatStatus, type ColumnDef } from '../output.js'
+import { print, formatRelativeTime, formatStatus, parseDateFilter, formatDuration, type ColumnDef } from '../output.js'
 
 export function registerTaskCommands(program: Command): void {
   const cmd = program.command('task').description('Manage tasks')
@@ -12,7 +12,9 @@ export function registerTaskCommands(program: Command): void {
     .description('List tasks across projects')
     .option('--project <id>', 'Filter by project ID')
     .option('--status <status>', 'Filter by status (planned, in_progress, completed, etc.)')
-    .action(async (opts: { project?: string; status?: string }) => {
+    .option('--since <date>', 'Show tasks updated after date (e.g. 2d, 1h, today, ISO)')
+    .option('--until <date>', 'Show tasks updated before date (e.g. 2d, 1h, yesterday, ISO)')
+    .action(async (opts: { project?: string; status?: string; since?: string; until?: string }) => {
       const client = getClient()
       const isJson = program.opts().json
 
@@ -33,6 +35,14 @@ export function registerTaskCommands(program: Command): void {
       let filtered = nodes.filter((n: PlanNode) => !n.deletedAt)
       if (opts.status) {
         filtered = filtered.filter((n: PlanNode) => n.status === opts.status)
+      }
+      if (opts.since) {
+        const since = parseDateFilter(opts.since)
+        filtered = filtered.filter((n: PlanNode) => n.updatedAt && new Date(n.updatedAt) >= since)
+      }
+      if (opts.until) {
+        const until = parseDateFilter(opts.until)
+        filtered = filtered.filter((n: PlanNode) => n.updatedAt && new Date(n.updatedAt) <= until)
       }
 
       // Sort by updatedAt descending
@@ -251,6 +261,188 @@ export function registerTaskCommands(program: Command): void {
         console.log(chalk.green('Task dispatch complete.'))
       } catch (err) {
         console.error(chalk.red(`Dispatch failed: ${err instanceof Error ? err.message : String(err)}`))
+        process.exitCode = 1
+      }
+    })
+
+  // ── task cancel ───────────────────────────────────────────────────
+  cmd
+    .command('cancel <executionId>')
+    .description('Cancel a running task execution')
+    .option('--machine <id>', 'Target machine ID')
+    .option('--node-id <id>', 'Node ID')
+    .action(async (executionId: string, opts: { machine?: string; nodeId?: string }) => {
+      const client = getClient(program.opts().serverUrl)
+      const isJson = program.opts().json
+
+      try {
+        const result = await client.cancelTask({
+          executionId,
+          machineId: opts.machine,
+          nodeId: opts.nodeId,
+        })
+
+        if (isJson) {
+          print(result, { json: true })
+        } else {
+          console.log(chalk.green(`Task ${executionId} cancelled.`))
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (isJson) {
+          print({ error: msg }, { json: true })
+        } else {
+          console.error(chalk.red(`Cancel failed: ${msg}`))
+        }
+        process.exitCode = 1
+      }
+    })
+
+  // ── task steer ────────────────────────────────────────────────────
+  cmd
+    .command('steer <executionId>')
+    .description('Send steering guidance to a running task')
+    .requiredOption('--machine <id>', 'Target machine ID')
+    .requiredOption('--message <msg>', 'Steering message')
+    .option('--action <action>', 'Action type: guidance, redirect, pause, resume')
+    .action(async (executionId: string, opts: { machine: string; message: string; action?: string }) => {
+      const client = getClient(program.opts().serverUrl)
+      const isJson = program.opts().json
+
+      try {
+        const result = await client.steerTask({
+          taskId: executionId,
+          machineId: opts.machine,
+          message: opts.message,
+          action: opts.action as 'guidance' | 'redirect' | 'pause' | 'resume' | undefined,
+        })
+
+        if (isJson) {
+          print(result, { json: true })
+        } else {
+          console.log(chalk.green(`Steering message sent to ${executionId}.`))
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (isJson) {
+          print({ error: msg }, { json: true })
+        } else {
+          console.error(chalk.red(`Steer failed: ${msg}`))
+        }
+        process.exitCode = 1
+      }
+    })
+
+  // ── task update-status ────────────────────────────────────────────
+  cmd
+    .command('update-status <nodeId>')
+    .description('Update a task node status')
+    .requiredOption('--status <status>', 'New status (planned, in_progress, completed, etc.)')
+    .action(async (nodeId: string, opts: { status: string }) => {
+      const client = getClient(program.opts().serverUrl)
+      const isJson = program.opts().json
+
+      try {
+        const result = await client.updatePlanNode(nodeId, { status: opts.status })
+
+        if (isJson) {
+          print(result, { json: true })
+        } else {
+          console.log(chalk.green(`Task ${nodeId} status updated to ${formatStatus(opts.status)}.`))
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (isJson) {
+          print({ error: msg }, { json: true })
+        } else {
+          console.error(chalk.red(`Update failed: ${msg}`))
+        }
+        process.exitCode = 1
+      }
+    })
+
+  // ── task watch ────────────────────────────────────────────────────
+  cmd
+    .command('watch <executionId>')
+    .description('Watch real-time output from a running task via SSE')
+    .action(async (executionId: string) => {
+      const client = getClient(program.opts().serverUrl)
+      const isJson = program.opts().json
+
+      try {
+        const response = await client.streamEvents()
+        if (!response.body) {
+          console.error(chalk.red('No stream body received'))
+          process.exitCode = 1
+          return
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const event = JSON.parse(line.slice(6)) as {
+                type: string
+                taskId?: string
+                content?: string
+                name?: string
+                status?: string
+                message?: string
+                summary?: string
+                data?: string
+                duration?: number
+              }
+
+              // Filter events for this execution
+              if (event.taskId && event.taskId !== executionId) continue
+
+              if (isJson) {
+                console.log(JSON.stringify(event))
+                continue
+              }
+
+              switch (event.type) {
+                case 'task:text':
+                  process.stdout.write(event.content ?? event.data ?? '')
+                  break
+                case 'task:tool_trace':
+                  console.log(chalk.dim(`[tool] ${event.name ?? 'unknown'}`))
+                  break
+                case 'task:result':
+                  console.log(`\n${chalk.bold('--- Result:')} ${formatStatus(event.status ?? 'unknown')} ${event.duration != null ? chalk.dim(`(${formatDuration(event.duration)})`) : ''}`)
+                  if (event.summary) console.log(event.summary)
+                  reader.cancel()
+                  return
+                case 'task:progress':
+                  if (event.message) console.log(chalk.dim(`[progress] ${event.message}`))
+                  break
+                case 'task:stdout':
+                  process.stdout.write(event.data ?? '')
+                  break
+              }
+            } catch {
+              // Skip non-JSON data lines
+            }
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (isJson) {
+          print({ error: msg }, { json: true })
+        } else {
+          console.error(chalk.red(`Watch failed: ${msg}`))
+        }
         process.exitCode = 1
       }
     })

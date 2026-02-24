@@ -3,7 +3,7 @@
  * These tests do NOT require a running server.
  */
 import { describe, it, expect } from 'vitest'
-import { formatTable, formatJson, formatRelativeTime, formatStatus } from '../src/output.js'
+import { formatTable, formatJson, formatRelativeTime, formatStatus, parseDateFilter, formatDuration } from '../src/output.js'
 
 describe('output', () => {
   describe('formatJson', () => {
@@ -102,6 +102,104 @@ describe('output', () => {
 
     it('formats unknown statuses without error', () => {
       expect(formatStatus('custom_status')).toContain('custom_status')
+    })
+  })
+
+  describe('parseDateFilter', () => {
+    it('parses relative minutes', () => {
+      const before = Date.now()
+      const result = parseDateFilter('30m')
+      const after = Date.now()
+      // Should be ~30 minutes ago
+      const diffMs = before - result.getTime()
+      expect(diffMs).toBeGreaterThanOrEqual(30 * 60 * 1000 - 100)
+      expect(diffMs).toBeLessThanOrEqual(30 * 60 * 1000 + (after - before) + 100)
+    })
+
+    it('parses relative hours', () => {
+      const result = parseDateFilter('2h')
+      const diff = Date.now() - result.getTime()
+      expect(diff).toBeGreaterThanOrEqual(2 * 60 * 60 * 1000 - 100)
+      expect(diff).toBeLessThanOrEqual(2 * 60 * 60 * 1000 + 100)
+    })
+
+    it('parses relative days', () => {
+      const result = parseDateFilter('3d')
+      const diff = Date.now() - result.getTime()
+      expect(diff).toBeGreaterThanOrEqual(3 * 24 * 60 * 60 * 1000 - 100)
+      expect(diff).toBeLessThanOrEqual(3 * 24 * 60 * 60 * 1000 + 100)
+    })
+
+    it('parses relative weeks', () => {
+      const result = parseDateFilter('1w')
+      const diff = Date.now() - result.getTime()
+      expect(diff).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000 - 100)
+      expect(diff).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000 + 100)
+    })
+
+    it('parses "today"', () => {
+      const result = parseDateFilter('today')
+      const now = new Date()
+      expect(result.getFullYear()).toBe(now.getFullYear())
+      expect(result.getMonth()).toBe(now.getMonth())
+      expect(result.getDate()).toBe(now.getDate())
+      expect(result.getHours()).toBe(0)
+      expect(result.getMinutes()).toBe(0)
+    })
+
+    it('parses "yesterday"', () => {
+      const result = parseDateFilter('yesterday')
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      expect(result.getFullYear()).toBe(yesterday.getFullYear())
+      expect(result.getMonth()).toBe(yesterday.getMonth())
+      expect(result.getDate()).toBe(yesterday.getDate())
+      expect(result.getHours()).toBe(0)
+    })
+
+    it('parses ISO date strings', () => {
+      const result = parseDateFilter('2024-06-15T00:00:00Z')
+      expect(result.getUTCFullYear()).toBe(2024)
+      expect(result.getUTCMonth()).toBe(5) // 0-indexed
+      expect(result.getUTCDate()).toBe(15)
+    })
+
+    it('parses full ISO datetime strings', () => {
+      const result = parseDateFilter('2024-06-15T10:30:00Z')
+      expect(result.getFullYear()).toBe(2024)
+    })
+
+    it('throws on invalid input', () => {
+      expect(() => parseDateFilter('not-a-date')).toThrow('Invalid date filter')
+    })
+
+    it('throws on empty string', () => {
+      expect(() => parseDateFilter('')).toThrow('Invalid date filter')
+    })
+  })
+
+  describe('formatDuration', () => {
+    it('formats milliseconds', () => {
+      expect(formatDuration(500)).toBe('500ms')
+      expect(formatDuration(0)).toBe('0ms')
+    })
+
+    it('formats seconds', () => {
+      expect(formatDuration(5200)).toBe('5.2s')
+      expect(formatDuration(1000)).toBe('1.0s')
+      expect(formatDuration(59999)).toBe('60.0s')
+    })
+
+    it('formats minutes and seconds', () => {
+      expect(formatDuration(150000)).toBe('2m 30s')
+      expect(formatDuration(60000)).toBe('1m')
+      expect(formatDuration(90000)).toBe('1m 30s')
+    })
+
+    it('formats hours and minutes', () => {
+      expect(formatDuration(4500000)).toBe('1h 15m')
+      expect(formatDuration(3600000)).toBe('1h')
+      expect(formatDuration(7200000)).toBe('2h')
     })
   })
 })

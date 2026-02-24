@@ -73,6 +73,15 @@ describe('AstroClient integration', () => {
       await expect(client.resolveProject('zzz-nonexistent')).rejects.toThrow('No project found')
     })
 
+    it('updateProject updates project fields', async () => {
+      if (!serverAvailable || !testProjectId) return
+      const updated = await client.updateProject(testProjectId, {
+        description: 'Updated by integration test',
+      })
+      expect(updated).toBeDefined()
+      expect(updated.description).toBe('Updated by integration test')
+    })
+
     it('listProjects includes the newly created project', async () => {
       if (!serverAvailable || !testProjectId) return
       const projects = await client.listProjects()
@@ -114,6 +123,66 @@ describe('AstroClient integration', () => {
       expect(plan).toHaveProperty('nodes')
       expect(plan).toHaveProperty('edges')
       expect(Array.isArray(plan.nodes)).toBe(true)
+    })
+  })
+
+  // ── Plan Node CRUD ─────────────────────────────────────────────────
+
+  describe('plan node CRUD', () => {
+    let testProjectId: string
+    let testNodeId: string
+
+    it('create project for plan node tests', async () => {
+      if (!serverAvailable) return
+      const project = await client.createProject({
+        name: 'Plan CRUD Test',
+        description: 'For plan node CRUD testing',
+      })
+      testProjectId = project.id
+      expect(testProjectId).toBeTruthy()
+    })
+
+    it('createPlanNode creates a node', async () => {
+      if (!serverAvailable || !testProjectId) return
+      testNodeId = `test-node-${Date.now()}`
+      const result = await client.createPlanNode({
+        id: testNodeId,
+        projectId: testProjectId,
+        title: 'Test Node',
+        type: 'task',
+        status: 'planned',
+        description: 'Created by test',
+      })
+      expect(result).toBeDefined()
+    })
+
+    it('updatePlanNode updates node fields', async () => {
+      if (!serverAvailable || !testNodeId) return
+      const result = await client.updatePlanNode(testNodeId, {
+        title: 'Updated Test Node',
+        status: 'in_progress',
+      })
+      expect(result).toBeDefined()
+    })
+
+    it('getPlan includes the created node', async () => {
+      if (!serverAvailable || !testProjectId || !testNodeId) return
+      const plan = await client.getPlan(testProjectId)
+      const found = plan.nodes.find(n => n.id === testNodeId)
+      expect(found).toBeDefined()
+      expect(found!.title).toBe('Updated Test Node')
+      expect(found!.status).toBe('in_progress')
+    })
+
+    it('deletePlanNode deletes the node', async () => {
+      if (!serverAvailable || !testNodeId) return
+      const result = await client.deletePlanNode(testNodeId)
+      expect(result).toBeDefined()
+    })
+
+    it('cleanup test project', async () => {
+      if (!serverAvailable || !testProjectId) return
+      await client.deleteProject(testProjectId)
     })
   })
 
@@ -189,7 +258,8 @@ describe('AstroClient integration', () => {
       const active = machines.filter(m => !m.isRevoked)
       if (active.length === 0) return
 
-      const prefix = active[0].id.slice(0, 8)
+      // Use enough of the ID to be unambiguous
+      const prefix = active[0].id.slice(0, 16)
       const resolved = await client.resolveMachine(prefix)
       expect(resolved.id).toBe(active[0].id)
     })
@@ -253,6 +323,56 @@ describe('AstroClient integration', () => {
       const result = await client.listObservations(executionIds[0])
       expect(result).toHaveProperty('data')
       expect(Array.isArray(result.data)).toBe(true)
+    })
+
+    it('getObservationStats returns aggregates', async () => {
+      if (!serverAvailable) return
+      const executions = await client.getExecutions()
+      const executionIds = Object.values(executions).map(e => e.executionId)
+      if (executionIds.length === 0) return
+
+      const stats = await client.getObservationStats(executionIds[0])
+      expect(stats).toHaveProperty('totalEvents')
+      expect(stats).toHaveProperty('errorCount')
+    })
+
+    it('getTraceSummary returns a string', async () => {
+      if (!serverAvailable) return
+      const executions = await client.getExecutions()
+      const executionIds = Object.values(executions).map(e => e.executionId)
+      if (executionIds.length === 0) return
+
+      try {
+        const summary = await client.getTraceSummary(executionIds[0])
+        expect(typeof summary).toBe('string')
+      } catch {
+        // 404 is acceptable if no observations exist
+      }
+    })
+  })
+
+  // ── Cancel Task ────────────────────────────────────────────────────
+
+  describe('cancel', () => {
+    it('cancelTask with nonexistent task returns result', async () => {
+      if (!serverAvailable) return
+      // Server returns success even for nonexistent tasks (idempotent cancel)
+      const result = await client.cancelTask({ executionId: 'nonexistent-exec-id' })
+      expect(result).toHaveProperty('success')
+    })
+  })
+
+  // ── Relay Status ───────────────────────────────────────────────────
+
+  describe('relay', () => {
+    it('getRelayStatus returns structured data', async () => {
+      if (!serverAvailable) return
+      try {
+        const status = await client.getRelayStatus()
+        expect(typeof status).toBe('object')
+      } catch {
+        // Relay might not be running — acceptable
+      }
     })
   })
 

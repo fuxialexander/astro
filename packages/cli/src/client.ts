@@ -378,6 +378,112 @@ export class AstroClient {
     return this.get('/api/data/search', { q: query })
   }
 
+  // ── Plan CRUD ─────────────────────────────────────────────────────
+
+  async createPlanNode(data: {
+    id: string
+    projectId: string
+    title: string
+    type?: string
+    description?: string
+    status?: string
+    parentId?: string | null
+    priority?: string | null
+    estimate?: string | null
+    startDate?: string | null
+    endDate?: string | null
+    position?: { x: number; y: number }
+  }): Promise<{ ok: boolean }> {
+    return this.post('/api/data/plan/nodes', {
+      type: 'task',
+      status: 'planned',
+      ...data,
+    })
+  }
+
+  async updatePlanNode(nodeId: string, patch: Record<string, unknown>): Promise<{ ok: boolean }> {
+    return this.request('PATCH', `/api/data/plan/nodes/${nodeId}`, patch)
+  }
+
+  async deletePlanNode(nodeId: string): Promise<{ ok: boolean }> {
+    return this.del(`/api/data/plan/nodes/${nodeId}`)
+  }
+
+  // ── Project Update ────────────────────────────────────────────────
+
+  async updateProject(id: string, patch: Record<string, unknown>): Promise<Project> {
+    return this.request('PATCH', `/api/data/projects/${id}`, patch)
+  }
+
+  // ── Cancel / Steer ────────────────────────────────────────────────
+
+  async cancelTask(params: { nodeId?: string; executionId?: string; machineId?: string }): Promise<{ success: boolean }> {
+    return this.post('/api/dispatch/cancel', params)
+  }
+
+  async steerTask(params: {
+    taskId: string
+    machineId: string
+    message: string
+    action?: 'guidance' | 'redirect' | 'pause' | 'resume'
+  }): Promise<{ success: boolean }> {
+    return this.post('/api/dispatch/steer', params)
+  }
+
+  // ── Relay / Environment ───────────────────────────────────────────
+
+  async getRelayStatus(): Promise<Record<string, unknown>> {
+    return this.get('/api/relay/status')
+  }
+
+  async getProviders(): Promise<Record<string, unknown>> {
+    return this.get('/api/health/providers')
+  }
+
+  async getSlurmClusters(): Promise<unknown[]> {
+    return this.get('/api/relay/slurm/clusters')
+  }
+
+  // ── Observations (extended) ───────────────────────────────────────
+
+  async getTraceSummary(executionId: string): Promise<string> {
+    const url = new URL(`/api/observations/${executionId}/summary`, this.baseUrl)
+    const res = await fetch(url.toString(), { headers: this.headers })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`API error ${res.status}: ${text}`)
+    }
+    return res.text()
+  }
+
+  async listObservationsFiltered(params: {
+    executionId?: string
+    startAfter?: string
+    startBefore?: string
+    type?: string
+    limit?: string
+  }): Promise<{ data: ObservationEvent[] }> {
+    return this.get('/api/observations', params as Record<string, string | undefined>)
+  }
+
+  // ── SSE Events Stream ─────────────────────────────────────────────
+
+  async streamEvents(params?: { projectId?: string }): Promise<Response> {
+    const url = new URL('/api/events/stream', this.baseUrl)
+    if (params?.projectId) url.searchParams.set('projectId', params.projectId)
+    const res = await fetch(url.toString(), {
+      headers: {
+        ...this.headers,
+        Accept: 'text/event-stream',
+      },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`SSE connect failed (${res.status}): ${text}`)
+    }
+    return res
+  }
+
   // ── Dispatch (SSE streaming) ────────────────────────────────────────
 
   /**
