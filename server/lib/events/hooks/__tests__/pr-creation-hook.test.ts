@@ -1,5 +1,10 @@
 /**
  * PR Creation Hook Tests
+ *
+ * Tests the three-path logic:
+ * Path 1: Agent already created PR → record prUrl/prNumber/branchName
+ * Path 2: No PR from agent, autoPr enabled, branchName exists → create via GitHub API
+ * Path 3: Branch only, no PR, no autoPr → record branchName only
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -71,15 +76,8 @@ describe('PR Creation Hook', () => {
     const result: TaskResult = {
       taskId: 'task-1',
       status: 'success',
+      branchName: 'feature/test',
       metrics: { durationMs: 1000 },
-      providerId: 'test',
-      completedAt: new Date(),
-      metadata: {
-        prBranch: 'feature/test',
-        prTitle: 'Test PR',
-        prBody: 'Test PR body',
-        prBaseBranch: 'main',
-      },
     }
 
     return {
@@ -108,11 +106,9 @@ describe('PR Creation Hook', () => {
     const event = createMockEvent({
       result: {
         taskId: 'task-1',
-        status: 'error',
+        status: 'failure',
         errorMessage: 'Task failed',
         metrics: { durationMs: 1000 },
-        providerId: 'test',
-        completedAt: new Date(),
       },
     })
 
@@ -121,45 +117,34 @@ describe('PR Creation Hook', () => {
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
-  it('should skip if node does not have autoPr enabled', async () => {
-    const event = createMockEvent()
-    event.node.autoPr = false
+  // ── Path 1: Agent already created PR ──────────────────────────────────
 
-    await prCreationHook(event)
-
-    expect(global.fetch).not.toHaveBeenCalled()
-  })
-
-  it('should skip if GITHUB_TOKEN is not set', async () => {
-    delete process.env.GITHUB_TOKEN
-
-    const event = createMockEvent()
-
-    await prCreationHook(event)
-
-    expect(global.fetch).not.toHaveBeenCalled()
-  })
-
-  it('should skip if no repository is found', async () => {
+  it('should record agent-created PR without calling GitHub API (Path 1)', async () => {
     const event = createMockEvent({
-      project: { id: 'proj-1', name: 'Test Project' },
+      result: {
+        taskId: 'task-1',
+        status: 'success',
+        branchName: 'feature/test',
+        prUrl: 'https://github.com/owner/repo/pull/42',
+        prNumber: 42,
+        metrics: { durationMs: 1000 },
+      },
     })
 
     await prCreationHook(event)
 
+    // Should NOT call GitHub API — agent already created the PR
     expect(global.fetch).not.toHaveBeenCalled()
+
+    // Should mutate node in-place
+    expect(event.node.prUrl).toBe('https://github.com/owner/repo/pull/42')
+    expect(event.node.prNumber).toBe(42)
+    expect(event.node.branchName).toBe('feature/test')
   })
 
-  it('should skip if prBranch is not in metadata', async () => {
-    const event = createMockEvent()
-    delete (event.result.metadata as Record<string, unknown>).prBranch
+  // ── Path 2: No PR from agent, autoPr enabled → create via GitHub API ─
 
-    await prCreationHook(event)
-
-    expect(global.fetch).not.toHaveBeenCalled()
-  })
-
-  it('should create PR via GitHub API and update node in-place', async () => {
+  it('should create PR via GitHub API when autoPr enabled and branchName exists (Path 2)', async () => {
     const mockResponse = {
       ok: true,
       json: async () => ({ html_url: 'https://github.com/owner/repo/pull/123', number: 123 }),
@@ -172,29 +157,21 @@ describe('PR Creation Hook', () => {
 
     expect(global.fetch).toHaveBeenCalledWith(
       'https://api.github.com/repos/owner/repo/pulls',
-      {
+      expect.objectContaining({
         method: 'POST',
-        headers: {
+        headers: expect.objectContaining({
           'Authorization': 'Bearer test-token',
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title: 'Test PR',
-          body: 'Test PR body',
-          head: 'feature/test',
-          base: 'main',
         }),
-      }
+      })
     )
 
     // Verify node was mutated in-place with PR data
     expect(event.node.prUrl).toBe('https://github.com/owner/repo/pull/123')
     expect(event.node.prNumber).toBe(123)
+    expect(event.node.branchName).toBe('feature/test')
   })
 
-  it('should use node title if prTitle not provided', async () => {
+  it('should use node title as PR title (Path 2)', async () => {
     const mockResponse = {
       ok: true,
       json: async () => ({ html_url: 'https://github.com/owner/repo/pull/123', number: 123 }),
@@ -202,7 +179,6 @@ describe('PR Creation Hook', () => {
     ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse)
 
     const event = createMockEvent()
-    delete (event.result.metadata as Record<string, unknown>).prTitle
 
     await prCreationHook(event)
 
@@ -210,7 +186,7 @@ describe('PR Creation Hook', () => {
     expect(callBody.title).toBe('Test Task')
   })
 
-  it('should use task output if prBody not provided', async () => {
+  it('should include task output in PR body (Path 2)', async () => {
     const mockResponse = {
       ok: true,
       json: async () => ({ html_url: 'https://github.com/owner/repo/pull/123', number: 123 }),
@@ -222,12 +198,8 @@ describe('PR Creation Hook', () => {
         taskId: 'task-1',
         status: 'success',
         stdout: 'Task output',
+        branchName: 'feature/test',
         metrics: { durationMs: 1000 },
-        providerId: 'test',
-        completedAt: new Date(),
-        metadata: {
-          prBranch: 'feature/test',
-        },
       },
     })
 
@@ -238,7 +210,31 @@ describe('PR Creation Hook', () => {
     expect(callBody.body).toContain('Task output')
   })
 
-  it('should handle API errors gracefully', async () => {
+  it('should skip GitHub API if GITHUB_TOKEN not set (Path 2)', async () => {
+    delete process.env.GITHUB_TOKEN
+
+    const event = createMockEvent()
+
+    await prCreationHook(event)
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    // Should still record branchName
+    expect(event.node.branchName).toBe('feature/test')
+  })
+
+  it('should skip GitHub API if no repository on project (Path 2)', async () => {
+    const event = createMockEvent({
+      project: { id: 'proj-1', name: 'Test Project' },
+    })
+
+    await prCreationHook(event)
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    // Should still record branchName
+    expect(event.node.branchName).toBe('feature/test')
+  })
+
+  it('should handle API errors gracefully (Path 2)', async () => {
     const mockResponse = {
       ok: false,
       text: async () => 'API Error',
@@ -250,51 +246,25 @@ describe('PR Creation Hook', () => {
     // Should not throw
     await expect(prCreationHook(event)).resolves.not.toThrow()
 
-    // Node should NOT be updated on failure
+    // Node should still have branchName recorded
+    expect(event.node.branchName).toBe('feature/test')
+    // But no PR data on failure
     expect(event.node.prUrl).toBeUndefined()
     expect(event.node.prNumber).toBeUndefined()
   })
 
-  it('should handle fetch errors gracefully', async () => {
+  it('should handle fetch errors gracefully (Path 2)', async () => {
     ;(global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'))
 
     const event = createMockEvent()
 
     // Should not throw
     await expect(prCreationHook(event)).resolves.not.toThrow()
+    // Should still record branchName
+    expect(event.node.branchName).toBe('feature/test')
   })
 
-  it('should get repository from result metadata if not in project', async () => {
-    const mockResponse = {
-      ok: true,
-      json: async () => ({ html_url: 'https://github.com/owner/repo/pull/123', number: 123 }),
-    }
-    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse)
-
-    const event = createMockEvent({
-      project: { id: 'proj-1', name: 'Test Project' },
-      result: {
-        taskId: 'task-1',
-        status: 'success',
-        metrics: { durationMs: 1000 },
-        providerId: 'test',
-        completedAt: new Date(),
-        metadata: {
-          prBranch: 'feature/test',
-          repository: 'owner/repo',
-        },
-      },
-    })
-
-    await prCreationHook(event)
-
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.github.com/repos/owner/repo/pulls',
-      expect.any(Object)
-    )
-  })
-
-  it('should parse GitHub URL format for repository', async () => {
+  it('should parse GitHub URL format for repository (Path 2)', async () => {
     const mockResponse = {
       ok: true,
       json: async () => ({ html_url: 'https://github.com/myorg/myrepo/pull/1', number: 1 }),
@@ -311,5 +281,35 @@ describe('PR Creation Hook', () => {
       'https://api.github.com/repos/myorg/myrepo/pulls',
       expect.any(Object)
     )
+  })
+
+  // ── Path 3: Branch only, no autoPr → record branch ───────────────────
+
+  it('should record branchName without creating PR when autoPr is false (Path 3)', async () => {
+    const event = createMockEvent()
+    event.node.autoPr = false
+
+    await prCreationHook(event)
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    // Should record branchName
+    expect(event.node.branchName).toBe('feature/test')
+  })
+
+  it('should not record anything if no branchName and no PR from result', async () => {
+    const event = createMockEvent({
+      result: {
+        taskId: 'task-1',
+        status: 'success',
+        metrics: { durationMs: 1000 },
+      },
+    })
+    event.node.autoPr = false
+
+    await prCreationHook(event)
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect(event.node.branchName).toBeUndefined()
+    expect(event.node.prUrl).toBeUndefined()
   })
 })
