@@ -250,4 +250,41 @@ app.get('/repo/:owner/:name', async (c) => {
   }
 });
 
+/**
+ * GET /api/github/branches/:owner/:name
+ * List branches for a repository
+ */
+app.get('/branches/:owner/:name', async (c) => {
+  // TODO: Get userId from auth middleware
+  const userId = 'default-user';
+  const owner = c.req.param('owner');
+  const name = c.req.param('name');
+
+  const connection = githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  try {
+    const branches = await githubClient.getBranches(
+      connection.accessToken,
+      owner,
+      name
+    );
+
+    return c.json({
+      branches: branches.map((b) => ({
+        name: b.name,
+        isRemote: true,
+        isCurrent: false,
+        isDefault: b.isDefault,
+      })),
+      defaultBranch: branches.find((b) => b.isDefault)?.name,
+    });
+  } catch (error) {
+    console.error('GitHub branches fetch error:', error);
+    return c.json({ error: 'Failed to fetch branches' }, 500);
+  }
+});
+
 export default app;
