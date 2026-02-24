@@ -61,6 +61,9 @@ export interface RepoSetupRelayResult {
   repository?: string;
   needsGitInit?: boolean;
   keyFiles?: RepoKeyFiles;
+  source?: { localPath: string; subdirectory?: string; remoteUrl?: string; remoteType: string; baseBranch: string; isGit: boolean };
+  deliveryMode?: string;
+  agentDir?: string;
   error?: string;
 }
 
@@ -306,6 +309,9 @@ interface AgentRunnerRepoSetupResponseMessage {
     fileTree?: string[];
     repository?: string;
     needsGitInit?: boolean;
+    source?: { localPath: string; subdirectory?: string; remoteUrl?: string; remoteType: string; baseBranch: string; isGit: boolean };
+    deliveryMode?: string;
+    agentDir?: string;
     error?: string;
   };
 }
@@ -637,6 +643,22 @@ export class RelayServer extends EventEmitter {
         const errMsg = (jwtErr as Error).message;
 
         console.error('[relay] JWT verification failed:', errName, errMsg);
+
+        // Dev mode fallback: if JWT verification fails, allow connection with dev identity
+        if (!isProduction) {
+          const runnerId = info.req.headers['x-runner-id'] as string || 'dev-runner';
+          const machineId = info.req.headers['x-machine-id'] as string || 'dev-machine';
+          console.warn(`[relay] ⚠ SECURITY: Dev-mode auth fallback — JWT verification failed but accepting connection in dev mode (runner=${runnerId}, machine=${machineId}).`);
+          (info.req as unknown as { machineJWT: MachineJWTPayload }).machineJWT = {
+            sub: machineId,
+            machineId,
+            scopes: ['machine:connect', 'task:execute'],
+            iat: Math.floor(Date.now() / 1000),
+            exp: Math.floor(Date.now() / 1000) + 86400 * 365,
+          };
+          callback(true);
+          return;
+        }
 
         let userMessage = 'Invalid authentication token. ';
         if (errName === 'TokenExpiredError') {

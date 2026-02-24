@@ -73,6 +73,7 @@ export function useRepoSetup() {
           ...(data.repository ? { repository: data.repository } : {}),
           ...(data.source ? { source: data.source } : {}),
           ...(data.deliveryMode ? { deliveryMode: data.deliveryMode } : {}),
+          ...(data.agentDir ? { agentDir: data.agentDir } : {}),
         })
       }
       if (data.fileTree) {
@@ -114,6 +115,7 @@ export function useRepoSetup() {
           workingDirectory: data.workingDirectory,
           ...(data.source ? { source: data.source } : {}),
           ...(data.deliveryMode ? { deliveryMode: data.deliveryMode } : {}),
+          ...(data.agentDir ? { agentDir: data.agentDir } : {}),
         })
       }
       if (data.fileTree) {

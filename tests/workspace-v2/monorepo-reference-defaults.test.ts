@@ -45,7 +45,7 @@ import { createWorktree } from '../../packages/agent-runner/src/lib/worktree.js'
 import {
   createReferenceWorktree,
 } from '../../packages/agent-runner/src/lib/copy-worktree.js'
-import { setupProjectRepo } from '../../server/lib/repo-setup.js'
+import { localRepoSetup } from '../../packages/agent-runner/src/lib/repo-utils.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,8 +75,8 @@ function createMonorepoGitRepo(): {
   const bareDir = realpathSync(mkdtempSync(join(tmpdir(), 'astro-monorepo-bare-')))
   tmpDirs.push(repoDir, bareDir)
 
-  execFileSync('git', ['init', '--bare'], { cwd: bareDir })
-  execFileSync('git', ['init'], { cwd: repoDir })
+  execFileSync('git', ['init', '--bare', '-b', 'main'], { cwd: bareDir })
+  execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
   execFileSync('git', ['config', 'user.email', 'test@test.com'], {
     cwd: repoDir,
   })
@@ -341,10 +341,11 @@ describe(
     })
 
     it('creates ~/.astro/projects/{id}/ when no workingDirectory is given', () => {
-      const result = setupProjectRepo({
+      const result = localRepoSetup({
         projectId: defaultDirProjectId,
-        projectName: 'Default Dir Test',
       })
+
+      expect(result.success).toBe(true)
 
       // workingDirectory matches ~/.astro/projects/{projectId}
       expect(result.workingDirectory).toBe(expectedDir)
@@ -366,21 +367,19 @@ describe(
 )
 
 // ===========================================================================
-// 7. setupProjectRepo subdirectory detection (monorepo)
+// 7. localRepoSetup subdirectory detection (monorepo)
 // ===========================================================================
 
 describe(
-  'setupProjectRepo subdirectory detection',
+  'localRepoSetup subdirectory detection',
   { timeout: 30_000 },
   () => {
     it('detects subdirectory when workingDirectory is inside a monorepo', () => {
       const { subDir } = createMonorepoGitRepo()
 
-      const result = setupProjectRepo({
-        projectId: 'mono-detect',
-        projectName: 'Mono',
-        workingDirectory: subDir,
-      })
+      const result = localRepoSetup({ workingDirectory: subDir })
+
+      expect(result.success).toBe(true)
 
       // source.subdirectory should be defined and equal 'packages/web'
       expect(result.source).toBeDefined()

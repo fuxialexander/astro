@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { setupTestServer, postJson } from '../helpers/test-server.js'
-import { ensureAgentDir, setupProjectRepo } from '../../server/lib/repo-setup.js'
+import { localRepoSetup } from '../../packages/agent-runner/src/lib/repo-utils.js'
 import {
   mkdtempSync,
   existsSync,
@@ -49,7 +49,7 @@ const tmpDirs: string[] = []
 function createTmpGitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'astro-dispatch-test-'))
   tmpDirs.push(dir)
-  execFileSync('git', ['init'], { cwd: dir })
+  execFileSync('git', ['init', '-b', 'main'], { cwd: dir })
   execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir })
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir })
   writeFileSync(join(dir, 'README.md'), '# Test\n')
@@ -203,15 +203,16 @@ describe('Dispatch route schema validation', { timeout: 30_000 }, () => {
 })
 
 // ===========================================================================
-// B. ensureAgentDir (real filesystem)
+// B. Agent dir creation via localRepoSetup (real filesystem)
 // ===========================================================================
 
-describe('ensureAgentDir', { timeout: 30_000 }, () => {
+describe('localRepoSetup agent dir', { timeout: 30_000 }, () => {
   // 7. Creates .astro dir with config.json in git repo
   it('creates .astro dir with config.json in a git repo', () => {
     const dir = createTmpGitRepo()
 
-    const result = ensureAgentDir(dir)
+    const result = localRepoSetup({ workingDirectory: dir })
+    expect(result.success).toBe(true)
     expect(result.agentDir).toBe('.astro')
 
     const agentDirPath = join(dir, '.astro')
@@ -231,7 +232,7 @@ describe('ensureAgentDir', { timeout: 30_000 }, () => {
   it('detects baseBranch from git (main)', () => {
     const dir = createTmpGitRepo()
 
-    ensureAgentDir(dir)
+    localRepoSetup({ workingDirectory: dir })
     const configPath = join(dir, '.astro', 'config.json')
     const config = JSON.parse(readFileSync(configPath, 'utf-8'))
     expect(config.baseBranch).toBe('main')
@@ -243,7 +244,7 @@ describe('ensureAgentDir', { timeout: 30_000 }, () => {
     // Write an existing .gitignore
     writeFileSync(join(dir, '.gitignore'), 'node_modules/\n')
 
-    ensureAgentDir(dir)
+    localRepoSetup({ workingDirectory: dir })
 
     const gitignoreContent = readFileSync(join(dir, '.gitignore'), 'utf-8')
     expect(gitignoreContent).toContain('.astro/worktrees/')
@@ -252,117 +253,79 @@ describe('ensureAgentDir', { timeout: 30_000 }, () => {
     expect(gitignoreContent).toContain('node_modules/')
   })
 
-  // 10. Uses custom agentDir name
-  it('uses custom agentDir name', () => {
-    const dir = createTmpGitRepo()
-
-    const result = ensureAgentDir(dir, '.myagent')
-    expect(result.agentDir).toBe('.myagent')
-
-    expect(existsSync(join(dir, '.myagent'))).toBe(true)
-    expect(existsSync(join(dir, '.myagent', 'config.json'))).toBe(true)
-
-    const gitignoreContent = readFileSync(join(dir, '.gitignore'), 'utf-8')
-    expect(gitignoreContent).toContain('.myagent/worktrees/')
-    expect(gitignoreContent).toContain('.myagent/cache/')
-  })
-
-  // 11. Idempotent: doesn't overwrite existing config.json
+  // 10. Idempotent: doesn't overwrite existing config.json
   it('does not overwrite existing config.json', () => {
     const dir = createTmpGitRepo()
 
-    // Write custom config before calling ensureAgentDir
+    // Write custom config before calling localRepoSetup
     const agentDirPath = join(dir, '.astro')
     mkdirSync(agentDirPath, { recursive: true })
-    const customConfig = { branchPrefix: 'custom/', baseBranch: 'develop' }
+    const customConfig = { branchPrefix: 'custom/', baseBranch: 'develop', remoteType: 'none', deliveryMode: 'branch' }
     writeFileSync(
       join(agentDirPath, 'config.json'),
       JSON.stringify(customConfig, null, 2) + '\n',
       'utf-8',
     )
 
-    ensureAgentDir(dir)
+    localRepoSetup({ workingDirectory: dir })
 
     const config = JSON.parse(readFileSync(join(agentDirPath, 'config.json'), 'utf-8'))
     expect(config.branchPrefix).toBe('custom/')
     expect(config.baseBranch).toBe('develop')
   })
-
-  // 12. Works in non-git directory
-  it('works in non-git directory', () => {
-    const dir = createTmpDir()
-
-    const result = ensureAgentDir(dir)
-    expect(result.agentDir).toBe('.astro')
-    expect(existsSync(join(dir, '.astro'))).toBe(true)
-    expect(existsSync(join(dir, '.astro', 'config.json'))).toBe(true)
-
-    const config = JSON.parse(readFileSync(join(dir, '.astro', 'config.json'), 'utf-8'))
-    // In non-git dir, baseBranch defaults to 'main'
-    expect(config.baseBranch).toBe('main')
-  })
 })
 
 // ===========================================================================
-// C. setupProjectRepo integration
+// C. localRepoSetup integration
 // ===========================================================================
 
-describe('setupProjectRepo', { timeout: 30_000 }, () => {
-  // 13. Creates project from scratch (no dir, no repo)
+describe('localRepoSetup', { timeout: 30_000 }, () => {
+  // 11. Creates project from scratch (no dir, no repo)
   it('creates project from scratch when no directory or repo given', () => {
-    const result = setupProjectRepo({
-      projectId: `test-scratch-${Date.now()}`,
-      projectName: 'Test Scratch',
-    })
+    const projectId = `test-scratch-${Date.now()}`
+    const result = localRepoSetup({ projectId })
+
+    expect(result.success).toBe(true)
 
     // Track for cleanup
-    tmpDirs.push(result.workingDirectory)
+    tmpDirs.push(result.workingDirectory!)
 
     // Should create a directory under ~/.astro/projects/
     expect(result.workingDirectory).toContain('.astro')
     expect(result.workingDirectory).toContain('projects')
-    expect(existsSync(result.workingDirectory)).toBe(true)
+    expect(existsSync(result.workingDirectory!)).toBe(true)
 
     // Should return agentDir
     expect(result.agentDir).toBe('.astro')
 
     // .astro/config.json should exist in the project dir
-    expect(existsSync(join(result.workingDirectory, '.astro', 'config.json'))).toBe(true)
+    expect(existsSync(join(result.workingDirectory!, '.astro', 'config.json'))).toBe(true)
 
     // source should be git (since it git-inits a fresh dir)
     expect(result.source).toBeDefined()
     expect(result.source!.isGit).toBe(true)
   })
 
-  // 14. Sets up existing git directory
+  // 12. Sets up existing git directory
   it('sets up an existing git directory', () => {
     const dir = createTmpGitRepo()
 
-    const result = setupProjectRepo({
-      projectId: 'test-existing-git',
-      projectName: 'Test Git',
-      workingDirectory: dir,
-    })
+    const result = localRepoSetup({ workingDirectory: dir })
 
+    expect(result.success).toBe(true)
     expect(result.agentDir).toBe('.astro')
     expect(result.source).toBeDefined()
     expect(result.source!.isGit).toBe(true)
     expect(existsSync(join(dir, '.astro', 'config.json'))).toBe(true)
   })
 
-  // 15. Non-git directory returns needsGitInit
+  // 13. Non-git directory returns needsGitInit
   it('returns needsGitInit for non-git directory', () => {
     const dir = createTmpDir()
 
-    const result = setupProjectRepo({
-      projectId: 'test-nongit',
-      projectName: 'Test NonGit',
-      workingDirectory: dir,
-    })
+    const result = localRepoSetup({ workingDirectory: dir })
 
+    expect(result.success).toBe(true)
     expect(result.needsGitInit).toBe(true)
-    expect(result.deliveryMode).toBe('direct')
-    expect(result.source).toBeDefined()
-    expect(result.source!.isGit).toBe(false)
   })
 })

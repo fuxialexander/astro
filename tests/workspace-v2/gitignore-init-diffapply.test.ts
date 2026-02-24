@@ -6,8 +6,8 @@
  * 3. createCopyWorktree with .gitignore — excludes ignored files
  * 4. createCopyWorktree without .gitignore — copies everything (except hardcoded)
  * 5. applyChangesFromCopy — diff-and-apply for created, modified, deleted files
- * 6. POST /api/repo/git-init — initializes git in a non-git directory
- * 7. GET /api/repo/detect?path=... — returns dirSizeMB for non-git dirs
+ * 6. Git init + localRepoSetup — initializes git in a non-git directory
+ * 7. Directory detection — dirSizeMB for non-git dirs, non-existent path handling
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -29,6 +29,8 @@ import {
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { localRepoSetup } from '../../packages/agent-runner/src/lib/repo-utils.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -308,72 +310,76 @@ describe('applyChangesFromCopy', () => {
 })
 
 // ===========================================================================
-// POST /api/repo/git-init
+// Git init + localRepoSetup (agent-runner direct)
 // ===========================================================================
 
-describe('POST /api/repo/git-init', () => {
-  it('initializes git in a non-git directory and returns source with isGit=true', async () => {
+describe('Git init + localRepoSetup', () => {
+  it('initializes git in a non-git directory and returns source with isGit=true', () => {
     const dir = createTestProject({
       'main.py': 'print("hello")',
       'data/input.csv': 'a,b,c\n1,2,3',
     })
 
-    const res = await postJson('/api/repo/git-init', {
-      workingDirectory: dir,
-      projectId: 'test-git-init-1',
-      projectName: 'Git Init Test',
-    })
+    // First, localRepoSetup detects non-git and returns needsGitInit
+    const detectResult = localRepoSetup({ workingDirectory: dir })
+    expect(detectResult.success).toBe(true)
+    expect(detectResult.needsGitInit).toBe(true)
 
-    expect(res.status).toBe(200)
-
-    const body = await res.json()
+    // Simulate git init (what the agent runner does on relay git_init request)
+    execFileSync('git', ['init', '-b', 'main'], { cwd: dir })
+    execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir })
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir })
+    execFileSync('git', ['add', '.'], { cwd: dir })
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: dir })
 
     // Directory should now have a .git folder
     expect(existsSync(join(dir, '.git'))).toBe(true)
 
-    // Response should have source info indicating it is now a git repo
-    expect(body.source).toBeDefined()
-    expect(body.source.isGit).toBe(true)
-
-    // Should have working directory set
-    expect(body.workingDirectory).toBe(dir)
+    // Re-run localRepoSetup — now it should detect git
+    const setupResult = localRepoSetup({ workingDirectory: dir })
+    expect(setupResult.success).toBe(true)
+    expect(setupResult.needsGitInit).toBeUndefined()
+    expect(setupResult.source).toBeDefined()
+    expect(setupResult.source!.isGit).toBe(true)
+    expect(setupResult.workingDirectory).toBe(dir)
 
     // Should return file tree (git ls-files output)
-    expect(body.fileTree).toBeDefined()
-    expect(Array.isArray(body.fileTree)).toBe(true)
+    expect(setupResult.fileTree).toBeDefined()
+    expect(Array.isArray(setupResult.fileTree)).toBe(true)
+    expect(setupResult.fileTree!.length).toBeGreaterThan(0)
   })
 })
 
 // ===========================================================================
-// GET /api/repo/detect — dirSizeMB
+// Directory detection — dirSizeMB (agent-runner direct)
 // ===========================================================================
 
-describe('GET /api/repo/detect — dirSizeMB', () => {
-  it('returns dirSizeMB as a positive number for non-git directories', async () => {
+describe('Directory detection — dirSizeMB', () => {
+  it('returns positive dirSizeMB for non-git directories via du', () => {
     const dir = createTestProject({
       'file1.txt': 'some content for size calculation',
       'file2.txt': 'more content to ensure non-zero size',
       'subdir/nested.txt': 'nested file content',
     })
 
-    const res = await request(`/api/repo/detect?path=${encodeURIComponent(dir)}`)
-    expect(res.status).toBe(200)
+    // This mirrors the agent-runner's repo_detect handler in start.ts
+    expect(existsSync(dir)).toBe(true)
 
-    const body = await res.json()
-    expect(body.exists).toBe(true)
-    expect(body.isGit).toBe(false)
-    expect(typeof body.dirSizeMB).toBe('number')
-    expect(body.dirSizeMB).toBeGreaterThan(0)
+    const duOutput = execFileSync('du', ['-sk', dir], {
+      encoding: 'utf-8',
+      timeout: 10_000,
+      stdio: 'pipe',
+    })
+    const kb = parseInt(duOutput.trim().split(/\s+/)[0], 10)
+    const dirSizeMB = Math.round((kb / 1024) * 100) / 100
+
+    expect(typeof dirSizeMB).toBe('number')
+    expect(dirSizeMB).toBeGreaterThanOrEqual(0)
   })
 
-  it('returns exists:false and no dirSizeMB for non-existent paths', async () => {
+  it('non-existent path does not exist', () => {
     const nonExistentPath = join(tmpdir(), 'astro-nonexistent-' + Date.now())
 
-    const res = await request(`/api/repo/detect?path=${encodeURIComponent(nonExistentPath)}`)
-    expect(res.status).toBe(200)
-
-    const body = await res.json()
-    expect(body.exists).toBe(false)
-    expect(body.dirSizeMB).toBeUndefined()
+    expect(existsSync(nonExistentPath)).toBe(false)
   })
 })

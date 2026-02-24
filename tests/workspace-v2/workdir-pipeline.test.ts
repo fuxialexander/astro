@@ -5,9 +5,8 @@
  * project creation pipeline:
  *
  *   1. Agent-runner localRepoSetup() — handles non-existent, non-git, and git dirs
- *   2. Server setupProjectRepo() — creates dirs, detects git, returns source info
- *   3. Dispatch schema — workingDirectory field passes validation and propagates
- *   4. Task type — workingDirectory is present on the final Task object
+ *   2. Dispatch schema — workingDirectory field passes validation and propagates
+ *   3. Task type — workingDirectory is present on the final Task object
  *
  * These are CLI-only unit tests: no running server, no browser, real tmp dirs.
  */
@@ -32,9 +31,6 @@ import {
   getFileTree,
   getGitRemoteUrl,
 } from '../../packages/agent-runner/src/lib/repo-utils.js'
-
-// ── Server repo setup ───────────────────────────────────────────────────
-import { setupProjectRepo } from '../../server/lib/repo-setup.js'
 
 // ── Agent-runner Task type ──────────────────────────────────────────────
 import type { Task } from '../../packages/agent-runner/src/types.js'
@@ -80,7 +76,7 @@ function createTestGitRepo(opts?: { withRemote?: boolean; withFiles?: Record<str
 } {
   const repoDir = makeTmpDir('repo')
 
-  execFileSync('git', ['init'], { cwd: repoDir, stdio: 'pipe' })
+  execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir, stdio: 'pipe' })
   execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repoDir, stdio: 'pipe' })
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repoDir, stdio: 'pipe' })
 
@@ -99,7 +95,7 @@ function createTestGitRepo(opts?: { withRemote?: boolean; withFiles?: Record<str
 
   if (opts?.withRemote) {
     const bareDir = makeTmpDir('bare')
-    execFileSync('git', ['init', '--bare'], { cwd: bareDir, stdio: 'pipe' })
+    execFileSync('git', ['init', '--bare', '-b', 'main'], { cwd: bareDir, stdio: 'pipe' })
     execFileSync('git', ['remote', 'add', 'origin', bareDir], { cwd: repoDir, stdio: 'pipe' })
     execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: repoDir, stdio: 'pipe' })
     return { repoDir, bareDir }
@@ -187,76 +183,46 @@ describe('A. Agent-runner localRepoSetup', { timeout: 15_000 }, () => {
 })
 
 // ===========================================================================
-// B. Server setupProjectRepo — working directory handling
+// B. localRepoSetup — source detection + agent dir creation
 // ===========================================================================
 
-describe('B. Server setupProjectRepo', { timeout: 15_000 }, () => {
-  it('B1. Existing non-git directory returns needsGitInit + direct delivery', () => {
-    const dir = makeTmpDir('server-nongit')
+describe('B. localRepoSetup source detection', { timeout: 15_000 }, () => {
+  it('B1. Existing non-git directory returns needsGitInit', () => {
+    const dir = makeTmpDir('nongit-b1')
     writeFileSync(join(dir, 'data.csv'), 'a,b,c\n1,2,3')
 
-    const result = setupProjectRepo({
-      projectId: 'proj-b1',
-      projectName: 'Non-Git Project',
-      workingDirectory: dir,
-    })
+    const result = localRepoSetup({ workingDirectory: dir })
 
+    expect(result.success).toBe(true)
     expect(result.workingDirectory).toBe(dir)
     expect(result.needsGitInit).toBe(true)
-    expect(result.deliveryMode).toBe('direct')
-    expect(result.source?.isGit).toBe(false)
-    expect(result.source?.remoteType).toBe('none')
   })
 
-  it('B2. Non-existent directory is created with git init', () => {
-    const parentDir = makeTmpDir('server-parent')
-    const targetDir = join(parentDir, 'brand-new')
-
-    expect(existsSync(targetDir)).toBe(false)
-
-    const result = setupProjectRepo({
-      projectId: 'proj-b2',
-      projectName: 'Brand New',
-      workingDirectory: targetDir,
-    })
-
-    expect(result.workingDirectory).toBe(targetDir)
-    expect(existsSync(targetDir)).toBe(true)
-    // Server creates git repo for non-existent dirs (unlike agent-runner)
-    expect(isGitRepo(targetDir)).toBe(true)
-    expect(result.source?.isGit).toBe(true)
-    expect(result.agentDir).toBe('.astro')
-  })
-
-  it('B3. Existing git repo returns correct source + delivery mode', () => {
+  it('B2. Existing git repo returns correct source + delivery mode + agentDir', () => {
     const { repoDir } = createTestGitRepo()
 
-    const result = setupProjectRepo({
-      projectId: 'proj-b3',
-      projectName: 'Git Project',
-      workingDirectory: repoDir,
-    })
+    const result = localRepoSetup({ workingDirectory: repoDir })
 
+    expect(result.success).toBe(true)
     expect(result.workingDirectory).toBe(repoDir)
     expect(result.needsGitInit).toBeUndefined()
     expect(result.source?.isGit).toBe(true)
     expect(result.deliveryMode).toBe('branch') // local-only repo → branch
     expect(result.agentDir).toBe('.astro')
-    expect(result.fileTree.length).toBeGreaterThan(0)
+    expect(result.fileTree!.length).toBeGreaterThan(0)
   })
 
-  it('B4. workingDirectory is always preserved in result', () => {
-    // Test all three cases return the correct workingDirectory
+  it('B3. workingDirectory is always preserved in result', () => {
     const gitDir = createTestGitRepo().repoDir
-    const nonGitDir = makeTmpDir('nongit-b4')
+    const nonGitDir = makeTmpDir('nongit-b3')
     writeFileSync(join(nonGitDir, 'file.txt'), 'content')
-    const parentDir = makeTmpDir('parent-b4')
+    const parentDir = makeTmpDir('parent-b3')
     const newDir = join(parentDir, 'new-dir')
 
     const results = [
-      setupProjectRepo({ projectId: 'p1', projectName: 'P1', workingDirectory: gitDir }),
-      setupProjectRepo({ projectId: 'p2', projectName: 'P2', workingDirectory: nonGitDir }),
-      setupProjectRepo({ projectId: 'p3', projectName: 'P3', workingDirectory: newDir }),
+      localRepoSetup({ workingDirectory: gitDir }),
+      localRepoSetup({ workingDirectory: nonGitDir }),
+      localRepoSetup({ workingDirectory: newDir }),
     ]
 
     expect(results[0].workingDirectory).toBe(gitDir)
@@ -333,15 +299,12 @@ describe('C. Dispatch schema workingDirectory', () => {
 // ===========================================================================
 
 describe('D. Full pipeline round-trips', { timeout: 15_000 }, () => {
-  it('D1. Git repo → setupProjectRepo → dispatch → Task preserves workingDirectory', () => {
+  it('D1. Git repo → localRepoSetup → dispatch → Task preserves workingDirectory', () => {
     const { repoDir } = createTestGitRepo()
 
-    // Step 1: Server repo setup
-    const repoResult = setupProjectRepo({
-      projectId: 'proj-d1',
-      projectName: 'Pipeline Test',
-      workingDirectory: repoDir,
-    })
+    // Step 1: Agent-runner repo setup
+    const repoResult = localRepoSetup({ workingDirectory: repoDir })
+    expect(repoResult.success).toBe(true)
 
     // Step 2: Build dispatch body (simulates frontend)
     const dispatchBody = {
@@ -378,19 +341,15 @@ describe('D. Full pipeline round-trips', { timeout: 15_000 }, () => {
     expect(task.agentDir).toBe('.astro')
   })
 
-  it('D2. Non-git dir → setupProjectRepo → dispatch → Task (direct mode)', () => {
+  it('D2. Non-git dir → localRepoSetup → dispatch → Task (needsGitInit)', () => {
     const dir = makeTmpDir('pipeline-nongit')
     writeFileSync(join(dir, 'analysis.py'), 'import pandas as pd')
 
-    // Step 1: Server repo setup detects non-git
-    const repoResult = setupProjectRepo({
-      projectId: 'proj-d2',
-      projectName: 'Analysis Project',
-      workingDirectory: dir,
-    })
+    // Step 1: Agent-runner detects non-git
+    const repoResult = localRepoSetup({ workingDirectory: dir })
 
+    expect(repoResult.success).toBe(true)
     expect(repoResult.needsGitInit).toBe(true)
-    expect(repoResult.deliveryMode).toBe('direct')
 
     // Step 2: Build dispatch body
     const dispatchBody = {
@@ -399,7 +358,7 @@ describe('D. Full pipeline round-trips', { timeout: 15_000 }, () => {
       title: 'Run analysis',
       description: 'Process the data',
       workingDirectory: repoResult.workingDirectory,
-      deliveryMode: repoResult.deliveryMode ?? 'direct' as const,
+      deliveryMode: 'direct' as const, // non-git → direct
     }
 
     // Step 3: Validate
@@ -423,7 +382,7 @@ describe('D. Full pipeline round-trips', { timeout: 15_000 }, () => {
     expect(task.deliveryMode).toBe('direct')
   })
 
-  it('D3. Non-existent dir → agent-runner localRepoSetup → dispatch → Task', () => {
+  it('D3. Non-existent dir → localRepoSetup → dispatch → Task', () => {
     const parentDir = makeTmpDir('pipeline-new')
     const targetDir = join(parentDir, 'my-new-project')
 
@@ -465,61 +424,33 @@ describe('D. Full pipeline round-trips', { timeout: 15_000 }, () => {
     expect(task.workingDirectory).toBe(targetDir)
   })
 
-  it('D4. Server + agent-runner agree on git repo handling', () => {
+  it('D4. localRepoSetup git repo returns source + keyFiles', () => {
     const { repoDir } = createTestGitRepo({
       withFiles: { 'package.json': '{"name": "test"}' },
     })
 
-    // Both layers should detect this as a git repo
-    const serverResult = setupProjectRepo({
-      projectId: 'proj-d4',
-      projectName: 'Cross-Layer',
-      workingDirectory: repoDir,
-    })
+    const result = localRepoSetup({ workingDirectory: repoDir })
 
-    const agentResult = localRepoSetup({ workingDirectory: repoDir })
-
-    // Both should succeed
-    expect(serverResult.workingDirectory).toBe(repoDir)
-    expect(agentResult.success).toBe(true)
-    expect(agentResult.workingDirectory).toBe(repoDir)
-
-    // Both detect it as git
-    expect(serverResult.source?.isGit).toBe(true)
-    expect(agentResult.needsGitInit).toBeUndefined()
-
-    // Both return file trees with content
-    expect(serverResult.fileTree.length).toBeGreaterThan(0)
-    expect(agentResult.fileTree!.length).toBeGreaterThan(0)
-
-    // Both see package.json in key files
-    expect(serverResult.keyFiles?.packageInfo).toContain('package.json')
-    expect(agentResult.keyFiles?.packageInfo).toContain('package.json')
+    expect(result.success).toBe(true)
+    expect(result.workingDirectory).toBe(repoDir)
+    expect(result.needsGitInit).toBeUndefined()
+    expect(result.source?.isGit).toBe(true)
+    expect(result.fileTree!.length).toBeGreaterThan(0)
+    expect(result.keyFiles?.packageInfo).toContain('package.json')
   })
 
-  it('D5. Server + agent-runner agree on non-git directory handling', () => {
+  it('D5. localRepoSetup non-git dir returns needsGitInit + keyFiles', () => {
     const dir = makeTmpDir('cross-nongit')
     writeFileSync(join(dir, 'data.txt'), 'some data')
+    writeFileSync(join(dir, 'README.md'), '# Test')
 
-    const serverResult = setupProjectRepo({
-      projectId: 'proj-d5',
-      projectName: 'Non-Git Cross',
-      workingDirectory: dir,
-    })
+    const result = localRepoSetup({ workingDirectory: dir })
 
-    const agentResult = localRepoSetup({ workingDirectory: dir })
-
-    // Both return the same workingDirectory
-    expect(serverResult.workingDirectory).toBe(dir)
-    expect(agentResult.workingDirectory).toBe(dir)
-
-    // Both detect non-git
-    expect(serverResult.needsGitInit).toBe(true)
-    expect(agentResult.needsGitInit).toBe(true)
-
-    // Both have empty file trees for non-git dirs
-    expect(serverResult.fileTree).toEqual([])
-    expect(agentResult.fileTree).toEqual([])
+    expect(result.success).toBe(true)
+    expect(result.workingDirectory).toBe(dir)
+    expect(result.needsGitInit).toBe(true)
+    expect(result.fileTree).toEqual([])
+    expect(result.keyFiles?.readmeMd).toContain('Test')
   })
 })
 

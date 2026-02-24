@@ -46,7 +46,7 @@ import {
   ensureClaudeMdInWorktree,
 } from '../../packages/agent-runner/src/lib/worktree.js'
 import { createCopyWorktree } from '../../packages/agent-runner/src/lib/copy-worktree.js'
-import { ensureAgentDir } from '../../server/lib/repo-setup.js'
+import { localRepoSetup } from '../../packages/agent-runner/src/lib/repo-utils.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,8 +66,8 @@ function createTestGitRepo(): { repoDir: string; bareDir: string } {
   const bareDir = mkdtempSync(join(tmpdir(), 'astro-shared-test-bare-'))
   tmpDirs.push(repoDir, bareDir)
 
-  execFileSync('git', ['init', '--bare'], { cwd: bareDir })
-  execFileSync('git', ['init'], { cwd: repoDir })
+  execFileSync('git', ['init', '--bare', '-b', 'main'], { cwd: bareDir })
+  execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
   execFileSync('git', ['config', 'user.email', 'test@test.com'], {
     cwd: repoDir,
   })
@@ -89,7 +89,7 @@ function createTestGitRepoNoRemote(): string {
   const repoDir = mkdtempSync(join(tmpdir(), 'astro-noremote-test-'))
   tmpDirs.push(repoDir)
 
-  execFileSync('git', ['init'], { cwd: repoDir })
+  execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
   execFileSync('git', ['config', 'user.email', 'test@test.com'], {
     cwd: repoDir,
   })
@@ -345,8 +345,9 @@ describe(
     it('produces remoteType=none and deliveryMode=branch when there is no remote', () => {
       const repoDir = createTestGitRepoNoRemote()
 
-      // ensureAgentDir writes config.json with auto-detected settings
-      ensureAgentDir(repoDir)
+      // localRepoSetup writes config.json with auto-detected settings
+      const result = localRepoSetup({ workingDirectory: repoDir })
+      expect(result.success).toBe(true)
 
       const configPath = join(repoDir, '.astro', 'config.json')
       expect(existsSync(configPath)).toBe(true)
@@ -368,7 +369,8 @@ describe(
       // The remote "origin" points to a local bare directory path (not a URL).
       // detectRemoteType will see a local path (not starting with git@, http, or ssh://)
       // and return 'none', so deliveryMode should be 'branch'.
-      ensureAgentDir(repoDir)
+      const result = localRepoSetup({ workingDirectory: repoDir })
+      expect(result.success).toBe(true)
 
       const configPath = join(repoDir, '.astro', 'config.json')
       expect(existsSync(configPath)).toBe(true)
