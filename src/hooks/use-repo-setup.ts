@@ -8,6 +8,7 @@ export interface RepoSetupParams {
   projectDescription?: string
   workingDirectory?: string
   repository?: string
+  baseBranch?: string
   targetMachineId?: string
 }
 
@@ -41,6 +42,7 @@ export function useRepoSetup() {
           projectDescription: params.projectDescription,
           workingDirectory: params.workingDirectory,
           repository: params.repository,
+          baseBranch: params.baseBranch,
           targetMachineId: params.targetMachineId,
         }),
       })

@@ -9,6 +9,13 @@ export interface DetectionResult {
   remoteUrl?: string
   remoteType: RemoteType
   baseBranch?: string
+  currentBranch?: string
+  isDirty?: boolean
+  dirtyDetails?: {
+    staged: number
+    unstaged: number
+    untracked: number
+  }
   suggestedDeliveryMode: DeliveryMode
   dirSizeMB?: number | null
 }

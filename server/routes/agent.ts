@@ -30,6 +30,16 @@ const generatePlanSchema = z.object({
     packageInfo: z.string().max(100000).optional(),
   }).optional(),
   targetMachineId: z.string().max(100).optional(),
+  gitState: z.object({
+    currentBranch: z.string().max(200),
+    targetBranch: z.string().max(200),
+    isDirty: z.boolean(),
+    dirtyDetails: z.object({
+      staged: z.number(),
+      unstaged: z.number(),
+      untracked: z.number(),
+    }).optional(),
+  }).optional(),
 })
 
 const chatSchema = z.object({
@@ -344,7 +354,7 @@ agentRoute.post('/generate-plan', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { description, visionDoc, projectId, workingDirectory, fileTree, keyFiles, targetMachineId } = body
+  const { description, visionDoc, projectId, workingDirectory, fileTree, keyFiles, targetMachineId, gitState } = body
   const taskId = `gen-${projectId}-${Date.now()}`
 
   console.log(`[plan-gen] Request received: projectId=${projectId}, targetMachineId=${targetMachineId || 'any'}, workingDirectory=${workingDirectory || 'none'}`)
@@ -361,7 +371,7 @@ agentRoute.post('/generate-plan', async (c) => {
   }
 
   // Build the full plan prompt: system prompt + user description
-  const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext)
+  const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext, gitState)
   const fullPrompt = `${systemPrompt}\n\n---\n\n## User Request\n\n${description}\n\n---\n\nIMPORTANT: Respond with ONLY the JSON plan object. Start your response with { and end with }. No prose, no markdown fences, no explanation. The JSON must have "projectName", "nodes", and "edges" keys.`
 
   // Build relay task dispatch

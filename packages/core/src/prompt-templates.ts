@@ -57,6 +57,17 @@ export interface RepoContextForPrompt {
   fileTreeSummary?: string
 }
 
+export interface GitStateForPrompt {
+  currentBranch: string
+  targetBranch: string
+  isDirty: boolean
+  dirtyDetails?: {
+    staged: number
+    unstaged: number
+    untracked: number
+  }
+}
+
 /**
  * Build the system prompt for plan generation.
  *
@@ -65,7 +76,7 @@ export interface RepoContextForPrompt {
  * user content from instructions, the AI may still be influenced by adversarial inputs.
  * Always validate AI outputs (e.g., ensure valid JSON schema, check for malicious commands).
  */
-export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt): string {
+export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt, gitState?: GitStateForPrompt): string {
   // SECURITY: Wrap user-provided content in clear delimiters to reduce prompt injection risk
   const visionSection = visionDoc
     ? `\n\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
@@ -92,6 +103,33 @@ export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoCont
     }
   }
 
+  // Build git state section
+  let gitStateSection = ""
+  if (gitState) {
+    const parts: string[] = []
+    parts.push(`## Git Repository State`)
+    parts.push(`- Current branch: \`${gitState.currentBranch}\``)
+    parts.push(`- Target branch: \`${gitState.targetBranch}\` (selected by user)`)
+    if (gitState.isDirty) {
+      const d = gitState.dirtyDetails
+      if (d) {
+        const details = [
+          d.staged > 0 ? `${d.staged} staged` : null,
+          d.unstaged > 0 ? `${d.unstaged} modified` : null,
+          d.untracked > 0 ? `${d.untracked} untracked` : null,
+        ].filter(Boolean).join(', ')
+        parts.push(`- Working directory has uncommitted changes: ${details} files`)
+      } else {
+        parts.push(`- Working directory has uncommitted changes`)
+      }
+      parts.push(`- Consider whether to commit, stash, or address these changes as part of the plan.`)
+    }
+    if (gitState.currentBranch !== gitState.targetBranch) {
+      parts.push(`- The current branch differs from the target. Consider including steps to switch branches.`)
+    }
+    gitStateSection = '\n\n' + parts.join('\n') + '\n'
+  }
+
   const hasRepo = repoSection.length > 0
 
   const outputInstructions = hasRepo
@@ -106,7 +144,7 @@ You decompose the project into a directed acyclic graph of tasks and milestones.
 You decompose the project into a directed acyclic graph of tasks and milestones.`
 
   return `${outputInstructions}
-${visionSection}${repoSection}
+${visionSection}${repoSection}${gitStateSection}
 ## Node rules
 - Each node has a unique id: "n1", "n2", etc.
 - type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points.
