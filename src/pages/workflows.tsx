@@ -107,9 +107,8 @@ function DirectModeSvg(props: SVGProps<SVGSVGElement>) {
       {/* Agent cursor */}
       <rect x="155" y="60" width="2" height="14" rx="1" className="cursor" fill="var(--primary)" />
       <text x="160" y="70" fill="var(--muted-foreground)" fontSize="9" fontFamily="monospace" opacity="0.6">editing...</text>
-      {/* Arrow indicating direct access */}
-      <line x1="200" y1="140" x2="200" y2="168" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.5" />
-      <text x="140" y="176" fill="var(--muted-foreground)" fontSize="8" fontFamily="var(--font-primary)" textAnchor="middle">Zero overhead</text>
+      {/* "Zero overhead" label */}
+      <text x="140" y="170" fill="var(--muted-foreground)" fontSize="8" fontFamily="var(--font-primary)" textAnchor="middle">Zero overhead</text>
     </svg>
   )
 }
