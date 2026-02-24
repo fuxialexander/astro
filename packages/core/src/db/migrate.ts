@@ -7,7 +7,7 @@ import { initDb } from './index.js'
  * - Local mode: runs Drizzle migrations against PGlite (creates tables on first run, idempotent on restart)
  * - Server mode: no-op — Supabase manages migrations via supabase/migrations/
  */
-export async function runMigrations() {
+export async function runMigrations(migrationsFolder?: string) {
   // Initialize the database connection first
   await initDb()
 
@@ -22,6 +22,6 @@ export async function runMigrations() {
   const { migrate } = await import('drizzle-orm/pglite/migrator')
   const { db } = await import('./index.js')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await migrate(db as any, { migrationsFolder: './drizzle' })
+  await migrate(db as any, { migrationsFolder: migrationsFolder ?? './drizzle' })
   console.log('[db] PGlite migrations complete')
 }

@@ -318,12 +318,20 @@ deviceAuthRoute.post('/token', async (c) => {
           }, 500);
         }
 
+        // Create refresh token so CLI clients can refresh without machine registration
+        const { token: refreshToken } = await createRefreshToken({
+          machineId: tempMachineId,
+          userId: entry.authorizedBy,
+          scopes,
+          expiresIn: TOKEN_EXPIRY.REFRESH_TOKEN,
+        });
+
         const response: DeviceTokenResponse = {
           accessToken,
+          refreshToken,
           tokenType: 'Bearer',
           expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
           scopes,
-          // Note: refresh token will be provided after machine registration
         };
 
         return c.json(response);

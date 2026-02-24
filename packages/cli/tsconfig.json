@@ -11,10 +11,7 @@
     "lib": ["ES2022"],
     "types": ["node"],
     "baseUrl": ".",
-    "paths": {
-      "@astro/core/*": ["../core/src/*"],
-      "@astro/core": ["../core/src/index.ts"]
-    }
+    "paths": {}
   },
   "include": ["src"]
 }

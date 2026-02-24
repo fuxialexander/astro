@@ -15,6 +15,8 @@ import {
   activityEvents,
   teams,
   teamMembers,
+  toolTraces,
+  fileChanges,
 } from '../lib/db/schema.js'
 import { eq, and, or, sql, desc, isNull } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -1179,6 +1181,81 @@ app.post('/executions', async (c) => {
   })
 
   return c.json({ ok: true })
+})
+
+// ── Tool Traces ──────────────────────────────────────────────────────
+
+app.get('/tool-traces', async (c) => {
+  const executionId = c.req.query('executionId')
+  if (!executionId) return c.json({ error: 'executionId required' }, 400)
+
+  const rows = await db.select().from(toolTraces)
+    .where(eq(toolTraces.executionId, executionId))
+    .orderBy(toolTraces.timestamp)
+  return c.json(rows)
+})
+
+// ── File Changes ─────────────────────────────────────────────────────
+
+app.get('/file-changes', async (c) => {
+  const executionId = c.req.query('executionId')
+  if (!executionId) return c.json({ error: 'executionId required' }, 400)
+
+  const rows = await db.select().from(fileChanges)
+    .where(eq(fileChanges.executionId, executionId))
+    .orderBy(fileChanges.timestamp)
+  return c.json(rows)
+})
+
+// ── Search ───────────────────────────────────────────────────────────
+
+app.get('/search', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const q = c.req.query('q')
+  if (!q) return c.json({ error: 'q required' }, 400)
+
+  const pattern = `%${q}%`
+
+  // Search projects
+  const projectResults = await db.select().from(projects)
+    .where(and(
+      teamScopeFilter(projects, user),
+      or(
+        sql`${projects.name} ILIKE ${pattern}`,
+        sql`${projects.description} ILIKE ${pattern}`
+      )
+    ))
+
+  // Search plan nodes (with project name join)
+  const taskResults = await db.select({
+    id: planNodes.id,
+    clientId: planNodes.clientId,
+    title: planNodes.title,
+    description: planNodes.description,
+    status: planNodes.status,
+    type: planNodes.type,
+    projectId: planNodes.projectId,
+    projectName: projects.name,
+    updatedAt: planNodes.updatedAt,
+  }).from(planNodes)
+    .leftJoin(projects, eq(planNodes.projectId, projects.id))
+    .where(and(
+      isNull(planNodes.deletedAt),
+      or(
+        sql`${planNodes.title} ILIKE ${pattern}`,
+        sql`${planNodes.description} ILIKE ${pattern}`
+      )
+    ))
+
+  // Search executions
+  const executionResults = await db.select().from(taskExecutions)
+    .where(or(
+      sql`${taskExecutions.executionId} ILIKE ${pattern}`,
+      sql`${taskExecutions.streamText} ILIKE ${pattern}`
+    ))
+    .limit(20)
+
+  return c.json({ projects: projectResults, tasks: taskResults, executions: executionResults })
 })
 
 // ── Data Export (GDPR compliance) ────────────────────────────────────
