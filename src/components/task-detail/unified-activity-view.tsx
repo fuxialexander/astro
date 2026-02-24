@@ -6,7 +6,6 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
-  Wrench,
   FileEdit,
   ArrowDown,
   AlertCircle,
@@ -168,6 +167,59 @@ function getToolInputSummary(toolName: string, toolInput: unknown): string | nul
   }
 }
 
+/**
+ * Compute the status of a tool call for icon rendering.
+ *
+ * A tool call is "complete" when either:
+ * 1. Its tool_result event has been paired (proper completion), OR
+ * 2. The task has stopped running (no more results will ever arrive)
+ *
+ * When the task stopped without a result, we still show a completed state
+ * (CheckCircle2) instead of keeping a perpetual spinner, since the tool
+ * call is definitively finished from the user's perspective.
+ */
+function getToolStatus(hasResult: boolean, isRunning: boolean, success?: boolean) {
+  const isComplete = hasResult || !isRunning
+
+  // Determine icon color class
+  const colorClass = success === false
+    ? "text-muted-foreground"
+    : success === true
+      ? "text-success"
+      : isComplete
+        ? "text-muted-foreground"
+        : "text-info"
+
+  // Determine which icon to render
+  let icon: 'spinner' | 'check' | 'x' | 'check-muted'
+  if (!isComplete) {
+    icon = 'spinner'
+  } else if (success === true) {
+    icon = 'check'
+  } else if (success === false) {
+    icon = 'x'
+  } else {
+    // No explicit success value — task ended or result lacks success field.
+    // Show a muted checkmark to indicate completion without error info.
+    icon = 'check-muted'
+  }
+
+  return { isComplete, colorClass, icon }
+}
+
+function ToolStatusIcon({ icon }: { icon: 'spinner' | 'check' | 'x' | 'check-muted' }) {
+  switch (icon) {
+    case 'spinner':
+      return <Loader2 className="h-3 w-3 animate-spin" />
+    case 'check':
+      return <CheckCircle2 className="h-3 w-3" />
+    case 'x':
+      return <XCircle className="h-3 w-3" />
+    case 'check-muted':
+      return <CheckCircle2 className="h-3 w-3" />
+  }
+}
+
 function TextBlock({ events }: { events: TaskActivityEvent[] }) {
   const text = events
     .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
@@ -191,9 +243,7 @@ function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunni
   if (!toolUse) return null
 
   const hasResult = toolResult !== undefined
-  // Only show spinner when task is still running and tool result hasn't arrived
-  const isComplete = hasResult || !isRunning
-  const success = toolResult?.success
+  const { colorClass, icon } = getToolStatus(hasResult, !!isRunning, toolResult?.success)
 
   return (
     <div className="mx-4 my-0.5">
@@ -201,25 +251,8 @@ function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunni
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-1.5 w-full px-2 py-1 text-left hover:bg-muted/30 rounded transition-colors cursor-pointer group"
       >
-        <div className={cn(
-          "flex h-3.5 w-3.5 items-center justify-center shrink-0",
-          success === false
-            ? "text-error"
-            : success === true
-              ? "text-success"
-              : isComplete
-                ? "text-muted-foreground"
-                : "text-info"
-        )}>
-          {!isComplete ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : success === true ? (
-            <CheckCircle2 className="h-3 w-3" />
-          ) : success === false ? (
-            <XCircle className="h-3 w-3" />
-          ) : (
-            <Wrench className="h-3 w-3" />
-          )}
+        <div className={cn("flex h-3.5 w-3.5 items-center justify-center shrink-0", colorClass)}>
+          <ToolStatusIcon icon={icon} />
         </div>
         <span className="text-[11px] font-mono shrink-0 text-muted-foreground">{toolUse.toolName}</span>
         {(() => {
@@ -297,33 +330,15 @@ function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEvent[]; is
         <div className="flex items-center gap-1 flex-1 min-w-0">
           {toolPairs.map((pair, idx) => {
             const hasResult = pair.toolResult !== undefined
-            const isComplete = hasResult || !isRunning
-            const success = pair.toolResult?.success
+            const status = getToolStatus(hasResult, !!isRunning, pair.toolResult?.success)
 
             return (
               <div
                 key={idx}
-                className={cn(
-                  "flex h-3.5 w-3.5 items-center justify-center shrink-0",
-                  success === false
-                    ? "text-error"
-                    : success === true
-                      ? "text-success"
-                      : isComplete
-                        ? "text-muted-foreground"
-                        : "text-info"
-                )}
+                className={cn("flex h-3.5 w-3.5 items-center justify-center shrink-0", status.colorClass)}
                 title={pair.toolUse.toolName}
               >
-                {!isComplete ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : success === true ? (
-                  <CheckCircle2 className="h-3 w-3" />
-                ) : success === false ? (
-                  <XCircle className="h-3 w-3" />
-                ) : (
-                  <Wrench className="h-3 w-3" />
-                )}
+                <ToolStatusIcon icon={status.icon} />
               </div>
             )
           })}
@@ -344,31 +359,13 @@ function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEvent[]; is
         <div className="mt-1 ml-2 mr-2 flex flex-col gap-1">
           {toolPairs.map((pair, idx) => {
             const hasResult = pair.toolResult !== undefined
-            const isComplete = hasResult || !isRunning
-            const success = pair.toolResult?.success
+            const status = getToolStatus(hasResult, !!isRunning, pair.toolResult?.success)
 
             return (
               <div key={idx} className="border-l-2 border-muted-foreground/20 pl-3">
                 <div className="flex items-center gap-1.5 px-2 py-1">
-                  <div className={cn(
-                    "flex h-3.5 w-3.5 items-center justify-center shrink-0",
-                    success === false
-                      ? "text-error"
-                      : success === true
-                        ? "text-success"
-                        : isComplete
-                          ? "text-muted-foreground"
-                          : "text-info"
-                  )}>
-                    {!isComplete ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : success === true ? (
-                      <CheckCircle2 className="h-3 w-3" />
-                    ) : success === false ? (
-                      <XCircle className="h-3 w-3" />
-                    ) : (
-                      <Wrench className="h-3 w-3" />
-                    )}
+                  <div className={cn("flex h-3.5 w-3.5 items-center justify-center shrink-0", status.colorClass)}>
+                    <ToolStatusIcon icon={status.icon} />
                   </div>
                   <span className="text-[11px] font-mono shrink-0 text-muted-foreground">
                     {pair.toolUse.toolName}
