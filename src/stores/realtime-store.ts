@@ -45,6 +45,7 @@ export interface MachineEntry {
     memoryMB: number
     gpuCount?: number
     gpuMemoryMB?: number
+    gpuType?: string
   }
   load: {
     cpuPercent: number

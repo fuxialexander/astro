@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { formatRelativeTime } from "@/lib/date-utils"
+import { compactGpuName } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
 import type { RegisteredMachine } from "@/stores/machines-store"
 import type { MachineEntry } from "@/stores/realtime-store"
@@ -122,9 +123,11 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
                   <MonitorDot className="h-4 w-4 text-muted-foreground shrink-0" />
                   <div className="flex flex-col">
                     <span className="text-sm font-medium">
-                      {resources.gpuCount} GPU{resources.gpuCount > 1 ? "s" : ""}
-                      {resources.gpuMemoryMB ? ` (${Math.round(resources.gpuMemoryMB / 1024)} GB)` : ""}
+                      {resources.gpuCount}× {resources.gpuType ? compactGpuName(resources.gpuType) : "GPU"}
                     </span>
+                    {resources.gpuMemoryMB && (
+                      <span className="text-[10px] text-muted-foreground">{Math.round(resources.gpuMemoryMB / 1024)} GB</span>
+                    )}
                   </div>
                 </div>
               )}

@@ -39,6 +39,7 @@ export interface MachineResources {
   memoryMB: number;
   gpuCount?: number;
   gpuMemoryMB?: number;
+  gpuType?: string;       // e.g. "NVIDIA A100", "Apple M4 Pro"
   diskSpaceMB?: number;
 }
 
