@@ -74,6 +74,7 @@ async function streamChatViaRelay(
     messages?: Array<{ role: 'user' | 'assistant'; content: string }>
     workingDirectory?: string
     targetMachineId?: string
+    model?: string
   }
 ) {
   const task: RelayTaskDispatch = {
@@ -86,6 +87,7 @@ async function streamChatViaRelay(
     systemPrompt: opts.systemPrompt,
     type: opts.type,
     messages: opts.messages,
+    model: opts.model,
     maxTurns: opts.maxTurns ?? 50,
     workingDirectory: opts.workingDirectory,
   }
@@ -354,7 +356,7 @@ agentRoute.post('/generate-plan', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { description, visionDoc, projectId, workingDirectory, fileTree, keyFiles, targetMachineId, gitState } = body
+  const { description, visionDoc, projectId, model, workingDirectory, fileTree, keyFiles, targetMachineId, gitState } = body
   const taskId = `gen-${projectId}-${Date.now()}`
 
   console.log(`[plan-gen] Request received: projectId=${projectId}, targetMachineId=${targetMachineId || 'any'}, workingDirectory=${workingDirectory || 'none'}`)
@@ -384,6 +386,7 @@ agentRoute.post('/generate-plan', async (c) => {
     visionDoc,
     workingDirectory,
     prompt: fullPrompt,
+    model: model || undefined,
     maxTurns: 100,
     outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
   }
@@ -556,7 +559,7 @@ agentRoute.post('/chat', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { message, sessionId: existingSessionId, projectId, visionDoc, planNodes, planEdges, messages: historyMessages } = body
+  const { message, sessionId: existingSessionId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
   const taskId = existingSessionId || `chat-${projectId}-${Date.now()}`
 
   // Look up the project's working directory
@@ -571,6 +574,7 @@ agentRoute.post('/chat', async (c) => {
     systemPrompt,
     type: 'chat',
     messages: historyMessages,
+    model: model || undefined,
     maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
   })
@@ -600,6 +604,7 @@ agentRoute.post('/task-chat', async (c) => {
     taskDescription,
     taskOutput,
     visionDoc,
+    model,
     messages: historyMessages,
   } = body
 
@@ -622,6 +627,7 @@ agentRoute.post('/task-chat', async (c) => {
     systemPrompt,
     type: 'chat',
     messages: historyMessages,
+    model: model || undefined,
     maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
   })

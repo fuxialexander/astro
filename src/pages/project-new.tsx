@@ -22,6 +22,7 @@ import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { remoteTypeLabel, deliveryModeLabel } from "@/lib/project-source"
 import { extractRepoInfo } from "@/lib/git-url-utils"
+import { validateAbsolutePath } from "@/lib/path-utils"
 
 export function ProjectNew() {
   const [searchParams] = useSearchParams()
@@ -31,6 +32,7 @@ export function ProjectNew() {
   const [firstTask, setFirstTask] = useState("")
   const [repoUrl, setRepoUrl] = useState("")
   const [workingDir, setWorkingDir] = useState("")
+  const [pathError, setPathError] = useState<string | null>(null)
   const [showRepoUrl, setShowRepoUrl] = useState(false)
   const [showGitHubRepos, setShowGitHubRepos] = useState(false)
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
@@ -694,10 +696,27 @@ export function ProjectNew() {
             <input
               type="text"
               value={workingDir}
-              onChange={(e) => setWorkingDir(e.target.value)}
-              placeholder={isRemote ? "/remote/path/to/project" : "/path/to/project"}
-              className="h-10 rounded-lg border border-border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+              onChange={(e) => {
+                const val = e.target.value
+                setWorkingDir(val)
+                const result = validateAbsolutePath(val)
+                setPathError(result.isValid ? null : result.error ?? null)
+              }}
+              placeholder={isRemote ? "/remote/path/to/project" : "/absolute/path/to/project"}
+              className={cn(
+                "h-10 rounded-lg border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring",
+                pathError ? "border-destructive" : "border-border",
+              )}
             />
+            {pathError && (
+              <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>{pathError}</span>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Use an absolute path (e.g., /Users/username/projects/my-app). Avoid ~ or relative paths — they resolve differently across machines.
+            </p>
             <DetectionFeedback />
             {/* Branch selector — shown when git repo detected via directory OR GitHub repo URL set */}
             {detection?.isGit && selectedMachine && !githubRepoFullName && (

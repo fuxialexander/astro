@@ -97,6 +97,7 @@ dispatchRoute.post('/task', async (c) => {
     priority = 'normal',
     preferredProvider,
     targetMachineId,
+    model,
     workingDirectory,
     sourceDirectory,
     force = false,
@@ -187,6 +188,7 @@ dispatchRoute.post('/task', async (c) => {
     dependencyOutputs,
     preferredProvider,
     targetMachineId,
+    model,
     priority,
     workingDirectory,
     sourceDirectory,
@@ -213,6 +215,7 @@ async function dispatchViaRelay(
     dependencyOutputs: Array<{ nodeId: string; title: string; output: string }>
     preferredProvider?: ProviderType
     targetMachineId?: string
+    model?: string
     priority: DispatchPriority
     workingDirectory?: string
     sourceDirectory?: string
@@ -233,6 +236,7 @@ async function dispatchViaRelay(
     dependencyOutputs,
     preferredProvider,
     targetMachineId,
+    model,
     priority,
     workingDirectory,
     sourceDirectory,
@@ -333,6 +337,7 @@ The user can review your reasoning in the task output and provide guidance if th
     prompt: relayPrompt,
     visionDoc,
     preferredProvider,
+    model: model || undefined,
     executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     workingDirectory,
@@ -467,11 +472,16 @@ The user can review your reasoning in the task output and provide guidance if th
     const onToolTrace = (msg: import('../types/relay.js').TaskToolTraceMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
-      stream.writeSSE({
-        event: 'tool_use',
-        data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
-      }).catch(() => { alive = false })
-      executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolInput: msg.toolInput })
+
+      // Only send tool_use SSE when toolInput is present (avoid orphan tool_use
+      // events for result-only traces from relay's separate toolUse/toolResult flow)
+      if (msg.toolInput !== undefined) {
+        stream.writeSSE({
+          event: 'tool_use',
+          data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
+        }).catch(() => { alive = false })
+        executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolInput: msg.toolInput })
+      }
       if (msg.toolResult !== undefined) {
         stream.writeSSE({
           event: 'tool_result',

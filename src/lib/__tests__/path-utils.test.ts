@@ -39,7 +39,7 @@ describe('validateAbsolutePath', () => {
   it('rejects tilde paths', () => {
     const result = validateAbsolutePath('~/project')
     expect(result.isValid).toBe(false)
-    expect(result.error).toContain('Relative')
+    expect(result.error).toContain('absolute path')
   })
 
   it('rejects relative paths', () => {

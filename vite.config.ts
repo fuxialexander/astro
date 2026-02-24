@@ -49,6 +49,21 @@ export default defineConfig(({ mode }) => {
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            if ('code' in err && (err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {
+              try {
+                const sres = res as import('http').ServerResponse
+                if (sres && 'writeHead' in sres && !sres.headersSent && !sres.writableEnded) {
+                  sres.writeHead(503, { 'Content-Type': 'text/plain' })
+                  sres.end('Backend starting...')
+                }
+              } catch {
+                // Socket may already be destroyed — nothing to do
+              }
+            }
+          })
+        },
       },
     },
     cors: true,

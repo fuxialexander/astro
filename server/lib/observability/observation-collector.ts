@@ -886,15 +886,18 @@ export class ObservationCollector {
       }
     }
 
-    // Write markdown summary to taskExecutions
-    if (summary) {
+    // Write markdown summary and model to taskExecutions
+    if (summary || state.model) {
       try {
+        const updateFields: Record<string, unknown> = {}
+        if (summary) updateFields.markdownSummary = summary
+        if (state.model) updateFields.model = state.model
         await db
           .update(taskExecutions)
-          .set({ markdownSummary: summary })
+          .set(updateFields)
           .where(eq(taskExecutions.executionId, traceId))
       } catch (err) {
-        console.error(`[observability] Failed to write markdown summary for ${traceId}:`, err)
+        console.error(`[observability] Failed to write markdown summary/model for ${traceId}:`, err)
       }
     }
 

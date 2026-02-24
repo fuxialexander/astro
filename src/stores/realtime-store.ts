@@ -553,32 +553,89 @@ function handleRealtimeEvent(
     case 'task:tool_trace': {
       const taskId = data.taskId as string
       const now = new Date()
-      const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const toolName = data.toolName as string
+      const hasInput = data.toolInput !== undefined
+      const hasResult = data.toolResult !== undefined
+
       set((state) => {
         const streams = new Map(state.taskStreams)
         const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.toolTraces.push({
-          toolName: data.toolName as string,
-          toolInput: data.toolInput,
-          toolResult: data.toolResult,
-          success: data.success as boolean | undefined,
-          duration: data.duration as number | undefined,
-          timestamp: now,
-        })
-        // Push both tool_use and tool_result activity events if result is present
-        stream.activityEvents = [
-          ...stream.activityEvents,
-          { type: 'tool_use' as const, id: traceId, toolName: data.toolName as string, toolInput: data.toolInput, timestamp: now },
-          ...(data.toolResult !== undefined ? [{
-            type: 'tool_result' as const,
-            id: traceId,
-            toolName: data.toolName as string,
+
+        // Determine if this is a tool_use event (has input) or tool_result event (has result only).
+        // The relay sends separate task:tool_trace SSE events for tool_use and tool_result.
+        // We need to match them by toolName and reuse the ID from tool_use, same strategy
+        // as execution-store.ts uses for local dispatch.
+        const isResultOnly = hasResult && !hasInput
+
+        if (isResultOnly) {
+          // Result-only event: find the last matching trace by toolName and update it
+          const lastTrace = [...stream.toolTraces].reverse().find(t => t.toolName === toolName && !t.toolResult)
+          if (lastTrace) {
+            lastTrace.toolResult = data.toolResult
+            lastTrace.success = data.success as boolean | undefined
+            lastTrace.duration = data.duration as number | undefined
+          } else {
+            // No matching tool_use found — create a standalone trace
+            stream.toolTraces.push({
+              toolName,
+              toolInput: undefined,
+              toolResult: data.toolResult,
+              success: data.success as boolean | undefined,
+              duration: data.duration as number | undefined,
+              timestamp: now,
+            })
+          }
+
+          // Find the matching tool_use activity event to reuse its ID.
+          // Walk backwards to find the most recent unpaired tool_use with the same name.
+          const pairedResultIds = new Set(
+            stream.activityEvents
+              .filter((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
+              .map(e => e.id)
+          )
+          const matchingUse = [...stream.activityEvents].reverse().find(
+            (e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> =>
+              e.type === 'tool_use' && e.toolName === toolName && !pairedResultIds.has(e.id)
+          )
+          const resultId = matchingUse?.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+          stream.activityEvents = [
+            ...stream.activityEvents,
+            {
+              type: 'tool_result' as const,
+              id: resultId,
+              toolName,
+              toolResult: data.toolResult,
+              success: data.success as boolean | undefined,
+              duration: data.duration as number | undefined,
+              timestamp: now,
+            },
+          ]
+        } else {
+          // Input event (tool_use) or combined event (has both input and result)
+          const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          stream.toolTraces.push({
+            toolName,
+            toolInput: data.toolInput,
             toolResult: data.toolResult,
             success: data.success as boolean | undefined,
             duration: data.duration as number | undefined,
             timestamp: now,
-          }] : []),
-        ]
+          })
+          stream.activityEvents = [
+            ...stream.activityEvents,
+            { type: 'tool_use' as const, id: traceId, toolName, toolInput: data.toolInput, timestamp: now },
+            ...(hasResult ? [{
+              type: 'tool_result' as const,
+              id: traceId,
+              toolName,
+              toolResult: data.toolResult,
+              success: data.success as boolean | undefined,
+              duration: data.duration as number | undefined,
+              timestamp: now,
+            }] : []),
+          ]
+        }
 
         // Extract plan mode data from TodoWrite and AskUserQuestion tools
         if (data.toolName === 'TodoWrite') {
