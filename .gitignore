@@ -169,12 +169,8 @@ credentials.json
 # Redis dumps
 dump.rdb
 
-# Project specific
-.astro-worktrees/
-
-# Astro agent directory (worktrees and cache)
-.astro/worktrees/
-.astro/cache/
+# Astro agent directory (worktrees, cache, images, config)
+.astro/
 .plan.md
 UI.pen
 docs/xi_fu_deployment.md
