@@ -10,6 +10,7 @@ import type { ApprovalRequest } from "@/components/approval-card"
 import { dataClient } from "@/lib/data-client"
 import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
+import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
 
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -23,8 +24,7 @@ async function getAuthHeaders(): Promise<HeadersInit> {
   return headers
 }
 
-// Helper: Resolve working directory from project config
-// Prefer source.localPath, then workingDirectory, fall back to repository.
+// Helper: Resolve working directory from project config (delegates to @astro/core)
 export function getProjectWorkingDir(
   project: Project | undefined,
 ): {
@@ -33,25 +33,7 @@ export function getProjectWorkingDir(
   source?: 'local' | 'repository' | 'remote-path'
   message?: string
 } {
-  // If project has a defaultMachineId + workingDirectory but no repository,
-  // the code only exists on that machine — use the working directory as path
-  if (project?.defaultMachineId && project?.workingDirectory && !project?.repository) {
-    return { ok: true, dir: project.workingDirectory, source: 'remote-path' }
-  }
-
-  // Prefer source.localPath, then workingDirectory (resolved local path)
-  const localPath = project?.source?.localPath ?? project?.workingDirectory
-  if (localPath) {
-    return { ok: true, dir: localPath, source: 'local' }
-  }
-  // If only a git URL is available, pass it through — the server will clone/resolve it
-  if (project?.repository) {
-    return { ok: true, dir: project.repository, source: 'repository' }
-  }
-  return {
-    ok: false,
-    message: 'No working directory or repository configured. Configure one in project settings.',
-  }
+  return resolveWorkingDirectory(project)
 }
 
 // Helper: Check if a project is locked to a specific machine
@@ -328,7 +310,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
 
     // Build dependency outputs from completed dependencies
-    const dependencyOutputs = buildDependencyOutputsArray(node.dependencies, liveNodes, projectId)
+    const dependencyOutputs = buildDependencyOutputs(node.dependencies, liveNodes, projectId)
 
     // Initialize execution state
     const execution: TaskExecution = {
@@ -1481,27 +1463,4 @@ function dispatchNextBatchWave(projectId: string) {
   }
 }
 
-// Helper: Build dependency outputs array for dispatch endpoint
-function buildDependencyOutputsArray(
-  dependencyIds: string[],
-  allNodes: PlanNode[],
-  projectId?: string
-): Array<{ nodeId: string; title: string; output: string }> {
-  const outputs: Array<{ nodeId: string; title: string; output: string }> = []
-  // Filter to same project to avoid cross-project ID collisions
-  const searchNodes = projectId ? allNodes.filter((n) => n.projectId === projectId) : allNodes
-
-  for (const depId of dependencyIds) {
-    const depNode = searchNodes.find((n) => n.id === depId)
-    if (depNode?.executionOutput) {
-      outputs.push({
-        nodeId: depNode.id,
-        title: depNode.title,
-        output: depNode.executionOutput,
-      })
-    }
-  }
-
-  return outputs
-}
 

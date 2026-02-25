@@ -23,3 +23,16 @@ export type {
   MachineSelectionContext,
   MachineSelectionResult,
 } from './machine-selector.js'
+
+// Payload builder
+export {
+  resolveWorkingDirectory,
+  buildDispatchPayload,
+  buildDependencyOutputs,
+} from './payload.js'
+export type {
+  WorkingDirSource,
+  WorkingDirResult,
+  DispatchPayloadOptions,
+  DispatchTaskPayload,
+} from './payload.js'
