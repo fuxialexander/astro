@@ -40,15 +40,22 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = await getAuthHeaders()
-  const res = await fetch(apiUrl(url), {
-    ...init,
-    headers: {
-      ...headers,
-      ...init?.headers,
-    },
-  })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  return res.json() as Promise<T>
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
+  try {
+    const res = await fetch(apiUrl(url), {
+      ...init,
+      headers: {
+        ...headers,
+        ...init?.headers,
+      },
+      signal: init?.signal ?? controller.signal,
+    })
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    return res.json() as Promise<T>
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 async function post(url: string, body: unknown) {

@@ -201,15 +201,23 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     }
   }, [projectsLoaded, realtimeMachines.size])
 
-  const allLoaded = teamsLoaded && projectsLoaded && planLoaded && settingsLoaded && userProfileLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && sidebarLoaded && pluginsLoaded && skillsLoaded
+  // Critical stores: must load before rendering (navigation + core data)
+  const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded
+  // Non-critical stores load in background — page renders without them
+  const allLoaded = criticalLoaded && settingsLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && pluginsLoaded && skillsLoaded
 
-  // Show loading state only if we should load data and it's not loaded yet
-  if (shouldLoadData && !allLoaded) {
+  // Only block page render on critical stores
+  if (shouldLoadData && !criticalLoaded) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         Loading...
       </div>
     )
+  }
+
+  // Log if non-critical stores are still loading (for debugging)
+  if (shouldLoadData && !allLoaded) {
+    console.log('[DataLoader] Rendering with non-critical stores still loading')
   }
 
   return <>{children}</>
