@@ -37,7 +37,8 @@ async function initDb(): Promise<any> {
     const postgres = (await import('postgres')).default
     const { drizzle } = await import('drizzle-orm/postgres-js')
     const url = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
-    const client = postgres(url, { max: 60, idle_timeout: 20, connect_timeout: 10 })
+    const usePgBouncer = url.includes('pgbouncer=true')
+    const client = postgres(url, { max: 60, idle_timeout: 20, connect_timeout: 10, prepare: !usePgBouncer })
     _db = drizzle(client, { schema })
   }
 
