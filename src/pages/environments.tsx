@@ -667,7 +667,7 @@ export function Environments() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="font-primary text-[28px] font-semibold">Environments</h1>
+          <h1 className="text-xl font-primary font-semibold">Environments</h1>
           <p className="text-sm text-muted-foreground hidden md:block">
             Manage your connected machines and compute resources
           </p>

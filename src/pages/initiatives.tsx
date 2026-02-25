@@ -148,7 +148,7 @@ export default function InitiativesPage() {
         <div className="flex items-center justify-between h-14 px-6">
           <div className="flex items-center gap-3">
             <Target className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-lg font-semibold">Initiatives</h1>
+            <h1 className="text-xl font-primary font-semibold">Initiatives</h1>
             <Badge variant="outline" className="text-xs">
               {initiatives.length}
             </Badge>

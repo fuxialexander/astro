@@ -202,7 +202,7 @@ function PreferencesContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-[28px] font-semibold">Preferences</h1>
+      <h1 className="text-xl font-primary font-semibold">Preferences</h1>
 
       {/* General */}
       <section className="flex flex-col gap-3">
@@ -551,7 +551,7 @@ function ProfileContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-[28px] font-semibold">Profile</h1>
+      <h1 className="text-xl font-primary font-semibold">Profile</h1>
 
       {/* User Identity */}
       <section className="flex flex-col gap-3">
@@ -1063,7 +1063,7 @@ function ConnectedAccountsContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-[28px] font-semibold">Connected accounts</h1>
+      <h1 className="text-xl font-primary font-semibold">Connected accounts</h1>
 
       {/* GitHub Integration */}
       <section className="flex flex-col gap-3">
@@ -1338,7 +1338,7 @@ function TeamsContent() {
   if (!isServerMode()) {
     return (
       <div className="flex flex-col gap-8">
-        <h1 className="text-[28px] font-semibold">Teams</h1>
+        <h1 className="text-xl font-primary font-semibold">Teams</h1>
         <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16">
           <Users className="mb-4 h-12 w-12 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Teams are only available in server mode</p>
@@ -1353,7 +1353,7 @@ function TeamsContent() {
   if (loading) {
     return (
       <div className="flex flex-col gap-8">
-        <h1 className="text-[28px] font-semibold">Teams</h1>
+        <h1 className="text-xl font-primary font-semibold">Teams</h1>
         <div className="flex items-center justify-center rounded-xl border border-border bg-card py-16">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -1366,7 +1366,7 @@ function TeamsContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-[28px] font-semibold">Teams</h1>
+      <h1 className="text-xl font-primary font-semibold">Teams</h1>
 
       {teams.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16">
@@ -1600,7 +1600,7 @@ function TeamsContent() {
 function PlaceholderContent({ title }: { title: string }) {
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-[28px] font-semibold">{title}</h1>
+      <h1 className="text-xl font-primary font-semibold">{title}</h1>
       <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16">
         <p className="text-sm text-muted-foreground">Coming soon</p>
       </div>

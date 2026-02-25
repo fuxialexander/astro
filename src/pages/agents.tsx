@@ -30,7 +30,7 @@ export function Agents() {
             <Cpu className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">Running Agents</h1>
+            <h1 className="text-xl font-primary font-semibold">Running Agents</h1>
             <p className="text-sm text-muted-foreground">
               {executingNodes.length} active task{executingNodes.length !== 1 ? "s" : ""}
             </p>

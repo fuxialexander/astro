@@ -99,7 +99,7 @@ export function Dashboard() {
       {/* Header Row */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold md:text-[28px]">
+          <h1 className="text-xl font-primary font-semibold">
             Good morning{profile.name && !profile.name.includes("@") ? `, ${profile.name}` : ""}
           </h1>
           <p className="text-sm text-muted-foreground">

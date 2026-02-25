@@ -529,7 +529,7 @@ export function Projects() {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold">Projects</h1>
+            <h1 className="text-xl font-primary font-semibold">Projects</h1>
             <div className="flex items-center gap-1">
               {viewTabs.map((tab) => (
                 <button
