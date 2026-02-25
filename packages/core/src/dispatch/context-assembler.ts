@@ -18,7 +18,10 @@ import type {
  * Assembles execution context for a task
  */
 export class ContextAssembler {
-  constructor(private config: Pick<DispatchEngineConfig, 'maxDependencyOutputSize'>) {}
+  config: Pick<DispatchEngineConfig, 'maxDependencyOutputSize'>
+  constructor(config: Pick<DispatchEngineConfig, 'maxDependencyOutputSize'>) {
+    this.config = config
+  }
 
   /**
    * Assemble full context for a task

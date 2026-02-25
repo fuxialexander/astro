@@ -43,7 +43,10 @@ export const DEFAULT_ROUTER_CONFIG: ResultRouterConfig = {
  * Result router implementation
  */
 export class ResultRouter {
-  constructor(private config: ResultRouterConfig = DEFAULT_ROUTER_CONFIG) {}
+  private config: ResultRouterConfig
+  constructor(config: ResultRouterConfig = DEFAULT_ROUTER_CONFIG) {
+    this.config = config
+  }
 
   /**
    * Route a task result to the appropriate next step
@@ -131,8 +134,8 @@ export class ResultRouter {
    * Route an auto-verified task
    */
   private routeAutoVerified(
-    node: PlanNode,
-    result: TaskResult,
+    _node: PlanNode,
+    _result: TaskResult,
     downstreamNodes: string[]
   ): RoutingDecision {
     return {
@@ -197,7 +200,7 @@ export class ResultRouter {
   /**
    * Build judgment context for a successful task
    */
-  private buildJudgmentContext(node: PlanNode, result: TaskResult): JudgmentContext {
+  private buildJudgmentContext(_node: PlanNode, result: TaskResult): JudgmentContext {
     const output = result.stdout || ''
     const truncatedOutput = this.truncateOutput(output)
 
@@ -223,7 +226,7 @@ export class ResultRouter {
    * Build judgment context for a failed task
    */
   private buildFailureJudgmentContext(
-    node: PlanNode,
+    _node: PlanNode,
     result: TaskResult
   ): JudgmentContext {
     const errorMessage = result.errorMessage || 'Unknown error'

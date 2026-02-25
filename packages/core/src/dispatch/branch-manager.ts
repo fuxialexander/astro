@@ -121,7 +121,7 @@ export class BranchManager {
    * Find all nodes on a specific branch (from a branch point)
    */
   findBranchNodes(
-    branchPointId: string,
+    _branchPointId: string,
     branchChildId: string,
     edges: PlanEdge[]
   ): string[] {
@@ -268,7 +268,7 @@ export class BranchManager {
    * Build prune result structure
    */
   buildPruneResult(
-    request: BranchPruneRequest,
+    _request: BranchPruneRequest,
     branchNodes: string[],
     cancelledTasks: string[],
     error?: string
