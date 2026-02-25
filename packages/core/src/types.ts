@@ -26,6 +26,7 @@ export interface SessionMessage {
 
 export interface ExecutionSummary {
   workCompleted: string;
+  keyFindings: string[];
   filesChanged: string[];
   status: 'success' | 'partial' | 'failure';
   followUps: string[];
@@ -169,6 +170,14 @@ export interface TaskLink {
   targetId?: string; // For internal task links
 }
 
+export interface AcceptanceCriterion {
+  id: string
+  type: 'test' | 'build' | 'lint' | 'command' | 'manual'
+  description: string
+  command?: string
+  autoVerifiable: boolean
+}
+
 export interface PlanNode {
   id: string;
   number?: number;
@@ -211,6 +220,7 @@ export interface PlanNode {
   content?: string; // Rich text content (HTML from TipTap)
   attachments?: TaskAttachment[];
   links?: TaskLink[];
+  acceptanceCriteria?: AcceptanceCriterion[];
 }
 
 // Comment on a plan node
@@ -258,6 +268,8 @@ export type TaskActivityEvent =
   | { type: 'chat_assistant'; content: string; timestamp: Date }
   | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: Date }
   | { type: 'error'; error: string; timestamp: Date }
+  | { type: 'approval_request'; requestId: string; question: string; options: string[]; timestamp: Date }
+  | { type: 'approval_response'; requestId: string; question: string; answer: string; timestamp: Date }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {
@@ -396,7 +408,7 @@ export interface UserProfile {
   defaultMachineId?: string;
   defaultProvider?: string;
   apiKeys: ApiKey[];
-  sidebarConfig?: Array<{ id: string; to: string; icon: string; label: string; visible: boolean; protected: boolean }>;
+  sidebarConfig?: Array<{ id: string; to: string; icon: string; label: string; visible: boolean; protected: boolean; autoRevealed?: boolean; userDismissed?: boolean }>;
   createdAt: Date;
   updatedAt: Date;
 }

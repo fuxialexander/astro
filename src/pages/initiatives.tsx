@@ -3,6 +3,7 @@ import { useNavigate } from "react-router"
 import { Target, Plus, Pencil, Trash2, Folder, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Card } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/empty-state"
 import {
   Dialog,
@@ -27,6 +28,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { formatShortDate } from "@/lib/date-utils"
 import { ColorIconPicker, ColorIconBadge } from "@/components/color-icon-picker"
 import { getRandomColor, getRandomInitiativeIcon } from "@/lib/color-icon-utils"
+import { OnboardingHint } from "@/components/onboarding-hint"
 import type { Initiative } from "@/types"
 
 const statusConfig: Record<Initiative["status"], { label: string; variant: "default" | "success" | "warning" | "destructive" }> = {
@@ -148,7 +150,7 @@ export default function InitiativesPage() {
         <div className="flex items-center justify-between h-14 px-6">
           <div className="flex items-center gap-3">
             <Target className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-lg font-semibold">Initiatives</h1>
+            <h1 className="text-xl font-primary font-semibold">Initiatives</h1>
             <Badge variant="outline" className="text-xs">
               {initiatives.length}
             </Badge>
@@ -161,6 +163,9 @@ export default function InitiativesPage() {
       </div>
 
       <div className="flex-1 overflow-auto">
+        <OnboardingHint hintId="initiatives-intro" icon={Target} className="mx-6 mt-3">
+          Initiatives group related projects under a shared goal — useful when managing many projects.
+        </OnboardingHint>
         <div className="p-6">
           {sortedInitiatives.length === 0 ? (
             <EmptyState
@@ -174,83 +179,82 @@ export default function InitiativesPage() {
             />
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {sortedInitiatives.map((initiative) => (
-                <div
-                  key={initiative.id}
-                  className="group relative rounded-lg border border-border bg-card p-5 hover:shadow-sm transition-shadow"
-                  style={{ borderLeftWidth: "4px", borderLeftColor: initiative.color || "#3b82f6" }}
-                >
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="flex items-start gap-2 flex-1 min-w-0">
-                      <ColorIconBadge
-                        color={initiative.color}
-                        icon={initiative.icon}
-                        type="initiative"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-sm mb-1 truncate">{initiative.name}</h3>
+              {sortedInitiatives.map((initiative) => {
+                const projectCount = projectsByInitiative.get(initiative.id) || 0
+                return (
+                  <Card key={initiative.id} className="group">
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-6">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <ColorIconBadge
+                          color={initiative.color}
+                          icon={initiative.icon}
+                          type="initiative"
+                        />
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate">{initiative.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {initiative.description || "No description"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
                         <Badge variant={statusConfig[initiative.status].variant} className="text-xs">
                           {statusConfig[initiative.status].label}
                         </Badge>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => handleOpenDialog(initiative)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive"
+                            onClick={() => handleDelete(initiative.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => handleOpenDialog(initiative)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive"
-                        onClick={() => handleDelete(initiative.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                    {/* Content */}
+                    <div className="flex flex-col gap-2 px-6 pb-6">
+                      {initiative.goal && (
+                        <div className="rounded-lg bg-muted p-3">
+                          <p className="text-xs text-muted-foreground line-clamp-2">
+                            <span className="font-medium text-foreground">Goal:</span> {initiative.goal}
+                          </p>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <button
+                          className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleOpenProjectsDialog(initiative.id)
+                          }}
+                        >
+                          <Folder className="h-3.5 w-3.5" />
+                          <span>{projectCount} project{projectCount !== 1 ? "s" : ""}</span>
+                        </button>
+                        <div className="flex items-center gap-3">
+                          {initiative.lead && (
+                            <span>{initiative.lead}</span>
+                          )}
+                          {initiative.targetDate && (
+                            <span>{formatShortDate(initiative.targetDate)}</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-
-                  {initiative.description && (
-                    <p className="text-xs text-muted-foreground mb-3 line-clamp-2">
-                      {initiative.description}
-                    </p>
-                  )}
-
-                  {initiative.goal && (
-                    <div className="mb-3 px-2.5 py-1.5 rounded bg-muted/50">
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        <span className="font-medium">Goal:</span> {initiative.goal}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <button
-                      className="flex items-center gap-1.5 hover:text-foreground transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleOpenProjectsDialog(initiative.id)
-                      }}
-                    >
-                      <Folder className="h-3.5 w-3.5" />
-                      <span>{projectsByInitiative.get(initiative.id) || 0} projects</span>
-                    </button>
-                    {initiative.targetDate && (
-                      <span>{formatShortDate(initiative.targetDate)}</span>
-                    )}
-                  </div>
-
-                  {initiative.lead && (
-                    <div className="mt-2 pt-2 border-t border-border">
-                      <span className="text-xs text-muted-foreground">Lead: {initiative.lead}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
+                  </Card>
+                )
+              })}
             </div>
           )}
         </div>

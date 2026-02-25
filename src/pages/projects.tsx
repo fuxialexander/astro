@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, List, Clock, Kanban } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -513,10 +513,10 @@ export function Projects() {
     return null
   }, [projects, renamingProjectId])
 
-  const viewTabs: { id: ViewTab; label: string }[] = [
-    { id: "all", label: "All projects" },
-    { id: "timeline", label: "Timeline" },
-    { id: "board", label: "Board" },
+  const viewTabs: { id: ViewTab; label: string; icon: typeof List }[] = [
+    { id: "all", label: "List", icon: List },
+    { id: "timeline", label: "Timeline", icon: Clock },
+    { id: "board", label: "Board", icon: Kanban },
   ]
 
   const projectColumns = useMemo(
@@ -529,28 +529,32 @@ export function Projects() {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold font-secondary">Projects</h1>
+            <h1 className="text-xl font-primary font-semibold">Projects</h1>
             <div className="flex items-center gap-1">
-              {viewTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setViewTab(tab.id)}
-                  className={cn(
-                    "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-                    viewTab === tab.id
-                      ? "text-accent-foreground border-b-2 border-accent"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {tab.label}
-                </button>
-              ))}
+              {viewTabs.map((tab) => {
+                const TabIcon = tab.icon
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setViewTab(tab.id)}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer flex items-center gap-1.5",
+                      viewTab === tab.id
+                        ? "text-accent-foreground border-b-2 border-accent"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <TabIcon className="h-3.5 w-3.5 md:hidden" />
+                    <span className="hidden md:inline">{tab.label}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="gap-1.5">
               <Upload className="h-3.5 w-3.5" />
-              Import
+              <span className="hidden md:inline">Import</span>
             </Button>
             <input
               ref={fileInputRef}
@@ -560,9 +564,9 @@ export function Projects() {
               onChange={handleImportFile}
             />
             <Button size="sm" asChild>
-              <Link to="/projects/new">
+              <Link to="/projects/new" className="gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
-                Add project
+                <span className="hidden md:inline">Add project</span>
               </Link>
             </Button>
             {viewTab !== "timeline" && <DisplayPopover config={projectsDisplayConfig} />}

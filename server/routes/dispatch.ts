@@ -21,17 +21,19 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, blobs } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
+import { buildInteractivePlanPrompt } from '../lib/prompt-templates.js'
+import { skillManager } from '../lib/skill-manager.js'
 
 // Validation schemas
 const dispatchTaskSchema = z.object({
   nodeId: z.string().min(1).max(100),
   projectId: z.string().min(1).max(100),
-  title: z.string().min(1).max(1000),
-  description: z.string().min(1).max(50000),
+  title: z.string().min(1).max(1000).optional(),
+  description: z.string().min(1).max(50000).optional(),
   dependencies: z.array(z.string().max(100)).max(100).optional(),
   verification: z.enum(['auto', 'human']).optional(),
   visionDoc: z.string().max(100000).optional(),
@@ -62,6 +64,14 @@ const dispatchTaskSchema = z.object({
   worktreeStrategy: z.enum(['copy', 'reference', 'direct']).optional(),
   useWorktree: z.boolean().optional(),
   imageRefs: z.array(z.string().uuid()).max(20).optional(),
+  isInteractivePlan: z.boolean().optional(),
+  acceptanceCriteria: z.array(z.object({
+    id: z.string(),
+    description: z.string(),
+    type: z.enum(['test', 'build', 'lint', 'command', 'manual']),
+    command: z.string().optional(),
+    autoVerifiable: z.boolean(),
+  })).optional(),
 })
 
 const dispatchRoute = new Hono()
@@ -89,12 +99,13 @@ dispatchRoute.post('/task', async (c) => {
     return c.json({ success: false, error: 'Invalid JSON' }, 400)
   }
 
-  const {
+  let {
     nodeId,
     projectId,
     title,
     description,
     dependencies = [],
+    verification,
     visionDoc,
     dependencyOutputs = [],
     priority = 'normal',
@@ -112,10 +123,102 @@ dispatchRoute.post('/task', async (c) => {
     worktreeStrategy,
     useWorktree,
     imageRefs,
+    isInteractivePlan,
+    acceptanceCriteria,
   } = body
 
-  // Validate working directory
-  if (!workingDirectory) {
+  // ── Server-side resolution: fill missing fields from DB ──────────
+  // Allows clients to send just { projectId, nodeId } and have the
+  // server assemble the full dispatch payload from the database.
+  if (!title || !description || !workingDirectory || !visionDoc || !deliveryMode) {
+    try {
+      // Fetch plan node
+      const [dbNode] = await db.select().from(planNodes)
+        .where(eq(planNodes.clientId, nodeId)).limit(1)
+      // Fetch project
+      const [dbProject] = await db.select().from(projects)
+        .where(eq(projects.id, projectId)).limit(1)
+
+      if (dbNode) {
+        title ??= dbNode.title
+        description ??= dbNode.description || dbNode.content || dbNode.title
+        verification ??= (dbNode.verification as 'auto' | 'human') || undefined
+        acceptanceCriteria ??= dbNode.acceptanceCriteria as typeof acceptanceCriteria
+
+        // Resolve dependencies from DB if not provided
+        if (dependencies.length === 0) {
+          const depRows = await db.select({ depId: planNodeDependencies.dependsOnClientId })
+            .from(planNodeDependencies)
+            .where(and(
+              eq(planNodeDependencies.nodeProjectId, projectId),
+              eq(planNodeDependencies.nodeClientId, nodeId)
+            ))
+          dependencies = depRows.map(r => r.depId)
+        }
+
+        // Build dependency outputs from DB if not provided
+        if (dependencyOutputs.length === 0 && dependencies.length > 0) {
+          const allProjectNodes = await db.select({
+            clientId: planNodes.clientId,
+            title: planNodes.title,
+            executionOutput: planNodes.executionOutput,
+            projectId: planNodes.projectId,
+          }).from(planNodes)
+            .where(eq(planNodes.projectId, projectId))
+
+          for (const depId of dependencies) {
+            const depNode = allProjectNodes.find(n => n.clientId === depId)
+            if (depNode?.executionOutput) {
+              dependencyOutputs.push({
+                nodeId: depNode.clientId,
+                title: depNode.title,
+                output: depNode.executionOutput,
+              })
+            }
+          }
+        }
+      }
+
+      if (dbProject) {
+        visionDoc ??= dbProject.visionDoc || undefined
+        deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
+        const source = dbProject.source as { localPath?: string; remoteType?: string } | null
+        remoteType ??= (source?.remoteType as typeof remoteType) || undefined
+
+        // Resolve working directory from project
+        if (!workingDirectory) {
+          if (dbProject.defaultMachineId && dbProject.workingDirectory && !dbProject.repository) {
+            workingDirectory = dbProject.workingDirectory
+          } else {
+            const localPath = source?.localPath ?? dbProject.workingDirectory
+            if (localPath) {
+              workingDirectory = localPath
+            } else if (dbProject.repository) {
+              workingDirectory = dbProject.repository
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[dispatch] Failed to resolve fields from DB:', err)
+      return c.json(
+        { success: false, error: 'Failed to resolve task details from database' },
+        500
+      )
+    }
+  }
+
+  // Validate required fields after resolution
+  if (!title) {
+    return c.json(
+      { success: false, error: 'Task title is required (not found in request or database)' },
+      400
+    )
+  }
+  description ??= title
+
+  // Validate working directory (interactive plan sessions can brainstorm without one)
+  if (!workingDirectory && !isInteractivePlan) {
     return c.json(
       { success: false, error: 'No working directory or repository configured' },
       400
@@ -204,6 +307,9 @@ dispatchRoute.post('/task', async (c) => {
     worktreeStrategy,
     useWorktree,
     imageRefs,
+    isInteractivePlan,
+    verification,
+    acceptanceCriteria,
   })
 })
 
@@ -216,8 +322,8 @@ async function dispatchViaRelay(
     nodeId: string
     projectId: string
     executionId: string
-    title: string
-    description: string
+    title?: string
+    description?: string
     visionDoc?: string
     dependencyOutputs: Array<{ nodeId: string; title: string; output: string }>
     preferredProvider?: ProviderType
@@ -233,6 +339,9 @@ async function dispatchViaRelay(
     worktreeStrategy?: string
     useWorktree?: boolean
     imageRefs?: string[]
+    isInteractivePlan?: boolean
+    verification?: 'auto' | 'human'
+    acceptanceCriteria?: Array<{ id: string; description: string; type: string; command?: string; autoVerifiable: boolean }>
   }
 ) {
   const {
@@ -256,6 +365,9 @@ async function dispatchViaRelay(
     worktreeStrategy,
     useWorktree,
     imageRefs,
+    isInteractivePlan,
+    verification,
+    acceptanceCriteria,
   } = params
 
   // Extract user for ownership verification
@@ -286,55 +398,110 @@ async function dispatchViaRelay(
     }
   }
 
-  // Build full execution prompt
+  // Build prompt — interactive plans use the dedicated planning prompt template;
+  // regular executions use the standard task execution prompt.
+  let relaySystemPrompt: string | undefined
   const promptParts: string[] = []
 
-  if (visionDoc) {
-    promptParts.push(`## Project Vision\n\n${visionDoc}`)
-  }
+  // Get available skills for prompt injection
+  const skillsInjection = skillManager.getSkillPromptInjection() || undefined
 
-  if (dependencyOutputs.length > 0) {
-    const depsSection = dependencyOutputs
-      .map((d) => `### ${d.title}\n\n${d.output}`)
-      .join('\n\n---\n\n')
-    promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
-  }
+  if (isInteractivePlan) {
+    // Use the dedicated interactive plan prompt as a system prompt.
+    // It includes vision doc, repo context, git state, and planning instructions.
+    relaySystemPrompt = buildInteractivePlanPrompt(description, {
+      visionDoc: visionDoc || undefined,
+      skillsSummary: skillsInjection,
+    })
+    // The user prompt is just the description
+    promptParts.push(description)
+  } else {
+    if (visionDoc) {
+      promptParts.push(`## Project Vision\n\n${visionDoc}`)
+    }
 
-  if (workingDirectory) {
-    promptParts.push(`## Working Directory\n\n${workingDirectory}`)
-  }
+    if (dependencyOutputs.length > 0) {
+      const depsSection = dependencyOutputs
+        .map((d) => `### ${d.title}\n\n${d.output}`)
+        .join('\n\n---\n\n')
+      promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
+    }
 
-  if (sourceDirectory) {
-    promptParts.push(`## Data Access\n\nYour working directory is a git worktree (isolated branch) in a sibling directory next to the project.\nThe original project directory is: ${sourceDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
-  }
+    if (workingDirectory) {
+      promptParts.push(`## Working Directory\n\n${workingDirectory}`)
+    }
 
-  promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)
+    if (sourceDirectory) {
+      promptParts.push(`## Data Access\n\nYour working directory is a git worktree (isolated branch) in a sibling directory next to the project.\nThe original project directory is: ${sourceDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
+    }
 
-  promptParts.push(`## Instructions
+    promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)
+
+    // Inject available skills so the agent knows what tools are available
+    if (skillsInjection) {
+      promptParts.push(`## Available Skills & Tools\n\n${skillsInjection}`)
+    }
+
+    // Build verification section based on acceptance criteria and verification field
+    const criteria = acceptanceCriteria || []
+    const autoChecks = criteria.filter(c => c.autoVerifiable && c.command)
+    const manualChecks = criteria.filter(c => !c.autoVerifiable)
+
+    let verificationSection: string
+    if (autoChecks.length > 0) {
+      const checkList = autoChecks.map(c => `- **${c.description}**: Run \`${c.command}\``).join('\n')
+      verificationSection = `Before finishing, run these verification checks:\n\n${checkList}\n\nReport results of each check.`
+      if (verification === 'auto') {
+        verificationSection += `\nIf all checks pass, the task will be auto-approved. If any fails, a human will review.`
+      }
+      if (manualChecks.length > 0) {
+        verificationSection += `\n\nA human reviewer will also evaluate:\n${manualChecks.map(c => `- ${c.description}`).join('\n')}`
+      }
+    } else if (verification === 'auto') {
+      verificationSection = `This task uses **automatic verification**. Before finishing:
+- Run the test suite if tests exist for the modified code
+- Ensure the build passes (\`npm run build\` or equivalent)
+- Run the linter if configured
+- Report test results, build status, and any warnings in your final output
+If all checks pass, the task will be auto-approved. If any check fails, a human will review.`
+    } else {
+      verificationSection = `This task requires **human judgment** after completion. A human reviewer will evaluate your work. Make sure to:
+- Clearly summarize what you did and why
+- Note any trade-offs or decisions you made
+- Highlight anything the reviewer should pay attention to
+- If you are uncertain about any implementation choice, use \`ask_user_question\` to get guidance before proceeding`
+      if (manualChecks.length > 0) {
+        verificationSection += `\n\nThe reviewer will check:\n${manualChecks.map(c => `- ${c.description}`).join('\n')}`
+      }
+    }
+
+    promptParts.push(`## Instructions
 
 Execute the task described above. Focus on completing the task thoroughly and correctly.
 - Use appropriate tools to accomplish the task
 - Report progress and any issues encountered
-- Verify your work when possible
-- Be thorough but efficient
 - When you are done, commit all your changes with a descriptive commit message summarizing what was accomplished
 
-### Making Decisions vs. Asking for User Input
+### Asking the User for Decisions
 
-**When to proceed independently:**
-- Standard best practices and established patterns exist
-- Technical decisions with clear trade-offs you can evaluate
-- Implementation details that don't affect user-facing behavior
-- Refactoring and code quality improvements
+You have an \`ask_user_question\` tool. When you call it, execution pauses and the user sees your question with selectable options in their dashboard. They pick an option, and you resume with their answer. **Use it actively** — it's better to ask than to guess wrong.
 
-**When to note that user input would be valuable:**
-If you encounter a decision point where multiple approaches are equally valid and the choice depends on user preferences or priorities (e.g., which library to use, architectural patterns, feature trade-offs), note it clearly in your output:
-1. Describe the decision point
-2. Present 2-3 viable options with brief trade-offs
-3. State which option you recommend and why
-4. Proceed with your recommended approach unless instructed otherwise
+**Ask the user when:**
+- Multiple implementation approaches are equally valid (e.g., library choice, architectural pattern)
+- A design decision affects user-facing behavior or UX
+- You're unsure about scope — should you do the minimal fix or a broader refactor?
+- Trade-offs exist where user priorities matter (performance vs. simplicity, etc.)
+- You discover something unexpected that changes the task's scope or approach
 
-The user can review your reasoning in the task output and provide guidance if they disagree with your choice.`)
+**Proceed independently when:**
+- Standard best practices clearly apply
+- The decision is a technical implementation detail invisible to users
+- There's an obvious "right" answer based on codebase conventions
+
+### Verification
+
+${verificationSection}`)
+  }
 
   // Fetch images from blob DB if referenced in task content
   let images: ImageAttachment[] | undefined
@@ -409,6 +576,8 @@ The user can review your reasoning in the task output and provide guidance if th
     worktreeStrategy,
     useWorktree,
     images,
+    ...(isInteractivePlan ? { type: 'plan' as const } : {}),
+    ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
@@ -661,18 +830,21 @@ The user can review your reasoning in the task output and provide guidance if th
  *
  * All steering goes through relay to agent runners.
  */
-dispatchRoute.post('/steer', async (c) => {
-  const { taskId, machineId, message, action, interrupt } = await c.req.json<{
-    taskId: string
-    machineId: string
-    message: string
-    action?: 'guidance' | 'redirect' | 'pause' | 'resume'
-    interrupt?: boolean
-  }>()
+const steerSchema = z.object({
+  taskId: z.string().min(1),
+  machineId: z.string().min(1),
+  message: z.string().min(1).max(50000),
+  action: z.enum(['guidance', 'redirect', 'pause', 'resume']).optional(),
+  interrupt: z.boolean().optional(),
+})
 
-  if (!taskId || !machineId || !message) {
+dispatchRoute.post('/steer', async (c) => {
+  const raw = await c.req.json()
+  const parsed = steerSchema.safeParse(raw)
+  if (!parsed.success) {
     return c.json({ success: false, error: 'taskId, machineId, and message are required' }, 400)
   }
+  const { taskId, machineId, message, action, interrupt } = parsed.data
 
   const sent = relayServer.steerTask(taskId, machineId, message, action, interrupt)
 
@@ -689,19 +861,22 @@ dispatchRoute.post('/steer', async (c) => {
 /**
  * Send approval response back to agent runner
  */
-dispatchRoute.post('/approval', async (c) => {
-  const { taskId, machineId, requestId, answered, answer, message } = await c.req.json<{
-    taskId: string
-    machineId: string
-    requestId: string
-    answered: boolean
-    answer?: string
-    message?: string
-  }>()
+const approvalSchema = z.object({
+  taskId: z.string().min(1),
+  machineId: z.string().min(1),
+  requestId: z.string().min(1),
+  answered: z.boolean(),
+  answer: z.string().max(50000).optional(),
+  message: z.string().max(50000).optional(),
+})
 
-  if (!taskId || !machineId || !requestId) {
+dispatchRoute.post('/approval', async (c) => {
+  const raw = await c.req.json()
+  const parsed = approvalSchema.safeParse(raw)
+  if (!parsed.success) {
     return c.json({ success: false, error: 'taskId, machineId, and requestId are required' }, 400)
   }
+  const { taskId, machineId, requestId, answered, answer, message } = parsed.data
 
   const sent = relayServer.sendApprovalResponse(taskId, machineId, requestId, answered, answer, message)
 
@@ -787,9 +962,19 @@ dispatchRoute.post('/cancel', async (c) => {
 /**
  * Prune a branch
  */
+const pruneSchema = z.object({
+  projectId: z.string().uuid(),
+  nodeId: z.string().min(1),
+  reason: z.string().max(5000).optional(),
+})
+
 dispatchRoute.post('/prune', async (c) => {
-  const body = await c.req.json<BranchPruneRequest>()
-  const result = await dispatchEngine.pruneBranch(body)
+  const raw = await c.req.json()
+  const parsed = pruneSchema.safeParse(raw)
+  if (!parsed.success) {
+    return c.json({ success: false, error: 'Invalid request', details: parsed.error.issues }, 400)
+  }
+  const result = await dispatchEngine.pruneBranch(parsed.data as BranchPruneRequest)
 
   if (!result.success) {
     return c.json(result, 400)

@@ -1,16 +1,20 @@
-import { useState, useCallback, useEffect } from "react"
-import { FolderGit2, Save, Github, Search, Loader2, AlertCircle } from "lucide-react"
+import { useState, useCallback, useEffect, useMemo } from "react"
+import { FolderGit2, FolderOpen, Save, Github, Search, Loader2, AlertCircle, Laptop, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useProjectStore } from "@/stores/project-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useMachinesStore } from "@/stores/machines-store"
+import { useExecutionStore } from "@/stores/execution-store"
+import { useRealtimeStore } from "@/stores/realtime-store"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
+import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { validateAbsolutePath } from "@/lib/path-utils"
 import { validateGitUrl } from "@/lib/git-url-utils"
 import { isServerMode } from "@/lib/app-mode"
+import { cn } from "@/lib/utils"
 import type { Project } from "@/types"
 
 export function RepoConfigDialog({
@@ -25,8 +29,12 @@ export function RepoConfigDialog({
   const updateProject = useProjectStore((s) => s.updateProject)
   const addActivity = useActivityStore((s) => s.addActivity)
   const { connected, repos, selectedRepoIds, fetchRepos } = useGitHubStore()
-  const machines = useMachinesStore((s) => s.machines)
+  const registeredMachines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
+  const relayMachines = useExecutionStore((s) => s.machines)
+  const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
+  const loadMachines = useExecutionStore((s) => s.loadMachines)
+  const realtimeMachines = useRealtimeStore((s) => s.machines)
   const { setupRepo } = useRepoSetup()
   const isMultiTenant = isServerMode()
 
@@ -39,13 +47,15 @@ export function RepoConfigDialog({
   const [searchQuery, setSearchQuery] = useState("")
   const [pathError, setPathError] = useState<string | null>(null)
   const [repoUrlError, setRepoUrlError] = useState<string | null>(null)
+  const [showPathBrowser, setShowPathBrowser] = useState(false)
 
-  // Fetch machines if in multi-tenant mode
+  // Load machines on open
   useEffect(() => {
-    if (isMultiTenant && open) {
-      fetchMachines()
+    if (open) {
+      if (isMultiTenant) fetchMachines()
+      if (!machinesLoaded) loadMachines()
     }
-  }, [isMultiTenant, open, fetchMachines])
+  }, [open, isMultiTenant, fetchMachines, machinesLoaded, loadMachines])
 
   // Fetch GitHub repos when connected
   useEffect(() => {
@@ -53,6 +63,34 @@ export function RepoConfigDialog({
       fetchRepos()
     }
   }, [connected, open, repos.length, fetchRepos])
+
+  // Build unified machine list
+  const allMachines = useMemo(() => {
+    if (isMultiTenant) {
+      return registeredMachines.filter((m) => !m.isRevoked).map((m) => ({
+        id: m.id,
+        name: m.name,
+        hostname: m.hostname,
+        isConnected: m.isConnected,
+      }))
+    }
+    // Local mode: merge relay + realtime machines
+    const seen = new Set<string>()
+    const result: Array<{ id: string; name: string; hostname?: string; isConnected: boolean }> = []
+    for (const m of relayMachines) {
+      if (!seen.has(m.machineId)) {
+        seen.add(m.machineId)
+        result.push({ id: m.machineId, name: m.name, hostname: m.hostname, isConnected: m.status !== 'offline' })
+      }
+    }
+    for (const [, m] of realtimeMachines) {
+      if (!seen.has(m.machineId)) {
+        seen.add(m.machineId)
+        result.push({ id: m.machineId, name: m.name, isConnected: true })
+      }
+    }
+    return result
+  }, [isMultiTenant, registeredMachines, relayMachines, realtimeMachines])
 
   // Filter repos by search query
   const filteredRepos = repos.filter((repo) => {
@@ -82,14 +120,12 @@ export function RepoConfigDialog({
         setRepoUrlError(urlValidation.error || 'Invalid Git URL')
         return
       }
-      // Use the SSH URL
       finalRepoUrl = urlValidation.sshUrl || finalRepoUrl
     }
     setRepoUrlError(null)
 
     setIsSaving(true)
     try {
-      // If working directory is set, call setupRepo to validate
       if (workDir.trim() || finalRepoUrl) {
         const result = await setupRepo({
           projectId: project.id,
@@ -97,19 +133,17 @@ export function RepoConfigDialog({
           projectDescription: project.description,
           workingDirectory: workDir.trim() || undefined,
           repository: finalRepoUrl || undefined,
+          targetMachineId: selectedMachineId || undefined,
         })
 
-        // Update project state with the result
         updateProject(project.id, {
           repository: finalRepoUrl || undefined,
           workingDirectory: result?.workingDirectory,
           defaultMachineId: selectedMachineId || undefined,
         })
 
-        // Update local state with SSH URL
         setRepoUrl(finalRepoUrl)
       } else {
-        // No directory or repo - just update machine if changed
         updateProject(project.id, {
           repository: undefined,
           workingDirectory: undefined,
@@ -145,6 +179,8 @@ export function RepoConfigDialog({
     workDir !== (project.workingDirectory ?? "") ||
     selectedMachineId !== (project.defaultMachineId ?? "")
 
+  const selectedMachineName = allMachines.find((m) => m.id === selectedMachineId)?.name
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -154,11 +190,87 @@ export function RepoConfigDialog({
             Repository & Directory
           </DialogTitle>
           <p className="text-xs text-muted-foreground">
-            At least one is required for task execution. Local directory takes priority over repository URL.
+            Configure where agents work. Select a machine, then point to a directory or repository.
           </p>
         </DialogHeader>
         <div className="flex flex-col gap-4">
-          {/* GitHub Integration Section */}
+
+          {/* ── 1. Machine Selector ─────────────────────────────────── */}
+          {allMachines.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium">Target Machine</label>
+              <div className="flex flex-wrap gap-2">
+                {allMachines.map((m) => {
+                  const isSelected = selectedMachineId === m.id
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMachineId(isSelected ? "" : m.id)
+                        setSaved(false)
+                      }}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                        isSelected
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:bg-muted"
+                      )}
+                    >
+                      <Laptop className="h-3 w-3" />
+                      {m.name}
+                      {m.isConnected && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                      )}
+                      {isSelected && <CheckCircle2 className="h-3 w-3" />}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Choose which machine will execute tasks for this project
+              </p>
+            </div>
+          )}
+
+          {/* ── 2. Working Directory ────────────────────────────────── */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium">Working Directory</label>
+            <div className="relative">
+              {selectedMachineId && (
+                <button
+                  type="button"
+                  onClick={() => setShowPathBrowser(true)}
+                  title="Browse directories"
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <input
+                type="text"
+                className={cn(
+                  "w-full rounded-md border border-input bg-background py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  selectedMachineId ? "pl-8 pr-3" : "px-3",
+                  pathError && "border-destructive",
+                )}
+                placeholder={selectedMachineId ? "/remote/path/to/project" : "/absolute/path/to/project"}
+                value={workDir}
+                onChange={(e) => handleWorkDirChange(e.target.value)}
+              />
+            </div>
+            {pathError && (
+              <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>{pathError}</span>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Absolute path (e.g., /Users/you/projects/my-app). Local directory takes priority over repository URL.
+            </p>
+          </div>
+
+          {/* ── 3. GitHub / Repository URL ──────────────────────────── */}
           {connected ? (
             <div className="flex flex-col gap-3 p-3 rounded-lg border bg-muted/30">
               <div className="flex items-center justify-between">
@@ -209,7 +321,6 @@ export function RepoConfigDialog({
                         <button
                           key={repo.id}
                           onClick={() => {
-                            // Use SSH URL from GitHub repo
                             setRepoUrl(repo.sshUrl)
                             setSaved(false)
                             setUseGitHub(false)
@@ -284,56 +395,6 @@ export function RepoConfigDialog({
               </p>
             </div>
           )}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">Local Working Directory</label>
-            <input
-              type="text"
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              placeholder="/absolute/path/to/project (no ~ or relative paths)"
-              value={workDir}
-              onChange={(e) => handleWorkDirChange(e.target.value)}
-            />
-            {pathError && (
-              <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>{pathError}</span>
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Must be an absolute path starting with / (e.g., /Users/username/projects/my-app)
-            </p>
-          </div>
-
-          {/* Machine Selector (Supabase mode only) */}
-          {isMultiTenant && machines.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Target Machine</label>
-              <select
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={selectedMachineId}
-                onChange={(e) => {
-                  setSelectedMachineId(e.target.value)
-                  setSaved(false)
-                }}
-              >
-                <option value="">-- Select a machine --</option>
-                {machines.map((machine) => {
-                  // Show name if different from hostname, otherwise just show hostname
-                  const displayText = machine.name !== machine.hostname
-                    ? `${machine.name} (${machine.hostname})`
-                    : machine.hostname
-                  return (
-                    <option key={machine.id} value={machine.id}>
-                      {displayText}
-                    </option>
-                  )
-                })}
-              </select>
-              <p className="text-xs text-muted-foreground">
-                Choose which machine will execute tasks for this project
-              </p>
-            </div>
-          )}
         </div>
         <div className="flex items-center justify-between pt-2">
           <span className="text-xs text-muted-foreground">
@@ -348,6 +409,22 @@ export function RepoConfigDialog({
             {isSaving ? "Saving..." : "Save"}
           </Button>
         </div>
+
+        {/* Remote path browser dialog */}
+        {selectedMachineId && (
+          <RemotePathBrowser
+            open={showPathBrowser}
+            onOpenChange={setShowPathBrowser}
+            machineId={selectedMachineId}
+            machineName={selectedMachineName}
+            currentPath={workDir || undefined}
+            onSelect={(path) => {
+              setWorkDir(path)
+              setPathError(null)
+              setSaved(false)
+            }}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )

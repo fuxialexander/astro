@@ -189,6 +189,7 @@ create table plan_nodes (
   execution_error text,
   execution_started_at timestamptz,
   execution_completed_at timestamptz,
+  acceptance_criteria jsonb default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- Unique constraint on (project_id, client_id)

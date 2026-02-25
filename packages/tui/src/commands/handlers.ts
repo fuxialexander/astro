@@ -7,7 +7,6 @@ import { usePlanStore } from '../stores/plan-store.js'
 import { useMachinesStore } from '../stores/machines-store.js'
 import { useTuiStore } from '../stores/tui-store.js'
 import { useExecutionStore } from '../stores/execution-store.js'
-import { buildDispatchPayload } from '../../../core/src/dispatch/payload.js'
 
 export type CommandHandler = (args: string[], client: AstroClient) => Promise<void>
 
@@ -125,27 +124,9 @@ export const handlers: Record<string, CommandHandler> = {
       return
     }
 
-    // Look up node and project to get required dispatch fields
-    const node = usePlanStore.getState().nodes.find((n) => n.id === nodeId)
-    if (!node) {
-      useTuiStore.getState().setLastError(`Plan node not found: ${nodeId}`)
-      return
-    }
-    const project = useProjectsStore.getState().projects.find((p) => p.id === projectId)
-    if (!project) {
-      useTuiStore.getState().setLastError('Project not found')
-      return
-    }
-
     try {
-      let payload
-      try {
-        payload = buildDispatchPayload(node, project)
-      } catch (e) {
-        useTuiStore.getState().setLastError(e instanceof Error ? e.message : String(e))
-        return
-      }
-      const response = await client.dispatchTask(payload)
+      // Send minimal payload — server resolves everything from DB
+      const response = await client.dispatchTask({ nodeId, projectId })
       // Init execution tracking
       const execId = `exec-${Date.now()}`
       useExecutionStore.getState().initExecution(execId, nodeId)

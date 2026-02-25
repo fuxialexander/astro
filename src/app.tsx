@@ -42,11 +42,12 @@ import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
 import { Environments } from "@/pages/environments"
-import { Agents } from "@/pages/agents"
+
 import { MyTasks } from "@/pages/my-tasks"
 import { Workflows } from "@/pages/workflows"
 import { ActiveTasks } from "@/pages/active-tasks"
 import { TeamInvite } from "@/pages/team-invite"
+import { ProjectNewPlan } from "@/pages/project-new-plan"
 
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
@@ -281,13 +282,14 @@ export default function App() {
               {/* Root: landing if unauthenticated, dashboard if authenticated */}
               <Route index element={<RootRedirect />} />
 
-              <Route path="welcome" element={<ProjectNew />} />
+              <Route path="welcome" element={<AuthGuard><ProjectNewPlan /></AuthGuard>} />
 
               {/* Authenticated routes - Responsive */}
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="projects/new" element={<ProjectNew />} />
+                <Route path="projects/new/plan" element={<ProjectNewPlan />} />
                 <Route path="project/:id" element={<PlanView />} />
                 <Route path="project/:id/graph" element={<PlanView />} />
                 <Route path="project/:id/list" element={<PlanView />} />
@@ -298,7 +300,7 @@ export default function App() {
                 <Route path="initiatives" element={<Initiatives />} />
                 <Route path="tasks" element={<MyTasks />} />
                 <Route path="active" element={<ActiveTasks />} />
-                <Route path="agents" element={<Agents />} />
+
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />
                 <Route path="settings" element={<Settings />} />

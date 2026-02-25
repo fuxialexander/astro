@@ -124,6 +124,9 @@ export const planNodes = pgTable('plan_nodes', {
   links: jsonb('links').$type<Array<{
     id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string
   }>>().default([]),
+  acceptanceCriteria: jsonb('acceptance_criteria').$type<Array<{
+    id: string; description: string; type: string; command?: string; autoVerifiable: boolean
+  }>>().default([]),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

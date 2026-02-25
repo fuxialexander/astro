@@ -10,6 +10,9 @@ import {
   Plus,
   Sun,
   Search,
+  Sparkles,
+  Zap,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react"
 
@@ -66,20 +69,28 @@ export const navigationCommands: CommandDefinition[] = [
     shortcut: "⌘⇧E",
   },
   {
-    id: "nav-agents",
-    label: "Agents",
-    description: "View and manage agents",
-    icon: Users,
-    category: "navigation",
-    keywords: ["agents", "ai", "automation"],
-  },
-  {
     id: "nav-initiatives",
     label: "Initiatives",
     description: "View strategic initiatives",
     icon: Target,
     category: "navigation",
     keywords: ["initiatives", "goals", "strategy"],
+  },
+  {
+    id: "nav-active",
+    label: "Active Tasks",
+    description: "View currently running tasks",
+    icon: Zap,
+    category: "navigation",
+    keywords: ["active", "running", "live", "executing"],
+  },
+  {
+    id: "nav-workflows",
+    label: "Workflows",
+    description: "Manage workflows",
+    icon: BookOpen,
+    category: "navigation",
+    keywords: ["workflows", "automation", "pipelines"],
   },
   {
     id: "nav-settings",
@@ -104,6 +115,14 @@ export const actionCommands: CommandDefinition[] = [
     category: "actions",
     keywords: ["create", "new", "project", "start"],
     shortcut: "⌘N",
+  },
+  {
+    id: "action-plan-generation",
+    label: "Interactive Plan Generation",
+    description: "Start an AI-assisted plan generation session",
+    icon: Sparkles,
+    category: "actions",
+    keywords: ["plan", "generate", "ai", "interactive", "brainstorm", "decompose"],
   },
   {
     id: "action-new-team-project",

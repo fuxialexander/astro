@@ -12,7 +12,7 @@ export function registerSearchCommands(program: Command): void {
     .option('--since <date>', 'Show results updated after date (e.g. 2d, 1h, today, ISO)')
     .option('--until <date>', 'Show results updated before date (e.g. 2d, 1h, yesterday, ISO)')
     .action(async (query: string, cmdOpts: { type?: string; since?: string; until?: string }) => {
-      const client = getClient()
+      const client = getClient(program.opts().serverUrl)
       const isJson = program.opts().json
 
       let projectResults: Project[], taskResults: Array<PlanNode & { projectName?: string }>, executionResults: Execution[]

@@ -3,7 +3,6 @@ import chalk from 'chalk'
 import { getClient, streamDispatchToStdout } from '../client.js'
 import type { PlanNode } from '../client.js'
 import { print, formatRelativeTime, formatStatus, parseDateFilter, formatDuration, type ColumnDef } from '../output.js'
-import { buildDispatchPayload, buildDependencyOutputs } from '../../../core/src/dispatch/payload.js'
 
 export function registerTaskCommands(program: Command): void {
   const cmd = program.command('task').description('Manage tasks')
@@ -16,7 +15,7 @@ export function registerTaskCommands(program: Command): void {
     .option('--since <date>', 'Show tasks updated after date (e.g. 2d, 1h, today, ISO)')
     .option('--until <date>', 'Show tasks updated before date (e.g. 2d, 1h, yesterday, ISO)')
     .action(async (opts: { project?: string; status?: string; since?: string; until?: string }) => {
-      const client = getClient()
+      const client = getClient(program.opts().serverUrl)
       const isJson = program.opts().json
 
       let nodes
@@ -86,7 +85,7 @@ export function registerTaskCommands(program: Command): void {
     .command('show <id>')
     .description('Show task details')
     .action(async (clientId: string) => {
-      const client = getClient()
+      const client = getClient(program.opts().serverUrl)
       const isJson = program.opts().json
 
       let nodes
@@ -244,31 +243,20 @@ export function registerTaskCommands(program: Command): void {
     .description('Dispatch a task for execution')
     .requiredOption('--project-id <id>', 'Project ID')
     .option('--force', 'Force re-dispatch even if already running')
-    .option('--server-url <url>', 'Override server URL')
-    .action(async (nodeId: string, opts: { projectId: string; force?: boolean; serverUrl?: string }) => {
-      const client = getClient(opts.serverUrl)
+    .action(async (nodeId: string, opts: { projectId: string; force?: boolean }) => {
+      const client = getClient(program.opts().serverUrl)
 
       console.log(chalk.dim(`Dispatching task ${chalk.bold(nodeId)} to server...`))
       console.log()
 
       try {
-        // Fetch node and project to build a complete dispatch payload
-        const [project, { nodes }] = await Promise.all([
-          client.getProject(opts.projectId),
-          client.getPlan(opts.projectId),
-        ])
-        const node = nodes.find((n: PlanNode) => n.id === nodeId && !n.deletedAt)
-        if (!node) {
-          throw new Error(`Task not found: ${nodeId}`)
-        }
-
-        const dependencyOutputs = buildDependencyOutputs(node.dependencies, nodes, opts.projectId)
-        const payload = buildDispatchPayload(node, project, { force: opts.force })
-        if (dependencyOutputs.length > 0) {
-          payload.dependencyOutputs = dependencyOutputs
-        }
-
-        const response = await client.dispatchTask(payload)
+        // Send minimal payload — server resolves title, description,
+        // working directory, dependencies, and vision doc from the DB.
+        const response = await client.dispatchTask({
+          nodeId,
+          projectId: opts.projectId,
+          force: opts.force,
+        })
         await streamDispatchToStdout(response)
         console.log()
         console.log(chalk.green('Task dispatch complete.'))

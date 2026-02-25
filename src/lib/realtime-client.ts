@@ -27,6 +27,7 @@ export type RealtimeEventType =
   | 'session:event'
   | 'approval:requested'
   | 'approval:responded'
+  | 'task:ready'
   | 'merge_queue:failed'
   | 'merge_queue:succeeded'
   | 'heartbeat'
@@ -110,6 +111,7 @@ export class RealtimeClient {
       'session:event',
       'approval:requested',
       'approval:responded',
+      'task:ready',
       'merge_queue:failed',
       'merge_queue:succeeded',
       'heartbeat',

@@ -12,6 +12,7 @@ import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
 import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
+import { extractPlanJsonFromText } from "@/lib/plan-extraction"
 
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -175,6 +176,21 @@ interface ExecutionState {
   addToolTrace: (nodeId: string, trace: ToolTrace) => void
   addFileChange: (nodeId: string, change: FileChange) => void
   updateToolTraceResult: (nodeId: string, toolName: string, result: unknown, success?: boolean, duration?: number) => void
+
+  // Plan session methods
+  startPlanSession: (
+    description: string,
+    projectName: string,
+    options?: {
+      targetMachineId?: string
+      workingDirectory?: string
+      model?: string
+      visionDoc?: string
+      repository?: string
+    }
+  ) => Promise<{ projectId: string; nodeId: string }>
+  cancelPlanSession: (projectId: string) => Promise<void>
+  steerPlanSession: (projectId: string, message: string) => Promise<boolean>
 
   // Persistence
   load: () => Promise<void>
@@ -362,6 +378,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           worktreeStrategy: project?.worktreeStrategy,
           useWorktree: options?.useWorktree,
           imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
+          acceptanceCriteria: node.acceptanceCriteria,
         }),
         signal: abortController.signal,
       })
@@ -381,8 +398,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.status = "cancelled"
-            exec.completedAt = new Date()
+            newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
           }
           return { executions: newExecutions }
         })
@@ -394,9 +410,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.status = "failure"
-            exec.error = message
-            exec.completedAt = new Date()
+            newExecutions.set(nodeId, { ...exec, status: "failure", error: message, completedAt: new Date() })
           }
           return { executions: newExecutions }
         })
@@ -581,7 +595,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const newBatch = new Map(state.batchExecutions)
       const batch = newBatch.get(projectId)
       if (batch) {
-        batch.active = false
+        newBatch.set(projectId, { ...batch, active: false })
       }
       return { batchExecutions: newBatch }
     })
@@ -763,8 +777,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const newExecutions = new Map(state.executions)
       const exec = newExecutions.get(nodeId)
       if (exec) {
-        exec.streamText += text
-        exec.activityEvents = [...exec.activityEvents, { type: 'text', content: text, timestamp: new Date() }]
+        newExecutions.set(nodeId, {
+          ...exec,
+          streamText: exec.streamText + text,
+          activityEvents: [...exec.activityEvents, { type: 'text', content: text, timestamp: new Date() }],
+        })
       }
       return { executions: newExecutions }
     })
@@ -775,20 +792,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const newExecutions = new Map(state.executions)
       const exec = newExecutions.get(nodeId)
       if (exec) {
-        exec.toolTraces = [...exec.toolTraces, trace]
-        exec.activityEvents = [...exec.activityEvents, {
-          type: 'tool_use' as const,
-          id: trace.id,
-          toolName: trace.toolName,
-          toolInput: trace.toolInput,
-          timestamp: trace.timestamp,
-        }]
+        let planTodos = exec.planTodos
+        let planQuestions = exec.planQuestions
 
         // Extract plan mode data from TodoWrite and AskUserQuestion tools
         if (trace.toolName === 'TodoWrite') {
           const input = trace.toolInput as { todos?: Array<{ content: string; status: string; activeForm: string }> }
           if (input.todos) {
-            exec.planTodos = input.todos.map(t => ({
+            planTodos = input.todos.map(t => ({
               content: t.content,
               status: t.status as 'pending' | 'in_progress' | 'completed',
               activeForm: t.activeForm,
@@ -797,19 +808,29 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         } else if (trace.toolName === 'AskUserQuestion') {
           const input = trace.toolInput as { questions?: Array<{ question: string; options: Array<{ label: string }> }> }
           if (input.questions) {
-            // Initialize planQuestions if not exists
-            if (!exec.planQuestions) {
-              exec.planQuestions = []
-            }
-            // Add each question to the list
+            planQuestions = [...(exec.planQuestions || [])]
             for (const q of input.questions) {
-              exec.planQuestions.push({
+              planQuestions.push({
                 question: q.question,
                 options: q.options.map(o => o.label),
               })
             }
           }
         }
+
+        newExecutions.set(nodeId, {
+          ...exec,
+          toolTraces: [...exec.toolTraces, trace],
+          activityEvents: [...exec.activityEvents, {
+            type: 'tool_use' as const,
+            id: trace.id,
+            toolName: trace.toolName,
+            toolInput: trace.toolInput,
+            timestamp: trace.timestamp,
+          }],
+          planTodos,
+          planQuestions,
+        })
       }
       return { executions: newExecutions }
     })
@@ -820,16 +841,19 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const newExecutions = new Map(state.executions)
       const exec = newExecutions.get(nodeId)
       if (exec) {
-        exec.fileChanges = [...exec.fileChanges, change]
-        exec.activityEvents = [...exec.activityEvents, {
-          type: 'file_change' as const,
-          path: change.path,
-          action: change.action,
-          diff: change.diff,
-          linesAdded: change.linesAdded,
-          linesRemoved: change.linesRemoved,
-          timestamp: change.timestamp,
-        }]
+        newExecutions.set(nodeId, {
+          ...exec,
+          fileChanges: [...exec.fileChanges, change],
+          activityEvents: [...exec.activityEvents, {
+            type: 'file_change' as const,
+            path: change.path,
+            action: change.action,
+            diff: change.diff,
+            linesAdded: change.linesAdded,
+            linesRemoved: change.linesRemoved,
+            timestamp: change.timestamp,
+          }],
+        })
       }
       return { executions: newExecutions }
     })
@@ -848,22 +872,265 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         ) || exec.toolTraces[exec.toolTraces.length - 1]
 
         if (matchingTrace.toolName === toolName) {
-          matchingTrace.toolResult = result
-          matchingTrace.success = success
-          matchingTrace.duration = duration
-          exec.activityEvents = [...exec.activityEvents, {
-            type: 'tool_result' as const,
-            id: matchingTrace.id,
-            toolName,
-            toolResult: result,
-            success,
-            duration,
-            timestamp: new Date(),
-          }]
+          const updatedToolTraces = exec.toolTraces.map(t => t === matchingTrace
+            ? { ...t, toolResult: result, success, duration }
+            : t)
+          newExecutions.set(nodeId, {
+            ...exec,
+            toolTraces: updatedToolTraces,
+            activityEvents: [...exec.activityEvents, {
+              type: 'tool_result' as const,
+              id: matchingTrace.id,
+              toolName,
+              toolResult: result,
+              success,
+              duration,
+              timestamp: new Date(),
+            }],
+          })
         }
       }
       return { executions: newExecutions }
     })
+  },
+
+  // ─── Plan Session Methods ──────────────────────────────────────────
+
+  startPlanSession: async (description, projectName, options) => {
+    // 1. Create project
+    const projectId = crypto.randomUUID()
+    const displayName = projectName || "New Project"
+    useProjectStore.getState().addProject({
+      id: projectId,
+      name: displayName,
+      description,
+      visionDoc: options?.visionDoc || "",
+      workingDirectory: options?.workingDirectory,
+      repository: options?.repository,
+      defaultMachineId: options?.targetMachineId,
+    } as Project)
+
+    const nodeId = `plan-${projectId}`
+
+    // 2. Create execution entry
+    const execution: TaskExecution = {
+      nodeId,
+      projectId,
+      executionId: "",
+      status: "pending",
+      streamText: "",
+      toolTraces: [],
+      fileChanges: [],
+      activityEvents: [],
+      startedAt: new Date(),
+    }
+
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      newExecutions.set(nodeId, execution)
+      return { executions: newExecutions }
+    })
+
+    // Toast tracking disabled for interactive plans — text streams directly in the plan UI
+
+    // 4. Create abort controller
+    const abortController = new AbortController()
+    abortControllers.set(nodeId, abortController)
+
+    // 5. Dispatch via POST /api/dispatch/task (fire-and-forget SSE processing)
+    // We dispatch the fetch + SSE stream in the background so the caller
+    // gets { projectId, nodeId } immediately and can transition the UI.
+    getAuthHeaders().then(async (headers) => {
+      try {
+        const response = await fetch(apiUrl("/api/dispatch/task"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            nodeId,
+            projectId,
+            title: `Interactive planning: ${projectName || description.slice(0, 50)}`,
+            description,
+            dependencies: [],
+            verification: "human",
+            visionDoc: options?.visionDoc,
+            targetMachineId: options?.targetMachineId,
+            model: options?.model,
+            maxTurns: 200,
+            workingDirectory: options?.workingDirectory,
+            isInteractivePlan: true,
+          }),
+          signal: abortController.signal,
+        })
+
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => null)
+          const detail = errorBody?.error || ""
+          throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
+        }
+
+        // 6. Process SSE stream using existing infrastructure
+        const planStore = usePlanStore.getState()
+        await parseSSEStream(response, {
+          onEvent: ({ event, data }) => {
+            handleSSEEvent(event, data, nodeId, set, get, planStore)
+
+            // On result, extract plan JSON
+            if (event === "result") {
+              try {
+                const exec = get().executions.get(nodeId)
+                if (exec?.streamText) {
+                  const planJson = extractPlanJsonFromText(exec.streamText)
+                  if (planJson) {
+                    const prefix = projectId.slice(0, 8)
+                    const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
+                    const now = new Date()
+
+                    const nodes: PlanNode[] = planJson.nodes.map((n: Record<string, unknown>) => ({
+                      id: prefixId(n.id as string),
+                      projectId,
+                      type: (n.type as PlanNode["type"]) || "task",
+                      title: (n.title as string) || "",
+                      description: (n.description as string) || "",
+                      status: (n.status as PlanNode["status"]) || "planned",
+                      parentId: n.parentId ? prefixId(n.parentId as string) : null,
+                      dependencies: (n.dependencies as string[] || []).map(prefixId),
+                      verification: (n.verification as PlanNode["verification"]) || "human",
+                      position: (n.position as { x: number; y: number }) || { x: 40, y: 40 },
+                      startDate: n.startDate as string | undefined,
+                      endDate: n.endDate as string | undefined,
+                      priority: n.priority as PlanNode["priority"],
+                      estimate: n.estimate as PlanNode["estimate"],
+                      dueDate: n.dueDate as string | undefined,
+                      labelIds: n.labelIds as string[] | undefined,
+                      milestoneId: n.milestoneId ? prefixId(n.milestoneId as string) : undefined,
+                      createdAt: now,
+                      updatedAt: now,
+                    }))
+
+                    const edges: PlanEdge[] = (planJson.edges || []).map((e: Record<string, unknown>) => ({
+                      id: prefixId(e.id as string),
+                      source: prefixId(e.source as string),
+                      target: prefixId(e.target as string),
+                      type: (e.type as PlanEdge["type"]) || "dependency",
+                    }))
+
+                    planStore.setProjectPlan(projectId, nodes, edges)
+                    planStore.reorganizeProject(projectId)
+
+                    if (planJson.projectName) {
+                      useProjectStore.getState().updateProject(projectId, { name: planJson.projectName })
+                    }
+
+                    console.log(`[plan-session] Plan extracted: ${nodes.length} nodes, ${edges.length} edges`)
+                  }
+                }
+              } catch (e) {
+                console.error("[plan-session] Failed to extract plan:", e)
+              }
+
+              // Toast tracking disabled — plan UI handles status directly
+            }
+          },
+        })
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
+            }
+            return { executions: newExecutions }
+          })
+        } else {
+          const message = error instanceof Error ? error.message : "Unknown error"
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, status: "failure", error: message, completedAt: new Date() })
+            }
+            return { executions: newExecutions }
+          })
+          // Toast tracking disabled — plan UI handles errors via execution store
+        }
+      } finally {
+        abortControllers.delete(nodeId)
+      }
+    })
+
+    return { projectId, nodeId }
+  },
+
+  cancelPlanSession: async (projectId) => {
+    const nodeId = `plan-${projectId}`
+    const controller = abortControllers.get(nodeId)
+    if (controller) {
+      controller.abort()
+      abortControllers.delete(nodeId)
+    }
+
+    // Cancel on server/relay (same as cancelExecution)
+    const execution = get().executions.get(nodeId)
+    if (execution?.executionId) {
+      try {
+        const headers = await getAuthHeaders()
+        await fetch(apiUrl("/api/dispatch/cancel"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            nodeId,
+            executionId: execution.executionId,
+          }),
+        })
+      } catch {
+        // Ignore cancel errors
+      }
+    }
+
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      const exec = newExecutions.get(nodeId)
+      if (exec) {
+        newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
+      }
+      return { executions: newExecutions }
+    })
+
+  },
+
+  steerPlanSession: async (projectId, message) => {
+    const nodeId = `plan-${projectId}`
+    const execution = get().executions.get(nodeId)
+    if (!execution?.executionId || !execution.machineId) {
+      console.warn("[plan-session] Cannot steer: no executionId or machineId")
+      return false
+    }
+
+    try {
+      const headers = await getAuthHeaders()
+      const response = await fetch(apiUrl("/api/dispatch/steer"), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          taskId: execution.executionId,
+          machineId: execution.machineId,
+          message,
+          action: "guidance",
+        }),
+      })
+
+      if (!response.ok) {
+        console.error("[plan-session] Failed to steer:", response.status)
+        return false
+      }
+
+      const result = await response.json()
+      return result.success
+    } catch (error) {
+      console.error("[plan-session] Error steering:", error)
+      return false
+    }
   },
 
   load: async () => {
@@ -913,6 +1180,46 @@ async function processExecutionStream(
   })
 }
 
+// ─── Text Batching for Smooth Streaming ────────────────────────────
+// Accumulates text chunks in a module-level buffer and flushes to
+// Zustand every 50ms (~20fps), preventing per-token re-renders.
+const textBatchPending = new Map<string, string>()
+const textBatchTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function flushTextBatch(
+  nodeId: string,
+  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
+) {
+  const timer = textBatchTimers.get(nodeId)
+  if (timer) {
+    clearTimeout(timer)
+    textBatchTimers.delete(nodeId)
+  }
+
+  const text = textBatchPending.get(nodeId)
+  textBatchPending.delete(nodeId)
+
+  if (!text) return
+
+  set((state) => {
+    const newExecutions = new Map(state.executions)
+    const exec = newExecutions.get(nodeId)
+    if (exec) {
+      // Spread to create a new object reference so Zustand selectors detect the change
+      newExecutions.set(nodeId, {
+        ...exec,
+        streamText: exec.streamText + text,
+        activityEvents: [...exec.activityEvents, {
+          type: 'text' as const,
+          content: text,
+          timestamp: new Date(),
+        }],
+      })
+    }
+    return { executions: newExecutions }
+  })
+}
+
 // Helper: Handle individual SSE events
 function handleSSEEvent(
   event: string,
@@ -922,6 +1229,11 @@ function handleSSEEvent(
   get: () => ExecutionState,
   planStore: ReturnType<typeof usePlanStore.getState>
 ) {
+  // Flush pending text before non-text events to preserve timeline ordering
+  if (event !== 'text' && event !== 'heartbeat') {
+    flushTextBatch(nodeId, set)
+  }
+
   switch (event) {
     case "init": {
       try {
@@ -930,12 +1242,15 @@ function handleSSEEvent(
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.executionId = parsed.executionId
-            exec.status = "running"
-            exec.machineId = parsed.machineId
-            exec.providerId = parsed.providerId
-            exec.providerName = parsed.providerName
-            if (parsed.computeBackend) exec.computeBackend = parsed.computeBackend
+            newExecutions.set(nodeId, {
+              ...exec,
+              executionId: parsed.executionId,
+              status: "running",
+              machineId: parsed.machineId,
+              providerId: parsed.providerId,
+              providerName: parsed.providerName,
+              ...(parsed.computeBackend ? { computeBackend: parsed.computeBackend } : {}),
+            })
           }
           return { executions: newExecutions }
         })
@@ -963,7 +1278,10 @@ function handleSSEEvent(
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.sessionId = parsed.sessionId
+            newExecutions.set(nodeId, {
+              ...exec,
+              sessionId: parsed.sessionId,
+            })
           }
           return { executions: newExecutions }
         })
@@ -974,15 +1292,15 @@ function handleSSEEvent(
     }
 
     case "text": {
-      set((state) => {
-        const newExecutions = new Map(state.executions)
-        const exec = newExecutions.get(nodeId)
-        if (exec) {
-          exec.streamText += data
-          exec.activityEvents = [...exec.activityEvents, { type: 'text', content: data, timestamp: new Date() }]
-        }
-        return { executions: newExecutions }
-      })
+      // Batch text chunks — flush every 50ms for smooth ~20fps rendering
+      textBatchPending.set(nodeId, (textBatchPending.get(nodeId) || '') + data)
+
+      if (!textBatchTimers.has(nodeId)) {
+        textBatchTimers.set(nodeId, setTimeout(() => {
+          textBatchTimers.delete(nodeId)
+          flushTextBatch(nodeId, set)
+        }, 50))
+      }
       break
     }
 
@@ -1001,14 +1319,17 @@ function handleSSEEvent(
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.toolTraces = [...exec.toolTraces, trace]
-            exec.activityEvents = [...exec.activityEvents, {
-              type: 'tool_use' as const,
-              id: traceId,
-              toolName: parsed.toolName,
-              toolInput: parsed.toolInput,
-              timestamp: now,
-            }]
+            newExecutions.set(nodeId, {
+              ...exec,
+              toolTraces: [...exec.toolTraces, trace],
+              activityEvents: [...exec.activityEvents, {
+                type: 'tool_use' as const,
+                id: traceId,
+                toolName: parsed.toolName,
+                toolInput: parsed.toolInput,
+                timestamp: now,
+              }],
+            })
           }
           return { executions: newExecutions }
         })
@@ -1033,20 +1354,25 @@ function handleSSEEvent(
               t => t.toolName === parsed.toolName && !t.toolResult
             ) || exec.toolTraces[exec.toolTraces.length - 1]
 
-            if (matchingTrace.toolName === parsed.toolName) {
-              matchingTrace.toolResult = parsed.result
-              matchingTrace.success = parsed.success
-              matchingTrace.duration = parsed.duration
-            }
-            exec.activityEvents = [...exec.activityEvents, {
-              type: 'tool_result' as const,
-              id: matchingTrace.id,
-              toolName: parsed.toolName,
-              toolResult: parsed.result,
-              success: parsed.success,
-              duration: parsed.duration,
-              timestamp: now,
-            }]
+            const updatedToolTraces = matchingTrace.toolName === parsed.toolName
+              ? exec.toolTraces.map(t => t === matchingTrace
+                  ? { ...t, toolResult: parsed.result, success: parsed.success, duration: parsed.duration }
+                  : t)
+              : exec.toolTraces
+
+            newExecutions.set(nodeId, {
+              ...exec,
+              toolTraces: updatedToolTraces,
+              activityEvents: [...exec.activityEvents, {
+                type: 'tool_result' as const,
+                id: matchingTrace.id,
+                toolName: parsed.toolName,
+                toolResult: parsed.result,
+                success: parsed.success,
+                duration: parsed.duration,
+                timestamp: now,
+              }],
+            })
           }
           return { executions: newExecutions }
         })
@@ -1072,16 +1398,19 @@ function handleSSEEvent(
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.fileChanges = [...exec.fileChanges, change]
-            exec.activityEvents = [...exec.activityEvents, {
-              type: 'file_change' as const,
-              path: parsed.path,
-              action: parsed.action || 'modify',
-              diff: parsed.diff,
-              linesAdded: parsed.linesAdded,
-              linesRemoved: parsed.linesRemoved,
-              timestamp: now,
-            }]
+            newExecutions.set(nodeId, {
+              ...exec,
+              fileChanges: [...exec.fileChanges, change],
+              activityEvents: [...exec.activityEvents, {
+                type: 'file_change' as const,
+                path: parsed.path,
+                action: parsed.action || 'modify',
+                diff: parsed.diff,
+                linesAdded: parsed.linesAdded,
+                linesRemoved: parsed.linesRemoved,
+                timestamp: now,
+              }],
+            })
           }
           return { executions: newExecutions }
         })
@@ -1108,12 +1437,15 @@ function handleSSEEvent(
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.subroutineProgress = {
-              name: parsed.name,
-              index: parsed.index,
-              total: parsed.total,
-              status: parsed.status,
-            }
+            newExecutions.set(nodeId, {
+              ...exec,
+              subroutineProgress: {
+                name: parsed.name,
+                index: parsed.index,
+                total: parsed.total,
+                status: parsed.status,
+              },
+            })
           }
           return { executions: newExecutions }
         })
@@ -1144,21 +1476,17 @@ function handleSSEEvent(
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.status = isSuccess ? "success" : "failure"
-            exec.completedAt = new Date()
-            if (!isSuccess && parsed.error) {
-              exec.error = parsed.error
-            }
-            if (parsed.sessionId) {
-              exec.sessionId = parsed.sessionId
-            }
-            if (metrics) {
-              exec.metrics = metrics
-            }
-            // Store PR/branch metadata
-            if (parsed.branchName) exec.branchName = parsed.branchName
-            if (parsed.prUrl) exec.prUrl = parsed.prUrl
-            if (parsed.prNumber) exec.prNumber = parsed.prNumber
+            newExecutions.set(nodeId, {
+              ...exec,
+              status: isSuccess ? "success" : "failure",
+              completedAt: new Date(),
+              ...(!isSuccess && parsed.error ? { error: parsed.error } : {}),
+              ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
+              ...(metrics ? { metrics } : {}),
+              ...(parsed.branchName ? { branchName: parsed.branchName } : {}),
+              ...(parsed.prUrl ? { prUrl: parsed.prUrl } : {}),
+              ...(parsed.prNumber ? { prNumber: parsed.prNumber } : {}),
+            })
           }
           return { executions: newExecutions }
         })
@@ -1168,8 +1496,8 @@ function handleSSEEvent(
           useUsageStore.getState().addTaskMetrics(metrics, isSuccess)
         }
 
-        // Determine final node status based on verification type
-        const node = planStore.nodes.find((n) => n.id === nodeId)
+        // Determine final node status based on verification type (use fresh state, not stale snapshot)
+        const node = usePlanStore.getState().nodes.find((n) => n.id === nodeId)
         // Use finalStatus from server if provided, otherwise determine locally
         let finalStatus: PlanNode["status"] = parsed.finalStatus
 
@@ -1253,10 +1581,13 @@ function handleSSEEvent(
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.status = "failure"
-            exec.error = errorMessage
-            exec.completedAt = errorTime
-            exec.activityEvents = [...exec.activityEvents, { type: 'error' as const, error: errorMessage, timestamp: errorTime }]
+            newExecutions.set(nodeId, {
+              ...exec,
+              status: "failure",
+              error: errorMessage,
+              completedAt: errorTime,
+              activityEvents: [...exec.activityEvents, { type: 'error' as const, error: errorMessage, timestamp: errorTime }],
+            })
           }
           return { executions: newExecutions }
         })
@@ -1287,8 +1618,11 @@ function handleSSEEvent(
         const newExecutions = new Map(state.executions)
         const exec = newExecutions.get(nodeId)
         if (exec) {
-          exec.status = "cancelled"
-          exec.completedAt = new Date()
+          newExecutions.set(nodeId, {
+            ...exec,
+            status: "cancelled",
+            completedAt: new Date(),
+          })
         }
         return { executions: newExecutions }
       })
@@ -1335,25 +1669,107 @@ async function requestExecutionSummary(
       const data = await response.json()
       if (data.summary) {
         console.log(`[execution-store] Successfully received summary for ${nodeId}`)
+        // Ensure keyFindings is always present (backward compat)
+        const raw = data.summary as ExecutionSummary
+        const summary: ExecutionSummary = {
+          ...raw,
+          keyFindings: raw.keyFindings || [],
+        }
+        // If API didn't return keyFindings, try parsing from stream text
+        if (summary.keyFindings.length === 0 && execution.streamText) {
+          const parsed = parseExecutiveSummary(execution.streamText)
+          if (parsed?.keyFindings) summary.keyFindings = parsed.keyFindings
+        }
         useExecutionStore.setState((state) => {
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec) {
-            exec.summary = data.summary as ExecutionSummary
+            newExecutions.set(nodeId, { ...exec, summary })
           }
           return { executions: newExecutions }
         })
       } else {
         console.warn(`[execution-store] Summary response missing 'summary' field for ${nodeId}`)
+        setFallbackSummary(nodeId, execution)
       }
     } else {
       const errorText = await response.text()
       console.error(`[execution-store] Summary generation failed for ${nodeId}:`, errorText)
+      setFallbackSummary(nodeId, execution)
     }
   } catch (error) {
     // Non-critical — log but don't fail the execution
     console.error(`[execution-store] Summary generation error for ${nodeId}:`, error)
+    setFallbackSummary(nodeId, execution)
   }
+}
+
+/**
+ * Parse an executive summary from the agent's stream text.
+ * Looks for the structured "## Executive Summary" block at the end of output.
+ */
+function parseExecutiveSummary(streamText: string): Partial<ExecutionSummary> | null {
+  const match = streamText.match(/## Executive Summary\s*\n([\s\S]*?)(?:\n```|$)/)
+  if (!match) return null
+
+  const block = match[1]
+  const statusMatch = block.match(/\*\*Status:\*\*\s*(success|partial|failure)/i)
+  const whatMatch = block.match(/\*\*What was done:\*\*\s*(.+)/)
+  const followUpLines = block.match(/\*\*Follow-ups:\*\*\s*\n((?:\s*-\s*.+\n?)+)/)
+
+  // Extract bullet points (lines starting with "- " that aren't under Follow-ups)
+  const lines = block.split('\n')
+  const keyFindings: string[] = []
+  let inFollowUps = false
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('**Follow-ups:**')) { inFollowUps = true; continue }
+    if (trimmed.startsWith('**')) { inFollowUps = false; continue }
+    if (trimmed.startsWith('- ') && !inFollowUps) {
+      keyFindings.push(trimmed.slice(2).trim())
+    }
+  }
+
+  const followUps: string[] = []
+  if (followUpLines) {
+    for (const line of followUpLines[1].split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('- ')) followUps.push(trimmed.slice(2).trim())
+    }
+  }
+
+  if (!statusMatch && !whatMatch && keyFindings.length === 0) return null
+
+  return {
+    status: (statusMatch?.[1]?.toLowerCase() as 'success' | 'partial' | 'failure') || undefined,
+    workCompleted: whatMatch?.[1]?.trim(),
+    keyFindings: keyFindings.length > 0 ? keyFindings : undefined,
+    followUps: followUps.length > 0 ? followUps : undefined,
+  }
+}
+
+/** Set a fallback summary so the UI doesn't show "Generating summary..." forever. */
+function setFallbackSummary(nodeId: string, execution: TaskExecution) {
+  // Try to parse executive summary from the stream text first
+  const parsed = execution.streamText ? parseExecutiveSummary(execution.streamText) : null
+
+  useExecutionStore.setState((state) => {
+    const newExecutions = new Map(state.executions)
+    const exec = newExecutions.get(nodeId)
+    if (exec && !exec.summary) {
+      newExecutions.set(nodeId, {
+        ...exec,
+        summary: {
+          workCompleted: parsed?.workCompleted || exec.error || 'Summary generation unavailable. Check execution output for details.',
+          keyFindings: parsed?.keyFindings || [],
+          filesChanged: exec.fileChanges?.map((f) => f.path) ?? [],
+          status: parsed?.status || (execution.status === 'success' ? 'success' : 'failure'),
+          followUps: parsed?.followUps || [],
+        },
+      })
+    }
+    return { executions: newExecutions }
+  })
 }
 
 // Helper: Check if a node's dependencies are met
@@ -1442,7 +1858,7 @@ function dispatchNextBatchWave(projectId: string) {
       useExecutionStore.setState((state) => {
         const newBatch = new Map(state.batchExecutions)
         const b = newBatch.get(projectId)
-        if (b) b.active = false
+        if (b) newBatch.set(projectId, { ...b, active: false })
         return { batchExecutions: newBatch }
       })
     }
@@ -1464,5 +1880,8 @@ function dispatchNextBatchWave(projectId: string) {
     execStore.startExecution(node.id, projectId, batch.options)
   }
 }
+
+// Helper: Extract plan JSON from streaming text output
+// Looks for JSON in ```json code fences or raw JSON with projectName/nodes/edges
 
 

@@ -79,7 +79,8 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   // Local state for execution options
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(defaultMachineId)
   const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider || "")
-  const [selectedModel, setSelectedModel] = useState<string>("")
+  const getModelForProvider = useSettingsStore((s) => s.getModelForProvider)
+  const [selectedModel, setSelectedModel] = useState<string>(() => getModelForProvider(defaultProvider || undefined))
   const [selectedBackend, setSelectedBackend] = useState<string>("")
   const [useWorktree, setUseWorktree] = useState(true)
 
@@ -332,7 +333,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
                 <DropdownMenuLabel>Select Provider</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
+                  onClick={() => { setSelectedProvider(""); setSelectedModel(getModelForProvider(undefined)) }}
                   className="gap-2"
                 >
                   <Bot className="h-4 w-4" />
@@ -348,7 +349,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
                 {availableProviders.map((provider) => (
                   <DropdownMenuItem
                     key={provider.id}
-                    onClick={() => { setSelectedProvider(provider.id); setSelectedModel("") }}
+                    onClick={() => { setSelectedProvider(provider.id); setSelectedModel(getModelForProvider(provider.id)) }}
                     className="gap-2"
                     disabled={!provider.available}
                   >
@@ -454,40 +455,52 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
             Cancel
           </Button>
         ) : (
-          <div className="flex flex-1 gap-0">
+          isReexecution ? (
             <Button
               size="sm"
-              className="flex-1 rounded-r-none"
+              className="flex-1"
               onClick={handleExecute}
-              disabled={!canExecuteNow || isRefining}
+              disabled={!canExecuteNow}
             >
-              {justRefined ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-              ) : isRefining ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Play className="h-3.5 w-3.5" />
-              )}
-              {justRefined ? "Refined!" : isRefining ? "Refining..." : isReexecution ? "Re-execute" : "Execute"}
+              <Play className="h-3.5 w-3.5" />
+              Re-execute
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  className="rounded-l-none border-l border-primary-foreground/20 px-1.5"
-                  disabled={!canExecuteNow || isRefining}
-                >
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleRefine} className="gap-2">
-                  <Sparkles className="h-4 w-4" />
-                  Refine
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          ) : (
+            <div className="flex flex-1 gap-0">
+              <Button
+                size="sm"
+                className="flex-1 rounded-r-none"
+                onClick={handleExecute}
+                disabled={!canExecuteNow || isRefining}
+              >
+                {justRefined ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                ) : isRefining ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" />
+                )}
+                {justRefined ? "Refined!" : isRefining ? "Refining..." : "Execute"}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    className="rounded-l-none border-l border-primary-foreground/20 px-1.5"
+                    disabled={!canExecuteNow || isRefining}
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleRefine} className="gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    Refine
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )
         )}
       </div>
 

@@ -309,10 +309,14 @@ export function TaskDetail() {
                     <p className="text-sm text-error">{node.executionError || execution?.error}</p>
                   </div>
                 </div>
-              ) : (
+              ) : execution && (execution.status === 'pending' || execution.status === 'running') ? (
                 <div className="flex items-center gap-2 m-4 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span>Generating summary...</span>
+                </div>
+              ) : (
+                <div className="m-4 rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground line-clamp-4">{node.executionOutput || execution?.streamText || 'No output captured.'}</p>
                 </div>
               )}
 
@@ -429,7 +433,7 @@ export function TaskDetail() {
       {/* Main content area: Tabs + optional Inspector sidebar */}
       <div className="flex flex-1 min-h-0">
         {/* Tabbed Content: Content + Activity + Files */}
-        <Tabs defaultValue="content" className="flex-1 flex flex-col min-h-0 min-w-0">
+        <Tabs defaultValue={searchParams.get('tab') || "content"} className="flex-1 flex flex-col min-h-0 min-w-0">
           <TabsList className="mx-4 md:mx-6 mt-3 md:mt-4 w-fit">
             <TabsTrigger value="content" className="text-xs md:text-sm">
               <FileText className="h-3.5 w-3.5 mr-1.5" />

@@ -13,6 +13,7 @@ export {
   buildRefinementPrompt,
   buildLabelSuggestionPrompt,
   buildSummaryPrompt,
+  buildInteractivePlanPrompt,
 } from '../../packages/core/src/prompt-templates.js'
 
 export type {

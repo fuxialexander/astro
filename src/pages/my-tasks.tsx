@@ -372,7 +372,7 @@ export function MyTasks() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-secondary font-semibold">Tasks</h1>
+          <h1 className="text-xl font-primary font-semibold">Tasks</h1>
           {activeCount > 0 && (
             <Badge variant="info" className="text-xs">
               {activeCount} active

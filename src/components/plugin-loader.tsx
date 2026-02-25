@@ -1,18 +1,40 @@
 import { useEffect, useRef, type ReactNode } from "react"
 import { usePluginStore } from "@/stores/plugin-store"
+import { useSkillStore } from "@/stores/skill-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { useTheme } from "@/components/theme-provider"
 import { createPluginContext } from "@/lib/plugin-context"
+import { API_BASE_URL } from "@/lib/api-url"
 import type { AstroPlugin, PluginContributions } from "@/types/plugin"
 
 // Built-in plugins bundled with Astro
 import gtdPlugin from "@/plugins/gtd-workflow"
 import exampleThemePlugin from "@/plugins/example-theme"
+import celltypePlugin from "@/plugins/celltype"
 
 const BUILTIN_PLUGINS: AstroPlugin[] = [
   gtdPlugin,
   exampleThemePlugin,
+  celltypePlugin,
 ]
+
+/**
+ * Sync plugin-contributed skills to the server's skill manager.
+ * This makes them available for prompt injection in plan generation and dispatch.
+ */
+async function syncSkillsToServer(skills: PluginContributions['skills']) {
+  if (!skills || skills.length === 0) return
+  try {
+    await fetch(`${API_BASE_URL}/api/skills/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ skills }),
+    })
+  } catch {
+    // Server may not be reachable yet during startup — skills will load on next page load
+  }
+}
 
 interface Props {
   children: ReactNode
@@ -28,6 +50,8 @@ export function PluginLoader({ children }: Props) {
   const setPluginInstance = usePluginStore((s) => s.setPluginInstance)
   const setPluginError = usePluginStore((s) => s.setPluginError)
   const updatePluginConfig = usePluginStore((s) => s.updatePluginConfig)
+  const addSkill = useSkillStore((s) => s.addSkill)
+  const removeSkill = useSkillStore((s) => s.removeSkill)
   const registerExternalItem = useSidebarStore((s) => s.registerExternalItem)
   const unregisterExternalItem = useSidebarStore((s) => s.unregisterExternalItem)
   const { registerTheme, unregisterTheme } = useTheme()
@@ -134,6 +158,16 @@ export function PluginLoader({ children }: Props) {
         registerTheme(theme)
       }
     }
+    // Bridge plugin skills to the skill store and sync to the server
+    if (contributions.skills && contributions.skills.length > 0) {
+      for (const skill of contributions.skills) {
+        addSkill(skill)
+      }
+      // Sync skills to server so they're available for prompt injection
+      syncSkillsToServer(contributions.skills).catch((err) => {
+        console.warn(`[PluginLoader] Failed to sync skills for plugin "${pluginId}":`, err)
+      })
+    }
   }
 
   function unbridgeContributions(pluginId: string, contributions: PluginContributions) {
@@ -145,6 +179,11 @@ export function PluginLoader({ children }: Props) {
     if (contributions.themes) {
       for (const theme of contributions.themes) {
         unregisterTheme(theme.id)
+      }
+    }
+    if (contributions.skills) {
+      for (const skill of contributions.skills) {
+        removeSkill(skill.name)
       }
     }
   }

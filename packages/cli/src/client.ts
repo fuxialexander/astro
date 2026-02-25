@@ -568,14 +568,18 @@ export async function streamDispatchToStdout(response: Response): Promise<void> 
 // ── Singleton ───────────────────────────────────────────────────────
 
 let _client: AstroClient | null = null
+let _clientUrl: string | undefined
 
 /**
  * Get or create the shared AstroClient instance.
  * Uses the global --server-url option if set, otherwise config/default.
+ * Recreates the client if the resolved URL differs from the cached one.
  */
 export function getClient(serverUrl?: string): AstroClient {
-  if (!_client) {
+  const resolvedUrl = getServerUrl(serverUrl)
+  if (!_client || resolvedUrl !== _clientUrl) {
     _client = new AstroClient({ serverUrl })
+    _clientUrl = resolvedUrl
   }
   return _client
 }

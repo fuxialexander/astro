@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { FileText, Plus, MessageSquare, Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Download, Folder, Check, Pencil } from "lucide-react"
+import { FileText, MessageSquare, Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Download, Folder, Check, Pencil, GitBranch, List, Clock, Kanban } from "lucide-react"
 
 // Media query hook for responsive rendering
 function useMediaQuery(query: string) {
@@ -49,8 +49,7 @@ import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColor
 import { formatDueDateShort } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
-import { extractTitle } from "@/lib/text-utils"
-import { generateTitle } from "@/lib/api-client"
+import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
@@ -479,6 +478,7 @@ function InlineListCreationRow({
   const [estimate, setEstimate] = useState<PlanNode["estimate"]>(undefined)
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [showProjectPicker, setShowProjectPicker] = useState(false)
+  const nameInputRef = useRef<HTMLInputElement>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
   const projectPickerRef = useRef<HTMLDivElement>(null)
 
@@ -489,8 +489,7 @@ function InlineListCreationRow({
   const createTask = useCallback((targetProjectId: string) => {
     if (!taskName.trim()) return
 
-    const taskText = taskName.trim()
-    const taskTitle = extractTitle(taskText)
+    const { title: taskTitle, description: taskDescription } = splitTitleDescription(taskName)
     const nodeId = crypto.randomUUID()
 
     addNode({
@@ -498,7 +497,7 @@ function InlineListCreationRow({
       projectId: targetProjectId,
       type: "task",
       title: taskTitle,
-      description: taskText,
+      description: taskDescription,
       status,
       parentId: null,
       dependencies: [],
@@ -512,15 +511,6 @@ function InlineListCreationRow({
       updatedAt: new Date(),
     })
 
-    // Fire-and-forget AI title refinement for long descriptions
-    if (taskText.length > 80) {
-      generateTitle(taskText).then((aiTitle) => {
-        if (aiTitle && aiTitle !== taskTitle) {
-          usePlanStore.getState().updateNode(nodeId, { title: aiTitle })
-        }
-      }).catch(() => {}) // silent — heuristic title is fine
-    }
-
     // Reset form but keep input open for rapid creation
     setTaskName("")
     setPriority("medium")
@@ -529,6 +519,9 @@ function InlineListCreationRow({
     setEstimate(undefined)
     setSelectedProjectId(null)
     setShowProjectPicker(false)
+
+    // Re-focus input for continuous task entry
+    requestAnimationFrame(() => nameInputRef.current?.focus())
   }, [taskName, status, priority, dueDate, estimate, defaultMilestoneId, addNode])
 
   const handleCreate = () => {
@@ -580,6 +573,7 @@ function InlineListCreationRow({
       {/* Name column */}
       <div className={cn("min-w-0 overflow-hidden", nameCol?.width ?? "flex-1")}>
         <input
+          ref={nameInputRef}
           type="text"
           value={taskName}
           onChange={(e) => setTaskName(e.target.value)}
@@ -933,6 +927,25 @@ export function PlanListView({
     return [{ key: "all", label: "All Tasks", items: tasks }]
   }, [tasks, milestones, projects, displaySettings.groupBy])
 
+  // Open creation row for the first group when Enter is pressed globally
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle Enter when not in an input/textarea and no creation row is open
+      const target = e.target as HTMLElement
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) return
+      if (e.key === "Enter" && groups.length > 0 && creatingInGroup === null) {
+        e.preventDefault()
+        setCreatingInGroup(groups[0].key)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [groups, creatingInGroup])
+
   function renderAddTaskRow(groupKey: string) {
     const defaultMilestoneId = groupKey.startsWith("milestone-") ? groupKey.replace("milestone-", "") : undefined
     // For cross-project mode, extract projectId from group
@@ -955,8 +968,7 @@ export function PlanListView({
         onClick={() => setCreatingInGroup(groupKey)}
         className="flex items-center gap-2 px-6 h-9 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer border-b border-border"
       >
-        <Plus className="h-3.5 w-3.5" />
-        Add task
+        <span className="text-muted-foreground/50">Press Enter to add task</span>
       </button>
     )
   }
@@ -1394,18 +1406,26 @@ export function PlanView() {
             <Separator orientation="vertical" className="h-5 shrink-0 hidden md:block" />
             <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
               <div className="flex items-center gap-1">
-                {(["graph", "list", "timeline", "board"] as ViewMode[]).map((mode) => (
+                {(
+                  [
+                    { mode: "graph" as ViewMode, icon: GitBranch },
+                    { mode: "list" as ViewMode, icon: List },
+                    { mode: "timeline" as ViewMode, icon: Clock },
+                    { mode: "board" as ViewMode, icon: Kanban },
+                  ] as const
+                ).map(({ mode, icon: ModeIcon }) => (
                   <button
                     key={mode}
                     onClick={() => navigate(`/project/${project.id}/${mode}`)}
                     className={cn(
-                      "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
+                      "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize flex items-center gap-1.5",
                       viewMode === mode
                         ? "text-accent-foreground border-b-2 border-accent"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
-                    {mode}
+                    <ModeIcon className="h-3.5 w-3.5 md:hidden" />
+                    <span className="hidden md:inline">{mode}</span>
                   </button>
                 ))}
               </div>

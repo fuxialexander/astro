@@ -122,7 +122,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm">
           <SlidersHorizontal className="h-3.5 w-3.5" />
-          Display
+          <span className="hidden md:inline">Display</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72">

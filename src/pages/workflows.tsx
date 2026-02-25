@@ -517,7 +517,7 @@ export function Workflows() {
         <div className="relative mx-auto max-w-5xl">
           <div className="mb-8 text-center">
             <SectionLabel>Workspace Model</SectionLabel>
-            <h1 className="mt-4 font-secondary text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
               How Astro Manages Your Work
             </h1>
             <p className="mx-auto mt-3 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
@@ -537,7 +537,7 @@ export function Workflows() {
       <section className="mx-auto w-full max-w-5xl px-6 py-12">
         <div className="mb-8 text-center">
           <SectionLabel>Execution Modes</SectionLabel>
-          <h2 className="mt-3 font-secondary text-2xl font-semibold text-foreground">
+          <h2 className="mt-3 text-2xl font-semibold text-foreground">
             Every Project, One Model
           </h2>
           <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
@@ -615,7 +615,7 @@ export function Workflows() {
         <div className="mx-auto max-w-5xl">
           <div className="mb-8 text-center">
             <SectionLabel>Delivery</SectionLabel>
-            <h2 className="mt-3 font-secondary text-2xl font-semibold text-foreground">
+            <h2 className="mt-3 text-2xl font-semibold text-foreground">
               How Results Get Back to You
             </h2>
             <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
@@ -637,7 +637,7 @@ export function Workflows() {
       <section className="mx-auto w-full max-w-5xl px-6 py-12">
         <div className="mb-8 text-center">
           <SectionLabel>Workflows</SectionLabel>
-          <h2 className="mt-3 font-secondary text-2xl font-semibold text-foreground">
+          <h2 className="mt-3 text-2xl font-semibold text-foreground">
             Same Entry Point, Different Journeys
           </h2>
           <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
@@ -691,7 +691,7 @@ export function Workflows() {
         <div className="mx-auto max-w-5xl">
           <div className="mb-8 text-center">
             <SectionLabel>Safety</SectionLabel>
-            <h2 className="mt-3 font-secondary text-2xl font-semibold text-foreground">
+            <h2 className="mt-3 text-2xl font-semibold text-foreground">
               Execution Safety Model
             </h2>
             <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
@@ -737,7 +737,7 @@ export function Workflows() {
       <section className="mx-auto w-full max-w-5xl px-6 py-12">
         <div className="mb-8 text-center">
           <SectionLabel>Structure</SectionLabel>
-          <h2 className="mt-3 font-secondary text-2xl font-semibold text-foreground">
+          <h2 className="mt-3 text-2xl font-semibold text-foreground">
             Agent Directory Layout
           </h2>
           <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
@@ -804,7 +804,7 @@ export function Workflows() {
         <div className="mx-auto max-w-5xl">
           <div className="mb-8 text-center">
             <SectionLabel>Get Started</SectionLabel>
-            <h2 className="mt-3 font-secondary text-2xl font-semibold text-foreground">
+            <h2 className="mt-3 text-2xl font-semibold text-foreground">
               Three Steps to Launch
             </h2>
           </div>
