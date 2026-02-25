@@ -123,8 +123,28 @@ export const handlers: Record<string, CommandHandler> = {
       useTuiStore.getState().setLastError('No node/project selected for dispatch')
       return
     }
+
+    // Look up node and project to get required dispatch fields
+    const node = usePlanStore.getState().nodes.find((n) => n.id === nodeId)
+    if (!node) {
+      useTuiStore.getState().setLastError(`Plan node not found: ${nodeId}`)
+      return
+    }
+    const project = useProjectsStore.getState().projects.find((p) => p.id === projectId)
+    if (!project?.workingDirectory) {
+      useTuiStore.getState().setLastError('Project has no working directory set')
+      return
+    }
+
     try {
-      const response = await client.dispatchTask({ nodeId, projectId })
+      const response = await client.dispatchTask({
+        nodeId,
+        projectId,
+        title: node.title,
+        description: node.description || node.title,
+        workingDirectory: project.workingDirectory,
+        visionDoc: project.visionDoc || undefined,
+      })
       // Init execution tracking
       const execId = `exec-${Date.now()}`
       useExecutionStore.getState().initExecution(execId, nodeId)
