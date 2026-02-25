@@ -21,7 +21,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, blobs } from '../lib/db/schema.js'
+import { projects, planNodes, blobs } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -375,6 +375,7 @@ The user can review your reasoning in the task output and provide guidance if th
     taskId: executionId,
     projectId,
     nodeId,
+    nodeNumber,
     title,
     description,
     prompt: relayPrompt,
@@ -395,11 +396,19 @@ The user can review your reasoning in the task output and provide guidance if th
 
   // Fetch project record from DB for event hooks (git-pull-hook needs workingDirectory)
   let projectRecord: Project | undefined
+  let nodeNumber: number | undefined
   try {
     const [row] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
     projectRecord = row as unknown as Project | undefined
   } catch (err) {
     console.warn('[dispatch] Failed to fetch project for event hooks:', err)
+  }
+  // Fetch node number for PR titles and branch names
+  try {
+    const [nodeRow] = await db.select({ number: planNodes.number }).from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
+    nodeNumber = nodeRow?.number ?? undefined
+  } catch (err) {
+    console.warn('[dispatch] Failed to fetch node number:', err)
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
@@ -465,6 +474,7 @@ The user can review your reasoning in the task output and provide guidance if th
         node: {
           id: nodeId,
           projectId,
+          number: nodeNumber,
           type: 'task',
           title,
           description,

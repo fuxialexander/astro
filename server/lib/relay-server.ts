@@ -1214,11 +1214,12 @@ export class RelayServer extends EventEmitter {
         ...(task.worktreeStrategy && { worktreeStrategy: task.worktreeStrategy }),
         ...(task.useWorktree !== undefined && { useWorktree: task.useWorktree }),
         ...(task.skipSafetyCheck !== undefined && { skipSafetyCheck: task.skipSafetyCheck }),
-        // Task metadata for PR titles
+        // Task metadata for PR titles and branch names
         ...(task.title && { title: task.title }),
         ...(task.description && { description: task.description }),
         // Multimodal image attachments
         ...(task.images && task.images.length > 0 && { images: task.images }),
+        ...(task.nodeNumber && { nodeNumber: task.nodeNumber }),
       },
     };
 

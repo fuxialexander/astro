@@ -253,12 +253,14 @@ export const dataClient = {
     return { nodes: data.nodes.map(mapNode), edges: data.edges.map(mapEdge) }
   },
 
-  async setProjectPlan(projectId: string, nodes: PlanNode[], edges: PlanEdge[]): Promise<void> {
-    await put(`${BASE}/plan/${projectId}`, { nodes, edges })
+  async setProjectPlan(projectId: string, nodes: PlanNode[], edges: PlanEdge[]): Promise<Record<string, number>> {
+    const res = await put(`${BASE}/plan/${projectId}`, { nodes, edges }) as { ok: boolean; numbers?: Record<string, number> }
+    return res.numbers ?? {}
   },
 
-  async addNode(node: PlanNode): Promise<void> {
-    await post(`${BASE}/plan/nodes`, node)
+  async addNode(node: PlanNode): Promise<{ number?: number }> {
+    const res = await post(`${BASE}/plan/nodes`, node) as { ok: boolean; number?: number }
+    return { number: res.number }
   },
 
   async updateNode(id: string, patch_: Partial<PlanNode>): Promise<void> {

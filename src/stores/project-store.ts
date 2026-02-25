@@ -36,15 +36,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   addProject: (project) => {
-    // Auto-assign display number if not set
-    if (project.number == null) {
-      const existing = get().projects
-      const maxNumber = existing.reduce((max, p) => Math.max(max, p.number ?? 0), 0)
-      project = { ...project, number: maxNumber + 1 }
-    }
+    // Number is assigned server-side — add optimistically without number
     const next = [...get().projects, project]
     set({ projects: next })
-    dataClient.createProject(project).catch((err) => {
+    dataClient.createProject(project).then((created) => {
+      // Merge server-assigned number into local project
+      if (created.number != null) {
+        const updated = get().projects.map((p) =>
+          p.id === project.id ? { ...p, number: created.number } : p
+        )
+        set({ projects: updated })
+      }
+    }).catch((err) => {
       console.error('[project-store] Failed to sync project to backend:', err)
       useToastStore.getState().add({ type: 'error', title: 'Failed to save project', description: 'Project may be lost on refresh. Check your connection.' })
     })
