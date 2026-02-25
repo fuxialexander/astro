@@ -1,8 +1,6 @@
-import { useState, useMemo, useEffect, useCallback } from "react"
-import { useParams } from "react-router"
+import { useState, useMemo, useEffect, useCallback, useRef } from "react"
 import {
   Rocket,
-  Star,
   Pencil,
   Plus,
   FileText,
@@ -14,18 +12,16 @@ import {
   Diamond,
   ExternalLink,
   Loader2,
+  Save,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { Textarea } from "@/components/ui/textarea"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { MilestoneDialog } from "@/components/milestone-dialog"
 import { ActivityDialog } from "@/components/activity-dialog"
-import { ColorIconBadge } from "@/components/color-icon-picker"
-import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
-import { InlineRenameInput } from "@/components/inline-rename-input"
-import { PlanListView } from "@/pages/plan-view"
+import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
@@ -33,9 +29,9 @@ import { useActivityStore } from "@/stores/activity-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { cn } from "@/lib/utils"
-import { validateProjectName } from "@/lib/project-validation"
 import { deliveryModeLabel, remoteTypeLabel } from "@/lib/project-source"
-import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
+import { dataClient } from "@/lib/data-client"
+import { fileToBase64 } from "@/lib/html-utils"
 import type { Project, PlanNode } from "@/types"
 
 const healthLabels: Record<string, string> = {
@@ -90,8 +86,10 @@ export function OverviewTab({
   const [editingStartDate, setEditingStartDate] = useState(false)
   const [editingTargetDate, setEditingTargetDate] = useState(false)
   const [editingInitiative, setEditingInitiative] = useState(false)
-  const [editingDescription, setEditingDescription] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState(project.description)
+  const [descriptionHasChanges, setDescriptionHasChanges] = useState(false)
+  const [isSavingDescription, setIsSavingDescription] = useState(false)
+  const descriptionEditorRef = useRef<RichTextEditorRef>(null)
   const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
   const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
 
@@ -191,28 +189,38 @@ export function OverviewTab({
     }
   }
 
-  // Handle description editing
-  const handleDescriptionEdit = () => {
-    setDescriptionDraft(project.description)
-    setEditingDescription(true)
-  }
+  // Handle description changes from rich text editor
+  const handleDescriptionChange = useCallback((html: string) => {
+    setDescriptionDraft(html)
+    setDescriptionHasChanges(html !== project.description)
+  }, [project.description])
 
-  const handleDescriptionSave = () => {
-    if (descriptionDraft.trim() !== project.description) {
-      updateProject(project.id, { description: descriptionDraft.trim() })
+  const handleDescriptionSave = useCallback(async () => {
+    if (!descriptionHasChanges) return
+    setIsSavingDescription(true)
+    try {
+      updateProject(project.id, { description: descriptionDraft })
       addActivity({
         projectId: project.id,
         type: "project.updated",
         title: "Updated project description",
       })
+      setDescriptionHasChanges(false)
+    } finally {
+      setIsSavingDescription(false)
     }
-    setEditingDescription(false)
-  }
+  }, [project.id, descriptionDraft, descriptionHasChanges, updateProject, addActivity])
 
-  const handleDescriptionCancel = () => {
-    setDescriptionDraft(project.description)
-    setEditingDescription(false)
-  }
+  const handleDescriptionImageUpload = useCallback(async (file: File): Promise<string | null> => {
+    try {
+      const base64 = await fileToBase64(file)
+      const blobId = await dataClient.uploadBlob(base64, file.type, file.size, file.name, project.id, project.id)
+      return dataClient.getBlobUrl(blobId)
+    } catch (err) {
+      console.error('Failed to upload image:', err)
+      return null
+    }
+  }, [project.id])
 
   // Generate editor URL (Cursor/VSCode) with local/remote protocol
   // Use project's assigned machine, or fall back to the only available machine
@@ -257,57 +265,31 @@ export function OverviewTab({
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">Description</h3>
-            {!editingDescription && (
-              <Pencil
-                className="h-3.5 w-3.5 text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                onClick={handleDescriptionEdit}
-              />
+            {descriptionHasChanges && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleDescriptionSave}
+                disabled={isSavingDescription}
+                className="h-7 text-xs gap-1.5"
+              >
+                {isSavingDescription ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Save className="h-3 w-3" />
+                )}
+                Save
+              </Button>
             )}
           </div>
-          {editingDescription ? (
-            <div className="flex flex-col gap-2">
-              <Textarea
-                value={descriptionDraft}
-                onChange={(e) => setDescriptionDraft(e.target.value)}
-                placeholder="Enter project description (Markdown supported)..."
-                className="min-h-[200px] font-mono text-sm"
-                autoFocus
-                onKeyDown={(e) => {
-                  // Save on Cmd/Ctrl+Enter
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                    handleDescriptionSave()
-                  }
-                  // Cancel on Escape
-                  if (e.key === 'Escape') {
-                    handleDescriptionCancel()
-                  }
-                }}
-              />
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  Markdown supported • Cmd/Ctrl+Enter to save • Esc to cancel
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleDescriptionCancel}
-                    className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-muted transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDescriptionSave}
-                    className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
-              <MarkdownRenderer content={project.description} />
-            </div>
-          )}
+          <RichTextEditor
+            ref={descriptionEditorRef}
+            content={descriptionDraft}
+            onChange={handleDescriptionChange}
+            placeholder="Describe your project — goals, context, and key details. Paste or drop images..."
+            onImageUpload={handleDescriptionImageUpload}
+            className="min-h-[200px]"
+          />
         </div>
 
         {/* Milestones Section */}
@@ -789,109 +771,3 @@ export function OverviewTab({
   )
 }
 
-// --- Main Project Overview Page ---
-export function ProjectOverview() {
-  const { id } = useParams()
-  const project = useProjectStore((s) => s.projects.find((p) => p.id === id))
-  const allProjects = useProjectStore((s) => s.projects)
-  const updateProject = useProjectStore((s) => s.updateProject)
-  const [activeView, setActiveView] = useState<"plan" | "overview">("plan") // Default to Plan view
-  const [, setSelectedNode] = useState<PlanNode | null>(null)
-  const [isRenaming, setIsRenaming] = useState(false)
-
-  const handleRename = useCallback((newName: string) => {
-    if (project) {
-      updateProject(project.id, { name: newName })
-    }
-    setIsRenaming(false)
-  }, [project, updateProject])
-
-  const handleValidate = useCallback((name: string): string | null => {
-    if (!project) return null
-    return validateProjectName(name, project.id, allProjects)
-  }, [project, allProjects])
-
-  // Auto-fetch file tree in the background when stale or missing
-  useFileTreeRefresh(project)
-
-  if (!project) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        Project not found
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex h-full flex-col">
-      {/* Single-line header: identity + toggle */}
-      <div className="flex items-center gap-3 border-b border-border px-6 h-14 shrink-0">
-        <ColorIconBadge
-          color={project.color}
-          icon={project.icon}
-          type="project"
-          editable
-          onColorChange={(color) => updateProject(project.id, { color })}
-          onIconChange={(icon) => updateProject(project.id, { icon })}
-        />
-        {isRenaming ? (
-          <InlineRenameInput
-            value={project.name}
-            onSave={handleRename}
-            onCancel={() => setIsRenaming(false)}
-            validate={handleValidate}
-            className="text-lg font-semibold"
-          />
-        ) : (
-          <span
-            className="text-lg font-semibold shrink-0 group/name cursor-default"
-            onDoubleClick={() => setIsRenaming(true)}
-          >
-            {project.name}
-            <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 transition-opacity" />
-          </span>
-        )}
-        <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
-
-        {/* Plan | Overview Toggle */}
-        <div className="flex items-center gap-1 ml-4">
-          <button
-            onClick={() => setActiveView("plan")}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-              activeView === "plan"
-                ? "text-accent-foreground border-b-2 border-accent"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            Plan
-          </button>
-          <button
-            onClick={() => setActiveView("overview")}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-              activeView === "overview"
-                ? "text-accent-foreground border-b-2 border-accent"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            Overview
-          </button>
-        </div>
-
-        <div className="flex-1 min-w-0" />
-      </div>
-
-      {/* Content */}
-      <div className="flex flex-1 flex-col overflow-hidden relative">
-        {activeView === "overview" ? (
-          <OverviewTab project={project} />
-        ) : (
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <PlanListView projectId={project.id} onNodeSelect={setSelectedNode} />
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}

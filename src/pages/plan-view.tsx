@@ -54,7 +54,7 @@ import { generateTitle } from "@/lib/api-client"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
-import type { PlanNode, Priority } from "@/types"
+import type { PlanNode, Priority, Label } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
 
@@ -180,6 +180,92 @@ function sortPlanNodes(nodes: PlanNode[], orderBy: string, dir: number): PlanNod
   return sorted
 }
 
+// --- Label Picker (multi-select popover for labels column) ---
+function LabelPicker({
+  nodeId,
+  labelIds,
+  allLabels,
+  nodeLabels,
+  disabled,
+  onUpdate,
+}: {
+  nodeId: string
+  labelIds: string[]
+  allLabels: Label[]
+  nodeLabels: Label[]
+  disabled?: boolean
+  onUpdate?: (id: string, updates: Partial<PlanNode>) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  if (allLabels.length === 0) return null
+
+  const trigger = (
+    <div className="flex items-center gap-1 min-h-[20px]">
+      {nodeLabels.length > 0 ? nodeLabels.map((label) => (
+        <span
+          key={label.id}
+          className="h-2.5 w-2.5 rounded-full shrink-0"
+          title={label.name}
+          style={{ backgroundColor: label.color }}
+        />
+      )) : (
+        <span className="text-[10px] text-muted-foreground/50">—</span>
+      )}
+    </div>
+  )
+
+  if (disabled || !onUpdate) return trigger
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {trigger}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-44 p-1"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Labels</p>
+        {allLabels.map((label) => {
+          const isActive = labelIds.includes(label.id)
+          return (
+            <button
+              key={label.id}
+              type="button"
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer",
+                "hover:bg-accent transition-colors",
+                isActive && "bg-accent/50"
+              )}
+              onClick={() => {
+                const next = isActive
+                  ? labelIds.filter((id) => id !== label.id)
+                  : [...labelIds, label.id]
+                onUpdate(nodeId, { labelIds: next })
+              }}
+            >
+              <span
+                className="h-3 w-3 rounded-full shrink-0"
+                style={{ backgroundColor: label.color }}
+              />
+              <span className="flex-1 text-left text-xs">{label.name}</span>
+              {isActive && <Check className="h-3.5 w-3.5 text-foreground" />}
+            </button>
+          )
+        })}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 // --- Plan List Column Definitions ---
 function makePlanColumns(
   project: { labels?: { id: string; name: string; color: string }[] } | undefined,
@@ -254,7 +340,23 @@ function makePlanColumns(
       sortKey: "dueDate",
       render: (node) => {
         const { text, className } = formatDueDateShort(node.dueDate)
-        return <span className={cn("text-xs", className)}>{text}</span>
+        return (
+          <div
+            className="relative inline-flex items-center rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className={cn("text-xs", className)}>{text}</span>
+            {onNodeUpdate && (
+              <input
+                type="date"
+                value={node.dueDate || ""}
+                onChange={(e) => onNodeUpdate(node.id, { dueDate: e.target.value || undefined })}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                tabIndex={-1}
+              />
+            )}
+          </div>
+        )
       },
     },
     {
@@ -301,17 +403,16 @@ function makePlanColumns(
         const nodeLabels = (node.labelIds || [])
           .map((id) => project?.labels?.find((l) => l.id === id))
           .filter(Boolean)
+        const allLabels = project?.labels || []
         return (
-          <div className="flex items-center gap-1">
-            {nodeLabels.map((label) => label && (
-              <span
-                key={label.id}
-                className="h-2.5 w-2.5 rounded-full shrink-0"
-                title={label.name}
-                style={{ backgroundColor: label.color }}
-              />
-            ))}
-          </div>
+          <LabelPicker
+            nodeId={node.id}
+            labelIds={node.labelIds || []}
+            allLabels={allLabels}
+            nodeLabels={nodeLabels.filter((l): l is Label => !!l)}
+            disabled={!onNodeUpdate}
+            onUpdate={onNodeUpdate}
+          />
         )
       },
     },
@@ -420,7 +521,7 @@ function InlineListCreationRow({
       }).catch(() => {}) // silent — heuristic title is fine
     }
 
-    // Reset form
+    // Reset form but keep input open for rapid creation
     setTaskName("")
     setPriority("medium")
     setStatus("planned")
@@ -428,8 +529,7 @@ function InlineListCreationRow({
     setEstimate(undefined)
     setSelectedProjectId(null)
     setShowProjectPicker(false)
-    onCreated?.()
-  }, [taskName, status, priority, dueDate, estimate, defaultMilestoneId, addNode, onCreated])
+  }, [taskName, status, priority, dueDate, estimate, defaultMilestoneId, addNode])
 
   const handleCreate = () => {
     if (!taskName.trim()) return
@@ -1256,7 +1356,7 @@ export function PlanView() {
               onDoubleClick={() => setIsRenaming(true)}
             >
               {project.name}
-              <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 transition-opacity" />
+              <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }} />
             </span>
           )}
           <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
@@ -1318,7 +1418,7 @@ export function PlanView() {
         )}
         <div className="flex-1 min-w-0 hidden md:block" />
 
-        {/* Action buttons - only visible when Plan is active */}
+        {/* Action buttons - Vision/Export only visible when Plan is active */}
         {activeTab === "plan" && (
           <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
             <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)} className="hidden md:flex">
@@ -1337,16 +1437,18 @@ export function PlanView() {
               <Download className="h-3.5 w-3.5" />
               Export
             </Button>
-            <Button
-              variant={chatOpen ? "default" : "outline"}
-              size="sm"
-              onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setSelectedNode(null); if (chatOpen) setChatInitialMessage(undefined) }}
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              <span className="hidden md:inline ml-1.5">Chat</span>
-            </Button>
           </div>
         )}
+
+        {/* Chat button - always visible */}
+        <Button
+          variant={chatOpen ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setSelectedNode(null); if (chatOpen) setChatInitialMessage(undefined) }}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          <span className="hidden md:inline ml-1.5">Chat</span>
+        </Button>
       </header>
 
       {/* Canvas/List + Detail/Chat pane */}

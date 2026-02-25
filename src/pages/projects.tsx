@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -117,9 +117,10 @@ function getProjectColumns(
                 setRenamingProjectId(p.id)
               }}
               onClick={(e) => e.stopPropagation()}
-              className="text-sm truncate flex-1 hover:underline"
+              className="text-sm truncate flex-1 hover:underline group/name"
             >
               {p.number != null && <span className="text-muted-foreground font-normal mr-1.5">#{p.number}</span>}{p.name}
+              <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRenamingProjectId(p.id); }} />
             </Link>
           )}
         </div>
