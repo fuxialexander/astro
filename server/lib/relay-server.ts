@@ -1217,6 +1217,8 @@ export class RelayServer extends EventEmitter {
         // Task metadata for PR titles
         ...(task.title && { title: task.title }),
         ...(task.description && { description: task.description }),
+        // Multimodal image attachments
+        ...(task.images && task.images.length > 0 && { images: task.images }),
       },
     };
 

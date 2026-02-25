@@ -16,13 +16,13 @@ import {
 import { relayServer } from '../lib/relay-server.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
-import type { ProviderType } from '../types/relay.js'
+import type { ProviderType, ImageAttachment } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects } from '../lib/db/schema.js'
-import { eq, isNull, and } from 'drizzle-orm'
+import { projects, blobs } from '../lib/db/schema.js'
+import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 
@@ -61,6 +61,7 @@ const dispatchTaskSchema = z.object({
   agentDir: z.string().max(100).optional(),
   worktreeStrategy: z.enum(['copy', 'reference', 'direct']).optional(),
   useWorktree: z.boolean().optional(),
+  imageRefs: z.array(z.string().uuid()).max(20).optional(),
 })
 
 const dispatchRoute = new Hono()
@@ -110,6 +111,7 @@ dispatchRoute.post('/task', async (c) => {
     agentDir,
     worktreeStrategy,
     useWorktree,
+    imageRefs,
   } = body
 
   // Validate working directory
@@ -201,6 +203,7 @@ dispatchRoute.post('/task', async (c) => {
     agentDir,
     worktreeStrategy,
     useWorktree,
+    imageRefs,
   })
 })
 
@@ -229,6 +232,7 @@ async function dispatchViaRelay(
     agentDir?: string
     worktreeStrategy?: string
     useWorktree?: boolean
+    imageRefs?: string[]
   }
 ) {
   const {
@@ -251,6 +255,7 @@ async function dispatchViaRelay(
     agentDir,
     worktreeStrategy,
     useWorktree,
+    imageRefs,
   } = params
 
   // Extract user for ownership verification
@@ -331,6 +336,38 @@ If you encounter a decision point where multiple approaches are equally valid an
 
 The user can review your reasoning in the task output and provide guidance if they disagree with your choice.`)
 
+  // Fetch images from blob DB if referenced in task content
+  let images: ImageAttachment[] | undefined
+  if (imageRefs?.length && user) {
+    try {
+      // Ownership check: only fetch blobs belonging to user's team or owned by user
+      const blobRows = await db.select({
+        id: blobs.id,
+        data: blobs.data,
+        mimeType: blobs.mimeType,
+        filename: blobs.filename,
+      }).from(blobs).where(and(
+        inArray(blobs.id, imageRefs),
+        or(
+          eq(blobs.teamId, user.teamId),
+          and(isNull(blobs.teamId), eq(blobs.ownerId, user.id))
+        )
+      ))
+
+      if (blobRows.length > 0) {
+        images = blobRows.map(row => ({
+          blobId: row.id,
+          mimeType: row.mimeType,
+          data: row.data,
+          filename: row.filename,
+        }))
+        promptParts.push(`## Attached Images\n\nThis task includes ${images.length} image(s) embedded in the content. They are provided as part of this message for your visual analysis.`)
+      }
+    } catch (err) {
+      console.warn('[dispatch] Failed to fetch blobs for image refs:', err)
+    }
+  }
+
   const relayPrompt = promptParts.join('\n\n---\n\n')
 
   // Dispatch via relay
@@ -353,6 +390,7 @@ The user can review your reasoning in the task output and provide guidance if th
     agentDir,
     worktreeStrategy,
     useWorktree,
+    images,
   }
 
   // Fetch project record from DB for event hooks (git-pull-hook needs workingDirectory)

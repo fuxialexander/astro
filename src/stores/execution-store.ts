@@ -8,6 +8,7 @@ import { getAccessToken } from "@/lib/supabase-client"
 import { isServerMode } from "@/lib/app-mode"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { dataClient } from "@/lib/data-client"
+import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
 import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
@@ -344,7 +345,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           nodeId,
           projectId,
           title: node.title,
-          description: node.description || node.title,
+          description: node.content ? stripHtml(node.content) : (node.description || node.title),
           dependencies: node.dependencies,
           verification: node.verification,
           visionDoc: project?.visionDoc,
@@ -360,6 +361,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           agentDir: project?.agentDir,
           worktreeStrategy: project?.worktreeStrategy,
           useWorktree: options?.useWorktree,
+          imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
         }),
         signal: abortController.signal,
       })
@@ -1322,7 +1324,7 @@ async function requestExecutionSummary(
       headers,
       body: JSON.stringify({
         taskTitle: node.title,
-        taskDescription: node.description,
+        taskDescription: node.content ? stripHtml(node.content) : node.description,
         executionOutput: execution.streamText,
         fileChanges: execution.fileChanges.map((f) => ({ path: f.path, action: f.action })),
         status: execution.status === "success" ? "success" : "failure",

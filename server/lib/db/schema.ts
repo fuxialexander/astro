@@ -36,4 +36,6 @@ export {
   sharedBundles,
   dispatchQueueEntries,
   machineUsageLogs,
+  blobs,
+  nodeComments,
 } from '../../../packages/core/src/db/schema.js'

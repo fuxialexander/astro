@@ -1,6 +1,9 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
+import { homedir } from 'os'
+import { join } from 'path'
+import { mkdirSync } from 'fs'
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
@@ -11,6 +14,10 @@ import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMess
 import { db } from '../lib/db/index.js'
 import { projects } from '../lib/db/schema.js'
 import { eq, isNull, and } from 'drizzle-orm'
+
+/** Scratch directory for text-only relay tasks (label suggestion, refine, etc.) */
+const SCRATCH_DIR = join(homedir(), '.astro', 'tmp')
+try { mkdirSync(SCRATCH_DIR, { recursive: true }) } catch { /* ignore */ }
 
 // Validation schemas
 const generatePlanSchema = z.object({
@@ -245,8 +252,9 @@ async function executeViaRelay(opts: {
     systemPrompt: opts.systemPrompt,
     type: opts.type,
     maxTurns: opts.maxTurns ?? 1,
-    workingDirectory: '/tmp',
+    workingDirectory: SCRATCH_DIR,
     skipSafetyCheck: true,
+    useWorktree: false,
   }
 
   return new Promise((resolve) => {

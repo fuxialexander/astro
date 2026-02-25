@@ -28,6 +28,8 @@ import {
   Users,
   Mail,
   Clock,
+  Copy,
+  Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUserProfileStore } from "@/stores/user-profile-store"
@@ -1205,7 +1207,7 @@ function TeamsContent() {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
   const [teams, setTeams] = useState<Array<{ id: string; name: string; role: string }>>([])
   const [members, setMembers] = useState<Array<{ user_id: string; role: string; joined_at: string; user: { name: string; email: string } }>>([])
-  const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; expires_at: string; created_at: string }>>([])
+  const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; token: string; email: string; role: string; expires_at: string; created_at: string }>>([])
   const [loading, setLoading] = useState(true)
   const [showInviteDialog, setShowInviteDialog] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -1213,7 +1215,7 @@ function TeamsContent() {
   const [inviting, setInviting] = useState(false)
   const [revoking, setRevoking] = useState<string | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
-  const [, setCopiedToken] = useState(false)
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null)
 
   // Fetch user's teams
   useEffect(() => {
@@ -1261,6 +1263,7 @@ function TeamsContent() {
         const invitesData = await dataClient.getPendingInvites(selectedTeamId)
         setPendingInvites(invitesData.map((inv) => ({
           id: inv.id,
+          token: inv.token,
           email: inv.email,
           role: inv.role,
           expires_at: inv.expiresAt instanceof Date ? inv.expiresAt.toISOString() : String(inv.expiresAt),
@@ -1285,7 +1288,7 @@ function TeamsContent() {
       // Refresh invites list
       const invitesData = await dataClient.getPendingInvites(selectedTeamId)
       setPendingInvites(invitesData.map((inv) => ({
-        id: inv.id, email: inv.email, role: inv.role,
+        id: inv.id, token: inv.token, email: inv.email, role: inv.role,
         expires_at: inv.expiresAt instanceof Date ? inv.expiresAt.toISOString() : String(inv.expiresAt),
         created_at: inv.createdAt instanceof Date ? inv.createdAt.toISOString() : String(inv.createdAt),
       })))
@@ -1325,14 +1328,12 @@ function TeamsContent() {
     }
   }
 
-  const copyInviteLink = (token: string) => {
+  const copyInviteLink = (inviteId: string, token: string) => {
     const inviteUrl = `${window.location.origin}/invite/${token}`
     navigator.clipboard.writeText(inviteUrl)
-    setCopiedToken(true)
-    setTimeout(() => setCopiedToken(false), 2000)
+    setCopiedInviteId(inviteId)
+    setTimeout(() => setCopiedInviteId(null), 2000)
   }
-  // Ensure copyInviteLink is available for future template usage
-  void copyInviteLink
 
   if (!isServerMode()) {
     return (
@@ -1498,6 +1499,18 @@ function TeamsContent() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              onClick={() => copyInviteLink(invite.id, invite.token)}
+                              title="Copy invite link"
+                            >
+                              {copiedInviteId === invite.id ? (
+                                <Check className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <Copy className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => handleRevokeInvite(invite.id)}
                               disabled={revoking === invite.id}
                               className="text-destructive hover:text-destructive"
@@ -1526,7 +1539,7 @@ function TeamsContent() {
           <DialogHeader>
             <DialogTitle>Invite Team Member</DialogTitle>
             <DialogDescription>
-              Send an email invitation to join {selectedTeam?.name}. The invitation will be valid for 7 days.
+              Create an invitation to join {selectedTeam?.name}. Copy the invite link to share directly. Valid for 7 days.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-4">

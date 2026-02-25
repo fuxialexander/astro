@@ -481,7 +481,7 @@ ${titlePart}
 ${descPart}
 
 Rules:
-- refinedTitle: imperative form, 5-10 words, concise and specific
+- refinedTitle: imperative form, 5-10 words, concise and specific. Must be plain text — no markdown marks (no **, \`\`, #, etc.)
 - refinedDescription: structured with Goal, Acceptance Criteria, and Technical Hints sections. Use markdown formatting.
 - If only a title is provided, expand it into a full description.
 - If only a description is provided, derive a concise title from it.

@@ -1,0 +1,339 @@
+import { useState, useCallback } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
+import {
+  ArrowLeft,
+  Maximize2,
+  Minimize2,
+  X,
+  SplitSquareVertical,
+  Square,
+  Paperclip,
+  Link2,
+  Save,
+  Loader2,
+  ExternalLink,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { RichTextEditor, type RichTextEditorRef } from '@/components/ui/rich-text-editor'
+import { usePlanStore } from '@/stores/plan-store'
+import { useProjectStore } from '@/stores/project-store'
+import { statusBadgeVariants } from '@/lib/status-config'
+import { cn } from '@/lib/utils'
+import type { PlanNode, TaskAttachment, TaskLink } from '@/types'
+import { AttachmentList } from './attachment-list'
+import { LinkList } from './link-list'
+import { useRef } from 'react'
+
+export type PanelSize = 'split' | 'three-quarter' | 'full'
+
+interface ExpandableTaskPanelProps {
+  node: PlanNode
+  projectId: string
+  initialSize?: PanelSize
+  onClose?: () => void
+  children?: React.ReactNode // Activity/trace/files content
+}
+
+const sizeConfig = {
+  split: {
+    width: 'w-1/2',
+    label: 'Split',
+    icon: SplitSquareVertical,
+  },
+  'three-quarter': {
+    width: 'w-3/4',
+    label: '3/4 Page',
+    icon: Maximize2,
+  },
+  full: {
+    width: 'w-full',
+    label: 'Full Page',
+    icon: Square,
+  },
+}
+
+export function ExpandableTaskPanel({
+  node,
+  projectId,
+  initialSize = 'split',
+  onClose,
+  children,
+}: ExpandableTaskPanelProps) {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const [size, setSize] = useState<PanelSize>(initialSize)
+  const [activeTab, setActiveTab] = useState<'content' | 'attachments' | 'links' | 'activity'>('content')
+  const [isSaving, setIsSaving] = useState(false)
+  const [hasChanges, setHasChanges] = useState(false)
+  const editorRef = useRef<RichTextEditorRef>(null)
+
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const updateNode = usePlanStore((s) => s.updateNode)
+  const nodes = usePlanStore((s) => s.nodes)
+
+  const [draftContent, setDraftContent] = useState(node.content || '')
+
+  const handleContentChange = useCallback((html: string) => {
+    setDraftContent(html)
+    setHasChanges(html !== (node.content || ''))
+  }, [node.content])
+
+  const handleSave = useCallback(async () => {
+    if (!hasChanges) return
+    setIsSaving(true)
+    try {
+      await updateNode(node.id, { content: draftContent })
+      setHasChanges(false)
+    } finally {
+      setIsSaving(false)
+    }
+  }, [node.id, draftContent, hasChanges, updateNode])
+
+  const handleAddAttachment = useCallback((attachment: TaskAttachment) => {
+    const currentAttachments = node.attachments || []
+    updateNode(node.id, {
+      attachments: [...currentAttachments, attachment],
+    })
+    // Insert image into editor if it's an image
+    if (attachment.mimeType.startsWith('image/') && editorRef.current) {
+      editorRef.current.insertImage(attachment.url, attachment.name)
+    }
+  }, [node.id, node.attachments, updateNode])
+
+  const handleRemoveAttachment = useCallback((attachmentId: string) => {
+    const currentAttachments = node.attachments || []
+    updateNode(node.id, {
+      attachments: currentAttachments.filter((a) => a.id !== attachmentId),
+    })
+  }, [node.id, node.attachments, updateNode])
+
+  const handleAddLink = useCallback((link: TaskLink) => {
+    const currentLinks = node.links || []
+    updateNode(node.id, {
+      links: [...currentLinks, link],
+    })
+  }, [node.id, node.links, updateNode])
+
+  const handleRemoveLink = useCallback((linkId: string) => {
+    const currentLinks = node.links || []
+    updateNode(node.id, {
+      links: currentLinks.filter((l) => l.id !== linkId),
+    })
+  }, [node.id, node.links, updateNode])
+
+  const handleClose = useCallback(() => {
+    if (onClose) {
+      onClose()
+    } else {
+      const returnView = searchParams.get('from') || 'list'
+      navigate(`/project/${projectId}/${returnView}`)
+    }
+  }, [onClose, searchParams, navigate, projectId])
+
+  const cycleSize = useCallback(() => {
+    const sizes: PanelSize[] = ['split', 'three-quarter', 'full']
+    const currentIndex = sizes.indexOf(size)
+    setSize(sizes[(currentIndex + 1) % sizes.length])
+  }, [size])
+
+  const SizeIcon = sizeConfig[size].icon
+
+  return (
+    <div
+      className={cn(
+        'flex flex-col h-full bg-card border-l border-border transition-all duration-300',
+        sizeConfig[size].width,
+        size === 'full' && 'border-l-0'
+      )}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3 shrink-0">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClose}>
+          {size === 'full' ? <ArrowLeft className="h-4 w-4" /> : <X className="h-4 w-4" />}
+        </Button>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            {node.number != null && (
+              <span className="text-muted-foreground text-sm">#{node.number}</span>
+            )}
+            <h2 className="font-semibold truncate">{node.title}</h2>
+            <Badge variant={statusBadgeVariants[node.status] || 'secondary'} className="text-[10px]">
+              {node.status.replace(/_/g, ' ')}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground truncate">
+            {project?.name} &middot; {node.type}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-1">
+          {hasChanges && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="h-8"
+            >
+              {isSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              <span className="ml-1.5">Save</span>
+            </Button>
+          )}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={cycleSize}>
+                <SizeIcon className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {sizeConfig[size].label} (click to cycle)
+            </TooltipContent>
+          </Tooltip>
+
+          {size !== 'full' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setSize('full')}
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Expand to full page</TooltipContent>
+            </Tooltip>
+          )}
+
+          {size === 'full' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setSize('split')}
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Collapse to split view</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="flex-1 flex flex-col min-h-0">
+        <TabsList className="mx-4 mt-3 w-fit shrink-0">
+          <TabsTrigger value="content" className="text-xs">
+            Content
+          </TabsTrigger>
+          <TabsTrigger value="attachments" className="text-xs">
+            <Paperclip className="h-3.5 w-3.5 mr-1" />
+            {(node.attachments?.length || 0) > 0 && `(${node.attachments?.length})`}
+          </TabsTrigger>
+          <TabsTrigger value="links" className="text-xs">
+            <Link2 className="h-3.5 w-3.5 mr-1" />
+            {(node.links?.length || 0) > 0 && `(${node.links?.length})`}
+          </TabsTrigger>
+          <TabsTrigger value="activity" className="text-xs">
+            Activity
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="content" className="flex-1 m-0 min-h-0 overflow-auto p-4">
+          <div className="space-y-4">
+            {/* Description (read-only task instructions) */}
+            {node.description && (
+              <div className="rounded-lg border border-border bg-muted/30 p-4">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Task Instructions
+                </h3>
+                <p className="text-sm text-foreground whitespace-pre-wrap">{node.description}</p>
+              </div>
+            )}
+
+            {/* Rich content editor */}
+            <div>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Notes & Details
+              </h3>
+              <RichTextEditor
+                ref={editorRef}
+                content={draftContent}
+                onChange={handleContentChange}
+                placeholder="Add notes, context, or additional details about this task..."
+                className="min-h-[300px]"
+              />
+            </div>
+
+            {/* Quick links preview */}
+            {(node.links?.length || 0) > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Linked Items
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {node.links?.slice(0, 5).map((link) => (
+                    <a
+                      key={link.id}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted hover:bg-accent text-xs transition-colors"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {link.title}
+                      {link.number && <span className="text-muted-foreground">#{link.number}</span>}
+                    </a>
+                  ))}
+                  {(node.links?.length || 0) > 5 && (
+                    <button
+                      onClick={() => setActiveTab('links')}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      +{(node.links?.length || 0) - 5} more
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="attachments" className="flex-1 m-0 min-h-0 overflow-auto p-4">
+          <AttachmentList
+            attachments={node.attachments || []}
+            onAdd={handleAddAttachment}
+            onRemove={handleRemoveAttachment}
+          />
+        </TabsContent>
+
+        <TabsContent value="links" className="flex-1 m-0 min-h-0 overflow-auto p-4">
+          <LinkList
+            links={node.links || []}
+            nodes={nodes}
+            projectId={projectId}
+            onAdd={handleAddLink}
+            onRemove={handleRemoveLink}
+          />
+        </TabsContent>
+
+        <TabsContent value="activity" className="flex-1 m-0 min-h-0">
+          {children}
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}

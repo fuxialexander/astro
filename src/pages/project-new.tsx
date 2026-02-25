@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router"
-import { Sparkles, Loader2, X, Laptop, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, GitBranch, Plus, Users, GitPullRequest, FolderEdit, ChevronDown, FolderOpen } from "lucide-react"
+import { Sparkles, Loader2, X, Laptop, CheckCircle2, AlertCircle, Info, HelpCircle, Github, Search, GitBranch, Plus, Users, GitPullRequest, FolderOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
@@ -23,6 +22,7 @@ import { cn } from "@/lib/utils"
 import { extractTitle } from "@/lib/text-utils"
 import { generateTitle, suggestLabels, refineContent } from "@/lib/api-client"
 import { remoteTypeLabel, deliveryModeLabel } from "@/lib/project-source"
+import { DEFAULT_LABELS } from "@/lib/constants"
 import { extractRepoInfo } from "@/lib/git-url-utils"
 import { validateAbsolutePath } from "@/lib/path-utils"
 
@@ -184,30 +184,34 @@ export function ProjectNew() {
   }
 
   const [justRefined, setJustRefined] = useState(false)
-
-  // Refine project description via AI
-  async function handleRefine() {
-    if (!description.trim() || isSubmitting || isRefining) return
-    setIsRefining(true)
-    try {
-      const result = await refineContent("", description.trim(), "project")
-      if (result) {
-        setDescription(result.refinedDescription)
-        setJustRefined(true)
-        setTimeout(() => setJustRefined(false), 1500)
-      }
-    } catch { /* refinement is best-effort */ }
-    setIsRefining(false)
-  }
+  const [useAIPlan, setUseAIPlan] = useState(true)
+  const [useRefine, setUseRefine] = useState(false)
 
   // Unified create handler
-  async function handleCreate(useAI: boolean) {
+  async function handleCreate() {
     if (!description.trim() || isSubmitting) return
-    // Skip AI requires either a first task or just creates empty project
     setIsSubmitting(true)
     setRepoSetupError(null)
+
+    // Optionally refine description before creating
+    let finalDescription = description.trim()
+    if (useRefine) {
+      try {
+        setIsRefining(true)
+        const result = await refineContent("", finalDescription, "project")
+        if (result) {
+          finalDescription = result.refinedDescription
+          setDescription(finalDescription)
+          setJustRefined(true)
+          setTimeout(() => setJustRefined(false), 1500)
+        }
+      } catch { /* refinement is best-effort */ }
+      setIsRefining(false)
+    }
+
     const id = crypto.randomUUID()
-    const projectName = description.slice(0, 50).trim() || "New Project"
+    const projectName = finalDescription.slice(0, 50).trim() || "New Project"
+    const useAI = useAIPlan
 
     if (useAI) {
       // --- AI path: create project, setup repo, then navigate + generate ---
@@ -220,6 +224,7 @@ export function ProjectNew() {
         teamId: teamIdParam || undefined,
         color: getRandomColor(),
         icon: getRandomProjectIcon(),
+        labels: DEFAULT_LABELS,
         sourceDirectory: workingDir.trim() || undefined,
         workingDirectory: workingDir.trim() || undefined,
         repository: repoUrl.trim() || undefined,
@@ -326,6 +331,7 @@ export function ProjectNew() {
           teamId: teamIdParam || undefined,
           color: getRandomColor(),
           icon: getRandomProjectIcon(),
+          labels: DEFAULT_LABELS,
           sourceDirectory: resolvedDir,
           workingDirectory: resolvedDir,
           repository: repoUrl.trim() || undefined,
@@ -610,55 +616,30 @@ export function ProjectNew() {
     )
   }
 
-  // Help tooltip state
-  const [showDirHelp, setShowDirHelp] = useState(false)
-
   const WorkingDirectoryHelp = () => (
-    <>
-      <button
-        type="button"
-        onClick={() => setShowDirHelp(!showDirHelp)}
-        className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-        title="How Astro uses your working directory"
-      >
+    <div className="relative group/help inline-flex">
+      <span className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors cursor-help">
         <HelpCircle className="h-3.5 w-3.5" />
-      </button>
-      {showDirHelp && (
-        <div className="rounded-lg border border-border bg-card p-4 text-xs leading-relaxed space-y-3">
-          <p className="font-medium text-sm text-foreground">How Astro uses your working directory</p>
-          <div className="space-y-2.5">
-            <div>
-              <p className="font-medium text-foreground">Scenario A: Data-only directory</p>
-              <p className="text-muted-foreground">Your folder has datasets, documents, or supporting materials but no code. Agents can read these files using absolute paths. The directory itself is not modified.</p>
-            </div>
-            <div>
-              <p className="font-medium text-foreground">Scenario B: Data directory + Git repo URL</p>
-              <p className="text-muted-foreground">The repository is cloned into a subfolder inside your directory (e.g., <code className="font-mono bg-muted px-1 rounded">your-folder/repo-name/</code>). Agents work on isolated git branches in <code className="font-mono bg-muted px-1 rounded">repo-name.astro-worktrees/</code>. Your data files stay untouched and accessible.</p>
-            </div>
-            <div>
-              <p className="font-medium text-foreground">Scenario C: Existing Git project</p>
-              <p className="text-muted-foreground">Agents work on isolated branches in a sibling directory (<code className="font-mono bg-muted px-1 rounded">your-project.astro-worktrees/</code>). Your project directory is never modified directly. All changes happen on the worktree branch and are submitted as pull requests.</p>
-            </div>
-          </div>
-          <div className="border-t border-border pt-2.5 space-y-1.5">
-            <p className="font-medium text-foreground">Safety</p>
-            <ul className="text-muted-foreground space-y-1 list-disc pl-4">
-              <li>Back up data that isn't under version control before running tasks</li>
-              <li>Agents write code using absolute paths to reference data files</li>
-              <li>Git worktrees are automatically cleaned up after tasks complete</li>
-            </ul>
+      </span>
+      <div className="absolute left-0 top-full mt-1.5 z-50 hidden group-hover/help:block w-[320px]">
+        <div className="rounded-lg border border-border bg-popover p-3 text-xs leading-relaxed shadow-md space-y-2">
+          <p className="font-medium text-popover-foreground">How Astro uses this directory</p>
+          <div className="space-y-1.5 text-muted-foreground">
+            <p><span className="font-medium text-popover-foreground">Git repo:</span> Agents work on isolated worktree branches. Changes are submitted as PRs.</p>
+            <p><span className="font-medium text-popover-foreground">No git:</span> You'll be prompted to initialize git. If you skip, agents modify files directly with no rollback — only one task can run at a time.</p>
+            <p><span className="font-medium text-popover-foreground">Repo URL + directory:</span> Repo is cloned into a subfolder. Your existing files stay untouched.</p>
           </div>
         </div>
-      )}
-    </>
+      </div>
+    </div>
   )
 
   // Get team name if creating team project
   const selectedTeam = teamIdParam ? teams.find(t => t.id === teamIdParam) : null
 
   return (
-    <div className="flex h-full items-center justify-center bg-background">
-      <div className="flex w-[640px] flex-col items-center gap-8">
+    <div className="flex h-full items-center justify-center bg-background overflow-y-auto py-8">
+      <div className="flex w-full max-w-[960px] flex-col items-center gap-8 px-6">
         {/* Team indicator */}
         {selectedTeam && (
           <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2">
@@ -680,264 +661,264 @@ export function ProjectNew() {
           </p>
         </div>
 
-        {/* Unified Form */}
-        <div className="flex w-full flex-col gap-4">
-          {/* Project description */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-foreground">
-              What are you building? <span className="text-destructive">*</span>
-            </label>
-            <div className="relative">
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="A personal finance app with budgeting and transaction tracking..."
-                className={cn(
-                  "h-[100px] w-full resize-none rounded-xl border border-border bg-card p-4 pr-12 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring transition-all",
-                  isRefining && "opacity-60",
-                  justRefined && "ring-1 ring-success/30"
-                )}
-                disabled={isRefining}
-                autoFocus
-              />
-              {isRefining && (
-                <div className="absolute inset-0 flex items-center justify-center rounded-xl">
-                  <div className="flex items-center gap-2 rounded-full bg-background/80 border border-border px-3 py-1.5 shadow-sm">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">AI is refining...</span>
+        {/* Two-pane form */}
+        <div className="grid w-full grid-cols-1 gap-6 md:grid-cols-2">
+          {/* Left pane — Plan description + First task */}
+          <div className="flex flex-col gap-4">
+            {/* Project description */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-foreground">
+                Describe your plan <span className="text-destructive">*</span>
+              </label>
+              <div className="relative">
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Grab your favorite transcribe app to describe your plan as comprehensively as possible."
+                  className={cn(
+                    "h-[140px] w-full resize-none rounded-xl border border-border bg-card p-4 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring transition-all",
+                    isRefining && "opacity-60",
+                    justRefined && "ring-1 ring-success/30"
+                  )}
+                  disabled={isRefining}
+                  autoFocus
+                />
+                {isRefining && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-xl">
+                    <div className="flex items-center gap-2 rounded-full bg-background/80 border border-border px-3 py-1.5 shadow-sm">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">AI is refining...</span>
+                    </div>
                   </div>
+                )}
+              </div>
+            </div>
+
+            {/* First task */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-foreground">
+                First task <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={firstTask}
+                onChange={(e) => setFirstTask(e.target.value)}
+                placeholder="e.g., Add user authentication with email/password login, session management, and a protected dashboard route..."
+                rows={3}
+                className="min-h-[80px] w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+
+            <ErrorAlert />
+          </div>
+
+          {/* Right pane — Target machine + Directory + Repo */}
+          <div className="flex flex-col gap-4">
+            <MachineSelector />
+
+            {/* Project directory */}
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                Project directory
+                <WorkingDirectoryHelp />
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={workingDir}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setWorkingDir(val)
+                    const result = validateAbsolutePath(val)
+                    setPathError(result.isValid ? null : result.error ?? null)
+                  }}
+                  placeholder={isRemote ? "/remote/path/to/project" : "/absolute/path/to/project"}
+                  className={cn(
+                    "flex-1 h-10 rounded-lg border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring",
+                    pathError ? "border-destructive" : "border-border",
+                  )}
+                />
+                {selectedMachine && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setShowPathBrowser(true)}
+                    title="Browse remote directories"
+                    className="h-10 w-10 shrink-0"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              {pathError && (
+                <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>{pathError}</span>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Absolute path (e.g., /Users/you/projects/my-app). Avoid ~ or relative paths.
+              </p>
+              <DetectionFeedback />
+              {detection?.isGit && selectedMachine && !githubRepoFullName && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
+                  <BranchSelector
+                    value={effectiveBranch || 'main'}
+                    onChange={setSelectedBranch}
+                    path={workingDir.trim()}
+                    machineId={selectedMachine.machineId}
+                  />
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Project directory */}
-          <div className="flex flex-col gap-2">
-            <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-              Project directory
-              <WorkingDirectoryHelp />
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={workingDir}
-                onChange={(e) => {
-                  const val = e.target.value
-                  setWorkingDir(val)
-                  const result = validateAbsolutePath(val)
-                  setPathError(result.isValid ? null : result.error ?? null)
-                }}
-                placeholder={isRemote ? "/remote/path/to/project" : "/absolute/path/to/project"}
-                className={cn(
-                  "flex-1 h-10 rounded-lg border bg-card px-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring",
-                  pathError ? "border-destructive" : "border-border",
-                )}
-              />
-              {/* Browse button - only shown when a machine is selected */}
-              {selectedMachine && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowPathBrowser(true)}
-                  title="Browse remote directories"
-                  className="h-10 w-10 shrink-0"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-            {pathError && (
-              <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>{pathError}</span>
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Use an absolute path (e.g., /Users/username/projects/my-app). Avoid ~ or relative paths — they resolve differently across machines.
-            </p>
-            <DetectionFeedback />
-            {/* Branch selector — shown when git repo detected via directory OR GitHub repo URL set */}
-            {detection?.isGit && selectedMachine && !githubRepoFullName && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
-                <BranchSelector
-                  value={effectiveBranch || 'main'}
-                  onChange={setSelectedBranch}
-                  path={workingDir.trim()}
-                  machineId={selectedMachine.machineId}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Repository URL — collapsed by default */}
-          {showRepoUrl ? (
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-foreground">Repository URL</label>
-              {showGitHubRepos ? (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search repositories..."
-                        className="w-full rounded-lg border border-border bg-card pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
+            {/* Repository URL — collapsed by default */}
+            {showRepoUrl ? (
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Repository URL</label>
+                {showGitHubRepos ? (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search repositories..."
+                          className="w-full rounded-lg border border-border bg-card pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      </div>
+                      <button
+                        onClick={() => { setShowGitHubRepos(false); setSearchQuery("") }}
+                        className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <X className="h-4 w-4 text-muted-foreground" />
+                      </button>
                     </div>
+                    <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-background">
+                      {filteredRepos.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground">
+                          {searchQuery ? "No repositories found" : "No repositories available"}
+                        </div>
+                      ) : (
+                        filteredRepos.map((repo) => (
+                          <button
+                            key={repo.id}
+                            onClick={() => {
+                              setRepoUrl(repo.sshUrl)
+                              setSelectedBranch(repo.defaultBranch || null)
+                              setShowGitHubRepos(false)
+                              setSearchQuery("")
+                            }}
+                            className="w-full p-3 text-left hover:bg-muted/50 border-b last:border-b-0 transition-colors"
+                          >
+                            <div className="flex items-start gap-2">
+                              <Github className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-sm truncate">{repo.fullName}</div>
+                                {repo.description && (
+                                  <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                                    {repo.description}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={repoUrl}
+                      onChange={(e) => setRepoUrl(e.target.value)}
+                      placeholder="git@github.com:user/repo.git"
+                      className="flex-1 h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    {connected && (
+                      <button
+                        onClick={() => setShowGitHubRepos(true)}
+                        className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                        title="Browse GitHub repos"
+                      >
+                        <Github className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    )}
                     <button
-                      onClick={() => { setShowGitHubRepos(false); setSearchQuery("") }}
+                      onClick={() => { setShowRepoUrl(false); setRepoUrl(""); setShowGitHubRepos(false); setSearchQuery("") }}
                       className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
                     >
                       <X className="h-4 w-4 text-muted-foreground" />
                     </button>
                   </div>
-                  <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-background">
-                    {filteredRepos.length === 0 ? (
-                      <div className="p-4 text-center text-sm text-muted-foreground">
-                        {searchQuery ? "No repositories found" : "No repositories available"}
-                      </div>
-                    ) : (
-                      filteredRepos.map((repo) => (
-                        <button
-                          key={repo.id}
-                          onClick={() => {
-                            setRepoUrl(repo.sshUrl)
-                            setSelectedBranch(repo.defaultBranch || null)
-                            setShowGitHubRepos(false)
-                            setSearchQuery("")
-                          }}
-                          className="w-full p-3 text-left hover:bg-muted/50 border-b last:border-b-0 transition-colors"
-                        >
-                          <div className="flex items-start gap-2">
-                            <Github className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-sm truncate">{repo.fullName}</div>
-                              {repo.description && (
-                                <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
-                                  {repo.description}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                    placeholder="git@github.com:user/repo.git"
-                    className="flex-1 h-10 rounded-lg border border-border bg-card px-3 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                  {connected && (
-                    <button
-                      onClick={() => setShowGitHubRepos(true)}
-                      className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
-                      title="Browse GitHub repos"
-                    >
-                      <Github className="h-4 w-4 text-muted-foreground" />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => { setShowRepoUrl(false); setRepoUrl(""); setShowGitHubRepos(false); setSearchQuery("") }}
-                    className="p-2 rounded-md hover:bg-muted transition-colors cursor-pointer"
-                  >
-                    <X className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowRepoUrl(true)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add repository URL
-            </button>
-          )}
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowRepoUrl(true)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add repository URL
+              </button>
+            )}
 
-          {/* Branch selector for GitHub repos — shown when repo URL is a GitHub URL */}
-          {githubRepoFullName && connected && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
-              <BranchSelector
-                value={effectiveBranch || selectedBranch || 'main'}
-                onChange={setSelectedBranch}
-                repository={githubRepoFullName}
-              />
-            </div>
-          )}
-
-          {/* First task */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-foreground">
-              First task — describe what needs to be done <span className="text-muted-foreground font-normal">(optional)</span>
-            </label>
-            <textarea
-              value={firstTask}
-              onChange={(e) => setFirstTask(e.target.value)}
-              placeholder="e.g., Add user authentication with email/password login, session management, and a protected dashboard route..."
-              rows={3}
-              className="min-h-[80px] w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-            />
+            {/* Branch selector for GitHub repos */}
+            {githubRepoFullName && connected && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
+                <BranchSelector
+                  value={effectiveBranch || selectedBranch || 'main'}
+                  onChange={setSelectedBranch}
+                  repository={githubRepoFullName}
+                />
+              </div>
+            )}
           </div>
-
-          <ErrorAlert />
-          <MachineSelector />
         </div>
 
-        {/* Actions */}
-        <div className="flex w-full flex-col gap-3">
-          <div className="flex w-full gap-0">
-            <Button
-              onClick={() => handleCreate(true)}
-              disabled={!description.trim() || isSubmitting || isRefining || connectionStatus !== "connected"}
-              className="h-12 flex-1 rounded-xl rounded-r-none text-base font-semibold"
-            >
-              {isRefining ? (
-                <Loader2 className="h-[18px] w-[18px] animate-spin" />
-              ) : isSubmitting ? (
-                <Loader2 className="h-[18px] w-[18px] animate-spin" />
-              ) : (
-                <Sparkles className="h-[18px] w-[18px]" />
-              )}
-              {isRefining ? "Refining..." : isSubmitting ? "Creating..." : "Create & Generate Plan"}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  disabled={!description.trim() || isSubmitting || isRefining || connectionStatus !== "connected"}
-                  className="h-12 rounded-xl rounded-l-none border-l border-primary-foreground/20 px-3"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleRefine} className="gap-2">
-                  <Sparkles className="h-4 w-4" />
-                  Refine
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+        {/* Bottom center — Options + Create button */}
+        <div className="flex w-full max-w-md flex-col items-center gap-3">
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={useAIPlan}
+                onChange={(e) => setUseAIPlan(e.target.checked)}
+                disabled={connectionStatus !== "connected"}
+                className="h-4 w-4 rounded border-border accent-primary"
+              />
+              <span className="text-sm font-medium">Plan with AI</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={useRefine}
+                onChange={(e) => setUseRefine(e.target.checked)}
+                disabled={connectionStatus !== "connected"}
+                className="h-4 w-4 rounded border-border accent-primary"
+              />
+              <span className="text-sm font-medium">Refine description</span>
+            </label>
           </div>
           <Button
-            variant="outline"
-            onClick={() => handleCreate(false)}
-            disabled={!description.trim() || isSubmitting}
-            className="h-10 w-full rounded-xl"
+            onClick={() => handleCreate()}
+            disabled={!description.trim() || isSubmitting || isRefining || (useAIPlan && connectionStatus !== "connected")}
+            className="h-12 w-full rounded-xl text-base font-semibold"
           >
-            <FolderEdit className="h-4 w-4" />
-            Create Project
+            {isRefining ? (
+              <Loader2 className="h-[18px] w-[18px] animate-spin" />
+            ) : isSubmitting ? (
+              <Loader2 className="h-[18px] w-[18px] animate-spin" />
+            ) : (
+              <Sparkles className="h-[18px] w-[18px]" />
+            )}
+            {isRefining ? "Refining..." : isSubmitting ? "Creating..." : "Create Project"}
           </Button>
         </div>
 
