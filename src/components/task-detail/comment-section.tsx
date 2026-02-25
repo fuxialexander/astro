@@ -21,7 +21,7 @@ export function CommentSection({ nodeId, projectId, userName }: CommentSectionPr
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
-    dataClient.getComments(nodeId).then((result) => {
+    dataClient.getComments(nodeId, projectId).then((result) => {
       if (!cancelled) {
         setComments(result)
         setIsLoading(false)
@@ -30,7 +30,7 @@ export function CommentSection({ nodeId, projectId, userName }: CommentSectionPr
       if (!cancelled) setIsLoading(false)
     })
     return () => { cancelled = true }
-  }, [nodeId])
+  }, [nodeId, projectId])
 
   const handleSubmit = useCallback(async () => {
     if (!newComment.trim() || isSubmitting) return

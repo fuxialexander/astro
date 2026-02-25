@@ -22,7 +22,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
 import { projects, blobs } from '../lib/db/schema.js'
-import { eq, isNull, and, inArray } from 'drizzle-orm'
+import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 
@@ -338,14 +338,21 @@ The user can review your reasoning in the task output and provide guidance if th
 
   // Fetch images from blob DB if referenced in task content
   let images: ImageAttachment[] | undefined
-  if (imageRefs?.length) {
+  if (imageRefs?.length && user) {
     try {
+      // Ownership check: only fetch blobs belonging to user's team or owned by user
       const blobRows = await db.select({
         id: blobs.id,
         data: blobs.data,
         mimeType: blobs.mimeType,
         filename: blobs.filename,
-      }).from(blobs).where(inArray(blobs.id, imageRefs))
+      }).from(blobs).where(and(
+        inArray(blobs.id, imageRefs),
+        or(
+          eq(blobs.teamId, user.teamId),
+          and(isNull(blobs.teamId), eq(blobs.ownerId, user.id))
+        )
+      ))
 
       if (blobRows.length > 0) {
         images = blobRows.map(row => ({

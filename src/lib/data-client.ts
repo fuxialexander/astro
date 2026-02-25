@@ -627,8 +627,8 @@ export const dataClient = {
   },
 
   // ── Comments ───────────────────────────────────────────────────────
-  async getComments(nodeId: string): Promise<NodeComment[]> {
-    const rows = await json<Record<string, unknown>[]>(`${BASE}/comments?nodeId=${encodeURIComponent(nodeId)}`)
+  async getComments(nodeId: string, projectId: string): Promise<NodeComment[]> {
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/comments?nodeId=${encodeURIComponent(nodeId)}&projectId=${encodeURIComponent(projectId)}`)
     return rows.map(row => {
       const r = snakeToCamel(row)
       return {

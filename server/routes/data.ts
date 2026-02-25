@@ -1572,6 +1572,11 @@ app.patch('/teams/:teamId/members/:userId', async (c) => {
 // ── Blobs (image/file storage) ──────────────────────────────────────
 
 const MAX_BLOB_SIZE = 10 * 1024 * 1024 // 10MB
+const ALLOWED_BLOB_MIME_TYPES = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+  'image/bmp', 'image/tiff', 'image/svg+xml',
+  'application/pdf',
+])
 
 app.post('/blobs', async (c) => {
   const user = c.get('user')! as AuthUser
@@ -1579,6 +1584,10 @@ app.post('/blobs', async (c) => {
 
   if (!body.data || !body.mimeType || !body.filename) {
     return c.json({ error: 'Missing required fields: data, mimeType, filename' }, 400)
+  }
+
+  if (!ALLOWED_BLOB_MIME_TYPES.has(body.mimeType)) {
+    return c.json({ error: `Unsupported file type: ${body.mimeType}` }, 400)
   }
 
   const size = body.size ?? Math.ceil((body.data.length * 3) / 4)
@@ -1601,10 +1610,14 @@ app.post('/blobs', async (c) => {
 })
 
 app.get('/blobs/:id', async (c) => {
+  const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
   if (!UUID_RE.test(id)) return c.json({ error: 'Invalid blob ID' }, 400)
 
-  const [row] = await db.select().from(blobs).where(eq(blobs.id, id))
+  // Ownership check: blob must belong to the same team or be owned by the user
+  const [row] = await db.select().from(blobs).where(
+    and(eq(blobs.id, id), teamScopeFilter(blobs, user))
+  )
   if (!row) return c.json({ error: 'Blob not found' }, 404)
 
   // Decode base64 and serve as binary
@@ -1613,7 +1626,8 @@ app.get('/blobs/:id', async (c) => {
     headers: {
       'Content-Type': row.mimeType,
       'Content-Length': String(buffer.length),
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cache-Control': 'private, max-age=31536000, immutable',
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 })
@@ -1636,19 +1650,19 @@ app.delete('/blobs/:id', async (c) => {
 app.get('/comments', async (c) => {
   const user = c.get('user')! as AuthUser
   const nodeId = c.req.query('nodeId')
+  const projectId = c.req.query('projectId')
   if (!nodeId) return c.json({ error: 'nodeId query parameter required' }, 400)
+  if (!projectId) return c.json({ error: 'projectId query parameter required' }, 400)
+
+  // Always verify project access (not just when comments exist)
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not authorized' }, 403)
 
   const rows = await db.select().from(nodeComments)
     .where(eq(nodeComments.nodeId, nodeId))
     .orderBy(nodeComments.createdAt)
-
-  // Verify the user has access to the project via at least one comment
-  if (rows.length > 0) {
-    const [project] = await db.select().from(projects).where(
-      and(eq(projects.id, rows[0].projectId), teamScopeFilter(projects, user))
-    )
-    if (!project) return c.json({ error: 'Not authorized' }, 403)
-  }
 
   return c.json(rows)
 })
