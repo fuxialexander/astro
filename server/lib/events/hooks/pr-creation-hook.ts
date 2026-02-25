@@ -105,7 +105,7 @@ export const prCreationHook: EventHook = async (event: AstroEvent) => {
     }
 
     try {
-      const prTitle = node.title || `Task: ${node.id}`
+      const prTitle = node.number ? `[#${node.number}] ${node.title}` : node.title || `Task: ${node.id}`
       const prBody = `Automated PR for task: ${node.title}\n\n${result.stdout || ''}`
 
       const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {

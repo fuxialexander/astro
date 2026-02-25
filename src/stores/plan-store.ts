@@ -235,19 +235,20 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     // Skip if a node with this ID already exists
     if (get().nodes.some((n) => n.id === node.id)) return
 
-    // Auto-assign display number per project if not set
-    if (node.number == null) {
-      const projectNodes = get().nodes.filter((n) => n.projectId === node.projectId)
-      const maxNumber = projectNodes.reduce((max, n) => Math.max(max, n.number ?? 0), 0)
-      node = { ...node, number: maxNumber + 1 }
-    }
-
+    // Number is assigned server-side — add optimistically without number
     const nextNodes = [...get().nodes, node]
     set({ nodes: nextNodes })
     const nodeId = node.id
     pendingSaveNodeIds.add(nodeId)
-    dataClient.addNode(node).then(() => {
+    dataClient.addNode(node).then((res) => {
       pendingSaveNodeIds.delete(nodeId)
+      // Merge server-assigned number into local node
+      if (res.number != null) {
+        const updated = get().nodes.map((n) =>
+          n.id === nodeId ? { ...n, number: res.number! } : n
+        )
+        set({ nodes: updated })
+      }
       // Sync any position computed by reorganizeProject while the save was in-flight
       const saved = get().nodes.find((n) => n.id === nodeId)
       if (saved?.position) {
@@ -360,13 +361,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   setProjectPlan: (projectId, newNodes, newEdges) => {
     console.log(`[plan-store] setProjectPlan called: projectId=${projectId}, ${newNodes.length} nodes, ${newEdges.length} edges`)
-    // Auto-assign display numbers to nodes that don't have them
-    const existingProjectNodes = get().nodes.filter((n) => n.projectId === projectId)
-    let nextNumber = existingProjectNodes.reduce((max, n) => Math.max(max, n.number ?? 0), 0) + 1
-    newNodes = newNodes.map((node) => {
-      if (node.number != null) return node
-      return { ...node, number: nextNumber++ }
-    })
+    // Numbers are assigned server-side — add optimistically without numbers
     const otherNodes = get().nodes.filter((n) => n.projectId !== projectId)
     const otherEdges = get().edges.filter((e) => {
       const nodeIds = new Set(get().nodes.filter((n) => n.projectId === projectId).map((n) => n.id))
@@ -390,9 +385,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     // Retry API save to prevent data loss on reload.
     // Read the latest node state at save-time so positions from reorganizeProject are included.
     retryAsync(
-      () => {
+      async () => {
         const latestNodes = get().nodes.filter((n) => newNodeIds.has(n.id))
-        return dataClient.setProjectPlan(projectId, latestNodes, dedupedNewEdges)
+        const numbers = await dataClient.setProjectPlan(projectId, latestNodes, dedupedNewEdges)
+        // Merge server-assigned numbers into local nodes
+        if (Object.keys(numbers).length > 0) {
+          const updated = get().nodes.map((n) => {
+            const num = numbers[n.id]
+            return num != null ? { ...n, number: num } : n
+          })
+          set({ nodes: updated })
+        }
       },
       `Save project plan ${projectId}`,
     ).then(() => {

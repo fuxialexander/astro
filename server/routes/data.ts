@@ -58,39 +58,58 @@ app.post('/projects', async (c) => {
 
   // Generate UUID if not provided
   const projectId = body.id || crypto.randomUUID()
+  const teamId = user.teamId || body.teamId || null
 
-  const row = {
-    id: projectId,
-    ownerId: user.id,
-    name: body.name,
-    description: body.description ?? '',
-    visionDoc: body.visionDoc ?? '',
-    status: body.status ?? 'active',
-    startDate: body.startDate ?? null,
-    targetDate: body.targetDate ?? null,
-    lead: body.lead ?? null,
-    health: body.health ?? null,
-    initiativeId: body.initiativeId ?? null,
-    teamId: user.teamId || body.teamId || null,
-    progress: body.progress ?? 0,
-    labels: body.labels ?? [],
-    color: body.color ?? '#3b82f6',
-    icon: body.icon ?? '📋',
-    number: body.number ?? null,
-    workingDirectory: body.workingDirectory ?? null,
-    sourceDirectory: body.sourceDirectory ?? null,
-    repository: body.repository ?? null,
-    mergeQueueEnabled: body.mergeQueueEnabled ?? false,
-    mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
-    source: body.source ?? null,
-    deliveryMode: body.deliveryMode ?? null,
-    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
-    updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
-  }
-  await db.insert(projects).values(row).onConflictDoUpdate({
-    target: projects.id,
-    set: { ...row, id: undefined } as typeof row,
+  // Server-authoritative number assignment in a transaction
+  let assignedNumber: number | null = null
+  const isNewProject = body.id === undefined || !body.createdAt
+
+  await db.transaction(async (tx) => {
+    if (isNewProject) {
+      // Compute MAX(number)+1 scoped to team (or owner for legacy data)
+      const scopeFilter = teamId
+        ? eq(projects.teamId, teamId)
+        : eq(projects.ownerId, user.id)
+      const [maxRow] = await tx.select({ maxNum: sql<number>`COALESCE(MAX(${projects.number}), 0)` })
+        .from(projects)
+        .where(scopeFilter)
+      assignedNumber = (maxRow?.maxNum ?? 0) + 1
+    }
+
+    const row = {
+      id: projectId,
+      ownerId: user.id,
+      name: body.name,
+      description: body.description ?? '',
+      visionDoc: body.visionDoc ?? '',
+      status: body.status ?? 'active',
+      startDate: body.startDate ?? null,
+      targetDate: body.targetDate ?? null,
+      lead: body.lead ?? null,
+      health: body.health ?? null,
+      initiativeId: body.initiativeId ?? null,
+      teamId,
+      progress: body.progress ?? 0,
+      labels: body.labels ?? [],
+      color: body.color ?? '#3b82f6',
+      icon: body.icon ?? '📋',
+      number: assignedNumber ?? (body.number ?? null),
+      workingDirectory: body.workingDirectory ?? null,
+      sourceDirectory: body.sourceDirectory ?? null,
+      repository: body.repository ?? null,
+      mergeQueueEnabled: body.mergeQueueEnabled ?? false,
+      mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
+      source: body.source ?? null,
+      deliveryMode: body.deliveryMode ?? null,
+      createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
+      updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
+    }
+    await tx.insert(projects).values(row).onConflictDoUpdate({
+      target: projects.id,
+      set: { ...row, id: undefined } as typeof row,
+    })
   })
+
   const [created] = await db.select().from(projects).where(eq(projects.id, projectId))
 
   // Audit log project creation (only on new projects, not updates)
@@ -337,6 +356,7 @@ app.get('/plan', async (c) => {
     .map(n => ({
       id: n.clientId, // Use clientId as frontend ID
       projectId: n.projectId,
+      number: n.number,
       type: n.type,
       title: n.title,
       description: n.description,
@@ -395,6 +415,7 @@ app.get('/plan/:projectId', async (c) => {
   const nodes = rawNodes.filter(n => !n.deletedAt).map(n => ({
     id: n.clientId, // Use clientId as frontend ID
     projectId: n.projectId,
+    number: n.number,
     type: n.type,
     title: n.title,
     description: n.description,
@@ -457,17 +478,22 @@ app.put('/plan/:projectId', async (c) => {
     edges: Array<Record<string, unknown>>
   }
 
-  // Transaction: delete existing, insert new
+  // Transaction: delete existing, insert new with server-assigned numbers
+  const numbers: Record<string, number> = {}
   await db.transaction(async (tx) => {
     await tx.delete(planEdges).where(eq(planEdges.projectId, projectId))
     await tx.delete(planNodes).where(eq(planNodes.projectId, projectId))
 
+    let nextNumber = 1
     for (const n of newNodes) {
+      const assignedNumber = nextNumber++
+      const clientId = n.id as string
+      numbers[clientId] = assignedNumber
       const position = n.position as { x: number; y: number } | undefined
       const row = {
-        clientId: n.id as string, // Use client ID for compatibility
+        clientId, // Use client ID for compatibility
         projectId,
-        number: (n.number as number) ?? null,
+        number: assignedNumber,
         type: n.type as string,
         title: n.title as string,
         description: (n.description as string) ?? '',
@@ -513,7 +539,7 @@ app.put('/plan/:projectId', async (c) => {
     }
   })
 
-  return c.json({ ok: true })
+  return c.json({ ok: true, numbers })
 })
 
 app.post('/plan/nodes', async (c) => {
@@ -530,43 +556,53 @@ app.post('/plan/nodes', async (c) => {
 
   const now = new Date()
   const position = body.position as { x: number; y: number } | undefined
-  await db.insert(planNodes).values({
-    clientId: body.id,
-    projectId: body.projectId,
-    number: body.number ?? null,
-    type: body.type,
-    title: body.title,
-    description: body.description ?? '',
-    status: body.status ?? 'planned',
-    parentId: body.parentId ?? null,
-    environment: body.environment ?? null,
-    verification: body.verification ?? 'auto',
-    positionX: position?.x ?? 0,
-    positionY: position?.y ?? 0,
-    startDate: body.startDate ?? null,
-    endDate: body.endDate ?? null,
-    priority: body.priority ?? null,
-    labelIds: body.labelIds ?? [],
-    dueDate: body.dueDate ?? null,
-    estimate: body.estimate ?? null,
-    milestoneId: body.milestoneId ?? null,
-    executionId: body.executionId ?? null,
-    executionOutput: body.executionOutput ?? null,
-    executionError: body.executionError ?? null,
-    executionStartedAt: (typeof body.executionStartedAt === 'string' || typeof body.executionStartedAt === 'number') ? new Date(body.executionStartedAt) : null,
-    executionCompletedAt: (typeof body.executionCompletedAt === 'string' || typeof body.executionCompletedAt === 'number') ? new Date(body.executionCompletedAt) : null,
-    branchName: body.branchName ?? null,
-    prUrl: body.prUrl ?? null,
-    prNumber: body.prNumber ?? null,
-    mergeQueueStatus: body.mergeQueueStatus ?? null,
-    autoPr: body.autoPr ?? false,
-    content: body.content ?? null,
-    attachments: body.attachments ?? [],
-    links: body.links ?? [],
-    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
-    updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
+
+  // Server-authoritative number assignment in a transaction
+  let assignedNumber: number | null = null
+  await db.transaction(async (tx) => {
+    const [maxRow] = await tx.select({ maxNum: sql<number>`COALESCE(MAX(${planNodes.number}), 0)` })
+      .from(planNodes)
+      .where(eq(planNodes.projectId, body.projectId))
+    assignedNumber = (maxRow?.maxNum ?? 0) + 1
+
+    await tx.insert(planNodes).values({
+      clientId: body.id,
+      projectId: body.projectId,
+      number: assignedNumber,
+      type: body.type,
+      title: body.title,
+      description: body.description ?? '',
+      status: body.status ?? 'planned',
+      parentId: body.parentId ?? null,
+      environment: body.environment ?? null,
+      verification: body.verification ?? 'auto',
+      positionX: position?.x ?? 0,
+      positionY: position?.y ?? 0,
+      startDate: body.startDate ?? null,
+      endDate: body.endDate ?? null,
+      priority: body.priority ?? null,
+      labelIds: body.labelIds ?? [],
+      dueDate: body.dueDate ?? null,
+      estimate: body.estimate ?? null,
+      milestoneId: body.milestoneId ?? null,
+      executionId: body.executionId ?? null,
+      executionOutput: body.executionOutput ?? null,
+      executionError: body.executionError ?? null,
+      executionStartedAt: (typeof body.executionStartedAt === 'string' || typeof body.executionStartedAt === 'number') ? new Date(body.executionStartedAt) : null,
+      executionCompletedAt: (typeof body.executionCompletedAt === 'string' || typeof body.executionCompletedAt === 'number') ? new Date(body.executionCompletedAt) : null,
+      branchName: body.branchName ?? null,
+      prUrl: body.prUrl ?? null,
+      prNumber: body.prNumber ?? null,
+      mergeQueueStatus: body.mergeQueueStatus ?? null,
+      autoPr: body.autoPr ?? false,
+      content: body.content ?? null,
+      attachments: body.attachments ?? [],
+      links: body.links ?? [],
+      createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
+      updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
+    })
   })
-  return c.json({ ok: true }, 201)
+  return c.json({ ok: true, number: assignedNumber }, 201)
 })
 
 app.patch('/plan/nodes/:id', async (c) => {
@@ -586,7 +622,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   const body = await c.req.json()
   const patch: Record<string, unknown> = { updatedAt: new Date() }
 
-  if (body.number !== undefined) patch.number = body.number
+  // number is server-authoritative — not patchable by clients
   if (body.title !== undefined) patch.title = body.title
   if (body.description !== undefined) patch.description = body.description
   if (body.status !== undefined) patch.status = body.status
