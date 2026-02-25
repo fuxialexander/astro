@@ -147,6 +147,28 @@ export interface Project {
   updatedAt: Date;
 }
 
+// Attachment for tasks (images, files, etc.)
+export interface TaskAttachment {
+  id: string;
+  name: string;
+  url: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: Date;
+  thumbnailUrl?: string;
+}
+
+// Link to external resources (GitHub issues, PRs, etc.)
+export interface TaskLink {
+  id: string;
+  type: 'github_issue' | 'github_pr' | 'linear_issue' | 'task' | 'url';
+  url: string;
+  title: string;
+  state?: 'open' | 'closed' | 'merged';
+  number?: number;
+  targetId?: string; // For internal task links
+}
+
 export interface PlanNode {
   id: string;
   number?: number;
@@ -185,6 +207,10 @@ export interface PlanNode {
   deletedAt?: Date;
   deletionActionId?: string;
   metadata?: Record<string, unknown>;
+  // Rich content fields
+  content?: string; // Rich text content (HTML from TipTap)
+  attachments?: TaskAttachment[];
+  links?: TaskLink[];
 }
 
 // Tool trace for execution detail view
