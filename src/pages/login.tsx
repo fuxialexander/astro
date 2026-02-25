@@ -440,9 +440,7 @@ export function Login() {
       <div className="w-full max-w-sm space-y-8">
         {/* Logo */}
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-            <span className="text-xl font-bold text-primary-foreground">N</span>
-          </div>
+          <img src="/icon-192.png" alt="Astro" className="mx-auto mb-4 h-12 w-12 rounded-xl" />
           <h1 className="text-2xl font-semibold tracking-tight">Astro</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {step === "email" && "Enter your email to continue"}

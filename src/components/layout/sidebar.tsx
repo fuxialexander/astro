@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react"
 import { NavLink, useNavigate, useParams } from "react-router"
-import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X } from "lucide-react"
+import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -289,10 +289,7 @@ export function Sidebar() {
       {/* Logo Section */}
       <div className="flex h-14 shrink-0 items-center gap-2 px-5 py-5">
         <div className="relative">
-          {/* Gradient hex with shadow */}
-          <div className="relative flex h-7 w-7 items-center justify-center rounded-[10px] bg-primary" style={{ boxShadow: '0px 2px 8px color-mix(in srgb, var(--primary) 30%, transparent)' }}>
-            <Hexagon className="h-4 w-4 text-white fill-white" />
-          </div>
+          <img src="/icon-32.png" alt="Astro" className="h-7 w-7 rounded-[6px]" />
           <div
             className={cn(
               "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white dark:border-card",

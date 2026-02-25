@@ -126,6 +126,7 @@ public/*
 !public/favicon.ico
 !public/icon.png
 !public/icon-*.png
+!public/manifest.json
 
 # Vite
 *.local
