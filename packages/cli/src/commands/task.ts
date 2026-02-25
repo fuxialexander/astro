@@ -3,6 +3,7 @@ import chalk from 'chalk'
 import { getClient, streamDispatchToStdout } from '../client.js'
 import type { PlanNode } from '../client.js'
 import { print, formatRelativeTime, formatStatus, parseDateFilter, formatDuration, type ColumnDef } from '../output.js'
+import { buildDispatchPayload, buildDependencyOutputs } from '../../../core/src/dispatch/payload.js'
 
 export function registerTaskCommands(program: Command): void {
   const cmd = program.command('task').description('Manage tasks')
@@ -251,11 +252,23 @@ export function registerTaskCommands(program: Command): void {
       console.log()
 
       try {
-        const response = await client.dispatchTask({
-          nodeId,
-          projectId: opts.projectId,
-          force: opts.force ?? false,
-        })
+        // Fetch node and project to build a complete dispatch payload
+        const [project, { nodes }] = await Promise.all([
+          client.getProject(opts.projectId),
+          client.getPlan(opts.projectId),
+        ])
+        const node = nodes.find((n: PlanNode) => n.id === nodeId && !n.deletedAt)
+        if (!node) {
+          throw new Error(`Task not found: ${nodeId}`)
+        }
+
+        const dependencyOutputs = buildDependencyOutputs(node.dependencies, nodes, opts.projectId)
+        const payload = buildDispatchPayload(node, project, { force: opts.force })
+        if (dependencyOutputs.length > 0) {
+          payload.dependencyOutputs = dependencyOutputs
+        }
+
+        const response = await client.dispatchTask(payload)
         await streamDispatchToStdout(response)
         console.log()
         console.log(chalk.green('Task dispatch complete.'))

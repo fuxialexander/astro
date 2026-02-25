@@ -7,6 +7,7 @@ import { usePlanStore } from '../stores/plan-store.js'
 import { useMachinesStore } from '../stores/machines-store.js'
 import { useTuiStore } from '../stores/tui-store.js'
 import { useExecutionStore } from '../stores/execution-store.js'
+import { buildDispatchPayload } from '../../../core/src/dispatch/payload.js'
 
 export type CommandHandler = (args: string[], client: AstroClient) => Promise<void>
 
@@ -131,20 +132,20 @@ export const handlers: Record<string, CommandHandler> = {
       return
     }
     const project = useProjectsStore.getState().projects.find((p) => p.id === projectId)
-    if (!project?.workingDirectory) {
-      useTuiStore.getState().setLastError('Project has no working directory set')
+    if (!project) {
+      useTuiStore.getState().setLastError('Project not found')
       return
     }
 
     try {
-      const response = await client.dispatchTask({
-        nodeId,
-        projectId,
-        title: node.title,
-        description: node.description || node.title,
-        workingDirectory: project.workingDirectory,
-        visionDoc: project.visionDoc || undefined,
-      })
+      let payload
+      try {
+        payload = buildDispatchPayload(node, project)
+      } catch (e) {
+        useTuiStore.getState().setLastError(e instanceof Error ? e.message : String(e))
+        return
+      }
+      const response = await client.dispatchTask(payload)
       // Init execution tracking
       const execId = `exec-${Date.now()}`
       useExecutionStore.getState().initExecution(execId, nodeId)
