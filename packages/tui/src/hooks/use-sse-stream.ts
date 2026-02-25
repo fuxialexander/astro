@@ -68,9 +68,10 @@ export function useSSEStream(client: AstroClient) {
         case 'task:progress': {
           const taskId = event.data.taskId as string
           const message = event.data.message as string
-          if (message) {
-            useExecutionStore.getState().appendLine(taskId, `[progress] ${message}`)
-          }
+          if (!message) break
+          // Filter out noisy "Using tool:*" progress — already tracked via tool_trace
+          if (/^Using tool:/i.test(message)) break
+          useExecutionStore.getState().appendLine(taskId, `[progress] ${message}`)
           break
         }
 
@@ -92,7 +93,8 @@ export function useSSEStream(client: AstroClient) {
         case 'task:tool_trace': {
           const taskId = event.data.taskId as string
           const toolName = event.data.toolName as string
-          useExecutionStore.getState().appendLine(taskId, `[tool] ${toolName}`)
+          // Collapsed into dot-trail instead of one line per call
+          useExecutionStore.getState().appendToolCall(taskId, toolName)
           break
         }
 
@@ -100,7 +102,9 @@ export function useSSEStream(client: AstroClient) {
           const taskId = event.data.taskId as string
           const path = event.data.path as string
           const action = event.data.action as string
-          useExecutionStore.getState().appendLine(taskId, `[${action}] ${path}`)
+          const added = event.data.linesAdded as number | undefined
+          const removed = event.data.linesRemoved as number | undefined
+          useExecutionStore.getState().appendFileChange(taskId, path, action, added, removed)
           break
         }
 

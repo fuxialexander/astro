@@ -150,18 +150,12 @@ export const handlers: Record<string, CommandHandler> = {
                 if (eventType === 'text') {
                   useExecutionStore.getState().appendText(execId, (event.content ?? '') as string)
                 } else if (eventType === 'tool_use') {
-                  useExecutionStore.getState().appendLine(execId, `[tool] ${event.name}`)
+                  useExecutionStore.getState().appendToolCall(execId, (event.name ?? '') as string)
                 } else if (eventType === 'result') {
                   useExecutionStore.getState().setStatus(execId, (event.status ?? 'completed') as string)
                 } else if (eventType === 'error') {
                   useExecutionStore.getState().appendLine(execId, `[error] ${event.message}`)
                   useExecutionStore.getState().setStatus(execId, 'failure')
-                } else if (eventType === 'session_init') {
-                  // Re-map execution ID if server provides one
-                  const serverId = event.sessionId as string
-                  if (serverId) {
-                    useExecutionStore.getState().appendLine(execId, `[session] ${serverId}`)
-                  }
                 }
               } catch {
                 // Skip non-JSON

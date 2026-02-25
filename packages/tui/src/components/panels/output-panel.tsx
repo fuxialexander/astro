@@ -4,9 +4,18 @@ import { Panel } from '../layout/panel.js'
 import { Spinner } from '../shared/spinner.js'
 import { useExecutionStore } from '../../stores/execution-store.js'
 import { useTuiStore } from '../../stores/tui-store.js'
+import { truncate } from '../../lib/format.js'
 
 interface OutputPanelProps {
   height: number
+}
+
+function lineColor(line: string): string | undefined {
+  if (line.startsWith('[Tool Call]')) return 'gray'
+  if (line.startsWith('[error]')) return 'red'
+  if (line.startsWith('[progress]')) return 'cyan'
+  if (line.startsWith('[created]') || line.startsWith('[modified]') || line.startsWith('[deleted]')) return 'yellow'
+  return undefined
 }
 
 export function OutputPanel({ height }: OutputPanelProps) {
@@ -22,7 +31,10 @@ export function OutputPanel({ height }: OutputPanelProps) {
 
   let title = 'OUTPUT'
   if (execution) {
-    title = `OUTPUT (${execution.nodeId}) [${execution.status}]`
+    const shortId = execution.nodeId.length > 20
+      ? execution.nodeId.slice(0, 8) + '\u2026'
+      : execution.nodeId
+    title = `OUTPUT (${shortId}) [${execution.status}]`
   }
 
   if (!execution) {
@@ -35,11 +47,11 @@ export function OutputPanel({ height }: OutputPanelProps) {
 
   const lines = execution.lines
   const isRunning = execution.status === 'running'
+  const hasPendingTools = execution.pendingToolCount > 0
 
   // Auto-scroll: show last N lines unless user has scrolled up
   let start: number
   if (scrollIndex >= lines.length - visibleHeight) {
-    // Auto-scroll mode: show latest lines
     start = Math.max(0, lines.length - visibleHeight)
   } else {
     start = Math.max(0, scrollIndex)
@@ -49,19 +61,17 @@ export function OutputPanel({ height }: OutputPanelProps) {
   return (
     <Panel title={title} isFocused={isFocused} height={height}>
       <Box flexDirection="column">
-        {visibleLines.map((line, i) => {
-          const color = line.startsWith('[tool]') ? 'yellow'
-            : line.startsWith('[error]') ? 'red'
-            : line.startsWith('[progress]') ? 'cyan'
-            : line.startsWith('[') ? 'gray'
-            : undefined
-          return (
-            <Text key={start + i} color={color} wrap="truncate">
-              {line}
-            </Text>
-          )
-        })}
-        {isRunning && (
+        {visibleLines.map((line, i) => (
+          <Text key={start + i} color={lineColor(line)} dimColor={line.startsWith('[Tool Call]')} wrap="truncate">
+            {truncate(line, 200)}
+          </Text>
+        ))}
+        {hasPendingTools && (
+          <Text dimColor>
+            {'[Tool Call] ' + '\u00B7'.repeat(execution.pendingToolCount)}
+          </Text>
+        )}
+        {isRunning && !hasPendingTools && (
           <Spinner label="Running..." />
         )}
         {lines.length > visibleHeight && (
