@@ -8,6 +8,7 @@
 import { create } from 'zustand'
 import { realtimeClient, type RealtimeEvent } from '@/lib/realtime-client'
 import { apiUrl } from '@/lib/api-url'
+import { getAccessToken } from '@/lib/supabase-client'
 import { showApprovalNotification, showTaskNotification } from '@/lib/notifications'
 import { usePlanStore } from './plan-store'
 import { useProjectStore } from './project-store'
@@ -347,9 +348,13 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     const question = approval?.question || ''
 
     try {
+      const token = await getAccessToken()
+      const authHeaders: HeadersInit = { 'Content-Type': 'application/json' }
+      if (token) authHeaders['Authorization'] = `Bearer ${token}`
+
       const response = await fetch(apiUrl('/api/dispatch/approval'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({
           taskId,
           machineId,
@@ -423,9 +428,13 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
 
     try {
+      const safetyToken = await getAccessToken()
+      const safetyHeaders: HeadersInit = { 'Content-Type': 'application/json' }
+      if (safetyToken) safetyHeaders['Authorization'] = `Bearer ${safetyToken}`
+
       const response = await fetch(apiUrl('/api/dispatch/safety-decision'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: safetyHeaders,
         body: JSON.stringify({
           taskId,
           machineId,
