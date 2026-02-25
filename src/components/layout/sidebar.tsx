@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react"
 import { NavLink, useNavigate, useParams } from "react-router"
-import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, Puzzle, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2 } from "lucide-react"
+import { Hexagon, GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -14,12 +14,12 @@ import { useSidebarStore } from "@/stores/sidebar-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useAgentStore } from "@/stores/agent-store"
+import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 
-// Icon mapping (extended for plugin-contributed sidebar items)
 const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare,
   GitBranch,
@@ -27,7 +27,6 @@ const iconMap: Record<string, typeof CheckSquare> = {
   Radio,
   Target,
   Cpu,
-  Puzzle,
   BookOpen,
   Palette,
   Zap,
@@ -37,6 +36,7 @@ const iconMap: Record<string, typeof CheckSquare> = {
   Box,
   Wrench,
   Code,
+  Sparkles,
 }
 
 // Project color palette — Morandi muted tones
@@ -63,12 +63,12 @@ export function Sidebar() {
   const signOut = useAuthStore((s) => s.signOut)
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const sidebarItems = useSidebarStore((s) => s.items)
-  const externalItems = useSidebarStore((s) => s.externalItems)
   const isEditing = useSidebarStore((s) => s.isEditing)
   const setEditing = useSidebarStore((s) => s.setEditing)
   const toggleItemVisibility = useSidebarStore((s) => s.toggleItemVisibility)
   const reorderItems = useSidebarStore((s) => s.reorderItems)
   const subscribeToChanges = useSidebarStore((s) => s.subscribeToChanges)
+  const dismissAutoReveal = useSidebarStore((s) => s.dismissAutoReveal)
   const addToast = useToastStore((s) => s.add)
   const navigate = useNavigate()
   const params = useParams()
@@ -76,6 +76,9 @@ export function Sidebar() {
 
   const activeProjectId = params.id
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
+
+  // Auto-reveal sidebar items based on usage thresholds
+  useAutoReveal()
 
   // Active task tracking for sidebar indicators
   const executions = useExecutionStore((s) => s.executions)
@@ -369,7 +372,7 @@ export function Sidebar() {
               ) : !isHidden ? (
                 <NavLink
                   to={item.to}
-                  end={item.to === "/"}
+                  end
                   className={({ isActive }) =>
                     cn(
                       "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
@@ -381,6 +384,24 @@ export function Sidebar() {
                 >
                   <Icon className="h-5 w-5" />
                   <span className="flex-1">{item.label}</span>
+                  {item.autoRevealed && (
+                    <>
+                      <span className="text-[9px] font-semibold bg-info/10 text-info rounded-full px-1.5 py-0.5">
+                        New
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          dismissAutoReveal(item.id)
+                        }}
+                        className="p-0.5 rounded-sm hover:bg-muted/80 transition-colors"
+                        aria-label={`Dismiss ${item.label}`}
+                      >
+                        <X className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </>
+                  )}
                   {item.id === "active" && activeCount > 0 && (
                     <span className="flex items-center gap-1 rounded-full bg-info/10 px-1.5 py-0.5 text-[10px] font-semibold text-info">
                       <div className="relative h-1.5 w-1.5">
@@ -405,35 +426,6 @@ export function Sidebar() {
           </button>
         )}
       </nav>
-
-      {/* Plugin Items Section */}
-      {externalItems.filter((i) => i.visible).length > 0 && (
-        <div className="flex flex-col gap-1 px-4 py-2">
-          <div className="px-1 text-xs font-medium tracking-[0.5px] text-muted-foreground mb-1">
-            PLUGINS
-          </div>
-          {externalItems.filter((i) => i.visible).map((item) => {
-            const Icon = iconMap[item.icon] || Puzzle
-            return (
-              <NavLink
-                key={item.id}
-                to={item.to}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
-                    isActive
-                      ? "bg-accent text-accent-foreground font-semibold"
-                      : "text-muted-foreground hover:bg-muted/50"
-                  )
-                }
-              >
-                <Icon className="h-5 w-5" />
-                <span className="flex-1">{item.label}</span>
-              </NavLink>
-            )
-          })}
-        </div>
-      )}
 
       {/* Projects Section */}
       {projects.length > 0 && (

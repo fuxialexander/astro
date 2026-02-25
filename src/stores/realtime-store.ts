@@ -8,7 +8,9 @@
 import { create } from 'zustand'
 import { realtimeClient, type RealtimeEvent } from '@/lib/realtime-client'
 import { apiUrl } from '@/lib/api-url'
+import { showApprovalNotification, showTaskNotification } from '@/lib/notifications'
 import { usePlanStore } from './plan-store'
+import { useProjectStore } from './project-store'
 import { useExecutionStore } from './execution-store'
 import { useMachinesStore } from './machines-store'
 import type { TaskActivityEvent } from '@/types'
@@ -171,6 +173,40 @@ interface RealtimeState {
 
 let activityCounter = 0
 
+// ─── Text Batching for Smooth Streaming ────────────────────────────
+// Same pattern as execution-store: accumulate text chunks in a buffer
+// and flush to Zustand every 50ms (~20fps) to avoid per-token re-renders.
+const realtimeTextBatch = new Map<string, string>()
+const realtimeTextTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function flushRealtimeText(
+  taskId: string,
+  set: (fn: (state: RealtimeState) => Partial<RealtimeState>) => void,
+) {
+  const timer = realtimeTextTimers.get(taskId)
+  if (timer) {
+    clearTimeout(timer)
+    realtimeTextTimers.delete(taskId)
+  }
+
+  const text = realtimeTextBatch.get(taskId)
+  realtimeTextBatch.delete(taskId)
+
+  if (!text) return
+
+  set((state) => {
+    const streams = new Map(state.taskStreams)
+    const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
+    const stream = {
+      ...existing,
+      stdout: existing.stdout + text,
+      activityEvents: [...existing.activityEvents, { type: 'text' as const, content: text, timestamp: new Date() }],
+    }
+    streams.set(taskId, stream)
+    return { taskStreams: streams }
+  })
+}
+
 export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   connected: false,
   machines: new Map(),
@@ -181,11 +217,16 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   safetyPrompts: new Map(),
 
   connect: () => {
+    // Remove any stale handler before adding a new one
+    const prevUnsub = (window as unknown as Record<string, unknown>).__realtimeUnsub as (() => void) | undefined
+    prevUnsub?.()
+
     realtimeClient.connect()
 
-    realtimeClient.on('*', (event: RealtimeEvent) => {
+    const unsub = realtimeClient.on('*', (event: RealtimeEvent) => {
       handleRealtimeEvent(event, set)
     })
+    ;(window as unknown as Record<string, unknown>).__realtimeUnsub = unsub
 
     // Track connection state
     const checkConnection = setInterval(() => {
@@ -197,6 +238,10 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 
   disconnect: () => {
+    const unsub = (window as unknown as Record<string, unknown>).__realtimeUnsub as (() => void) | undefined
+    unsub?.()
+    ;(window as unknown as Record<string, unknown>).__realtimeUnsub = undefined
+
     realtimeClient.disconnect()
     const interval = (window as unknown as Record<string, unknown>).__realtimeInterval as ReturnType<typeof setInterval>
     if (interval) clearInterval(interval)
@@ -261,19 +306,33 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     // taskId is actually the executionId - find the nodeId first
     const planStore = usePlanStore.getState()
     const node = planStore.nodes.find((n) => n.executionId === taskId)
-    if (!node) {
-      // Remove from pending so dialog doesn't stay stuck
-      set((state) => {
-        const newApprovals = new Map(state.dynamicApprovals)
-        newApprovals.delete(requestId)
-        return { dynamicApprovals: newApprovals }
-      })
-      throw new Error(`No node found for execution: ${taskId}`)
+
+    // Resolve machineId: try via plan node first, then fall back to
+    // iterating execution store (covers plan sessions keyed by plan-{projectId})
+    let machineId: string | undefined
+    if (node) {
+      const execution = useExecutionStore.getState().getExecution(node.id)
+      machineId = execution?.machineId
+    }
+    if (!machineId) {
+      // Fall back: search all executions for matching executionId
+      const execStore = useExecutionStore.getState()
+      for (const exec of execStore.executions.values()) {
+        if (exec.executionId === taskId && exec.machineId) {
+          machineId = exec.machineId
+          break
+        }
+      }
+    }
+    if (!machineId) {
+      // Last resort: pick the first connected machine
+      const machines = get().machines
+      if (machines.size > 0) {
+        machineId = machines.values().next().value?.machineId
+      }
     }
 
-    // Get the machine ID for this task from execution store
-    const execution = useExecutionStore.getState().getExecution(node.id)
-    if (!execution?.machineId) {
+    if (!machineId) {
       // Remove from pending so dialog doesn't stay stuck
       set((state) => {
         const newApprovals = new Map(state.dynamicApprovals)
@@ -283,13 +342,17 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       throw new Error(`No machine ID for task: ${taskId}`)
     }
 
+    // Look up the original question for the approval_response activity event
+    const approval = get().dynamicApprovals.get(requestId)
+    const question = approval?.question || ''
+
     try {
       const response = await fetch(apiUrl('/api/dispatch/approval'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           taskId,
-          machineId: execution.machineId,
+          machineId,
           requestId,
           answered: true,
           answer,
@@ -300,11 +363,25 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         throw new Error(`Failed to send approval response: ${response.status}`)
       }
 
-      // Remove from pending approvals
+      // Push approval_response activity event into the task stream
       set((state) => {
+        const streams = new Map(state.taskStreams)
+        const stream = streams.get(taskId)
+        if (stream) {
+          stream.activityEvents = [...stream.activityEvents, {
+            type: 'approval_response' as const,
+            requestId,
+            question,
+            answer,
+            timestamp: new Date(),
+          }]
+          streams.set(taskId, stream)
+        }
+
+        // Also push into any execution store entry matching this executionId
         const newApprovals = new Map(state.dynamicApprovals)
         newApprovals.delete(requestId)
-        return { dynamicApprovals: newApprovals }
+        return { taskStreams: streams, dynamicApprovals: newApprovals }
       })
 
       console.log('[realtime] Approval response sent:', { taskId, requestId, answer })
@@ -363,21 +440,15 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       console.log('[realtime] Safety decision sent:', { taskId, decision })
     } catch (error) {
       console.error('[realtime] Failed to send safety decision:', error)
-      // Still remove from map to prevent dialog from being stuck
+      throw error
+    } finally {
+      // Always remove from pending safety prompts to prevent dialog from being stuck
       set((state) => {
         const newPrompts = new Map(state.safetyPrompts)
         newPrompts.delete(taskId)
         return { safetyPrompts: newPrompts }
       })
-      throw error
     }
-
-    // Remove from pending safety prompts (always, even on error paths above)
-    set((state) => {
-      const newPrompts = new Map(state.safetyPrompts)
-      newPrompts.delete(taskId)
-      return { safetyPrompts: newPrompts }
-    })
   },
 }))
 
@@ -420,6 +491,14 @@ function handleRealtimeEvent(
   set: (fn: (state: RealtimeState) => Partial<RealtimeState>) => void,
 ) {
   const data = event.data as Record<string, unknown>
+
+  // Flush pending text batches before non-text events to preserve ordering
+  if (event.type !== 'task:stdout' && event.type !== 'task:text') {
+    const taskId = (data?.taskId as string) || ''
+    if (taskId && realtimeTextBatch.has(taskId)) {
+      flushRealtimeText(taskId, set)
+    }
+  }
 
   switch (event.type) {
     case 'machines:snapshot': {
@@ -473,35 +552,18 @@ function handleRealtimeEvent(
       break
     }
 
-    case 'task:stdout': {
-      const taskId = data.taskId as string
-      const text = data.data as string
-      set((state) => {
-        const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.stdout += text
-        stream.activityEvents = [...stream.activityEvents, { type: 'text', content: text, timestamp: new Date() }]
-        streams.set(taskId, stream)
-        return { taskStreams: streams }
-      })
-      // NOTE: No dual-write to execution store - realtime events stay in realtime store only
-      // The UI will use either execution store (for local dispatch) OR realtime store (for relay)
-      break
-    }
-
+    case 'task:stdout':
     case 'task:text': {
       const taskId = data.taskId as string
       const text = data.data as string
-      set((state) => {
-        const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.stdout += text
-        stream.activityEvents = [...stream.activityEvents, { type: 'text', content: text, timestamp: new Date() }]
-        streams.set(taskId, stream)
-        return { taskStreams: streams }
-      })
-      // NOTE: No dual-write to execution store - realtime events stay in realtime store only
-      // The UI will use either execution store (for local dispatch) OR realtime store (for relay)
+      // Batch text chunks — flush every 50ms for smooth ~20fps rendering
+      realtimeTextBatch.set(taskId, (realtimeTextBatch.get(taskId) || '') + text)
+      if (!realtimeTextTimers.has(taskId)) {
+        realtimeTextTimers.set(taskId, setTimeout(() => {
+          realtimeTextTimers.delete(taskId)
+          flushRealtimeText(taskId, set)
+        }, 50))
+      }
       break
     }
 
@@ -511,10 +573,8 @@ function handleRealtimeEvent(
       const model = data.model as string | undefined
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.sessionId = sessionId
-        stream.model = model
-        streams.set(taskId, stream)
+        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
+        streams.set(taskId, { ...existing, sessionId, model })
         return { taskStreams: streams }
       })
       break
@@ -526,10 +586,8 @@ function handleRealtimeEvent(
       const message = data.message as string | undefined
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.progress = progress
-        stream.progressMessage = message
-        streams.set(taskId, stream)
+        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
+        streams.set(taskId, { ...existing, progress, progressMessage: message })
         return { taskStreams: streams }
       })
       // Update plan node if in_progress
@@ -546,12 +604,28 @@ function handleRealtimeEvent(
       const status = data.status as string
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.status = status
-        stream.output = data.output as string | undefined
-        stream.error = data.error as string | undefined
-        streams.set(taskId, stream)
-        return { taskStreams: streams }
+        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
+        streams.set(taskId, {
+          ...existing,
+          status,
+          output: data.output as string | undefined,
+          error: data.error as string | undefined,
+        })
+
+        // Clean up any pending dynamic approvals for this task
+        const newApprovals = new Map(state.dynamicApprovals)
+        let changed = false
+        for (const [reqId, approval] of newApprovals) {
+          if (approval.taskId === taskId) {
+            newApprovals.delete(reqId)
+            changed = true
+          }
+        }
+
+        return {
+          taskStreams: streams,
+          ...(changed ? { dynamicApprovals: newApprovals } : {}),
+        }
       })
 
       const isSuccess = status === 'completed'
@@ -570,13 +644,23 @@ function handleRealtimeEvent(
       if (node) {
         const completionTime = new Date()
         planStore.updateNode(node.id, {
-          status: isSuccess ? 'auto_verified' : 'awaiting_judgment',
+          status: isSuccess
+            ? (node.verification === 'auto' ? 'auto_verified' : 'awaiting_judgment')
+            : 'awaiting_judgment',
           executionOutput: data.output as string | undefined,
           executionError: data.error as string | undefined,
           executionCompletedAt: completionTime,
           // Set actualEndDate on task completion
           actualEndDate: completionTime,
         })
+
+        // Browser notification for task completion/failure/judgment
+        const project = useProjectStore.getState().projects.find(p => p.id === node.projectId)
+        const pName = project?.name || 'Astro'
+        showTaskNotification(pName, node.title, isSuccess ? 'completed' : 'failed')
+        if (!isSuccess) {
+          showTaskNotification(pName, node.title, 'awaiting_judgment')
+        }
       }
       break
     }
@@ -590,7 +674,13 @@ function handleRealtimeEvent(
 
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
+        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
+
+        // Build new arrays (avoid mutating existing references)
+        let newToolTraces = [...existing.toolTraces]
+        let newActivityEvents = [...existing.activityEvents]
+        let newPlanTodos = existing.planTodos
+        let newPlanQuestions = existing.planQuestions
 
         // Determine if this is a tool_use event (has input) or tool_result event (has result only).
         // The relay sends separate task:tool_trace SSE events for tool_use and tool_result.
@@ -600,14 +690,18 @@ function handleRealtimeEvent(
 
         if (isResultOnly) {
           // Result-only event: find the last matching trace by toolName and update it
-          const lastTrace = [...stream.toolTraces].reverse().find(t => t.toolName === toolName && !t.toolResult)
-          if (lastTrace) {
-            lastTrace.toolResult = data.toolResult
-            lastTrace.success = data.success as boolean | undefined
-            lastTrace.duration = data.duration as number | undefined
+          const lastTraceIdx = [...newToolTraces].reverse().findIndex(t => t.toolName === toolName && !t.toolResult)
+          if (lastTraceIdx >= 0) {
+            const idx = newToolTraces.length - 1 - lastTraceIdx
+            newToolTraces[idx] = {
+              ...newToolTraces[idx],
+              toolResult: data.toolResult,
+              success: data.success as boolean | undefined,
+              duration: data.duration as number | undefined,
+            }
           } else {
             // No matching tool_use found — create a standalone trace
-            stream.toolTraces.push({
+            newToolTraces.push({
               toolName,
               toolInput: undefined,
               toolResult: data.toolResult,
@@ -618,20 +712,19 @@ function handleRealtimeEvent(
           }
 
           // Find the matching tool_use activity event to reuse its ID.
-          // Walk backwards to find the most recent unpaired tool_use with the same name.
           const pairedResultIds = new Set(
-            stream.activityEvents
+            newActivityEvents
               .filter((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
               .map(e => e.id)
           )
-          const matchingUse = [...stream.activityEvents].reverse().find(
+          const matchingUse = [...newActivityEvents].reverse().find(
             (e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> =>
               e.type === 'tool_use' && e.toolName === toolName && !pairedResultIds.has(e.id)
           )
           const resultId = matchingUse?.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-          stream.activityEvents = [
-            ...stream.activityEvents,
+          newActivityEvents = [
+            ...newActivityEvents,
             {
               type: 'tool_result' as const,
               id: resultId,
@@ -645,16 +738,19 @@ function handleRealtimeEvent(
         } else {
           // Input event (tool_use) or combined event (has both input and result)
           const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
-          stream.toolTraces.push({
-            toolName,
-            toolInput: data.toolInput,
-            toolResult: data.toolResult,
-            success: data.success as boolean | undefined,
-            duration: data.duration as number | undefined,
-            timestamp: now,
-          })
-          stream.activityEvents = [
-            ...stream.activityEvents,
+          newToolTraces = [
+            ...newToolTraces,
+            {
+              toolName,
+              toolInput: data.toolInput,
+              toolResult: data.toolResult,
+              success: data.success as boolean | undefined,
+              duration: data.duration as number | undefined,
+              timestamp: now,
+            },
+          ]
+          newActivityEvents = [
+            ...newActivityEvents,
             { type: 'tool_use' as const, id: traceId, toolName, toolInput: data.toolInput, timestamp: now },
             ...(hasResult ? [{
               type: 'tool_result' as const,
@@ -672,7 +768,7 @@ function handleRealtimeEvent(
         if (data.toolName === 'TodoWrite') {
           const input = data.toolInput as { todos?: Array<{ content: string; status: string; activeForm: string }> }
           if (input?.todos) {
-            stream.planTodos = input.todos.map(t => ({
+            newPlanTodos = input.todos.map(t => ({
               content: t.content,
               status: t.status as 'pending' | 'in_progress' | 'completed',
               activeForm: t.activeForm,
@@ -681,13 +777,9 @@ function handleRealtimeEvent(
         } else if (data.toolName === 'AskUserQuestion') {
           const input = data.toolInput as { questions?: Array<{ question: string; options: Array<{ label: string }> }> }
           if (input?.questions) {
-            // Initialize planQuestions if not exists
-            if (!stream.planQuestions) {
-              stream.planQuestions = []
-            }
-            // Add each question to the list
+            newPlanQuestions = [...(newPlanQuestions || [])]
             for (const q of input.questions) {
-              stream.planQuestions.push({
+              newPlanQuestions.push({
                 question: q.question,
                 options: q.options.map(o => o.label),
               })
@@ -695,7 +787,13 @@ function handleRealtimeEvent(
           }
         }
 
-        streams.set(taskId, stream)
+        streams.set(taskId, {
+          ...existing,
+          toolTraces: newToolTraces,
+          activityEvents: newActivityEvents,
+          planTodos: newPlanTodos,
+          planQuestions: newPlanQuestions,
+        })
         return { taskStreams: streams }
       })
       // NOTE: No dual-write to execution store - realtime events stay in realtime store only
@@ -708,25 +806,27 @@ function handleRealtimeEvent(
       const now = new Date()
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.fileChanges.push({
-          path: data.path as string,
-          action: data.action as string,
-          linesAdded: data.linesAdded as number | undefined,
-          linesRemoved: data.linesRemoved as number | undefined,
-          diff: data.diff as string | undefined,
-          timestamp: now,
+        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
+        streams.set(taskId, {
+          ...existing,
+          fileChanges: [...existing.fileChanges, {
+            path: data.path as string,
+            action: data.action as string,
+            linesAdded: data.linesAdded as number | undefined,
+            linesRemoved: data.linesRemoved as number | undefined,
+            diff: data.diff as string | undefined,
+            timestamp: now,
+          }],
+          activityEvents: [...existing.activityEvents, {
+            type: 'file_change' as const,
+            path: data.path as string,
+            action: data.action as string,
+            diff: data.diff as string | undefined,
+            linesAdded: data.linesAdded as number | undefined,
+            linesRemoved: data.linesRemoved as number | undefined,
+            timestamp: now,
+          }],
         })
-        stream.activityEvents = [...stream.activityEvents, {
-          type: 'file_change' as const,
-          path: data.path as string,
-          action: data.action as string,
-          diff: data.diff as string | undefined,
-          linesAdded: data.linesAdded as number | undefined,
-          linesRemoved: data.linesRemoved as number | undefined,
-          timestamp: now,
-        }]
-        streams.set(taskId, stream)
         return { taskStreams: streams }
       })
       addActivity(set, 'file_change', `File ${data.action}: ${data.path}`, { taskId })
@@ -817,19 +917,18 @@ function handleRealtimeEvent(
 
       set((state) => {
         const sessions = new Map(state.attachedSessions)
-        const session = sessions.get(sessionId)
-        if (session) {
-          session.eventCount++
-          session.events.push({
+        const existing = sessions.get(sessionId)
+        if (existing) {
+          let newEvents = [...existing.events, {
             type: eventData.type,
             timestamp: new Date(),
             data: eventData,
-          })
+          }]
           // Keep last 100 events per session
-          if (session.events.length > 100) {
-            session.events = session.events.slice(-100)
+          if (newEvents.length > 100) {
+            newEvents = newEvents.slice(-100)
           }
-          sessions.set(sessionId, session)
+          sessions.set(sessionId, { ...existing, eventCount: existing.eventCount + 1, events: newEvents })
         }
         return { attachedSessions: sessions }
       })
@@ -935,9 +1034,15 @@ function handleRealtimeEvent(
       const options = data.options as string[]
       const timestamp = new Date()
 
-      // Add to dynamic approvals map
+      // Add to dynamic approvals map (clear any stale approvals for this task first)
       set((state) => {
         const newApprovals = new Map(state.dynamicApprovals)
+        // Remove previous pending approvals for the same task (e.g., timed-out retries)
+        for (const [oldReqId, oldApproval] of newApprovals) {
+          if (oldApproval.taskId === taskId && oldReqId !== requestId) {
+            newApprovals.delete(oldReqId)
+          }
+        }
         newApprovals.set(requestId, {
           taskId,
           requestId,
@@ -945,7 +1050,20 @@ function handleRealtimeEvent(
           options,
           timestamp,
         })
-        return { dynamicApprovals: newApprovals }
+
+        // Also push approval_request activity event into task stream
+        const streams = new Map(state.taskStreams)
+        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
+        stream.activityEvents = [...stream.activityEvents, {
+          type: 'approval_request' as const,
+          requestId,
+          question,
+          options,
+          timestamp,
+        }]
+        streams.set(taskId, stream)
+
+        return { dynamicApprovals: newApprovals, taskStreams: streams }
       })
 
       // Add to activity feed
@@ -955,6 +1073,17 @@ function handleRealtimeEvent(
         `Agent asking: ${question}`,
         { taskId }
       )
+
+      // Browser notification (shows only when tab is not focused)
+      const approvalProjectName = (() => {
+        const exec = useExecutionStore.getState().executions.get(taskId)
+        if (exec?.projectId) {
+          const project = useProjectStore.getState().projects.find((p) => p.id === exec.projectId)
+          if (project) return project.name
+        }
+        return 'Astro'
+      })()
+      showApprovalNotification(approvalProjectName, question)
 
       console.log('[realtime] Dynamic approval request received:', { taskId, requestId, question, options })
       break
@@ -988,6 +1117,20 @@ function handleRealtimeEvent(
       )
 
       console.log('[realtime] Safety prompt received:', { taskId, safetyTier, warning })
+      break
+    }
+
+    case 'task:ready': {
+      const nodeId = data.nodeId as string
+      const projectId = data.projectId as string
+
+      addActivity(set, 'info', `Auto-dispatching downstream task`)
+
+      // Dispatch with a small delay to avoid dispatching during SSE handler
+      setTimeout(() => {
+        const executionStore = useExecutionStore.getState()
+        executionStore.startExecution(nodeId, projectId)
+      }, 500)
       break
     }
   }

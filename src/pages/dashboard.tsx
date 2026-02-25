@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react"
+import { useMemo } from "react"
 import { Link, useNavigate } from "react-router"
 import {
   Plus,
@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Scissors,
   Loader2,
+  ClipboardCheck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -29,6 +30,7 @@ import { useUsageStore } from "@/stores/usage-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { ApprovalCard } from "@/components/approval-card"
+import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
 
@@ -59,7 +61,6 @@ function ActivityItem({ event }: { event: ActivityEvent }) {
 
 export function Dashboard() {
   const projects = useProjectStore((s) => s.projects)
-  const projectsLoaded = useProjectStore((s) => s.loaded)
   const rawNodes = usePlanStore((s) => s.nodes)
   const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -72,14 +73,10 @@ export function Dashboard() {
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
   const getExecution = useExecutionStore((s) => s.getExecution)
   const executionsLoaded = useExecutionStore((s) => s.loaded)
+  const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
+  const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const navigate = useNavigate()
 
-  // Redirect first-time users to welcome screen (dashboard is now secondary)
-  useEffect(() => {
-    if (projectsLoaded && projects.length === 0) {
-      navigate("/projects/new")
-    }
-  }, [projectsLoaded, projects.length, navigate])
 
   const activeTasks = nodes.filter(
     (n) => n.status === "in_progress" || n.status === "dispatched"
@@ -89,7 +86,7 @@ export function Dashboard() {
   ).length
   const pendingDecisions = nodes.filter(
     (n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval"
-  ).length
+  ).length + dynamicApprovals.size
 
   const pendingNodes = nodes.filter((n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval")
   const activeProjects = projects.filter((p) => p.status === "active")
@@ -120,43 +117,43 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Row - 3 cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+      {/* Stats Row - 3 compact widgets */}
+      <div className="grid grid-cols-3 gap-2 md:gap-4">
         {/* Needs Attention */}
         <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=awaiting_judgment")}>
-          <CardContent className="flex items-center justify-between p-4 md:p-6">
-            <div className="flex flex-col gap-1">
-              <p className="text-sm text-muted-foreground">Needs Attention</p>
-              <p className="text-2xl font-bold md:text-[32px]">{pendingDecisions}</p>
+          <CardContent className="flex items-center gap-2 p-2.5 md:justify-between md:p-6">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-warning shrink-0 md:order-2 md:h-12 md:w-12 md:rounded-xl">
+              <Eye className="h-4 w-4 text-warning-foreground md:h-6 md:w-6" />
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning md:h-12 md:w-12">
-              <Eye className="h-5 w-5 text-warning-foreground md:h-6 md:w-6" />
+            <div className="flex flex-col min-w-0">
+              <p className="text-[11px] text-muted-foreground truncate md:text-sm">Attention</p>
+              <p className="text-lg font-bold md:text-[32px]">{pendingDecisions}</p>
             </div>
           </CardContent>
         </Card>
 
         {/* Active Tasks */}
         <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=in_progress")}>
-          <CardContent className="flex items-center justify-between p-4 md:p-6">
-            <div className="flex flex-col gap-1">
-              <p className="text-sm text-muted-foreground">Active Tasks</p>
-              <p className="text-2xl font-bold md:text-[32px]">{activeTasks}</p>
+          <CardContent className="flex items-center gap-2 p-2.5 md:justify-between md:p-6">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-info shrink-0 md:order-2 md:h-12 md:w-12 md:rounded-xl">
+              <Activity className="h-4 w-4 text-info-foreground md:h-6 md:w-6" />
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-info md:h-12 md:w-12">
-              <Activity className="h-5 w-5 text-info-foreground md:h-6 md:w-6" />
+            <div className="flex flex-col min-w-0">
+              <p className="text-[11px] text-muted-foreground truncate md:text-sm">Active</p>
+              <p className="text-lg font-bold md:text-[32px]">{activeTasks}</p>
             </div>
           </CardContent>
         </Card>
 
         {/* Completed Today */}
         <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=completed")}>
-          <CardContent className="flex items-center justify-between p-4 md:p-6">
-            <div className="flex flex-col gap-1">
-              <p className="text-sm text-muted-foreground">Completed Today</p>
-              <p className="text-2xl font-bold md:text-[32px]">{completedToday}</p>
+          <CardContent className="flex items-center gap-2 p-2.5 md:justify-between md:p-6">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-success shrink-0 md:order-2 md:h-12 md:w-12 md:rounded-xl">
+              <CircleCheck className="h-4 w-4 text-success-foreground md:h-6 md:w-6" />
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-success md:h-12 md:w-12">
-              <CircleCheck className="h-5 w-5 text-success-foreground md:h-6 md:w-6" />
+            <div className="flex flex-col min-w-0">
+              <p className="text-[11px] text-muted-foreground truncate md:text-sm">Done</p>
+              <p className="text-lg font-bold md:text-[32px]">{completedToday}</p>
             </div>
           </CardContent>
         </Card>
@@ -173,7 +170,28 @@ export function Dashboard() {
             </Button>
           </div>
           <div className="flex flex-col gap-3">
-            {pendingNodes.length > 0 ? (
+            {/* Dynamic approvals from running agents (AskUserQuestion) */}
+            {Array.from(dynamicApprovals.values()).map((approval) => (
+              <Card key={approval.requestId} className="rounded-2xl shadow-lg">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Zap className="h-4 w-4 text-info" />
+                    <span className="text-xs font-semibold text-info">Agent Question</span>
+                  </div>
+                  <InlineApprovalCard
+                    requestId={approval.requestId}
+                    question={approval.question}
+                    options={approval.options}
+                    answered={false}
+                    onRespond={async (_requestId, answer) => {
+                      await respondToDynamicApproval(approval.taskId, approval.requestId, answer)
+                    }}
+                  />
+                </CardContent>
+              </Card>
+            ))}
+
+            {pendingNodes.length > 0 || dynamicApprovals.size > 0 ? (
               pendingNodes.map((node) => {
                 const project = projects.find((p) => p.id === node.projectId)
                 // Check if this node has a pending approval request
@@ -239,13 +257,27 @@ export function Dashboard() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-sm text-foreground">{summary.workCompleted}</p>
-                            {summary.followUps.length > 0 && (
-                              <ul className="mt-2">
-                                {summary.followUps.map((f, i) => (
-                                  <li key={i} className="text-xs text-muted-foreground">- {f}</li>
+                            {summary.keyFindings && summary.keyFindings.length > 0 ? (
+                              <ul className="space-y-1">
+                                {summary.keyFindings.map((finding, i) => (
+                                  <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
+                                    <span className="text-muted-foreground mt-0.5 shrink-0">•</span>
+                                    <span>{finding}</span>
+                                  </li>
                                 ))}
                               </ul>
+                            ) : (
+                              <p className="text-sm text-foreground">{summary.workCompleted}</p>
+                            )}
+                            {summary.followUps.length > 0 && (
+                              <div className="mt-2 pt-2 border-t border-border/50">
+                                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Follow-ups</span>
+                                <ul className="mt-1 space-y-0.5">
+                                  {summary.followUps.map((f, i) => (
+                                    <li key={i} className="text-xs text-muted-foreground">• {f}</li>
+                                  ))}
+                                </ul>
+                              </div>
                             )}
                           </div>
                         ) : error ? (
@@ -255,10 +287,14 @@ export function Dashboard() {
                               <p className="text-sm text-error line-clamp-3">{error}</p>
                             </div>
                           </div>
-                        ) : executionsLoaded && execution ? (
+                        ) : executionsLoaded && execution && (execution.status === 'pending' || execution.status === 'running') ? (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span>Generating summary...</span>
+                          </div>
+                        ) : executionsLoaded && execution ? (
+                          <div className="rounded-lg border p-3.5">
+                            <p className="text-xs text-muted-foreground line-clamp-4">{node.executionOutput || execution.streamText || 'No output captured.'}</p>
                           </div>
                         ) : executionsLoaded && !execution ? (
                           <div className="rounded-lg border border-warning/30 bg-warning/5 p-3.5">
@@ -319,22 +355,46 @@ export function Dashboard() {
                             </ul>
                           </div>
                         )}
+
+                        {/* Acceptance Criteria Checklist */}
+                        {node.acceptanceCriteria && node.acceptanceCriteria.length > 0 && (
+                          <div className="rounded-lg border p-3.5">
+                            <div className="flex items-center gap-2 mb-2">
+                              <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-xs font-semibold">Acceptance Criteria</span>
+                            </div>
+                            <ul className="space-y-1.5">
+                              {node.acceptanceCriteria.map((c) => (
+                                <li key={c.id} className="flex items-start gap-2 text-xs">
+                                  <div className="h-3.5 w-3.5 mt-0.5 shrink-0 rounded-full border" />
+                                  <span>{c.description}</span>
+                                  {c.command && (
+                                    <code className="text-[10px] text-muted-foreground ml-auto shrink-0">{c.command}</code>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
 
                       {/* Card Actions */}
-                      <div className="flex items-center gap-2 border-t px-4 py-3 md:px-5 md:py-4">
-                        <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })} className="min-h-9">
-                          <Check className="h-3.5 w-3.5 mr-1" />
-                          Approve
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => updateNode(node.id, { status: "planned" })} className="min-h-9">
-                          <RotateCcw className="h-3.5 w-3.5 mr-1" />
-                          Retry
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => updateNode(node.id, { status: "pruned" })} className="min-h-9 text-muted-foreground">
-                          <Scissors className="h-3.5 w-3.5 mr-1" />
-                          Prune
-                        </Button>
+                      <div className="border-t px-4 py-3 md:px-5 md:py-4">
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })} className="min-h-9">
+                            <Check className="h-3.5 w-3.5 mr-1" />
+                            Approve
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => updateNode(node.id, { status: "planned" })} className="min-h-9">
+                            <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                            Retry
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => updateNode(node.id, { status: "pruned" })} className="min-h-9 text-muted-foreground">
+                            <Scissors className="h-3.5 w-3.5 mr-1" />
+                            Prune
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-1.5">Pruning also prunes all downstream tasks that depend on this one.</p>
                       </div>
                     </CardContent>
                   </Card>

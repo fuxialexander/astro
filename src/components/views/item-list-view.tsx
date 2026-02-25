@@ -338,18 +338,20 @@ export function ItemListView<T>({
           hasSelection={someSelected}
           selectedIds={Array.from(selected)}
         />
-        {otherCols.map((col) => (
-          <ColumnHeader
-            key={col.id}
-            col={col}
-            sortColumn={sortColumn}
-            sortDirection={sortDirection}
-            onSort={onSort}
-            isNameColumn={false}
-            hasSelection={someSelected}
-            selectedIds={Array.from(selected)}
-          />
-        ))}
+        <div className="flex items-center shrink overflow-hidden">
+          {otherCols.map((col) => (
+            <ColumnHeader
+              key={col.id}
+              col={col}
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              isNameColumn={false}
+              hasSelection={someSelected}
+              selectedIds={Array.from(selected)}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Body */}
@@ -429,17 +431,19 @@ export function ItemListView<T>({
                       </div>
                     )}
 
-                    {/* Name column */}
-                    <div className={cn("min-w-0 flex items-center", nameCol?.width ?? "flex-1")}>
+                    {/* Name column — guaranteed min width so it isn't crushed by fixed-width columns */}
+                    <div className={cn("min-w-[40%] flex items-center", nameCol?.width ?? "flex-1")}>
                       {renderItemName ? renderItemName(item) : nameCol?.render(item)}
                     </div>
 
-                    {/* Other visible columns */}
-                    {otherCols.map((col) => (
-                      <div key={col.id} className={cn("flex items-center justify-end text-right shrink-0", col.width)}>
-                        {col.render(item)}
-                      </div>
-                    ))}
+                    {/* Other visible columns — overflow hidden so title takes priority on narrow screens */}
+                    <div className="flex items-center shrink overflow-hidden">
+                      {otherCols.map((col) => (
+                        <div key={col.id} className={cn("flex items-center justify-end text-right shrink-0", col.width)}>
+                          {col.render(item)}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )
               })}

@@ -77,9 +77,6 @@ export function CommandItem({
         <div className="command-item-label">
           <HighlightedText text={item.label} query={searchQuery} />
         </div>
-        {item.description && (
-          <div className="command-item-description">{item.description}</div>
-        )}
       </div>
 
       {/* Number shortcut */}

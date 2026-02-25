@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router"
-import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText } from "lucide-react"
+import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
+import { statusBadgeVariants } from "@/lib/status-config"
 
 interface ActiveTask {
   nodeId: string
@@ -13,35 +16,120 @@ interface ActiveTask {
   status: "running" | "pending" | "generating"
   startedAt?: Date
   executionId?: string
-}
-
-function formatElapsed(startedAt?: Date): string {
-  if (!startedAt) return ""
-  const seconds = Math.floor((Date.now() - startedAt.getTime()) / 1000)
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${s.toString().padStart(2, "0")}`
+  nodeType?: string
+  nodeStatus?: string
+  machineId?: string
+  providerId?: string
 }
 
 function ElapsedTimer({ startedAt }: { startedAt?: Date }) {
   const [, setTick] = useState(0)
 
-  // Update every second
-  useMemo(() => {
+  useEffect(() => {
     if (!startedAt) return
     const interval = setInterval(() => setTick((t) => t + 1), 1000)
     return () => clearInterval(interval)
   }, [startedAt])
 
-  if (!startedAt) return null
+  if (!startedAt || isNaN(startedAt.getTime())) {
+    return <span className="text-xs text-muted-foreground">-</span>
+  }
+  const seconds = Math.floor((Date.now() - startedAt.getTime()) / 1000)
+  if (seconds < 0) return <span className="text-xs text-muted-foreground">-</span>
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
   return (
     <span className="text-xs text-muted-foreground tabular-nums">
-      {formatElapsed(startedAt)}
+      {m}:{s.toString().padStart(2, "0")}
     </span>
   )
 }
 
+function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
+  const execution = useExecutionStore((s) => s.executions.get(task.nodeId))
+  const stream = task.executionId ? useRealtimeStore.getState().taskStreams.get(task.executionId) : undefined
+  const progress = stream?.progress ?? 0
+
+  const linkTo = task.nodeId.startsWith("plan-")
+    ? `/projects/new/plan?projectId=${projectId}`
+    : task.status === "generating"
+      ? `/project/${projectId}/graph`
+      : `/project/${projectId}/task/${task.nodeId}`
+
+  return (
+    <Link
+      to={linkTo}
+      className="flex flex-col gap-2 px-4 py-3 hover:bg-muted/30 transition-colors border-b border-border last:border-b-0"
+    >
+      <div className="flex items-center gap-3">
+        {/* Status indicator */}
+        {task.status === "generating" ? (
+          <Sparkles className="h-3.5 w-3.5 text-info animate-pulse shrink-0" />
+        ) : task.status === "running" ? (
+          <div className="relative h-3.5 w-3.5 shrink-0">
+            <div className="absolute inset-0 rounded-full border-2 border-info border-t-transparent animate-spin" />
+          </div>
+        ) : (
+          <Clock className="h-3.5 w-3.5 text-warning shrink-0" />
+        )}
+
+        {/* Task info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-foreground truncate">{task.title}</span>
+            {task.nodeStatus && (
+              <Badge variant={statusBadgeVariants[task.nodeStatus]} className="text-[10px] shrink-0">
+                {task.nodeStatus.replace(/_/g, " ")}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Elapsed time */}
+        <ElapsedTimer startedAt={task.startedAt} />
+
+        {/* Link indicator */}
+        <FileText className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+      </div>
+
+      {/* Progress bar */}
+      {task.status === "running" && progress > 0 && (
+        <div className="flex items-center gap-3 ml-6">
+          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full bg-info transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="text-[10px] font-medium text-info shrink-0 w-8 text-right tabular-nums">
+            {progress}%
+          </span>
+        </div>
+      )}
+
+      {/* Execution metadata */}
+      {execution && (execution.machineId || execution.providerId) && (
+        <div className="flex items-center gap-3 ml-6 text-[10px] text-muted-foreground">
+          {execution.machineId && (
+            <div className="flex items-center gap-1">
+              <div className="h-1.5 w-1.5 rounded-full bg-success" />
+              <span className="font-mono">{execution.machineId.slice(0, 16)}</span>
+            </div>
+          )}
+          {execution.providerId && (
+            <div className="flex items-center gap-1">
+              <Cpu className="h-2.5 w-2.5" />
+              <span className="capitalize">{execution.providerId}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </Link>
+  )
+}
+
 function ProjectGroup({
+  projectId,
   projectName,
   projectColor,
   tasks,
@@ -84,39 +172,7 @@ function ProjectGroup({
       {expanded && (
         <div className="border-t border-border">
           {tasks.map((task) => (
-            <Link
-              key={task.nodeId}
-              to={
-                task.status === "generating"
-                  ? `/project/${task.projectId}/graph`
-                  : `/project/${task.projectId}/task/${task.nodeId}`
-              }
-              className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors border-b border-border last:border-b-0"
-            >
-              {/* Status indicator */}
-              {task.status === "generating" ? (
-                <Sparkles className="h-3.5 w-3.5 text-info animate-pulse shrink-0" />
-              ) : task.status === "running" ? (
-                <div className="relative h-3.5 w-3.5 shrink-0">
-                  <div className="absolute inset-0 rounded-full border-2 border-info border-t-transparent animate-spin" />
-                </div>
-              ) : (
-                <Clock className="h-3.5 w-3.5 text-warning shrink-0" />
-              )}
-
-              {/* Task info */}
-              <div className="flex-1 min-w-0">
-                <span className="text-sm text-foreground truncate block">
-                  {task.title}
-                </span>
-              </div>
-
-              {/* Elapsed time */}
-              <ElapsedTimer startedAt={task.startedAt} />
-
-              {/* Link indicator */}
-              <FileText className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-            </Link>
+            <TaskRow key={task.nodeId} task={task} projectId={projectId} />
           ))}
         </div>
       )}
@@ -138,17 +194,24 @@ export function ActiveTasks() {
     // Active task executions
     for (const [nodeId, exec] of executions) {
       if (exec.status !== "pending" && exec.status !== "running") continue
-      const node = nodes.find((n) => n.id === nodeId)
+      const isPlanSession = nodeId.startsWith("plan-")
+      const node = isPlanSession ? undefined : nodes.find((n) => n.id === nodeId)
       const projectId = exec.projectId || node?.projectId
       if (!projectId) continue
 
       const task: ActiveTask = {
         nodeId,
         projectId,
-        title: node?.title || `Task ${nodeId.slice(0, 8)}`,
-        status: exec.status === "running" ? "running" : "pending",
+        title: isPlanSession
+          ? "Interactive Planning"
+          : (node?.title || `Task ${nodeId.slice(0, 8)}`),
+        status: isPlanSession ? "generating" : (exec.status === "running" ? "running" : "pending"),
         startedAt: exec.startedAt,
         executionId: exec.executionId,
+        nodeType: node?.type,
+        nodeStatus: node?.status,
+        machineId: exec.machineId,
+        providerId: exec.providerId,
       }
       const list = taskMap.get(projectId) || []
       list.push(task)
@@ -173,7 +236,6 @@ export function ActiveTasks() {
     // Also check for nodes with in_progress/dispatched status that might not have execution entries
     for (const node of nodes) {
       if (node.status !== "in_progress" && node.status !== "dispatched") continue
-      // Skip if already tracked via execution
       if (executions.has(node.id)) continue
       const list = taskMap.get(node.projectId) || []
       list.push({
@@ -181,7 +243,9 @@ export function ActiveTasks() {
         projectId: node.projectId,
         title: node.title,
         status: node.status === "in_progress" ? "running" : "pending",
-        startedAt: node.executionStartedAt ?? undefined,
+        startedAt: node.executionStartedAt ? new Date(node.executionStartedAt) : undefined,
+        nodeType: node.type,
+        nodeStatus: node.status,
       })
       taskMap.set(node.projectId, list)
     }

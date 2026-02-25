@@ -21,6 +21,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { SessionDialog } from "@/components/session-dialog"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
+import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
 import type { PlanNode, ProviderStatus, Session } from "@/types"
 
@@ -359,7 +360,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   }, [resolvedMachineId, project?.workingDirectory])
 
   // Settings defaults
-  const settingsModel = useSettingsStore((s) => s.model)
+  const getModelForProvider = useSettingsStore((s) => s.getModelForProvider)
   const defaultProvider = useSettingsStore((s) => s.defaultProvider)
 
   // Provider list from execution store
@@ -391,9 +392,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
 
   const effectiveModel = (() => {
     if (selectedModel) return selectedModel
-    const isClaudeProvider = !effectiveProviderId || effectiveProviderId === "claude-code"
-    if (isClaudeProvider) return settingsModel
-    return undefined
+    return getModelForProvider(effectiveProviderId)
   })()
 
   // Abort any in-flight SSE stream on unmount (e.g. page navigation)
@@ -866,17 +865,32 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
               >
                 {msg.content ? (
                   msg.role === "assistant" ? (
-                    <MarkdownRenderer
-                      content={preprocessNodeRefs(msg.content)}
-                      className="text-sm"
-                      onLinkClick={(href) => {
-                        const match = href.match(/^astro:node:(.+)$/)
-                        if (match) {
-                          onNodeSelect?.(match[1])
-                          return true
-                        }
-                      }}
-                    />
+                    isStreaming && i === messages.length - 1 ? (
+                      <StreamingMarkdown
+                        content={preprocessNodeRefs(msg.content)}
+                        isStreaming
+                        className="text-sm"
+                        onLinkClick={(href) => {
+                          const match = href.match(/^astro:node:(.+)$/)
+                          if (match) {
+                            onNodeSelect?.(match[1])
+                            return true
+                          }
+                        }}
+                      />
+                    ) : (
+                      <MarkdownRenderer
+                        content={preprocessNodeRefs(msg.content)}
+                        className="text-sm"
+                        onLinkClick={(href) => {
+                          const match = href.match(/^astro:node:(.+)$/)
+                          if (match) {
+                            onNodeSelect?.(match[1])
+                            return true
+                          }
+                        }}
+                      />
+                    )
                   ) : (
                     <pre className="whitespace-pre-wrap font-primary text-sm">
                       {msg.content}

@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 import { Command } from 'commander'
 import { registerProjectCommands } from './commands/project.js'
 import { registerPlanCommands } from './commands/plan.js'

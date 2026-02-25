@@ -25,6 +25,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 import { isServerMode } from '../lib/app-mode.js'
 import { getServiceClient } from '../lib/supabase.js'
+import { executionEventBus } from '../lib/execution-event-bus.js'
 
 /**
  * Build a team-scoped filter with legacy fallback.
@@ -384,6 +385,7 @@ app.get('/plan', async (c) => {
       content: n.content,
       attachments: n.attachments,
       links: n.links,
+      acceptanceCriteria: n.acceptanceCriteria,
       createdAt: n.createdAt,
       updatedAt: n.updatedAt,
     }))
@@ -443,6 +445,7 @@ app.get('/plan/:projectId', async (c) => {
     content: n.content,
     attachments: n.attachments,
     links: n.links,
+    acceptanceCriteria: n.acceptanceCriteria,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   }))
@@ -522,6 +525,7 @@ app.put('/plan/:projectId', async (c) => {
         content: (n.content as string) ?? null,
         attachments: (n.attachments as unknown[]) ?? [],
         links: (n.links as unknown[]) ?? [],
+        acceptanceCriteria: (n.acceptanceCriteria as unknown[]) ?? [],
         createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
         updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
@@ -598,6 +602,7 @@ app.post('/plan/nodes', async (c) => {
       content: body.content ?? null,
       attachments: body.attachments ?? [],
       links: body.links ?? [],
+      acceptanceCriteria: body.acceptanceCriteria ?? [],
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
     })
@@ -656,6 +661,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.content !== undefined) patch.content = body.content || null
   if (body.attachments !== undefined) patch.attachments = body.attachments ?? []
   if (body.links !== undefined) patch.links = body.links ?? []
+  if (body.acceptanceCriteria !== undefined) patch.acceptanceCriteria = body.acceptanceCriteria ?? []
   if (body.type !== undefined) patch.type = body.type
   if (body.deletedAt !== undefined) patch.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
   if (body.deletionActionId !== undefined) patch.deletionActionId = body.deletionActionId || null
@@ -673,8 +679,86 @@ app.patch('/plan/nodes/:id', async (c) => {
     )
   }
 
+  // Auto-dispatch downstream nodes when a node is manually approved
+  if (body.status === 'completed' || body.status === 'auto_verified') {
+    autoDispatchDownstream(node.projectId, id).catch((err) => {
+      console.warn('[data] Auto-dispatch downstream failed:', err)
+    })
+  }
+
+  // Cascade prune: when a node is pruned, prune all downstream dependents
+  if (body.status === 'pruned') {
+    cascadePruneDownstream(node.projectId, id).catch((err) => {
+      console.warn('[data] Cascade prune downstream failed:', err)
+    })
+  }
+
   return c.json({ ok: true })
 })
+
+/**
+ * Find downstream nodes whose dependencies are all completed, emit task:ready SSE events.
+ */
+async function autoDispatchDownstream(projectId: string, completedNodeId: string): Promise<void> {
+  const allNodes = await db.select().from(planNodes)
+    .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+  const allEdges = await db.select().from(planEdges)
+    .where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
+
+  const downstreamIds = allEdges
+    .filter(e => e.sourceClientId === completedNodeId)
+    .map(e => e.targetClientId)
+
+  const COMPLETED_STATUSES = ['completed', 'auto_verified']
+
+  for (const downId of downstreamIds) {
+    const downNode = allNodes.find(n => n.clientId === downId)
+    if (!downNode || downNode.type !== 'task') continue
+    if (downNode.status !== 'planned') continue
+
+    const depEdges = allEdges.filter(e => e.targetClientId === downId)
+    const allDepsMet = depEdges.every(depEdge => {
+      const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
+      return depNode && COMPLETED_STATUSES.includes(depNode.status)
+    })
+
+    if (allDepsMet) {
+      executionEventBus.emit('task:ready', { nodeId: downId, projectId })
+    }
+  }
+}
+
+/**
+ * Cascade prune: set all downstream dependents to 'pruned' recursively.
+ */
+async function cascadePruneDownstream(projectId: string, prunedNodeId: string): Promise<void> {
+  const allNodes = await db.select().from(planNodes)
+    .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+  const allEdges = await db.select().from(planEdges)
+    .where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
+
+  // BFS to find all downstream nodes
+  const visited = new Set<string>()
+  const queue = [prunedNodeId]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    const childIds = allEdges
+      .filter(e => e.sourceClientId === current)
+      .map(e => e.targetClientId)
+
+    for (const childId of childIds) {
+      if (visited.has(childId)) continue
+      visited.add(childId)
+      const childNode = allNodes.find(n => n.clientId === childId)
+      if (!childNode) continue
+      // Only prune nodes that aren't already completed
+      if (childNode.status !== 'completed' && childNode.status !== 'auto_verified') {
+        await db.update(planNodes).set({ status: 'pruned', updatedAt: new Date() }).where(eq(planNodes.clientId, childId))
+      }
+      queue.push(childId)
+    }
+  }
+}
 
 app.delete('/plan/nodes/:id', async (c) => {
   const user = c.get('user')! as AuthUser

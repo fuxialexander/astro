@@ -1,15 +1,15 @@
-import { useState, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus, ChevronDown, Sparkles, Loader2 } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { PropertyPicker } from "@/components/property-picker"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+
 import { ExecutionPanel } from "@/components/execution"
-import { refineContent } from "@/lib/api-client"
+
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
@@ -34,6 +34,38 @@ interface NodeInspectorProps {
   onNodeUpdate: (node: PlanNode) => void
 }
 
+function ElapsedTime({ node }: { node: PlanNode }) {
+  const execution = useExecutionStore((s) => s.getExecution(node.id))
+  const [, setTick] = useState(0)
+
+  const startedAt = execution?.startedAt
+    ?? (node.executionStartedAt ? new Date(node.executionStartedAt) : undefined)
+  const completedAt = execution?.completedAt
+    ?? (node.executionCompletedAt ? new Date(node.executionCompletedAt) : undefined)
+  const isRunning = !completedAt && !!startedAt
+
+  useEffect(() => {
+    if (!isRunning) return
+    const interval = setInterval(() => setTick((t) => t + 1), 1000)
+    return () => clearInterval(interval)
+  }, [isRunning])
+
+  if (!startedAt || isNaN(startedAt.getTime())) {
+    return <span className="text-[13px] text-muted-foreground">-</span>
+  }
+
+  const endTime = completedAt ?? new Date()
+  const seconds = Math.floor((endTime.getTime() - startedAt.getTime()) / 1000)
+  if (seconds < 0) return <span className="text-[13px] text-muted-foreground">-</span>
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return (
+    <span className="text-[13px] font-medium text-info tabular-nums">
+      {m}:{s.toString().padStart(2, "0")}
+    </span>
+  )
+}
+
 /**
  * Reusable node inspector content panel.
  * Shows priority, estimate, dependencies, status, description, and action buttons.
@@ -47,7 +79,6 @@ export function NodeInspectorContent({
   const updateNode = usePlanStore((s) => s.updateNode)
   const resetExecution = useExecutionStore((s) => s.resetExecution)
   const [isResetting, setIsResetting] = useState(false)
-  const [isRefining, setIsRefining] = useState(false)
 
   const allNodes = usePlanStore((s) => s.nodes)
   const allEdges = usePlanStore((s) => s.edges)
@@ -116,20 +147,8 @@ export function NodeInspectorContent({
     handleUpdate({ status: "pruned" })
   }, [handleUpdate])
 
-  const [justRefined, setJustRefined] = useState(false)
 
-  const handleRefine = useCallback(async () => {
-    setIsRefining(true)
-    try {
-      const result = await refineContent(node.title, node.description ?? "", "task")
-      if (result) {
-        handleUpdate({ title: result.refinedTitle, description: result.refinedDescription })
-        setJustRefined(true)
-        setTimeout(() => setJustRefined(false), 1500)
-      }
-    } catch { /* refinement is best-effort */ }
-    setIsRefining(false)
-  }, [node, handleUpdate])
+
 
   return (
     <>
@@ -269,7 +288,7 @@ export function NodeInspectorContent({
         {node.executionId && (
           <div className="flex items-center justify-between text-[13px]">
             <span className="text-muted-foreground">Elapsed</span>
-            <span className="text-[13px] font-medium text-info">3:24</span>
+            <ElapsedTime node={node} />
           </div>
         )}
       </div>
@@ -289,20 +308,8 @@ export function NodeInspectorContent({
             onChange={(val) => handleUpdate({ description: val })}
             placeholder="Describe this task... Use @ to reference files"
             rows={4}
-            className={cn(
-              "w-full resize-none rounded-md border-none bg-transparent px-0 py-0 text-[13px] leading-[1.5] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0 transition-all",
-              isRefining && "opacity-60",
-              justRefined && "ring-1 ring-success/30 rounded-md"
-            )}
+            className="w-full resize-none rounded-md border-none bg-transparent px-0 py-0 text-[13px] leading-[1.5] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0 transition-all"
           />
-          {isRefining && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/50">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>AI is refining...</span>
-              </div>
-            </div>
-          )}
         </div>
       </div>
       <Separator />
@@ -311,51 +318,29 @@ export function NodeInspectorContent({
         {node.executionId ? (
           <>
             <Link
-              to={`/project/${project.id}/task/${node.id}?from=${viewMode}`}
+              to={`/project/${project.id}/task/${node.id}?from=${viewMode}&tab=activity`}
               className="flex items-center justify-center gap-2 h-10 rounded-[10px] bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
             >
               <FileText className="h-4 w-4" />
               View Execution
             </Link>
-            <div className="flex gap-0">
-              <button
-                disabled={isResetting || isRefining}
-                onClick={async () => {
-                  setIsResetting(true)
-                  try {
-                    await resetExecution(node.id)
-                    const freshNode = usePlanStore.getState().nodes.find((n) => n.id === node.id)
-                    if (freshNode) onNodeUpdate(freshNode)
-                  } finally {
-                    setIsResetting(false)
-                  }
-                }}
-                className="flex flex-1 items-center justify-center gap-2 h-10 rounded-l-[10px] border border-r-0 border-border bg-transparent text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
-              >
-                {isRefining ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RotateCcw className={cn("h-4 w-4", isResetting && "animate-spin")} />
-                )}
-                {isRefining ? "Refining..." : isResetting ? "Resetting..." : "Re-execute"}
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    disabled={isResetting || isRefining}
-                    className="flex items-center justify-center h-10 px-2 rounded-r-[10px] border border-border bg-transparent hover:bg-muted/50 transition-colors disabled:opacity-50"
-                  >
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleRefine} className="gap-2">
-                    <Sparkles className="h-4 w-4" />
-                    Refine
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            <button
+              disabled={isResetting}
+              onClick={async () => {
+                setIsResetting(true)
+                try {
+                  await resetExecution(node.id)
+                  const freshNode = usePlanStore.getState().nodes.find((n) => n.id === node.id)
+                  if (freshNode) onNodeUpdate(freshNode)
+                } finally {
+                  setIsResetting(false)
+                }
+              }}
+              className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-sm font-semibold hover:bg-muted/50 transition-colors disabled:opacity-50"
+            >
+              <RotateCcw className={cn("h-4 w-4", isResetting && "animate-spin")} />
+              {isResetting ? "Resetting..." : "Re-execute"}
+            </button>
           </>
         ) : (
           <div className="flex flex-col gap-3">

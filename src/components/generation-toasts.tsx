@@ -45,9 +45,9 @@ function SessionCard({ session }: { session: GenerationSession }) {
     }
   }, [expanded])
 
-  // Auto-dismiss completed sessions (only if not expanded)
+  // Auto-dismiss completed sessions (only if not expanded and not interactive)
   useEffect(() => {
-    if (session.status === "completed" && !expanded) {
+    if (session.status === "completed" && !expanded && !session.isInteractive) {
       dismissTimer.current = setTimeout(() => {
         dismiss(session.projectId)
       }, AUTO_DISMISS_MS)
@@ -55,7 +55,7 @@ function SessionCard({ session }: { session: GenerationSession }) {
     return () => {
       if (dismissTimer.current) clearTimeout(dismissTimer.current)
     }
-  }, [session.status, session.projectId, dismiss, expanded])
+  }, [session.status, session.projectId, dismiss, expanded, session.isInteractive])
 
   const isActive = session.status === "active"
   const isError = session.status === "error"
@@ -70,7 +70,11 @@ function SessionCard({ session }: { session: GenerationSession }) {
   }
 
   function handleNavigate() {
-    navigate(`/project/${session.projectId}`)
+    if (session.isInteractive) {
+      navigate(`/projects/new/plan?projectId=${session.projectId}`)
+    } else {
+      navigate(`/project/${session.projectId}`)
+    }
   }
 
   return (
@@ -108,6 +112,16 @@ function SessionCard({ session }: { session: GenerationSession }) {
                 : "Setting up working directory..."
             )}
             {isActive && session.phase === "generating" && "Generating plan..."}
+            {isActive && session.phase === "interactive_planning" && (
+              <span className="flex items-center gap-1">
+                Planning interactively...
+                {(session.pendingApprovals ?? 0) > 0 && (
+                  <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-warning/20 text-warning text-[10px] font-semibold">
+                    {session.pendingApprovals}
+                  </span>
+                )}
+              </span>
+            )}
             {session.status === "completed" && "Plan generated"}
             {isError && (session.error || "Generation failed")}
           </p>

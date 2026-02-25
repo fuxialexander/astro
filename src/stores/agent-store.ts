@@ -5,7 +5,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import type { PlanNode, PlanEdge, Project } from "@/types"
 
-export type GenerationPhase = 'idle' | 'repo_setup' | 'generating'
+export type GenerationPhase = 'idle' | 'repo_setup' | 'generating' | 'interactive_planning'
 export type GenerationStatus = 'active' | 'completed' | 'error'
 
 export interface GenerationSession {
@@ -17,6 +17,9 @@ export interface GenerationSession {
   error: string | null
   startedAt: number
   completedAt: number | null
+  executionId?: string        // For interactive plan sessions
+  isInteractive?: boolean     // True for interactive plan sessions
+  pendingApprovals?: number   // Count of unanswered approval requests
 }
 
 interface RepoKeyFiles {
@@ -48,6 +51,8 @@ interface AgentState {
   setGenerationPhase: (projectId: string, phase: GenerationPhase) => void
   abort: (projectId: string) => void
   dismissSession: (projectId: string) => void
+  startInteractiveSession: (projectId: string, projectName: string, executionId: string) => void
+  updateInteractiveSession: (projectId: string, updates: Partial<Pick<GenerationSession, 'streamText' | 'status' | 'error' | 'pendingApprovals'>>) => void
 }
 
 const abortControllers = new Map<string, AbortController>()
@@ -96,6 +101,13 @@ function cleanupOldSessions(sessions: Map<string, GenerationSession>): Map<strin
   }
 
   return next
+}
+
+function stopCleanupTimer(): void {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer)
+    cleanupTimer = null
+  }
 }
 
 function startCleanupTimer(get: () => AgentState, set: (fn: (s: AgentState) => Partial<AgentState>) => void): void {
@@ -177,13 +189,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       return { sessions }
     })
 
-    const { model, defaultProvider } = useSettingsStore.getState()
-
-    // Only send the model if no explicit provider is set, or the provider is claude-code.
-    // Other providers (e.g. Codex) have their own default models and would fail
-    // if given a Claude model name.
-    const isClaudeProvider = !defaultProvider || defaultProvider === 'claude-code'
-    const effectiveModel = isClaudeProvider ? model : undefined
+    const { defaultProvider, getModelForProvider } = useSettingsStore.getState()
+    const effectiveModel = getModelForProvider(defaultProvider || undefined)
 
     try {
       await generatePlan(
@@ -393,14 +400,52 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       return { sessions }
     })
   },
+
+  startInteractiveSession: (projectId, projectName, executionId) => {
+    set((s) => {
+      const sessions = new Map(s.sessions)
+      sessions.set(projectId, {
+        projectId,
+        projectName,
+        phase: "interactive_planning",
+        status: "active",
+        streamText: "",
+        error: null,
+        startedAt: Date.now(),
+        completedAt: null,
+        executionId,
+        isInteractive: true,
+        pendingApprovals: 0,
+      })
+      return { sessions }
+    })
+
+    // Start cleanup timer
+    startCleanupTimer(get, set)
+  },
+
+  updateInteractiveSession: (projectId, updates) => {
+    set((s) => {
+      const existing = s.sessions.get(projectId)
+      if (!existing || !existing.isInteractive) return s
+      const sessions = new Map(s.sessions)
+      sessions.set(projectId, {
+        ...existing,
+        ...updates,
+        completedAt: updates.status && updates.status !== "active" ? Date.now() : existing.completedAt,
+      })
+      return { sessions }
+    })
+  },
 }))
 
-// Start cleanup timer when store is created
+// Start/stop cleanup timer based on loaded state
 if (typeof window !== "undefined") {
-  // Only run in browser environment
   useAgentStore.subscribe((state) => {
     if (state.loaded) {
       startCleanupTimer(useAgentStore.getState, useAgentStore.setState)
+    } else {
+      stopCleanupTimer()
     }
   })
 }

@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
+import { skillManager } from '../lib/skill-manager.js'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
@@ -384,7 +385,9 @@ agentRoute.post('/generate-plan', async (c) => {
   }
 
   // Build the full plan prompt: system prompt + user description
-  const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext, gitState)
+  // Include available skills so the planner can create tasks that leverage them
+  const skillsSummary = skillManager.getSkillPromptInjection() || undefined
+  const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext, gitState, skillsSummary)
   const fullPrompt = `${systemPrompt}\n\n---\n\n## User Request\n\n${description}\n\n---\n\nIMPORTANT: Respond with ONLY the JSON plan object. Start your response with { and end with }. No prose, no markdown fences, no explanation. The JSON must have "projectName", "nodes", and "edges" keys.`
 
   // Build relay task dispatch
@@ -593,20 +596,30 @@ agentRoute.post('/chat', async (c) => {
   })
 })
 
+const taskChatSchema = z.object({
+  message: z.string().min(1).max(50000),
+  sessionId: z.string().optional(),
+  nodeId: z.string().min(1),
+  projectId: z.string().uuid(),
+  taskTitle: z.string().max(1000),
+  taskDescription: z.string().max(50000),
+  taskOutput: z.string().max(100000).optional(),
+  visionDoc: z.string().max(100000).optional(),
+  model: z.string().optional(),
+  providerId: z.string().optional(),
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string().max(50000),
+  })).max(100).optional(),
+})
+
 agentRoute.post('/task-chat', async (c) => {
-  const body = await c.req.json<{
-    message: string
-    sessionId?: string
-    nodeId: string
-    projectId: string
-    taskTitle: string
-    taskDescription: string
-    taskOutput?: string
-    visionDoc?: string
-    model?: string
-    providerId?: string
-    messages?: Array<{ role: 'user' | 'assistant'; content: string }>
-  }>()
+  const raw = await c.req.json()
+  const parsed = taskChatSchema.safeParse(raw)
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid request', details: parsed.error.issues }, 400)
+  }
+  const body = parsed.data
 
   const {
     message,

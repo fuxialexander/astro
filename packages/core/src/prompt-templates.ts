@@ -34,6 +34,20 @@ export const PLAN_GRAPH_SCHEMA = {
             items: { type: "string" as const },
             description: "Label IDs from: l1=Frontend, l2=Backend, l3=Testing, l4=Infrastructure, l5=Research. Assign 0-2 based on task content.",
           },
+          acceptanceCriteria: {
+            type: "array" as const,
+            items: {
+              type: "object" as const,
+              properties: {
+                id: { type: "string" as const },
+                description: { type: "string" as const },
+                type: { type: "string" as const, enum: ["test", "build", "lint", "command", "manual"] },
+                command: { type: "string" as const },
+                autoVerifiable: { type: "boolean" as const },
+              },
+              required: ["id", "description", "type", "autoVerifiable"],
+            },
+          },
         },
         required: ["id", "type", "title", "description", "status", "parentId", "dependencies", "verification", "position"],
       },
@@ -81,7 +95,7 @@ export interface GitStateForPrompt {
  * user content from instructions, the AI may still be influenced by adversarial inputs.
  * Always validate AI outputs (e.g., ensure valid JSON schema, check for malicious commands).
  */
-export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt, gitState?: GitStateForPrompt): string {
+export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt, gitState?: GitStateForPrompt, skillsSummary?: string): string {
   // SECURITY: Wrap user-provided content in clear delimiters to reduce prompt injection risk
   const visionSection = visionDoc
     ? `\n\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
@@ -111,10 +125,12 @@ export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoCont
   // Build git state section
   let gitStateSection = ""
   if (gitState) {
+    // Sanitize branch names to prevent prompt injection via newlines/backticks
+    const sanitizeBranch = (b: string) => b.replace(/[`\n\r]/g, '')
     const parts: string[] = []
     parts.push(`## Git Repository State`)
-    parts.push(`- Current branch: \`${gitState.currentBranch}\``)
-    parts.push(`- Target branch: \`${gitState.targetBranch}\` (selected by user)`)
+    parts.push(`- Current branch: \`${sanitizeBranch(gitState.currentBranch)}\``)
+    parts.push(`- Target branch: \`${sanitizeBranch(gitState.targetBranch)}\` (selected by user)`)
     if (gitState.isDirty) {
       const d = gitState.dirtyDetails
       if (d) {
@@ -135,6 +151,12 @@ export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoCont
     gitStateSection = '\n\n' + parts.join('\n') + '\n'
   }
 
+  // Build skills section if available
+  let skillsSection = ""
+  if (skillsSummary) {
+    skillsSection = `\n\n## Available Agent Skills & Tools\n\nThe following tools and capabilities are available on the user's machine for task execution. When creating tasks, you can reference these capabilities and design tasks that leverage them.\n\n${skillsSummary}\n`
+  }
+
   const hasRepo = repoSection.length > 0
 
   const outputInstructions = hasRepo
@@ -149,7 +171,7 @@ You decompose the project into a directed acyclic graph of tasks and milestones.
 You decompose the project into a directed acyclic graph of tasks and milestones.`
 
   return `${outputInstructions}
-${visionSection}${repoSection}${gitStateSection}
+${visionSection}${repoSection}${gitStateSection}${skillsSection}
 ## Node rules
 - Each node has a unique id: "n1", "n2", etc.
 - type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points.
@@ -164,6 +186,7 @@ ${visionSection}${repoSection}${gitStateSection}
 - estimate: "XS" | "S" | "M" | "L" | "XL". T-shirt estimate for effort. Target each task at ~20 minutes of expert work time or <1000 lines of code changed. Tasks should be ≤ M.
 - milestoneId: REQUIRED for tasks. Every task MUST have a milestoneId pointing to the milestone it contributes toward. This is how tasks are grouped under milestones in the UI.
 - labelIds: assign from {l1: Frontend/UI, l2: Backend/API, l3: Testing/QA, l4: Infrastructure/DevOps, l5: Research/investigation}. 0-2 per task based on content.
+- acceptanceCriteria: optional array of verification checks. For auto tasks, include commands (e.g. "npm test"). For human tasks, describe what the reviewer checks.
 
 ## Edge rules
 - type: "dependency" for sequential, "branch" for parallel paths from a common node.
@@ -193,6 +216,7 @@ export interface ChatPlanNode {
   dueDate?: string
   startDate?: string
   endDate?: string
+  acceptanceCriteria?: Array<{ id: string; type: string; description: string; command?: string; autoVerifiable: boolean }>
 }
 
 export interface ChatPlanEdge {
@@ -263,94 +287,41 @@ export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNo
     planSection = `\n\n## Current Plan Nodes\n${nodeList}\n${milestoneSection}${edgeSection}`
   }
 
-  return `You are a project planning assistant for Astro. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
+  return `You are a project planning assistant for Astro. Help the user refine their project plan through conversation.
 
-IMPORTANT: This is a conversational chat. Do NOT use any tools (bash, shell, file read/write, grep, ls, etc.). Do NOT attempt to run commands or access the filesystem. You have all the information you need in this prompt. Respond with plain text only.
-
-Be concise and actionable.
+Be concise and actionable. Keep your responses focused on what the user is asking.
 ${visionSection}${planSection}
-## Modifying the Plan
+## Guidelines
 
-When the user asks to update, modify, or change anything in the plan, you MUST:
-1. Identify the relevant tasks/edges from the plan above.
-2. Apply changes by including structured update blocks at the END of your response.
-3. Explain what you changed conversationally BEFORE the update blocks.
+**Default behavior: just chat.** If the user is asking questions, discussing ideas, or thinking out loud, simply answer. Do not use tools unless needed.
 
-### Updating Node Properties
+**Code exploration:** Only look at the codebase if the user explicitly asks you to (e.g., "look at the code", "check the implementation", "what does X look like?"). If they don't mention it, don't read files. When they do ask, focus on the specific files relevant to their question — don't explore broadly.
 
-Use a fenced code block with language \`astro-updates\` containing a JSON array:
+**Plan modifications:** When the user asks to change the plan (add tasks, update tasks, restructure dependencies, decompose a node), use the MCP tools:
+- \`update_task\` — update properties of an existing task (title, description, priority, estimate, status, etc.)
+- \`create_task\` — add a new task node to the plan
+- \`create_dependency\` — add a dependency edge between nodes
+- \`delete_task\` — remove a task from the plan
 
-\`\`\`astro-updates
-[
-  { "nodeId": "n1", "title": "New title", "priority": "high" }
-]
-\`\`\`
+Explain what you're changing conversationally, then call the appropriate tools.
 
-Each object must have "nodeId" (required) plus any fields to change:
-- "title" (string) — node title
-- "description" (string) — detailed description
-- "type" (string) — "milestone" | "task" | "decision"
-- "status" (string) — "planned" | "dispatched" | "in_progress" | "auto_verified" | "awaiting_judgment" | "completed" | "pruned"
-- "priority" (string) — "urgent" | "high" | "medium" | "low" | "none"
-- "estimate" (string) — "XS" | "S" | "M" | "L" | "XL"
-- "milestoneId" (string) — ID of the milestone this task belongs to
-- "dueDate" (string) — ISO YYYY-MM-DD or null to clear
-- "startDate" (string) — ISO YYYY-MM-DD (milestones only) or null to clear
-- "endDate" (string) — ISO YYYY-MM-DD (milestones only) or null to clear
-- "verification" (string) — "auto" | "human"
-- "dependencies" (string[]) — array of node IDs this node depends on (replaces the full list; edges are auto-reconciled)
+### Decomposition
 
-### Adding or Removing Edges
-
-Use a fenced code block with language \`astro-edges\` containing a JSON array:
-
-\`\`\`astro-edges
-[
-  { "action": "add", "source": "n1", "target": "n3", "type": "dependency" },
-  { "action": "remove", "source": "n2", "target": "n3" }
-]
-\`\`\`
-
-Edge fields:
-- "action" (required) — "add" or "remove"
-- "source" (required) — source node ID
-- "target" (required) — target node ID
-- "type" (for add) — "dependency" or "branch". Defaults to "dependency".
-
-### Decomposing / Exploding a Task into Sub-tasks
-
-When the user asks to decompose, explode, or break down a task, use a fenced code block with language \`astro-add-nodes\`:
-
-\`\`\`astro-add-nodes
-[
-  { "id": "sub1", "title": "Sub-task 1", "description": "...", "milestoneId": "m1", "dependencies": ["parent_id"], "priority": "medium", "estimate": "S" },
-  { "id": "sub2", "title": "Sub-task 2", "description": "...", "milestoneId": "m1", "dependencies": ["sub1"], "priority": "medium", "estimate": "S" }
-]
-\`\`\`
-
-Fields:
-- "id" (string, optional) — temporary ID for referencing between new nodes in the same block
-- "title" (required) — task title
-- "description" (required) — detailed description of what needs to be done
-- "type" (string) — defaults to "task"
-- "milestoneId" (string) — inherit from the parent task being decomposed
-- "dependencies" (string[]) — can reference other new node IDs from the same block, or existing node IDs
-- "priority", "estimate", "verification" — same as node properties
-
-When decomposing, also use \`astro-updates\` to mark the original task as "completed" or "pruned" (since it's been replaced by sub-tasks), and use \`astro-edges\` if the sub-tasks need to connect to other existing nodes.
+When the user asks to decompose or break down a task:
+1. Read the task's title and description from the plan above.
+2. If the user asks you to look at the code, examine relevant files to inform the breakdown. Otherwise, decompose based on the description alone.
+3. Create sub-tasks using \`create_task\`, wire them with \`create_dependency\`, and mark the original task as pruned via \`update_task\`.
 
 Decomposition rules:
-- Prioritize orthogonal sub-tasks that can be independently verified — each sub-task should touch a distinct area of the codebase or concern so that one failing does not block or invalidate the others.
-- Target each sub-task at roughly 20 minutes of expert work time, or < 1000 lines of code expected. Use estimate "XS" (~5 min / <100 LOC), "S" (~15 min / <500 LOC), or "M" (~30 min / <1000 LOC). Never larger than "M".
-- Preserve the original task's milestone assignment
-- Wire dependencies so sub-tasks form a clear sequence or parallel branches; prefer parallel branches when sub-tasks are truly independent
+- Prioritize orthogonal sub-tasks that can be independently verified — each should touch a distinct area so one failing doesn't block the others.
+- Target each sub-task at ~20 min of expert work or <1000 LOC. Use estimate "XS" (~5 min), "S" (~15 min), or "M" (~30 min). Never larger than "M".
+- Preserve the original task's milestone assignment.
+- Wire dependencies so sub-tasks form a clear sequence or parallel branches; prefer parallel when truly independent.
 
 ### Rules
-- Only include fields that should change. Omit unchanged fields.
-- You can combine \`astro-updates\`, \`astro-edges\`, and \`astro-add-nodes\` in the same response.
-- Do NOT include update blocks if no changes are needed.
-- ALWAYS include update blocks when the user asks to change something — never just describe what to do manually.
-- When modifying dependencies via "dependencies" in astro-updates, edges are automatically synchronized. Alternatively use astro-edges for individual add/remove.`
+- Do NOT proactively explore the codebase or use tools unless the user asks for it.
+- Do NOT write code, create files, or build anything. Your job is to help refine the plan.
+- When the user just wants to talk, just talk. Keep tool use minimal.`
 }
 
 export interface TaskExecutionContext {
@@ -442,7 +413,22 @@ Execute the task described above. Focus on completing the task thoroughly and co
 - Use appropriate tools to accomplish the task
 - Report progress and any issues encountered
 - Verify your work when possible
-- Be thorough but efficient`)
+- Be thorough but efficient
+
+**IMPORTANT: When you have finished the task, you MUST end your response with an executive summary in exactly this format:**
+
+\`\`\`
+## Executive Summary
+**Status:** success | partial | failure
+**What was done:** One sentence describing the overall outcome.
+- Key finding or change 1
+- Key finding or change 2
+- Key finding or change 3
+**Follow-ups:**
+- Suggested follow-up action (if any)
+\`\`\`
+
+This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
 
   return parts.join('\n\n---\n\n')
 }
@@ -562,8 +548,205 @@ ${fileList}
 Respond with ONLY a JSON object in this exact format (no markdown fences, no extra text):
 {
   "workCompleted": "1-2 sentence summary of what was accomplished",
+  "keyFindings": ["concise bullet point 1", "concise bullet point 2", "concise bullet point 3"],
   "filesChanged": ["list", "of", "changed", "file", "paths"],
   "status": "${context.status === 'success' ? 'success' : 'failure'}",
   "followUps": ["suggested follow-up task if any"]
-}`
+}
+
+The "keyFindings" field should contain 2-5 concise bullet points (under 100 chars each) summarizing the most important outcomes, changes, or decisions made during execution. These are shown directly to the user for review.`
+}
+
+/**
+ * Build the system prompt for interactive plan generation.
+ *
+ * Unlike buildPlanSystemPrompt (which is a one-shot JSON generator), this prompt
+ * instructs Claude to explore the codebase, ask the user questions via the native
+ * AskUserQuestion tool, share reasoning as it goes, and produce a final plan JSON
+ * only after sufficient exploration and user alignment.
+ */
+export function buildInteractivePlanPrompt(
+  description: string,
+  options?: {
+    visionDoc?: string
+    repoContext?: RepoContextForPrompt
+    gitState?: GitStateForPrompt
+    skillsSummary?: string
+  }
+): string {
+  const visionSection = options?.visionDoc
+    ? `\n## Project Vision Document\n<user_vision>\n${options.visionDoc}\n</user_vision>\n`
+    : ""
+
+  let repoSection = ""
+  if (options?.repoContext) {
+    const parts: string[] = []
+    if (options.repoContext.claudeMd) {
+      parts.push(`## CLAUDE.md (Project Instructions)\n<user_content>\n${options.repoContext.claudeMd}\n</user_content>`)
+    }
+    if (options.repoContext.readmeMd) {
+      parts.push(`## README.md\n<user_content>\n${options.repoContext.readmeMd}\n</user_content>`)
+    }
+    if (options.repoContext.packageInfo) {
+      parts.push(`## Package Metadata\n<user_content>\n${options.repoContext.packageInfo}\n</user_content>`)
+    }
+    if (options.repoContext.fileTreeSummary) {
+      parts.push(`## File Tree\n<user_content>\n${options.repoContext.fileTreeSummary}\n</user_content>`)
+    }
+    if (parts.length > 0) {
+      repoSection = '\n' + parts.join('\n\n') + '\n'
+    }
+  }
+
+  let gitStateSection = ""
+  if (options?.gitState) {
+    const gs = options.gitState
+    const sanitizeBranch = (b: string) => b.replace(/[`\n\r]/g, '')
+    const parts: string[] = [`## Git Repository State`]
+    parts.push(`- Current branch: \`${sanitizeBranch(gs.currentBranch)}\``)
+    parts.push(`- Target branch: \`${sanitizeBranch(gs.targetBranch)}\``)
+    if (gs.isDirty) {
+      const d = gs.dirtyDetails
+      if (d) {
+        const details = [
+          d.staged > 0 ? `${d.staged} staged` : null,
+          d.unstaged > 0 ? `${d.unstaged} modified` : null,
+          d.untracked > 0 ? `${d.untracked} untracked` : null,
+        ].filter(Boolean).join(', ')
+        parts.push(`- Working directory has uncommitted changes: ${details} files`)
+      } else {
+        parts.push('- Working directory has uncommitted changes')
+      }
+    }
+    gitStateSection = '\n' + parts.join('\n') + '\n'
+  }
+
+  // Build skills section if available
+  let skillsSection = ""
+  if (options?.skillsSummary) {
+    skillsSection = `\n## Available Agent Skills & Tools\n\nThe following tools and capabilities are available on the user's machine for task execution. When creating tasks, you can reference these capabilities and design tasks that leverage them.\n\n${options.skillsSummary}\n`
+  }
+
+  const hasCodebase = !!options?.repoContext
+
+  return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
+
+## User's Goal
+<user_goal>
+${description}
+</user_goal>
+${visionSection}${repoSection}${gitStateSection}${skillsSection}
+## Your Approach
+${hasCodebase ? `
+1. **Quick survey of the codebase** — Get a high-level understanding first. Read READMEs, CLAUDE.md, package.json, and use Glob to see the directory/file tree structure. Do NOT dive into individual source files yet — just get the lay of the land.
+
+2. **Ask clarifying questions** — Use AskUserQuestion to get the user's input on:
+   - Architectural decisions (e.g., which approach to take)
+   - Scope choices (e.g., what to include/exclude)
+   - Technology tradeoffs (e.g., library choices)
+   - Priority decisions (e.g., what to tackle first)
+   Keep questions focused and provide concrete options when possible.
+   **Ask only one question per AskUserQuestion call** — the tool supports one question at a time. If you have multiple questions, call it multiple times sequentially.
+   **Calibrate how many questions you ask based on the user's description:**
+   - If the description is short or vague (under ~200 words), be proactive — ask questions to help sharpen the plan.
+   - If the description is long and detailed (over ~200 words) with a clear roadmap, be less proactive — only ask critical technical clarification questions that would materially change the plan.
+
+3. **Deep-dive into relevant files** — Now that you understand the user's intent, use Read, Glob, and Grep to examine the specific files and code sections that are relevant to the plan. Share what you find as you go.
+
+4. **Share your reasoning** — Think out loud as you explore. Explain what you're finding, what patterns you see, and how they inform the plan. The user can see your text output in real-time.
+
+5. **Clarify verification requirements** — Before the final plan, ask the user about verification using AskUserQuestion:
+   "How should completed tasks be verified?"
+   Options: "Automated only", "Automated + human review", "Mixed — auto for testable, human for design", "I'll specify per-task"
+   Based on their answer, set each node's \`verification\` field and populate \`acceptanceCriteria\` with specific checks.
+
+6. **Produce the final plan** — Once you have enough information, output the complete plan as a JSON object. The JSON MUST be the last thing you output.`
+: `
+1. **Ask clarifying questions** — Use AskUserQuestion to get the user's input on:
+   - Architectural decisions (e.g., which approach to take)
+   - Scope choices (e.g., what to include/exclude)
+   - Technology tradeoffs (e.g., library choices)
+   - Priority decisions (e.g., what to tackle first)
+   Keep questions focused and provide concrete options when possible.
+   **Ask only one question per AskUserQuestion call** — the tool supports one question at a time. If you have multiple questions, call it multiple times sequentially.
+   **Calibrate how many questions you ask based on the user's description:**
+   - If the description is short or vague (under ~200 words), be proactive — ask questions to help sharpen the plan.
+   - If the description is long and detailed (over ~200 words) with a clear roadmap, be less proactive — only ask critical technical clarification questions that would materially change the plan.
+
+2. **Use web search** — Use WebSearch and WebFetch to research relevant technologies, libraries, best practices, or documentation that would inform the plan.
+
+3. **Share your reasoning** — Think out loud. Explain your thought process, what tradeoffs you see, and how they inform the plan. The user can see your text output in real-time.
+
+4. **Clarify verification requirements** — Before the final plan, ask the user about verification using AskUserQuestion:
+   "How should completed tasks be verified?"
+   Options: "Automated only", "Automated + human review", "Mixed — auto for testable, human for design", "I'll specify per-task"
+   Based on their answer, set each node's \`verification\` field and populate \`acceptanceCriteria\`.
+
+5. **Produce the final plan** — Once you have enough information, output the complete plan as a JSON object. The JSON MUST be the last thing you output.`}
+
+## Plan Output Format
+
+When ready, output a single JSON object with this structure:
+\`\`\`json
+{
+  "projectName": "Short Project Name",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "task",
+      "title": "Task title",
+      "description": "Detailed description of what needs to be done",
+      "status": "planned",
+      "parentId": null,
+      "dependencies": [],
+      "verification": "auto",
+      "position": {"x": 40, "y": 40},
+      "priority": "medium",
+      "estimate": "M",
+      "milestoneId": "n5",
+      "labelIds": ["l2"]
+    },
+    {
+      "id": "n5",
+      "type": "milestone",
+      "title": "MVP Complete",
+      "description": "First milestone",
+      "status": "planned",
+      "parentId": null,
+      "dependencies": ["n1"],
+      "verification": "human",
+      "position": {"x": 40, "y": 440},
+      "startDate": "2026-03-01",
+      "endDate": "2026-03-01"
+    }
+  ],
+  "edges": [
+    {"id": "e1", "source": "n1", "target": "n5", "type": "dependency"}
+  ]
+}
+\`\`\`
+
+## Node Rules
+- type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points
+- All status: "planned"
+- verification: "auto" if programmatically verifiable, "human" otherwise
+- position: top-to-bottom layout starting at {x:40,y:40}, increment y by 100. Parallel branches offset x by 260
+- Tasks do NOT have startDate/endDate. Milestones MUST have both (equal, YYYY-MM-DD)
+- priority: "urgent" | "high" | "medium" | "low" | "none"
+- estimate: "XS" | "S" | "M" | "L" | "XL". Target each task at ~20 min of expert work or <1000 lines changed
+- milestoneId: REQUIRED for tasks — every task must reference a milestone
+- labelIds: from {l1: Frontend/UI, l2: Backend/API, l3: Testing/QA, l4: Infrastructure/DevOps, l5: Research}
+- acceptanceCriteria: optional array of verification checks with {id, description, type, command?, autoVerifiable}
+- 6–15 nodes. Valid DAG (no cycles)
+- projectName: at most 7 words, title case, no filler words
+
+## Edge Rules
+- type: "dependency" for sequential, "branch" for parallel paths
+
+## Important
+- Do NOT rush to produce the plan. Take time to explore and ask questions first.
+- Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
+- Your text output is visible to the user in real-time as a chat conversation.
+- The JSON plan should be the LAST thing you output, wrapped in a \`\`\`json code fence.
+- After the JSON, do not output any more text.`
 }

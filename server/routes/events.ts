@@ -104,6 +104,13 @@ eventsRoute.get('/stream', async (c) => {
     })
 
     // Event handlers
+    const onTaskReady = (msg: { nodeId: string; projectId: string }) => {
+      if (!alive) return
+      const data = JSON.stringify({ nodeId: msg.nodeId, projectId: msg.projectId })
+      const id = eventBuffer.push('task:ready', data)
+      stream.writeSSE({ id, event: 'task:ready', data }).catch(() => { alive = false })
+    }
+
     const onTaskResult = (msg: TaskResultMessage) => {
       if (!alive) return
       const data = JSON.stringify({
@@ -333,6 +340,7 @@ eventsRoute.get('/stream', async (c) => {
     }
 
     // Subscribe to local execution events (same message shapes as relay)
+    executionEventBus.on('task:ready', onTaskReady)
     executionEventBus.on('task:result', onTaskResult)
     executionEventBus.on('task:stdout', onTaskStdout)
     executionEventBus.on('task:text', onTaskText)
@@ -391,6 +399,7 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('session:event', onSessionEvent)
 
       // Local execution event bus cleanup
+      executionEventBus.off('task:ready', onTaskReady)
       executionEventBus.off('task:result', onTaskResult)
       executionEventBus.off('task:stdout', onTaskStdout)
       executionEventBus.off('task:text', onTaskText)

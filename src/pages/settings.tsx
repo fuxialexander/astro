@@ -5,13 +5,13 @@ import {
   SlidersHorizontal,
   User,
   Bell,
-  Shield,
   Link as LinkIcon,
   Server,
   Keyboard,
   Puzzle,
   Zap,
   Camera,
+  Paintbrush,
   Plus,
   Trash2,
   Key,
@@ -32,11 +32,13 @@ import {
   Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useTheme } from "@/components/theme-provider"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
+import { useSettingsStore, defaultModelTierMap, type ModelTier } from "@/stores/settings-store"
 import { getSupabase } from "@/lib/supabase-client"
 import { apiUrl } from "@/lib/api-url"
 import { isServerMode } from "@/lib/app-mode"
@@ -83,10 +85,10 @@ const experienceLevelOptions: { value: ExperienceLevel; label: string; descripti
 // Removed: environmentOptions - replaced with dynamic machine list from useMachinesStore
 
 type SettingsTab =
-  | "preferences"
+  | "general"
+  | "appearance"
   | "profile"
   | "notifications"
-  | "security"
   | "teams"
   | "connected-accounts"
   | "environments"
@@ -95,10 +97,10 @@ type SettingsTab =
   | "skills"
 
 const personalItems: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
-  { id: "preferences", label: "Preferences", icon: SlidersHorizontal },
+  { id: "general", label: "General", icon: SlidersHorizontal },
+  { id: "appearance", label: "Appearance", icon: Paintbrush },
   { id: "profile", label: "Profile", icon: User },
   { id: "notifications", label: "Notifications", icon: Bell },
-  { id: "security", label: "Security & access", icon: Shield },
   { id: "teams", label: "Teams", icon: Users },
   { id: "connected-accounts", label: "Connected accounts", icon: LinkIcon },
 ]
@@ -189,24 +191,17 @@ function SelectDropdown({
   )
 }
 
-function PreferencesContent() {
+function GeneralContent() {
   const [homeView, setHomeView] = useState("dashboard")
   const [displayNames, setDisplayNames] = useState("username")
   const [firstDay, setFirstDay] = useState("sunday")
   const [keyboardShortcuts, setKeyboardShortcuts] = useState(true)
-  const [fontSize, setFontSize] = useState("default")
-  const [pointerCursors, setPointerCursors] = useState(false)
-  const [interfaceTheme, setInterfaceTheme] = useState("system")
-  const [lightTheme, setLightTheme] = useState("default-light")
-  const [darkTheme, setDarkTheme] = useState("default-dark")
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-primary font-semibold">Preferences</h1>
+      <h1 className="text-xl font-primary font-semibold">General</h1>
 
-      {/* General */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">General</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
             label="Default home view"
@@ -251,6 +246,12 @@ function PreferencesContent() {
             />
           </SettingsRow>
           <SettingsRow
+            label="App sidebar"
+            description="Customize sidebar item visibility and order"
+          >
+            <button className="text-sm text-primary hover:underline">Customize</button>
+          </SettingsRow>
+          <SettingsRow
             label="Enable keyboard shortcuts"
             description="Use keyboard shortcuts for common actions"
             last
@@ -259,17 +260,44 @@ function PreferencesContent() {
           </SettingsRow>
         </div>
       </section>
+    </div>
+  )
+}
 
-      {/* Interface and theme */}
+function AppearanceContent() {
+  const { theme, setTheme, availableThemes } = useTheme()
+  const [fontSize, setFontSize] = useState("default")
+  const [pointerCursors, setPointerCursors] = useState(false)
+
+  return (
+    <div className="flex flex-col gap-8">
+      <h1 className="text-xl font-primary font-semibold">Appearance</h1>
+
+      {/* Theme */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Interface and theme</h2>
+        <h2 className="text-sm font-semibold">Theme</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="App sidebar"
-            description="Customize sidebar item visibility and order"
+            label="Theme"
+            description="Select your interface color scheme"
+            last
           >
-            <button className="text-sm text-primary hover:underline">Customize</button>
+            <SelectDropdown
+              value={theme}
+              onChange={setTheme}
+              options={availableThemes.map((t) => ({
+                value: t.id,
+                label: t.name,
+              }))}
+            />
           </SettingsRow>
+        </div>
+      </section>
+
+      {/* Interface */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Interface</h2>
+        <div className="rounded-xl border border-border bg-card">
           <SettingsRow
             label="Font size"
             description="Adjust the size of text across the app"
@@ -287,51 +315,9 @@ function PreferencesContent() {
           <SettingsRow
             label="Use pointer cursors"
             description="Change cursor to pointer when hovering on interactive elements"
-          >
-            <Toggle checked={pointerCursors} onChange={setPointerCursors} />
-          </SettingsRow>
-          <SettingsRow
-            label="Interface theme"
-            description="Select or customize your interface color scheme"
-          >
-            <SelectDropdown
-              value={interfaceTheme}
-              onChange={setInterfaceTheme}
-              options={[
-                { value: "system", label: "System preference" },
-                { value: "light", label: "Light" },
-                { value: "dark", label: "Dark" },
-              ]}
-            />
-          </SettingsRow>
-          <SettingsRow
-            label="Light"
-            description="Theme to use for light system appearance"
-          >
-            <SelectDropdown
-              value={lightTheme}
-              onChange={setLightTheme}
-              options={[
-                { value: "default-light", label: "Default" },
-                { value: "warm-light", label: "Warm" },
-                { value: "cool-light", label: "Cool" },
-              ]}
-            />
-          </SettingsRow>
-          <SettingsRow
-            label="Dark"
-            description="Theme to use for dark system appearance"
             last
           >
-            <SelectDropdown
-              value={darkTheme}
-              onChange={setDarkTheme}
-              options={[
-                { value: "default-dark", label: "Default" },
-                { value: "warm-dark", label: "Warm" },
-                { value: "cool-dark", label: "Cool" },
-              ]}
-            />
+            <Toggle checked={pointerCursors} onChange={setPointerCursors} />
           </SettingsRow>
         </div>
       </section>
@@ -373,10 +359,6 @@ function ProfileContent() {
     toggleDomain,
     setExperienceLevel,
     togglePreferredMachine,
-    setNotificationsEnabled,
-    setEmailNotifications,
-    setDefaultMachineId,
-    setDefaultProvider,
   } = useUserProfileStore()
 
   const {
@@ -409,22 +391,6 @@ function ProfileContent() {
       loadKeys()
     }
   }, [keysLoaded, keysLoading, loadKeys])
-
-  // Load execution machines and providers for default selection
-  const execMachines = useExecutionStore((s) => s.machines)
-  const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
-  const loadMachines = useExecutionStore((s) => s.loadMachines)
-  const providers = useExecutionStore((s) => s.providers)
-  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
-  const loadProviders = useExecutionStore((s) => s.loadProviders)
-
-  useEffect(() => {
-    if (!machinesLoaded) loadMachines()
-    if (!providersLoaded) loadProviders()
-  }, [machinesLoaded, loadMachines, providersLoaded, loadProviders])
-
-  const onlineMachines = execMachines.filter((m) => m.status !== 'offline')
-  const availableProviders = providers.filter((p) => p.available)
 
   const handleAddEncryptedKey = async () => {
     if (!newService || !newApiKey) return
@@ -728,84 +694,6 @@ function ProfileContent() {
         )}
       </section>
 
-      {/* Default Execution Settings */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Default Execution Settings</h2>
-        <p className="text-[13px] text-muted-foreground">
-          Set default machine and agent for the node inspector. These will be pre-selected when creating or editing tasks.
-        </p>
-        <div className="rounded-xl border border-border bg-card">
-          {/* Default Machine */}
-          <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3.5">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm">Default machine</span>
-              <span className="text-[13px] text-muted-foreground">
-                Machine to pre-select in the node inspector
-              </span>
-            </div>
-            <select
-              value={profile.defaultMachineId || ""}
-              onChange={(e) => setDefaultMachineId(e.target.value || undefined)}
-              className="h-8 rounded-md border border-border bg-card px-2.5 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-w-[180px]"
-            >
-              <option value="">Auto (first available)</option>
-              {onlineMachines.map((m) => (
-                <option key={m.machineId} value={m.machineId}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Default Agent Provider */}
-          <div className="flex items-center justify-between gap-4 px-4 py-3.5">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm">Default agent</span>
-              <span className="text-[13px] text-muted-foreground">
-                Agent provider to pre-select in the node inspector
-              </span>
-            </div>
-            <select
-              value={profile.defaultProvider || ""}
-              onChange={(e) => setDefaultProvider(e.target.value || undefined)}
-              className="h-8 rounded-md border border-border bg-card px-2.5 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-w-[180px]"
-            >
-              <option value="">Auto (first available)</option>
-              {availableProviders.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </section>
-
-      {/* Notification Preferences */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Notifications</h2>
-        <div className="rounded-xl border border-border bg-card">
-          <SettingsRow
-            label="Enable notifications"
-            description="Receive in-app notifications for task updates and decisions"
-          >
-            <Toggle
-              checked={profile.notificationsEnabled}
-              onChange={setNotificationsEnabled}
-            />
-          </SettingsRow>
-          <SettingsRow
-            label="Email notifications"
-            description="Receive email digests for important updates"
-            last
-          >
-            <Toggle
-              checked={profile.emailNotifications}
-              onChange={setEmailNotifications}
-            />
-          </SettingsRow>
-        </div>
-      </section>
 
       {/* Encrypted API Keys (Server Mode Only) */}
       {isServerMode() && (
@@ -1597,6 +1485,271 @@ function TeamsContent() {
   )
 }
 
+function NotificationsContent() {
+  const {
+    profile,
+    setNotificationsEnabled,
+    setEmailNotifications,
+  } = useUserProfileStore()
+
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission | "unsupported">(
+    typeof window !== "undefined" && "Notification" in window
+      ? Notification.permission
+      : "unsupported"
+  )
+
+  const handleBrowserToggle = async (enabled: boolean) => {
+    if (enabled && browserPermission === "default") {
+      const result = await Notification.requestPermission()
+      setBrowserPermission(result)
+      if (result !== "granted") return
+    }
+    setNotificationsEnabled(enabled)
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      <h1 className="text-xl font-primary font-semibold">Notifications</h1>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Browser</h2>
+        <div className="rounded-xl border border-border bg-card">
+          <SettingsRow
+            label="Browser notifications"
+            description={
+              browserPermission === "unsupported"
+                ? "Your browser does not support notifications"
+                : browserPermission === "denied"
+                  ? "Notifications are blocked. Update your browser site settings to allow them."
+                  : "Show desktop notifications for task updates and decisions"
+            }
+            last
+          >
+            <Toggle
+              checked={profile.notificationsEnabled && browserPermission === "granted"}
+              onChange={handleBrowserToggle}
+            />
+          </SettingsRow>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Email</h2>
+        <div className="rounded-xl border border-border bg-card">
+          <SettingsRow
+            label="Email notifications"
+            description="Receive email digests for important updates"
+            last
+          >
+            <Toggle
+              checked={profile.emailNotifications}
+              onChange={setEmailNotifications}
+            />
+          </SettingsRow>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+const tierOptions = [
+  { value: "large", label: "Large (Most capable)" },
+  { value: "medium", label: "Medium (Balanced)" },
+  { value: "small", label: "Small (Fast & cheap)" },
+]
+
+function EnvironmentsSettingsContent() {
+  const { profile, setDefaultMachineId, setDefaultProvider } = useUserProfileStore()
+  const { modelTier, setModelTier, defaultProvider: settingsProvider, setDefaultProvider: setSettingsProvider, customModelMap, setCustomModel, getEffectiveTierMap } = useSettingsStore()
+  const [newProvider, setNewProvider] = useState("")
+
+  const execMachines = useExecutionStore((s) => s.machines)
+  const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
+  const loadMachines = useExecutionStore((s) => s.loadMachines)
+  const providers = useExecutionStore((s) => s.providers)
+  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
+  const loadProviders = useExecutionStore((s) => s.loadProviders)
+
+  useEffect(() => {
+    if (!machinesLoaded) loadMachines()
+    if (!providersLoaded) loadProviders()
+  }, [machinesLoaded, loadMachines, providersLoaded, loadProviders])
+
+  const onlineMachines = execMachines.filter((m) => m.status !== "offline")
+  const availableProviders = providers.filter((p) => p.available)
+
+  // Collect all known provider IDs: defaults + custom overrides + detected
+  const effectiveMap = getEffectiveTierMap()
+  const allProviderIds = new Set<string>()
+  for (const tier of ["large", "medium", "small"] as ModelTier[]) {
+    for (const pid of Object.keys(effectiveMap[tier])) allProviderIds.add(pid)
+  }
+  // Also add detected providers by their type/id
+  for (const p of availableProviders) {
+    if (p.id && !allProviderIds.has(p.id)) allProviderIds.add(p.id)
+  }
+  const providerIds = Array.from(allProviderIds)
+  const builtinProviders = new Set(Object.keys(defaultModelTierMap.large))
+
+  const handleAddProvider = () => {
+    const id = newProvider.trim().toLowerCase().replace(/\s+/g, "-")
+    if (!id || allProviderIds.has(id)) return
+    // Set an empty model for medium tier to register the provider
+    setCustomModel("medium", id, "")
+    setNewProvider("")
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      <h1 className="text-xl font-primary font-semibold">Environments</h1>
+
+      {/* Default Machine */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Default Machine</h2>
+        <div className="rounded-xl border border-border bg-card">
+          <SettingsRow
+            label="Machine"
+            description="Pre-selected machine for task execution"
+            last
+          >
+            <SelectDropdown
+              value={profile.defaultMachineId || ""}
+              onChange={(v) => setDefaultMachineId(v || undefined)}
+              options={[
+                { value: "", label: "Auto (first available)" },
+                ...onlineMachines.map((m) => ({
+                  value: m.machineId,
+                  label: m.name,
+                })),
+              ]}
+            />
+          </SettingsRow>
+        </div>
+      </section>
+
+      {/* Default Provider */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Default LLM Provider</h2>
+        <div className="rounded-xl border border-border bg-card">
+          <SettingsRow
+            label="Provider"
+            description="Agent provider for task execution"
+            last
+          >
+            <SelectDropdown
+              value={settingsProvider || ""}
+              onChange={(v) => {
+                setSettingsProvider(v)
+                setDefaultProvider(v || undefined)
+              }}
+              options={[
+                { value: "", label: "Auto (first available)" },
+                ...availableProviders.map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                })),
+              ]}
+            />
+          </SettingsRow>
+        </div>
+      </section>
+
+      {/* Default Model Size */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Default Model</h2>
+        <div className="rounded-xl border border-border bg-card">
+          <SettingsRow
+            label="Model tier"
+            description="Model size used for plan generation and task execution"
+            last
+          >
+            <SelectDropdown
+              value={modelTier}
+              onChange={(v) => setModelTier(v as ModelTier)}
+              options={tierOptions}
+            />
+          </SettingsRow>
+        </div>
+      </section>
+
+      {/* Editable Model Mapping */}
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold">Model Mapping</h2>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Customize which model ID is used for each tier and provider</p>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b text-muted-foreground">
+                  <th className="text-left font-medium p-2.5 pl-4 w-[80px]">Tier</th>
+                  {providerIds.map((pid) => (
+                    <th key={pid} className="text-left font-medium p-2.5 min-w-[160px]">
+                      {pid}
+                      {!builtinProviders.has(pid) && (
+                        <Badge variant="outline" className="ml-1.5 text-[9px] py-0">custom</Badge>
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(["large", "medium", "small"] as const).map((tier) => (
+                  <tr key={tier} className="border-b last:border-0">
+                    <td className={cn("p-2.5 pl-4 capitalize font-medium", modelTier === tier ? "text-foreground" : "text-muted-foreground")}>
+                      {tier}
+                    </td>
+                    {providerIds.map((pid) => {
+                      const defaultVal = defaultModelTierMap[tier]?.[pid] || ""
+                      const customVal = customModelMap?.[tier]?.[pid]
+                      const isCustomized = customVal !== undefined && customVal !== defaultVal
+                      return (
+                        <td key={pid} className="p-1.5">
+                          <input
+                            type="text"
+                            value={customVal ?? defaultVal}
+                            onChange={(e) => setCustomModel(tier, pid, e.target.value)}
+                            placeholder={defaultVal || "model-id"}
+                            className={cn(
+                              "w-full h-7 rounded border px-2 text-xs font-mono bg-background",
+                              "focus:outline-none focus:ring-1 focus:ring-ring",
+                              isCustomized ? "border-primary/50 text-foreground" : "border-border text-muted-foreground"
+                            )}
+                          />
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {/* Add custom provider */}
+        <div className="flex items-center gap-2">
+          <Input
+            value={newProvider}
+            onChange={(e) => setNewProvider(e.target.value)}
+            placeholder="Add provider (e.g. bedrock, azure)"
+            className="h-8 text-xs max-w-[240px]"
+            onKeyDown={(e) => e.key === "Enter" && handleAddProvider()}
+          />
+          <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={handleAddProvider} disabled={!newProvider.trim()}>
+            <Plus className="h-3.5 w-3.5" />
+            Add
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Edit model IDs directly in the table. Custom values override the defaults. Add custom providers for services like Bedrock, Azure, or other backends.
+        </p>
+      </section>
+    </div>
+  )
+}
+
 function PlaceholderContent({ title }: { title: string }) {
   return (
     <div className="flex flex-col gap-8">
@@ -1609,10 +1762,10 @@ function PlaceholderContent({ title }: { title: string }) {
 }
 
 const tabTitles: Record<SettingsTab, string> = {
-  preferences: "Preferences",
+  general: "General",
+  appearance: "Appearance",
   profile: "Profile",
   notifications: "Notifications",
-  security: "Security & access",
   teams: "Teams",
   "connected-accounts": "Connected accounts",
   environments: "Environments",
@@ -1622,18 +1775,30 @@ const tabTitles: Record<SettingsTab, string> = {
 }
 
 export function Settings() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("preferences")
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general")
+  const [showContent, setShowContent] = useState(false)
+
+  const handleTabClick = (tab: SettingsTab) => {
+    setActiveTab(tab)
+    setShowContent(true)
+  }
 
   function renderContent() {
     switch (activeTab) {
-      case "preferences":
-        return <PreferencesContent />
+      case "general":
+        return <GeneralContent />
+      case "appearance":
+        return <AppearanceContent />
       case "profile":
         return <ProfileContent />
       case "teams":
         return <TeamsContent />
+      case "notifications":
+        return <NotificationsContent />
       case "connected-accounts":
         return <ConnectedAccountsContent />
+      case "environments":
+        return <EnvironmentsSettingsContent />
       case "plugins":
         return <PluginSettingsContent />
       case "skills":
@@ -1645,8 +1810,12 @@ export function Settings() {
 
   return (
     <div className="flex h-full">
-      {/* Settings Sidebar */}
-      <div className="flex w-[240px] shrink-0 flex-col border-r border-border bg-card">
+      {/* Settings Sidebar - hidden on mobile when content is shown */}
+      <div className={cn(
+        "flex shrink-0 flex-col border-r border-border bg-card",
+        "w-full md:w-[240px]",
+        showContent ? "hidden md:flex" : "flex"
+      )}>
         <div className="px-3 pt-4 pb-2">
           <Link
             to="/"
@@ -1664,7 +1833,7 @@ export function Settings() {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => handleTabClick(item.id)}
                 className={cn(
                   "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-left transition-colors",
                   activeTab === item.id
@@ -1690,7 +1859,7 @@ export function Settings() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => handleTabClick(item.id)}
                   className={cn(
                     "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-left transition-colors",
                     activeTab === item.id
@@ -1707,8 +1876,21 @@ export function Settings() {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-auto p-12 px-20">{renderContent()}</div>
+      {/* Main Content - hidden on mobile when sidebar is shown */}
+      <div className={cn(
+        "flex-1 overflow-auto p-6 md:p-12 md:px-20",
+        showContent ? "flex flex-col" : "hidden md:block"
+      )}>
+        {/* Mobile back button */}
+        <button
+          onClick={() => setShowContent(false)}
+          className="md:hidden inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors mb-4"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Settings
+        </button>
+        {renderContent()}
+      </div>
     </div>
   )
 }

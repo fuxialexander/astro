@@ -88,31 +88,12 @@
   opacity: 0.5;
 }
 
-/* Body layout */
-.command-palette-body {
-  display: flex;
-  gap: 16px;
+/* Hide scrollbar but keep scrolling */
+.command-palette-container {
+  scrollbar-width: none;
 }
-
-.command-list-container {
-  flex: 0 0 340px;
-}
-
-.command-preview-container {
-  flex: 1;
-  min-width: 0;
-  animation: preview-slide 250ms ease-out;
-}
-
-@keyframes preview-slide {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+.command-palette-container *::-webkit-scrollbar {
+  display: none;
 }
 
 /* Command item states */
@@ -121,9 +102,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 6px 12px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 150ms ease-out;
   color: var(--cp-text-primary);
@@ -228,7 +209,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px 4px;
+  padding: 14px 12px 6px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;

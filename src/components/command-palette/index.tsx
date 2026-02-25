@@ -13,7 +13,6 @@ import { CommandItem } from "./command-item"
 import { CommandCategory as CategorySection } from "./command-category"
 import { Breadcrumbs } from "./breadcrumbs"
 import { QuickActions } from "./quick-actions"
-import { CommandPreview } from "./command-preview"
 import { TeamSelectorDialog } from "@/components/team-selector-dialog"
 import "./command-palette.css"
 
@@ -36,7 +35,6 @@ export function CommandPalette() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [multiSelectMode, setMultiSelectMode] = useState(false)
-  const [selectedItem, setSelectedItem] = useState<CommandItemType | null>(null)
   const [showTeamSelector, setShowTeamSelector] = useState(false)
 
   const listRef = useRef<HTMLDivElement>(null)
@@ -101,11 +99,15 @@ export function CommandPalette() {
       if (cmd.id === "nav-environments") {
         return { ...cmd, action: () => navigate("/environments") }
       }
-      if (cmd.id === "nav-agents") {
-        return { ...cmd, action: () => navigate("/agents") }
-      }
+
       if (cmd.id === "nav-initiatives") {
         return { ...cmd, action: () => navigate("/initiatives") }
+      }
+      if (cmd.id === "nav-active") {
+        return { ...cmd, action: () => navigate("/active") }
+      }
+      if (cmd.id === "nav-workflows") {
+        return { ...cmd, action: () => navigate("/workflows") }
       }
       if (cmd.id === "nav-settings") {
         return { ...cmd, action: () => navigate("/settings") }
@@ -114,6 +116,9 @@ export function CommandPalette() {
       // Add action commands
       if (cmd.id === "action-new-project") {
         return { ...cmd, action: () => navigate("/projects/new") }
+      }
+      if (cmd.id === "action-plan-generation") {
+        return { ...cmd, action: () => navigate("/projects/new/plan") }
       }
       if (cmd.id === "action-new-task") {
         // Create nested commands for each project
@@ -162,6 +167,9 @@ export function CommandPalette() {
             },
           }))
         return { ...cmd, children }
+      }
+      if (cmd.id === "action-new-initiative") {
+        return { ...cmd, action: () => navigate("/initiatives") }
       }
       if (cmd.id === "action-new-team-project") {
         return { ...cmd, action: () => setShowTeamSelector(true) }
@@ -252,7 +260,7 @@ export function CommandPalette() {
   const rowVirtualizer = useVirtualizer({
     count: flatCommands.length,
     getScrollElement: () => listRef.current,
-    estimateSize: (index) => (flatCommands[index].type === "category" ? 32 : 48),
+    estimateSize: (index) => (flatCommands[index].type === "category" ? 36 : 38),
     overscan: 5,
   })
 
@@ -396,16 +404,6 @@ export function CommandPalette() {
     }
   }, [open, flatCommands])
 
-  // Update selected item for preview
-  useEffect(() => {
-    const current = flatCommands[selectedIndex]
-    if (current?.type === "item" && current.item) {
-      setSelectedItem(current.item)
-    } else {
-      setSelectedItem(null)
-    }
-  }, [selectedIndex, flatCommands])
-
   const handleTeamSelection = useCallback((teamId: string) => {
     navigate(`/projects/new?teamId=${teamId}`)
   }, [navigate])
@@ -459,9 +457,7 @@ export function CommandPalette() {
           </div>
 
           {/* Body */}
-          <div className="command-palette-body p-5 pt-2">
-            {/* Command list (left column) */}
-            <div className="command-list-container">
+          <div className="p-5 pt-2">
               <div
                 ref={listRef}
                 className="h-[400px] overflow-auto"
@@ -546,10 +542,6 @@ export function CommandPalette() {
                 </Command.List>
                 </div>
               </div>
-            </div>
-
-            {/* Preview panel (right column) */}
-            {selectedItem && <CommandPreview item={selectedItem} />}
           </div>
 
           {/* Footer */}

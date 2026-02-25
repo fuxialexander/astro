@@ -102,6 +102,8 @@ export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
   const allNodes = useMemo(() => rawAllNodes.filter(isLive), [rawAllNodes])
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
+  const execution = useExecutionStore((s) => selectedNode ? s.executions.get(selectedNode.id) : undefined)
+  const summary = execution?.summary
   const chatOpen = false // TODO: wire up chat toggle
 
   const handleApprove = () => {
@@ -289,18 +291,57 @@ export function PlanGraphTab({ projectId, visionDoc }: PlanGraphTabProps) {
           </div>
           <Separator />
 
-          {/* Description */}
-          <div>
-            <h4 className="mb-2 text-sm font-semibold">Description</h4>
-            <p className="text-sm text-muted-foreground leading-relaxed">{selectedNode.description}</p>
-          </div>
-          <Separator />
-
           {/* Execution Panel */}
           <div>
             <h4 className="mb-3 text-sm font-semibold">Execution</h4>
             <ExecutionPanel node={selectedNode} projectId={projectId} />
           </div>
+
+          {/* Executive summary for awaiting_judgment */}
+          {selectedNode.status === "awaiting_judgment" && summary && (
+            <>
+              <Separator />
+              <div className={cn(
+                "rounded-lg border p-3",
+                summary.status === 'success' ? "border-success/30 bg-success/5" :
+                summary.status === 'partial' ? "border-warning/30 bg-warning/5" :
+                "border-error/30 bg-error/5"
+              )}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Badge variant={summary.status === 'success' ? 'success' : summary.status === 'partial' ? 'warning' : 'destructive'} className="text-[10px]">
+                    {summary.status}
+                  </Badge>
+                  {summary.filesChanged.length > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {summary.filesChanged.length} file{summary.filesChanged.length !== 1 ? 's' : ''} changed
+                    </span>
+                  )}
+                </div>
+                {summary.keyFindings && summary.keyFindings.length > 0 ? (
+                  <ul className="space-y-1">
+                    {summary.keyFindings.map((finding, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-xs text-foreground">
+                        <span className="text-muted-foreground mt-0.5 shrink-0">•</span>
+                        <span>{finding}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-foreground">{summary.workCompleted}</p>
+                )}
+                {summary.followUps.length > 0 && (
+                  <div className="mt-2 pt-1.5 border-t border-border/50">
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Follow-ups</span>
+                    <ul className="mt-0.5 space-y-0.5">
+                      {summary.followUps.map((f, i) => (
+                        <li key={i} className="text-[11px] text-muted-foreground">• {f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Action buttons for awaiting_judgment status */}
           {selectedNode.status === "awaiting_judgment" && (

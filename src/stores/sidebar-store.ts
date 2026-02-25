@@ -8,6 +8,19 @@ export interface SidebarItem {
   label: string
   visible: boolean
   protected: boolean // Cannot be removed
+  autoRevealed?: boolean   // system auto-showed this item
+  userDismissed?: boolean  // user explicitly dismissed after auto-reveal
+}
+
+export interface AutoRevealCounts {
+  activeProjectCount: number
+  activeTaskCount: number
+}
+
+const AUTO_REVEAL_THRESHOLDS: Record<string, (c: AutoRevealCounts) => boolean> = {
+  tasks:       (c) => c.activeProjectCount > 2,
+  initiatives: (c) => c.activeProjectCount > 5,
+  active:      (c) => c.activeTaskCount > 5,
 }
 
 interface SidebarStore {
@@ -22,20 +35,21 @@ interface SidebarStore {
   reorderItems: (startIndex: number, endIndex: number) => void
   resetToDefault: () => void
   subscribeToChanges: () => () => void
-  syncWithProjectCount: () => void
+  checkAutoReveal: (counts: AutoRevealCounts) => void
+  dismissAutoReveal: (itemId: string) => void
   registerExternalItem: (item: SidebarItem) => void
   unregisterExternalItem: (itemId: string) => void
 }
 
 const defaultItems: SidebarItem[] = [
-  { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: true, protected: true },
-  { id: "active", to: "/active", icon: "Zap", label: "Active", visible: true, protected: false },
+  { id: "dashboard", to: "/dashboard", icon: "Radio", label: "Dashboard", visible: true, protected: true },
+  { id: "plan", to: "/projects/new/plan", icon: "Sparkles", label: "Plan", visible: true, protected: true },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Terminal", label: "Environments", visible: true, protected: true },
-  { id: "workflows", to: "/workflows", icon: "BookOpen", label: "Workflows", visible: true, protected: false },
-  { id: "dashboard", to: "/dashboard", icon: "Radio", label: "Dashboard", visible: false, protected: false },
+  { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: false, protected: false },
+  { id: "active", to: "/active", icon: "Zap", label: "Active", visible: false, protected: false },
+  { id: "workflows", to: "/workflows", icon: "BookOpen", label: "Workflows", visible: false, protected: false },
   { id: "initiatives", to: "/initiatives", icon: "Target", label: "Initiatives", visible: false, protected: false },
-  { id: "agents", to: "/agents", icon: "Cpu", label: "Agents", visible: false, protected: false },
 ]
 
 function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
@@ -90,9 +104,16 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
   },
 
   toggleItemVisibility: (itemId: string) => {
-    const items = get().items.map((item) =>
-      item.id === itemId ? { ...item, visible: !item.visible } : item
-    )
+    const items = get().items.map((item) => {
+      if (item.id !== itemId) return item
+      const nowHidden = item.visible
+      return {
+        ...item,
+        visible: !item.visible,
+        // If hiding an auto-revealed item, mark as user-dismissed
+        ...(nowHidden && item.autoRevealed ? { userDismissed: true, autoRevealed: false } : {}),
+      }
+    })
     set({ items })
     get().save()
   },
@@ -116,8 +137,32 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
     return () => {}
   },
 
-  syncWithProjectCount: () => {
-    // Tasks is always visible (it's the home route)
+  checkAutoReveal: (counts: AutoRevealCounts) => {
+    const items = get().items
+    let changed = false
+    const updated = items.map((item) => {
+      const threshold = AUTO_REVEAL_THRESHOLDS[item.id]
+      if (!threshold) return item
+      if (item.userDismissed) return item
+      if (item.visible) return item
+      if (!threshold(counts)) return item
+      changed = true
+      return { ...item, visible: true, autoRevealed: true }
+    })
+    if (changed) {
+      set({ items: updated })
+      get().save()
+    }
+  },
+
+  dismissAutoReveal: (itemId: string) => {
+    const items = get().items.map((item) =>
+      item.id === itemId
+        ? { ...item, visible: false, userDismissed: true, autoRevealed: false }
+        : item
+    )
+    set({ items })
+    get().save()
   },
 
   registerExternalItem: (item: SidebarItem) => {
