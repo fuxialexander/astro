@@ -649,7 +649,7 @@ export class RelayServer extends EventEmitter {
         console.error('[relay] Missing authentication token');
         callback(false, 401,
           'Missing authentication token. ' +
-          'Run "npx @astroanywhere/agent setup" to register this machine.'
+          'Run "npx @astroanywhere/agent@latest launch" to register this machine.'
         );
         return;
       }
@@ -684,11 +684,11 @@ export class RelayServer extends EventEmitter {
 
         let userMessage = 'Invalid authentication token. ';
         if (errName === 'TokenExpiredError') {
-          userMessage += 'Token has expired. Run "npx @astroanywhere/agent setup" to re-register.';
+          userMessage += 'Token has expired. Run "npx @astroanywhere/agent@latest launch" to re-register.';
         } else if (errName === 'JsonWebTokenError' && errMsg.includes('malformed')) {
           userMessage += 'Token is malformed (possible "null" string). Run setup again.';
         } else {
-          userMessage += 'Run "npx @astroanywhere/agent setup" to re-register this machine.';
+          userMessage += 'Run "npx @astroanywhere/agent@latest launch" to re-register this machine.';
         }
 
         callback(false, 401, userMessage);

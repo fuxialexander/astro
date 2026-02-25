@@ -414,7 +414,7 @@ export function DeviceAuth() {
 
           {/* Footer */}
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            Having trouble? Run <code className="rounded bg-muted px-1 py-0.5">npx @astroanywhere/agent setup</code> to
+            Having trouble? Run <code className="rounded bg-muted px-1 py-0.5">npx @astroanywhere/agent@latest launch</code> to
             start the device authentication process.
           </p>
         </div>

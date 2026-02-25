@@ -182,25 +182,26 @@ export function AddEnvironmentDialog({ open, onOpenChange }: AddEnvironmentDialo
           <TabsContent value="remote" className="mt-4 flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <p className="text-sm text-muted-foreground">
-                On the remote machine (server, HPC login node, etc.), run:
+                On your personal computer (with SSH config), run:
               </p>
-              <CopyBlock text="npx @astroanywhere/agent setup" />
+              <CopyBlock text="npx @astroanywhere/agent@latest launch" />
+              <p className="text-xs text-muted-foreground">
+                This sets up and starts the agent locally, then discovers remote hosts from your SSH config
+                and starts agents on them automatically. <strong>Prerequisite:</strong> Key-based SSH login must be configured.
+              </p>
+            </div>
+            <Separator />
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium text-foreground">Single machine only</p>
+              <p className="text-xs text-muted-foreground">
+                To set up only the current machine without SSH host discovery:
+              </p>
+              <CopyBlock text="npx @astroanywhere/agent@latest launch --no-ssh-config" />
             </div>
             <p className="text-xs text-muted-foreground">
               <strong>For HPC clusters:</strong> Install on the login node if allowed by your administrator.
               Some clusters restrict login node processes, so check your cluster's policies first.
             </p>
-            <Separator />
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium text-foreground">Batch adding</p>
-              <p className="text-xs text-muted-foreground">
-                To batch add servers from your SSH config without connecting to each machine separately, run:
-              </p>
-              <CopyBlock text="npx @astroanywhere/agent setup --with-ssh-config" />
-              <p className="text-xs text-muted-foreground">
-                You'll be prompted to choose which SSH hosts to add. <strong>Prerequisite:</strong> Key-based login must be configured for those hosts.
-              </p>
-            </div>
           </TabsContent>
 
           <TabsContent value="cloud" className="mt-4 flex flex-col gap-4">

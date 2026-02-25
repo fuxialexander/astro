@@ -15,7 +15,7 @@ Once `@astroanywhere/agent` is published to npm:
 npm install -g @astroanywhere/agent
 
 # Or use npx (no installation needed)
-npx @astroanywhere/agent setup
+npx @astroanywhere/agent@latest launch
 ```
 
 The MCP SDK will be installed automatically as a dependency.
