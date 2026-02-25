@@ -123,6 +123,9 @@ dist
 .cache/
 public/*
 !public/landing/
+!public/favicon.ico
+!public/icon.png
+!public/icon-*.png
 
 # Vite
 *.local
