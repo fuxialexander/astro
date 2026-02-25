@@ -17,6 +17,8 @@ import {
   teamMembers,
   toolTraces,
   fileChanges,
+  blobs,
+  nodeComments,
 } from '../lib/db/schema.js'
 import { eq, and, or, sql, desc, isNull } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -359,6 +361,9 @@ app.get('/plan', async (c) => {
       branchName: n.branchName,
       prUrl: n.prUrl,
       prNumber: n.prNumber,
+      content: n.content,
+      attachments: n.attachments,
+      links: n.links,
       createdAt: n.createdAt,
       updatedAt: n.updatedAt,
     }))
@@ -414,6 +419,9 @@ app.get('/plan/:projectId', async (c) => {
     branchName: n.branchName,
     prUrl: n.prUrl,
     prNumber: n.prNumber,
+    content: n.content,
+    attachments: n.attachments,
+    links: n.links,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   }))
@@ -485,6 +493,9 @@ app.put('/plan/:projectId', async (c) => {
         prNumber: (n.prNumber as number) ?? null,
         mergeQueueStatus: (n.mergeQueueStatus as string) ?? null,
         autoPr: (n.autoPr as boolean) ?? false,
+        content: (n.content as string) ?? null,
+        attachments: (n.attachments as unknown[]) ?? [],
+        links: (n.links as unknown[]) ?? [],
         createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
         updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
@@ -549,6 +560,9 @@ app.post('/plan/nodes', async (c) => {
     prNumber: body.prNumber ?? null,
     mergeQueueStatus: body.mergeQueueStatus ?? null,
     autoPr: body.autoPr ?? false,
+    content: body.content ?? null,
+    attachments: body.attachments ?? [],
+    links: body.links ?? [],
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   })
@@ -603,6 +617,9 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.prNumber !== undefined) patch.prNumber = body.prNumber || null
   if (body.mergeQueueStatus !== undefined) patch.mergeQueueStatus = body.mergeQueueStatus || null
   if (body.autoPr !== undefined) patch.autoPr = body.autoPr ?? false
+  if (body.content !== undefined) patch.content = body.content || null
+  if (body.attachments !== undefined) patch.attachments = body.attachments ?? []
+  if (body.links !== undefined) patch.links = body.links ?? []
   if (body.type !== undefined) patch.type = body.type
   if (body.deletedAt !== undefined) patch.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
   if (body.deletionActionId !== undefined) patch.deletionActionId = body.deletionActionId || null
@@ -1549,6 +1566,130 @@ app.patch('/teams/:teamId/members/:userId', async (c) => {
     .set({ role: body.role })
     .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)))
 
+  return c.json({ ok: true })
+})
+
+// ── Blobs (image/file storage) ──────────────────────────────────────
+
+const MAX_BLOB_SIZE = 10 * 1024 * 1024 // 10MB
+
+app.post('/blobs', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const body = await c.req.json()
+
+  if (!body.data || !body.mimeType || !body.filename) {
+    return c.json({ error: 'Missing required fields: data, mimeType, filename' }, 400)
+  }
+
+  const size = body.size ?? Math.ceil((body.data.length * 3) / 4)
+  if (size > MAX_BLOB_SIZE) {
+    return c.json({ error: `File too large. Maximum size is ${MAX_BLOB_SIZE / 1024 / 1024}MB` }, 400)
+  }
+
+  const [row] = await db.insert(blobs).values({
+    ownerId: user.id,
+    teamId: user.teamId || null,
+    mimeType: body.mimeType,
+    size,
+    data: body.data,
+    filename: body.filename,
+    nodeId: body.nodeId || null,
+    projectId: body.projectId || null,
+  }).returning()
+
+  return c.json({ id: row.id }, 201)
+})
+
+app.get('/blobs/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'Invalid blob ID' }, 400)
+
+  const [row] = await db.select().from(blobs).where(eq(blobs.id, id))
+  if (!row) return c.json({ error: 'Blob not found' }, 404)
+
+  // Decode base64 and serve as binary
+  const buffer = Buffer.from(row.data, 'base64')
+  return new Response(buffer, {
+    headers: {
+      'Content-Type': row.mimeType,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    },
+  })
+})
+
+app.delete('/blobs/:id', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'Invalid blob ID' }, 400)
+
+  const [row] = await db.select().from(blobs).where(eq(blobs.id, id))
+  if (!row) return c.json({ error: 'Blob not found' }, 404)
+  if (row.ownerId !== user.id) return c.json({ error: 'Not authorized' }, 403)
+
+  await db.delete(blobs).where(eq(blobs.id, id))
+  return c.json({ ok: true })
+})
+
+// ── Node Comments ───────────────────────────────────────────────────
+
+app.get('/comments', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const nodeId = c.req.query('nodeId')
+  if (!nodeId) return c.json({ error: 'nodeId query parameter required' }, 400)
+
+  const rows = await db.select().from(nodeComments)
+    .where(eq(nodeComments.nodeId, nodeId))
+    .orderBy(nodeComments.createdAt)
+
+  // Verify the user has access to the project via at least one comment
+  if (rows.length > 0) {
+    const [project] = await db.select().from(projects).where(
+      and(eq(projects.id, rows[0].projectId), teamScopeFilter(projects, user))
+    )
+    if (!project) return c.json({ error: 'Not authorized' }, 403)
+  }
+
+  return c.json(rows)
+})
+
+app.post('/comments', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const body = await c.req.json()
+
+  if (!body.nodeId || !body.projectId || !body.content) {
+    return c.json({ error: 'Missing required fields: nodeId, projectId, content' }, 400)
+  }
+
+  // Verify project access
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not authorized' }, 403)
+
+  const [row] = await db.insert(nodeComments).values({
+    nodeId: body.nodeId,
+    projectId: body.projectId,
+    authorId: user.id,
+    authorName: body.authorName || 'User',
+    authorType: body.authorType || 'user',
+    content: body.content,
+    parentCommentId: body.parentCommentId || null,
+  }).returning()
+
+  return c.json(row, 201)
+})
+
+app.delete('/comments/:id', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'Invalid comment ID' }, 400)
+
+  const [row] = await db.select().from(nodeComments).where(eq(nodeComments.id, id))
+  if (!row) return c.json({ error: 'Comment not found' }, 404)
+  if (row.authorId !== user.id) return c.json({ error: 'Not authorized' }, 403)
+
+  await db.delete(nodeComments).where(eq(nodeComments.id, id))
   return c.json({ ok: true })
 })
 

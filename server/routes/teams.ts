@@ -185,6 +185,7 @@ teamsRoute.get('/:teamId/invites', async (c) => {
     const now = new Date()
     const invites = await db.select({
       id: inviteTokens.id,
+      token: inviteTokens.token,
       email: inviteTokens.email,
       role: inviteTokens.role,
       expiresAt: inviteTokens.expiresAt,

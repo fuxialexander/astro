@@ -1,34 +1,61 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import { Save, Loader2, ExternalLink, Paperclip, Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RichTextEditor, type RichTextEditorRef } from '@/components/ui/rich-text-editor'
 import { AttachmentList } from './attachment-list'
 import { LinkList } from './link-list'
+import { CommentSection } from './comment-section'
 import { usePlanStore } from '@/stores/plan-store'
+import { useUserProfileStore } from '@/stores/user-profile-store'
+import { dataClient } from '@/lib/data-client'
+import { fileToBase64 } from '@/lib/html-utils'
 import { cn } from '@/lib/utils'
 import type { PlanNode, TaskAttachment, TaskLink } from '@/types'
+import type { MentionSuggestionItem } from '@/components/ui/mention-suggestion'
 import type { PanelSize } from '@/pages/task-detail'
 
 interface TaskContentTabProps {
   node: PlanNode
   projectId: string
   panelSize: PanelSize
+  fileTree?: string[]
 }
 
-export function TaskContentTab({ node, projectId, panelSize }: TaskContentTabProps) {
+export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskContentTabProps) {
   const updateNode = usePlanStore((s) => s.updateNode)
   const nodes = usePlanStore((s) => s.nodes)
+  const profile = useUserProfileStore((s) => s.profile)
   const editorRef = useRef<RichTextEditorRef>(null)
 
-  const [draftContent, setDraftContent] = useState(node.content || '')
+  // Initialize with content or fall back to description for backward compat
+  const initialContent = node.content || (node.description ? `<p>${node.description}</p>` : '')
+  const [draftContent, setDraftContent] = useState(initialContent)
   const [isSaving, setIsSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
   const [activeSection, setActiveSection] = useState<'content' | 'attachments' | 'links'>('content')
 
+  // Build mention items from sibling plan nodes + file tree
+  const mentionItems = useMemo<MentionSuggestionItem[]>(() => {
+    const taskItems: MentionSuggestionItem[] = nodes
+      .filter((n) => n.projectId === projectId && n.id !== node.id && !n.deletedAt)
+      .map((n) => ({
+        id: n.id,
+        label: n.title,
+        type: 'task' as const,
+        number: n.number,
+      }))
+    const fileItems: MentionSuggestionItem[] = (fileTree || []).map((f) => ({
+      id: f,
+      label: f,
+      type: 'file' as const,
+    }))
+    return [...taskItems, ...fileItems]
+  }, [nodes, projectId, node.id, fileTree])
+
   const handleContentChange = useCallback((html: string) => {
     setDraftContent(html)
-    setHasChanges(html !== (node.content || ''))
-  }, [node.content])
+    setHasChanges(html !== initialContent)
+  }, [initialContent])
 
   const handleSave = useCallback(async () => {
     if (!hasChanges) return
@@ -40,6 +67,24 @@ export function TaskContentTab({ node, projectId, panelSize }: TaskContentTabPro
       setIsSaving(false)
     }
   }, [node.id, draftContent, hasChanges, updateNode])
+
+  const handleImageUpload = useCallback(async (file: File): Promise<string | null> => {
+    try {
+      const base64 = await fileToBase64(file)
+      const blobId = await dataClient.uploadBlob(
+        base64,
+        file.type,
+        file.size,
+        file.name,
+        node.id,
+        projectId
+      )
+      return dataClient.getBlobUrl(blobId)
+    } catch (err) {
+      console.error('Failed to upload image:', err)
+      return null
+    }
+  }, [node.id, projectId])
 
   const handleAddAttachment = useCallback((attachment: TaskAttachment) => {
     const currentAttachments = node.attachments || []
@@ -105,28 +150,15 @@ export function TaskContentTab({ node, projectId, panelSize }: TaskContentTabPro
       )}>
         {/* Main content area */}
         <div className={cn(isWide && 'col-span-2 space-y-6')}>
-          {/* Task Instructions (read-only description) */}
-          {node.description && (
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                Task Instructions
-              </h3>
-              <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-                {node.description}
-              </p>
-            </div>
-          )}
-
           {/* Rich content editor */}
           <div>
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-              Notes & Details
-            </h3>
             <RichTextEditor
               ref={editorRef}
               content={draftContent}
               onChange={handleContentChange}
-              placeholder="Add notes, context, or additional details about this task. You can include images, links, and formatting..."
+              placeholder="Add task instructions, notes, and details. Use @ to mention tasks. Paste or drop images..."
+              mentionItems={mentionItems}
+              onImageUpload={handleImageUpload}
               className={cn(
                 'min-h-[300px]',
                 isWide && 'min-h-[400px]'
@@ -165,6 +197,13 @@ export function TaskContentTab({ node, projectId, panelSize }: TaskContentTabPro
               </div>
             </div>
           )}
+
+          {/* Comments section */}
+          <CommentSection
+            nodeId={node.id}
+            projectId={projectId}
+            userName={profile?.name || 'User'}
+          />
         </div>
 
         {/* Sidebar for attachments and links (wide layout) */}

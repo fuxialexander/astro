@@ -105,6 +105,7 @@
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.3.0",
+    "tippy.js": "^6.3.7",
     "ws": "^8.19.0",
     "zod": "^4.3.6",
     "zustand": "^5.0.5"

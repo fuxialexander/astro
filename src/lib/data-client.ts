@@ -1,4 +1,4 @@
-import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, TaskExecution, Team, TeamMember } from "@/types"
+import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, TaskExecution, Team, TeamMember, NodeComment } from "@/types"
 import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
@@ -594,7 +594,7 @@ export const dataClient = {
     await patch(`/api/teams/${teamId}/members/${userId}`, { role })
   },
 
-  async getPendingInvites(teamId: string): Promise<Array<{ id: string; email: string; role: string; createdAt: Date; expiresAt: Date; inviterName: string }>> {
+  async getPendingInvites(teamId: string): Promise<Array<{ id: string; token: string; email: string; role: string; createdAt: Date; expiresAt: Date; inviterName: string }>> {
     const data = await json<{ invites: Record<string, unknown>[] }>(`/api/teams/${teamId}/invites`)
     return data.invites.map(r => {
       const mapped = snakeToCamel(r)
@@ -604,11 +604,52 @@ export const dataClient = {
         createdAt: toDate(mapped.createdAt),
         expiresAt: toDate(mapped.expiresAt),
         inviterName: inviter?.name as string ?? 'Unknown',
-      } as { id: string; email: string; role: string; createdAt: Date; expiresAt: Date; inviterName: string }
+      } as { id: string; token: string; email: string; role: string; createdAt: Date; expiresAt: Date; inviterName: string }
     })
   },
 
   async revokeInvite(inviteId: string): Promise<void> {
     await del(`/api/teams/invites/${inviteId}`)
+  },
+
+  // ── Blobs ──────────────────────────────────────────────────────────
+  async uploadBlob(data: string, mimeType: string, size: number, filename: string, nodeId?: string, projectId?: string): Promise<string> {
+    const result = await post(`${BASE}/blobs`, { data, mimeType, size, filename, nodeId, projectId }) as { id: string }
+    return result.id
+  },
+
+  getBlobUrl(id: string): string {
+    return apiUrl(`${BASE}/blobs/${id}`)
+  },
+
+  async deleteBlob(id: string): Promise<void> {
+    await del(`${BASE}/blobs/${id}`)
+  },
+
+  // ── Comments ───────────────────────────────────────────────────────
+  async getComments(nodeId: string): Promise<NodeComment[]> {
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/comments?nodeId=${encodeURIComponent(nodeId)}`)
+    return rows.map(row => {
+      const r = snakeToCamel(row)
+      return {
+        ...r,
+        createdAt: toDate(r.createdAt),
+        updatedAt: toDate(r.updatedAt),
+      } as NodeComment
+    })
+  },
+
+  async createComment(comment: { nodeId: string; projectId: string; authorName: string; authorType?: string; content: string; parentCommentId?: string }): Promise<NodeComment> {
+    const row = await post(`${BASE}/comments`, comment) as Record<string, unknown>
+    const r = snakeToCamel(row)
+    return {
+      ...r,
+      createdAt: toDate(r.createdAt),
+      updatedAt: toDate(r.updatedAt),
+    } as NodeComment
+  },
+
+  async deleteComment(id: string): Promise<void> {
+    await del(`${BASE}/comments/${id}`)
   },
 }

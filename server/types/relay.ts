@@ -106,6 +106,22 @@ export interface MachineRegistryEntry extends MachineInfo {
 }
 
 // ============================================================================
+// Image / Multimodal Types
+// ============================================================================
+
+/** Base64-encoded image for multimodal dispatch */
+export interface ImageAttachment {
+  /** Blob ID from the blobs table */
+  blobId: string;
+  /** MIME type (image/png, image/jpeg, etc.) */
+  mimeType: string;
+  /** Base64-encoded image data */
+  data: string;
+  /** Optional filename */
+  filename?: string;
+}
+
+// ============================================================================
 // Task Types
 // ============================================================================
 
@@ -250,6 +266,12 @@ export interface TaskDispatch {
    * Older agent runners will ignore this field (backward-compatible).
    */
   skipSafetyCheck?: boolean;
+
+  /**
+   * Images embedded in task content, sent as base64 for multimodal prompts.
+   * Extracted from blob references in the task's rich text content.
+   */
+  images?: ImageAttachment[];
 }
 
 /** Task result from agent runner */

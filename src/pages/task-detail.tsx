@@ -1,11 +1,12 @@
-import { useState, useCallback } from "react"
+import { useState } from "react"
 import { useParams, Link, useNavigate, useSearchParams } from "react-router"
-import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, XCircle, Layers, FileText, FolderEdit, Maximize2, Minimize2, SplitSquareVertical, PanelRightOpen } from "lucide-react"
+import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, XCircle, Layers, FileText, FolderEdit, PanelRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Separator } from "@/components/ui/separator"
 import { MobileStatusBar } from "@/components/mobile/status-bar"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -15,18 +16,13 @@ import { UnifiedActivityView } from "@/components/task-detail/unified-activity-v
 import { FileChangesView } from "@/components/task-detail/file-changes-view"
 import { TraceViewer } from "@/components/task-detail/trace-viewer"
 import { TaskContentTab } from "@/components/task-detail/task-content-tab"
+import { NodeInspectorContent } from "@/components/node-inspector"
 import { ApprovalCard } from "@/components/approval-card"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
 
 export type PanelSize = 'default' | 'three-quarter' | 'full'
-
-const sizeConfig = {
-  default: { label: 'Default', icon: PanelRightOpen },
-  'three-quarter': { label: '3/4 Page', icon: SplitSquareVertical },
-  full: { label: 'Full Page', icon: Maximize2 },
-}
 
 // Deduplicate file changes: keep latest per path
 function deduplicateFileChanges(changes: Array<{ path: string; action: string; linesAdded?: number; linesRemoved?: number; diff?: string; timestamp: Date }>): Array<{ path: string; action: string; linesAdded?: number; linesRemoved?: number; diff?: string; timestamp: Date }> {
@@ -52,21 +48,8 @@ export function TaskDetail() {
   const getPendingApprovalForNode = useExecutionStore((s) => s.getPendingApprovalForNode)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
 
-  // Panel size state - allows expansion to 3/4 or full page
-  const [panelSize, setPanelSize] = useState<PanelSize>(() => {
-    // Check URL params for initial size
-    const sizeParam = searchParams.get('size')
-    if (sizeParam === 'three-quarter' || sizeParam === 'full') return sizeParam
-    return 'default'
-  })
-
-  const cycleSize = useCallback(() => {
-    const sizes: PanelSize[] = ['default', 'three-quarter', 'full']
-    const currentIndex = sizes.indexOf(panelSize)
-    setPanelSize(sizes[(currentIndex + 1) % sizes.length])
-  }, [panelSize])
-
-  const SizeIcon = sizeConfig[panelSize].icon
+  // Inspector sidebar toggle
+  const [inspectorOpen, setInspectorOpen] = useState(true)
 
   // Compute executionId early for use in hooks
   const executionId = node?.executionId || execution?.executionId || ""
@@ -109,15 +92,8 @@ export function TaskDetail() {
   // Get machine ID for steering (from execution or realtime stream)
   const machineId = execution?.machineId || taskStream?.machineId || ""
 
-  // Panel width classes based on size
-  const panelWidthClass = {
-    default: 'w-full',
-    'three-quarter': 'w-full md:w-3/4 md:max-w-[1200px] md:mx-auto',
-    full: 'w-full',
-  }[panelSize]
-
   return (
-    <div className={cn("flex h-full flex-col transition-all duration-300", panelWidthClass)}>
+    <div className="flex h-full flex-col">
       {/* Mobile Status Bar */}
       <MobileStatusBar />
 
@@ -148,39 +124,20 @@ export function TaskDetail() {
           </p>
         </div>
 
-        {/* Panel size toggle */}
-        <div className="hidden md:flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={cycleSize}>
-                <SizeIcon className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {sizeConfig[panelSize].label} (click to cycle)
-            </TooltipContent>
-          </Tooltip>
-          {panelSize !== 'full' && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPanelSize('full')}>
-                  <Maximize2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Expand to full page</TooltipContent>
-            </Tooltip>
-          )}
-          {panelSize === 'full' && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPanelSize('default')}>
-                  <Minimize2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Return to default size</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
+        {/* Inspector toggle */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={inspectorOpen ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setInspectorOpen((o) => !o)}
+            >
+              <PanelRight className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{inspectorOpen ? "Hide" : "Show"} inspector</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Meta Row - scrollable on mobile */}
@@ -469,46 +426,71 @@ export function TaskDetail() {
         </div>
       )}
 
-      {/* Tabbed Content: Content + Activity + Files */}
-      <Tabs defaultValue="content" className="flex-1 flex flex-col min-h-0">
-        <TabsList className="mx-4 md:mx-6 mt-3 md:mt-4 w-fit">
-          <TabsTrigger value="content" className="text-xs md:text-sm">
-            <FileText className="h-3.5 w-3.5 mr-1.5" />
-            Content
-            {((node.attachments?.length || 0) + (node.links?.length || 0)) > 0 && (
-              <span className="ml-1.5 text-muted-foreground">
-                ({(node.attachments?.length || 0) + (node.links?.length || 0)})
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="activity" className="text-xs md:text-sm">Activity</TabsTrigger>
-          <TabsTrigger value="trace" className="text-xs md:text-sm">Trace</TabsTrigger>
-          <TabsTrigger value="files" className="text-xs md:text-sm">
-            Files {fileChanges.length > 0 && `(${fileChanges.length})`}
-          </TabsTrigger>
-        </TabsList>
+      {/* Main content area: Tabs + optional Inspector sidebar */}
+      <div className="flex flex-1 min-h-0">
+        {/* Tabbed Content: Content + Activity + Files */}
+        <Tabs defaultValue="content" className="flex-1 flex flex-col min-h-0 min-w-0">
+          <TabsList className="mx-4 md:mx-6 mt-3 md:mt-4 w-fit">
+            <TabsTrigger value="content" className="text-xs md:text-sm">
+              <FileText className="h-3.5 w-3.5 mr-1.5" />
+              Content
+              {((node.attachments?.length || 0) + (node.links?.length || 0)) > 0 && (
+                <span className="ml-1.5 text-muted-foreground">
+                  ({(node.attachments?.length || 0) + (node.links?.length || 0)})
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="activity" className="text-xs md:text-sm">Activity</TabsTrigger>
+            <TabsTrigger value="trace" className="text-xs md:text-sm">Trace</TabsTrigger>
+            <TabsTrigger value="files" className="text-xs md:text-sm">
+              Files {fileChanges.length > 0 && `(${fileChanges.length})`}
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="content" className="flex-1 m-0 min-h-0 overflow-auto">
-          <TaskContentTab node={node} projectId={projectId} panelSize={panelSize} />
-        </TabsContent>
-        <TabsContent value="activity" className="flex-1 m-0 min-h-0">
-          <UnifiedActivityView
-            node={node}
-            projectId={projectId}
-            execution={execution}
-            taskStream={taskStream}
-            isRunning={isRunning}
-            executionId={executionId}
-            machineId={machineId}
-          />
-        </TabsContent>
-        <TabsContent value="trace" className="flex-1 m-0 min-h-0">
-          <TraceViewer executionId={executionId} isRunning={isRunning} />
-        </TabsContent>
-        <TabsContent value="files" className="flex-1 m-0 min-h-0">
-          <FileChangesView changes={fileChanges} machineId={machineId} />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="content" className="flex-1 m-0 min-h-0 overflow-auto">
+            <TaskContentTab node={node} projectId={projectId} panelSize="default" fileTree={project?.fileTree} />
+          </TabsContent>
+          <TabsContent value="activity" className="flex-1 m-0 min-h-0">
+            <UnifiedActivityView
+              node={node}
+              projectId={projectId}
+              execution={execution}
+              taskStream={taskStream}
+              isRunning={isRunning}
+              executionId={executionId}
+              machineId={machineId}
+            />
+          </TabsContent>
+          <TabsContent value="trace" className="flex-1 m-0 min-h-0">
+            <TraceViewer executionId={executionId} isRunning={isRunning} />
+          </TabsContent>
+          <TabsContent value="files" className="flex-1 m-0 min-h-0">
+            <FileChangesView changes={fileChanges} machineId={machineId} />
+          </TabsContent>
+        </Tabs>
+
+        {/* Node Inspector Sidebar */}
+        {inspectorOpen && (
+          <div className="flex flex-col gap-5 border-l bg-card p-5 overflow-auto border-border w-[320px] shrink-0">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold text-muted-foreground">Inspector</h4>
+            </div>
+            <Separator />
+            <NodeInspectorContent
+              node={node}
+              project={{
+                id: projectId,
+                workingDirectory: project?.workingDirectory,
+                defaultMachineId: project?.defaultMachineId,
+                fileTree: project?.fileTree,
+              }}
+              viewMode={searchParams.get('from') || 'graph'}
+              onClose={() => setInspectorOpen(false)}
+              onNodeUpdate={() => {}}
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 }

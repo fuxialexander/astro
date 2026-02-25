@@ -1135,11 +1135,16 @@ export function PlanView() {
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
 
-  /** Select a node and close chat to show the inspector */
+  /** Select a node: navigate to its task detail page */
   const handleNodeSelect = useCallback((node: PlanNode | null) => {
-    setSelectedNode(node)
-    if (node) setChatOpen(false)
-  }, [])
+    if (node && id) {
+      const pathParts = location.pathname.split('/')
+      const from = pathParts[pathParts.length - 1] || 'graph'
+      navigate(`/project/${id}/task/${node.id}?from=${from}`)
+    } else {
+      setSelectedNode(null)
+    }
+  }, [id, navigate, location.pathname])
 
   /** Handle node ID click from chat messages */
   const handleChatNodeSelect = useCallback((nodeId: string) => {

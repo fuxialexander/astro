@@ -213,6 +213,20 @@ export interface PlanNode {
   links?: TaskLink[];
 }
 
+// Comment on a plan node
+export interface NodeComment {
+  id: string;
+  nodeId: string;
+  projectId: string;
+  authorId: string;
+  authorName: string;
+  authorType: 'user' | 'agent';
+  content: string;
+  parentCommentId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // Tool trace for execution detail view
 export interface ToolTrace {
   id: string;

@@ -117,6 +117,13 @@ export const planNodes = pgTable('plan_nodes', {
   prNumber: integer('pr_number'),
   mergeQueueStatus: text('merge_queue_status'),
   autoPr: boolean('auto_pr').default(false),
+  content: text('content'), // Rich text content (TipTap HTML)
+  attachments: jsonb('attachments').$type<Array<{
+    id: string; name: string; url: string; mimeType: string; size: number; uploadedAt: string; thumbnailUrl?: string
+  }>>().default([]),
+  links: jsonb('links').$type<Array<{
+    id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string
+  }>>().default([]),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -512,4 +519,32 @@ export const machineUsageLogs = pgTable('machine_usage_logs', {
   durationMs: integer('duration_ms'),
   status: text('status').notNull(), // 'success' | 'failure' | 'cancelled'
   createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// ── Blobs (image/file storage) ──────────────────────────────────
+export const blobs = pgTable('blobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').notNull(),
+  teamId: uuid('team_id'),
+  mimeType: text('mime_type').notNull(),
+  size: integer('size').notNull(),
+  data: text('data').notNull(), // base64-encoded
+  filename: text('filename').notNull(),
+  nodeId: text('node_id'),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// ── Node Comments ───────────────────────────────────────────────
+export const nodeComments = pgTable('node_comments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nodeId: text('node_id').notNull(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  authorId: uuid('author_id').notNull(),
+  authorName: text('author_name').notNull(),
+  authorType: text('author_type').notNull().default('user'), // 'user' | 'agent'
+  content: text('content').notNull(),
+  parentCommentId: uuid('parent_comment_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
