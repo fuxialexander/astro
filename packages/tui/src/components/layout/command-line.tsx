@@ -51,7 +51,7 @@ export function CommandLine() {
           <Text>
             <Text bold>{prefix}</Text>
             <Text>{content}</Text>
-            <Text color="cyan">\u2588</Text>
+            <Text color="cyan">{'\u2588'}</Text>
           </Text>
         ) : (
           <Text dimColor>{content}</Text>
