@@ -370,6 +370,23 @@ The user can review your reasoning in the task output and provide guidance if th
 
   const relayPrompt = promptParts.join('\n\n---\n\n')
 
+  // Fetch project record from DB for event hooks (git-pull-hook needs workingDirectory)
+  let projectRecord: Project | undefined
+  let nodeNumber: number | undefined
+  try {
+    const [row] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+    projectRecord = row as unknown as Project | undefined
+  } catch (err) {
+    console.warn('[dispatch] Failed to fetch project for event hooks:', err)
+  }
+  // Fetch node number for PR titles and branch names
+  try {
+    const [nodeRow] = await db.select({ number: planNodes.number }).from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
+    nodeNumber = nodeRow?.number ?? undefined
+  } catch (err) {
+    console.warn('[dispatch] Failed to fetch node number:', err)
+  }
+
   // Dispatch via relay
   const taskDispatch = {
     taskId: executionId,
@@ -392,23 +409,6 @@ The user can review your reasoning in the task output and provide guidance if th
     worktreeStrategy,
     useWorktree,
     images,
-  }
-
-  // Fetch project record from DB for event hooks (git-pull-hook needs workingDirectory)
-  let projectRecord: Project | undefined
-  let nodeNumber: number | undefined
-  try {
-    const [row] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
-    projectRecord = row as unknown as Project | undefined
-  } catch (err) {
-    console.warn('[dispatch] Failed to fetch project for event hooks:', err)
-  }
-  // Fetch node number for PR titles and branch names
-  try {
-    const [nodeRow] = await db.select({ number: planNodes.number }).from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
-    nodeNumber = nodeRow?.number ?? undefined
-  } catch (err) {
-    console.warn('[dispatch] Failed to fetch node number:', err)
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
