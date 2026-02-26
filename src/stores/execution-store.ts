@@ -5,7 +5,6 @@ import { usePlanStore, isLive } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
 import { getAccessToken } from "@/lib/supabase-client"
-import { isServerMode } from "@/lib/app-mode"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { dataClient } from "@/lib/data-client"
 import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
@@ -118,7 +117,7 @@ interface ExecutionState {
   machines: MachineInfo[]
   machinesLoaded: boolean
 
-  // Local execution backends (detected on server)
+  // @deprecated — local backends now come from machine registry executionStrategies
   localBackends: ComputeBackendInfo[]
   localBackendsLoaded: boolean
 
@@ -191,6 +190,8 @@ interface ExecutionState {
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelPlanSession: (projectId: string) => Promise<void>
+  /** Remove execution entry and delete the project created by startPlanSession. */
+  cleanupPlanSession: (projectId: string) => void
   steerPlanSession: (projectId: string, message: string) => Promise<boolean>
 
   // Playground session methods
@@ -672,36 +673,15 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 
   loadLocalBackends: async () => {
-    // Local backend detection is only available in local mode;
-    // server mode blocks this endpoint (403) since it exposes server infrastructure
-    if (isServerMode()) {
-      set({ localBackendsLoaded: true })
-      return
-    }
-    try {
-      const headers = await getAuthHeaders()
-      const response = await fetch(apiUrl("/api/backends"), { headers })
-      if (response.ok) {
-        const data = await response.json() as { backends?: ComputeBackendInfo[] }
-        set({ localBackends: data.backends ?? [], localBackendsLoaded: true })
-      }
-    } catch {
-      set({ localBackendsLoaded: true })
-    }
+    // No-op: backend detection has moved to agent runners.
+    // All backends come from machine registry executionStrategies.
+    set({ localBackendsLoaded: true })
   },
 
-  fetchBackendDetail: async (id: string) => {
-    try {
-      const headers = await getAuthHeaders()
-      const response = await fetch(apiUrl(`/api/backends/${id}`), { headers })
-      if (response.ok) {
-        const data = await response.json() as { backend: ComputeBackendInfo; contextString: string }
-        return data
-      }
-      return null
-    } catch {
-      return null
-    }
+  fetchBackendDetail: async () => {
+    // Deprecated: use fetchRemoteBackendDetail instead.
+    // Kept for backwards compatibility but returns null.
+    return null
   },
 
   fetchRemoteBackendDetail: async (machineId: string, strategyId: string) => {
@@ -1024,6 +1004,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           },
         })
       } catch (error) {
+        // Only update if entry still exists (cancelPlanSession/cleanupPlanSession may have already handled it)
+        if (!get().executions.has(nodeId)) return
         if (error instanceof Error && error.name === "AbortError") {
           set((state) => {
             const newExecutions = new Map(state.executions)
@@ -1087,7 +1069,17 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }
       return { executions: newExecutions }
     })
+  },
 
+  /** Remove execution entry and delete the project created by startPlanSession. */
+  cleanupPlanSession: (projectId) => {
+    const nodeId = `plan-${projectId}`
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      newExecutions.delete(nodeId)
+      return { executions: newExecutions }
+    })
+    useProjectStore.getState().deleteProject(projectId)
   },
 
   steerPlanSession: async (projectId, message) => {

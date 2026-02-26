@@ -530,29 +530,9 @@ export function Environments() {
   const [selectedMachine, setSelectedMachine] = useState<RegisteredMachine | null>(null)
   const [machineDetailDialogOpen, setMachineDetailDialogOpen] = useState(false)
   const [detailLiveMachine, setDetailLiveMachine] = useState<MachineEntry | undefined>(undefined)
-  const fetchBackendDetail = useExecutionStore((s) => s.fetchBackendDetail)
   const fetchRemoteBackendDetail = useExecutionStore((s) => s.fetchRemoteBackendDetail)
 
-  // For local backends: fetch fresh detail from server
-  const handleBackendClick = (backend: ComputeBackendInfo) => {
-    setSelectedBackend(backend)
-    setSelectedMachineId(undefined)
-    setBackendContextString("")
-    setBackendDialogOpen(true)
-    setBackendDetailLoading(true)
-    fetchBackendDetail(backend.id).then((result) => {
-      if (result) {
-        setSelectedBackend(result.backend)
-        setBackendContextString(result.contextString)
-      }
-    }).catch((err) => {
-      console.error('[environments] Failed to fetch backend detail:', err)
-    }).finally(() => {
-      setBackendDetailLoading(false)
-    })
-  }
-
-  // For remote machine backends: fetch context string from the relay's machine registry
+  // Fetch backend detail from the relay's machine registry (unified path for all modes)
   const handleRemoteBackendClick = (backend: ComputeBackendInfo, machineId: string) => {
     setSelectedBackend(backend)
     setSelectedMachineId(machineId)
@@ -565,7 +545,7 @@ export function Environments() {
         setBackendContextString(result.contextString)
       }
     }).catch((err) => {
-      console.error('[environments] Failed to fetch remote backend detail:', err)
+      console.error('[environments] Failed to fetch backend detail:', err)
     }).finally(() => {
       setBackendDetailLoading(false)
     })
@@ -575,17 +555,12 @@ export function Environments() {
   const realtimeConnected = useRealtimeStore((s) => s.connected)
   const connectRealtime = useRealtimeStore((s) => s.connect)
 
-  // Check if we're in multi-tenant mode (hide "Local" in production)
+  // Check if we're in multi-tenant mode
   const isMultiTenant = isServerMode()
 
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
   const registeredMachines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
-
-  // Local backends detected on server
-  const localBackends = useExecutionStore((s) => s.localBackends)
-  const localBackendsLoaded = useExecutionStore((s) => s.localBackendsLoaded)
-  const loadLocalBackends = useExecutionStore((s) => s.loadLocalBackends)
 
   // Connect to real-time events on mount to receive live machine updates
   useEffect(() => {
@@ -593,13 +568,6 @@ export function Environments() {
       connectRealtime()
     }
   }, [realtimeConnected, connectRealtime])
-
-  // Load local backends on mount
-  useEffect(() => {
-    if (!localBackendsLoaded) {
-      loadLocalBackends()
-    }
-  }, [localBackendsLoaded, loadLocalBackends])
 
   // Fetch registered machines on mount (multi-tenant only)
   useEffect(() => {
@@ -628,22 +596,17 @@ export function Environments() {
   const connectedCount = connectedLiveMachines.length
   const activeTasks = liveMachines.reduce((sum, m) => sum + m.load.activeTasks, 0)
 
-  // Compute Backends: locally-detected or from connected machines' execution strategies
-  const availableLocalBackends = localBackends.filter((b) => b.available)
-
-  // In multi-tenant mode, group backends per connected machine
-  const remoteBackendsByMachine = connectedLiveMachines
+  // Compute Backends: all backends come from connected machines' execution strategies
+  const backendsByMachine = connectedLiveMachines
     .map((m) => ({
       machineId: m.machineId,
       machineName: m.name || m.machineId,
       backends: (m.executionStrategies ?? []).filter((s) => s.available && s.id !== 'direct'),
     }))
     .filter((g) => g.backends.length > 0)
-  const remoteBackendCount = remoteBackendsByMachine.reduce((sum, g) => sum + g.backends.length, 0)
-  const computeBackendCount = isMultiTenant ? remoteBackendCount : availableLocalBackends.length
+  const computeBackendCount = backendsByMachine.reduce((sum, g) => sum + g.backends.length, 0)
 
   const handleRefresh = () => {
-    loadLocalBackends()
     if (!realtimeConnected) connectRealtime()
     if (isMultiTenant) fetchMachines()
   }
@@ -794,63 +757,37 @@ export function Environments() {
             )}
           </div>
           <p className="text-xs text-muted-foreground ml-8">
-            {isMultiTenant
-              ? "Execution environments detected by agent runners on each connected machine. Click any backend to see details and the AI context that gets injected into agent sessions."
-              : "Execution environments detected on this server — Docker, Kubernetes, SLURM clusters, and SSH-reachable hosts. Click any backend to see details and the AI context that gets injected into agent sessions."
-            }
+            Execution environments detected by agent runners on each connected machine. Click any backend to see details and the AI context that gets injected into agent sessions.
           </p>
         </div>
         <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Compute Backends</p>
-        {isMultiTenant ? (
-          remoteBackendsByMachine.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {remoteBackendsByMachine.map((group) => (
-                <LocalBackendsCard
-                  key={group.machineId}
-                  backends={group.backends}
-                  title={group.machineName}
-                  subtitle={`${group.backends.length} backend${group.backends.length !== 1 ? 's' : ''} detected`}
-                  onBackendClick={(b) => handleRemoteBackendClick(b, group.machineId)}
-                />
-              ))}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <EmptyState
-                  icon={Container}
-                  title="No compute backends detected"
-                  description="Connect a machine with the agent runner. It auto-detects available backends (SLURM, Docker, Kubernetes) and reports them here."
-                  action={{
-                    label: "Add Environment",
-                    onClick: () => setDialogOpen(true),
-                  }}
-                  className="py-8"
-                />
-              </CardContent>
-            </Card>
-          )
+        {backendsByMachine.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {backendsByMachine.map((group) => (
+              <LocalBackendsCard
+                key={group.machineId}
+                backends={group.backends}
+                title={group.machineName}
+                subtitle={`${group.backends.length} backend${group.backends.length !== 1 ? 's' : ''} detected`}
+                onBackendClick={(b) => handleRemoteBackendClick(b, group.machineId)}
+              />
+            ))}
+          </div>
         ) : (
-          availableLocalBackends.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <LocalBackendsCard backends={availableLocalBackends} onBackendClick={handleBackendClick} />
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <EmptyState
-                  icon={Container}
-                  title="No compute backends detected"
-                  description="Connect a machine with SLURM, Docker, or Kubernetes. The agent runner auto-detects available backends and injects environment context into Claude sessions."
-                  action={{
-                    label: "Add Environment",
-                    onClick: () => setDialogOpen(true),
-                  }}
-                  className="py-8"
-                />
-              </CardContent>
-            </Card>
-          )
+          <Card>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Container}
+                title="No compute backends detected"
+                description="Connect a machine with the agent runner. It auto-detects available backends (SLURM, Docker, Kubernetes, SSH hosts) and reports them here."
+                action={{
+                  label: "Add Environment",
+                  onClick: () => setDialogOpen(true),
+                }}
+                className="py-8"
+              />
+            </CardContent>
+          </Card>
         )}
       </div>
 
