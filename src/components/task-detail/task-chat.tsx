@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { stripHtml } from "@/lib/html-utils"
 import { Send, Loader2, Trash2, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -133,7 +134,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
           nodeId: node.id,
           projectId,
           taskTitle: node.title,
-          taskDescription: node.description,
+          taskDescription: node.content ? stripHtml(node.content) : node.description,
           taskOutput,
           visionDoc,
           model,
@@ -160,7 +161,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
     } catch {
       setIsStreaming(false)
     }
-  }, [input, isStreaming, node.id, node.title, node.description, projectId, taskOutput, visionDoc, model, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])
+  }, [input, isStreaming, node.id, node.title, node.content, node.description, projectId, taskOutput, visionDoc, model, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])
 
   function handleClear() {
     if (isStreaming) {

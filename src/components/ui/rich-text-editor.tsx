@@ -30,7 +30,7 @@ import {
   Link2Off,
 } from 'lucide-react'
 import { Button } from './button'
-import { cn } from '@/lib/utils'
+import { cn, getShortId } from '@/lib/utils'
 import { MentionSuggestion, type MentionSuggestionItem, type MentionSuggestionRef } from './mention-suggestion'
 import { stripHtml } from '@/lib/html-utils'
 
@@ -80,7 +80,7 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
             return items
               .filter((item) =>
                 item.label.toLowerCase().includes(q) ||
-                (item.number !== undefined && `#${item.number}`.includes(q))
+                getShortId(item.id).includes(q)
               )
               .slice(0, 15)
           },

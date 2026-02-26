@@ -1,28 +1,11 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
 import { FileText, MessageSquare, Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Download, Folder, Check, Pencil, GitBranch, List, Clock, Kanban } from "lucide-react"
-
-// Media query hook for responsive rendering
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window !== "undefined") {
-      return window.matchMedia(query).matches
-    }
-    return false
-  })
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query)
-    const handler = (e: MediaQueryListEvent) => setMatches(e.matches)
-    mediaQuery.addEventListener("change", handler)
-    return () => mediaQuery.removeEventListener("change", handler)
-  }, [query])
-
-  return matches
-}
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
+import { TaskRow } from "@/components/task-row"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -68,7 +51,7 @@ const planListDisplayConfig: DisplayPopoverConfig = {
     { value: "priority", label: "Priority" },
   ],
   orderByOptions: [
-    { value: "number", label: "Number" },
+    { value: "id", label: "ID" },
     { value: "name", label: "Name" },
     { value: "status", label: "Status" },
     { value: "priority", label: "Priority" },
@@ -157,8 +140,8 @@ function sortPlanNodes(nodes: PlanNode[], orderBy: string, dir: number): PlanNod
   const sorted = [...nodes]
   sorted.sort((a, b) => {
     switch (orderBy) {
-      case "number":
-        return dir * ((a.number ?? Infinity) - (b.number ?? Infinity))
+      case "id":
+        return dir * a.id.localeCompare(b.id)
       case "name":
         return dir * a.title.localeCompare(b.title)
       case "status":
@@ -271,6 +254,7 @@ function makePlanColumns(
   milestoneMap: Map<string, string>,
   onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void,
   projectMap?: Map<string, string>,
+  executionOrderMap?: Map<string, number>,
 ): ListColumn<PlanNode>[] {
   return [
     {
@@ -278,11 +262,15 @@ function makePlanColumns(
       label: "Name",
       width: "flex-1 min-w-0",
       sortKey: "name",
-      render: (node) => (
-        <span className={cn("text-sm truncate block", node.status === "pruned" && "line-through")}>
-          {node.number != null && <span className="text-muted-foreground font-normal mr-1">#{node.number}</span>}{node.title}
-        </span>
-      ),
+      render: (node) => {
+        const order = executionOrderMap?.get(node.id)
+        return (
+          <span className={cn("text-sm truncate block", node.status === "pruned" && "line-through")}>
+            {order != null && <span className="text-muted-foreground tabular-nums mr-1.5">{order}</span>}
+            {node.title}
+          </span>
+        )
+      },
     },
     {
       id: "priority",
@@ -843,7 +831,17 @@ export function PlanListView({
   }, [milestones])
 
   const projectNameMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
-  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap), [project, milestoneMap, handleNodeUpdate, projectNameMap])
+
+  // Compute execution order via topological sort
+  const executionOrderMap = useMemo(() => {
+    const taskNodes = allProjectNodes.filter((n) => n.type !== "milestone")
+    const sorted = topologicalSortNodes(taskNodes)
+    const map = new Map<string, number>()
+    sorted.forEach((n, i) => map.set(n.id, i + 1))
+    return map
+  }, [allProjectNodes])
+
+  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap])
 
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
@@ -1006,6 +1004,15 @@ export function PlanListView({
       sortColumn={displaySettings.orderBy}
       sortDirection={displaySettings.orderDirection}
       onSort={handleSort}
+      renderMobileItem={(node) => (
+        <TaskRow
+          task={node}
+          projectName={projectNameMap.get(node.projectId)}
+          showProject={displaySettings.groupBy === "project" ? false : !!nodes}
+          onClick={() => onNodeSelect(node)}
+          className={cn(node.status === "pruned" && "opacity-50")}
+        />
+      )}
     />
   )
 }
@@ -1071,7 +1078,7 @@ export function PlanTimelineView({
           barClass: statusBarColors[node.status] ?? "bg-primary/70",
           progressClass: statusProgressColors[node.status],
           progressPct: statusProgressColors[node.status] ? 40 : undefined,
-          label: node.number != null ? `#${node.number} ${node.title}` : node.title,
+          label: node.title,
         },
       }
     }

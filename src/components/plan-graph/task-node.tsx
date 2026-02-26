@@ -29,7 +29,6 @@ const neutralHighlight = { bg: "bg-card", border: "border-border" }
 type TaskNodeData = Node<{
   title: string
   description?: string
-  number?: number
   status: string
   nodeType: string
   executionId?: string
@@ -38,6 +37,8 @@ type TaskNodeData = Node<{
   prUrl?: string
   mergeQueueStatus?: string
   autoPr?: boolean
+  githubIssueNumber?: number
+  githubIssueUrl?: string
   highlightBy?: string
   checked?: boolean
   selectionActive?: boolean
@@ -151,7 +152,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       {showTooltip && (
         <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-[280px] z-30 pointer-events-none bg-popover border shadow-lg rounded-lg p-3">
           <p className="text-xs font-semibold text-foreground leading-snug">
-            {data.number != null && <span className="text-muted-foreground font-normal mr-1">#{data.number}</span>}{data.title}
+            {data.title}
           </p>
           {data.description && (
             <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed line-clamp-4">
@@ -208,8 +209,22 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         "truncate text-xs font-medium relative z-10",
         data.status === "pruned" ? "text-muted-foreground line-through" : "text-foreground"
       )}>
-        {data.number != null && <span className="text-muted-foreground font-normal mr-1">#{data.number}</span>}{data.title}
+        {data.title}
       </span>
+
+      {/* GitHub issue badge */}
+      {data.githubIssueNumber && (
+        <a
+          href={data.githubIssueUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[10px] font-medium text-muted-foreground hover:text-primary relative z-10 shrink-0"
+          onClick={(e) => e.stopPropagation()}
+          title={`GitHub Issue #${data.githubIssueNumber}`}
+        >
+          #{data.githubIssueNumber}
+        </a>
+      )}
 
       {/* Progress percentage for running tasks */}
       {isRunning && progress > 0 && (

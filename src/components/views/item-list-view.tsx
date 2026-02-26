@@ -7,6 +7,7 @@ import type { PickerOption } from "@/lib/constants"
 import { cn } from "@/lib/utils"
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
+import { useMediaQuery } from "@/hooks/use-media-query"
 
 export interface ListColumn<T> {
   id: string
@@ -59,6 +60,8 @@ interface ItemListViewProps<T> {
   sortDirection?: "asc" | "desc"
   /** Called when a sortable column header is clicked */
   onSort?: (sortKey: string) => void
+  /** Render a mobile card for each item. When provided and screen < 640px, cards replace the table layout. */
+  renderMobileItem?: (item: T) => ReactNode
 }
 
 function ColumnHeader<T>({
@@ -161,7 +164,9 @@ export function ItemListView<T>({
   sortColumn,
   sortDirection,
   onSort,
+  renderMobileItem,
 }: ItemListViewProps<T>) {
+  const isMobile = useMediaQuery("(max-width: 639px)")
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastClickedId, setLastClickedId] = useState<string | null>(null)
@@ -282,6 +287,46 @@ export function ItemListView<T>({
     return <div className="flex-1 overflow-auto">{emptyState}</div>
   }
 
+  // Mobile card layout: render cards instead of the table when on small screens
+  if (isMobile && renderMobileItem) {
+    return (
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <div className="flex flex-col gap-6">
+          {groups.map((group) => {
+            const isGroupCollapsed = collapsed.has(group.key)
+            return (
+              <div key={group.key}>
+                {showGroupHeaders && hasMultipleGroups && (
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.key)}
+                    className="flex items-center gap-2 px-2 mb-3 w-full text-left"
+                  >
+                    <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", !isGroupCollapsed && "rotate-90")} />
+                    {group.icon}
+                    <span className="text-sm font-semibold">{group.label}</span>
+                    <span className="text-xs text-muted-foreground">({group.items.length})</span>
+                    {group.meta}
+                  </button>
+                )}
+                {!isGroupCollapsed && (
+                  <div className="flex flex-col gap-3">
+                    {group.items.map((item) => (
+                      <div key={getItemId(item)}>
+                        {renderMobileItem(item)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!isGroupCollapsed && footer?.(group.key)}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
       {/* Batch action bar */}
@@ -338,7 +383,7 @@ export function ItemListView<T>({
           hasSelection={someSelected}
           selectedIds={Array.from(selected)}
         />
-        <div className="flex items-center shrink overflow-hidden">
+        <div className="hidden sm:flex items-center shrink overflow-hidden">
           {otherCols.map((col) => (
             <ColumnHeader
               key={col.id}
@@ -405,7 +450,7 @@ export function ItemListView<T>({
                     }}
                     onClick={() => onItemClick?.(item)}
                     className={cn(
-                      "flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-all duration-200",
+                      "flex flex-wrap sm:flex-nowrap items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-all duration-200",
                       onItemClick && "cursor-pointer",
                       indentGroupedRows && hasMultipleGroups && showGroupHeaders && "pl-12",
                       isSelected && "bg-primary/5",
@@ -431,15 +476,15 @@ export function ItemListView<T>({
                       </div>
                     )}
 
-                    {/* Name column — guaranteed min width so it isn't crushed by fixed-width columns */}
-                    <div className={cn("min-w-[40%] flex items-center", nameCol?.width ?? "flex-1")}>
+                    {/* Name column — full width on mobile so title is always prominent */}
+                    <div className={cn("w-full sm:w-auto sm:min-w-[40%] flex items-center", nameCol?.width ?? "flex-1")}>
                       {renderItemName ? renderItemName(item) : nameCol?.render(item)}
                     </div>
 
-                    {/* Other visible columns — overflow hidden so title takes priority on narrow screens */}
-                    <div className="flex items-center shrink overflow-hidden">
+                    {/* Other visible columns — wrap below title on mobile, inline on desktop */}
+                    <div className="flex items-center gap-2 sm:gap-0 flex-wrap sm:flex-nowrap w-full sm:w-auto sm:shrink sm:overflow-hidden mt-1 sm:mt-0">
                       {otherCols.map((col) => (
-                        <div key={col.id} className={cn("flex items-center justify-end text-right shrink-0", col.width)}>
+                        <div key={col.id} className={cn("flex items-center sm:justify-end sm:text-right shrink-0", col.width)}>
                           {col.render(item)}
                         </div>
                       ))}

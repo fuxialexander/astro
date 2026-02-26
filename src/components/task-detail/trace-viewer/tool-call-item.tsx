@@ -5,13 +5,14 @@ import type { ToolCallWithResult } from "@/types/observations"
 
 interface ToolCallItemProps {
   tool: ToolCallWithResult
+  isTaskComplete?: boolean
 }
 
-export function ToolCallItem({ tool }: ToolCallItemProps) {
+export function ToolCallItem({ tool, isTaskComplete = true }: ToolCallItemProps) {
   const [expanded, setExpanded] = useState(false)
 
   const hasOutput = tool.output != null
-  const isComplete = hasOutput || tool.durationMs != null
+  const isComplete = hasOutput || tool.durationMs != null || isTaskComplete
 
   return (
     <div className="mx-4 my-0.5">

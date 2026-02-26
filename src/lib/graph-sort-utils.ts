@@ -3,7 +3,7 @@ import type { PlanNode } from "@/types"
 /**
  * Topological sort of plan nodes using Kahn's algorithm.
  * Uses node.dependencies to build the dependency graph.
- * Tie-breaks by node.number for stable ordering.
+ * Tie-breaks by node.id (lexicographic) for stable ordering.
  * Gracefully appends remaining nodes on cycles.
  */
 export function topologicalSortNodes(nodes: PlanNode[]): PlanNode[] {
@@ -31,10 +31,10 @@ export function topologicalSortNodes(nodes: PlanNode[]): PlanNode[] {
     inDegree.set(n.id, deg)
   }
 
-  // Initialize queue with zero-degree nodes, sorted by number for stability
+  // Initialize queue with zero-degree nodes, sorted by id for stability
   const queue: string[] = nodes
     .filter((n) => inDegree.get(n.id) === 0)
-    .sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity))
+    .sort((a, b) => a.id.localeCompare(b.id))
     .map((n) => n.id)
 
   const sorted: PlanNode[] = []
@@ -48,7 +48,7 @@ export function topologicalSortNodes(nodes: PlanNode[]): PlanNode[] {
     const node = nodeMap.get(id)
     if (node) sorted.push(node)
 
-    // Collect newly freed nodes and sort by number for stable tie-breaking
+    // Collect newly freed nodes and sort by id for stable tie-breaking
     const freed: PlanNode[] = []
     for (const depId of dependents.get(id) || []) {
       if (visited.has(depId)) continue
@@ -59,14 +59,14 @@ export function topologicalSortNodes(nodes: PlanNode[]): PlanNode[] {
         if (depNode) freed.push(depNode)
       }
     }
-    freed.sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity))
+    freed.sort((a, b) => a.id.localeCompare(b.id))
     for (const f of freed) queue.push(f.id)
   }
 
-  // Append any remaining nodes (cycles) sorted by number
+  // Append any remaining nodes (cycles) sorted by id
   const remaining = nodes
     .filter((n) => !visited.has(n.id))
-    .sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity))
+    .sort((a, b) => a.id.localeCompare(b.id))
   sorted.push(...remaining)
 
   return sorted

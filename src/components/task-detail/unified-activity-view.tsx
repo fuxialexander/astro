@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react"
+import { stripHtml } from "@/lib/html-utils"
 import {
   Send,
   Loader2,
@@ -305,7 +306,7 @@ export function UnifiedActivityView({
           nodeId: node.id,
           projectId,
           taskTitle: node.title,
-          taskDescription: node.description,
+          taskDescription: node.content ? stripHtml(node.content) : node.description,
           taskOutput: outputText,
           visionDoc: project?.visionDoc,
           model,

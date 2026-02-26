@@ -1,5 +1,8 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PRIORITY_CONFIG } from "@/lib/constants";
+import { STATUS_CONFIG } from "@/lib/status-config";
+import { formatShortDate, isOverdue } from "@/lib/date-utils";
 import type { PlanNode } from "@/types";
 
 export interface TaskRowProps {
@@ -32,6 +35,66 @@ export function TaskRow({ task, projectName, showProject = false, onClick, class
   };
 
   const statusColors = getStatusColors();
+  const statusConfig = STATUS_CONFIG[task.status];
+  const priorityConfig = task.priority ? PRIORITY_CONFIG[task.priority] : null;
+  const dueDate = task.dueDate ?? task.endDate;
+  const overdue = isOverdue(dueDate, task.status);
+
+  // Collect metadata items for the bottom row
+  const metaItems: { key: string; content: React.ReactNode }[] = [];
+
+  if (statusConfig) {
+    metaItems.push({
+      key: "status",
+      content: <span className={cn("text-xs font-medium", statusConfig.color)}>{statusConfig.label}</span>,
+    });
+  }
+
+  if (priorityConfig && task.priority !== "none") {
+    const PIcon = priorityConfig.icon;
+    metaItems.push({
+      key: "priority",
+      content: (
+        <span className={cn("flex items-center gap-0.5 text-xs", priorityConfig.color)}>
+          <PIcon className="h-3 w-3" />
+          {priorityConfig.label}
+        </span>
+      ),
+    });
+  }
+
+  if (task.estimate) {
+    metaItems.push({
+      key: "estimate",
+      content: <span className="text-xs font-semibold tracking-wide">{task.estimate}</span>,
+    });
+  }
+
+  if (depsCount > 0) {
+    metaItems.push({
+      key: "deps",
+      content: <span className="text-xs">{depsCount} {depsCount === 1 ? "dep" : "deps"}</span>,
+    });
+  }
+
+  if (dueDate) {
+    metaItems.push({
+      key: "dueDate",
+      content: (
+        <span className={cn("flex items-center gap-0.5 text-xs", overdue ? "text-error" : "")}>
+          <Calendar className="h-3 w-3" />
+          {formatShortDate(dueDate)}
+        </span>
+      ),
+    });
+  }
+
+  if (showProject && projectName) {
+    metaItems.push({
+      key: "project",
+      content: <span className="text-xs truncate">{projectName}</span>,
+    });
+  }
 
   return (
     <button
@@ -56,22 +119,17 @@ export function TaskRow({ task, projectName, showProject = false, onClick, class
 
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col gap-1">
-        <h3 className="font-semibold text-base truncate">{task.number != null && <span className="text-muted-foreground font-normal mr-1.5">#{task.number}</span>}{task.title}</h3>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {task.estimate && (
-            <>
-              <span className="font-semibold tracking-wide">{task.estimate}</span>
-              {(depsCount > 0 || showProject) && <span>·</span>}
-            </>
-          )}
-          {depsCount > 0 && (
-            <>
-              <span>{depsCount} {depsCount === 1 ? "dep" : "deps"}</span>
-              {showProject && projectName && <span>·</span>}
-            </>
-          )}
-          {showProject && projectName && <span className="truncate">{projectName}</span>}
-        </div>
+        <h3 className="font-semibold text-base truncate">{task.title}</h3>
+        {metaItems.length > 0 && (
+          <div className="flex items-center gap-2 text-muted-foreground flex-wrap">
+            {metaItems.map((item, i) => (
+              <span key={item.key} className="flex items-center gap-2">
+                {i > 0 && <span className="text-muted-foreground/40">·</span>}
+                {item.content}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Chevron */}

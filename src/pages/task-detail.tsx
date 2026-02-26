@@ -20,7 +20,7 @@ import { NodeInspectorContent } from "@/components/node-inspector"
 import { ApprovalCard } from "@/components/approval-card"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
-import { cn } from "@/lib/utils"
+import { cn, getShortId } from "@/lib/utils"
 
 export type PanelSize = 'default' | 'three-quarter' | 'full'
 
@@ -73,7 +73,8 @@ export function TaskDetail() {
     )
   }
 
-  const isRunning = node.status === "in_progress" || node.status === "dispatched"
+  const isRunning = (node.status === "in_progress" || node.status === "dispatched")
+    && execution?.status !== "success" && execution?.status !== "failure" && execution?.status !== "cancelled"
 
   // Combine file changes from execution store and realtime store, then deduplicate
   const rawFileChanges = [
@@ -114,13 +115,13 @@ export function TaskDetail() {
         </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-            <h1 className="text-base md:text-lg font-semibold truncate">{node.number != null && <span className="text-muted-foreground font-normal mr-1.5">#{node.number}</span>}{node.title}</h1>
+            <h1 className="text-base md:text-lg font-semibold truncate"><span className="text-muted-foreground font-normal font-mono mr-1.5">{getShortId(node.id)}</span>{node.title}</h1>
             <Badge variant={statusBadgeVariants[node.status] || "secondary"} className="text-[10px]">
               {node.status.replace(/_/g, " ")}
             </Badge>
           </div>
           <p className="text-xs md:text-sm text-muted-foreground truncate mt-0.5">
-            {project?.number != null && <span>#{project.number} </span>}{project?.name} &middot; {node.type}
+            {project?.name} &middot; {node.type}
           </p>
         </div>
 

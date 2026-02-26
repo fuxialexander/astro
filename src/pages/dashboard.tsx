@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { stripHtml } from "@/lib/html-utils"
 import { Link, useNavigate } from "react-router"
 import {
   Plus,
@@ -232,7 +233,7 @@ export function Dashboard() {
                         <Link to={`/project/${node.projectId}/task/${node.id}`} className="text-base font-semibold text-foreground hover:underline">
                           {node.title}
                         </Link>
-                        <p className="text-sm text-muted-foreground line-clamp-2">{node.description}</p>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{node.content ? stripHtml(node.content) : node.description}</p>
 
                         {/* Summary or Error or Loading */}
                         {isLoadingExecution ? (

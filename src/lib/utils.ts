@@ -6,6 +6,14 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Derive a short hex ID from a UUID for compact display (like git short SHAs).
+ * "550e8400-e29b-41d4-a716-446655440000" → "550e84"
+ */
+export function getShortId(id: string): string {
+  return id.replace(/-/g, '').slice(0, 6).toLowerCase()
+}
+
+/**
  * Strip common vendor prefixes from GPU names for compact display.
  * "NVIDIA GeForce RTX 4090" → "RTX 4090"
  * "NVIDIA A100" → "A100"

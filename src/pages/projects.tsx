@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useRef } from "react"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, List, Clock, Kanban } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, List, Clock, Kanban, Github, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -12,6 +12,7 @@ import { ItemTimelineView, type TimelineRow } from "@/components/views/item-time
 import { ColorIconBadge } from "@/components/color-icon-picker"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { useProjectStore } from "@/stores/project-store"
+import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
@@ -100,6 +101,9 @@ function getProjectColumns(
             icon={p.icon}
             type="project"
           />
+          {p.projectType === "github" && (
+            <Github className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          )}
           {renamingProjectId === p.id ? (
             <InlineRenameInput
               value={p.name}
@@ -119,7 +123,7 @@ function getProjectColumns(
               onClick={(e) => e.stopPropagation()}
               className="text-sm truncate flex-1 hover:underline group/name"
             >
-              {p.number != null && <span className="text-muted-foreground font-normal mr-1.5">#{p.number}</span>}{p.name}
+              {p.name}
               <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRenamingProjectId(p.id); }} />
             </Link>
           )}
@@ -192,7 +196,13 @@ function getProjectBarColors(project: Project) {
 type ViewTab = "all" | "timeline" | "board"
 
 export function Projects() {
-  const projects = useProjectStore((s) => s.projects)
+  const allProjectsRaw = useProjectStore((s) => s.projects)
+  const executions = useExecutionStore((s) => s.executions)
+  // Filter out playground sessions from the project list
+  const projects = useMemo(
+    () => allProjectsRaw.filter((p) => p.projectType !== 'playground' && !executions.has(`playground-${p.id}`)),
+    [allProjectsRaw, executions]
+  )
   const updateProject = useProjectStore((s) => s.updateProject)
   const deleteProject = useProjectStore((s) => s.deleteProject)
   const rawAllNodes = usePlanStore((s) => s.nodes)
@@ -656,6 +666,47 @@ export function Projects() {
               sortColumn={displaySettings.orderBy}
               sortDirection={displaySettings.orderDirection}
               onSort={handleSort}
+              renderMobileItem={(p) => {
+                const health = healthConfig[p.health ?? "on_track"]
+                const counts = projectTaskCounts[p.id]
+                const pct = p.progress ?? 0
+                return (
+                  <button
+                    onClick={() => navigate(`/project/${p.id}/graph`)}
+                    className="w-full flex items-center gap-3.5 rounded-2xl bg-card p-4 transition-all shadow-sm hover:shadow-md border border-border text-left"
+                  >
+                    <ColorIconBadge color={p.color} icon={p.icon} type="project" />
+                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-base truncate">{p.name}</h3>
+                        {p.projectType === "github" && (
+                          <Github className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className={cn("flex items-center gap-1", health.textClass)}>
+                          <span className={cn("h-1.5 w-1.5 rounded-full", health.dotClass)} />
+                          {health.label}
+                        </span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span>{counts?.total ?? 0} tasks</span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span>{pct}%</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            pct >= 95 ? "bg-success" : pct > 0 ? "bg-primary" : ""
+                          )}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                  </button>
+                )
+              }}
             />
           )
         )}
@@ -690,7 +741,7 @@ export function Projects() {
                       type="project"
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{proj.number != null && <span className="text-muted-foreground font-normal mr-1">#{proj.number}</span>}{proj.name}</div>
+                      <div className="text-sm font-medium truncate">{proj.name}</div>
                       <div className="text-[11px] text-muted-foreground">
                         {counts?.total ?? 0} tasks &middot; {statusLabel}
                       </div>
@@ -768,7 +819,7 @@ export function Projects() {
                                 icon={project.icon}
                                 type="project"
                               />
-                              <span className="text-sm font-medium leading-snug">{project.number != null && <span className="text-muted-foreground font-normal mr-1">#{project.number}</span>}{project.name}</span>
+                              <span className="text-sm font-medium leading-snug">{project.name}</span>
                             </div>
                             <div className="mb-2">
                               <div className="flex items-center justify-between mb-1">

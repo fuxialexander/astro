@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
-import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { PropertyPicker } from "@/components/property-picker"
 
 import { ExecutionPanel } from "@/components/execution"
@@ -14,7 +13,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels } from "@/lib/status-config"
-import { cn } from "@/lib/utils"
+import { cn, getShortId } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
 
 interface NodeInspectorProps {
@@ -102,7 +101,7 @@ export function NodeInspectorContent({
     return allNodes
       .filter(isLive)
       .filter((n) => n.projectId === node.projectId && n.id !== node.id && !existingDepIds.has(n.id))
-      .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
+      .sort((a, b) => a.id.localeCompare(b.id))
   }, [allNodes, upstreamDeps, node.projectId, node.id])
 
   const [addDepOpen, setAddDepOpen] = useState(false)
@@ -227,7 +226,7 @@ export function NodeInspectorContent({
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors cursor-pointer"
                         onClick={() => handleAddDep(n.id)}
                       >
-                        <span className="text-muted-foreground text-xs min-w-[20px]">#{n.number}</span>
+                        <span className="text-muted-foreground text-xs font-mono min-w-[48px]">{getShortId(n.id)}</span>
                         <span className="flex-1 text-left truncate">{n.title}</span>
                       </button>
                     ))
@@ -291,26 +290,6 @@ export function NodeInspectorContent({
             <ElapsedTime node={node} />
           </div>
         )}
-      </div>
-      <Separator />
-
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <h4 className="text-[13px] font-semibold text-muted-foreground">Description</h4>
-        </div>
-        <div className="relative">
-          <FileCompletionTextarea
-            projectId={project.id}
-            machineId={project.defaultMachineId}
-            workingDirectory={project.workingDirectory}
-            fileTree={project.fileTree}
-            value={node.description ?? ""}
-            onChange={(val) => handleUpdate({ description: val })}
-            placeholder="Describe this task... Use @ to reference files"
-            rows={4}
-            className="w-full resize-none rounded-md border-none bg-transparent px-0 py-0 text-[13px] leading-[1.5] text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0 transition-all"
-          />
-        </div>
       </div>
       <Separator />
 

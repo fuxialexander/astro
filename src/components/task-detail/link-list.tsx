@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
+import { cn, getShortId } from '@/lib/utils'
 import type { TaskLink, PlanNode } from '@/types'
 
 interface LinkListProps {
@@ -97,7 +97,7 @@ export function LinkList({
       .filter(
         (n) =>
           n.title.toLowerCase().includes(search) ||
-          (n.number?.toString() || '').includes(search)
+          getShortId(n.id).includes(search)
       )
       .slice(0, 10)
   }, [linkableTasks, taskSearch])
@@ -294,8 +294,8 @@ export function LinkList({
                           : 'hover:bg-muted'
                       )}
                     >
-                      <span className="text-muted-foreground mr-1.5">
-                        #{task.number}
+                      <span className="text-muted-foreground font-mono mr-1.5">
+                        {getShortId(task.id)}
                       </span>
                       {task.title}
                     </button>
@@ -358,11 +358,6 @@ function LinkGroup({
                     href={link.url}
                     className="text-sm hover:underline truncate block"
                   >
-                    {link.number && (
-                      <span className="text-muted-foreground mr-1">
-                        #{link.number}
-                      </span>
-                    )}
                     {link.title}
                   </a>
                 ) : (

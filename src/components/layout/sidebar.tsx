@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react"
 import { NavLink, useNavigate, useParams } from "react-router"
-import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X } from "lucide-react"
+import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -37,6 +37,7 @@ const iconMap: Record<string, typeof CheckSquare> = {
   Wrench,
   Code,
   Sparkles,
+  FlaskConical,
 }
 
 // Project color palette — Morandi muted tones
@@ -431,7 +432,7 @@ export function Sidebar() {
             PROJECTS
           </div>
           <div className="flex flex-col gap-2">
-            {projects.filter(p => p.status === 'active').slice(0, 5).map((project, index) => {
+            {projects.filter(p => p.status === 'active' && p.projectType !== 'playground').slice(0, 5).map((project, index) => {
               const isActive = activeProjectId === project.id
               const progress = calculateProgress(project.id)
               const healthWidth = getHealthBarWidth(progress)
@@ -481,7 +482,7 @@ export function Sidebar() {
                           : "text-muted-foreground font-medium"
                       )}
                     >
-                      {project.number != null && <span className="text-muted-foreground font-normal mr-1">#{project.number}</span>}{project.name}
+                      {project.name}
                     </span>
                   )}
 

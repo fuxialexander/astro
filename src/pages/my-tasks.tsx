@@ -21,30 +21,12 @@ import { NodeInspectorSheet, NodeInspectorSidebar } from "@/components/node-insp
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { PRIORITY_CONFIG } from "@/lib/constants"
 import { STATUS_CONFIG, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
-
-// Media query hook for responsive rendering
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window !== "undefined") {
-      return window.matchMedia(query).matches
-    }
-    return false
-  })
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query)
-    const handler = (e: MediaQueryListEvent) => setMatches(e.matches)
-    mediaQuery.addEventListener("change", handler)
-    return () => mediaQuery.removeEventListener("change", handler)
-  }, [query])
-
-  return matches
-}
 
 // --- Filter types ---
 
@@ -550,7 +532,7 @@ export function MyTasks() {
                     const StatusIcon = status.icon
                     return <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", status.color)} />
                   })()}
-                  <span className="text-sm truncate">{node.number != null && <span className="text-muted-foreground font-normal mr-1">#{node.number}</span>}{node.title}</span>
+                  <span className="text-sm truncate">{node.title}</span>
                 </div>
               )}
               onItemClick={(node) => handleNodeSelect(node)}

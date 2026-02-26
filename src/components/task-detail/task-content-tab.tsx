@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
+import { stripHtml } from '@/lib/html-utils'
 import { Save, Loader2, ExternalLink, Paperclip, Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RichTextEditor, type RichTextEditorRef } from '@/components/ui/rich-text-editor'
@@ -42,7 +43,6 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
         id: n.id,
         label: n.title,
         type: 'task' as const,
-        number: n.number,
       }))
     const fileItems: MentionSuggestionItem[] = (fileTree || []).map((f) => ({
       id: f,
@@ -61,7 +61,7 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
     if (!hasChanges) return
     setIsSaving(true)
     try {
-      await updateNode(node.id, { content: draftContent })
+      await updateNode(node.id, { content: draftContent, description: stripHtml(draftContent) })
       setHasChanges(false)
     } finally {
       setIsSaving(false)
@@ -183,7 +183,6 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
                   >
                     <ExternalLink className="h-3 w-3" />
                     {link.title}
-                    {link.number && <span className="text-muted-foreground">#{link.number}</span>}
                   </a>
                 ))}
                 {(node.links?.length || 0) > 5 && (

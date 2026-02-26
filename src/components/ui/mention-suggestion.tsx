@@ -1,13 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { CheckSquare, FileCode, Folder } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, getShortId } from '@/lib/utils'
 
 export interface MentionSuggestionItem {
   id: string
   label: string
   type: 'task' | 'file' | 'directory'
   description?: string
-  number?: number
 }
 
 export interface MentionSuggestionRef {
@@ -76,8 +75,8 @@ export const MentionSuggestion = forwardRef<MentionSuggestionRef, MentionSuggest
         >
           <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="flex-1 truncate text-left">{item.label}</span>
-          {item.number !== undefined && (
-            <span className="text-xs text-muted-foreground">#{item.number}</span>
+          {item.type === 'task' && (
+            <span className="text-xs text-muted-foreground font-mono">{getShortId(item.id)}</span>
           )}
         </button>
       )

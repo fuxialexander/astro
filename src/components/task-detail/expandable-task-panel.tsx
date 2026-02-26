@@ -21,7 +21,7 @@ import { RichTextEditor, type RichTextEditorRef } from '@/components/ui/rich-tex
 import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
 import { statusBadgeVariants } from '@/lib/status-config'
-import { cn } from '@/lib/utils'
+import { cn, getShortId } from '@/lib/utils'
 import type { PlanNode, TaskAttachment, TaskLink } from '@/types'
 import { AttachmentList } from './attachment-list'
 import { LinkList } from './link-list'
@@ -157,9 +157,7 @@ export function ExpandableTaskPanel({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            {node.number != null && (
-              <span className="text-muted-foreground text-sm">#{node.number}</span>
-            )}
+            <span className="text-muted-foreground text-sm font-mono">{getShortId(node.id)}</span>
             <h2 className="font-semibold truncate">{node.title}</h2>
             <Badge variant={statusBadgeVariants[node.status] || 'secondary'} className="text-[10px]">
               {node.status.replace(/_/g, ' ')}
@@ -255,12 +253,16 @@ export function ExpandableTaskPanel({
         <TabsContent value="content" className="flex-1 m-0 min-h-0 overflow-auto p-4">
           <div className="space-y-4">
             {/* Description (read-only task instructions) */}
-            {node.description && (
+            {(node.content || node.description) && (
               <div className="rounded-lg border border-border bg-muted/30 p-4">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                   Task Instructions
                 </h3>
-                <p className="text-sm text-foreground whitespace-pre-wrap">{node.description}</p>
+                {node.content ? (
+                  <div className="text-sm text-foreground prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: node.content }} />
+                ) : (
+                  <p className="text-sm text-foreground whitespace-pre-wrap">{node.description}</p>
+                )}
               </div>
             )}
 
@@ -295,7 +297,6 @@ export function ExpandableTaskPanel({
                     >
                       <ExternalLink className="h-3 w-3" />
                       {link.title}
-                      {link.number && <span className="text-muted-foreground">#{link.number}</span>}
                     </a>
                   ))}
                   {(node.links?.length || 0) > 5 && (
