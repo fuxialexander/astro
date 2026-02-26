@@ -60,7 +60,7 @@ import {
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
-import { getServiceClient, createUserClient } from '../lib/supabase.js'
+import { getServiceClient } from '../lib/supabase.js'
 import { isServerMode } from '../lib/app-mode.js';
 import { requireAuth } from '../middleware/auth.js';
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js';
@@ -651,25 +651,13 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
   const user = c.get('user') as { id: string };
 
   if (isServerMode()) {
-    // Supabase mode: Use RLS for filtering (user-scoped client)
-    // Extract token from Authorization header or query param
-    let token: string | undefined;
-    const authHeader = c.req.header('Authorization');
-    if (authHeader?.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
-    } else {
-      token = c.req.query('token');
-    }
-
-    if (!token) {
-      return c.json({ error: 'Missing authentication token' }, 401);
-    }
-
-    // Create user-scoped client (respects RLS)
-    const userSupabase = createUserClient(token);
-    const { data, error } = await userSupabase
+    // Supabase mode: Use service client with explicit user_id filter
+    // (CLI tokens are custom JWTs, not Supabase JWTs, so RLS won't work)
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
       .from('registered_machines')
       .select('*')
+      .eq('user_id', user.id)
       .eq('is_revoked', false)
       .order('registered_at', { ascending: false });
 
@@ -733,24 +721,13 @@ deviceAuthRoute.get('/machines/:id', requireAuth, async (c) => {
   const id = c.req.param('id');
 
   if (isServerMode()) {
-    // Supabase mode: Use RLS for filtering
-    let token: string | undefined;
-    const authHeader = c.req.header('Authorization');
-    if (authHeader?.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
-    } else {
-      token = c.req.query('token');
-    }
-
-    if (!token) {
-      return c.json({ error: 'Missing authentication token' }, 401);
-    }
-
-    const userSupabase = createUserClient(token);
-    const { data, error } = await userSupabase
+    // Supabase mode: Use service client with explicit user_id filter
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
       .from('registered_machines')
       .select('*')
       .eq('id', id)
+      .eq('user_id', user.id)
       .single();
 
     if (error || !data) {
@@ -824,28 +801,19 @@ deviceAuthRoute.patch('/machines/:id', requireAuth, async (c) => {
   }
 
   if (isServerMode()) {
-    // Supabase mode: Use RLS for update
-    let token: string | undefined;
-    const authHeader = c.req.header('Authorization');
-    if (authHeader?.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
-    }
-
-    if (!token) {
-      return c.json({ error: 'Missing authentication token' }, 401);
-    }
-
-    const userSupabase = createUserClient(token);
+    // Supabase mode: Use service client with explicit user_id filter
+    const supabase = getServiceClient();
 
     // Build update object
     const updates: Record<string, unknown> = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.providerConfigs !== undefined) updates.provider_configs = body.providerConfigs;
 
-    const { data, error } = await userSupabase
+    const { data, error } = await supabase
       .from('registered_machines')
       .update(updates)
       .eq('id', id)
+      .eq('user_id', user.id)
       .select('id, name, provider_configs')
       .single();
 
@@ -914,24 +882,15 @@ deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
   const user = c.get('user') as { id: string };
 
   if (isServerMode()) {
-    // Supabase mode: Use RLS for delete
-    let token: string | undefined;
-    const authHeader = c.req.header('Authorization');
-    if (authHeader?.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
-    }
-
-    if (!token) {
-      return c.json({ error: 'Missing authentication token' }, 401);
-    }
-
-    const userSupabase = createUserClient(token);
+    // Supabase mode: Use service client with explicit user_id filter
+    const supabase = getServiceClient();
 
     // First, fetch the machine details for audit log
-    const { data: machine, error: fetchError } = await userSupabase
+    const { data: machine, error: fetchError } = await supabase
       .from('registered_machines')
       .select('*')
       .eq('id', id)
+      .eq('user_id', user.id)
       .single();
 
     if (fetchError || !machine) {
@@ -941,11 +900,12 @@ deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
     // Revoke all tokens for this machine
     await revokeAllMachineTokens(id);
 
-    // Mark machine as revoked (using RLS)
-    const { error: updateError } = await userSupabase
+    // Mark machine as revoked
+    const { error: updateError } = await supabase
       .from('registered_machines')
       .update({ is_revoked: true, is_connected: false })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id);
 
     if (updateError) {
       console.error('[device-auth] Failed to revoke machine:', updateError);
