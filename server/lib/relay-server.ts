@@ -525,6 +525,8 @@ export class RelayServer extends EventEmitter {
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   // Session registry: sessionId -> AttachedSession
   private attachedSessions: Map<string, AttachedSession> = new Map();
+  // Track which machine each task was dispatched to (for cancel without explicit machineId)
+  private taskToMachine: Map<string, string> = new Map();
 
   constructor(config: Partial<RelayServerConfig> = {}) {
     super();
@@ -1090,6 +1092,7 @@ export class RelayServer extends EventEmitter {
    */
   private handleTaskResult(message: TaskResultMessage): void {
     console.log(`[relay] Task result received: ${message.result.taskId} - ${message.result.status}`);
+    this.taskToMachine.delete(message.result.taskId);
     this.emit('task:result', message);
   }
 
@@ -1251,6 +1254,7 @@ export class RelayServer extends EventEmitter {
       return false;
     }
     socket.send(JSON.stringify(agentRunnerMsg));
+    this.taskToMachine.set(task.taskId, machineId);
     console.log(`[relay] Task ${task.taskId} dispatched to machine ${machineId}`);
     return true;
   }
@@ -1259,9 +1263,16 @@ export class RelayServer extends EventEmitter {
    * Cancel a task on an agent runner
    */
   cancelTask(taskId: string, machineId: string, reason?: string): boolean {
-    const connection = machineRegistry.getConnection(machineId);
+    // Resolve machineId from dispatch history if not provided
+    const resolvedMachineId = machineId || this.taskToMachine.get(taskId);
+    if (!resolvedMachineId) {
+      console.error(`[relay] No machine found for task ${taskId} cancellation (no machineId provided and no dispatch record)`);
+      return false;
+    }
+
+    const connection = machineRegistry.getConnection(resolvedMachineId);
     if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for task cancellation`);
+      console.error(`[relay] Machine ${resolvedMachineId} not found for task cancellation`);
       return false;
     }
 
@@ -1274,11 +1285,12 @@ export class RelayServer extends EventEmitter {
 
     const socket = connection.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      console.error(`[relay] Failed to send cancel for task ${taskId} to machine ${machineId} (socket not open)`);
+      console.error(`[relay] Failed to send cancel for task ${taskId} to machine ${resolvedMachineId} (socket not open)`);
       return false;
     }
     socket.send(JSON.stringify(agentRunnerMsg));
-    console.log(`[relay] Task ${taskId} cancel request sent to machine ${machineId}`);
+    this.taskToMachine.delete(taskId);
+    console.log(`[relay] Task ${taskId} cancel request sent to machine ${resolvedMachineId}`);
     return true;
   }
 
@@ -1829,6 +1841,7 @@ export class RelayServer extends EventEmitter {
   private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {
     const { payload } = message;
     const { taskId, status, exitCode, output, error, artifacts, metrics, branchName, prUrl, prNumber } = payload;
+    this.taskToMachine.delete(taskId);
 
     // Convert to standard result message
     const resultMsg: TaskResultMessage = {

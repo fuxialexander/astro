@@ -496,7 +496,7 @@ function ProfileContent() {
       // No local data to clear — PGlite data lives on server/disk
 
       // Force a full page reload to clear all state and redirect to welcome
-      window.location.href = '/projects/new'
+      window.location.href = '/projects/new/plan'
     } catch (error) {
       console.error('[settings] Failed to delete account:', error)
       alert(`Failed to delete account: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -1559,7 +1559,7 @@ const tierOptions = [
 ]
 
 function EnvironmentsSettingsContent() {
-  const { profile, setDefaultMachineId, setDefaultProvider } = useUserProfileStore()
+  const { profile, setDefaultMachineId } = useUserProfileStore()
   const { modelTier, setModelTier, defaultProvider: settingsProvider, setDefaultProvider: setSettingsProvider, customModelMap, setCustomModel, getEffectiveTierMap } = useSettingsStore()
   const [newProvider, setNewProvider] = useState("")
 
@@ -1640,7 +1640,6 @@ function EnvironmentsSettingsContent() {
               value={settingsProvider || ""}
               onChange={(v) => {
                 setSettingsProvider(v)
-                setDefaultProvider(v || undefined)
               }}
               options={[
                 { value: "", label: "Auto (first available)" },

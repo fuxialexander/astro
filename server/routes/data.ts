@@ -870,6 +870,13 @@ app.put('/profile', async (c) => {
     updatedAt: now,
   }
 
+  // Include defaultMachineId if provided in body, otherwise keep existing
+  if (body.defaultMachineId !== undefined) {
+    profile.defaultMachineId = body.defaultMachineId || null
+  } else if (existing?.defaultMachineId) {
+    profile.defaultMachineId = existing.defaultMachineId
+  }
+
   // Include sidebarConfig if provided in body, otherwise keep existing
   if (body.sidebarConfig !== undefined) {
     profile.sidebarConfig = body.sidebarConfig

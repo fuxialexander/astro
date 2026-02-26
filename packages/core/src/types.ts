@@ -406,7 +406,6 @@ export interface UserProfile {
   notificationsEnabled: boolean;
   emailNotifications: boolean;
   defaultMachineId?: string;
-  defaultProvider?: string;
   apiKeys: ApiKey[];
   sidebarConfig?: Array<{ id: string; to: string; icon: string; label: string; visible: boolean; protected: boolean; autoRevealed?: boolean; userDismissed?: boolean }>;
   createdAt: Date;

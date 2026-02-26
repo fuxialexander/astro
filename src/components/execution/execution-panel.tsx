@@ -59,8 +59,8 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const loadProviders = useExecutionStore((s) => s.loadProviders)
   const getAvailableProvider = useExecutionStore((s) => s.getAvailableProvider)
 
-  // Default provider from settings (fallback to profile default)
-  const defaultProvider = useSettingsStore((s) => s.defaultProvider) || profile.defaultProvider
+  // Default provider from settings store (single source of truth)
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
 
   // Machine state
   const machines = useExecutionStore((s) => s.machines)

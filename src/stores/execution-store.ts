@@ -185,6 +185,7 @@ interface ExecutionState {
       targetMachineId?: string
       workingDirectory?: string
       model?: string
+      preferredProvider?: string
       visionDoc?: string
       repository?: string
     }
@@ -955,6 +956,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             visionDoc: options?.visionDoc,
             targetMachineId: options?.targetMachineId,
             model: options?.model,
+            preferredProvider: options?.preferredProvider,
             maxTurns: 200,
             workingDirectory: options?.workingDirectory,
             isInteractivePlan: true,

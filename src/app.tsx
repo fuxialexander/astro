@@ -240,7 +240,7 @@ function RootRedirect() {
   }, [local, initialized, session])
 
   if (local) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to="/projects/new/plan" replace />
   }
 
   if (!initialized || !session) {
@@ -253,7 +253,7 @@ function RootRedirect() {
     )
   }
 
-  return <Navigate to="/dashboard" replace />
+  return <Navigate to="/projects/new/plan" replace />
 }
 
 export default function App() {
@@ -282,10 +282,9 @@ export default function App() {
               {/* Root: landing if unauthenticated, dashboard if authenticated */}
               <Route index element={<RootRedirect />} />
 
-              <Route path="welcome" element={<AuthGuard><ProjectNewPlan /></AuthGuard>} />
-
               {/* Authenticated routes - Responsive */}
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
+                <Route path="welcome" element={<ProjectNewPlan />} />
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="projects/new" element={<ProjectNew />} />

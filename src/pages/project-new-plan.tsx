@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { useSearchParams } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -22,6 +22,7 @@ import { requestNotificationPermission } from "@/lib/notifications"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
+import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 
 export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -34,6 +35,8 @@ export function ProjectNewPlan() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPathBrowser, setShowPathBrowser] = useState(false)
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState("")
+  const [selectedModel, setSelectedModel] = useState("")
 
   // Git detection (debounced)
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
@@ -58,15 +61,38 @@ export function ProjectNewPlan() {
   const realtimeMachines = useRealtimeStore((s) => s.machines)
   const registeredMachines = useMachinesStore((s) => s.machines)
 
-  // Load machines on mount
+  // Providers
+  const globalProviders = useExecutionStore((s) => s.providers)
+  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
+  const loadProviders = useExecutionStore((s) => s.loadProviders)
+  const availableProviders = useMemo(
+    () => deriveAvailableProviders(selectedMachine?.providers, globalProviders),
+    [selectedMachine?.providers, globalProviders]
+  )
+
+  // Load machines and providers on mount
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
   }, [machinesLoaded, loadMachines])
+
+  useEffect(() => {
+    if (!providersLoaded) loadProviders()
+  }, [providersLoaded, loadProviders])
 
   // Request notification permission on mount
   useEffect(() => {
     requestNotificationPermission()
   }, [])
+
+  // Reset provider/model when machine changes and current provider isn't available
+  useEffect(() => {
+    if (selectedProvider && availableProviders.length > 0) {
+      if (!isProviderAvailable(selectedProvider, availableProviders)) {
+        setSelectedProvider("")
+        setSelectedModel("")
+      }
+    }
+  }, [selectedMachine?.machineId]) // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on machine change
 
   // If URL has projectId, transition to chat phase
   useEffect(() => {
@@ -107,6 +133,8 @@ export function ProjectNewPlan() {
         {
           targetMachineId: selectedMachine?.machineId,
           workingDirectory: workingDir || undefined,
+          preferredProvider: selectedProvider || undefined,
+          model: selectedModel || undefined,
         }
       )
 
@@ -190,6 +218,45 @@ export function ProjectNewPlan() {
                   {m.name}
                 </button>
               ))}
+              </div>
+            </div>
+          )}
+
+          {/* Provider selector — always shown when providers available, filtered by machine */}
+          {availableProviders.length > 1 && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">Provider:</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                    !selectedProvider
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border hover:bg-muted"
+                  )}
+                >
+                  <Bot className="h-3 w-3" />
+                  Auto
+                </button>
+                {availableProviders.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      setSelectedProvider(selectedProvider === p.id ? "" : p.id)
+                      setSelectedModel("")
+                    }}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                      selectedProvider === p.id
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border hover:bg-muted"
+                    )}
+                  >
+                    <Bot className="h-3 w-3" />
+                    {PROVIDER_NAMES[p.id] || p.name || p.id}
+                  </button>
+                ))}
               </div>
             </div>
           )}
