@@ -19,6 +19,7 @@ import {
   fileChanges,
   blobs,
   nodeComments,
+  environmentConfigs,
 } from '../lib/db/schema.js'
 import { eq, and, or, sql, desc, isNull } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -102,6 +103,7 @@ app.post('/projects', async (c) => {
       mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
       source: body.source ?? null,
       deliveryMode: body.deliveryMode ?? null,
+      projectType: body.projectType ?? 'default',
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
     }
@@ -177,6 +179,7 @@ app.patch('/projects/:id', async (c) => {
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
+  if (body.projectType !== undefined) patch.projectType = body.projectType
   await db.update(projects).set(patch).where(
     and(eq(projects.id, id), teamScopeFilter(projects, user))
   )
@@ -1831,6 +1834,105 @@ app.delete('/comments/:id', async (c) => {
   if (row.authorId !== user.id) return c.json({ error: 'Not authorized' }, 403)
 
   await db.delete(nodeComments).where(eq(nodeComments.id, id))
+  return c.json({ ok: true })
+})
+
+// ── Environment Configs ──────────────────────────────────────────────
+
+app.get('/environment-configs', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const rows = await db.select().from(environmentConfigs).where(
+    or(
+      eq(environmentConfigs.userId, user.id),
+      user.teamId ? eq(environmentConfigs.teamId, user.teamId) : undefined
+    )!
+  )
+  return c.json(rows)
+})
+
+app.post('/environment-configs', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const body = await c.req.json()
+  const { backendId, machineId, customContext, displayName } = body
+
+  if (!backendId || typeof backendId !== 'string') return c.json({ error: 'backendId is required' }, 400)
+  if (backendId.length > 100) return c.json({ error: 'backendId too long' }, 400)
+  if (machineId && typeof machineId !== 'string') return c.json({ error: 'Invalid machineId' }, 400)
+  if (customContext && typeof customContext === 'string' && customContext.length > 10000) return c.json({ error: 'customContext too long (max 10000 chars)' }, 400)
+  if (displayName && typeof displayName === 'string' && displayName.length > 200) return c.json({ error: 'displayName too long' }, 400)
+
+  // Upsert: check for existing config with same (userId, machineId, backendId)
+  // Wrapped in try/catch to handle race conditions on the unique index
+  try {
+    const machineFilter = machineId
+      ? eq(environmentConfigs.machineId, machineId)
+      : isNull(environmentConfigs.machineId)
+
+    const [existing] = await db.select().from(environmentConfigs).where(
+      and(
+        eq(environmentConfigs.userId, user.id),
+        eq(environmentConfigs.backendId, backendId),
+        machineFilter
+      )
+    )
+
+    if (existing) {
+      await db.update(environmentConfigs).set({
+        customContext: customContext ?? '',
+        displayName: displayName ?? null,
+        teamId: user.teamId,
+        updatedAt: new Date(),
+      }).where(eq(environmentConfigs.id, existing.id))
+      const [updated] = await db.select().from(environmentConfigs).where(eq(environmentConfigs.id, existing.id))
+      return c.json(updated)
+    }
+
+    const [row] = await db.insert(environmentConfigs).values({
+      userId: user.id,
+      teamId: user.teamId,
+      machineId: machineId ?? null,
+      backendId,
+      customContext: customContext ?? '',
+      displayName: displayName ?? null,
+    }).returning()
+    return c.json(row, 201)
+  } catch (err: unknown) {
+    // Handle race condition: unique constraint violation means a concurrent insert won
+    const msg = err instanceof Error ? err.message : ''
+    if (msg.includes('unique') || msg.includes('duplicate') || msg.includes('23505')) {
+      // Retry as update
+      const machineFilter = machineId
+        ? eq(environmentConfigs.machineId, machineId)
+        : isNull(environmentConfigs.machineId)
+      const [existing] = await db.select().from(environmentConfigs).where(
+        and(eq(environmentConfigs.userId, user.id), eq(environmentConfigs.backendId, backendId), machineFilter)
+      )
+      if (existing) {
+        await db.update(environmentConfigs).set({
+          customContext: customContext ?? '',
+          displayName: displayName ?? null,
+          teamId: user.teamId,
+          updatedAt: new Date(),
+        }).where(eq(environmentConfigs.id, existing.id))
+        const [updated] = await db.select().from(environmentConfigs).where(eq(environmentConfigs.id, existing.id))
+        return c.json(updated)
+      }
+    }
+    console.error('[data] environment-configs POST error:', err)
+    return c.json({ error: 'Failed to save environment config' }, 500)
+  }
+})
+
+app.delete('/environment-configs/:id', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'Invalid config ID' }, 400)
+
+  const [row] = await db.select().from(environmentConfigs).where(eq(environmentConfigs.id, id))
+  if (!row) return c.json({ error: 'Config not found' }, 404)
+  if (row.userId !== user.id) return c.json({ error: 'Not authorized' }, 403)
+
+  await db.delete(environmentConfigs).where(eq(environmentConfigs.id, id))
   return c.json({ ok: true })
 })
 

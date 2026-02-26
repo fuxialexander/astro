@@ -1,4 +1,4 @@
-import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, TaskExecution, Team, TeamMember, NodeComment } from "@/types"
+import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, TaskExecution, Team, TeamMember, NodeComment, EnvironmentConfig } from "@/types"
 import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
@@ -34,7 +34,6 @@ async function getAuthHeaders(): Promise<HeadersInit> {
   if (teamId) {
     headers["X-Team-Id"] = teamId
   }
-  console.log('[data-client] getAuthHeaders:', { hasToken: !!token, tokenPrefix: token ? token.substring(0, 20) + '...' : 'none', teamId: teamId || 'none' })
   return headers
 }
 
@@ -652,5 +651,32 @@ export const dataClient = {
 
   async deleteComment(id: string): Promise<void> {
     await del(`${BASE}/comments/${id}`)
+  },
+
+  // ── Environment Configs ────────────────────────────────────────────
+  async getEnvironmentConfigs(): Promise<EnvironmentConfig[]> {
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/environment-configs`)
+    return rows.map((row) => {
+      const r = snakeToCamel(row)
+      return {
+        ...r,
+        createdAt: toDate(r.createdAt),
+        updatedAt: toDate(r.updatedAt),
+      } as EnvironmentConfig
+    })
+  },
+
+  async upsertEnvironmentConfig(config: { backendId: string; machineId?: string; customContext: string; displayName?: string }): Promise<EnvironmentConfig> {
+    const row = await post(`${BASE}/environment-configs`, config) as Record<string, unknown>
+    const r = snakeToCamel(row)
+    return {
+      ...r,
+      createdAt: toDate(r.createdAt),
+      updatedAt: toDate(r.updatedAt),
+    } as EnvironmentConfig
+  },
+
+  async deleteEnvironmentConfig(id: string): Promise<void> {
+    await del(`${BASE}/environment-configs/${id}`)
   },
 }
