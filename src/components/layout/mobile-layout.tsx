@@ -47,7 +47,7 @@ export function MobileLayout() {
   };
 
   return (
-    <div className="flex flex-col h-screen md:hidden" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+    <div className="flex flex-col h-dvh md:hidden" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       <main className="flex-1 overflow-y-auto pb-20">
         <Outlet />
       </main>

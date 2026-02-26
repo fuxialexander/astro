@@ -60,7 +60,7 @@ function ResponsiveLayout() {
   return (
     <>
       {/* Desktop layout - shown on md breakpoint and up */}
-      <div className="hidden md:block h-screen">
+      <div className="hidden md:block h-dvh">
         <AppLayout />
       </div>
 
