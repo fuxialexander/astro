@@ -117,7 +117,7 @@ export function CommentSection({ nodeId, projectId, userName }: CommentSectionPr
                   </span>
                   <button
                     onClick={() => handleDelete(comment.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all ml-auto"
+                    className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all ml-auto"
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>

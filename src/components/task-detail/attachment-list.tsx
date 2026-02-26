@@ -223,7 +223,7 @@ export function AttachmentList({
                   alt={attachment.name}
                   className="w-full h-full object-cover"
                 />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity flex items-center justify-center gap-2">
                   <a
                     href={attachment.url}
                     target="_blank"

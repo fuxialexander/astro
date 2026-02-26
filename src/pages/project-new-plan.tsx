@@ -530,7 +530,7 @@ export function ProjectNewPlan() {
                         {statusLabel}
                       </Badge>
                       {exec?.status !== 'running' && exec?.status !== 'pending' && (
-                        <Play className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <Play className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity" />
                       )}
                     </div>
                   </button>

@@ -49,9 +49,9 @@ export function ToolCallItem({ tool, isTaskComplete = true }: ToolCallItemProps)
           </span>
         )}
         {expanded ? (
-          <ChevronDown className="h-3 w-3 text-muted-foreground/50 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <ChevronDown className="h-3 w-3 text-muted-foreground/50 shrink-0 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity" />
         ) : (
-          <ChevronRight className="h-3 w-3 text-muted-foreground/50 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <ChevronRight className="h-3 w-3 text-muted-foreground/50 shrink-0 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity" />
         )}
       </button>
 

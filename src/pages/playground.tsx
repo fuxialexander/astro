@@ -756,7 +756,7 @@ export function Playground() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-6 text-[10px] gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="h-6 text-[10px] gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
                           onClick={(e) => {
                             e.stopPropagation()
                             navigate('/projects/new/plan', { state: { fromPlaygroundId: p.id } })
@@ -767,14 +767,14 @@ export function Playground() {
                         </Button>
                       )}
                       {exec?.status !== 'running' && exec?.status !== 'pending' && (
-                        <Play className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <Play className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity" />
                       )}
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
                           deleteSession(p.id)
                         }}
-                        className="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-destructive/10 transition-all text-destructive"
+                        className="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 [@media(hover:none)]:opacity-60 hover:bg-destructive/10 transition-all text-destructive"
                         title="Delete session"
                       >
                         <X className="h-3.5 w-3.5" />

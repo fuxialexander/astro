@@ -256,7 +256,7 @@ export function NodeInspectorContent({
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); handleRemoveDep(dep.id) }}
-                    className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all cursor-pointer"
+                    className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 shrink-0 p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all cursor-pointer"
                   >
                     <X className="h-3 w-3" />
                   </button>

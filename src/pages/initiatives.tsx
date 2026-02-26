@@ -213,7 +213,7 @@ export default function InitiativesPage() {
                         <Badge variant={statusConfig[initiative.status].variant} className="text-xs">
                           {statusConfig[initiative.status].label}
                         </Badge>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                           <Button
                             variant="ghost"
                             size="icon"
