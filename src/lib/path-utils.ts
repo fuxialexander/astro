@@ -156,10 +156,11 @@ export async function buildFileUrl(
   editorType: 'cursor' | 'vscode' = 'cursor'
 ): Promise<string> {
   const line = lineNumber ? `:${lineNumber}` : ''
+  const encodedPath = encodeURI(filePath)
 
   // If user toggled "Local" mode, always use file:// protocol
   if (forceLocal === true) {
-    return `${editorType}://file${filePath}${line}`
+    return `${editorType}://file${encodedPath}${line}`
   }
 
   const sshTarget = machine?.name || machine?.hostname
@@ -168,15 +169,15 @@ export async function buildFileUrl(
   if (forceLocal === 'remote') {
     if (!sshTarget) {
       // No machine info available, fall back to file:// (cannot construct remote URL)
-      return `${editorType}://file${filePath}${line}`
+      return `${editorType}://file${encodedPath}${line}`
     }
-    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${filePath}${line}`
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath}${line}`
   }
 
   // Auto-detect mode (forceLocal === false)
   if (!sshTarget) {
     // No machine info available, fall back to file:// (assume local)
-    return `${editorType}://file${filePath}${line}`
+    return `${editorType}://file${encodedPath}${line}`
   }
 
   const browserHostname = await getBrowserHostname()
@@ -184,10 +185,10 @@ export async function buildFileUrl(
 
   if (isSameMachine) {
     // Same machine: use editor file protocol
-    return `${editorType}://file${filePath}${line}`
+    return `${editorType}://file${encodedPath}${line}`
   } else {
     // Different machine: use editor remote protocol (prefer user-set name as SSH alias)
-    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${filePath}${line}`
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath}${line}`
   }
 }
 
@@ -209,10 +210,11 @@ export function buildFileUrlSync(
   editorType: 'cursor' | 'vscode' = 'cursor'
 ): string | undefined {
   const line = lineNumber ? `:${lineNumber}` : ''
+  const encodedPath = encodeURI(filePath)
 
   // If user toggled "Local" mode, always use file:// protocol
   if (forceLocal === true) {
-    return `${editorType}://file${filePath}${line}`
+    return `${editorType}://file${encodedPath}${line}`
   }
 
   const sshTarget = machine?.name || machine?.hostname
@@ -221,9 +223,9 @@ export function buildFileUrlSync(
   if (forceLocal === 'remote') {
     if (!sshTarget) {
       // No machine info available, fall back to file:// (cannot construct remote URL)
-      return `${editorType}://file${filePath}${line}`
+      return `${editorType}://file${encodedPath}${line}`
     }
-    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${filePath}${line}`
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath}${line}`
   }
 
   // Auto-detect mode (forceLocal === false)
@@ -232,16 +234,16 @@ export function buildFileUrlSync(
   }
 
   if (!sshTarget) {
-    return `${editorType}://file${filePath}${line}`
+    return `${editorType}://file${encodedPath}${line}`
   }
 
   const isSameMachine = machine?.hostname ? isSameHostname(cachedBrowserHostname, machine.hostname) : false
 
   if (isSameMachine) {
-    return `${editorType}://file${filePath}${line}`
+    return `${editorType}://file${encodedPath}${line}`
   } else {
     // Prefer user-set name as SSH alias
-    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${filePath}${line}`
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath}${line}`
   }
 }
 
