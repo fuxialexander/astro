@@ -28,6 +28,11 @@ import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
 
+// Track workingDirectory per dispatched task (for safety decision lookup)
+const dispatchedTaskDirs = new Map<string, string>()  // taskId → workingDirectory
+// Track approved safety decisions per workingDirectory
+const approvedSafetyDirs = new Map<string, string>()  // workingDirectory → decision
+
 // Validation schemas
 const dispatchTaskSchema = z.object({
   nodeId: z.string().min(1).max(100),
@@ -576,9 +581,13 @@ ${verificationSection}`)
     worktreeStrategy,
     useWorktree,
     images,
+    skipSafetyCheck: !!workingDirectory && approvedSafetyDirs.has(workingDirectory),
     ...(isInteractivePlan ? { type: 'plan' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
   }
+
+  // Track directory for safety decision caching
+  if (workingDirectory) dispatchedTaskDirs.set(executionId, workingDirectory)
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
   c.header('X-Accel-Buffering', 'no')
@@ -812,6 +821,8 @@ ${verificationSection}`)
       alive = false
       clearInterval(heartbeat)
       cleanup()
+      // Cancel the relay task so the agent runner stops
+      relayServer.cancelTask(executionId, machineId || '')
     })
 
     // Wait for completion
@@ -928,6 +939,14 @@ dispatchRoute.post('/safety-decision', async (c) => {
       { success: false, error: `Failed to send safety decision for task ${taskId} on machine ${machineId}` },
       500
     )
+  }
+
+  // Cache safety approval for this working directory so subsequent tasks skip the prompt
+  if (decision !== 'cancel') {
+    const workdir = dispatchedTaskDirs.get(taskId)
+    if (workdir) {
+      approvedSafetyDirs.set(workdir, decision)
+    }
   }
 
   return c.json({ success: true, taskId, machineId, decision, message: 'Safety decision sent' })

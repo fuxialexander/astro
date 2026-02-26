@@ -1,12 +1,11 @@
 /**
  * PR Creation Hook
  *
- * Records PR data from agent runner results and optionally creates PRs via GitHub API.
+ * Records PR data from agent runner results.
  *
- * Three paths:
+ * Two paths:
  * 1. Agent already created PR → record prUrl/prNumber/branchName to DB
- * 2. No PR from agent, autoPr enabled → create PR via GitHub API, then record
- * 3. Branch only, no PR, no autoPr → record branchName to DB for tracking
+ * 2. Branch only, no PR → record branchName to DB for tracking
  *
  * After recording, this hook mutates event.node in-place so downstream hooks
  * (e.g., merge-queue-hook) can see the PR data when hooks run sequentially.
@@ -50,7 +49,7 @@ async function persistPrData(
 export const prCreationHook: EventHook = async (event: AstroEvent) => {
   if (event.type !== 'task.completed') return
 
-  const { result, node, project } = event
+  const { result, node } = event
 
   console.log(`[pr-creation-hook] Processing task.completed: nodeId=${node.id}, status=${result.status}, prUrl=${result.prUrl}, prNumber=${result.prNumber}, branchName=${result.branchName}`)
 
@@ -68,87 +67,7 @@ export const prCreationHook: EventHook = async (event: AstroEvent) => {
     return
   }
 
-  // Path 2: No PR from agent, autoPr enabled, branch exists → create via GitHub API
-  if (node.autoPr && result.branchName) {
-    const githubToken = process.env.GITHUB_TOKEN
-    if (!githubToken) {
-      console.warn('[pr-creation-hook] GITHUB_TOKEN not set, recording branch only')
-      await persistPrData(node.id, node, { branchName: result.branchName })
-      return
-    }
-
-    // Get repository from project
-    const repository = project?.repository
-    if (!repository) {
-      console.warn('[pr-creation-hook] No repository found on project, recording branch only')
-      await persistPrData(node.id, node, { branchName: result.branchName })
-      return
-    }
-
-    // Parse repository (format: owner/repo or URL)
-    let owner: string | undefined
-    let repo: string | undefined
-    if (repository.includes('/') && !repository.includes('://')) {
-      ;[owner, repo] = repository.split('/')
-    } else {
-      const match = repository.match(/github\.com[/:]([^/]+)\/([^/.]+)/)
-      if (match) {
-        owner = match[1]
-        repo = match[2]
-      }
-    }
-
-    if (!owner || !repo) {
-      console.warn('[pr-creation-hook] Could not parse repository:', repository)
-      await persistPrData(node.id, node, { branchName: result.branchName })
-      return
-    }
-
-    try {
-      const prTitle = node.number ? `[#${node.number}] ${node.title}` : node.title || `Task: ${node.id}`
-      const prBody = `Automated PR for task: ${node.title}\n\n${result.stdout || ''}`
-
-      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${githubToken}`,
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title: prTitle,
-          body: prBody,
-          head: result.branchName,
-          base: 'main',
-        }),
-      })
-
-      if (!response.ok) {
-        const error = await response.text()
-        console.error('[pr-creation-hook] Failed to create PR:', error)
-        // Still record the branch
-        await persistPrData(node.id, node, { branchName: result.branchName })
-        return
-      }
-
-      const pr = await response.json() as { html_url: string; number: number }
-      console.log(`[pr-creation-hook] Created PR #${pr.number}: ${pr.html_url}`)
-
-      await persistPrData(node.id, node, {
-        branchName: result.branchName,
-        prUrl: pr.html_url,
-        prNumber: pr.number,
-      })
-    } catch (error) {
-      console.error('[pr-creation-hook] Error creating PR:', error)
-      // Still record the branch
-      await persistPrData(node.id, node, { branchName: result.branchName })
-    }
-    return
-  }
-
-  // Path 3: Branch only, no PR, no autoPr → record branch for tracking
+  // Path 2: Branch only, no PR → record branch for tracking
   if (result.branchName) {
     console.log(`[pr-creation-hook] Recording branch: ${result.branchName}`)
     await persistPrData(node.id, node, { branchName: result.branchName })

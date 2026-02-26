@@ -20,7 +20,6 @@ import type {
   TaskSteerAckMessage,
   TaskToolTraceMessage,
   TaskFileChangeMessage,
-  TaskTextMessage,
   TaskSessionInitMessage,
   SessionEvent,
 } from '../types/relay.js'
@@ -180,16 +179,6 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:file_change', data }).catch(() => { alive = false })
     }
 
-    const onTaskText = (msg: TaskTextMessage) => {
-      if (!alive) return
-      const data = JSON.stringify({
-        taskId: msg.taskId,
-        data: msg.text,
-      })
-      const id = eventBuffer.push('task:text', data)
-      stream.writeSSE({ id, event: 'task:text', data }).catch(() => { alive = false })
-    }
-
     const onTaskSessionInit = (msg: TaskSessionInitMessage) => {
       if (!alive) return
       const data = JSON.stringify({
@@ -306,15 +295,11 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'approval:responded', data }).catch(() => { alive = false })
     }
 
-    // Subscribe to relay events
+    // Subscribe to relay events (only events NOT already bridged by dispatch.ts).
+    // dispatch.ts bridges relay → executionEventBus for: stdout, text, progress,
+    // tool_trace, file_change, session_init — subscribing here too causes duplicates.
     relayServer.on('task:result', onTaskResult)
-    relayServer.on('task:stdout', onTaskStdout)
-    relayServer.on('task:text', onTaskText)
-    relayServer.on('task:progress', onTaskProgress)
     relayServer.on('task:steer_ack', onTaskSteerAck)
-    relayServer.on('task:tool_trace', onTaskToolTrace)
-    relayServer.on('task:file_change', onTaskFileChange)
-    relayServer.on('task:session_init', onTaskSessionInit)
     relayServer.on('task:approval_request', onTaskApprovalRequest)
     relayServer.on('task:safety_prompt', onTaskSafetyPrompt)
     relayServer.on('machine:connected', onMachineConnected)
@@ -339,11 +324,10 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'merge_queue:succeeded', data }).catch(() => { alive = false })
     }
 
-    // Subscribe to local execution events (same message shapes as relay)
+    // Subscribe to execution events (bridged from relay by dispatch.ts)
     executionEventBus.on('task:ready', onTaskReady)
     executionEventBus.on('task:result', onTaskResult)
     executionEventBus.on('task:stdout', onTaskStdout)
-    executionEventBus.on('task:text', onTaskText)
     executionEventBus.on('task:progress', onTaskProgress)
     executionEventBus.on('task:tool_trace', onTaskToolTrace)
     executionEventBus.on('task:file_change', onTaskFileChange)
@@ -382,13 +366,7 @@ eventsRoute.get('/stream', async (c) => {
       throttle.shutdown()
 
       relayServer.off('task:result', onTaskResult)
-      relayServer.off('task:stdout', onTaskStdout)
-      relayServer.off('task:text', onTaskText)
-      relayServer.off('task:progress', onTaskProgress)
       relayServer.off('task:steer_ack', onTaskSteerAck)
-      relayServer.off('task:tool_trace', onTaskToolTrace)
-      relayServer.off('task:file_change', onTaskFileChange)
-      relayServer.off('task:session_init', onTaskSessionInit)
       relayServer.off('task:approval_request', onTaskApprovalRequest)
       relayServer.off('task:safety_prompt', onTaskSafetyPrompt)
       relayServer.off('machine:connected', onMachineConnected)
@@ -398,11 +376,10 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('session:detached', onSessionDetached)
       relayServer.off('session:event', onSessionEvent)
 
-      // Local execution event bus cleanup
+      // Execution event bus cleanup
       executionEventBus.off('task:ready', onTaskReady)
       executionEventBus.off('task:result', onTaskResult)
       executionEventBus.off('task:stdout', onTaskStdout)
-      executionEventBus.off('task:text', onTaskText)
       executionEventBus.off('task:progress', onTaskProgress)
       executionEventBus.off('task:tool_trace', onTaskToolTrace)
       executionEventBus.off('task:file_change', onTaskFileChange)
