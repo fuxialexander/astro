@@ -6,6 +6,16 @@
 import { create } from 'zustand';
 import type { GitHubRepo, GitHubUser } from '../../server/types/github';
 import { apiUrl } from '@/lib/api-url';
+import { getAccessToken } from '@/lib/supabase-client';
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  const token = await getAccessToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 interface GitHubState {
   // Connection state
@@ -47,7 +57,8 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
-      const response = await fetch(apiUrl('/api/github/status'));
+      const headers = await authHeaders();
+      const response = await fetch(apiUrl('/api/github/status'), { headers });
       if (!response.ok) throw new Error('Failed to fetch GitHub status');
 
       const data = await response.json();
@@ -71,7 +82,8 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
-      const response = await fetch(apiUrl('/api/github/connect'), { method: 'POST' });
+      const headers = await authHeaders();
+      const response = await fetch(apiUrl('/api/github/connect'), { method: 'POST', headers });
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
@@ -120,7 +132,8 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
-      const response = await fetch(apiUrl('/api/github/disconnect'), { method: 'POST' });
+      const headers = await authHeaders();
+      const response = await fetch(apiUrl('/api/github/disconnect'), { method: 'POST', headers });
       if (!response.ok) throw new Error('Failed to disconnect GitHub');
 
       set({
@@ -146,7 +159,8 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
-      const response = await fetch(apiUrl('/api/github/repos'));
+      const headers = await authHeaders();
+      const response = await fetch(apiUrl('/api/github/repos'), { headers });
       if (!response.ok) {
         if (response.status === 401) {
           set({ connected: false, loading: false });
@@ -158,7 +172,7 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
       const data = await response.json();
 
       // Also fetch selected repos
-      const selectedResponse = await fetch(apiUrl('/api/github/repos/selected'));
+      const selectedResponse = await fetch(apiUrl('/api/github/repos/selected'), { headers });
       const selectedData = await selectedResponse.json();
 
       set({
@@ -181,7 +195,8 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
-      const response = await fetch(apiUrl('/api/github/repos/sync'), { method: 'POST' });
+      const headers = await authHeaders();
+      const response = await fetch(apiUrl('/api/github/repos/sync'), { method: 'POST', headers });
       if (!response.ok) throw new Error('Failed to sync repositories');
 
       const data = await response.json();
@@ -204,9 +219,10 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
+      const headers = await authHeaders();
       const response = await fetch(apiUrl('/api/github/repos/select'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ repoIds }),
       });
 
