@@ -193,6 +193,19 @@ interface ExecutionState {
   cancelPlanSession: (projectId: string) => Promise<void>
   steerPlanSession: (projectId: string, message: string) => Promise<boolean>
 
+  // Playground session methods
+  startPlaygroundSession: (
+    description: string,
+    options: {
+      targetMachineId: string
+      workingDirectory: string
+      model?: string
+      preferredProvider?: string
+    }
+  ) => Promise<{ projectId: string; nodeId: string }>
+  cancelPlaygroundSession: (projectId: string) => Promise<void>
+  steerPlaygroundSession: (projectId: string, message: string) => Promise<boolean>
+
   // Persistence
   load: () => Promise<void>
   persist: () => Promise<void>
@@ -273,33 +286,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }
     }
 
-    // Enforce defaultMachineId constraint: if project has no repository URL
-    // and has a defaultMachineId, execution must target that machine
-    let effectiveTargetMachineId = options?.targetMachineId
-    if (!project?.repository && project?.defaultMachineId) {
-      if (effectiveTargetMachineId && effectiveTargetMachineId !== project.defaultMachineId) {
-        const execution: TaskExecution = {
-          nodeId,
-          projectId,
-          executionId: `exec-${nodeId}-${Date.now()}`,
-          status: "failure",
-          streamText: "",
-          error: "This project's code only exists on a specific machine. Cannot execute on a different machine.",
-          toolTraces: [],
-          fileChanges: [],
-          activityEvents: [],
-          startedAt: new Date(),
-          completedAt: new Date(),
-        }
-        set((state) => {
-          const newExecutions = new Map(state.executions)
-          newExecutions.set(nodeId, execution)
-          return { executions: newExecutions }
-        })
-        return
-      }
-      effectiveTargetMachineId = project.defaultMachineId
-    }
+    // Machine selection is handled server-side via project.defaultMachineId fallback
+    const effectiveTargetMachineId = options?.targetMachineId
 
     // Resolve working directory
     const dirCheck = getProjectWorkingDir(project)
@@ -993,6 +981,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                       type: (n.type as PlanNode["type"]) || "task",
                       title: (n.title as string) || "",
                       description: (n.description as string) || "",
+                      content: n.description ? `<p>${n.description as string}</p>` : '',
                       status: (n.status as PlanNode["status"]) || "planned",
                       parentId: n.parentId ? prefixId(n.parentId as string) : null,
                       dependencies: (n.dependencies as string[] || []).map(prefixId),
@@ -1131,6 +1120,184 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return result.success
     } catch (error) {
       console.error("[plan-session] Error steering:", error)
+      return false
+    }
+  },
+
+  // ─── Playground Session Methods ──────────────────────────────────────
+
+  startPlaygroundSession: async (description, options) => {
+    // 1. Create project for this playground session
+    const projectId = crypto.randomUUID()
+    const displayName = description.slice(0, 60) || "Playground Session"
+    useProjectStore.getState().addProject({
+      id: projectId,
+      name: displayName,
+      description,
+      visionDoc: "",
+      workingDirectory: options.workingDirectory,
+      defaultMachineId: options.targetMachineId,
+      projectType: 'playground',
+    } as Project)
+
+    const nodeId = `playground-${projectId}`
+
+    // 2. Create execution entry
+    const execution: TaskExecution = {
+      nodeId,
+      projectId,
+      executionId: "",
+      status: "pending",
+      streamText: "",
+      toolTraces: [],
+      fileChanges: [],
+      activityEvents: [],
+      startedAt: new Date(),
+    }
+
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      newExecutions.set(nodeId, execution)
+      return { executions: newExecutions }
+    })
+
+    // 3. Create abort controller
+    const abortController = new AbortController()
+    abortControllers.set(nodeId, abortController)
+
+    // 4. Dispatch via POST /api/dispatch/task (fire-and-forget SSE processing)
+    getAuthHeaders().then(async (headers) => {
+      try {
+        const response = await fetch(apiUrl("/api/dispatch/task"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            nodeId,
+            projectId,
+            title: `Playground: ${description.slice(0, 80)}`,
+            description,
+            dependencies: [],
+            verification: "human",
+            targetMachineId: options.targetMachineId,
+            model: options.model,
+            preferredProvider: options.preferredProvider,
+            maxTurns: 200,
+            workingDirectory: options.workingDirectory,
+            deliveryMode: "direct",
+            skipSafetyCheck: true,
+            force: true,
+            isInteractivePlan: false,
+          }),
+          signal: abortController.signal,
+        })
+
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => null)
+          const detail = errorBody?.error || ""
+          throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
+        }
+
+        // 5. Process SSE stream
+        const planStore = usePlanStore.getState()
+        await parseSSEStream(response, {
+          onEvent: ({ event, data }) => {
+            handleSSEEvent(event, data, nodeId, set, get, planStore)
+          },
+        })
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
+            }
+            return { executions: newExecutions }
+          })
+        } else {
+          const message = error instanceof Error ? error.message : "Unknown error"
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, status: "failure", error: message, completedAt: new Date() })
+            }
+            return { executions: newExecutions }
+          })
+        }
+      } finally {
+        abortControllers.delete(nodeId)
+      }
+    })
+
+    return { projectId, nodeId }
+  },
+
+  cancelPlaygroundSession: async (projectId) => {
+    const nodeId = `playground-${projectId}`
+    const controller = abortControllers.get(nodeId)
+    if (controller) {
+      controller.abort()
+      abortControllers.delete(nodeId)
+    }
+
+    const execution = get().executions.get(nodeId)
+    if (execution?.executionId) {
+      try {
+        const headers = await getAuthHeaders()
+        await fetch(apiUrl("/api/dispatch/cancel"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            nodeId,
+            executionId: execution.executionId,
+          }),
+        })
+      } catch {
+        // Ignore cancel errors
+      }
+    }
+
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      const exec = newExecutions.get(nodeId)
+      if (exec) {
+        newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
+      }
+      return { executions: newExecutions }
+    })
+  },
+
+  steerPlaygroundSession: async (projectId, message) => {
+    const nodeId = `playground-${projectId}`
+    const execution = get().executions.get(nodeId)
+    if (!execution?.executionId || !execution.machineId) {
+      console.warn("[playground] Cannot steer: no executionId or machineId")
+      return false
+    }
+
+    try {
+      const headers = await getAuthHeaders()
+      const response = await fetch(apiUrl("/api/dispatch/steer"), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          taskId: execution.executionId,
+          machineId: execution.machineId,
+          message,
+          action: "guidance",
+        }),
+      })
+
+      if (!response.ok) {
+        console.error("[playground] Failed to steer:", response.status)
+        return false
+      }
+
+      const result = await response.json()
+      return result.success
+    } catch (error) {
+      console.error("[playground] Error steering:", error)
       return false
     }
   },

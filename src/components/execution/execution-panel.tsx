@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from "react"
+import { stripHtml } from "@/lib/html-utils"
 import { Link, useNavigate } from "react-router"
-import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, Laptop, ChevronDown, Bot, Boxes, Sparkles, GitBranch } from "lucide-react"
+import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, ChevronDown, Bot, Boxes, Sparkles, GitBranch } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -67,36 +68,28 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
 
-  const onlineMachines = machines.filter((m) => m.status !== 'offline')
-
-  // Default machine ID fallback chain:
-  // 1. Node-specific machine
-  // 2. Project default machine
-  // 3. User profile default machine
-  // 4. null (will be handled below)
-  const defaultMachineId = node.machineId || project?.defaultMachineId || profile.defaultMachineId || null
+  // Resolve machine from project config (read-only, set at project level)
+  const resolvedMachineId = node.machineId || project?.defaultMachineId || profile.defaultMachineId || null
+  const resolvedMachine = resolvedMachineId ? machines.find((m) => m.machineId === resolvedMachineId) ?? null : null
 
   // Local state for execution options
-  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(defaultMachineId)
   const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider || "")
   const getModelForProvider = useSettingsStore((s) => s.getModelForProvider)
   const [selectedModel, setSelectedModel] = useState<string>(() => getModelForProvider(defaultProvider || undefined))
   const [selectedBackend, setSelectedBackend] = useState<string>("")
   const [useWorktree, setUseWorktree] = useState(true)
 
-  const selectedMachine = selectedMachineId ? machines.find((m) => m.machineId === selectedMachineId) ?? null : null
-
-  // Compute backends available on the selected machine (non-direct strategies)
-  const availableBackends: ComputeBackendInfo[] = selectedMachine?.executionStrategies
-    ? selectedMachine.executionStrategies.filter((s) => s.available && s.id !== 'direct')
+  // Compute backends available on the resolved machine (non-direct strategies)
+  const availableBackends: ComputeBackendInfo[] = resolvedMachine?.executionStrategies
+    ? resolvedMachine.executionStrategies.filter((s) => s.available && s.id !== 'direct')
     : []
 
   // Derive available providers directly from the machine's relay-reported providers.
   // The global `providers` list is unreliable (API returns `machines`, not `providers`),
   // so we build ProviderStatus objects from the machine data instead.
   const availableProviders: ProviderStatus[] = useMemo(
-    () => deriveAvailableProviders(selectedMachine?.providers, providers),
-    [selectedMachine, providers],
+    () => deriveAvailableProviders(resolvedMachine?.providers, providers),
+    [resolvedMachine, providers],
   )
 
   // Derived: selected provider object (use availableProviders which may be machine-derived)
@@ -104,7 +97,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
     ? availableProviders.find((p) => p.id === selectedProvider) ?? null
     : null
 
-  // Reset provider/model selection when machine changes and current provider isn't available
+  // Reset provider/model selection when resolved machine changes and current provider isn't available
   useEffect(() => {
     if (selectedProvider && availableProviders.length > 0) {
       if (!isProviderAvailable(selectedProvider, availableProviders)) {
@@ -112,24 +105,11 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
         setSelectedModel("")
       }
     }
-  }, [selectedMachineId]) // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on machine change
+  }, [resolvedMachineId]) // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on machine change
 
   // Resolve working directory
   const dirCheck = getProjectWorkingDir(project)
   const workingDir = dirCheck.dir || ''
-
-  const effectiveMachine = selectedMachine
-
-  // Sync selected machine when node or project defaults change
-  const syncMachineId = node.machineId || project?.defaultMachineId || profile.defaultMachineId
-  if (syncMachineId && !selectedMachineId) {
-    setSelectedMachineId(syncMachineId)
-  }
-
-  // If no machine is selected and there are online machines, auto-select the first one
-  if (!selectedMachineId && onlineMachines.length > 0 && machinesLoaded) {
-    setSelectedMachineId(onlineMachines[0].machineId)
-  }
 
   // Load providers and machines on mount
   useEffect(() => {
@@ -152,10 +132,8 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const canExecuteResult = canExecuteNode(node, nodes, edges)
   const availableProvider = getAvailableProvider()
 
-  // For local (no machine selected), need a provider; for remote, need a machine
-  const hasExecutionTarget = selectedMachineId
-    ? effectiveMachine !== null
-    : availableProvider !== null
+  // Need either a resolved machine or any available provider (backend handles machine selection)
+  const hasExecutionTarget = resolvedMachine !== null || availableProvider !== null
 
   // Allow execution for planned nodes, and re-execution for stuck/failed/completed nodes
   const executableStatuses: PlanNode["status"][] = ["planned", "in_progress", "awaiting_judgment", "completed", "auto_verified"]
@@ -175,7 +153,6 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
 
   const handleExecute = () => {
     startExecution(node.id, projectId, {
-      targetMachineId: effectiveMachine?.machineId,
       preferredProvider: selectedProvider || undefined,
       model: selectedModel || undefined,
       computeBackend: selectedBackend || undefined,
@@ -187,9 +164,9 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const handleRefine = async () => {
     setIsRefining(true)
     try {
-      const result = await refineContent(node.title, node.description ?? "", "task")
+      const result = await refineContent(node.title, node.content ? stripHtml(node.content) : (node.description ?? ""), "task")
       if (result) {
-        updateNode(node.id, { title: result.refinedTitle, description: result.refinedDescription })
+        updateNode(node.id, { title: result.refinedTitle, description: result.refinedDescription, content: `<p>${result.refinedDescription}</p>` })
         setJustRefined(true)
         setTimeout(() => setJustRefined(false), 1500)
       }
@@ -201,48 +178,17 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
     cancelExecution(node.id)
   }
 
-  const MachineIcon = selectedMachine ? Server : Laptop
-  const machineDisplayName = selectedMachine?.name || "Select machine"
+  const machineDisplayName = resolvedMachine?.name || "Auto"
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Machine Selection */}
+      {/* Machine (read-only, set at project level) */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">Machine</span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5 max-w-[200px]">
-              <MachineIcon className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">
-                {machineDisplayName}
-              </span>
-              <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Select Machine</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {onlineMachines.map((machine) => (
-                <DropdownMenuItem
-                  key={machine.machineId}
-                  onClick={() => setSelectedMachineId(machine.machineId)}
-                  className="gap-2"
-                >
-                  <Server className="h-4 w-4" />
-                  <div className="flex flex-col">
-                    <span>{machine.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {machine.hostname || machine.machineId}
-                      {machine.load && ` · ${machine.load.activeTasks} tasks`}
-                    </span>
-                  </div>
-                  {selectedMachineId === machine.machineId && (
-                    <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                  )}
-                </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <span className="flex items-center gap-1.5 text-sm">
+          <Server className="h-3.5 w-3.5 text-muted-foreground" />
+          {machineDisplayName}
+        </span>
       </div>
 
       {/* Compute Backend Selection (when machine has non-direct strategies) */}

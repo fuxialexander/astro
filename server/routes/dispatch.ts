@@ -21,7 +21,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -32,6 +32,14 @@ import { skillManager } from '../lib/skill-manager.js'
 const dispatchedTaskDirs = new Map<string, string>()  // taskId → workingDirectory
 // Track approved safety decisions per workingDirectory
 const approvedSafetyDirs = new Map<string, string>()  // workingDirectory → decision
+
+/**
+ * Derive a short hex ID from a UUID for compact display (like git short SHAs).
+ * "550e8400-e29b-41d4-a716-446655440000" → "550e84"
+ */
+function getShortId(id: string): string {
+  return id.replace(/-/g, '').slice(0, 6).toLowerCase()
+}
 
 // Validation schemas
 const dispatchTaskSchema = z.object({
@@ -70,6 +78,7 @@ const dispatchTaskSchema = z.object({
   useWorktree: z.boolean().optional(),
   imageRefs: z.array(z.string().uuid()).max(20).optional(),
   isInteractivePlan: z.boolean().optional(),
+  skipSafetyCheck: z.boolean().optional(),
   acceptanceCriteria: z.array(z.object({
     id: z.string(),
     description: z.string(),
@@ -129,6 +138,7 @@ dispatchRoute.post('/task', async (c) => {
     useWorktree,
     imageRefs,
     isInteractivePlan,
+    skipSafetyCheck,
     acceptanceCriteria,
   } = body
 
@@ -211,6 +221,17 @@ dispatchRoute.post('/task', async (c) => {
         500
       )
     }
+  }
+
+  // Server-side fallback: use project's defaultMachineId when client doesn't specify a machine
+  if (!targetMachineId) {
+    try {
+      const [projectForMachine] = await db.select({ defaultMachineId: projects.defaultMachineId })
+        .from(projects).where(eq(projects.id, projectId)).limit(1)
+      if (projectForMachine?.defaultMachineId) {
+        targetMachineId = projectForMachine.defaultMachineId
+      }
+    } catch { /* findBestMachine will handle as final fallback */ }
   }
 
   // Validate required fields after resolution
@@ -313,6 +334,7 @@ dispatchRoute.post('/task', async (c) => {
     useWorktree,
     imageRefs,
     isInteractivePlan,
+    skipSafetyCheck,
     verification,
     acceptanceCriteria,
   })
@@ -345,6 +367,7 @@ async function dispatchViaRelay(
     useWorktree?: boolean
     imageRefs?: string[]
     isInteractivePlan?: boolean
+    skipSafetyCheck?: boolean
     verification?: 'auto' | 'human'
     acceptanceCriteria?: Array<{ id: string; description: string; type: string; command?: string; autoVerifiable: boolean }>
   }
@@ -371,6 +394,7 @@ async function dispatchViaRelay(
     useWorktree,
     imageRefs,
     isInteractivePlan,
+    skipSafetyCheck,
     verification,
     acceptanceCriteria,
   } = params
@@ -438,6 +462,27 @@ async function dispatchViaRelay(
 
     if (sourceDirectory) {
       promptParts.push(`## Data Access\n\nYour working directory is a git worktree (isolated branch) in a sibling directory next to the project.\nThe original project directory is: ${sourceDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
+    }
+
+    // Inject custom environment context if configured
+    if (user && computeBackend) {
+      try {
+        const machineFilter = machineId
+          ? eq(environmentConfigs.machineId, machineId)
+          : isNull(environmentConfigs.machineId)
+        const [envConfig] = await db.select().from(environmentConfigs).where(
+          and(
+            eq(environmentConfigs.userId, user.id),
+            eq(environmentConfigs.backendId, computeBackend),
+            machineFilter
+          )
+        )
+        if (envConfig?.customContext) {
+          promptParts.push(`## Custom Environment Instructions\n\n${envConfig.customContext}`)
+        }
+      } catch (err) {
+        console.warn('[dispatch] Failed to fetch environment config:', err)
+      }
     }
 
     promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)
@@ -544,27 +589,24 @@ ${verificationSection}`)
 
   // Fetch project record from DB for event hooks (git-pull-hook needs workingDirectory)
   let projectRecord: Project | undefined
-  let nodeNumber: number | undefined
   try {
     const [row] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
     projectRecord = row as unknown as Project | undefined
   } catch (err) {
     console.warn('[dispatch] Failed to fetch project for event hooks:', err)
   }
-  // Fetch node number for PR titles and branch names
-  try {
-    const [nodeRow] = await db.select({ number: planNodes.number }).from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
-    nodeNumber = nodeRow?.number ?? undefined
-  } catch (err) {
-    console.warn('[dispatch] Failed to fetch node number:', err)
-  }
+
+  // Compute short hex IDs for branch names, PR titles, and worktree paths
+  const shortProjectId = getShortId(projectId)
+  const shortNodeId = getShortId(nodeId)
 
   // Dispatch via relay
   const taskDispatch = {
     taskId: executionId,
     projectId,
     nodeId,
-    nodeNumber,
+    shortProjectId,
+    shortNodeId,
     title,
     description,
     prompt: relayPrompt,
@@ -581,7 +623,7 @@ ${verificationSection}`)
     worktreeStrategy,
     useWorktree,
     images,
-    skipSafetyCheck: !!workingDirectory && approvedSafetyDirs.has(workingDirectory),
+    skipSafetyCheck: (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && approvedSafetyDirs.has(workingDirectory)),
     ...(isInteractivePlan ? { type: 'plan' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
   }
@@ -652,7 +694,8 @@ ${verificationSection}`)
         node: {
           id: nodeId,
           projectId,
-          number: nodeNumber,
+          shortNodeId,
+          shortProjectId,
           type: 'task',
           title,
           description,
@@ -805,14 +848,19 @@ ${verificationSection}`)
     const heartbeat = setInterval(() => {
       if (!alive) { clearInterval(heartbeat); return }
       if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
-        stream.writeSSE({
-          event: 'error',
-          data: JSON.stringify({ error: 'Activity timeout — agent runner stopped responding', recoverable: false }),
-        }).catch(() => {})
-        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
-        alive = false
-        clearInterval(heartbeat)
-        return
+        // Don't timeout if we're waiting for user approval (ask_user_question)
+        if (dispatchEngine.hasPendingApprovalForExecution(executionId)) {
+          lastActivity = Date.now() // Reset timer while approval is pending
+        } else {
+          stream.writeSSE({
+            event: 'error',
+            data: JSON.stringify({ error: 'Activity timeout — agent runner stopped responding', recoverable: false }),
+          }).catch(() => {})
+          stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+          alive = false
+          clearInterval(heartbeat)
+          return
+        }
       }
       stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
     }, 15000)

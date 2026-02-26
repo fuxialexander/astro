@@ -1,4 +1,5 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from "react"
+import { stripHtml } from "@/lib/html-utils"
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -11,22 +12,13 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { LayoutGrid, Trash2, Play, X, CheckSquare, ChevronDown, Laptop, Server, CheckCircle2, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, Info } from "lucide-react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, Info, Server } from "lucide-react"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, canExecuteNode } from "@/stores/execution-store"
-import { isServerMode } from "@/lib/app-mode"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
@@ -103,27 +95,19 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
-  const isMultiTenant = isServerMode()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
-  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(
-    project?.defaultMachineId || null
-  )
 
-  // Sync selected machine when project defaults change
-  useEffect(() => {
-    if (project?.defaultMachineId && !selectedMachineId) {
-      setSelectedMachineId(project.defaultMachineId)
-    }
-  }, [project?.defaultMachineId, selectedMachineId])
-
-  // Load machines on mount
+  // Load machines on mount (for display name resolution)
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
   }, [machinesLoaded, loadMachines])
 
-  const onlineMachines = machines.filter((m) => m.status !== 'offline')
-  const selectedMachine = selectedMachineId ? machines.find((m) => m.machineId === selectedMachineId) ?? null : null
+  // Resolve project machine for read-only display
+  const resolvedMachineId = project?.defaultMachineId
+  const resolvedMachineName = resolvedMachineId
+    ? machines.find((m) => m.machineId === resolvedMachineId)?.name || resolvedMachineId
+    : null
   const [addChildState, setAddChildState] = useState<AddChildState | null>(null)
   const connectingNodeRef = useRef<{ nodeId: string; handleType: "source" | "target" } | null>(null)
   const justCreatedChild = useRef(false)
@@ -249,12 +233,10 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       (n) => checkedIds.has(n.id) && canExecuteNode(n, allNodes, allEdges).ready
     )
     for (const node of nodesToExecute) {
-      startExecution(node.id, projectId, {
-        targetMachineId: selectedMachineId || undefined,
-      })
+      startExecution(node.id, projectId)
     }
     setCheckedIds(new Set())
-  }, [checkedIds, projectNodes, startExecution, projectId, selectedMachineId])
+  }, [checkedIds, projectNodes, startExecution, projectId])
 
   const handleSelectAll = useCallback(() => {
     const allIds = new Set(projectNodes.map((n) => n.id))
@@ -262,10 +244,8 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   }, [projectNodes])
 
   const handleExecuteAll = useCallback(() => {
-    executeAllProject(projectId, {
-      targetMachineId: selectedMachineId || undefined,
-    })
-  }, [executeAllProject, projectId, selectedMachineId])
+    executeAllProject(projectId)
+  }, [executeAllProject, projectId])
 
   const handleStopBatch = useCallback(() => {
     stopBatchExecution(projectId)
@@ -281,8 +261,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         position: n.position || { x: 0, y: 0 }, // Defensive: ensure position is always defined
         data: {
           title: n.title,
-          description: n.description,
-          number: n.number,
+          description: n.content ? stripHtml(n.content) : (n.description ?? ''),
           status: n.status,
           nodeType: n.type,
           priority: n.priority,
@@ -479,7 +458,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         setShowVisionDialog(true)
         // Note: User will need to manually trigger generation after saving vision doc
       } else {
-        startGeneration(projectId, project.name, project.description || project.name, project.visionDoc)
+        // Build repoContext from stored project data so regeneration preserves machine/directory
+        const repoContext = (project.sourceDirectory || project.workingDirectory || project.repository || project.defaultMachineId) ? {
+          workingDirectory: project.sourceDirectory || project.workingDirectory || project.repository || '',
+          targetMachineId: project.defaultMachineId,
+        } : undefined
+        startGeneration(projectId, project.name, project.description || project.name, project.visionDoc, repoContext)
       }
     }
   }, [startGeneration, projectId, project, connectionStatus])
@@ -491,7 +475,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       const justClosedDialog = !showVisionDialog
       // Only auto-generate if we just closed the dialog and have no nodes yet
       if (hasNoNodes && justClosedDialog) {
-        startGeneration(projectId, project.name, project.description || project.name, project.visionDoc)
+        const repoContext = (project.sourceDirectory || project.workingDirectory || project.repository || project.defaultMachineId) ? {
+          workingDirectory: project.sourceDirectory || project.workingDirectory || project.repository || '',
+          targetMachineId: project.defaultMachineId,
+        } : undefined
+        startGeneration(projectId, project.name, project.description || project.name, project.visionDoc, repoContext)
       }
     }
   }, [showVisionDialog, project, connectionStatus, projectNodes.length, startGeneration, projectId])
@@ -607,7 +595,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const selectedNodes = projectNodes.filter((n) => checkedIds.has(n.id))
   const readyNodes = selectedNodes.filter((n) => canExecuteNode(n, allPlanNodes, allPlanEdges).ready)
   const blockedCount = selectedNodes.length - readyNodes.length
-  const SelectedMachineIcon = selectedMachine ? Server : Laptop
   // Batch execution stats
   const isBatchActive = batchExecution?.active ?? false
   const plannedCount = projectNodes.filter((n) => n.status === "planned").length
@@ -725,67 +712,22 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
               </div>
             ) : (
               plannedCount > 0 && (
-                <div className="flex items-center">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={handleExecuteAll}
                     title={`Execute all ${plannedCount} planned tasks in dependency order`}
-                    className="flex h-8 items-center gap-1.5 rounded-l-lg border border-r-0 border-primary/30 bg-primary/5 px-3 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer shadow-lg"
+                    className="flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer shadow-lg"
                   >
                     <PlayCircle className="h-3.5 w-3.5" />
                     Execute All ({plannedCount})
                   </button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex h-8 items-center gap-1 rounded-r-lg border border-primary/30 bg-primary/5 px-2 text-xs text-primary hover:bg-primary/10 transition-colors cursor-pointer shadow-lg"
-                      >
-                        <SelectedMachineIcon className="h-3 w-3" />
-                        <ChevronDown className="h-3 w-3" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuLabel>Machine</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {!isMultiTenant && (
-                        <DropdownMenuItem
-                          onClick={() => setSelectedMachineId(null)}
-                          className="gap-2"
-                        >
-                          <Laptop className="h-4 w-4" />
-                          <div className="flex flex-col">
-                            <span>Local</span>
-                            <span className="text-[10px] text-muted-foreground">Run on this machine</span>
-                          </div>
-                          {!selectedMachineId && (
-                            <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                          )}
-                        </DropdownMenuItem>
-                      )}
-                      {!isMultiTenant && onlineMachines.length > 0 && <DropdownMenuSeparator />}
-                      {onlineMachines.map((machine) => {
-                        return (
-                          <DropdownMenuItem
-                            key={machine.machineId}
-                            onClick={() => setSelectedMachineId(machine.machineId)}
-                            className="gap-2"
-                          >
-                            <Server className="h-4 w-4" />
-                            <div className="flex flex-col">
-                              <span className="truncate max-w-[140px]">{machine.name}</span>
-                              <span className="text-[10px] text-muted-foreground">
-                                {machine.hostname || machine.machineId}
-                              </span>
-                            </div>
-                            {selectedMachineId === machine.machineId && (
-                              <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                            )}
-                          </DropdownMenuItem>
-                        )
-                      })}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {resolvedMachineName && (
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground bg-card/85 backdrop-blur-sm border border-border rounded-lg px-2 py-1.5 shadow-sm">
+                      <Server className="h-3 w-3" />
+                      {resolvedMachineName}
+                    </span>
+                  )}
                 </div>
               )
             )}
@@ -810,72 +752,20 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           </button>
           <div className="h-4 w-px bg-border" />
 
-          {/* Split execute button: [Execute | Environment ▾] */}
-          <div className="flex items-center">
-            <button
-              type="button"
-              onClick={handleExecuteSelected}
-              disabled={readyNodes.length === 0}
-              title={
-                blockedCount > 0
-                  ? `${readyNodes.length} ready, ${blockedCount} blocked by dependencies`
-                  : `Execute ${readyNodes.length} task${readyNodes.length !== 1 ? "s" : ""}`
-              }
-              className="flex h-7 items-center gap-1 rounded-l-md border border-r-0 border-primary/30 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Play className="h-3.5 w-3.5" />
-              Execute{readyNodes.length > 0 ? ` (${readyNodes.length})` : ""}
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-7 items-center gap-1 rounded-r-md border border-primary/30 bg-primary/5 px-1.5 text-xs text-primary hover:bg-primary/10 transition-colors cursor-pointer"
-                >
-                  <SelectedMachineIcon className="h-3 w-3" />
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Machine</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {!isMultiTenant && (
-                  <DropdownMenuItem
-                    onClick={() => setSelectedMachineId(null)}
-                    className="gap-2"
-                  >
-                    <Laptop className="h-4 w-4" />
-                    <div className="flex flex-col">
-                      <span>Local</span>
-                      <span className="text-[10px] text-muted-foreground">Run on this machine</span>
-                    </div>
-                    {!selectedMachineId && (
-                      <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                )}
-                {!isMultiTenant && onlineMachines.length > 0 && <DropdownMenuSeparator />}
-                {onlineMachines.map((machine) => (
-                    <DropdownMenuItem
-                      key={machine.machineId}
-                      onClick={() => setSelectedMachineId(machine.machineId)}
-                      className="gap-2"
-                    >
-                      <Server className="h-4 w-4" />
-                      <div className="flex flex-col">
-                        <span className="truncate max-w-[140px]">{machine.name}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {machine.hostname || machine.machineId}
-                        </span>
-                      </div>
-                      {selectedMachineId === machine.machineId && (
-                        <CheckCircle2 className="h-4 w-4 ml-auto text-primary" />
-                      )}
-                    </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          <button
+            type="button"
+            onClick={handleExecuteSelected}
+            disabled={readyNodes.length === 0}
+            title={
+              blockedCount > 0
+                ? `${readyNodes.length} ready, ${blockedCount} blocked by dependencies`
+                : `Execute ${readyNodes.length} task${readyNodes.length !== 1 ? "s" : ""}`
+            }
+            className="flex h-7 items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Execute{readyNodes.length > 0 ? ` (${readyNodes.length})` : ""}
+          </button>
 
           <div className="h-4 w-px bg-border" />
           <button
