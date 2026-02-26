@@ -188,6 +188,12 @@ export class DispatchEngine extends EventEmitter {
     }
     this.activeExecutions.clear()
 
+    // Reject all pending approvals
+    for (const [approvalId, pending] of this.pendingApprovals) {
+      this.pendingApprovals.delete(approvalId)
+      pending.reject(new Error('Dispatch engine stopped'))
+    }
+
     console.log('[dispatch] Engine stopped')
   }
 
@@ -261,6 +267,14 @@ export class DispatchEngine extends EventEmitter {
     if (execution) {
       execution.abortController.abort()
       this.activeExecutions.delete(nodeId)
+
+      // Reject any pending approvals for this execution
+      for (const [approvalId, pending] of this.pendingApprovals) {
+        if (pending.executionId === execution.executionId) {
+          this.pendingApprovals.delete(approvalId)
+          pending.reject(new Error('Execution cancelled'))
+        }
+      }
 
       // Update node status
       if (this.nodeUpdateCallback) {
@@ -731,7 +745,10 @@ export class DispatchEngine extends EventEmitter {
       })
     }
 
-    // Create promise that will be resolved when user responds
+    // Create promise that will be resolved when user responds.
+    // No timeout — approvals wait indefinitely. The in-memory cost is
+    // negligible (one Map entry) and the agent runner persists reliably.
+    // Cleanup happens when the user responds or the execution is cancelled.
     return new Promise<boolean | string>((resolve, reject) => {
       this.pendingApprovals.set(approvalId, {
         resolve,
@@ -740,14 +757,6 @@ export class DispatchEngine extends EventEmitter {
         projectId: node.projectId,
         executionId,
       })
-
-      // Set timeout (5 minutes)
-      setTimeout(() => {
-        if (this.pendingApprovals.has(approvalId)) {
-          this.pendingApprovals.delete(approvalId)
-          reject(new Error('Approval request timed out after 5 minutes'))
-        }
-      }, 5 * 60 * 1000)
     })
   }
 
@@ -832,7 +841,10 @@ export class DispatchEngine extends EventEmitter {
     // Note: We don't update node status for dynamic approvals since they can happen mid-execution
     // The agent is still running, just paused waiting for user input
 
-    // Create promise that will be resolved when user responds
+    // Create promise that will be resolved when user responds.
+    // No timeout — approvals wait indefinitely. The in-memory cost is
+    // negligible (one Map entry) and the agent runner persists reliably.
+    // Cleanup happens when the user responds or the execution is cancelled.
     return new Promise<string>((resolve, reject) => {
       this.pendingApprovals.set(approvalId, {
         resolve: (result) => resolve(result as string),
@@ -841,15 +853,18 @@ export class DispatchEngine extends EventEmitter {
         projectId: execInfo.projectId,
         executionId,
       })
-
-      // Set timeout (5 minutes)
-      setTimeout(() => {
-        if (this.pendingApprovals.has(approvalId)) {
-          this.pendingApprovals.delete(approvalId)
-          reject(new Error('User question timed out after 5 minutes'))
-        }
-      }, 5 * 60 * 1000)
     })
+  }
+
+  /**
+   * Check if there is a pending approval for a given execution ID.
+   * Used by SSE heartbeat loops to pause the activity timeout while
+   * the agent is waiting for a user response to ask_user_question.
+   */
+  hasPendingApprovalForExecution(executionId: string): boolean {
+    return Array.from(this.pendingApprovals.values()).some(
+      (p) => p.executionId === executionId
+    )
   }
 
   /**

@@ -1,4 +1,16 @@
 /**
+ * Escape special HTML characters to prevent XSS when embedding plain text in HTML.
+ */
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
  * Strip HTML tags and return plain text.
  * Handles list items with newlines and removes images.
  */

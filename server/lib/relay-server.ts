@@ -976,7 +976,9 @@ export class RelayServer extends EventEmitter {
 
       // Session attachment messages (MCP bridge)
       case 'session.attach':
-        this.handleSessionAttach(socket, message as SessionAttachMessage);
+        this.handleSessionAttach(socket, message as SessionAttachMessage).catch((err) => {
+          console.error('[relay] handleSessionAttach error:', err);
+        });
         break;
 
       case 'session.detach':
@@ -1244,7 +1246,9 @@ export class RelayServer extends EventEmitter {
         ...(task.description && { description: task.description }),
         // Multimodal image attachments
         ...(task.images && task.images.length > 0 && { images: task.images }),
-        ...(task.nodeNumber && { nodeNumber: task.nodeNumber }),
+        // Short hex IDs for branch names and PR titles
+        ...(task.shortNodeId && { shortNodeId: task.shortNodeId }),
+        ...(task.shortProjectId && { shortProjectId: task.shortProjectId }),
       },
     };
 
@@ -2297,7 +2301,7 @@ export class RelayServer extends EventEmitter {
   /**
    * Handle session attach request from MCP bridge
    */
-  private handleSessionAttach(socket: WebSocket, message: SessionAttachMessage): void {
+  private async handleSessionAttach(socket: WebSocket, message: SessionAttachMessage): Promise<void> {
     const { taskId, sessionId, machineId } = message;
 
     console.log(`[relay] Session attach request: session=${sessionId}, task=${taskId}, machine=${machineId}`);
@@ -2316,8 +2320,29 @@ export class RelayServer extends EventEmitter {
       return;
     }
 
-    // TODO: Validate that the task exists in Astro (would need API call)
-    // For now, we accept all attach requests
+    // Validate that the task exists in the database
+    try {
+      const { db } = await import('./db/index.js');
+      const { planNodes } = await import('./db/schema.js');
+      const { eq } = await import('drizzle-orm');
+      const [node] = await db.select({ id: planNodes.id }).from(planNodes).where(eq(planNodes.id, taskId)).limit(1);
+      if (!node) {
+        console.warn(`[relay] Session attach rejected: task ${taskId} not found`);
+        const ack: SessionAttachAckMessage = {
+          type: 'session.attach.ack',
+          timestamp: new Date(),
+          taskId,
+          sessionId,
+          success: false,
+          error: 'Task not found',
+        };
+        this.sendSessionMessage(socket, ack);
+        return;
+      }
+    } catch (err) {
+      // If DB lookup fails, allow the attach to proceed rather than blocking
+      console.warn(`[relay] Could not validate task ${taskId}, allowing attach:`, err);
+    }
 
     // Register the session
     const session: AttachedSession = {

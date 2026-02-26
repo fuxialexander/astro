@@ -6,14 +6,16 @@
  * 2. Chat Phase: Full-height streaming activity with inline approvals
  */
 
-import { useState, useEffect, useMemo } from "react"
-import { useSearchParams } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot } from "lucide-react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useSearchParams, useNavigate, useLocation } from "react-router"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, Play, FileCode2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
+import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
@@ -27,6 +29,11 @@ import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@
 export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
   const projectIdParam = searchParams.get("projectId")
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Playground context from location state
+  const fromPlaygroundId = (location.state as { fromPlaygroundId?: string } | null)?.fromPlaygroundId
 
   // Input phase state
   const [description, setDescription] = useState("")
@@ -47,12 +54,43 @@ export function ProjectNewPlan() {
 
   // Stores
   const startPlanSession = useExecutionStore((s) => s.startPlanSession)
+  const allExecutions = useExecutionStore((s) => s.executions)
   const execution = useExecutionStore((s) =>
     activeProjectId ? s.executions.get(`plan-${activeProjectId}`) : undefined
   )
+  const allProjects = useProjectStore((s) => s.projects)
   const project = useProjectStore((s) =>
     activeProjectId ? s.projects.find((p) => p.id === activeProjectId) : undefined
   )
+
+  // Playground context: read project and execution data
+  const playgroundProject = useProjectStore((s) =>
+    fromPlaygroundId ? s.projects.find((p) => p.id === fromPlaygroundId) : undefined
+  )
+  const playgroundExecution = useExecutionStore((s) =>
+    fromPlaygroundId ? s.executions.get(`playground-${fromPlaygroundId}`) : undefined
+  )
+
+  // Recent interactive plan sessions (projects that have a plan-${id} execution)
+  const planHistory = useMemo(() => {
+    return allProjects
+      .filter((p) => p.projectType !== 'playground' && allExecutions.has(`plan-${p.id}`))
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 10)
+  }, [allProjects, allExecutions])
+
+  // View a past plan session
+  const viewSession = useCallback((projectId: string) => {
+    const exec = allExecutions.get(`plan-${projectId}`)
+    if (exec?.status === 'pending' || exec?.status === 'running') {
+      // Still running — open in chat phase
+      setActiveProjectId(projectId)
+      setSearchParams({ projectId })
+    } else {
+      // Completed — navigate to the project's plan view
+      navigate(`/project/${projectId}/list`)
+    }
+  }, [allExecutions, setSearchParams, navigate])
 
   // Machines
   const machines = useExecutionStore((s) => s.machines)
@@ -122,11 +160,81 @@ export function ProjectNewPlan() {
     })),
   ].filter((m, i, arr) => arr.findIndex((a) => a.machineId === m.machineId) === i), [machines, realtimeMachines])
 
+  // Pre-fill description + working directory from playground context (once)
+  const playgroundPrefilled = useRef(false)
+  useEffect(() => {
+    if (!fromPlaygroundId || !playgroundProject || playgroundPrefilled.current) return
+    playgroundPrefilled.current = true
+
+    // Seed description from follow-ups or original playground description
+    const summary = playgroundExecution?.summary
+    if (summary?.followUps?.length) {
+      setDescription(summary.followUps.join('\n'))
+    } else if (playgroundProject.description) {
+      setDescription(playgroundProject.description)
+    }
+
+    // Pre-fill working directory
+    if (playgroundProject.workingDirectory) {
+      setWorkingDir(playgroundProject.workingDirectory)
+    }
+  }, [fromPlaygroundId, playgroundProject, playgroundExecution])
+
+  // Pre-fill machine separately — machines load async and may arrive after the first effect
+  const machinePrefilled = useRef(false)
+  useEffect(() => {
+    if (!fromPlaygroundId || !playgroundProject?.defaultMachineId || machinePrefilled.current || allMachines.length === 0) return
+    const match = allMachines.find((m) => m.machineId === playgroundProject.defaultMachineId)
+    if (match) {
+      machinePrefilled.current = true
+      setSelectedMachine(match)
+    }
+  }, [fromPlaygroundId, playgroundProject?.defaultMachineId, allMachines])
+
+  // Build visionDoc from playground execution summary
+  const playgroundVisionDoc = useMemo(() => {
+    if (!fromPlaygroundId || !playgroundProject) return undefined
+    const summary = playgroundExecution?.summary
+
+    const sections: string[] = ['## Context from Prior Playground Session\n']
+
+    if (summary) {
+      if (summary.workCompleted) {
+        sections.push(`### Work Completed\n${summary.workCompleted}\n`)
+      }
+      if (summary.keyFindings?.length) {
+        sections.push(`### Key Findings\n${summary.keyFindings.map((f) => `- ${f}`).join('\n')}\n`)
+      }
+      if (summary.filesChanged?.length) {
+        const files = summary.filesChanged.slice(0, 50)
+        sections.push(`### Files Changed\n${files.map((f) => `- \`${f}\``).join('\n')}\n`)
+      }
+      if (summary.followUps?.length) {
+        sections.push(`### Suggested Follow-ups\n${summary.followUps.map((f) => `- ${f}`).join('\n')}\n`)
+      }
+    } else if (playgroundExecution?.streamText) {
+      sections.push(`### Session Output (truncated)\n${playgroundExecution.streamText.slice(0, 2000)}\n`)
+    }
+
+    if (playgroundProject.description) {
+      sections.push(`### Original Goal\n${playgroundProject.description}\n`)
+    }
+
+    // Always return the visionDoc when from playground (even if minimal) so the
+    // "From Playground" badge detection in PlanChatPhase works reliably
+    return sections.join('\n')
+  }, [fromPlaygroundId, playgroundProject, playgroundExecution])
+
+  // Plan mode always uses "large" tier (Opus for Claude, o3 for Codex)
+  const customModelMap = useSettingsStore((s) => s.customModelMap)
+
   async function handleSubmit() {
     if (!description.trim() || isSubmitting) return
     setIsSubmitting(true)
 
     try {
+      // For planning, always use the "large" tier model unless explicitly overridden
+      const effectiveModel = selectedModel || resolveModel("large", selectedProvider || undefined, customModelMap)
       const { projectId } = await startPlanSession(
         description.trim(),
         "",
@@ -134,7 +242,8 @@ export function ProjectNewPlan() {
           targetMachineId: selectedMachine?.machineId,
           workingDirectory: workingDir || undefined,
           preferredProvider: selectedProvider || undefined,
-          model: selectedModel || undefined,
+          model: effectiveModel,
+          visionDoc: playgroundVisionDoc,
         }
       )
 
@@ -178,6 +287,27 @@ export function ProjectNewPlan() {
             <OnboardingHint hintId="plan-machine-setup" icon={Monitor}>
               Select a <strong>machine</strong> and <strong>working directory</strong> below so the plan can be executed on your environment.
             </OnboardingHint>
+          )}
+
+          {/* Playground context card */}
+          {fromPlaygroundId && playgroundProject && (
+            <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
+              <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-primary">Building on playground session</p>
+                {playgroundExecution?.summary?.workCompleted && (
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                    {playgroundExecution.summary.workCompleted}
+                  </p>
+                )}
+                {playgroundExecution?.summary?.filesChanged && playgroundExecution.summary.filesChanged.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
+                    <FileCode2 className="h-3 w-3" />
+                    {playgroundExecution.summary.filesChanged.length} files changed
+                  </p>
+                )}
+              </div>
+            </div>
           )}
 
           {/* Goal textarea */}
@@ -322,6 +452,54 @@ export function ProjectNewPlan() {
             </Button>
           </div>
         </div>
+
+        {/* Recent Plan Sessions */}
+        {planHistory.length > 0 && (
+          <div className="mt-10">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              Recent Sessions
+            </h2>
+            <div className="flex flex-col gap-1">
+              {planHistory.map((p) => {
+                const exec = allExecutions.get(`plan-${p.id}`)
+                const statusLabel = exec?.status === 'running' ? 'Running'
+                  : exec?.status === 'success' ? 'Completed'
+                  : exec?.status === 'failure' ? 'Failed'
+                  : exec?.status === 'cancelled' ? 'Cancelled'
+                  : 'Pending'
+                const statusColor = exec?.status === 'running' ? 'bg-primary'
+                  : exec?.status === 'success' ? 'bg-success'
+                  : exec?.status === 'failure' ? 'bg-destructive'
+                  : 'bg-muted-foreground'
+
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => viewSession(p.id)}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left group"
+                  >
+                    <span className={cn("h-2 w-2 rounded-full shrink-0", statusColor)} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm truncate">{p.name}</p>
+                      <p className="text-[10px] text-muted-foreground truncate font-mono">
+                        {p.workingDirectory || "—"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-[10px]">
+                        {statusLabel}
+                      </Badge>
+                      {exec?.status !== 'running' && exec?.status !== 'pending' && (
+                        <Play className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Remote path browser dialog */}
         {selectedMachine && (

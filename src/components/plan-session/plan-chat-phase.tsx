@@ -7,9 +7,11 @@
  */
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
-import { Send, Loader2, ArrowDown } from "lucide-react"
+import { Send, Loader2, ArrowDown, Layers, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore } from "@/stores/plan-store"
 import {
@@ -25,6 +27,8 @@ import {
 import { InlineApprovalCard } from "./inline-approval-card"
 import { PlanResultCard } from "./plan-result-card"
 import { PlanSessionHeader } from "./plan-session-header"
+import { TraceViewer } from "@/components/task-detail/trace-viewer"
+import { cn } from "@/lib/utils"
 import type { TaskActivityEvent } from "@/types"
 
 interface PlanChatPhaseProps {
@@ -44,6 +48,8 @@ export function PlanChatPhase({
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [viewMode, setViewMode] = useState<"activity" | "trace">("activity")
+  const viewModeAutoSwitched = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -63,7 +69,22 @@ export function PlanChatPhase({
   const allPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => allPlanNodes.filter((n) => n.projectId === projectId), [allPlanNodes, projectId])
 
+  // Check if this plan originated from a playground session
+  const projectVisionDoc = useProjectStore((s) =>
+    s.projects.find((p) => p.id === projectId)?.visionDoc
+  )
+  const isFromPlayground = projectVisionDoc?.includes("Context from Prior Playground Session") ?? false
+
   const isRunning = execution?.status === "pending" || execution?.status === "running"
+
+  // Auto-switch to trace view when activity events are empty after refresh (not running)
+  const activityEventsEmpty = !execution?.activityEvents?.length
+  useEffect(() => {
+    if (!isRunning && activityEventsEmpty && execution?.executionId && !viewModeAutoSwitched.current) {
+      viewModeAutoSwitched.current = true
+      setViewMode("trace")
+    }
+  }, [isRunning, activityEventsEmpty, execution?.executionId])
 
   // Merge activity events from execution + realtime
   const activityEvents: TaskActivityEvent[] = useMemo(() => {
@@ -229,60 +250,105 @@ export function PlanChatPhase({
         workingDirectory={workingDirectory}
         onAbort={() => cancelPlanSession(projectId)}
       />
+      {isFromPlayground && (
+        <div className="px-4 py-1.5 border-b border-border bg-background shrink-0">
+          <Badge variant="outline" className="text-[10px]">
+            <Sparkles className="h-3 w-3 mr-1" /> From Playground
+          </Badge>
+        </div>
+      )}
 
-      {/* Activity Timeline */}
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-auto py-3 bg-muted/20"
-      >
-        {/* Error state */}
-        {execution?.status === "failure" && execution.error && (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center max-w-md px-4">
-              <p className="text-sm font-medium text-destructive mb-1">Planning session failed</p>
-              <p className="text-xs text-muted-foreground">{execution.error}</p>
-            </div>
+      {/* View mode tabs — Activity / Trace */}
+      {execution?.executionId && (
+        <div className="flex items-center gap-1 px-4 py-1.5 border-b border-border bg-background shrink-0">
+          <button
+            onClick={() => setViewMode("activity")}
+            className={cn(
+              "px-3 py-1 rounded-md text-xs font-medium transition-colors",
+              viewMode === "activity"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted/50"
+            )}
+          >
+            Activity
+          </button>
+          <button
+            onClick={() => setViewMode("trace")}
+            className={cn(
+              "px-3 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5",
+              viewMode === "trace"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted/50"
+            )}
+          >
+            <Layers className="h-3 w-3" />
+            Trace
+          </button>
+        </div>
+      )}
+
+      {/* Trace View */}
+      {viewMode === "trace" && execution?.executionId ? (
+        <div className="flex-1 min-h-0">
+          <TraceViewer executionId={execution.executionId} isRunning={isRunning} />
+        </div>
+      ) : (
+        <>
+          {/* Activity Timeline */}
+          <div
+            ref={containerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-auto py-3 bg-muted/20"
+          >
+            {/* Error state */}
+            {execution?.status === "failure" && execution.error && (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center max-w-md px-4">
+                  <p className="text-sm font-medium text-destructive mb-1">Planning session failed</p>
+                  <p className="text-xs text-muted-foreground">{execution.error}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {displayBlocks.length === 0 && execution?.status !== "failure" && (
+              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                {isRunning ? "Starting planning session..." : "No activity yet"}
+              </div>
+            )}
+
+            {/* Activity blocks */}
+            {displayBlocks.map((block, i) => renderBlock(block, i))}
+
+            {/* Plan result card */}
+            {!isRunning && hasPlan && (
+              <PlanResultCard
+                projectId={projectId}
+                projectName={projectName}
+                nodeCount={planNodes.length}
+                edgeCount={0}
+                milestoneNames={milestoneNames}
+                status="success"
+              />
+            )}
           </div>
-        )}
 
-        {/* Empty state */}
-        {displayBlocks.length === 0 && execution?.status !== "failure" && (
-          <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            {isRunning ? "Starting planning session..." : "No activity yet"}
-          </div>
-        )}
-
-        {/* Activity blocks */}
-        {displayBlocks.map((block, i) => renderBlock(block, i))}
-
-        {/* Plan result card */}
-        {!isRunning && hasPlan && (
-          <PlanResultCard
-            projectId={projectId}
-            projectName={projectName}
-            nodeCount={planNodes.length}
-            edgeCount={0}
-            milestoneNames={milestoneNames}
-            status="success"
-          />
-        )}
-      </div>
-
-      {/* Scroll to bottom button */}
-      {!autoScroll && (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="absolute bottom-16 right-4 h-8 gap-1.5 shadow-md z-10"
-          onClick={() => {
-            setAutoScroll(true)
-            containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: "smooth" })
-          }}
-        >
-          <ArrowDown className="h-3.5 w-3.5" />
-          Bottom
-        </Button>
+          {/* Scroll to bottom button */}
+          {!autoScroll && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="absolute bottom-16 right-4 h-8 gap-1.5 shadow-md z-10"
+              onClick={() => {
+                setAutoScroll(true)
+                containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: "smooth" })
+              }}
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+              Bottom
+            </Button>
+          )}
+        </>
       )}
 
       {/* Input Bar */}

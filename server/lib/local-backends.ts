@@ -87,8 +87,9 @@ export async function detectSingleBackend(id: string): Promise<LocalBackendInfo 
 
 /**
  * Build an AI-ready context string describing a backend's capabilities.
+ * If customContext is provided, it is appended as a "Custom Instructions" section.
  */
-export function buildContextString(backend: LocalBackendInfo): string {
+export function buildContextString(backend: LocalBackendInfo, customContext?: string): string {
   switch (backend.id) {
     case 'k8s-exec': {
       const meta = backend.metadata ?? {}
@@ -117,7 +118,7 @@ export function buildContextString(backend: LocalBackendInfo): string {
         }
       }
       str += ` Use \`kubectl exec -n <ns> <pod> -- <cmd>\` to run commands on pods.`
-      return str
+      return appendCustomContext(str, customContext)
     }
 
     case 'docker': {
@@ -126,7 +127,7 @@ export function buildContextString(backend: LocalBackendInfo): string {
       const memoryGb = meta.memoryGb ?? '?'
       let str = `Docker v${backend.version || '?'} available. ${cpus} CPUs, ${memoryGb}GB memory.`
       str += ` Use \`docker run --rm -v $PWD:/work -w /work <image> <cmd>\` for containerized execution.`
-      return str
+      return appendCustomContext(str, customContext)
     }
 
     case 'slurm': {
@@ -141,7 +142,10 @@ export function buildContextString(backend: LocalBackendInfo): string {
       if (partitions && partitions.length > 0) {
         const partList = partitions.map((p) => {
           let s = p.name as string
-          if (p.nodes) s += ` (${p.nodes} nodes)`
+          const total = p.nodes as number | undefined
+          const avail = p.availableNodes as number | undefined
+          if (total) s += ` (${avail ?? 0}/${total} nodes available)`
+          if (p.features) s += ` [${p.features}]`
           return s
         }).join(', ')
         str += ` Partitions: ${partList}.`
@@ -155,7 +159,7 @@ export function buildContextString(backend: LocalBackendInfo): string {
         str += ` ${totalGpus} GPUs available across ${gpuNodeCount ?? '?'} nodes.`
       }
       str += ` NEVER run compute on the login node -- use srun/sbatch.`
-      return str
+      return appendCustomContext(str, customContext)
     }
 
     default: {
@@ -171,10 +175,15 @@ export function buildContextString(backend: LocalBackendInfo): string {
         if (!meta.reachable) {
           str += ` Note: this host was unreachable at last check.`
         }
-        return str
+        return appendCustomContext(str, customContext)
       }
-      return `${backend.name} backend available.`
+      return appendCustomContext(`${backend.name} backend available.`, customContext)
     }
+  }
+
+  function appendCustomContext(base: string, overlay?: string): string {
+    if (!overlay?.trim()) return base
+    return `${base}\n\n--- Custom Instructions ---\n${overlay.trim()}`
   }
 }
 
@@ -462,30 +471,59 @@ async function detectSlurm(): Promise<LocalBackendInfo | null> {
       // Ignore
     }
 
-    // Partition details
+    // Partition details — aggregate across multiple sinfo lines per partition
     try {
       const { stdout: sinfoOut } = await execAsync(
         'sinfo -h -o "%P|%a|%l|%D|%T|%f" 2>/dev/null',
         { timeout: 5_000 },
       )
-      const seen = new Set<string>()
-      const partitions: Array<Record<string, unknown>> = []
+      const partMap = new Map<string, {
+        name: string; isDefault: boolean; available: boolean
+        maxTime?: string; nodes: number; availableNodes: number
+        featureSet: Set<string>
+      }>()
       for (const line of sinfoOut.trim().split('\n')) {
         if (!line.trim()) continue
-        const [partRaw, avail, maxTime, nodeCount, , features] = line.split('|')
+        const [partRaw, avail, maxTime, nodeCount, nodeState, features] = line.split('|')
         const name = partRaw?.replace('*', '') ?? ''
         const isDefault = partRaw?.endsWith('*') ?? false
-        if (seen.has(name)) continue
-        seen.add(name)
-        partitions.push({
-          name,
-          isDefault,
-          available: avail === 'up',
-          maxTime: maxTime?.trim(),
-          nodes: parseInt(nodeCount ?? '0', 10) || 0,
-          features: features?.trim() || undefined,
-        })
+        if (!name) continue
+
+        const count = parseInt(nodeCount ?? '0', 10) || 0
+        const state = nodeState?.trim() ?? ''
+        const isAvailableNode = state.startsWith('idle') || state.startsWith('mixed')
+
+        const existing = partMap.get(name)
+        if (existing) {
+          existing.nodes += count
+          if (isAvailableNode) existing.availableNodes += count
+          if (avail === 'up') existing.available = true
+          const feat = features?.trim()
+          if (feat && feat !== '(null)') existing.featureSet.add(feat)
+        } else {
+          const featureSet = new Set<string>()
+          const feat = features?.trim()
+          if (feat && feat !== '(null)') featureSet.add(feat)
+          partMap.set(name, {
+            name,
+            isDefault,
+            available: avail === 'up',
+            maxTime: maxTime?.trim(),
+            nodes: count,
+            availableNodes: isAvailableNode ? count : 0,
+            featureSet,
+          })
+        }
       }
+      const partitions = [...partMap.values()].map((p) => ({
+        name: p.name,
+        isDefault: p.isDefault,
+        available: p.available,
+        maxTime: p.maxTime,
+        nodes: p.nodes,
+        availableNodes: p.availableNodes,
+        features: p.featureSet.size > 0 ? [...p.featureSet].join(', ') : undefined,
+      }))
       if (partitions.length > 0) metadata.partitions = partitions
     } catch {
       // Ignore

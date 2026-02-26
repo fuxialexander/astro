@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { escapeHtml } from "@/lib/html-utils"
 import { generatePlan } from "@/lib/api-client"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -232,6 +233,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               type: n.type,
               title: n.title,
               description: n.description,
+              content: n.description ? `<p>${escapeHtml(n.description)}</p>` : '',
               status: n.status,
               parentId: n.parentId ? prefixId(n.parentId) : n.parentId,
               dependencies: n.dependencies.map(prefixId),

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { stripHtml, escapeHtml } from "@/lib/html-utils"
 import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle, MessageSquare, Plus, History, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -319,7 +320,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
       .map((n) => ({
         id: n.id,
         title: n.title,
-        description: n.description,
+        description: n.content ? stripHtml(n.content) : (n.description ?? ''),
         status: n.status,
         type: n.type,
         priority: n.priority,
@@ -433,6 +434,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         type: (n.type as PlanNode["type"]) ?? "task",
         title: n.title,
         description: n.description,
+        content: n.description ? `<p>${escapeHtml(n.description)}</p>` : '',
         status: "planned",
         parentId: null,
         dependencies: (n.dependencies ?? []).map((d) => idMap.get(d) ?? safePrefixId(d)),
