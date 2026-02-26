@@ -737,6 +737,20 @@ export function Playground() {
                       <Badge variant="outline" className="text-[10px]">
                         {statusLabel}
                       </Badge>
+                      {exec?.status === 'success' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-[10px] gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate('/projects/new/plan', { state: { fromPlaygroundId: p.id } })
+                          }}
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          Plan
+                        </Button>
+                      )}
                       {exec?.status !== 'running' && exec?.status !== 'pending' && (
                         <Play className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                       )}
