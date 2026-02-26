@@ -51,6 +51,8 @@ export function ProjectNewPlan() {
 
   // Chat phase state
   const [activeProjectId, setActiveProjectId] = useState<string | null>(projectIdParam)
+  // Track project IDs created by startPlanSession in this session (safe to delete on cancel)
+  const ownedProjectIds = useRef(new Set<string>())
 
   // Stores
   const startPlanSession = useExecutionStore((s) => s.startPlanSession)
@@ -247,6 +249,7 @@ export function ProjectNewPlan() {
         }
       )
 
+      ownedProjectIds.current.add(projectId)
       setActiveProjectId(projectId)
       setSearchParams({ projectId })
     } catch (error) {
@@ -265,6 +268,16 @@ export function ProjectNewPlan() {
           projectName={project?.name || "New Project"}
           machineName={machineName}
           workingDirectory={project?.workingDirectory || workingDir || undefined}
+          onCancel={() => {
+            const pid = activeProjectId
+            setActiveProjectId(null)
+            setSearchParams({})
+            // Only delete the project if it was created by this session (not loaded from URL)
+            if (pid && ownedProjectIds.current.has(pid)) {
+              ownedProjectIds.current.delete(pid)
+              useExecutionStore.getState().cleanupPlanSession(pid)
+            }
+          }}
         />
       </div>
     )

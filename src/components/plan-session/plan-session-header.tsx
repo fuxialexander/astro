@@ -4,11 +4,11 @@
  * Shows project name, status badge, abort button, and optional machine/directory info.
  */
 
-import { Loader2, X, Laptop, CheckCircle2, AlertCircle } from "lucide-react"
+import { Loader2, X, Laptop, CheckCircle2, AlertCircle, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-type PlanSessionStatus = 'planning' | 'waiting' | 'completed' | 'error'
+type PlanSessionStatus = 'planning' | 'waiting' | 'completed' | 'error' | 'cancelled'
 
 interface PlanSessionHeaderProps {
   projectName: string
@@ -45,6 +45,11 @@ export function PlanSessionHeader({
       label: "Error",
       color: "bg-destructive/10 text-destructive",
       icon: <AlertCircle className="h-3 w-3" />,
+    },
+    cancelled: {
+      label: "Cancelled",
+      color: "bg-muted text-muted-foreground",
+      icon: <XCircle className="h-3 w-3" />,
     },
   }
 

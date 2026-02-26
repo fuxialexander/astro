@@ -67,6 +67,18 @@ async function patch(url: string, body: unknown) {
   return json(url, { method: "PATCH", headers, body: JSON.stringify(body) })
 }
 
+/**
+ * PATCH with undefined→null serialization.
+ * JSON.stringify normally strips undefined, but when clearing fields (e.g. resetting
+ * executionId to undefined), we need to send null so the server actually clears them.
+ * Use this only when the body explicitly contains undefined values that mean "clear".
+ */
+async function patchWithNulls(url: string, body: unknown) {
+  const headers = await getAuthHeaders()
+  const serialized = JSON.stringify(body, (_key, value) => value === undefined ? null : value)
+  return json(url, { method: "PATCH", headers, body: serialized })
+}
+
 async function put(url: string, body: unknown) {
   const headers = await getAuthHeaders()
   return json(url, { method: "PUT", headers, body: JSON.stringify(body) })
@@ -262,7 +274,8 @@ export const dataClient = {
   },
 
   async updateNode(id: string, patch_: Partial<PlanNode>): Promise<void> {
-    await patch(`${BASE}/plan/nodes/${id}`, patch_)
+    // Use patchWithNulls so that undefined fields (e.g. clearing executionId) are sent as null
+    await patchWithNulls(`${BASE}/plan/nodes/${id}`, patch_)
   },
 
   async deleteNode(id: string): Promise<void> {

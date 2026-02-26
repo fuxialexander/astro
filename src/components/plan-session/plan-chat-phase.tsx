@@ -36,6 +36,8 @@ interface PlanChatPhaseProps {
   projectName: string
   machineName?: string
   workingDirectory?: string
+  /** Called after the plan session is cancelled (abort button) */
+  onCancel?: () => void
 }
 
 export function PlanChatPhase({
@@ -43,6 +45,7 @@ export function PlanChatPhase({
   projectName,
   machineName,
   workingDirectory,
+  onCancel,
 }: PlanChatPhaseProps) {
   const nodeId = `plan-${projectId}`
   const [input, setInput] = useState("")
@@ -151,11 +154,15 @@ export function PlanChatPhase({
   const milestoneNames = planNodes.filter((n) => n.type === "milestone").map((n) => n.title)
 
   // Compute status for header
-  const headerStatus = execution?.status === "success" || execution?.status === "failure"
-    ? (execution.error ? 'error' : 'completed')
-    : pendingApprovals.length > 0
-      ? 'waiting'
-      : 'planning'
+  const headerStatus = !execution
+    ? 'cancelled' as const
+    : execution.status === "cancelled"
+      ? 'cancelled' as const
+      : execution.status === "success" || execution.status === "failure"
+        ? (execution.error ? 'error' as const : 'completed' as const)
+        : pendingApprovals.length > 0
+          ? 'waiting' as const
+          : 'planning' as const
 
   // Auto-scroll
   const eventsLength = activityEvents.length
@@ -248,7 +255,7 @@ export function PlanChatPhase({
         status={headerStatus}
         machineName={machineName}
         workingDirectory={workingDirectory}
-        onAbort={() => cancelPlanSession(projectId)}
+        onAbort={() => { cancelPlanSession(projectId); onCancel?.() }}
       />
       {isFromPlayground && (
         <div className="px-4 py-1.5 border-b border-border bg-background shrink-0">
