@@ -15,7 +15,7 @@ import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
-import { useSettingsStore, resolveModel } from "@/stores/settings-store"
+import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
 import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
@@ -44,6 +44,7 @@ export function ProjectNewPlan() {
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null)
   const [selectedProvider, setSelectedProvider] = useState("")
   const [selectedModel, setSelectedModel] = useState("")
+  const [modelTier, setModelTier] = useState<ModelTier>("large")
 
   // Git detection (debounced)
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
@@ -227,7 +228,6 @@ export function ProjectNewPlan() {
     return sections.join('\n')
   }, [fromPlaygroundId, playgroundProject, playgroundExecution])
 
-  // Plan mode always uses "large" tier (Opus for Claude, o3 for Codex)
   const customModelMap = useSettingsStore((s) => s.customModelMap)
 
   async function handleSubmit() {
@@ -235,8 +235,7 @@ export function ProjectNewPlan() {
     setIsSubmitting(true)
 
     try {
-      // For planning, always use the "large" tier model unless explicitly overridden
-      const effectiveModel = selectedModel || resolveModel("large", selectedProvider || undefined, customModelMap)
+      const effectiveModel = selectedModel || resolveModel(modelTier, selectedProvider || undefined, customModelMap)
       const { projectId } = await startPlanSession(
         description.trim(),
         "",
@@ -403,6 +402,33 @@ export function ProjectNewPlan() {
               </div>
             </div>
           )}
+
+          {/* Model size selector */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-muted-foreground">Model size:</span>
+            <div className="flex flex-wrap gap-2">
+              {(["small", "medium", "large"] as const).map((tier) => {
+                const label = tier === "small" ? "Small" : tier === "medium" ? "Medium" : "Large"
+                const resolved = resolveModel(tier, selectedProvider || undefined, customModelMap)
+                return (
+                  <button
+                    key={tier}
+                    onClick={() => { setModelTier(tier); setSelectedModel("") }}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                      modelTier === tier
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border hover:bg-muted"
+                    )}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    {label}
+                    <span className="text-[10px] text-muted-foreground">({resolved})</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           {/* Working directory — only shown when a machine is selected */}
           {selectedMachine && (
