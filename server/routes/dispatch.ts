@@ -718,7 +718,7 @@ ${verificationSection}`)
     let lastActivity = Date.now()
     let resultSent = false
     let waitingForApproval = false
-    const ACTIVITY_TIMEOUT_MS = 300_000
+    const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
     const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
       if (!alive || msg.result.taskId !== executionId) return
@@ -969,8 +969,7 @@ ${verificationSection}`)
       alive = false
       clearInterval(heartbeat)
       cleanup()
-      // Cancel the relay task so the agent runner stops
-      relayServer.cancelTask(executionId, machineId || '')
+      // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 
     // Wait for completion

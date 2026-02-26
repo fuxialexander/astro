@@ -108,7 +108,7 @@ async function streamChatViaRelay(
   return streamSSE(c, async (stream) => {
     let alive = true
     let lastActivity = Date.now()
-    const ACTIVITY_TIMEOUT_MS = 300_000
+    const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
     const onText = (msg: TaskTextMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
@@ -223,7 +223,7 @@ async function streamChatViaRelay(
       alive = false
       clearInterval(heartbeat)
       cleanup()
-      relayServer.cancelTask(opts.taskId, opts.targetMachineId || '')
+      // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 
     // Wait for completion
@@ -421,7 +421,7 @@ agentRoute.post('/generate-plan', async (c) => {
     let lastActivity = Date.now()
     let assistantText = ''
     let planResultSent = false
-    const ACTIVITY_TIMEOUT_MS = 300_000
+    const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
     const onResult = (msg: TaskResultMessage) => {
       if (!alive || msg.result.taskId !== taskId) return
@@ -562,7 +562,7 @@ agentRoute.post('/generate-plan', async (c) => {
       alive = false
       clearInterval(heartbeat)
       cleanup()
-      relayServer.cancelTask(taskId, targetMachineId || '')
+      // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 
     // Wait for completion
