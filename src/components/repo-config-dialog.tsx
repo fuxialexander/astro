@@ -8,6 +8,7 @@ import { useGitHubStore } from "@/stores/github-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
+import { useToastStore } from "@/stores/toast-store"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
@@ -36,9 +37,11 @@ export function RepoConfigDialog({
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const realtimeMachines = useRealtimeStore((s) => s.machines)
   const { setupRepo } = useRepoSetup()
+  const addToast = useToastStore((s) => s.add)
   const isMultiTenant = isServerMode()
 
-  const [repoUrl, setRepoUrl] = useState(project.repository ?? "")
+  // Auto-populate repo URL from project.source.remoteUrl if repository isn't set
+  const [repoUrl, setRepoUrl] = useState(project.repository ?? project.source?.remoteUrl ?? "")
   const [workDir, setWorkDir] = useState(project.workingDirectory ?? "")
   const [selectedMachineId, setSelectedMachineId] = useState(project.defaultMachineId ?? "")
   const [saved, setSaved] = useState(false)
@@ -126,41 +129,59 @@ export function RepoConfigDialog({
 
     setIsSaving(true)
     try {
-      if (workDir.trim() || finalRepoUrl) {
-        const result = await setupRepo({
-          projectId: project.id,
-          projectName: project.name,
-          projectDescription: project.description,
-          workingDirectory: workDir.trim() || undefined,
-          repository: finalRepoUrl || undefined,
-          targetMachineId: selectedMachineId || undefined,
-        })
+      // Always persist user input immediately
+      const userWorkDir = workDir.trim() || undefined
+      const userRepo = finalRepoUrl || undefined
+      updateProject(project.id, {
+        repository: userRepo,
+        workingDirectory: userWorkDir,
+        sourceDirectory: userWorkDir,
+        defaultMachineId: selectedMachineId || undefined,
+      })
 
-        updateProject(project.id, {
-          repository: finalRepoUrl || undefined,
-          workingDirectory: result?.workingDirectory,
-          defaultMachineId: selectedMachineId || undefined,
-        })
+      // Try setupRepo as enhancement (detects git, file tree, etc.)
+      if (userWorkDir || userRepo) {
+        try {
+          const result = await setupRepo({
+            projectId: project.id,
+            projectName: project.name,
+            projectDescription: project.description,
+            workingDirectory: userWorkDir,
+            repository: userRepo,
+            targetMachineId: selectedMachineId || undefined,
+          })
 
-        setRepoUrl(finalRepoUrl)
-      } else {
-        updateProject(project.id, {
-          repository: undefined,
-          workingDirectory: undefined,
-          defaultMachineId: selectedMachineId || undefined,
-        })
+          // Merge resolved directory from setupRepo (may be more accurate)
+          if (result?.workingDirectory) {
+            updateProject(project.id, {
+              workingDirectory: result.workingDirectory,
+              sourceDirectory: result.workingDirectory,
+            })
+            setWorkDir(result.workingDirectory)
+          }
+        } catch (setupError) {
+          // setupRepo failure is non-fatal — user input is already saved
+          console.warn('[repo-config] Repo setup failed (input saved):', setupError)
+          addToast({
+            type: 'warning',
+            title: 'Repo setup incomplete',
+            description: 'Directory saved, but automatic setup failed. File tree and git detection may be unavailable.',
+          })
+        }
       }
 
+      setRepoUrl(finalRepoUrl)
       addActivity({
         projectId: project.id,
         type: "repo.configured",
         title: "Configured repository and working directory",
-        description: workDir.trim() || finalRepoUrl || undefined,
+        description: userWorkDir || userRepo || undefined,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 1500)
     } catch (error) {
       console.error('[repo-config] Save failed:', error)
+      addToast({ type: 'error', title: 'Save failed', description: String(error) })
     } finally {
       setIsSaving(false)
     }

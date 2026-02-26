@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { MobileStatusBar } from "@/components/mobile/status-bar"
 import { useAuthStore } from "@/stores/auth-store"
 import { apiUrl } from "@/lib/api-url"
 
@@ -223,9 +222,6 @@ export function DeviceAuth() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      {/* Mobile Status Bar */}
-      <MobileStatusBar />
-
       <div className="flex flex-1 flex-col items-center justify-center p-4">
         <div className="w-full max-w-md">
         {/* Logo/Brand */}

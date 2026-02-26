@@ -115,9 +115,15 @@ type MyTasksViewMode = "list" | "timeline" | "board"
 
 
 export function MyTasks() {
-  const projects = useProjectStore((s) => s.projects)
+  const allProjects = useProjectStore((s) => s.projects)
+  // Filter out playground sessions — they have no plan nodes and shouldn't appear in task views
+  const projects = useMemo(
+    () => allProjects.filter((p) => p.projectType !== 'playground'),
+    [allProjects]
+  )
+  const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
   const rawNodes = usePlanStore((s) => s.nodes)
-  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
+  const nodes = useMemo(() => rawNodes.filter((n) => isLive(n) && projectIds.has(n.projectId)), [rawNodes, projectIds])
   const rawEdges = usePlanStore((s) => s.edges)
   const edges = useMemo(() => rawEdges.filter(isLive), [rawEdges])
   const displaySettings = useDisplaySettingsStore((s) => s.get("my-tasks"))

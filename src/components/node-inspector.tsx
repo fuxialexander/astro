@@ -3,7 +3,7 @@ import { Link } from "react-router"
 import { FileText, XCircle, RotateCcw, X, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { PropertyPicker } from "@/components/property-picker"
 
@@ -342,25 +342,22 @@ export function NodeInspectorContent({
 }
 
 /**
- * Mobile: full-screen sheet wrapping NodeInspectorContent.
+ * Mobile: floating card dialog wrapping NodeInspectorContent.
  */
 export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }) {
   const { open, onClose, node, ...rest } = props
   return (
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full p-0">
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="fixed inset-3 left-auto right-3 top-3 bottom-3 w-[calc(100%-1.5rem)] max-w-sm translate-x-0 translate-y-0 rounded-2xl bg-card/90 backdrop-blur-md shadow-2xl border-border/40 p-0 overflow-hidden">
         <div className="flex flex-col gap-5 p-4 overflow-auto h-full">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="font-semibold text-base truncate flex-1">{node.title}</h3>
-            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onClose}>
-              <X className="h-4 w-4" />
-            </Button>
+            <h3 className="font-semibold text-base truncate flex-1 pr-8">{node.title}</h3>
           </div>
           <Separator />
           <NodeInspectorContent node={node} onClose={onClose} {...rest} />
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }
 

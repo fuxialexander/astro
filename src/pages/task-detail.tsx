@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Separator } from "@/components/ui/separator"
-import { MobileStatusBar } from "@/components/mobile/status-bar"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -16,7 +15,8 @@ import { UnifiedActivityView } from "@/components/task-detail/unified-activity-v
 import { FileChangesView } from "@/components/task-detail/file-changes-view"
 import { TraceViewer } from "@/components/task-detail/trace-viewer"
 import { TaskContentTab } from "@/components/task-detail/task-content-tab"
-import { NodeInspectorContent } from "@/components/node-inspector"
+import { NodeInspectorContent, NodeInspectorSheet } from "@/components/node-inspector"
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { ApprovalCard } from "@/components/approval-card"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
@@ -48,8 +48,13 @@ export function TaskDetail() {
   const getPendingApprovalForNode = useExecutionStore((s) => s.getPendingApprovalForNode)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
 
-  // Inspector sidebar toggle
-  const [inspectorOpen, setInspectorOpen] = useState(true)
+  // Mobile detection
+  const isMobile = useMediaQuery("(max-width: 767px)")
+
+  // Inspector sidebar toggle — default closed on mobile
+  const [inspectorOpen, setInspectorOpen] = useState(
+    () => !window.matchMedia("(max-width: 767px)").matches
+  )
 
   // Compute executionId early for use in hooks
   const executionId = node?.executionId || execution?.executionId || ""
@@ -95,9 +100,6 @@ export function TaskDetail() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Mobile Status Bar */}
-      <MobileStatusBar />
-
       {/* Header */}
       <div className="flex items-center gap-3 md:gap-4 border-b border-border px-4 md:px-6 py-3 md:py-4">
         <Button variant="ghost" size="icon" className="h-8 w-8 md:h-9 md:w-9 shrink-0" onClick={() => {
@@ -141,7 +143,8 @@ export function TaskDetail() {
         </Tooltip>
       </div>
 
-      {/* Meta Row - scrollable on mobile */}
+      {/* Meta Row - scrollable on mobile, hidden when empty */}
+      {(node.executionStartedAt || isExecuting || isRunning || node.executionId || execution?.executionId || node.prUrl || execution?.prUrl || node.branchName || execution?.branchName) && (
       <div className={cn(
         "flex items-center gap-4 md:gap-6 border-b border-border px-4 md:px-6 py-2 md:py-3 text-xs md:text-sm",
         "overflow-x-auto"
@@ -251,6 +254,7 @@ export function TaskDetail() {
           </div>
         )}
       </div>
+      )}
 
       {/* Approval Card (if pending) */}
       {node.status === "awaiting_approval" && pendingApproval && (
@@ -474,8 +478,8 @@ export function TaskDetail() {
           </TabsContent>
         </Tabs>
 
-        {/* Node Inspector Sidebar */}
-        {inspectorOpen && (
+        {/* Node Inspector Sidebar (desktop) */}
+        {!isMobile && inspectorOpen && (
           <div className="flex flex-col gap-5 border-l bg-card p-5 overflow-auto border-border w-[320px] shrink-0">
             <div className="flex items-center justify-between gap-2">
               <h4 className="text-sm font-semibold text-muted-foreground">Inspector</h4>
@@ -494,6 +498,23 @@ export function TaskDetail() {
               onNodeUpdate={() => {}}
             />
           </div>
+        )}
+
+        {/* Node Inspector Sheet (mobile) */}
+        {isMobile && (
+          <NodeInspectorSheet
+            open={inspectorOpen}
+            node={node}
+            project={{
+              id: projectId,
+              workingDirectory: project?.workingDirectory,
+              defaultMachineId: project?.defaultMachineId,
+              fileTree: project?.fileTree,
+            }}
+            viewMode={searchParams.get('from') || 'graph'}
+            onClose={() => setInspectorOpen(false)}
+            onNodeUpdate={() => {}}
+          />
         )}
       </div>
     </div>

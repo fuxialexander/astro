@@ -23,6 +23,7 @@ import {
   Play,
   Layers,
   Sparkles,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -94,6 +95,7 @@ export function Playground() {
     activeProjectId ? s.projects.find((p) => p.id === activeProjectId) : undefined
   )
   const allProjects = useProjectStore((s) => s.projects)
+  const deleteProject = useProjectStore((s) => s.deleteProject)
 
   // Machines
   const machines = useExecutionStore((s) => s.machines)
@@ -384,6 +386,19 @@ export function Playground() {
     setViewMode("activity")
     viewModeAutoSwitched.current = false
   }, [setSearchParams])
+
+  // Delete a playground session (project + execution)
+  const deleteSession = useCallback((projectId: string) => {
+    // If deleting the currently active session, go back to landing
+    if (activeProjectId === projectId) {
+      setActiveProjectId(null)
+      setSearchParams({})
+    }
+    // Remove the in-memory execution entry
+    allExecutions.delete(`playground-${projectId}`)
+    // Delete the project (also cleans up plan nodes/edges)
+    deleteProject(projectId)
+  }, [activeProjectId, allExecutions, deleteProject, setSearchParams])
 
   // ─── Loading / Not Found State ─────────────────────────────────────
   if (activeProjectId && !execution) {
@@ -754,6 +769,16 @@ export function Playground() {
                       {exec?.status !== 'running' && exec?.status !== 'pending' && (
                         <Play className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                       )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteSession(p.id)
+                        }}
+                        className="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-destructive/10 transition-all text-destructive"
+                        title="Delete session"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </button>
                 )

@@ -29,14 +29,15 @@ import {
   Redo,
   Link2Off,
 } from 'lucide-react'
-import { Button } from './button'
 import { cn, getShortId } from '@/lib/utils'
 import { MentionSuggestion, type MentionSuggestionItem, type MentionSuggestionRef } from './mention-suggestion'
 import { stripHtml } from '@/lib/html-utils'
+import { prosemirrorToMarkdown } from '@/lib/prosemirror-markdown'
 
 export interface RichTextEditorRef {
   focus: () => void
   getHTML: () => string
+  getMarkdown: () => string
   getPlainText: () => string
   setContent: (content: string) => void
   insertImage: (url: string, alt?: string) => void
@@ -202,7 +203,7 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
       editorProps: {
         attributes: {
           class: cn(
-            'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[150px] px-3 py-2',
+            'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[180px] px-4 py-3',
             '[&_ul[data-type="taskList"]]:list-none [&_ul[data-type="taskList"]]:pl-0',
             '[&_ul[data-type="taskList"]_li]:flex [&_ul[data-type="taskList"]_li]:items-start [&_ul[data-type="taskList"]_li]:gap-2',
             '[&_ul[data-type="taskList"]_li>label]:mt-0.5 [&_ul[data-type="taskList"]_li>div]:flex-1',
@@ -253,6 +254,15 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
     useImperativeHandle(ref, () => ({
       focus: () => editor?.commands.focus(),
       getHTML: () => editor?.getHTML() || '',
+      getMarkdown: () => {
+        if (!editor) return ''
+        try {
+          return prosemirrorToMarkdown(editor.state.doc)
+        } catch {
+          // Fallback to plain text if serialization fails
+          return stripHtml(editor.getHTML())
+        }
+      },
       getPlainText: () => stripHtml(editor?.getHTML() || ''),
       setContent: (newContent: string) => editor?.commands.setContent(newContent),
       insertImage: (url: string, alt?: string) => {
@@ -302,7 +312,7 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
     if (!editor) return null
 
     return (
-      <div className={cn('relative rounded-md border border-input bg-background', className)}>
+      <div className={cn('relative rounded-lg border border-input bg-background overflow-hidden', className)}>
         {/* Hidden file input for image upload */}
         <input
           ref={fileInputRef}
@@ -314,135 +324,150 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
 
         {/* Toolbar */}
         {editable && (
-          <div className="flex items-center gap-0.5 border-b border-border p-1.5 flex-wrap">
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBold().run()}
-              active={editor.isActive('bold')}
-              title="Bold"
-            >
-              <Bold className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleItalic().run()}
-              active={editor.isActive('italic')}
-              title="Italic"
-            >
-              <Italic className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleStrike().run()}
-              active={editor.isActive('strike')}
-              title="Strikethrough"
-            >
-              <Strikethrough className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleCode().run()}
-              active={editor.isActive('code')}
-              title="Inline code"
-            >
-              <Code className="h-4 w-4" />
-            </ToolbarButton>
-
-            <div className="w-px h-5 bg-border mx-1" />
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-              active={editor.isActive('heading', { level: 1 })}
-              title="Heading 1"
-            >
-              <Heading1 className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-              active={editor.isActive('heading', { level: 2 })}
-              title="Heading 2"
-            >
-              <Heading2 className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-              active={editor.isActive('heading', { level: 3 })}
-              title="Heading 3"
-            >
-              <Heading3 className="h-4 w-4" />
-            </ToolbarButton>
-
-            <div className="w-px h-5 bg-border mx-1" />
-
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBulletList().run()}
-              active={editor.isActive('bulletList')}
-              title="Bullet list"
-            >
-              <List className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleOrderedList().run()}
-              active={editor.isActive('orderedList')}
-              title="Numbered list"
-            >
-              <ListOrdered className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleTaskList().run()}
-              active={editor.isActive('taskList')}
-              title="Task list"
-            >
-              <CheckSquare className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleBlockquote().run()}
-              active={editor.isActive('blockquote')}
-              title="Quote"
-            >
-              <Quote className="h-4 w-4" />
-            </ToolbarButton>
-
-            <div className="w-px h-5 bg-border mx-1" />
-
-            <ToolbarButton
-              onClick={setLink}
-              active={editor.isActive('link')}
-              title="Add link"
-            >
-              <Link2 className="h-4 w-4" />
-            </ToolbarButton>
-            {editor.isActive('link') && (
+          <div className="flex items-center gap-1 border-b border-border bg-muted/30 px-2 py-1.5 flex-wrap">
+            {/* Text formatting group */}
+            <ToolbarGroup>
               <ToolbarButton
-                onClick={() => editor.chain().focus().unsetLink().run()}
-                title="Remove link"
+                onClick={() => editor.chain().focus().toggleBold().run()}
+                active={editor.isActive('bold')}
+                title="Bold"
               >
-                <Link2Off className="h-4 w-4" />
+                <Bold className="h-3.5 w-3.5" />
               </ToolbarButton>
-            )}
-            <ToolbarButton onClick={addImage} title="Add image">
-              <ImageIcon className="h-4 w-4" />
-            </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleItalic().run()}
+                active={editor.isActive('italic')}
+                title="Italic"
+              >
+                <Italic className="h-3.5 w-3.5" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleStrike().run()}
+                active={editor.isActive('strike')}
+                title="Strikethrough"
+              >
+                <Strikethrough className="h-3.5 w-3.5" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleCode().run()}
+                active={editor.isActive('code')}
+                title="Inline code"
+              >
+                <Code className="h-3.5 w-3.5" />
+              </ToolbarButton>
+            </ToolbarGroup>
+
+            <ToolbarDivider />
+
+            {/* Heading group */}
+            <ToolbarGroup>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                active={editor.isActive('heading', { level: 1 })}
+                title="Heading 1"
+              >
+                <Heading1 className="h-3.5 w-3.5" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                active={editor.isActive('heading', { level: 2 })}
+                title="Heading 2"
+              >
+                <Heading2 className="h-3.5 w-3.5" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+                active={editor.isActive('heading', { level: 3 })}
+                title="Heading 3"
+              >
+                <Heading3 className="h-3.5 w-3.5" />
+              </ToolbarButton>
+            </ToolbarGroup>
+
+            <ToolbarDivider />
+
+            {/* List & structure group */}
+            <ToolbarGroup>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleBulletList().run()}
+                active={editor.isActive('bulletList')}
+                title="Bullet list"
+              >
+                <List className="h-3.5 w-3.5" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                active={editor.isActive('orderedList')}
+                title="Numbered list"
+              >
+                <ListOrdered className="h-3.5 w-3.5" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleTaskList().run()}
+                active={editor.isActive('taskList')}
+                title="Task list"
+              >
+                <CheckSquare className="h-3.5 w-3.5" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                active={editor.isActive('blockquote')}
+                title="Quote"
+              >
+                <Quote className="h-3.5 w-3.5" />
+              </ToolbarButton>
+            </ToolbarGroup>
+
+            <ToolbarDivider />
+
+            {/* Insert group */}
+            <ToolbarGroup>
+              <ToolbarButton
+                onClick={setLink}
+                active={editor.isActive('link')}
+                title="Add link"
+              >
+                <Link2 className="h-3.5 w-3.5" />
+              </ToolbarButton>
+              {editor.isActive('link') && (
+                <ToolbarButton
+                  onClick={() => editor.chain().focus().unsetLink().run()}
+                  title="Remove link"
+                >
+                  <Link2Off className="h-3.5 w-3.5" />
+                </ToolbarButton>
+              )}
+              <ToolbarButton onClick={addImage} title="Add image">
+                <ImageIcon className="h-3.5 w-3.5" />
+              </ToolbarButton>
+            </ToolbarGroup>
 
             <div className="flex-1" />
 
-            <ToolbarButton
-              onClick={() => editor.chain().focus().undo().run()}
-              disabled={!editor.can().undo()}
-              title="Undo"
-            >
-              <Undo className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().redo().run()}
-              disabled={!editor.can().redo()}
-              title="Redo"
-            >
-              <Redo className="h-4 w-4" />
-            </ToolbarButton>
+            {/* Undo/redo */}
+            <ToolbarGroup>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().undo().run()}
+                disabled={!editor.can().undo()}
+                title="Undo"
+              >
+                <Undo className="h-3.5 w-3.5" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().redo().run()}
+                disabled={!editor.can().redo()}
+                title="Redo"
+              >
+                <Redo className="h-3.5 w-3.5" />
+              </ToolbarButton>
+            </ToolbarGroup>
           </div>
         )}
 
         {/* Bubble menu for quick formatting */}
         {editable && (
           <BubbleMenu editor={editor}>
-            <div className="flex items-center gap-0.5 rounded-md border border-border bg-popover p-1 shadow-lg">
+            <div className="flex items-center gap-px rounded-lg border border-border bg-popover p-0.5 shadow-xl shadow-black/10 dark:shadow-black/30">
               <ToolbarButton
                 onClick={() => editor.chain().focus().toggleBold().run()}
                 active={editor.isActive('bold')}
@@ -488,6 +513,18 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
 
 RichTextEditor.displayName = 'RichTextEditor'
 
+function ToolbarGroup({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-px rounded-md bg-background border border-border/50 p-px">
+      {children}
+    </div>
+  )
+}
+
+function ToolbarDivider() {
+  return <div className="w-px h-5 mx-0.5" />
+}
+
 function ToolbarButton({
   onClick,
   active,
@@ -504,19 +541,20 @@ function ToolbarButton({
   compact?: boolean
 }) {
   return (
-    <Button
+    <button
       type="button"
-      variant="ghost"
-      size="sm"
       onClick={onClick}
       disabled={disabled}
       title={title}
       className={cn(
-        compact ? 'h-6 w-6 p-0' : 'h-7 w-7 p-0',
-        active && 'bg-accent text-accent-foreground'
+        'inline-flex items-center justify-center rounded-[5px] transition-colors duration-100 cursor-pointer',
+        'text-muted-foreground hover:text-foreground hover:bg-accent',
+        'disabled:opacity-30 disabled:pointer-events-none',
+        compact ? 'h-7 w-7' : 'h-7 w-7',
+        active && 'bg-accent text-foreground',
       )}
     >
       {children}
-    </Button>
+    </button>
   )
 }

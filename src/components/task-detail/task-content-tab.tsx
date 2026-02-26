@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
-import { stripHtml } from '@/lib/html-utils'
 import { Save, Loader2, ExternalLink, Paperclip, Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RichTextEditor, type RichTextEditorRef } from '@/components/ui/rich-text-editor'
@@ -61,7 +60,9 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
     if (!hasChanges) return
     setIsSaving(true)
     try {
-      await updateNode(node.id, { content: draftContent, description: stripHtml(draftContent) })
+      // Sync markdown into description so agents and dispatch get structured text
+      const markdown = editorRef.current?.getMarkdown() || draftContent
+      await updateNode(node.id, { content: draftContent, description: markdown })
       setHasChanges(false)
     } finally {
       setIsSaving(false)
@@ -149,7 +150,7 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
         isWide && 'grid grid-cols-3 gap-6 space-y-0'
       )}>
         {/* Main content area */}
-        <div className={cn(isWide && 'col-span-2 space-y-6')}>
+        <div className={cn('space-y-8', isWide && 'col-span-2')}>
           {/* Rich content editor */}
           <div>
             <RichTextEditor

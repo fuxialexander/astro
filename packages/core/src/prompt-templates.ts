@@ -468,7 +468,7 @@ ${descPart}
 
 Rules:
 - refinedTitle: imperative form, 5-10 words, concise and specific. Must be plain text — no markdown marks (no **, \`\`, #, etc.)
-- refinedDescription: structured with Goal, Acceptance Criteria, and Technical Hints sections. Use markdown formatting.
+- refinedDescription: structured with Goal, Acceptance Criteria, and Technical Hints sections. Use markdown formatting (headings, lists, bold, code blocks). The output will be converted to HTML and rendered in a TipTap rich text editor, so use standard markdown that maps cleanly to HTML elements (## for h2, - for bullet lists, **bold**, \`code\`, etc.).
 - If only a title is provided, expand it into a full description.
 - If only a description is provided, derive a concise title from it.
 - If the input is ambiguous or could mean multiple things, include a "clarification" field with a question and 2-3 options.
@@ -478,14 +478,14 @@ Rules:
 Respond with ONLY a JSON object in this exact format (no markdown fences, no extra text):
 {
   "refinedTitle": "Imperative title here",
-  "refinedDescription": "Structured description here",
+  "refinedDescription": "Structured markdown description here",
   "confidence": "high"
 }
 
 Or if clarification is needed:
 {
   "refinedTitle": "Best-guess title",
-  "refinedDescription": "Best-guess description",
+  "refinedDescription": "Best-guess structured markdown description",
   "clarification": { "question": "Did you mean X or Y?", "options": ["Option A", "Option B"] },
   "confidence": "medium"
 }`

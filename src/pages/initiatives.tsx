@@ -23,13 +23,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useProjectStore } from "@/stores/project-store"
 import { formatShortDate } from "@/lib/date-utils"
 import { ColorIconPicker, ColorIconBadge } from "@/components/color-icon-picker"
 import { getRandomColor, getRandomInitiativeIcon } from "@/lib/color-icon-utils"
 import { OnboardingHint } from "@/components/onboarding-hint"
-import type { Initiative } from "@/types"
+import { cn } from "@/lib/utils"
+import type { Initiative, Project } from "@/types"
+
+const healthDot: Record<string, string> = {
+  on_track: "bg-success",
+  at_risk: "bg-warning",
+  off_track: "bg-error",
+}
 
 const statusConfig: Record<Initiative["status"], { label: string; variant: "default" | "success" | "warning" | "destructive" }> = {
   active: { label: "Active", variant: "success" },
@@ -58,10 +66,12 @@ export default function InitiativesPage() {
   })
 
   const projectsByInitiative = useMemo(() => {
-    const map = new Map<string, number>()
+    const map = new Map<string, Project[]>()
     projects.forEach(p => {
       if (p.initiativeId) {
-        map.set(p.initiativeId, (map.get(p.initiativeId) || 0) + 1)
+        const list = map.get(p.initiativeId) || []
+        list.push(p)
+        map.set(p.initiativeId, list)
       }
     })
     return map
@@ -180,7 +190,8 @@ export default function InitiativesPage() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {sortedInitiatives.map((initiative) => {
-                const projectCount = projectsByInitiative.get(initiative.id) || 0
+                const initiativeProjects = projectsByInitiative.get(initiative.id) || []
+                const projectCount = initiativeProjects.length
                 return (
                   <Card key={initiative.id} className="group">
                     {/* Header */}
@@ -232,16 +243,40 @@ export default function InitiativesPage() {
                         </div>
                       )}
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <button
-                          className="flex items-center gap-1.5 hover:text-foreground transition-colors"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleOpenProjectsDialog(initiative.id)
-                          }}
-                        >
-                          <Folder className="h-3.5 w-3.5" />
-                          <span>{projectCount} project{projectCount !== 1 ? "s" : ""}</span>
-                        </button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleOpenProjectsDialog(initiative.id)
+                              }}
+                            >
+                              <Folder className="h-3.5 w-3.5" />
+                              <span>{projectCount} project{projectCount !== 1 ? "s" : ""}</span>
+                            </button>
+                          </TooltipTrigger>
+                          {initiativeProjects.length > 0 && (
+                            <TooltipContent
+                              side="bottom"
+                              align="start"
+                              className="bg-popover text-popover-foreground border border-border shadow-lg rounded-lg px-0 py-1.5 max-w-[220px]"
+                            >
+                              {initiativeProjects.map((p) => (
+                                <div
+                                  key={p.id}
+                                  className="flex items-center gap-2 px-3 py-1"
+                                >
+                                  <span className={cn(
+                                    "h-1.5 w-1.5 rounded-full shrink-0",
+                                    healthDot[p.health ?? "on_track"] ?? "bg-muted-foreground"
+                                  )} />
+                                  <span className="text-xs truncate">{p.name}</span>
+                                </div>
+                              ))}
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
                         <div className="flex items-center gap-3">
                           {initiative.lead && (
                             <span>{initiative.lead}</span>

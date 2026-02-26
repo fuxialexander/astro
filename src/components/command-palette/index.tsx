@@ -28,7 +28,10 @@ export function CommandPalette() {
   const toggleCommandSelection = useUIStore((s) => s.toggleCommandSelection)
   const clearCommandSelection = useUIStore((s) => s.clearCommandSelection)
 
-  const projects = useProjectStore((s) => s.projects)
+  const allProjects = useProjectStore((s) => s.projects)
+  // Separate planning projects from playground sessions
+  const projects = useMemo(() => allProjects.filter((p) => p.projectType !== 'playground'), [allProjects])
+  const playgroundProjects = useMemo(() => allProjects.filter((p) => p.projectType === 'playground'), [allProjects])
   const { theme, setTheme, availableThemes } = useTheme()
   const navigate = useNavigate()
 
@@ -145,8 +148,8 @@ export function CommandPalette() {
         return { ...cmd, children }
       }
       if (cmd.id === "action-open-plan-chat") {
-        // Create nested commands for each project
-        const children: CommandItemType[] = projects
+        // Create nested commands for planning projects
+        const planChildren: CommandItemType[] = projects
           .filter((p) => p.status === "active")
           .map((project) => ({
             id: `plan-chat-${project.id}`,
@@ -166,7 +169,27 @@ export function CommandPalette() {
               },
             },
           }))
-        return { ...cmd, children }
+        // Include playground sessions with their own URL
+        const playgroundChildren: CommandItemType[] = playgroundProjects
+          .filter((p) => p.status === "active")
+          .map((project) => ({
+            id: `plan-chat-${project.id}`,
+            label: project.name,
+            description: `Open playground session: ${project.name}`,
+            icon: undefined,
+            category: "actions" as CommandCategory,
+            keywords: ["chat", "playground", project.name.toLowerCase()],
+            action: () => navigate(`/playground?projectId=${project.id}`),
+            preview: {
+              title: `Playground - ${project.name}`,
+              content: project.description,
+              metadata: {
+                Action: "Open playground session",
+                ...(project.workingDirectory && { Directory: project.workingDirectory }),
+              },
+            },
+          }))
+        return { ...cmd, children: [...planChildren, ...playgroundChildren] }
       }
       if (cmd.id === "action-new-initiative") {
         return { ...cmd, action: () => navigate("/initiatives") }

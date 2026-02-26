@@ -21,6 +21,7 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import type { PlanNode, ProviderStatus } from "@/types"
 import { refineContent } from "@/lib/api-client"
+import { marked } from "marked"
 import { deriveAvailableProviders, isProviderAvailable } from "./provider-utils"
 
 interface ExecutionPanelProps {
@@ -166,7 +167,9 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
     try {
       const result = await refineContent(node.title, node.content ? stripHtml(node.content) : (node.description ?? ""), "task")
       if (result) {
-        updateNode(node.id, { title: result.refinedTitle, description: result.refinedDescription, content: `<p>${result.refinedDescription}</p>` })
+        // refinedDescription is markdown — convert to HTML for TipTap, keep markdown in description
+        const contentHtml = await marked.parse(result.refinedDescription, { async: false }) as string
+        updateNode(node.id, { title: result.refinedTitle, description: result.refinedDescription, content: contentHtml })
         setJustRefined(true)
         setTimeout(() => setJustRefined(false), 1500)
       }
