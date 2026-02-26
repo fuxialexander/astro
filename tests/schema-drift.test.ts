@@ -31,11 +31,7 @@ interface ColumnInfo {
  */
 const KNOWN_TABLE_DRIFT = new Set([
   // In Drizzle schema but missing Supabase migration:
-  'device_codes',         // TODO: add supabase migration
-  'push_tokens',          // TODO: add supabase migration
-  'webauthn_challenges',  // TODO: add supabase migration
-  // In Supabase migration but missing from Drizzle schema:
-  'encrypted_api_keys',   // TODO: add to packages/core/src/db/schema.ts
+  'device_codes',         // Ephemeral (short-lived auth codes), no Supabase migration needed
 ])
 
 const AUTH_STUB_SQL = `

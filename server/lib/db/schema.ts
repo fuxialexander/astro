@@ -38,4 +38,7 @@ export {
   machineUsageLogs,
   blobs,
   nodeComments,
+  githubConnections,
+  encryptedApiKeys,
+  environmentConfigs,
 } from '../../../packages/core/src/db/schema.js'

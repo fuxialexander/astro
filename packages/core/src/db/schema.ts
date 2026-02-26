@@ -28,6 +28,10 @@ export const projects = pgTable('projects', {
   mergeQueueMergeMethod: text('merge_queue_merge_method').default('squash'),
   source: jsonb('source'),
   deliveryMode: text('delivery_mode'),
+  projectType: text('project_type').default('default'), // 'default' | 'playground' | 'github'
+  githubOwner: text('github_owner'),
+  githubRepo: text('github_repo'),
+  githubRepoId: integer('github_repo_id'),
   references: jsonb('references').default([]),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -127,6 +131,8 @@ export const planNodes = pgTable('plan_nodes', {
   acceptanceCriteria: jsonb('acceptance_criteria').$type<Array<{
     id: string; description: string; type: string; command?: string; autoVerifiable: boolean
   }>>().default([]),
+  githubIssueNumber: integer('github_issue_number'),
+  githubIssueUrl: text('github_issue_url'),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -548,6 +554,54 @@ export const nodeComments = pgTable('node_comments', {
   authorType: text('author_type').notNull().default('user'), // 'user' | 'agent'
   content: text('content').notNull(),
   parentCommentId: uuid('parent_comment_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// ── Environment Configs ─────────────────────────────────────────
+// Custom context overlays for HPC/SSH/Docker environments.
+// Users can provide SSH details, module loads, sbatch templates, etc.
+// ── GitHub Connections ──────────────────────────────────────────
+// Persisted GitHub OAuth connections and repo selections.
+export const githubConnections = pgTable('github_connections', {
+  userId: uuid('user_id').primaryKey(),
+  accessToken: text('access_token').notNull(),
+  scope: text('scope').notNull().default(''),
+  connectedAt: timestamp('connected_at').notNull().defaultNow(),
+  ghUserId: integer('gh_user_id'),
+  ghLogin: text('gh_login'),
+  ghName: text('gh_name'),
+  ghEmail: text('gh_email'),
+  ghAvatarUrl: text('gh_avatar_url'),
+  selectedRepoIds: jsonb('selected_repo_ids').$type<number[]>().notNull().default([]),
+  repos: jsonb('repos').$type<unknown[]>().notNull().default([]),
+  lastSyncedAt: timestamp('last_synced_at'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// ── Encrypted API Keys ──────────────────────────────────────────
+// Client-side encrypted API keys for external services (Web Crypto API).
+export const encryptedApiKeys = pgTable('encrypted_api_keys', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  serviceName: text('service_name').notNull(),
+  encryptedKey: text('encrypted_key').notNull(),
+  iv: text('iv').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// ── Environment Configs ─────────────────────────────────────────
+// Custom context overlays for HPC/SSH/Docker environments.
+// Users can provide SSH details, module loads, sbatch templates, etc.
+export const environmentConfigs = pgTable('environment_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  teamId: uuid('team_id'),
+  machineId: text('machine_id'),       // null = local server backends
+  backendId: text('backend_id').notNull(), // 'slurm', 'docker', 'ssh:alias'
+  customContext: text('custom_context').notNull().default(''),
+  displayName: text('display_name'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })

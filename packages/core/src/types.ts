@@ -144,6 +144,10 @@ export interface Project {
   deliveryMode?: DeliveryMode
   agentDir?: string
   worktreeStrategy?: WorktreeStrategy
+  projectType?: 'default' | 'playground' | 'github'
+  githubOwner?: string
+  githubRepo?: string
+  githubRepoId?: number
   createdAt: Date;
   updatedAt: Date;
 }
@@ -213,6 +217,8 @@ export interface PlanNode {
   prNumber?: number;
   mergeQueueStatus?: 'queued' | 'testing' | 'merged' | 'failed';
   autoPr?: boolean;
+  githubIssueNumber?: number;
+  githubIssueUrl?: string;
   deletedAt?: Date;
   deletionActionId?: string;
   metadata?: Record<string, unknown>;
@@ -427,4 +433,16 @@ export interface CommandHistory {
   commandId: string;
   executedAt: Date;
   frequency: number;
+}
+
+export interface EnvironmentConfig {
+  id: string;
+  userId: string;
+  teamId?: string;
+  machineId?: string;
+  backendId: string;
+  customContext: string;
+  displayName?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
