@@ -155,6 +155,98 @@ export class GitHubClient {
   }
 
   /**
+   * List issues for a repository (paginated through all pages)
+   */
+  async listIssues(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    options: { state?: 'open' | 'closed' | 'all'; perPage?: number } = {}
+  ): Promise<Array<{
+    number: number;
+    title: string;
+    body: string | null;
+    state: string;
+    html_url: string;
+    labels: Array<{ name: string; color: string }>;
+    assignee: { login: string } | null;
+    created_at: string;
+    updated_at: string;
+  }>> {
+    const { state = 'open', perPage = 100 } = options;
+
+    const issues: Array<{
+      number: number;
+      title: string;
+      body: string | null;
+      state: string;
+      html_url: string;
+      labels: Array<{ name: string; color: string }>;
+      assignee: { login: string } | null;
+      created_at: string;
+      updated_at: string;
+    }> = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const params = new URLSearchParams({
+        state,
+        per_page: perPage.toString(),
+        page: page.toString(),
+      });
+
+      const response = await fetch(`${this.baseUrl}/repos/${owner}/${repo}/issues?${params}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      if (data.length === 0) {
+        hasMore = false;
+      } else {
+        // Filter out pull requests (GitHub's issues API includes PRs)
+        const issueItems = data.filter(
+          (item: Record<string, unknown>) => !item.pull_request
+        );
+        issues.push(
+          ...issueItems.map(
+            (item: Record<string, unknown>) => ({
+              number: item.number as number,
+              title: item.title as string,
+              body: (item.body as string | null) ?? null,
+              state: item.state as string,
+              html_url: item.html_url as string,
+              labels: ((item.labels as Array<Record<string, unknown>>) || []).map(
+                (l) => ({ name: l.name as string, color: l.color as string })
+              ),
+              assignee: item.assignee
+                ? { login: (item.assignee as Record<string, unknown>).login as string }
+                : null,
+              created_at: item.created_at as string,
+              updated_at: item.updated_at as string,
+            })
+          )
+        );
+        if (data.length < perPage) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+    }
+
+    return issues;
+  }
+
+  /**
    * List branches for a repository
    */
   async getBranches(

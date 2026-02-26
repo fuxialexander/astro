@@ -8,6 +8,10 @@
 import type { GitHubChannelConfig, InboundMessage, ChannelRouter } from '../../lib/channel/channel-types.js'
 import { postGitHubComment } from './github-api.js'
 import { astroEventTransport } from '../../lib/events/astro-event-transport.js'
+import { lookupGitHubProject } from '../../lib/github-store.js'
+import { db } from '../../lib/db/index.js'
+import { planNodes } from '../../lib/db/schema.js'
+import { eq, and } from 'drizzle-orm'
 
 /**
  * Handle `issues` webhook events.
@@ -24,25 +28,91 @@ export async function handleIssueEvent(
   if (!issue || !repoFullName) return
 
   const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
   const issueNumber = issue.number as number
   const issueTitle = issue.title as string
+  const issueBody = (issue.body as string) || ''
+  const issueUrl = issue.html_url as string
 
   switch (action) {
-    case 'opened':
-      console.log(`[github-channel] Issue #${issueNumber} opened in ${repoFullName}: "${issueTitle}" → plan task creation for project ${projectId}`)
+    case 'opened': {
+      // Check if already exists (idempotency)
+      const [existing] = await db.select({ id: planNodes.id })
+        .from(planNodes)
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.githubIssueNumber, issueNumber)
+        ))
+        .limit(1)
+
+      if (!existing) {
+        await db.insert(planNodes).values({
+          projectId,
+          clientId: `gh-issue-${issueNumber}`,
+          type: 'task',
+          title: issueTitle,
+          description: issueBody,
+          status: 'planned',
+          verification: 'human',
+          githubIssueNumber: issueNumber,
+          githubIssueUrl: issueUrl,
+          links: [{ id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'open', number: issueNumber }],
+        })
+      }
       break
-    case 'closed':
-      console.log(`[github-channel] Issue #${issueNumber} closed in ${repoFullName}: "${issueTitle}" → status update for project ${projectId}`)
+    }
+    case 'closed': {
+      // Merge links to preserve user-added entries
+      const [closedNode] = await db.select({ id: planNodes.id, links: planNodes.links })
+        .from(planNodes)
+        .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, issueNumber)))
+        .limit(1)
+      if (closedNode) {
+        const existingLinks = (closedNode.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>
+        const ghLink = { id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'closed', number: issueNumber }
+        const mergedLinks = [...existingLinks.filter((l) => l.id !== ghLink.id), ghLink]
+        await db.update(planNodes).set({
+          status: 'completed',
+          links: mergedLinks,
+          updatedAt: new Date(),
+        }).where(eq(planNodes.id, closedNode.id))
+      }
       break
-    case 'labeled': {
-      const label = payload.label as Record<string, unknown> | undefined
-      console.log(`[github-channel] Issue #${issueNumber} labeled "${label?.name}" in ${repoFullName} → label sync for project ${projectId}`)
+    }
+    case 'reopened': {
+      // Merge links to preserve user-added entries
+      const [reopenedNode] = await db.select({ id: planNodes.id, links: planNodes.links })
+        .from(planNodes)
+        .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, issueNumber)))
+        .limit(1)
+      if (reopenedNode) {
+        const existingLinks = (reopenedNode.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>
+        const ghLink = { id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'open', number: issueNumber }
+        const mergedLinks = [...existingLinks.filter((l) => l.id !== ghLink.id), ghLink]
+        await db.update(planNodes).set({
+          status: 'planned',
+          links: mergedLinks,
+          updatedAt: new Date(),
+        }).where(eq(planNodes.id, reopenedNode.id))
+      }
+      break
+    }
+    case 'edited': {
+      await db.update(planNodes).set({
+        title: issueTitle,
+        description: issueBody,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(planNodes.projectId, projectId),
+        eq(planNodes.githubIssueNumber, issueNumber)
+      ))
       break
     }
     default:
-      console.log(`[github-channel] Issue event "${action}" for #${issueNumber} in ${repoFullName}`)
+      // labeled/unlabeled etc. — skip for initial implementation
+      break
   }
 }
 
@@ -66,6 +136,7 @@ export async function handleIssueCommentEvent(
 
   const repoFullName = repo.full_name as string
   const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
   const commentBody = comment.body as string
@@ -121,6 +192,7 @@ export async function handlePullRequestEvent(
   if (!pr || !repoFullName) return
 
   const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
   const prNumber = pr.number as number
@@ -194,6 +266,7 @@ export async function handleMergeGroupEvent(
   if (!mergeGroup || !repoFullName) return
 
   const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
   const headRef = mergeGroup.head_ref as string | undefined
@@ -248,6 +321,7 @@ export async function handlePushEvent(
   if (!repoFullName) return
 
   const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
   const ref = payload.ref as string
@@ -272,6 +346,7 @@ export async function handleCheckRunEvent(
   if (!checkRun || !repoFullName) return
 
   const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
   const checkName = checkRun.name as string

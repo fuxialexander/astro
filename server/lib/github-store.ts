@@ -1,13 +1,17 @@
 /**
- * In-memory store for GitHub connections and repo selections
- * TODO: Replace with database persistence in production
+ * GitHub Store — Database-backed persistence for GitHub OAuth connections
+ *
+ * OAuth states remain in-memory (ephemeral, 10-min TTL).
+ * Connections and repo selections are persisted via Drizzle ORM.
  */
 
-import type { GitHubConnection, GitHubRepoSelection } from '../types/github';
+import type { GitHubConnection, GitHubRepoSelection, GitHubRepo } from '../types/github';
+import { db } from './db/index.js';
+import { githubConnections, projects } from './db/schema.js';
+import { eq, and } from 'drizzle-orm';
 
 class GitHubStore {
-  private connections = new Map<string, GitHubConnection>();
-  private selections = new Map<string, GitHubRepoSelection>();
+  // OAuth states are ephemeral — in-memory is fine
   private oauthStates = new Map<string, { userId: string; expiresAt: number }>();
 
   /**
@@ -34,58 +38,130 @@ class GitHubStore {
   }
 
   /**
-   * Store GitHub connection
+   * Store GitHub connection (upsert)
    */
-  setConnection(userId: string, connection: GitHubConnection): void {
-    this.connections.set(userId, connection);
+  async setConnection(userId: string, connection: GitHubConnection): Promise<void> {
+    await db.insert(githubConnections).values({
+      userId,
+      accessToken: connection.accessToken,
+      scope: connection.scope,
+      connectedAt: new Date(connection.connectedAt),
+      ghUserId: connection.user.id,
+      ghLogin: connection.user.login,
+      ghName: connection.user.name,
+      ghEmail: connection.user.email,
+      ghAvatarUrl: connection.user.avatarUrl,
+    }).onConflictDoUpdate({
+      target: githubConnections.userId,
+      set: {
+        accessToken: connection.accessToken,
+        scope: connection.scope,
+        connectedAt: new Date(connection.connectedAt),
+        ghUserId: connection.user.id,
+        ghLogin: connection.user.login,
+        ghName: connection.user.name,
+        ghEmail: connection.user.email,
+        ghAvatarUrl: connection.user.avatarUrl,
+        updatedAt: new Date(),
+      },
+    });
   }
 
   /**
    * Get GitHub connection
    */
-  getConnection(userId: string): GitHubConnection | undefined {
-    return this.connections.get(userId);
+  async getConnection(userId: string): Promise<GitHubConnection | undefined> {
+    const [row] = await db.select().from(githubConnections).where(eq(githubConnections.userId, userId)).limit(1);
+    if (!row) return undefined;
+    return this.rowToConnection(row);
   }
 
   /**
    * Check if user has GitHub connected
    */
-  isConnected(userId: string): boolean {
-    return this.connections.has(userId);
+  async isConnected(userId: string): Promise<boolean> {
+    const [row] = await db.select({ userId: githubConnections.userId })
+      .from(githubConnections).where(eq(githubConnections.userId, userId)).limit(1);
+    return !!row;
   }
 
   /**
    * Disconnect GitHub
    */
-  disconnect(userId: string): void {
-    this.connections.delete(userId);
-    this.selections.delete(userId);
+  async disconnect(userId: string): Promise<void> {
+    await db.delete(githubConnections).where(eq(githubConnections.userId, userId));
   }
 
   /**
    * Store repo selection
    */
-  setRepoSelection(userId: string, selection: GitHubRepoSelection): void {
-    this.selections.set(userId, selection);
+  async setRepoSelection(userId: string, selection: GitHubRepoSelection): Promise<void> {
+    await db.update(githubConnections).set({
+      repos: selection.repos as unknown[],
+      selectedRepoIds: selection.selectedRepoIds,
+      lastSyncedAt: selection.lastSyncedAt ? new Date(selection.lastSyncedAt) : new Date(),
+      updatedAt: new Date(),
+    }).where(eq(githubConnections.userId, userId));
   }
 
   /**
    * Get repo selection
    */
-  getRepoSelection(userId: string): GitHubRepoSelection | undefined {
-    return this.selections.get(userId);
+  async getRepoSelection(userId: string): Promise<GitHubRepoSelection | undefined> {
+    const [row] = await db.select().from(githubConnections).where(eq(githubConnections.userId, userId)).limit(1);
+    if (!row) return undefined;
+    return {
+      userId: row.userId,
+      selectedRepoIds: (row.selectedRepoIds ?? []) as number[],
+      repos: (row.repos ?? []) as GitHubRepo[],
+      lastSyncedAt: row.lastSyncedAt?.toISOString() ?? '',
+    };
   }
 
   /**
    * Update selected repo IDs
    */
-  updateSelectedRepos(userId: string, repoIds: number[]): void {
-    const selection = this.selections.get(userId);
-    if (selection) {
-      selection.selectedRepoIds = repoIds;
-      selection.lastSyncedAt = new Date().toISOString();
-    }
+  async updateSelectedRepos(userId: string, repoIds: number[]): Promise<void> {
+    await db.update(githubConnections).set({
+      selectedRepoIds: repoIds,
+      lastSyncedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(githubConnections.userId, userId));
+  }
+
+  private rowToConnection(row: typeof githubConnections.$inferSelect): GitHubConnection {
+    return {
+      userId: row.userId,
+      accessToken: row.accessToken,
+      scope: row.scope,
+      connectedAt: row.connectedAt.toISOString(),
+      user: {
+        id: row.ghUserId ?? 0,
+        login: row.ghLogin ?? '',
+        name: row.ghName ?? null,
+        email: row.ghEmail ?? null,
+        avatarUrl: row.ghAvatarUrl ?? '',
+      },
+    };
   }
 }
 
 export const githubStore = new GitHubStore();
+
+/**
+ * Lookup a GitHub-linked project by repo full name (owner/repo).
+ * Returns the project ID if found, undefined otherwise.
+ */
+export async function lookupGitHubProject(repoFullName: string): Promise<string | undefined> {
+  const [owner, repo] = repoFullName.split('/');
+  if (!owner || !repo) return undefined;
+  const [row] = await db.select({ id: projects.id })
+    .from(projects)
+    .where(and(
+      eq(projects.githubOwner, owner),
+      eq(projects.githubRepo, repo),
+      eq(projects.projectType, 'github')
+    ))
+    .limit(1);
+  return row?.id;
+}
