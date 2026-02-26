@@ -48,6 +48,7 @@ import { Workflows } from "@/pages/workflows"
 import { ActiveTasks } from "@/pages/active-tasks"
 import { TeamInvite } from "@/pages/team-invite"
 import { ProjectNewPlan } from "@/pages/project-new-plan"
+import { Playground } from "@/pages/playground"
 
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
@@ -300,6 +301,7 @@ export default function App() {
                 <Route path="tasks" element={<MyTasks />} />
                 <Route path="active" element={<ActiveTasks />} />
 
+                <Route path="playground" element={<Playground />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />
                 <Route path="settings" element={<Settings />} />

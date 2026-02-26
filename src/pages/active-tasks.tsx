@@ -52,9 +52,11 @@ function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
 
   const linkTo = task.nodeId.startsWith("plan-")
     ? `/projects/new/plan?projectId=${projectId}`
-    : task.status === "generating"
-      ? `/project/${projectId}/graph`
-      : `/project/${projectId}/task/${task.nodeId}`
+    : task.nodeId.startsWith("playground-")
+      ? `/playground?projectId=${projectId}`
+      : task.status === "generating"
+        ? `/project/${projectId}/graph`
+        : `/project/${projectId}/task/${task.nodeId}`
 
   return (
     <Link
@@ -195,16 +197,25 @@ export function ActiveTasks() {
     for (const [nodeId, exec] of executions) {
       if (exec.status !== "pending" && exec.status !== "running") continue
       const isPlanSession = nodeId.startsWith("plan-")
-      const node = isPlanSession ? undefined : nodes.find((n) => n.id === nodeId)
+      const isPlayground = nodeId.startsWith("playground-")
+      const node = (isPlanSession || isPlayground) ? undefined : nodes.find((n) => n.id === nodeId)
       const projectId = exec.projectId || node?.projectId
       if (!projectId) continue
+
+      // Resolve a readable title for special session types
+      const resolveTitle = () => {
+        if (isPlanSession) return "Interactive Planning"
+        if (isPlayground) {
+          const proj = projects.find((p) => p.id === projectId)
+          return proj?.name || "Playground Session"
+        }
+        return node?.title || `Task ${nodeId.slice(0, 8)}`
+      }
 
       const task: ActiveTask = {
         nodeId,
         projectId,
-        title: isPlanSession
-          ? "Interactive Planning"
-          : (node?.title || `Task ${nodeId.slice(0, 8)}`),
+        title: resolveTitle(),
         status: isPlanSession ? "generating" : (exec.status === "running" ? "running" : "pending"),
         startedAt: exec.startedAt,
         executionId: exec.executionId,
@@ -254,7 +265,7 @@ export function ActiveTasks() {
     for (const tasks of taskMap.values()) count += tasks.length
 
     return { groupedTasks: taskMap, totalCount: count }
-  }, [executions, sessions, nodes])
+  }, [executions, sessions, nodes, projects])
 
   // Sort projects: those with more active tasks first
   const sortedProjects = useMemo(() => {
