@@ -24,7 +24,6 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import type { ComputeBackendInfo } from "@/stores/execution-store"
 import { useEnvironmentConfigStore } from "@/stores/environment-config-store"
@@ -101,8 +100,8 @@ export function BackendDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[640px] max-h-[85vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-hidden flex flex-col [display:flex]">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <BackendIcon id={backend.id} />
             {backend.name}
@@ -117,13 +116,10 @@ export function BackendDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 min-h-0 -mx-6 px-6">
+        <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6">
           <div className="flex flex-col gap-5 pb-4">
             {/* Summary stats */}
             <SummarySection backend={backend} loading={loading} />
-
-            {/* Detail section per type */}
-            <DetailSection backend={backend} />
 
             {/* Agent Context — combined auto-detected + custom */}
             {(contextString || config?.customContext) && (
@@ -304,8 +300,11 @@ export function BackendDetailDialog({
                 )}
               </div>
             )}
+
+            {/* Detail section per type */}
+            <DetailSection backend={backend} />
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   )
@@ -763,11 +762,11 @@ function DockerDetail({ meta }: { meta: Record<string, unknown> }) {
 function SlurmDetail({ meta }: { meta: Record<string, unknown> }) {
   const clusterName = meta.clusterName as string | undefined
   const partitions = meta.partitions as Array<{
-    name: string; isDefault?: boolean; available?: boolean; maxTime?: string
-    nodes?: number; availableNodes?: number; features?: string
+    name: string; isDefault?: boolean; features?: string
   }> | undefined
   const accounts = meta.accounts as string[] | undefined
   const qos = meta.qos as string[] | undefined
+  const defaultPartition = partitions?.find((p) => p.isDefault)
 
   return (
     <div className="flex flex-col gap-4">
@@ -779,52 +778,23 @@ function SlurmDetail({ meta }: { meta: Record<string, unknown> }) {
 
       {partitions && partitions.length > 0 && (
         <div className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">Partitions</h3>
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b text-muted-foreground">
-                      <th className="text-left font-medium p-2 pl-3">Name</th>
-                      <th className="text-left font-medium p-2">Status</th>
-                      <th className="text-right font-medium p-2">Nodes</th>
-                      <th className="text-left font-medium p-2">Max Time</th>
-                      <th className="text-left font-medium p-2 pr-3">Features</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {partitions.map((p) => (
-                      <tr key={p.name} className="border-b last:border-0">
-                        <td className="p-2 pl-3 font-mono">
-                          {p.name}
-                          {p.isDefault && (
-                            <Badge variant="outline" className="ml-1.5 text-[10px]">default</Badge>
-                          )}
-                        </td>
-                        <td className="p-2">
-                          <Badge variant={p.available ? "success" : "secondary"} className="text-[10px]">
-                            {p.available ? "up" : "down"}
-                          </Badge>
-                        </td>
-                        <td className="p-2 text-right">
-                          {p.nodes != null
-                            ? p.availableNodes != null
-                              ? `${p.availableNodes}/${p.nodes}`
-                              : p.nodes
-                            : "-"}
-                        </td>
-                        <td className="p-2">{p.maxTime ?? "-"}</td>
-                        <td className="p-2 pr-3 text-muted-foreground truncate max-w-[160px]" title={p.features}>
-                          {p.features ?? "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+          <h3 className="text-sm font-semibold">Partitions ({partitions.length})</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {partitions.map((p) => (
+              <Badge
+                key={p.name}
+                variant={p.isDefault ? "default" : "outline"}
+                className="text-[11px]"
+              >
+                {p.name}{p.features ? ` [${p.features}]` : ""}
+              </Badge>
+            ))}
+          </div>
+          {defaultPartition && (
+            <p className="text-[11px] text-muted-foreground">
+              Default: <code className="font-mono bg-muted px-1 py-0.5 rounded">{defaultPartition.name}</code>
+            </p>
+          )}
         </div>
       )}
 
