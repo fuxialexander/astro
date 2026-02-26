@@ -58,6 +58,7 @@ import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-conne
 import { PluginSettingsContent } from "@/components/plugin-settings"
 import { SkillSettingsContent } from "@/components/skill-settings"
 import { ChannelAccountCard } from "@/components/channel-account-card"
+import { GitHubProjectLinker } from "@/components/github-project-linker"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import type { DomainExpertise, ExperienceLevel } from "@/types"
 import { dataClient } from "@/lib/data-client"
@@ -1032,6 +1033,9 @@ function ConnectedAccountsContent() {
         </div>
       </section>
 
+      {/* GitHub Projects */}
+      <GitHubProjectLinker />
+
       {/* Slack */}
       <ChannelAccountCard
         channel="slack"
@@ -1561,7 +1565,6 @@ const tierOptions = [
 function EnvironmentsSettingsContent() {
   const { profile, setDefaultMachineId } = useUserProfileStore()
   const { modelTier, setModelTier, defaultProvider: settingsProvider, setDefaultProvider: setSettingsProvider, customModelMap, setCustomModel, getEffectiveTierMap } = useSettingsStore()
-  const [newProvider, setNewProvider] = useState("")
 
   const execMachines = useExecutionStore((s) => s.machines)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
@@ -1590,14 +1593,6 @@ function EnvironmentsSettingsContent() {
   }
   const providerIds = Array.from(allProviderIds)
   const builtinProviders = new Set(Object.keys(defaultModelTierMap.large))
-
-  const handleAddProvider = () => {
-    const id = newProvider.trim().toLowerCase().replace(/\s+/g, "-")
-    if (!id || allProviderIds.has(id)) return
-    // Set an empty model for medium tier to register the provider
-    setCustomModel("medium", id, "")
-    setNewProvider("")
-  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -1727,22 +1722,8 @@ function EnvironmentsSettingsContent() {
             </table>
           </div>
         </div>
-        {/* Add custom provider */}
-        <div className="flex items-center gap-2">
-          <Input
-            value={newProvider}
-            onChange={(e) => setNewProvider(e.target.value)}
-            placeholder="Add provider (e.g. bedrock, azure)"
-            className="h-8 text-xs max-w-[240px]"
-            onKeyDown={(e) => e.key === "Enter" && handleAddProvider()}
-          />
-          <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={handleAddProvider} disabled={!newProvider.trim()}>
-            <Plus className="h-3.5 w-3.5" />
-            Add
-          </Button>
-        </div>
         <p className="text-[11px] text-muted-foreground">
-          Edit model IDs directly in the table. Custom values override the defaults. Add custom providers for services like Bedrock, Azure, or other backends.
+          Edit model IDs directly in the table. Custom values override the defaults.
         </p>
       </section>
     </div>

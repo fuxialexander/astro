@@ -12,7 +12,7 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, Info, Server } from "lucide-react"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, Info, Server, FolderOpen, AlertTriangle } from "lucide-react"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useAgentStore } from "@/stores/agent-store"
@@ -26,6 +26,7 @@ import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
+import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
@@ -93,6 +94,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const isProjectGenerating = useAgentStore((s) => s.sessions.get(projectId)?.status === 'active')
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const updateProject = useProjectStore((s) => s.updateProject)
   const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -108,6 +110,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const resolvedMachineName = resolvedMachineId
     ? machines.find((m) => m.machineId === resolvedMachineId)?.name || resolvedMachineId
     : null
+  const [pathBrowserOpen, setPathBrowserOpen] = useState(false)
   const [addChildState, setAddChildState] = useState<AddChildState | null>(null)
   const connectingNodeRef = useRef<{ nodeId: string; handleType: "source" | "target" } | null>(null)
   const justCreatedChild = useRef(false)
@@ -270,6 +273,8 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           prUrl: n.prUrl,
           mergeQueueStatus: n.mergeQueueStatus,
           autoPr: n.autoPr,
+          githubIssueNumber: n.githubIssueNumber,
+          githubIssueUrl: n.githubIssueUrl,
           highlightBy,
           checked: checkedIds.has(n.id),
           selectionActive: selectionActive,
@@ -628,8 +633,8 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       >
         <Background gap={40} size={2} color="var(--muted-foreground)" style={{ opacity: 0.15 }} variant={BackgroundVariant.Dots} />
 
-        {/* Status legend */}
-        <div className="react-flow__panel absolute bottom-3 left-14 z-10 flex items-center gap-3 rounded-lg border border-border bg-card/85 backdrop-blur-sm px-2.5 py-1.5 shadow-sm text-[10px] font-medium">
+        {/* Status legend — top-left to avoid overlap with execute controls on narrow screens */}
+        <div className="react-flow__panel absolute top-3 left-3 z-10 flex items-center gap-3 rounded-lg border border-border bg-card/85 backdrop-blur-sm px-2.5 py-1.5 shadow-sm text-[10px] font-medium">
           <div className="flex items-center gap-1.5">
             <div className="h-2 w-2 rounded-full bg-success" />
             <span className="text-muted-foreground">Completed</span>
@@ -687,9 +692,9 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           </button>
         </div>
 
-        {/* Execute All button — bottom-right */}
+        {/* Execute All button + machine / work directory — bottom-right */}
         {!selectionActive && projectNodes.length > 0 && (
-          <div className="react-flow__panel absolute bottom-3 right-3 z-10">
+          <div className="react-flow__panel absolute bottom-3 right-3 z-10 flex flex-col items-end gap-1.5">
             {isBatchActive ? (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
                 <div className="relative flex h-2 w-2">
@@ -712,26 +717,63 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
               </div>
             ) : (
               plannedCount > 0 && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleExecuteAll}
-                    title={`Execute all ${plannedCount} planned tasks in dependency order`}
-                    className="flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer shadow-lg"
-                  >
-                    <PlayCircle className="h-3.5 w-3.5" />
-                    Execute All ({plannedCount})
-                  </button>
-                  {resolvedMachineName && (
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground bg-card/85 backdrop-blur-sm border border-border rounded-lg px-2 py-1.5 shadow-sm">
-                      <Server className="h-3 w-3" />
-                      {resolvedMachineName}
-                    </span>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={handleExecuteAll}
+                  title={`Execute all ${plannedCount} planned tasks in dependency order`}
+                  className="flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer shadow-lg"
+                >
+                  <PlayCircle className="h-3.5 w-3.5" />
+                  Execute All ({plannedCount})
+                </button>
               )
             )}
+            {/* Machine + work directory row */}
+            {resolvedMachineId && (
+              <div className="flex items-center gap-1.5">
+                {resolvedMachineName && (
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground bg-card/85 backdrop-blur-sm border border-border rounded-lg px-2 py-1.5 shadow-sm">
+                    <Server className="h-3 w-3 shrink-0" />
+                    {resolvedMachineName}
+                  </span>
+                )}
+                {project?.workingDirectory ? (
+                  <button
+                    type="button"
+                    onClick={() => setPathBrowserOpen(true)}
+                    title="Change work directory"
+                    className="flex items-center gap-1 rounded-lg bg-card/85 backdrop-blur-sm border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-muted/80 transition-colors cursor-pointer shadow-sm max-w-[200px]"
+                  >
+                    <FolderOpen className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{project.workingDirectory}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPathBrowserOpen(true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-[10px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer shadow-sm"
+                  >
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    Set work directory
+                  </button>
+                )}
+              </div>
+            )}
           </div>
+        )}
+        {/* Remote path browser dialog */}
+        {resolvedMachineId && (
+          <RemotePathBrowser
+            open={pathBrowserOpen}
+            onOpenChange={setPathBrowserOpen}
+            machineId={resolvedMachineId}
+            machineName={resolvedMachineName || undefined}
+            currentPath={project?.workingDirectory}
+            onSelect={(path) => {
+              updateProject(projectId, { workingDirectory: path })
+              setPathBrowserOpen(false)
+            }}
+          />
         )}
       </ReactFlow>
 
