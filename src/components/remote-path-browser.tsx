@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input"
 import {
   Folder,
   FolderOpen,
+  FolderPlus,
   ChevronRight,
   Home,
   Loader2,
@@ -31,6 +32,8 @@ import {
   ArrowUp,
   RefreshCw,
   FileText,
+  Check,
+  X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiUrl } from "@/lib/api-url"
@@ -83,6 +86,29 @@ async function fetchDirectoryList(
   return response.json()
 }
 
+/** Create a directory on a remote machine */
+async function createRemoteDirectory(
+  machineId: string,
+  parentPath: string,
+  name: string
+): Promise<{ success: boolean; path?: string; error?: string }> {
+  const token = await getAccessToken()
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+
+  const response = await fetch(apiUrl("/api/fs/directories"), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ machineId, path: parentPath, name }),
+  })
+
+  return response.json()
+}
+
 export function RemotePathBrowser({
   open,
   onOpenChange,
@@ -100,9 +126,16 @@ export function RemotePathBrowser({
   const [error, setError] = useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = useState<number>(-1)
 
+  // New folder creation state
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false)
+  const [newFolderName, setNewFolderName] = useState("")
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+
   // Refs
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const newFolderInputRef = useRef<HTMLInputElement>(null)
 
   // Load directory contents
   const loadDirectory = useCallback(
@@ -147,6 +180,9 @@ export function RemotePathBrowser({
 
   // Navigate to a directory
   const navigateTo = (targetPath: string) => {
+    setIsCreatingFolder(false)
+    setNewFolderName("")
+    setCreateError(null)
     loadDirectory(targetPath)
   }
 
@@ -198,6 +234,46 @@ export function RemotePathBrowser({
   const handleSelectCurrent = () => {
     onSelect(path)
     onOpenChange(false)
+  }
+
+  // Start creating a new folder
+  const startCreatingFolder = () => {
+    setIsCreatingFolder(true)
+    setNewFolderName("")
+    setCreateError(null)
+    // Focus the input after render
+    setTimeout(() => newFolderInputRef.current?.focus(), 0)
+  }
+
+  // Cancel folder creation
+  const cancelCreatingFolder = () => {
+    setIsCreatingFolder(false)
+    setNewFolderName("")
+    setCreateError(null)
+  }
+
+  // Confirm folder creation
+  const confirmCreateFolder = async () => {
+    const trimmed = newFolderName.trim()
+    if (!trimmed) return
+
+    setCreating(true)
+    setCreateError(null)
+
+    try {
+      const result = await createRemoteDirectory(machineId, path, trimmed)
+      if (result.success) {
+        setIsCreatingFolder(false)
+        setNewFolderName("")
+        loadDirectory(path) // Refresh listing
+      } else {
+        setCreateError(result.error || "Failed to create folder")
+      }
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create folder")
+    } finally {
+      setCreating(false)
+    }
   }
 
   // Keyboard navigation
@@ -325,15 +401,27 @@ export function RemotePathBrowser({
             ))}
           </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 ml-auto shrink-0"
-            onClick={() => loadDirectory(path)}
-            disabled={loading}
-          >
-            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          </Button>
+          <div className="flex items-center gap-0.5 ml-auto shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
+              onClick={startCreatingFolder}
+              disabled={loading || isCreatingFolder}
+              title="New Folder"
+            >
+              <FolderPlus className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => loadDirectory(path)}
+              disabled={loading}
+            >
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            </Button>
+          </div>
         </div>
 
         {/* Directory listing */}
@@ -362,6 +450,61 @@ export function RemotePathBrowser({
             </div>
           ) : (
             <div className="divide-y divide-border">
+              {/* New folder inline input */}
+              {isCreatingFolder && (
+                <div className="px-3 py-2 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Folder className="h-4 w-4 text-primary shrink-0" />
+                    <Input
+                      ref={newFolderInputRef}
+                      value={newFolderName}
+                      onChange={(e) => {
+                        setNewFolderName(e.target.value)
+                        setCreateError(null)
+                      }}
+                      placeholder="Folder name..."
+                      className="h-7 text-sm flex-1"
+                      disabled={creating}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          confirmCreateFolder()
+                        } else if (e.key === "Escape") {
+                          e.preventDefault()
+                          cancelCreatingFolder()
+                        }
+                        e.stopPropagation()
+                      }}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={confirmCreateFolder}
+                      disabled={creating || !newFolderName.trim()}
+                    >
+                      {creating ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={cancelCreatingFolder}
+                      disabled={creating}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  {createError && (
+                    <p className="text-xs text-destructive pl-6">{createError}</p>
+                  )}
+                </div>
+              )}
+
               {/* Directories first */}
               {directories.map((entry, index) => (
                 <button

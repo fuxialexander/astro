@@ -319,6 +319,18 @@ interface AgentRunnerDirectoryListResponseMessage {
   };
 }
 
+/** Agent runner's create directory response message format */
+interface AgentRunnerCreateDirectoryResponseMessage {
+  type: 'create_directory_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    success: boolean;
+    path?: string;
+    error?: string;
+  };
+}
+
 /** Agent runner's repo setup response message format */
 interface AgentRunnerRepoSetupResponseMessage {
   type: 'repo_setup_response';
@@ -497,6 +509,7 @@ export interface RelayServerEvents {
   'session:event': (sessionId: string, taskId: string, event: SessionEvent) => void;
   'file_list:response': (data: { correlationId: string; files: string[] }) => void;
   'directory_list:response': (data: { correlationId: string; path: string; entries: DirectoryEntry[]; error?: string; homeDirectory?: string }) => void;
+  'create_directory:response': (data: { correlationId: string; success: boolean; path?: string; error?: string }) => void;
   'repo_setup:response': (data: { correlationId: string; result: RepoSetupRelayResult }) => void;
   'slash_commands:response': (data: { correlationId: string; commands: Array<{ name: string; description: string }> }) => void;
   'repo_detect:response': (data: { correlationId: string; result: RepoDetectRelayResult }) => void;
@@ -903,6 +916,15 @@ export class RelayServer extends EventEmitter {
 
       case 'directory_list_response':
         this.handleAgentRunnerDirectoryListResponse(message as unknown as AgentRunnerDirectoryListResponseMessage);
+        break;
+
+      // Create directory response from agent runner
+      case 'create_directory.response':
+        this.handleCreateDirectoryResponse(message as unknown as { type: 'create_directory.response'; correlationId: string; success: boolean; path?: string; error?: string });
+        break;
+
+      case 'create_directory_response':
+        this.handleAgentRunnerCreateDirectoryResponse(message as unknown as AgentRunnerCreateDirectoryResponseMessage);
         break;
 
       // Repo setup response from agent runner
@@ -1937,6 +1959,58 @@ export class RelayServer extends EventEmitter {
       entries: message.payload.entries,
       error: message.payload.error,
       homeDirectory: message.payload.homeDirectory,
+    });
+  }
+
+  // ============================================================================
+  // Create Directory Handlers
+  // ============================================================================
+
+  /**
+   * Request creating a directory on a connected machine
+   */
+  requestCreateDirectory(machineId: string, parentPath: string, name: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for create directory request`);
+      return false;
+    }
+
+    const msg = {
+      type: 'create_directory_request',
+      timestamp: new Date().toISOString(),
+      payload: { parentPath, name, correlationId },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle create_directory.response (dot notation)
+   */
+  private handleCreateDirectoryResponse(message: { correlationId: string; success: boolean; path?: string; error?: string }): void {
+    this.emit('create_directory:response', {
+      correlationId: message.correlationId,
+      success: message.success,
+      path: message.path,
+      error: message.error,
+    });
+  }
+
+  /**
+   * Handle agent runner's create_directory_response format
+   */
+  private handleAgentRunnerCreateDirectoryResponse(message: AgentRunnerCreateDirectoryResponseMessage): void {
+    this.emit('create_directory:response', {
+      correlationId: message.payload.correlationId,
+      success: message.payload.success,
+      path: message.payload.path,
+      error: message.payload.error,
     });
   }
 

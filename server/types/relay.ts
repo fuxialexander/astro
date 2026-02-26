@@ -613,6 +613,23 @@ export interface GitInitResponseMessage extends BaseMessage {
   error?: string;
 }
 
+/** Create directory request (relay → agent) */
+export interface CreateDirectoryRequestMessage extends BaseMessage {
+  type: 'create_directory.request';
+  correlationId: string;
+  parentPath: string;
+  name: string;
+}
+
+/** Create directory response (agent → relay) */
+export interface CreateDirectoryResponseMessage extends BaseMessage {
+  type: 'create_directory.response';
+  correlationId: string;
+  success: boolean;
+  path?: string;
+  error?: string;
+}
+
 /** Error message */
 export interface ErrorMessage extends BaseMessage {
   type: 'error';
@@ -715,7 +732,8 @@ export type AgentToRelayMessage =
   | SlashCommandsResponseMessage
   | RepoDetectResponseMessage
   | GitInitResponseMessage
-  | BranchListResponseMessage;
+  | BranchListResponseMessage
+  | CreateDirectoryResponseMessage;
 
 /** All session-related messages from MCP bridge to relay */
 export type SessionToRelayMessage =
@@ -741,6 +759,7 @@ export type RelayToAgentMessage =
   | RepoDetectRequestMessage
   | GitInitRequestMessage
   | BranchListRequestMessage
+  | CreateDirectoryRequestMessage
   | ErrorMessage;
 
 /** All relay messages */

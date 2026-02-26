@@ -121,6 +121,92 @@ async function requestDirectoryList(
   })
 }
 
+/** Response type for create directory */
+interface CreateDirectoryResult {
+  success: boolean
+  path?: string
+  error?: string
+}
+
+/**
+ * POST /directories
+ *
+ * Creates a new folder on a remote machine via relay.
+ * Body: { machineId, path (parent), name }
+ */
+fsRoute.post('/directories', async (c) => {
+  const body = await c.req.json<{ machineId?: string; path?: string; name?: string }>()
+  const { machineId, path, name } = body
+
+  if (!machineId) {
+    return c.json({ error: 'machineId is required' }, 400)
+  }
+
+  if (!path) {
+    return c.json({ error: 'path is required' }, 400)
+  }
+
+  if (!name || name.trim().length === 0) {
+    return c.json({ error: 'name is required' }, 400)
+  }
+
+  // Validate folder name: no path separators or null bytes, not . or ..
+  const trimmedName = name.trim()
+  if (trimmedName === '.' || trimmedName === '..') {
+    return c.json({ error: 'Invalid folder name' }, 400)
+  }
+  if (/[/\\\0]/.test(trimmedName)) {
+    return c.json({ error: 'Folder name cannot contain path separators' }, 400)
+  }
+
+  try {
+    const result = await requestCreateDirectory(machineId, path, trimmedName)
+    return c.json(result, result.success ? 200 : 500)
+  } catch (error) {
+    console.error('[fs] Error creating directory:', error)
+    return c.json({ success: false, error: 'Failed to create directory' }, 500)
+  }
+})
+
+/**
+ * Request directory creation on a remote machine via relay
+ */
+async function requestCreateDirectory(
+  machineId: string,
+  parentPath: string,
+  name: string,
+): Promise<CreateDirectoryResult> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<CreateDirectoryResult>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('create_directory:response', handler)
+      resolve({ success: false, error: 'Request timed out' })
+    }, 10000)
+
+    function handler(data: { correlationId: string; success: boolean; path?: string; error?: string }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('create_directory:response', handler)
+
+      resolve({
+        success: data.success,
+        path: data.path,
+        error: data.error,
+      })
+    }
+
+    relayServer.on('create_directory:response', handler)
+
+    const sent = relayServer.requestCreateDirectory(machineId, parentPath, name, correlationId)
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('create_directory:response', handler)
+      resolve({ success: false, error: 'Machine not connected' })
+    }
+  })
+}
+
 /**
  * Request file list from a remote machine via relay
  */
