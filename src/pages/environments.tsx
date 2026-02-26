@@ -526,6 +526,7 @@ export function Environments() {
   const [backendContextString, setBackendContextString] = useState("")
   const [backendDialogOpen, setBackendDialogOpen] = useState(false)
   const [backendDetailLoading, setBackendDetailLoading] = useState(false)
+  const [selectedMachineId, setSelectedMachineId] = useState<string | undefined>()
   const [selectedMachine, setSelectedMachine] = useState<RegisteredMachine | null>(null)
   const [machineDetailDialogOpen, setMachineDetailDialogOpen] = useState(false)
   const [detailLiveMachine, setDetailLiveMachine] = useState<MachineEntry | undefined>(undefined)
@@ -535,6 +536,7 @@ export function Environments() {
   // For local backends: fetch fresh detail from server
   const handleBackendClick = (backend: ComputeBackendInfo) => {
     setSelectedBackend(backend)
+    setSelectedMachineId(undefined)
     setBackendContextString("")
     setBackendDialogOpen(true)
     setBackendDetailLoading(true)
@@ -543,6 +545,9 @@ export function Environments() {
         setSelectedBackend(result.backend)
         setBackendContextString(result.contextString)
       }
+    }).catch((err) => {
+      console.error('[environments] Failed to fetch backend detail:', err)
+    }).finally(() => {
       setBackendDetailLoading(false)
     })
   }
@@ -550,6 +555,7 @@ export function Environments() {
   // For remote machine backends: fetch context string from the relay's machine registry
   const handleRemoteBackendClick = (backend: ComputeBackendInfo, machineId: string) => {
     setSelectedBackend(backend)
+    setSelectedMachineId(machineId)
     setBackendContextString("")
     setBackendDialogOpen(true)
     setBackendDetailLoading(true)
@@ -558,6 +564,9 @@ export function Environments() {
         setSelectedBackend(result.backend)
         setBackendContextString(result.contextString)
       }
+    }).catch((err) => {
+      console.error('[environments] Failed to fetch remote backend detail:', err)
+    }).finally(() => {
       setBackendDetailLoading(false)
     })
   }
@@ -858,6 +867,7 @@ export function Environments() {
         backend={selectedBackend}
         contextString={backendContextString}
         loading={backendDetailLoading}
+        machineId={selectedMachineId}
       />
 
       {/* Machine Detail Dialog */}

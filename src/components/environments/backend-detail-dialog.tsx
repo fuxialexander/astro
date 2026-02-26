@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Copy,
   Check,
@@ -10,6 +10,9 @@ import {
   Terminal,
   Layers,
   MonitorDot,
+  Pencil,
+  Save,
+  X,
 } from "lucide-react"
 import {
   Dialog,
@@ -22,7 +25,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Textarea } from "@/components/ui/textarea"
 import type { ComputeBackendInfo } from "@/stores/execution-store"
+import { useEnvironmentConfigStore } from "@/stores/environment-config-store"
+import { useToastStore } from "@/stores/toast-store"
 
 interface BackendDetailDialogProps {
   open: boolean
@@ -30,6 +36,7 @@ interface BackendDetailDialogProps {
   backend: ComputeBackendInfo | null
   contextString: string
   loading: boolean
+  machineId?: string
 }
 
 export function BackendDetailDialog({
@@ -38,13 +45,56 @@ export function BackendDetailDialog({
   backend,
   contextString,
   loading,
+  machineId,
 }: BackendDetailDialogProps) {
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const { getForBackend, upsert, remove, load, loaded } = useEnvironmentConfigStore()
+  const addToast = useToastStore((s) => s.add)
+
+  useEffect(() => {
+    if (open && !loaded) load()
+    if (!open) {
+      setEditing(false)
+      setDraft("")
+    }
+  }, [open, loaded, load])
+
+  const config = backend ? getForBackend(backend.id, machineId) : undefined
+
+  useEffect(() => {
+    if (config) setDraft(config.customContext)
+    else setDraft("")
+  }, [config?.id, config?.customContext])
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(contextString)
+    const fullContext = config?.customContext
+      ? `${contextString}\n\n--- Custom Instructions ---\n${config.customContext}`
+      : contextString
+    navigator.clipboard.writeText(fullContext)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleSave = async () => {
+    if (!backend) return
+    setSaving(true)
+    try {
+      if (draft.trim()) {
+        await upsert(backend.id, machineId, draft.trim())
+      } else if (config) {
+        await remove(config.id)
+      }
+      setEditing(false)
+    } catch (err) {
+      console.error('[backend-detail] Failed to save custom context:', err)
+      addToast({ type: "error", title: "Failed to save custom instructions" })
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!backend) return null
@@ -75,33 +125,183 @@ export function BackendDetailDialog({
             {/* Detail section per type */}
             <DetailSection backend={backend} />
 
-            {/* AI Context Preview */}
-            {contextString && (
+            {/* Agent Context — combined auto-detected + custom */}
+            {(contextString || config?.customContext) && (
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">AI Context Preview</h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1.5 text-xs"
-                    onClick={handleCopy}
-                  >
-                    {copied ? (
-                      <Check className="h-3 w-3" />
-                    ) : (
-                      <Copy className="h-3 w-3" />
+                  <h3 className="text-sm font-semibold">Agent Context</h3>
+                  <div className="flex items-center gap-1">
+                    {!editing && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        onClick={() => {
+                          if (!config?.customContext && backend) {
+                            setDraft(generateTemplate(backend))
+                          }
+                          setEditing(true)
+                        }}
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit
+                      </Button>
                     )}
-                    {copied ? "Copied" : "Copy"}
-                  </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={handleCopy}
+                    >
+                      {copied ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
+                      {copied ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
                 </div>
-                <div className="rounded-lg border bg-muted/50 p-3">
-                  <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground leading-relaxed">
-                    {contextString}
-                  </pre>
+
+                {editing ? (
+                  <div className="flex flex-col gap-2">
+                    {/* Auto-detected context (read-only) */}
+                    {contextString && (
+                      <div className="rounded-lg border bg-muted/30 p-3">
+                        <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground/60 leading-relaxed">
+                          {contextString}
+                        </pre>
+                      </div>
+                    )}
+                    {contextString && (
+                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <div className="h-px flex-1 bg-border" />
+                        <span>Custom Instructions</span>
+                        <div className="h-px flex-1 bg-border" />
+                      </div>
+                    )}
+                    <Textarea
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      placeholder="Add custom instructions for this environment..."
+                      className="min-h-[120px] font-mono text-xs"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        onClick={() => {
+                          setDraft(config?.customContext ?? "")
+                          setEditing(false)
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        onClick={handleSave}
+                        disabled={saving}
+                      >
+                        <Save className="h-3 w-3" />
+                        {saving ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border bg-muted/50 p-3">
+                    {contextString && (
+                      <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground leading-relaxed">
+                        {contextString}
+                      </pre>
+                    )}
+                    {config?.customContext && (
+                      <>
+                        {contextString && <div className="my-2 border-t border-border/50" />}
+                        <div className="border-l-2 border-primary/30 pl-3">
+                          <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground leading-relaxed">
+                            {config.customContext}
+                          </pre>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {!editing && !config?.customContext && (
+                  <button
+                    type="button"
+                    className="text-[11px] text-primary hover:underline text-left"
+                    onClick={() => {
+                      if (backend) setDraft(generateTemplate(backend))
+                      setEditing(true)
+                    }}
+                  >
+                    + Add custom instructions
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Show edit-only section if no context string exists yet */}
+            {!contextString && !config?.customContext && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">Agent Context</h3>
+                  {!editing && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={() => {
+                        if (backend) setDraft(generateTemplate(backend))
+                        setEditing(true)
+                      }}
+                    >
+                      <Pencil className="h-3 w-3" />
+                      Edit
+                    </Button>
+                  )}
                 </div>
-                <p className="text-[11px] text-muted-foreground">
-                  This text is injected into agent sessions so the AI knows your compute environment.
-                </p>
+                {editing ? (
+                  <div className="flex flex-col gap-2">
+                    <Textarea
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      placeholder="Add custom instructions for this environment..."
+                      className="min-h-[120px] font-mono text-xs"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        onClick={() => {
+                          setDraft(config?.customContext ?? "")
+                          setEditing(false)
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        onClick={handleSave}
+                        disabled={saving}
+                      >
+                        <Save className="h-3 w-3" />
+                        {saving ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    No context available. Click Edit to add SSH details, module loads, sbatch templates, or other environment-specific context for agents.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -109,6 +309,112 @@ export function BackendDetailDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+// ---------------------------------------------------------------------------
+// Template generator
+// ---------------------------------------------------------------------------
+
+function generateTemplate(backend: ComputeBackendInfo): string {
+  const meta = (backend.metadata ?? {}) as Record<string, unknown>
+
+  if (backend.id === "slurm") {
+    const clusterName = meta.clusterName as string | undefined
+    const partitions = meta.partitions as Array<{
+      name: string; isDefault?: boolean; maxTime?: string
+    }> | undefined
+    const accounts = meta.accounts as string[] | undefined
+    const totalGpus = meta.totalGpus as number | undefined
+
+    const defaultPartition = partitions?.find((p) => p.isDefault) ?? partitions?.[0]
+    const lines: string[] = []
+
+    lines.push("# SSH Access")
+    lines.push(clusterName ? `# ssh ${clusterName}` : "# ssh <cluster-alias>")
+    lines.push("")
+    lines.push("# Module Loads")
+    lines.push("# module load cuda/12.1")
+    lines.push("# module load anaconda3")
+    lines.push("")
+    lines.push("# Default sbatch Resources")
+    if (defaultPartition) {
+      const parts = [`--partition=${defaultPartition.name}`]
+      if (defaultPartition.maxTime) parts.push(`--time=${defaultPartition.maxTime}`)
+      parts.push("--mem=64G")
+      if (totalGpus && totalGpus > 0) parts.push("--gres=gpu:1")
+      if (accounts?.[0]) parts.push(`--account=${accounts[0]}`)
+      lines.push(`# ${parts.join(" ")}`)
+    } else {
+      lines.push("# --partition=short --time=12:00:00 --mem=64G")
+    }
+    lines.push("")
+    lines.push("# Data & Paths")
+    lines.push("# Project data: /path/to/data")
+    lines.push("# Scratch: /scratch/$USER")
+    lines.push("")
+    lines.push("# Network Notes")
+    lines.push("# Compute nodes have no internet access.")
+    lines.push("# Install dependencies on the login node first.")
+
+    return lines.join("\n")
+  }
+
+  if (backend.id.startsWith("ssh:")) {
+    const alias = meta.alias as string | undefined
+    const hostname = meta.hostname as string | undefined
+    const user = meta.user as string | undefined
+    const connectTarget = alias ?? (user && hostname ? `${user}@${hostname}` : hostname ?? "<host>")
+    const viaNote = alias && (user && hostname)
+      ? ` (via ${user}@${hostname})`
+      : alias && hostname && hostname !== alias
+        ? ` (via ${hostname})`
+        : ""
+
+    const lines: string[] = []
+    lines.push("# Connection")
+    lines.push(`# ssh ${connectTarget}${viaNote}`)
+    lines.push("")
+    lines.push("# Environment Setup")
+    lines.push("# (module loads, conda activate, etc.)")
+    lines.push("")
+    lines.push("# Paths")
+    lines.push("# Working directory: ~")
+
+    return lines.join("\n")
+  }
+
+  if (backend.id === "docker") {
+    return [
+      "# Docker Environment",
+      "# Default image: <image:tag>",
+      "",
+      "# Volume Mounts",
+      "# -v /host/path:/container/path",
+      "",
+      "# Resource Limits",
+      "# --gpus all --memory 16g",
+    ].join("\n")
+  }
+
+  if (backend.id === "k8s-exec") {
+    const context = meta.context as string | undefined
+    return [
+      "# Kubernetes Environment",
+      context ? `# Context: ${context}` : "# Context: <cluster-context>",
+      "",
+      "# Default Namespace",
+      "# kubectl config set-context --current --namespace=<ns>",
+      "",
+      "# Resource Requests",
+      "# cpu: 4, memory: 16Gi",
+    ].join("\n")
+  }
+
+  // Generic fallback
+  return [
+    "# Environment Notes",
+    "# Add any setup instructions, paths, or constraints for this environment.",
+  ].join("\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +763,8 @@ function DockerDetail({ meta }: { meta: Record<string, unknown> }) {
 function SlurmDetail({ meta }: { meta: Record<string, unknown> }) {
   const clusterName = meta.clusterName as string | undefined
   const partitions = meta.partitions as Array<{
-    name: string; isDefault?: boolean; available?: boolean; maxTime?: string; nodes?: number; features?: string
+    name: string; isDefault?: boolean; available?: boolean; maxTime?: string
+    nodes?: number; availableNodes?: number; features?: string
   }> | undefined
   const accounts = meta.accounts as string[] | undefined
   const qos = meta.qos as string[] | undefined
@@ -500,9 +807,17 @@ function SlurmDetail({ meta }: { meta: Record<string, unknown> }) {
                             {p.available ? "up" : "down"}
                           </Badge>
                         </td>
-                        <td className="p-2 text-right">{p.nodes ?? "-"}</td>
+                        <td className="p-2 text-right">
+                          {p.nodes != null
+                            ? p.availableNodes != null
+                              ? `${p.availableNodes}/${p.nodes}`
+                              : p.nodes
+                            : "-"}
+                        </td>
                         <td className="p-2">{p.maxTime ?? "-"}</td>
-                        <td className="p-2 pr-3 text-muted-foreground">{p.features ?? "-"}</td>
+                        <td className="p-2 pr-3 text-muted-foreground truncate max-w-[160px]" title={p.features}>
+                          {p.features ?? "-"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
