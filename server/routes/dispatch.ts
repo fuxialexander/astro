@@ -1181,6 +1181,9 @@ dispatchRoute.post('/reset', async (c) => {
     relayServer.cancelTask(executionId, machineId || '')
   }
 
+  // Cancel via dispatch engine to clean up queue entries, pending approvals, and active state
+  await dispatchEngine.cancel(nodeId)
+
   return c.json({ success: true })
 })
 

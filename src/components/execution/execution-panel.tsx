@@ -54,6 +54,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const isExecuting = useExecutionStore((s) => s.isExecuting(node.id))
   const startExecution = useExecutionStore((s) => s.startExecution)
   const cancelExecution = useExecutionStore((s) => s.cancelExecution)
+  const resetExecution = useExecutionStore((s) => s.resetExecution)
 
   // Provider state
   const providers = useExecutionStore((s) => s.providers)
@@ -152,7 +153,11 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const [justRefined, setJustRefined] = useState(false)
   const updateNode = usePlanStore((s) => s.updateNode)
 
-  const handleExecute = () => {
+  const handleExecute = async () => {
+    // Clean up old server resources (worktree, branch, session) before re-executing
+    if (isReexecution) {
+      await resetExecution(node.id)
+    }
     startExecution(node.id, projectId, {
       preferredProvider: selectedProvider || undefined,
       model: selectedModel || undefined,
@@ -401,7 +406,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
             onClick={handleCancel}
           >
             <Square className="h-3.5 w-3.5" />
-            Cancel
+            Stop
           </Button>
         ) : (
           isReexecution ? (

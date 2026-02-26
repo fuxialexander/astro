@@ -421,7 +421,18 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     const controller = abortControllers.get(nodeId)
     if (controller) {
       controller.abort()
+      abortControllers.delete(nodeId)
     }
+
+    // Set local status immediately so UI updates
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      const exec = newExecutions.get(nodeId)
+      if (exec) {
+        newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
+      }
+      return { executions: newExecutions }
+    })
 
     // Also try to abort on server
     const execution = get().executions.get(nodeId)
@@ -443,6 +454,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 
   resetExecution: async (nodeId: string) => {
+    // Grab executionId before any cleanup (needed for server call)
+    const execution = get().executions.get(nodeId)
+    const executionId = execution?.executionId
+
     // Cancel any in-progress execution first
     const controller = abortControllers.get(nodeId)
     if (controller) {
@@ -450,13 +465,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       abortControllers.delete(nodeId)
     }
 
-    // Call server to clean up worktree, branch, and session context
+    // Call server to clean up relay task, dispatch engine state, and pending approvals
     try {
       const headers = await getAuthHeaders()
       await fetch(apiUrl("/api/dispatch/reset"), {
         method: "POST",
         headers,
-        body: JSON.stringify({ nodeId }),
+        body: JSON.stringify({ nodeId, executionId }),
       })
     } catch {
       // Best effort — continue with local cleanup even if server call fails

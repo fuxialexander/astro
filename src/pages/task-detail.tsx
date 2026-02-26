@@ -244,7 +244,7 @@ export function TaskDetail() {
             }}
           >
             <RotateCcw className={cn("h-3 w-3 md:h-3.5 md:w-3.5", isResetting && "animate-spin")} />
-            <span className="hidden sm:inline ml-1.5">{isResetting ? "Resetting..." : "Re-execute"}</span>
+            <span className="hidden sm:inline ml-1.5">{isResetting ? "Resetting..." : "Reset"}</span>
           </Button>
         )}
         {isExecuting && (

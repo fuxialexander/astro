@@ -86,7 +86,7 @@ export function PlanSessionHeader({
           className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
         >
           <X className="h-3.5 w-3.5 mr-1" />
-          Abort
+          Stop
         </Button>
       )}
     </div>

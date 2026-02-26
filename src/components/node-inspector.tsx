@@ -318,7 +318,7 @@ export function NodeInspectorContent({
               className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-sm font-semibold hover:bg-muted/50 transition-colors disabled:opacity-50"
             >
               <RotateCcw className={cn("h-4 w-4", isResetting && "animate-spin")} />
-              {isResetting ? "Resetting..." : "Re-execute"}
+              {isResetting ? "Resetting..." : "Reset"}
             </button>
           </>
         ) : (

@@ -708,11 +708,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                 <button
                   type="button"
                   onClick={handleStopBatch}
-                  title="Stop auto-dispatching new tasks"
+                  title="Stop queuing new tasks (running tasks will finish)"
                   className="flex h-6 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/5 px-2 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
                 >
                   <Square className="h-3 w-3" />
-                  Stop
+                  Stop Queue
                 </button>
               </div>
             ) : (
