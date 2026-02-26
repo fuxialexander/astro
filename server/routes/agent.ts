@@ -8,6 +8,7 @@ import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt,
 import { skillManager } from '../lib/skill-manager.js'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
+import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { requireAuth } from '../middleware/auth.js'
@@ -205,10 +206,15 @@ async function streamChatViaRelay(
     const heartbeat = setInterval(() => {
       if (!alive) { clearInterval(heartbeat); return }
       if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
-        stream.writeSSE({ event: 'error', data: 'Activity timeout — agent runner stopped responding' }).catch(() => {})
-        alive = false
-        clearInterval(heartbeat)
-        return
+        // Don't timeout if we're waiting for user approval (ask_user_question)
+        if (dispatchEngine.hasPendingApprovalForExecution(opts.taskId)) {
+          lastActivity = Date.now() // Reset timer while approval is pending
+        } else {
+          stream.writeSSE({ event: 'error', data: 'Activity timeout — agent runner stopped responding' }).catch(() => {})
+          alive = false
+          clearInterval(heartbeat)
+          return
+        }
       }
       stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
     }, 15000)
@@ -401,7 +407,7 @@ agentRoute.post('/generate-plan', async (c) => {
     workingDirectory,
     prompt: fullPrompt,
     model: model || undefined,
-    maxTurns: 100,
+    maxTurns: 200,
     outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
     type: 'plan', // Mark as plan task to skip safety checks (no file system access)
     useWorktree: false,
@@ -539,10 +545,15 @@ agentRoute.post('/generate-plan', async (c) => {
     const heartbeat = setInterval(() => {
       if (!alive) { clearInterval(heartbeat); return }
       if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
-        stream.writeSSE({ event: 'error', data: 'Activity timeout — agent runner stopped responding' }).catch(() => {})
-        alive = false
-        clearInterval(heartbeat)
-        return
+        // Don't timeout if we're waiting for user approval (ask_user_question)
+        if (dispatchEngine.hasPendingApprovalForExecution(taskId)) {
+          lastActivity = Date.now() // Reset timer while approval is pending
+        } else {
+          stream.writeSSE({ event: 'error', data: 'Activity timeout — agent runner stopped responding' }).catch(() => {})
+          alive = false
+          clearInterval(heartbeat)
+          return
+        }
       }
       stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
     }, 15000)
@@ -791,15 +802,18 @@ agentRoute.post('/summarize', async (c) => {
         return c.json({ summary })
       }
     } catch {
-      return c.json({
-        summary: {
-          workCompleted: result.output.slice(0, 200),
-          filesChanged: body.fileChanges.map((f) => f.path),
-          status: body.status,
-          followUps: [],
-        },
-      })
+      // JSON parse failed — fall through to text fallback below
     }
+    // No JSON found or parse failed — return a text-based fallback summary
+    return c.json({
+      summary: {
+        workCompleted: result.output.slice(0, 500),
+        keyFindings: [],
+        filesChanged: body.fileChanges.map((f) => f.path),
+        status: body.status,
+        followUps: [],
+      },
+    })
   }
 
   return c.json({ error: result.error || 'Failed to generate summary' }, 500)

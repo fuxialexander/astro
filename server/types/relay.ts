@@ -151,8 +151,10 @@ export interface TaskDispatch {
   taskId: string;
   projectId: string;
   nodeId: string;  // Reference to PlanNode
-  /** Server-assigned sequential number for PR titles and branch names */
-  nodeNumber?: number;
+  /** Short hex ID derived from nodeId (first 6 hex chars of UUID) for branch names and PR titles */
+  shortNodeId?: string;
+  /** Short hex ID derived from projectId (first 6 hex chars of UUID) for PR titles */
+  shortProjectId?: string;
   title: string;
   description: string;
   visionDoc?: string;  // Project vision context
