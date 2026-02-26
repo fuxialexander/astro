@@ -620,17 +620,25 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const response = await fetch(apiUrl("/api/agent/providers"), { headers })
       if (response.ok) {
         const data = await response.json()
-        const providers: ProviderStatus[] = (data.providers || []).map((p: Record<string, unknown>) => ({
-          id: p.id,
-          name: p.name,
-          installed: p.installed,
-          authStatus: p.authStatus,
-          available: p.available,
-          capabilities: p.capabilities ? {
-            availableModels: (p.capabilities as Record<string, unknown>).availableModels,
-            defaultModel: (p.capabilities as Record<string, unknown>).defaultModel,
-          } : undefined,
-        }))
+        // The endpoint returns { machines: [{ providers: [...] }] }, not { providers: [...] }.
+        // Aggregate providers from all connected machines, deduplicating by type.
+        const seen = new Set<string>()
+        const providers: ProviderStatus[] = []
+        const machines = (data.machines || []) as Array<{ providers?: Array<{ type: string; status: string; capabilities?: string[] }> }>
+        for (const m of machines) {
+          for (const p of (m.providers || [])) {
+            if (!seen.has(p.type)) {
+              seen.add(p.type)
+              providers.push({
+                id: p.type,
+                name: p.type,
+                installed: true,
+                authStatus: p.status === 'available' ? 'authenticated' : 'unknown',
+                available: p.status === 'available',
+              })
+            }
+          }
+        }
         set({ providers, providersLoaded: true })
       }
     } catch {
@@ -1752,6 +1760,13 @@ function handleSSEEvent(
         const errorTime = new Date()
         const execution = get().executions.get(nodeId)
         const node = planStore.nodes.find((n) => n.id === nodeId)
+
+        // Guard: ignore late error events if the result has already been processed
+        // (prevents race condition where result + error SSE events arrive close together)
+        if (execution && (execution.status === "success" || execution.status === "failure")) {
+          console.warn(`[execution-store] Ignoring late error for ${nodeId} (status already ${execution.status})`)
+          break
+        }
 
         set((state) => {
           const newExecutions = new Map(state.executions)

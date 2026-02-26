@@ -276,6 +276,15 @@ export interface TaskDispatch {
    * Extracted from blob references in the task's rich text content.
    */
   images?: ImageAttachment[];
+
+  /** Base URL of the Astro server — used for linking back to tasks in PR bodies */
+  astroBaseUrl?: string;
+
+  /** GitHub issue URL to reference in the PR body (e.g., "https://github.com/org/repo/issues/42") */
+  githubIssueUrl?: string;
+
+  /** GitHub issue number to reference in the PR body (e.g., 42 → "Closes #42") */
+  githubIssueNumber?: number;
 }
 
 /** Task result from agent runner */

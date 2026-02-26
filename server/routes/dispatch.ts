@@ -142,6 +142,10 @@ dispatchRoute.post('/task', async (c) => {
     acceptanceCriteria,
   } = body
 
+  // PR body enrichment fields (resolved from DB)
+  let githubIssueUrl: string | undefined
+  let githubIssueNumber: number | undefined
+
   // ── Server-side resolution: fill missing fields from DB ──────────
   // Allows clients to send just { projectId, nodeId } and have the
   // server assemble the full dispatch payload from the database.
@@ -159,6 +163,8 @@ dispatchRoute.post('/task', async (c) => {
         description ??= dbNode.description || dbNode.content || dbNode.title
         verification ??= (dbNode.verification as 'auto' | 'human') || undefined
         acceptanceCriteria ??= dbNode.acceptanceCriteria as typeof acceptanceCriteria
+        githubIssueUrl ??= (dbNode as Record<string, unknown>).githubIssueUrl as string | undefined
+        githubIssueNumber ??= (dbNode as Record<string, unknown>).githubIssueNumber as number | undefined
 
         // Resolve dependencies from DB if not provided
         if (dependencies.length === 0) {
@@ -337,6 +343,8 @@ dispatchRoute.post('/task', async (c) => {
     skipSafetyCheck,
     verification,
     acceptanceCriteria,
+    githubIssueUrl,
+    githubIssueNumber,
   })
 })
 
@@ -370,8 +378,12 @@ async function dispatchViaRelay(
     skipSafetyCheck?: boolean
     verification?: 'auto' | 'human'
     acceptanceCriteria?: Array<{ id: string; description: string; type: string; command?: string; autoVerifiable: boolean }>
+    githubIssueUrl?: string
+    githubIssueNumber?: number
   }
 ) {
+  const astroBaseUrl = process.env.ASTRO_BASE_URL || undefined
+
   const {
     nodeId,
     projectId,
@@ -397,7 +409,13 @@ async function dispatchViaRelay(
     skipSafetyCheck,
     verification,
     acceptanceCriteria,
+    githubIssueUrl,
+    githubIssueNumber,
   } = params
+
+  // Compute short hex IDs early — needed for prompt building + relay dispatch
+  const shortProjectId = getShortId(projectId)
+  const shortNodeId = getShortId(nodeId)
 
   // Extract user for ownership verification
   const user = c.get('user') as AuthUser | undefined
@@ -456,12 +474,75 @@ async function dispatchViaRelay(
       promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
     }
 
-    if (workingDirectory) {
-      promptParts.push(`## Working Directory\n\n${workingDirectory}`)
+    // Build delivery-mode-aware workspace instructions
+    {
+      const effectiveDelivery = deliveryMode ?? 'pr'
+      const effectiveUseWorktree = useWorktree !== false
+      const effectiveAgentDir = agentDir ?? '.astro'
+      const usesWorktree = workingDirectory && effectiveUseWorktree && effectiveDelivery !== 'direct'
+      const branchName = `astro/${shortProjectId}-${shortNodeId}`
+
+      if (effectiveDelivery === 'pr' && usesWorktree) {
+        promptParts.push(`## Workspace & Delivery
+
+You are working in a git worktree (isolated branch) created from the project at: ${workingDirectory}
+Your branch: ${branchName}
+The worktree is located under \`${effectiveAgentDir}/worktrees/\` in the git root.
+
+**IMPORTANT:**
+- All your changes are on this isolated branch — commit freely
+- NEVER cd to or modify files in the original project directory (${workingDirectory})
+- When you are done, commit all changes with a descriptive commit message
+- After you finish, your branch will be automatically pushed and a PR will be created on GitHub
+- Do NOT run \`git push\` or \`gh pr create\` yourself — the platform handles this`)
+      } else if (effectiveDelivery === 'push' && usesWorktree) {
+        promptParts.push(`## Workspace & Delivery
+
+You are working in a git worktree (isolated branch) created from the project at: ${workingDirectory}
+Your branch: ${branchName}
+The worktree is located under \`${effectiveAgentDir}/worktrees/\` in the git root.
+
+**IMPORTANT:**
+- All changes are on this isolated branch — commit freely
+- NEVER modify files in the original project directory (${workingDirectory})
+- When done, commit all changes with a descriptive commit message
+- Your branch will be automatically pushed to the remote (user will create a PR manually)
+- Do NOT run \`git push\` yourself — the platform handles this`)
+      } else if (effectiveDelivery === 'branch' && usesWorktree) {
+        promptParts.push(`## Workspace & Delivery
+
+You are working in a git worktree (isolated branch) created from the project at: ${workingDirectory}
+Your branch: ${branchName}
+The worktree is located under \`${effectiveAgentDir}/worktrees/\` in the git root.
+
+**IMPORTANT:**
+- All changes are on this isolated branch — commit freely
+- NEVER modify files in the original project directory (${workingDirectory})
+- When done, commit all changes with a descriptive commit message
+- Your branch will stay local — the user will merge it manually`)
+      } else if (effectiveDelivery === 'copy' && usesWorktree) {
+        promptParts.push(`## Workspace & Delivery
+
+You are working in a temporary copy of the project at: ${workingDirectory}
+The original project is at: ${workingDirectory}
+
+**IMPORTANT:**
+- Your changes are in a copy — the original is untouched until you finish
+- When done, your changes will be diffed against the original and presented for review`)
+      } else if (effectiveDelivery === 'direct' || !usesWorktree) {
+        promptParts.push(`## Workspace & Delivery
+
+You are working directly in the project directory: ${workingDirectory}
+There is no branch isolation — changes are made in-place.
+
+**IMPORTANT:**
+- Be careful — changes are applied directly to the project files
+- When done, commit all changes with a descriptive commit message`)
+      }
     }
 
     if (sourceDirectory) {
-      promptParts.push(`## Data Access\n\nYour working directory is a git worktree (isolated branch) in a sibling directory next to the project.\nThe original project directory is: ${sourceDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
+      promptParts.push(`## Data Access\n\nThe original project directory is: ${sourceDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
     }
 
     // Inject custom environment context if configured
@@ -530,7 +611,6 @@ If all checks pass, the task will be auto-approved. If any check fails, a human 
 Execute the task described above. Focus on completing the task thoroughly and correctly.
 - Use appropriate tools to accomplish the task
 - Report progress and any issues encountered
-- When you are done, commit all your changes with a descriptive commit message summarizing what was accomplished
 
 ### Asking the User for Decisions
 
@@ -596,10 +676,6 @@ ${verificationSection}`)
     console.warn('[dispatch] Failed to fetch project for event hooks:', err)
   }
 
-  // Compute short hex IDs for branch names, PR titles, and worktree paths
-  const shortProjectId = getShortId(projectId)
-  const shortNodeId = getShortId(nodeId)
-
   // Dispatch via relay
   const taskDispatch = {
     taskId: executionId,
@@ -626,6 +702,9 @@ ${verificationSection}`)
     skipSafetyCheck: (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && approvedSafetyDirs.has(workingDirectory)),
     ...(isInteractivePlan ? { type: 'plan' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
+    ...(astroBaseUrl && { astroBaseUrl }),
+    ...(githubIssueUrl && { githubIssueUrl }),
+    ...(githubIssueNumber !== undefined && { githubIssueNumber }),
   }
 
   // Track directory for safety decision caching
@@ -637,11 +716,14 @@ ${verificationSection}`)
   return streamSSE(c, async (stream) => {
     let alive = true
     let lastActivity = Date.now()
+    let resultSent = false
+    let waitingForApproval = false
     const ACTIVITY_TIMEOUT_MS = 300_000
 
     const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
       if (!alive || msg.result.taskId !== executionId) return
       lastActivity = Date.now()
+      resultSent = true
 
       // Map relay metrics to dispatch metrics (adding aliases used by hooks)
       const relayMetrics = msg.result.metrics
@@ -732,6 +814,7 @@ ${verificationSection}`)
     const onText = (msg: import('../types/relay.js').TaskTextMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      waitingForApproval = false
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }
@@ -759,6 +842,7 @@ ${verificationSection}`)
     const onToolTrace = (msg: import('../types/relay.js').TaskToolTraceMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      waitingForApproval = false
 
       // Only send tool_use SSE when toolInput is present (avoid orphan tool_use
       // events for result-only traces from relay's separate toolUse/toolResult flow)
@@ -799,6 +883,18 @@ ${verificationSection}`)
       alive = false
     }
 
+    const onApprovalRequest = (msg: { taskId: string; requestId: string; question: string; options: string[] }) => {
+      if (!alive || msg.taskId !== executionId) return
+      lastActivity = Date.now()
+      waitingForApproval = true
+    }
+
+    const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
+      if (!alive || msg.taskId !== executionId) return
+      lastActivity = Date.now()
+      waitingForApproval = true
+    }
+
     relayServer.on('task:result', onResult)
     relayServer.on('task:text', onText)
     relayServer.on('task:session_init', onSessionInit)
@@ -806,6 +902,8 @@ ${verificationSection}`)
     relayServer.on('task:tool_trace', onToolTrace)
     relayServer.on('task:file_change', onFileChange)
     relayServer.on('machine:disconnected', onMachineDisconnected)
+    relayServer.on('task:approval_request', onApprovalRequest)
+    relayServer.on('task:safety_prompt', onSafetyPrompt)
 
     const cleanup = () => {
       relayServer.off('task:result', onResult)
@@ -815,6 +913,8 @@ ${verificationSection}`)
       relayServer.off('task:tool_trace', onToolTrace)
       relayServer.off('task:file_change', onFileChange)
       relayServer.off('machine:disconnected', onMachineDisconnected)
+      relayServer.off('task:approval_request', onApprovalRequest)
+      relayServer.off('task:safety_prompt', onSafetyPrompt)
     }
 
     // Dispatch after listeners registered
@@ -849,9 +949,9 @@ ${verificationSection}`)
       if (!alive) { clearInterval(heartbeat); return }
       if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
         // Don't timeout if we're waiting for user approval (ask_user_question)
-        if (dispatchEngine.hasPendingApprovalForExecution(executionId)) {
+        if (dispatchEngine.hasPendingApprovalForExecution(executionId) || waitingForApproval) {
           lastActivity = Date.now() // Reset timer while approval is pending
-        } else {
+        } else if (!resultSent) {
           stream.writeSSE({
             event: 'error',
             data: JSON.stringify({ error: 'Activity timeout — agent runner stopped responding', recoverable: false }),

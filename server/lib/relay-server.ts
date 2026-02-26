@@ -1249,6 +1249,10 @@ export class RelayServer extends EventEmitter {
         // Short hex IDs for branch names and PR titles
         ...(task.shortNodeId && { shortNodeId: task.shortNodeId }),
         ...(task.shortProjectId && { shortProjectId: task.shortProjectId }),
+        // PR body enrichment fields
+        ...(task.astroBaseUrl && { astroBaseUrl: task.astroBaseUrl }),
+        ...(task.githubIssueUrl && { githubIssueUrl: task.githubIssueUrl }),
+        ...(task.githubIssueNumber !== undefined && { githubIssueNumber: task.githubIssueNumber }),
       },
     };
 

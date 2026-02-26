@@ -14,6 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir, type ComputeBackendInfo } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -149,6 +150,24 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   // Determine if this is a re-execution (task has been executed before)
   const isReexecution = node.status === "completed" || node.status === "auto_verified" || !!node.executionOutput
 
+  // Derive tooltip text from delivery mode + worktree setting
+  const executeTooltip = useMemo(() => {
+    const dm = project?.deliveryMode ?? "pr"
+    if (!useWorktree) {
+      if (dm === "pr") return "Execute in project directory (worktree disabled), push branch and open PR"
+      if (dm === "push") return "Execute in project directory (worktree disabled), push branch to remote"
+      return "Execute directly in project directory (no isolation)"
+    }
+    switch (dm) {
+      case "pr": return "Execute in git worktree, push branch and open PR on GitHub"
+      case "push": return "Execute in git worktree, push branch to remote"
+      case "branch": return "Execute in git worktree, commit to local branch"
+      case "copy": return "Execute in a copy of the project directory"
+      case "direct": return "Execute directly in project directory (no isolation, serial only)"
+      default: return "Execute task"
+    }
+  }, [project?.deliveryMode, useWorktree])
+
   const [isRefining, setIsRefining] = useState(false)
   const [justRefined, setJustRefined] = useState(false)
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -186,7 +205,8 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
     cancelExecution(node.id)
   }
 
-  const machineDisplayName = resolvedMachine?.name || "Auto"
+  const machineDisplayName = resolvedMachine?.name
+    || (machines.length === 1 ? machines[0].name : "Auto")
 
   return (
     <div className="flex flex-col gap-4">
@@ -410,50 +430,62 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
           </Button>
         ) : (
           isReexecution ? (
-            <Button
-              size="sm"
-              className="flex-1"
-              onClick={handleExecute}
-              disabled={!canExecuteNow}
-            >
-              <Play className="h-3.5 w-3.5" />
-              Re-execute
-            </Button>
-          ) : (
-            <div className="flex flex-1 gap-0">
-              <Button
-                size="sm"
-                className="flex-1 rounded-r-none"
-                onClick={handleExecute}
-                disabled={!canExecuteNow || isRefining}
-              >
-                {justRefined ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                ) : isRefining ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5" />
-                )}
-                {justRefined ? "Refined!" : isRefining ? "Refining..." : "Execute"}
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex flex-1">
                   <Button
                     size="sm"
-                    className="rounded-l-none border-l border-primary-foreground/20 px-1.5"
+                    className="flex-1"
+                    onClick={handleExecute}
+                    disabled={!canExecuteNow}
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    Re-execute
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{executeTooltip}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex flex-1 gap-0">
+                  <Button
+                    size="sm"
+                    className="flex-1 rounded-r-none"
+                    onClick={handleExecute}
                     disabled={!canExecuteNow || isRefining}
                   >
-                    <ChevronDown className="h-3.5 w-3.5" />
+                    {justRefined ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                    ) : isRefining ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Play className="h-3.5 w-3.5" />
+                    )}
+                    {justRefined ? "Refined!" : isRefining ? "Refining..." : "Execute"}
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleRefine} className="gap-2">
-                    <Sparkles className="h-4 w-4" />
-                    Refine
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        className="rounded-l-none border-l border-primary-foreground/20 px-1.5"
+                        disabled={!canExecuteNow || isRefining}
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={handleRefine} className="gap-2">
+                        <Sparkles className="h-4 w-4" />
+                        Refine
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{executeTooltip}</TooltipContent>
+            </Tooltip>
           )
         )}
       </div>
