@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { apiUrl } from '@/lib/api-url'
+import { getAccessToken } from '@/lib/supabase-client'
 import type { RemoteType, DeliveryMode } from '@/types'
 
 export interface DetectionResult {
@@ -54,9 +55,12 @@ export function useDirectoryDetection(path: string, machineId?: string, delay = 
       abortRef.current = controller
 
       try {
+        const headers: Record<string, string> = {}
+        const token = await getAccessToken()
+        if (token) headers['Authorization'] = `Bearer ${token}`
         const res = await fetch(
           apiUrl(`/api/repo/detect?path=${encodeURIComponent(trimmed)}&machineId=${encodeURIComponent(machineId)}`),
-          { signal: controller.signal },
+          { signal: controller.signal, headers },
         )
 
         if (!res.ok) {

@@ -16,7 +16,17 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useToastStore } from "@/stores/toast-store"
 import { apiUrl } from "@/lib/api-url"
+import { getAccessToken } from "@/lib/supabase-client"
 import type { Project, GitHubRepo } from "@/types"
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {}
+  const token = await getAccessToken()
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+  return headers
+}
 
 export function GitHubProjectLinker() {
   const connected = useGitHubStore((s) => s.connected)
@@ -72,9 +82,10 @@ export function GitHubProjectLinker() {
     async (repo: GitHubRepo) => {
       setLinking(repo.id)
       try {
+        const hdrs = await authHeaders()
         const res = await fetch(apiUrl("/api/github/projects"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { ...hdrs, "Content-Type": "application/json" },
           body: JSON.stringify({
             repoId: repo.id,
             owner: repo.owner.login,
@@ -113,8 +124,10 @@ export function GitHubProjectLinker() {
       setConfirmUnlink(null)
       setUnlinking(projectId)
       try {
+        const hdrs = await authHeaders()
         const res = await fetch(apiUrl(`/api/github/projects/${projectId}`), {
           method: "DELETE",
+          headers: hdrs,
         })
         if (!res.ok) throw new Error("Failed to unlink")
         useProjectStore.getState().deleteProject(projectId)
@@ -137,9 +150,10 @@ export function GitHubProjectLinker() {
     async (projectId: string) => {
       setSyncing(projectId)
       try {
+        const hdrs = await authHeaders()
         const res = await fetch(
           apiUrl(`/api/github/projects/${projectId}/sync-issues`),
-          { method: "POST" }
+          { method: "POST", headers: hdrs }
         )
         if (!res.ok) throw new Error("Failed to sync")
         const data = await res.json()

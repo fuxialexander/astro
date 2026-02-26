@@ -10,6 +10,14 @@
 
 import type { OpenClawSkill } from '@/types/skill'
 import { apiUrl } from '@/lib/api-url'
+import { getAccessToken } from '@/lib/supabase-client'
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {}
+  const token = await getAccessToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  return headers
+}
 
 /**
  * Abstract interface for skill discovery and management.
@@ -36,7 +44,8 @@ export interface SkillProvider {
 export class WebSkillProvider implements SkillProvider {
   async scanSkills(): Promise<OpenClawSkill[]> {
     try {
-      const res = await fetch(apiUrl('/api/skills'))
+      const headers = await authHeaders()
+      const res = await fetch(apiUrl('/api/skills'), { headers })
       if (!res.ok) return []
       const data = await res.json()
       return (data.skills ?? []).map((s: Record<string, unknown>) => ({
@@ -62,7 +71,8 @@ export class WebSkillProvider implements SkillProvider {
 
   async uninstallSkill(name: string): Promise<boolean> {
     try {
-      const res = await fetch(apiUrl(`/api/skills/${encodeURIComponent(name)}`), { method: 'DELETE' })
+      const headers = await authHeaders()
+      const res = await fetch(apiUrl(`/api/skills/${encodeURIComponent(name)}`), { method: 'DELETE', headers })
       return res.ok
     } catch {
       return false
@@ -71,9 +81,10 @@ export class WebSkillProvider implements SkillProvider {
 
   async updateSkillConfig(name: string, config: Record<string, unknown>): Promise<boolean> {
     try {
+      const hdrs = await authHeaders()
       const res = await fetch(apiUrl(`/api/skills/${encodeURIComponent(name)}/config`), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...hdrs, 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       })
       return res.ok

@@ -1,7 +1,15 @@
 import { useEffect } from 'react'
 import { useProjectStore } from '@/stores/project-store'
 import { apiUrl } from '@/lib/api-url'
+import { getAccessToken } from '@/lib/supabase-client'
 import type { Project } from '@/types'
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {}
+  const token = await getAccessToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  return headers
+}
 
 const FILE_TREE_STALE_MS = 5 * 60 * 1000 // 5 minutes
 
@@ -25,12 +33,14 @@ export function useFileTreeRefresh(project: Project | undefined) {
     if (!isStale && !isMachineMismatch) return
 
     const params = new URLSearchParams({ projectId: project.id, machineId, workingDirectory: project.workingDirectory })
-    fetch(apiUrl(`/api/fs/files?${params}`))
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.files?.length) updateFileTree(project.id, data.files, machineId)
-      })
-      .catch(() => {})
+    authHeaders().then((headers) =>
+      fetch(apiUrl(`/api/fs/files?${params}`), { headers })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.files?.length) updateFileTree(project.id, data.files, machineId)
+        })
+        .catch(() => {})
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, project?.workingDirectory, project?.defaultMachineId])
 }
@@ -52,11 +62,13 @@ export function refreshAllFileTrees() {
     if (!isStale) continue
 
     const params = new URLSearchParams({ projectId: project.id, machineId, workingDirectory: project.workingDirectory })
-    fetch(apiUrl(`/api/fs/files?${params}`))
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.files?.length) updateFileTree(project.id, data.files, machineId)
-      })
-      .catch(() => {})
+    authHeaders().then((headers) =>
+      fetch(apiUrl(`/api/fs/files?${params}`), { headers })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.files?.length) updateFileTree(project.id, data.files, machineId)
+        })
+        .catch(() => {})
+    )
   }
 }

@@ -5,6 +5,7 @@ import { useSidebarStore } from "@/stores/sidebar-store"
 import { useTheme } from "@/components/theme-provider"
 import { createPluginContext } from "@/lib/plugin-context"
 import { API_BASE_URL } from "@/lib/api-url"
+import { getAccessToken } from "@/lib/supabase-client"
 import type { AstroPlugin, PluginContributions } from "@/types/plugin"
 
 // Built-in plugins bundled with Astro
@@ -25,9 +26,12 @@ const BUILTIN_PLUGINS: AstroPlugin[] = [
 async function syncSkillsToServer(skills: PluginContributions['skills']) {
   if (!skills || skills.length === 0) return
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = await getAccessToken()
+    if (token) headers['Authorization'] = `Bearer ${token}`
     await fetch(`${API_BASE_URL}/api/skills/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       credentials: 'include',
       body: JSON.stringify({ skills }),
     })

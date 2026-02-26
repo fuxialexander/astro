@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { apiUrl } from '@/lib/api-url'
+import { getAccessToken } from '@/lib/supabase-client'
 
 export interface BranchInfo {
   name: string
@@ -51,9 +52,12 @@ export function useBranchList() {
     setError(null)
 
     try {
+      const headers: Record<string, string> = {}
+      const branchToken = await getAccessToken()
+      if (branchToken) headers['Authorization'] = `Bearer ${branchToken}`
       const res = await fetch(
         apiUrl(`/api/repo/branches?path=${encodeURIComponent(path)}&machineId=${encodeURIComponent(machineId)}`),
-        { signal: controller.signal },
+        { signal: controller.signal, headers },
       )
 
       if (!res.ok) {
@@ -93,9 +97,12 @@ export function useBranchList() {
     setError(null)
 
     try {
+      const headers: Record<string, string> = {}
+      const token = await getAccessToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
       const res = await fetch(
         apiUrl(`/api/github/branches/${encodeURIComponent(repoFullName.split('/')[0])}/${encodeURIComponent(repoFullName.split('/')[1])}`),
-        { signal: controller.signal },
+        { signal: controller.signal, headers },
       )
 
       if (!res.ok) {

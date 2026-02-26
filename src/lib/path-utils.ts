@@ -6,6 +6,7 @@
  */
 
 import { apiUrl } from "./api-url"
+import { getAccessToken } from "./supabase-client"
 
 /**
  * Minimal machine info needed for file URL building
@@ -86,7 +87,10 @@ export async function getBrowserHostname(): Promise<string> {
 
   try {
     // Try to fetch from server-side endpoint
-    const response = await fetch(apiUrl('/api/system/hostname'))
+    const headers: Record<string, string> = {}
+    const token = await getAccessToken()
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const response = await fetch(apiUrl('/api/system/hostname'), { headers })
     if (response.ok) {
       const data = await response.json() as { hostname?: string }
       if (data.hostname) {
