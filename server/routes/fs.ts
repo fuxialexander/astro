@@ -5,10 +5,14 @@
 
 import { Hono } from 'hono'
 import { relayServer } from '../lib/relay-server.js'
+import { requireAuth } from '../middleware/auth.js'
 
 const MAX_RESULTS = 50
 
 export const fsRoute = new Hono()
+
+// All fs routes require authentication
+fsRoute.use('/*', requireAuth)
 
 /**
  * GET /files?projectId=xxx&machineId=yyy&q=prefix&workingDirectory=path

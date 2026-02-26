@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/stores/auth-store"
 import { apiUrl } from "@/lib/api-url"
+import { generateDispatchKeyPair, exportPublicKeyJWK, storeSigningKey, getSigningKeyPair } from "@/lib/dispatch-signing"
 
 type AuthStatus = "loading" | "pending" | "success" | "error" | "denied" | "expired" | "unauthenticated"
 
@@ -61,7 +62,7 @@ export function DeviceAuth() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const codeFromUrl = searchParams.get("code")
-  const { user, loading: authLoading, initialized } = useAuthStore()
+  const { user, session, loading: authLoading, initialized } = useAuthStore()
 
   const [code, setCode] = useState(codeFromUrl || "")
   const [deviceInfo, setDeviceInfo] = useState<DeviceCodeInfo | null>(null)
@@ -148,10 +149,31 @@ export function DeviceAuth() {
     try {
       console.log('[device-auth] Authorizing device...')
 
+      // Reuse existing dispatch signing keypair or generate a new one.
+      // Using the same key across all machines ensures all registered machines
+      // can verify dispatches signed by this browser.
+      let dispatchPublicKey: JsonWebKey | undefined
+      try {
+        let keyPair = await getSigningKeyPair(user.id)
+        if (!keyPair) {
+          keyPair = await generateDispatchKeyPair()
+          await storeSigningKey(user.id, keyPair)
+          console.log('[device-auth] Generated new dispatch signing keypair')
+        } else {
+          console.log('[device-auth] Reusing existing dispatch signing keypair')
+        }
+        dispatchPublicKey = await exportPublicKeyJWK(keyPair.publicKey)
+      } catch (err) {
+        console.warn('[device-auth] Failed to load/generate signing keypair, proceeding without:', err)
+      }
+
       const response = await fetch(apiUrl(`/api/device/code/${deviceInfo.deviceCode}/authorize`), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+        },
+        body: JSON.stringify({ dispatchPublicKey }),
       })
 
       const data = await response.json()
@@ -179,9 +201,18 @@ export function DeviceAuth() {
     setStatus("loading")
 
     try {
-      await fetch(apiUrl(`/api/device/code/${deviceInfo.deviceCode}/deny`), {
+      const response = await fetch(apiUrl(`/api/device/code/${deviceInfo.deviceCode}/deny`), {
         method: "POST",
+        headers: {
+          ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+        },
       })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        setStatus("error")
+        setError(data.error || "Failed to deny authorization")
+        return
+      }
       setStatus("denied")
     } catch {
       setStatus("error")

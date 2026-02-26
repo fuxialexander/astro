@@ -12,6 +12,7 @@ import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { requireAuth } from '../middleware/auth.js'
+import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, TaskStdoutMessage } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects } from '../lib/db/schema.js'
@@ -951,7 +952,9 @@ agentRoute.post('/suggest-labels', async (c) => {
  * Get relay status — shows connected agent runners instead of local providers.
  */
 agentRoute.get('/providers', async (c) => {
+  const user = c.get('user') as { id: string } | undefined
   const machines = machineRegistry.getAll()
+    .filter(m => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID)
   return c.json({
     mode: 'relay',
     connectedRunners: machines.length,
@@ -968,7 +971,9 @@ agentRoute.get('/providers', async (c) => {
  * Re-detect is a no-op in relay mode — agent runners self-register.
  */
 agentRoute.post('/providers/detect', async (c) => {
+  const user = c.get('user') as { id: string } | undefined
   const machines = machineRegistry.getAll()
+    .filter(m => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID)
   return c.json({
     detected: machines.length,
     mode: 'relay',

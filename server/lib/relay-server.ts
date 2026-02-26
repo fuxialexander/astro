@@ -37,6 +37,7 @@ import {
   type ErrorMessage,
   type MachineInfo,
   type ProviderType,
+  type ClaudeCodeSessionInfo,
   // Session attachment types (MCP bridge)
   type SessionAttachMessage,
   type SessionAttachAckMessage,
@@ -400,6 +401,17 @@ interface AgentRunnerBranchListResponseMessage {
   };
 }
 
+/** Agent runner's sessions list response message format */
+interface AgentRunnerSessionsListResponseMessage {
+  type: 'sessions_list_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    sessions: ClaudeCodeSessionInfo[];
+    error?: string;
+  };
+}
+
 /** Agent runner's git init response message format */
 interface AgentRunnerGitInitResponseMessage {
   type: 'git_init_response';
@@ -499,8 +511,8 @@ export interface RelayServerEvents {
   'task:tool_trace': (trace: TaskToolTraceMessage) => void;
   'task:file_change': (change: TaskFileChangeMessage) => void;
   'task:session_init': (msg: TaskSessionInitMessage) => void;
-  'task:approval_request': (msg: { taskId: string; requestId: string; question: string; options: string[] }) => void;
-  'task:safety_prompt': (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }> }) => void;
+  'task:approval_request': (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => void;
+  'task:safety_prompt': (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => void;
   'machine:connected': (machineId: string) => void;
   'machine:disconnected': (machineId: string, reason?: string) => void;
   // Session attachment events (MCP bridge)
@@ -875,7 +887,8 @@ export class RelayServer extends EventEmitter {
       case 'task_safety_prompt': {
         const payload = (message as { payload: { taskId: string; safetyTier: string; warning?: string; options: unknown[] } }).payload;
         if (payload?.taskId) {
-          this.emit('task:safety_prompt', payload);
+          const safetyMachineId = this.taskToMachine.get(payload.taskId);
+          this.emit('task:safety_prompt', { ...payload, machineId: safetyMachineId });
           console.log(`[relay] Safety prompt for task ${payload.taskId} (tier: ${payload.safetyTier})`);
         }
         break;
@@ -972,6 +985,15 @@ export class RelayServer extends EventEmitter {
 
       case 'branch_list_response':
         this.handleAgentRunnerBranchListResponse(message as unknown as AgentRunnerBranchListResponseMessage);
+        break;
+
+      // Sessions list response from agent runner (Claude Code session discovery)
+      case 'sessions_list.response':
+        this.handleSessionsListResponse(message as unknown as { type: 'sessions_list.response'; correlationId: string; sessions: ClaudeCodeSessionInfo[]; error?: string });
+        break;
+
+      case 'sessions_list_response':
+        this.handleAgentRunnerSessionsListResponse(message as unknown as AgentRunnerSessionsListResponseMessage);
         break;
 
       // Session attachment messages (MCP bridge)
@@ -1253,6 +1275,8 @@ export class RelayServer extends EventEmitter {
         ...(task.astroBaseUrl && { astroBaseUrl: task.astroBaseUrl }),
         ...(task.githubIssueUrl && { githubIssueUrl: task.githubIssueUrl }),
         ...(task.githubIssueNumber !== undefined && { githubIssueNumber: task.githubIssueNumber }),
+        ...(task.dispatchSignature && { dispatchSignature: task.dispatchSignature }),
+        ...(task.dispatchSigningPayload && { dispatchSigningPayload: task.dispatchSigningPayload }),
       },
     };
 
@@ -1837,12 +1861,14 @@ export class RelayServer extends EventEmitter {
    */
   private handleAgentRunnerTaskApprovalRequest(message: AgentRunnerTaskApprovalRequestMessage): void {
     const { payload } = message;
+    const machineId = this.taskToMachine.get(payload.taskId);
     console.log(`[relay] Approval request from task ${payload.taskId}: ${payload.question}`);
     this.emit('task:approval_request', {
       taskId: payload.taskId,
       requestId: payload.requestId,
       question: payload.question,
       options: payload.options,
+      machineId,
     });
   }
 
@@ -1980,6 +2006,56 @@ export class RelayServer extends EventEmitter {
       entries: message.payload.entries,
       error: message.payload.error,
       homeDirectory: message.payload.homeDirectory,
+    });
+  }
+
+  // ============================================================================
+  // Sessions List Handlers (Claude Code session discovery)
+  // ============================================================================
+
+  /**
+   * Request a sessions list from a connected machine
+   */
+  requestSessionsList(machineId: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for sessions list request`);
+      return false;
+    }
+
+    const msg = {
+      type: 'sessions_list_request',
+      timestamp: new Date().toISOString(),
+      payload: { correlationId },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle sessions_list.response (dot notation)
+   */
+  private handleSessionsListResponse(message: { correlationId: string; sessions: ClaudeCodeSessionInfo[]; error?: string }): void {
+    this.emit('sessions_list:response', {
+      correlationId: message.correlationId,
+      sessions: message.sessions,
+      error: message.error,
+    });
+  }
+
+  /**
+   * Handle agent runner's sessions_list_response format
+   */
+  private handleAgentRunnerSessionsListResponse(message: AgentRunnerSessionsListResponseMessage): void {
+    this.emit('sessions_list:response', {
+      correlationId: message.payload.correlationId,
+      sessions: message.payload.sessions,
+      error: message.payload.error,
     });
   }
 

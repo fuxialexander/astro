@@ -13,8 +13,12 @@
 import { Hono } from 'hono'
 import { skillManager } from '../lib/skill-manager.js'
 import { errorMessage } from '../lib/error-utils.js'
+import { requireAuth } from '../middleware/auth.js'
 
 const skillsRoute = new Hono()
+
+// All skills routes require authentication
+skillsRoute.use('/*', requireAuth)
 
 /**
  * List all loaded skills with eligibility status

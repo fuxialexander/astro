@@ -60,6 +60,9 @@ import {
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
+import { db } from '../lib/db/index.js';
+import { registeredMachines } from '../lib/db/schema.js';
+import { eq } from 'drizzle-orm';
 import { getServiceClient } from '../lib/supabase.js'
 import { isServerMode } from '../lib/app-mode.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -327,6 +330,7 @@ deviceAuthRoute.post('/token', async (c) => {
           tokenType: 'Bearer',
           expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
           scopes,
+          ...(entry.dispatchPublicKey && { dispatchPublicKey: entry.dispatchPublicKey }),
         };
 
         return c.json(response);
@@ -359,13 +363,13 @@ deviceAuthRoute.post('/register', async (c) => {
       return c.json({ error: 'Invalid or expired access token' }, 401);
     }
 
-    const body = await c.req.json() as { machineInfo: MachineInfo };
+    const body = await c.req.json() as { machineInfo: MachineInfo; dispatchPublicKey?: JsonWebKey };
 
     if (!body.machineInfo) {
       return c.json({ error: 'Missing machineInfo' }, 400);
     }
 
-    const { machineInfo } = body;
+    const { machineInfo, dispatchPublicKey } = body;
 
     // Validate user exists in auth.users (prevents foreign key constraint violation)
     if (isServerMode()) {
@@ -423,6 +427,13 @@ deviceAuthRoute.post('/register', async (c) => {
     // Update machine with refresh token hash
     machine.refreshTokenHash = refreshEntry.tokenHash;
 
+    // Store dispatch public key on the registered machine if provided
+    if (dispatchPublicKey) {
+      await db.update(registeredMachines)
+        .set({ dispatchPublicKey })
+        .where(eq(registeredMachines.id, machine.id));
+    }
+
     // Create WebSocket JWT for relay connection (uses RELAY_JWT_SECRET)
     const wsToken = createWebSocketToken({
       machineId: machine.id,
@@ -459,6 +470,7 @@ deviceAuthRoute.post('/register', async (c) => {
       relayUrl: RELAY_URL,
       wsToken,
       message: `Machine "${machine.name}" registered successfully`,
+      ...(dispatchPublicKey && { dispatchPublicKey }),
     };
 
     // Audit log the machine registration
@@ -596,19 +608,15 @@ deviceAuthRoute.get('/code/:code', async (c) => {
 /**
  * POST /device/code/:code/authorize
  * Authorize a device code (called from the web UI)
+ * Requires authentication — uses the authenticated user's ID.
  */
-deviceAuthRoute.post('/code/:code/authorize', async (c) => {
+deviceAuthRoute.post('/code/:code/authorize', requireAuth, async (c) => {
   const code = c.req.param('code');
+  const user = c.get('user') as { id: string };
+  const body = await c.req.json() as { dispatchPublicKey?: JsonWebKey };
 
-  // In a real app, get userId from session/auth
-  // For now, accept it from the request body
-  const body = await c.req.json() as { userId: string };
-
-  if (!body.userId) {
-    return c.json({ error: 'Missing userId' }, 400);
-  }
-
-  const success = await authorizeDeviceCode(code, body.userId);
+  // Always use authenticated user's ID — never accept userId from body
+  const success = await authorizeDeviceCode(code, user.id, body.dispatchPublicKey);
 
   if (!success) {
     return c.json({ error: 'Failed to authorize device code' }, 400);
@@ -623,8 +631,9 @@ deviceAuthRoute.post('/code/:code/authorize', async (c) => {
 /**
  * POST /device/code/:code/deny
  * Deny a device code (called from the web UI)
+ * Requires authentication.
  */
-deviceAuthRoute.post('/code/:code/deny', async (c) => {
+deviceAuthRoute.post('/code/:code/deny', requireAuth, async (c) => {
   const code = c.req.param('code');
   const success = await denyDeviceCode(code);
 
@@ -980,9 +989,16 @@ deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
  * POST /device/simulate-machine
  * Create a simulated machine for testing/demo purposes.
  * Registers in both the persistent store and live registry.
+ * Requires authentication + non-production environment.
  */
-deviceAuthRoute.post('/simulate-machine', async (c) => {
+deviceAuthRoute.post('/simulate-machine', requireAuth, async (c) => {
+  // Only allow in non-production environments
+  if (process.env.NODE_ENV === 'production') {
+    return c.json({ error: 'Simulate endpoint only available in development' }, 403);
+  }
+
   try {
+    const user = c.get('user') as { id: string };
     const body = await c.req.json() as { type?: 'local' | 'hpc'; name?: string };
     const isHpc = body.type === 'hpc';
 
@@ -992,13 +1008,13 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
     const platform = isHpc ? 'linux' : 'darwin';
     const providers: Array<'claude-code' | 'claude-sdk' | 'aws' | 'gcp' | 'custom'> = ['claude-sdk'];
 
-    // Register in persistent store
+    // Register in persistent store — use authenticated user's ID
     const machine = await registerMachine({
       name: machineName,
       hostname,
       platform,
       providers,
-      userId: 'current-user',
+      userId: user.id,
       refreshTokenHash: '',
       metadata: { simulated: 'true' },
     });
@@ -1022,7 +1038,7 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
     });
 
     // Emit machine:connected so the SSE bridge picks it up
-    relayServer.emit('machine:connected', machine.id, 'current-user');
+    relayServer.emit('machine:connected', machine.id, user.id);
 
     return c.json({
       success: true,
@@ -1043,8 +1059,9 @@ deviceAuthRoute.post('/simulate-machine', async (c) => {
 /**
  * GET /device/stats
  * Get device auth statistics (for admin/debug)
+ * Requires authentication.
  */
-deviceAuthRoute.get('/stats', async (c) => {
+deviceAuthRoute.get('/stats', requireAuth, async (c) => {
   const pendingCodes = await getPendingDeviceCodes();
 
   return c.json({

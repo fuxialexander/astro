@@ -19,6 +19,7 @@ import { machineRegistry } from '../lib/machine-registry.js'
 import type { ProviderType, ImageAttachment } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
+import { executionContextStore } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
 import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs } from '../lib/db/schema.js'
@@ -86,6 +87,17 @@ const dispatchTaskSchema = z.object({
     command: z.string().optional(),
     autoVerifiable: z.boolean(),
   })).optional(),
+  dispatchSignature: z.string().max(500).optional(),
+  dispatchSigningPayload: z.object({
+    v: z.literal(1),
+    nodeId: z.string(),
+    projectId: z.string(),
+    machineId: z.string(),
+    timestamp: z.string(),
+    nonce: z.string(),
+  }).optional(),
+  resumeSessionId: z.string().max(200).optional(),
+  forkSession: z.boolean().optional(),
 })
 
 const dispatchRoute = new Hono()
@@ -140,6 +152,10 @@ dispatchRoute.post('/task', async (c) => {
     isInteractivePlan,
     skipSafetyCheck,
     acceptanceCriteria,
+    dispatchSignature,
+    dispatchSigningPayload,
+    resumeSessionId,
+    forkSession,
   } = body
 
   // PR body enrichment fields (resolved from DB)
@@ -345,6 +361,8 @@ dispatchRoute.post('/task', async (c) => {
     acceptanceCriteria,
     githubIssueUrl,
     githubIssueNumber,
+    resumeSessionId,
+    forkSession,
   })
 })
 
@@ -380,6 +398,8 @@ async function dispatchViaRelay(
     acceptanceCriteria?: Array<{ id: string; description: string; type: string; command?: string; autoVerifiable: boolean }>
     githubIssueUrl?: string
     githubIssueNumber?: number
+    resumeSessionId?: string
+    forkSession?: boolean
   }
 ) {
   const astroBaseUrl = process.env.ASTRO_BASE_URL || undefined
@@ -411,6 +431,8 @@ async function dispatchViaRelay(
     acceptanceCriteria,
     githubIssueUrl,
     githubIssueNumber,
+    resumeSessionId,
+    forkSession,
   } = params
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
@@ -444,6 +466,15 @@ async function dispatchViaRelay(
       )
     }
   }
+
+  // Register execution context for user-scoped SSE filtering + ownership validation
+  executionContextStore.register({
+    executionId,
+    projectId,
+    nodeId,
+    userId: user?.id || LOCAL_USER_ID,
+    machineId: machineId!,
+  })
 
   // Build prompt — interactive plans use the dedicated planning prompt template;
   // regular executions use the standard task execution prompt.
@@ -705,6 +736,10 @@ ${verificationSection}`)
     ...(astroBaseUrl && { astroBaseUrl }),
     ...(githubIssueUrl && { githubIssueUrl }),
     ...(githubIssueNumber !== undefined && { githubIssueNumber }),
+    ...(dispatchSignature && { dispatchSignature }),
+    ...(dispatchSigningPayload && { dispatchSigningPayload }),
+    ...(resumeSessionId && { resumeSessionId }),
+    ...(forkSession && { forkSession }),
   }
 
   // Track directory for safety decision caching
@@ -724,6 +759,7 @@ ${verificationSection}`)
       if (!alive || msg.result.taskId !== executionId) return
       lastActivity = Date.now()
       resultSent = true
+      executionContextStore.remove(executionId)
 
       // Map relay metrics to dispatch metrics (adding aliases used by hooks)
       const relayMetrics = msg.result.metrics
@@ -1004,6 +1040,15 @@ dispatchRoute.post('/steer', async (c) => {
   }
   const { taskId, machineId, message, action, interrupt } = parsed.data
 
+  // Validate user owns this task
+  const steerUser = c.get('user') as AuthUser | undefined
+  if (steerUser?.id && steerUser.id !== LOCAL_USER_ID) {
+    const ctx = executionContextStore.get(taskId)
+    if (ctx && ctx.userId !== steerUser.id && ctx.userId !== LOCAL_USER_ID) {
+      return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+    }
+  }
+
   const sent = relayServer.steerTask(taskId, machineId, message, action, interrupt)
 
   if (!sent) {
@@ -1035,6 +1080,15 @@ dispatchRoute.post('/approval', async (c) => {
     return c.json({ success: false, error: 'taskId, machineId, and requestId are required' }, 400)
   }
   const { taskId, machineId, requestId, answered, answer, message } = parsed.data
+
+  // Validate user owns this task
+  const approvalUser = c.get('user') as AuthUser | undefined
+  if (approvalUser?.id && approvalUser.id !== LOCAL_USER_ID) {
+    const ctx = executionContextStore.get(taskId)
+    if (ctx && ctx.userId !== approvalUser.id && ctx.userId !== LOCAL_USER_ID) {
+      return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+    }
+  }
 
   const sent = relayServer.sendApprovalResponse(taskId, machineId, requestId, answered, answer, message)
 
@@ -1075,6 +1129,15 @@ dispatchRoute.post('/safety-decision', async (c) => {
     return c.json({ success: false, error: `Invalid decision. Must be one of: ${validDecisions.join(', ')}` }, 400)
   }
 
+  // Validate user owns this task
+  const safetyUser = c.get('user') as AuthUser | undefined
+  if (safetyUser?.id && safetyUser.id !== LOCAL_USER_ID) {
+    const ctx = executionContextStore.get(taskId)
+    if (ctx && ctx.userId !== safetyUser.id && ctx.userId !== LOCAL_USER_ID) {
+      return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+    }
+  }
+
   const sent = relayServer.sendSafetyDecision(
     taskId,
     machineId,
@@ -1112,6 +1175,15 @@ dispatchRoute.post('/cancel', async (c) => {
   const id = executionId ?? nodeId
   if (!id) {
     return c.json({ success: false, error: 'nodeId or executionId required' }, 400)
+  }
+
+  // Validate user owns this task
+  const cancelUser = c.get('user') as AuthUser | undefined
+  if (cancelUser?.id && cancelUser.id !== LOCAL_USER_ID) {
+    const ctx = executionContextStore.get(id)
+    if (ctx && ctx.userId !== cancelUser.id && ctx.userId !== LOCAL_USER_ID) {
+      return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+    }
   }
 
   // Cancel via relay

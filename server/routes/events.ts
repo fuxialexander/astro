@@ -28,6 +28,7 @@ import { getMachine } from '../lib/registered-machines-store.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import type { ApprovalRequestedEvent, ApprovalRespondedEvent } from '../lib/events/types.js'
+import { executionContextStore } from '../lib/execution-context-store.js'
 
 const eventsRoute = new Hono()
 
@@ -68,10 +69,49 @@ eventsRoute.get('/stream', async (c) => {
       })
     })
 
-    // Replay missed events on reconnection
+    // Helper: check if this SSE connection's user owns the given task
+    const isTaskOwnedByUser = (taskId: string): boolean => {
+      if (!user?.id) return true // no auth = local mode, allow all
+      const ctx = executionContextStore.get(taskId)
+      if (!ctx) return true // unknown task = allow (backward compat, e.g. dispatch via engine)
+      return ctx.userId === user.id || ctx.userId === LOCAL_USER_ID
+    }
+
+    // Helper: check if this SSE connection's user owns the given project
+    const isProjectOwnedByUser = async (projectId: string): Promise<boolean> => {
+      if (!user?.id) return true // no auth = local mode, allow all
+      try {
+        const { projects } = await import('../lib/db/schema.js')
+        const { eq, and, or, isNull } = await import('drizzle-orm')
+        const { db } = await import('../lib/db/index.js')
+        const [project] = await db.select({ id: projects.id }).from(projects).where(
+          and(
+            eq(projects.id, projectId),
+            or(
+              eq(projects.teamId, user.teamId),
+              and(isNull(projects.teamId), eq(projects.ownerId, user.id))
+            )
+          )
+        ).limit(1)
+        return !!project
+      } catch {
+        return true // fail open for backward compat
+      }
+    }
+
+    // Replay missed events on reconnection (filtered by user ownership)
     if (lastEventId) {
       const missed = eventBuffer.getAfter(lastEventId)
       for (const event of missed) {
+        // Filter replayed events by user ownership where possible
+        if (event.event.startsWith('task:') || event.event === 'session:attached' ||
+            event.event === 'session:detached' || event.event === 'session:event') {
+          try {
+            const parsed = JSON.parse(event.data)
+            const taskId = parsed.taskId
+            if (taskId && !isTaskOwnedByUser(taskId)) continue
+          } catch { /* allow non-JSON events */ }
+        }
         await stream.writeSSE({ id: event.id, event: event.event, data: event.data })
       }
     }
@@ -103,8 +143,10 @@ eventsRoute.get('/stream', async (c) => {
     })
 
     // Event handlers
-    const onTaskReady = (msg: { nodeId: string; projectId: string }) => {
+    const onTaskReady = async (msg: { nodeId: string; projectId: string }) => {
       if (!alive) return
+      // Filter by project ownership
+      if (!await isProjectOwnedByUser(msg.projectId)) return
       const data = JSON.stringify({ nodeId: msg.nodeId, projectId: msg.projectId })
       const id = eventBuffer.push('task:ready', data)
       stream.writeSSE({ id, event: 'task:ready', data }).catch(() => { alive = false })
@@ -112,6 +154,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskResult = (msg: TaskResultMessage) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(msg.result.taskId)) return
       const data = JSON.stringify({
         taskId: msg.result.taskId,
         status: msg.result.status,
@@ -125,11 +168,13 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskStdout = (msg: TaskStdoutMessage) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(msg.output.taskId)) return
       throttle.write(msg.output.taskId, msg.output.data)
     }
 
     const onTaskProgress = (msg: TaskProgressMessage) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
         progress: msg.progress,
@@ -141,6 +186,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskSteerAck = (msg: TaskSteerAckMessage & { interrupted?: boolean }) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
         accepted: msg.accepted,
@@ -153,6 +199,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskToolTrace = (msg: TaskToolTraceMessage) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
         toolName: msg.toolName,
@@ -167,6 +214,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskFileChange = (msg: TaskFileChangeMessage) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
         path: msg.path,
@@ -181,6 +229,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskSessionInit = (msg: TaskSessionInitMessage) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
         sessionId: msg.sessionId,
@@ -190,20 +239,23 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
     }
 
-    const onTaskApprovalRequest = (msg: { taskId: string; requestId: string; question: string; options: string[] }) => {
+    const onTaskApprovalRequest = (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
         requestId: msg.requestId,
         question: msg.question,
         options: msg.options,
+        machineId: msg.machineId,
       })
       const id = eventBuffer.push('task:approval_request', data)
       stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
     }
 
-    const onTaskSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
+    const onTaskSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify(msg)
       const id = eventBuffer.push('task:safety_prompt', data)
       stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
@@ -242,9 +294,10 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'machine:disconnected', data }).catch(() => { alive = false })
     }
 
-    // Session attachment event handlers (MCP bridge)
+    // Session attachment event handlers (MCP bridge) — filter by task ownership
     const onSessionAttached = (sessionId: string, taskId: string, machineId: string) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(taskId)) return
       const data = JSON.stringify({ sessionId, taskId, machineId, attachedAt: new Date().toISOString() })
       const id = eventBuffer.push('session:attached', data)
       stream.writeSSE({ id, event: 'session:attached', data }).catch(() => { alive = false })
@@ -252,6 +305,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onSessionDetached = (sessionId: string, taskId: string, reason?: string) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(taskId)) return
       const data = JSON.stringify({ sessionId, taskId, reason })
       const id = eventBuffer.push('session:detached', data)
       stream.writeSSE({ id, event: 'session:detached', data }).catch(() => { alive = false })
@@ -259,14 +313,17 @@ eventsRoute.get('/stream', async (c) => {
 
     const onSessionEvent = (sessionId: string, taskId: string, event: SessionEvent) => {
       if (!alive) return
+      if (!isTaskOwnedByUser(taskId)) return
       const data = JSON.stringify({ sessionId, taskId, event })
       const id = eventBuffer.push('session:event', data)
       stream.writeSSE({ id, event: 'session:event', data }).catch(() => { alive = false })
     }
 
-    // Approval event handlers
+    // Approval event handlers — filter by execution/task ownership
     const onApprovalRequested = (event: ApprovalRequestedEvent) => {
       if (!alive) return
+      // Filter by execution ownership
+      if (event.executionId && !isTaskOwnedByUser(event.executionId)) return
       const data = JSON.stringify({
         approvalId: event.approvalId,
         nodeId: event.nodeId,
@@ -282,6 +339,8 @@ eventsRoute.get('/stream', async (c) => {
 
     const onApprovalResponded = (event: ApprovalRespondedEvent) => {
       if (!alive) return
+      // Filter by execution ownership
+      if (event.executionId && !isTaskOwnedByUser(event.executionId)) return
       const data = JSON.stringify({
         approvalId: event.approvalId,
         nodeId: event.nodeId,
@@ -309,16 +368,18 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('session:detached', onSessionDetached)
     relayServer.on('session:event', onSessionEvent)
 
-    // Merge queue event handlers
-    const onMergeQueueFailed = (msg: { nodeId: string; projectId: string; prNumber: number; reason: string; branchName: string }) => {
+    // Merge queue event handlers — filter by project ownership
+    const onMergeQueueFailed = async (msg: { nodeId: string; projectId: string; prNumber: number; reason: string; branchName: string }) => {
       if (!alive) return
+      if (!await isProjectOwnedByUser(msg.projectId)) return
       const data = JSON.stringify(msg)
       const id = eventBuffer.push('merge_queue:failed', data)
       stream.writeSSE({ id, event: 'merge_queue:failed', data }).catch(() => { alive = false })
     }
 
-    const onMergeQueueSucceeded = (msg: { nodeId: string; projectId: string; prNumber: number; branchName: string; mergedSha?: string }) => {
+    const onMergeQueueSucceeded = async (msg: { nodeId: string; projectId: string; prNumber: number; branchName: string; mergedSha?: string }) => {
       if (!alive) return
+      if (!await isProjectOwnedByUser(msg.projectId)) return
       const data = JSON.stringify(msg)
       const id = eventBuffer.push('merge_queue:succeeded', data)
       stream.writeSSE({ id, event: 'merge_queue:succeeded', data }).catch(() => { alive = false })

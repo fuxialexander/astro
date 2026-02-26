@@ -163,16 +163,18 @@ relayRoute.get('/machines/:machineId', (c) => {
 
 /**
  * GET /relay/machines/provider/:provider
- * Get machines by provider type
+ * Get machines by provider type (filtered by authenticated user)
  */
 relayRoute.get('/machines/provider/:provider', (c) => {
   const provider = c.req.param('provider') as ProviderType;
+  const user = c.get('user') as AuthUser | undefined;
 
   if (!['claude-code', 'claude-sdk', 'aws', 'gcp', 'custom'].includes(provider)) {
     return c.json({ error: 'Invalid provider type' }, 400);
   }
 
-  const machines = machineRegistry.getByProvider(provider);
+  const machines = machineRegistry.getByProvider(provider)
+    .filter(m => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID);
 
   return c.json({
     provider,
@@ -188,10 +190,21 @@ relayRoute.get('/machines/provider/:provider', (c) => {
 
 /**
  * DELETE /relay/machines/:machineId
- * Force disconnect a machine
+ * Force disconnect a machine (requires ownership)
  */
 relayRoute.delete('/machines/:machineId', (c) => {
   const machineId = c.req.param('machineId');
+  const user = c.get('user') as AuthUser | undefined;
+  const machine = machineRegistry.get(machineId);
+
+  if (!machine) {
+    return c.json({ error: 'Machine not found' }, 404);
+  }
+
+  // Verify ownership — only the machine's owner can disconnect it
+  if (machine.userId && machine.userId !== LOCAL_USER_ID && user?.id && machine.userId !== user.id) {
+    return c.json({ error: 'Machine not found' }, 404);
+  }
 
   const disconnected = machineRegistry.disconnect(machineId, 'admin_disconnect');
 
@@ -212,10 +225,11 @@ relayRoute.delete('/machines/:machineId', (c) => {
 
 /**
  * POST /relay/dispatch
- * Dispatch a task to an agent runner
+ * Dispatch a task to an agent runner (verifies machine ownership)
  */
 relayRoute.post('/dispatch', async (c) => {
   try {
+    const user = c.get('user') as AuthUser | undefined;
     const body = await c.req.json() as {
       task: TaskDispatch;
       targetMachineId?: string;
@@ -233,6 +247,14 @@ relayRoute.post('/dispatch', async (c) => {
         error: 'Missing required task fields',
         required: ['taskId', 'projectId', 'nodeId', 'title'],
       }, 400);
+    }
+
+    // Verify the user owns the target machine
+    if (targetMachineId && user?.id) {
+      const targetMachine = machineRegistry.get(targetMachineId);
+      if (targetMachine?.userId && targetMachine.userId !== LOCAL_USER_ID && targetMachine.userId !== user.id) {
+        return c.json({ error: 'Machine not available' }, 403);
+      }
     }
 
     // If Redis is connected, use pub/sub for routing
@@ -290,10 +312,11 @@ relayRoute.post('/dispatch', async (c) => {
 
 /**
  * POST /relay/cancel
- * Cancel a task
+ * Cancel a task (verifies machine ownership)
  */
 relayRoute.post('/cancel', async (c) => {
   try {
+    const user = c.get('user') as AuthUser | undefined;
     const body = await c.req.json() as {
       taskId: string;
       machineId?: string;
@@ -306,6 +329,14 @@ relayRoute.post('/cancel', async (c) => {
 
     const { taskId, reason } = body;
     let { machineId } = body;
+
+    // Verify machine ownership if specified
+    if (machineId && user?.id) {
+      const targetMachine = machineRegistry.get(machineId);
+      if (targetMachine?.userId && targetMachine.userId !== LOCAL_USER_ID && targetMachine.userId !== user.id) {
+        return c.json({ error: 'Machine not available' }, 403);
+      }
+    }
 
     // Find machine if not specified
     if (!machineId && redisPubSub.isConnected()) {
@@ -423,17 +454,126 @@ relayRoute.get('/best-machine', (c) => {
 });
 
 // ============================================================================
+// Claude Code Sessions
+// ============================================================================
+
+/**
+ * GET /relay/sessions?machineId=xxx
+ * List Claude Code sessions on connected machines.
+ * If machineId is provided, queries that single machine.
+ * If omitted, fans out to all user-owned connected machines.
+ */
+relayRoute.get('/sessions', async (c) => {
+  const user = c.get('user') as AuthUser | undefined
+  const machineId = c.req.query('machineId')
+  const TIMEOUT_MS = 15000
+
+  /** Helper: request sessions from a single machine */
+  async function requestFromMachine(
+    targetMachineId: string
+  ): Promise<{ machineId: string; machineName: string; sessions: Array<import('../types/relay.js').ClaudeCodeSessionInfo>; error?: string }> {
+    const machine = machineRegistry.get(targetMachineId)
+    const machineName = machine?.name || targetMachineId
+
+    const correlationId = crypto.randomUUID()
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        relayServer.removeListener('sessions_list:response', handler)
+        resolve({ machineId: targetMachineId, machineName, sessions: [], error: 'Request timed out' })
+      }, TIMEOUT_MS)
+
+      function handler(data: { correlationId: string; sessions: Array<import('../types/relay.js').ClaudeCodeSessionInfo>; error?: string }) {
+        if (data.correlationId !== correlationId) return
+        clearTimeout(timeout)
+        relayServer.removeListener('sessions_list:response', handler)
+        resolve({
+          machineId: targetMachineId,
+          machineName,
+          sessions: data.sessions || [],
+          error: data.error,
+        })
+      }
+
+      relayServer.on('sessions_list:response', handler)
+
+      const sent = relayServer.requestSessionsList(targetMachineId, correlationId)
+      if (!sent) {
+        clearTimeout(timeout)
+        relayServer.removeListener('sessions_list:response', handler)
+        resolve({ machineId: targetMachineId, machineName, sessions: [], error: 'Machine not connected' })
+      }
+    })
+  }
+
+  try {
+    if (machineId) {
+      // Verify user owns this machine before querying
+      const machineInfo = machineRegistry.get(machineId)
+      if (machineInfo?.userId && machineInfo.userId !== LOCAL_USER_ID && user?.id && machineInfo.userId !== user.id) {
+        return c.json({ error: 'Machine not found' }, 404)
+      }
+
+      // Single machine request
+      const result = await requestFromMachine(machineId)
+      const sessions = result.sessions.map((s) => ({
+        ...s,
+        machineId: result.machineId,
+        machineName: result.machineName,
+      }))
+      return c.json({ sessions, errors: result.error ? [{ machineId, error: result.error }] : [] })
+    }
+
+    // Fan out to all user-owned connected machines
+    const snapshot = machineRegistry.getSnapshot()
+    const userMachines = snapshot.machines.filter(
+      (m) => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID
+    )
+
+    if (userMachines.length === 0) {
+      return c.json({ sessions: [], errors: [] })
+    }
+
+    const results = await Promise.allSettled(
+      userMachines.map((m) => requestFromMachine(m.machineId))
+    )
+
+    const allSessions: Array<import('../types/relay.js').ClaudeCodeSessionInfo & { machineId: string; machineName: string }> = []
+    const errors: Array<{ machineId: string; error: string }> = []
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        const { machineId: mId, machineName, sessions, error } = result.value
+        for (const s of sessions) {
+          allSessions.push({ ...s, machineId: mId, machineName })
+        }
+        if (error) errors.push({ machineId: mId, error })
+      }
+    }
+
+    // Sort by lastModified descending
+    allSessions.sort((a, b) => b.lastModified - a.lastModified)
+
+    return c.json({ sessions: allSessions, errors })
+  } catch (err) {
+    console.error('[relay] Error fetching sessions:', err)
+    return c.json({ sessions: [], errors: [{ machineId: machineId || 'all', error: 'Internal error' }] })
+  }
+})
+
+// ============================================================================
 // Slurm/HPC Specific Routes
 // ============================================================================
 
 /**
  * GET /relay/slurm/clusters
  * Get all HPC machines (machines with hpcCapability metadata).
- * Slurm is no longer a standalone provider — HPC is detected via
- * hpcCapability on claude-sdk/claude-code providers.
+ * Filtered by authenticated user's ownership.
  */
 relayRoute.get('/slurm/clusters', (c) => {
-  const allMachines = machineRegistry.getAll();
+  const user = c.get('user') as AuthUser | undefined;
+  const allMachines = machineRegistry.getAll()
+    .filter(m => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID);
   const hpcCapableMachines = allMachines.filter(m =>
     m.providers.some(p => p.hpcCapability)
   );
@@ -470,9 +610,15 @@ relayRoute.get('/slurm/clusters', (c) => {
  */
 relayRoute.get('/slurm/clusters/:machineId', (c) => {
   const machineId = c.req.param('machineId');
+  const user = c.get('user') as AuthUser | undefined;
   const machine = machineRegistry.get(machineId);
 
   if (!machine) {
+    return c.json({ error: 'Machine not found' }, 404);
+  }
+
+  // Verify ownership
+  if (machine.userId && machine.userId !== LOCAL_USER_ID && user?.id && machine.userId !== user.id) {
     return c.json({ error: 'Machine not found' }, 404);
   }
 
@@ -513,12 +659,12 @@ relayRoute.get('/slurm/clusters/:machineId', (c) => {
  * (This would require tracking Slurm jobs in the registry)
  */
 relayRoute.get('/slurm/jobs', (c) => {
-  // Job tracking is now handled by the SlurmJobMonitor in the agent runner.
-  // Jobs are reported through the standard task.progress / task.result relay events.
+  const user = c.get('user') as AuthUser | undefined;
   return c.json({
     jobs: [],
     clusters: machineRegistry.getAll()
       .filter(m => m.providers.some(p => p.hpcCapability))
+      .filter(m => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID)
       .map(m => m.machineId),
     message: 'Jobs are tracked via the agent runner and reported through relay events',
   });

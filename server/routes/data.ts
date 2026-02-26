@@ -1333,8 +1333,21 @@ app.post('/executions', async (c) => {
 // ── Tool Traces ──────────────────────────────────────────────────────
 
 app.get('/tool-traces', async (c) => {
+  const user = c.get('user')! as AuthUser
   const executionId = c.req.query('executionId')
   if (!executionId) return c.json({ error: 'executionId required' }, 400)
+
+  // Verify user has access to this execution via project team scope
+  const [execution] = await db.select({ projectId: taskExecutions.projectId })
+    .from(taskExecutions)
+    .where(eq(taskExecutions.executionId, executionId))
+    .limit(1)
+  if (execution?.projectId) {
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.id, execution.projectId), teamScopeFilter(projects, user)))
+      .limit(1)
+    if (!project) return c.json({ error: 'Not authorized' }, 403)
+  }
 
   const rows = await db.select().from(toolTraces)
     .where(eq(toolTraces.executionId, executionId))
@@ -1345,8 +1358,21 @@ app.get('/tool-traces', async (c) => {
 // ── File Changes ─────────────────────────────────────────────────────
 
 app.get('/file-changes', async (c) => {
+  const user = c.get('user')! as AuthUser
   const executionId = c.req.query('executionId')
   if (!executionId) return c.json({ error: 'executionId required' }, 400)
+
+  // Verify user has access to this execution via project team scope
+  const [execution] = await db.select({ projectId: taskExecutions.projectId })
+    .from(taskExecutions)
+    .where(eq(taskExecutions.executionId, executionId))
+    .limit(1)
+  if (execution?.projectId) {
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.id, execution.projectId), teamScopeFilter(projects, user)))
+      .limit(1)
+    if (!project) return c.json({ error: 'Not authorized' }, 403)
+  }
 
   const rows = await db.select().from(fileChanges)
     .where(eq(fileChanges.executionId, executionId))
@@ -1373,7 +1399,7 @@ app.get('/search', async (c) => {
       )
     ))
 
-  // Search plan nodes (with project name join)
+  // Search plan nodes (with project name join) — filter by team scope
   const taskResults = await db.select({
     id: planNodes.id,
     clientId: planNodes.clientId,
@@ -1385,20 +1411,32 @@ app.get('/search', async (c) => {
     projectName: projects.name,
     updatedAt: planNodes.updatedAt,
   }).from(planNodes)
-    .leftJoin(projects, eq(planNodes.projectId, projects.id))
+    .innerJoin(projects, eq(planNodes.projectId, projects.id))
     .where(and(
       isNull(planNodes.deletedAt),
+      teamScopeFilter(projects, user),
       or(
         sql`${planNodes.title} ILIKE ${pattern}`,
         sql`${planNodes.description} ILIKE ${pattern}`
       )
     ))
 
-  // Search executions
-  const executionResults = await db.select().from(taskExecutions)
-    .where(or(
-      sql`${taskExecutions.executionId} ILIKE ${pattern}`,
-      sql`${taskExecutions.streamText} ILIKE ${pattern}`
+  // Search executions — filter by team-scoped projects
+  const executionResults = await db.select({
+    executionId: taskExecutions.executionId,
+    projectId: taskExecutions.projectId,
+    nodeId: taskExecutions.nodeId,
+    status: taskExecutions.status,
+    startedAt: taskExecutions.startedAt,
+    completedAt: taskExecutions.completedAt,
+  }).from(taskExecutions)
+    .innerJoin(projects, eq(taskExecutions.projectId, projects.id))
+    .where(and(
+      teamScopeFilter(projects, user),
+      or(
+        sql`${taskExecutions.executionId} ILIKE ${pattern}`,
+        sql`${taskExecutions.streamText} ILIKE ${pattern}`
+      )
     ))
     .limit(20)
 

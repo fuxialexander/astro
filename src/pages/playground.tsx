@@ -47,6 +47,8 @@ import {
   ErrorBlock,
   type DisplayBlock,
 } from "@/components/activity-blocks"
+import { ClaudeSessionBrowser } from "@/components/playground/claude-session-browser"
+import { useClaudeSessionsStore, type ClaudeCodeSession } from "@/stores/claude-sessions-store"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
@@ -71,6 +73,7 @@ export function Playground() {
   const [showPathBrowser, setShowPathBrowser] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState("")
   const [selectedModel, setSelectedModel] = useState("")
+  const [sessionBrowserOpen, setSessionBrowserOpen] = useState(true)
 
   // Activity phase state
   const [activeProjectId, setActiveProjectId] = useState<string | null>(projectIdParam)
@@ -123,7 +126,10 @@ export function Playground() {
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
 
-  // Load machines and providers on mount
+  // Sessions store
+  const loadSessions = useClaudeSessionsStore((s) => s.loadSessions)
+
+  // Load machines, providers, and sessions on mount
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
   }, [machinesLoaded, loadMachines])
@@ -131,6 +137,10 @@ export function Playground() {
   useEffect(() => {
     if (!providersLoaded) loadProviders()
   }, [providersLoaded, loadProviders])
+
+  useEffect(() => {
+    loadSessions()
+  }, [loadSessions])
 
   useEffect(() => {
     requestNotificationPermission()
@@ -291,6 +301,40 @@ export function Playground() {
       setIsSubmitting(false)
     }
   }, [description, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, getModelForProvider, startPlaygroundSession, setSearchParams])
+
+  // Fork a Claude Code session
+  const handleForkSession = useCallback(async (session: ClaudeCodeSession) => {
+    if (isSubmitting) return
+    setIsSubmitting(true)
+
+    // Find matching machine from allMachines
+    const machine = allMachines.find((m) => m.machineId === session.machineId)
+    if (!machine) {
+      console.error("[playground] Machine not found for session fork:", session.machineId)
+      setIsSubmitting(false)
+      return
+    }
+
+    try {
+      const title = session.customTitle || session.summary || session.firstPrompt || "Forked session"
+      const { projectId } = await startPlaygroundSession(
+        `Fork: ${title}`,
+        {
+          targetMachineId: session.machineId,
+          workingDirectory: session.cwd || "~",
+          resumeSessionId: session.sessionId,
+          forkSession: true,
+        }
+      )
+
+      setActiveProjectId(projectId)
+      setSearchParams({ projectId })
+    } catch (error) {
+      console.error("[playground] Failed to fork session:", error)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [isSubmitting, allMachines, startPlaygroundSession, setSearchParams])
 
   // Send steer message
   const handleSend = useCallback(async () => {
@@ -571,10 +615,24 @@ export function Playground() {
 
   // ─── Landing Phase ───────────────────────────────────────────────
   return (
-    <div className="flex flex-col items-center justify-start min-h-full p-6 overflow-auto">
+    <div className="flex h-full">
+    <div className="flex flex-col items-center justify-start min-h-full p-6 overflow-auto flex-1">
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8 mt-8">
-          <h1 className="text-2xl font-bold font-sans mb-2">Playground</h1>
+          <div className="flex items-center justify-center gap-2">
+            <h1 className="text-2xl font-bold font-sans mb-2">Playground</h1>
+            {!sessionBrowserOpen && allMachines.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mb-2 gap-1.5 text-xs text-muted-foreground"
+                onClick={() => setSessionBrowserOpen(true)}
+              >
+                <Terminal className="h-3.5 w-3.5" />
+                Sessions
+              </Button>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
             Start a coding session. The agent has full access to your codebase — no safety checks, no planning overhead.
           </p>
@@ -799,6 +857,15 @@ export function Playground() {
           />
         )}
       </div>
+    </div>
+
+    {/* Claude Code Session Browser sidebar */}
+    {sessionBrowserOpen && allMachines.length > 0 && (
+      <ClaudeSessionBrowser
+        onSelectSession={handleForkSession}
+        onClose={() => setSessionBrowserOpen(false)}
+      />
+    )}
     </div>
   )
 }

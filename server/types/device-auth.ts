@@ -75,6 +75,8 @@ export interface DeviceTokenResponse {
   refreshToken: string;
   /** Granted scopes */
   scopes: string[];
+  /** ECDSA P-256 dispatch signing public key (JWK format), if provided during authorization */
+  dispatchPublicKey?: JsonWebKey;
 }
 
 /** Error response during polling */
@@ -113,6 +115,8 @@ export interface MachineRegisterResponse {
   wsToken: string;
   /** User-friendly message */
   message: string;
+  /** ECDSA P-256 dispatch signing public key (JWK format) */
+  dispatchPublicKey?: JsonWebKey;
 }
 
 // ============================================================================
@@ -201,6 +205,8 @@ export interface RegisteredMachine {
   isRevoked: boolean;
   /** Machine-specific metadata */
   metadata?: Record<string, string>;
+  /** ECDSA P-256 dispatch signing public key (JWK format) */
+  dispatchPublicKey?: JsonWebKey;
 }
 
 // ============================================================================
@@ -229,6 +235,8 @@ export interface DeviceCodeEntry {
   authorizedAt?: Date;
   /** Last poll timestamp (for rate limiting) */
   lastPolledAt?: Date;
+  /** ECDSA P-256 dispatch signing public key (JWK format) */
+  dispatchPublicKey?: JsonWebKey;
 }
 
 /** Refresh token entry (stored for validation) */

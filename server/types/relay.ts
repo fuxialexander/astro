@@ -146,6 +146,22 @@ export interface ConversationMessage {
   content: string;
 }
 
+/** Payload signed by the user's browser to prove dispatch authenticity */
+export interface DispatchSigningPayload {
+  /** Schema version */
+  v: 1;
+  /** Which task (plan node) */
+  nodeId: string;
+  /** Which project */
+  projectId: string;
+  /** Target machine (prevents redirection) */
+  machineId: string;
+  /** ISO 8601 timestamp (prevents replay) */
+  timestamp: string;
+  /** Random 32-byte hex nonce (prevents replay) */
+  nonce: string;
+}
+
 /** Task dispatch request */
 export interface TaskDispatch {
   taskId: string;
@@ -285,6 +301,24 @@ export interface TaskDispatch {
 
   /** GitHub issue number to reference in the PR body (e.g., 42 → "Closes #42") */
   githubIssueNumber?: number;
+
+  /** ECDSA P-256 signature of the dispatch signing payload (base64url-encoded) */
+  dispatchSignature?: string;
+  /** The signed payload for verification by the agent runner */
+  dispatchSigningPayload?: DispatchSigningPayload;
+
+  /**
+   * Resume an existing Claude Code session by ID.
+   * When set, the agent runner uses `query({ resume: sessionId })` instead of starting fresh.
+   */
+  resumeSessionId?: string;
+
+  /**
+   * Fork the resumed session instead of continuing in-place.
+   * When true alongside `resumeSessionId`, the agent runner uses
+   * `query({ resume: sessionId, forkSession: true })`.
+   */
+  forkSession?: boolean;
 }
 
 /** Task result from agent runner */
@@ -641,6 +675,32 @@ export interface CreateDirectoryResponseMessage extends BaseMessage {
   error?: string;
 }
 
+/** Sessions list request (relay → agent) - for discovering Claude Code sessions */
+export interface SessionsListRequestMessage extends BaseMessage {
+  type: 'sessions_list.request';
+  correlationId: string;
+}
+
+/** Claude Code session info */
+export interface ClaudeCodeSessionInfo {
+  sessionId: string;
+  summary: string;
+  lastModified: number;
+  fileSize: number;
+  customTitle?: string;
+  firstPrompt?: string;
+  gitBranch?: string;
+  cwd?: string;
+}
+
+/** Sessions list response (agent → relay) */
+export interface SessionsListResponseMessage extends BaseMessage {
+  type: 'sessions_list.response';
+  correlationId: string;
+  sessions: ClaudeCodeSessionInfo[];
+  error?: string;
+}
+
 /** Error message */
 export interface ErrorMessage extends BaseMessage {
   type: 'error';
@@ -744,7 +804,8 @@ export type AgentToRelayMessage =
   | RepoDetectResponseMessage
   | GitInitResponseMessage
   | BranchListResponseMessage
-  | CreateDirectoryResponseMessage;
+  | CreateDirectoryResponseMessage
+  | SessionsListResponseMessage;
 
 /** All session-related messages from MCP bridge to relay */
 export type SessionToRelayMessage =
@@ -771,6 +832,7 @@ export type RelayToAgentMessage =
   | GitInitRequestMessage
   | BranchListRequestMessage
   | CreateDirectoryRequestMessage
+  | SessionsListRequestMessage
   | ErrorMessage;
 
 /** All relay messages */

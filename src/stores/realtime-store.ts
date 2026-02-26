@@ -71,6 +71,7 @@ export interface DynamicApprovalRequest {
   requestId: string
   question: string
   options: string[]
+  machineId?: string
   timestamp: Date
 }
 
@@ -78,6 +79,7 @@ export interface SafetyPromptRequest {
   taskId: string
   safetyTier: string
   warning?: string
+  machineId?: string
   options: Array<{ id: string; label: string; description?: string }>
   timestamp: Date
 }
@@ -308,10 +310,11 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     const planStore = usePlanStore.getState()
     const node = planStore.nodes.find((n) => n.executionId === taskId)
 
-    // Resolve machineId: try via plan node first, then fall back to
-    // iterating execution store (covers plan sessions keyed by plan-{projectId})
-    let machineId: string | undefined
-    if (node) {
+    // Resolve machineId: prefer the machineId from the approval event (set by relay),
+    // then fall back to plan node / execution store lookup
+    const approval = get().dynamicApprovals.get(requestId)
+    let machineId: string | undefined = approval?.machineId
+    if (!machineId && node) {
       const execution = useExecutionStore.getState().getExecution(node.id)
       machineId = execution?.machineId
     }
@@ -323,13 +326,6 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
           machineId = exec.machineId
           break
         }
-      }
-    }
-    if (!machineId) {
-      // Last resort: pick the first connected machine
-      const machines = get().machines
-      if (machines.size > 0) {
-        machineId = machines.values().next().value?.machineId
       }
     }
 
@@ -344,7 +340,6 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
 
     // Look up the original question for the approval_response activity event
-    const approval = get().dynamicApprovals.get(requestId)
     const question = approval?.question || ''
 
     try {
@@ -401,19 +396,22 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     const planStore = usePlanStore.getState()
     const node = planStore.nodes.find((n) => n.executionId === taskId)
 
-    // Resolve machineId: try execution store first, then fall back to
-    // the single connected machine (covers refinement tasks like refine-xxx
-    // where no plan node exists).
-    let machineId: string | undefined
-    if (node) {
+    // Resolve machineId: prefer the machineId from the safety prompt event (set by relay),
+    // then fall back to execution store lookup
+    const safetyPrompt = get().safetyPrompts.get(taskId)
+    let machineId: string | undefined = safetyPrompt?.machineId
+    if (!machineId && node) {
       const execution = useExecutionStore.getState().getExecution(node.id)
       machineId = execution?.machineId
     }
     if (!machineId) {
-      // Fall back: pick the first connected machine from realtime store
-      const machines = get().machines
-      if (machines.size > 0) {
-        machineId = machines.values().next().value?.machineId
+      // Fall back: search all executions for matching executionId
+      const execStore = useExecutionStore.getState()
+      for (const exec of execStore.executions.values()) {
+        if (exec.executionId === taskId && exec.machineId) {
+          machineId = exec.machineId
+          break
+        }
       }
     }
 
@@ -1041,6 +1039,7 @@ function handleRealtimeEvent(
       const requestId = data.requestId as string
       const question = data.question as string
       const options = data.options as string[]
+      const approvalMachineId = data.machineId as string | undefined
       const timestamp = new Date()
 
       // Add to dynamic approvals map (clear any stale approvals for this task first)
@@ -1057,6 +1056,7 @@ function handleRealtimeEvent(
           requestId,
           question,
           options,
+          machineId: approvalMachineId,
           timestamp,
         })
 
@@ -1108,6 +1108,7 @@ function handleRealtimeEvent(
       const taskId = data.taskId as string
       const safetyTier = data.safetyTier as string
       const warning = data.warning as string | undefined
+      const safetyMachineId = data.machineId as string | undefined
       const options = data.options as Array<{ id: string; label: string; description?: string }>
       const timestamp = new Date()
 
@@ -1118,6 +1119,7 @@ function handleRealtimeEvent(
           taskId,
           safetyTier,
           warning,
+          machineId: safetyMachineId,
           options,
           timestamp,
         })

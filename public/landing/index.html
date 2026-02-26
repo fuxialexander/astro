@@ -1371,6 +1371,62 @@
             font-weight: 500;
         }
 
+        /* ==================== SAFETY & PRIVACY ==================== */
+        .safety-section {
+            padding: 8rem 3rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .safety-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        .safety-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 2.5rem 2rem;
+            transition: all 0.3s ease;
+        }
+
+        .safety-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+        }
+
+        .safety-card-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .safety-card-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .safety-card-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 1.125rem;
+            font-weight: 500;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+        }
+
+        .safety-card-text {
+            font-size: 0.9375rem;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+
         /* ==================== STATS BAR ==================== */
         .stats-section {
             padding: 5rem 2rem;
@@ -1921,6 +1977,7 @@
             .mission-section,
             .footer-cta,
             .environments-section,
+            .safety-section,
             .personas-section,
             .stats-section,
             .showcase-section {
@@ -1941,6 +1998,14 @@
 
             .env-cards-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .safety-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .safety-section {
+                padding: 4rem 1.5rem;
             }
 
             .stats-row {
@@ -1971,6 +2036,7 @@
             <div class="nav-links">
                 <button class="nav-link" onclick="document.querySelector('.pillars-section').scrollIntoView({behavior:'smooth'})">How It Works</button>
                 <button class="nav-link" onclick="document.querySelector('.personas-section').scrollIntoView({behavior:'smooth'})">What It Can Do</button>
+                <button class="nav-link" onclick="document.querySelector('.safety-section').scrollIntoView({behavior:'smooth'})">Safety</button>
                 <button class="nav-link" onclick="document.querySelector('#get-started').scrollIntoView({behavior:'smooth'})">Launch Sequence</button>
                 <div class="nav-cta-group">
                     <a class="nav-cta" href="/login">Get Started</a>
@@ -2826,6 +2892,50 @@
                     <h3 class="env-card-title">Terminal</h3>
                     <p class="env-card-text">CLI and TUI apps for your terminal. Plan, dispatch, and monitor without leaving the command line.</p>
                     <div class="env-card-stat">Interfaces: <span class="counter" data-target="2">0</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== SAFETY & PRIVACY ==================== -->
+        <section class="safety-section fade-section section-divider">
+            <div class="section-header">
+                <div class="section-label">Safety &amp; Privacy</div>
+                <h2 class="section-title">Your machines, your keys, your control</h2>
+                <p class="section-description">
+                    Security isn't an afterthought. Every layer of Astro is designed to keep you in control of what runs on your machines.
+                </p>
+            </div>
+
+            <div class="safety-grid">
+                <div class="safety-card stagger-child" style="transition-delay: 0s">
+                    <div class="safety-card-icon" style="background: rgba(212, 165, 116, 0.06); border: 1px solid rgba(212, 165, 116, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                    </div>
+                    <h3 class="safety-card-title">Your compute, your keys</h3>
+                    <p class="safety-card-text">Agent runners execute on your machines with your API keys. The Astro server never calls AI models directly and never sees your API keys.</p>
+                </div>
+
+                <div class="safety-card stagger-child" style="transition-delay: 0.15s">
+                    <div class="safety-card-icon" style="background: rgba(91, 163, 208, 0.06); border: 1px solid rgba(91, 163, 208, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            <polyline points="9 12 11 14 15 10" />
+                        </svg>
+                    </div>
+                    <h3 class="safety-card-title">Signed dispatches</h3>
+                    <p class="safety-card-text">Every task dispatch is cryptographically signed by your browser. Your agent runner verifies the signature before executing, so no one can forge tasks on your machines.</p>
+                </div>
+
+                <div class="safety-card stagger-child" style="transition-delay: 0.3s">
+                    <div class="safety-card-icon" style="background: rgba(110, 192, 122, 0.06); border: 1px solid rgba(110, 192, 122, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /><line x1="14" y1="4" x2="10" y2="20" />
+                        </svg>
+                    </div>
+                    <h3 class="safety-card-title">Open source &amp; auditable</h3>
+                    <p class="safety-card-text">The relay protocol, agent runner, and signing implementation are open source. You can inspect exactly what runs on your machine.</p>
                 </div>
             </div>
         </section>

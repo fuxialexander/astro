@@ -293,6 +293,7 @@ export const registeredMachines = pgTable('registered_machines', {
   isRevoked: boolean('is_revoked').notNull().default(false),
   refreshTokenHash: text('refresh_token_hash').notNull(),
   metadata: jsonb('metadata').$type<Record<string, string>>(),
+  dispatchPublicKey: jsonb('dispatch_public_key'),
   registeredAt: timestamp('registered_at').notNull().defaultNow(),
   lastSeenAt: timestamp('last_seen_at').notNull().defaultNow(),
 })
@@ -469,6 +470,7 @@ export const deviceCodes = pgTable('device_codes', {
   authorizedBy: text('authorized_by'),
   authorizedAt: timestamp('authorized_at'),
   lastPolledAt: timestamp('last_polled_at'),
+  dispatchPublicKey: jsonb('dispatch_public_key'),
 })
 
 // ── Chat Sessions ───────────────────────────────────────────────

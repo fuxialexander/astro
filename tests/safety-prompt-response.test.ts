@@ -381,8 +381,9 @@ describe('realtime-store.ts source code safety', () => {
     expect(afterCatch).toContain('newPrompts.delete(taskId)')
   })
 
-  it('has a machine fallback via get().machines', () => {
-    expect(source).toContain('get().machines')
-    expect(source).toContain('machines.values().next().value?.machineId')
+  it('resolves machineId from safety prompt event or execution store fallback', () => {
+    // machineId now comes from the safety prompt event (set by relay) or execution store
+    expect(source).toContain('safetyPrompt?.machineId')
+    expect(source).toContain('exec.executionId === taskId && exec.machineId')
   })
 })

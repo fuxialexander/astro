@@ -33,6 +33,7 @@ function rowToEntry(row: typeof deviceCodes.$inferSelect): DeviceCodeEntry {
     authorizedBy: row.authorizedBy ?? undefined,
     authorizedAt: row.authorizedAt ?? undefined,
     lastPolledAt: row.lastPolledAt ?? undefined,
+    dispatchPublicKey: row.dispatchPublicKey as JsonWebKey | undefined,
   };
 }
 
@@ -171,7 +172,7 @@ export async function checkPollRate(userCode: string): Promise<boolean> {
 /**
  * Authorize a device code (called when user approves)
  */
-export async function authorizeDeviceCode(deviceCode: string, userId: string): Promise<boolean> {
+export async function authorizeDeviceCode(deviceCode: string, userId: string, dispatchPublicKey?: JsonWebKey): Promise<boolean> {
   const entry = await getDeviceCodeByDeviceCode(deviceCode);
   if (!entry) {
     return false;
@@ -192,6 +193,7 @@ export async function authorizeDeviceCode(deviceCode: string, userId: string): P
       status: 'authorized',
       authorizedBy: userId,
       authorizedAt: now,
+      ...(dispatchPublicKey && { dispatchPublicKey }),
     })
     .where(
       and(

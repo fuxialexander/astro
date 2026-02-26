@@ -9,8 +9,12 @@ import { Hono } from 'hono'
 import { db } from '../lib/db/index.js'
 import { observationEvents, taskExecutions } from '../lib/db/schema.js'
 import { eq, and, sql, asc, gte, lte } from 'drizzle-orm'
+import { requireAuth } from '../middleware/auth.js'
 
 const observationsRoute = new Hono()
+
+// All observation routes require authentication
+observationsRoute.use('/*', requireAuth)
 
 /**
  * GET /api/observations

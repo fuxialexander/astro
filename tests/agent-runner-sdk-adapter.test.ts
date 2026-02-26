@@ -165,9 +165,10 @@ describe('agent runner SDK adapter — permissions', () => {
     expect(source).toContain("permissionMode: 'bypassPermissions'")
   })
 
-  it('does not pass sandbox option (crashes Claude Code on Bedrock)', () => {
-    // The adapter deliberately omits the sandbox option entirely
-    expect(source).toContain('Do NOT pass `sandbox` option')
+  it('auto-detects sandbox mode (enabled for standard models, skipped for Bedrock)', () => {
+    // getSandboxOption() enables sandbox for standard claude-* models, skips for Bedrock
+    expect(source).toContain('getSandboxOption')
+    expect(source).toContain("skip for Bedrock/custom models")
   })
 
   it('sets additional directories for file operations', () => {

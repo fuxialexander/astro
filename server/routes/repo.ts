@@ -10,8 +10,12 @@ import { Hono } from 'hono'
 import { relayServer, type RepoSetupRelayResult, type RepoDetectRelayResult, type GitInitRelayResult, type BranchListRelayResult } from '../lib/relay-server.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { errorMessage } from '../lib/error-utils.js'
+import { requireAuth } from '../middleware/auth.js'
 
 const repoRoute = new Hono()
+
+// All repo routes require authentication
+repoRoute.use('/*', requireAuth)
 
 /**
  * Request repo detect from a remote machine via relay WebSocket.

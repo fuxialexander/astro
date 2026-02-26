@@ -12,6 +12,8 @@ import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
 import { extractPlanJsonFromText } from "@/lib/plan-extraction"
+import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
+import { useAuthStore } from "./auth-store"
 
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -53,6 +55,33 @@ export function getProjectMachineLock(project: Project | undefined): {
   }
 
   return {}
+}
+
+// Helper: Sign a dispatch intent if user has a signing key
+async function buildDispatchSignature(
+  nodeId: string,
+  projectId: string,
+  machineId: string | undefined,
+): Promise<{ dispatchSignature: string; dispatchSigningPayload: DispatchSigningPayload } | null> {
+  try {
+    const userId = useAuthStore.getState().user?.id
+    if (!userId || !machineId) return null
+    const privateKey = await getSigningPrivateKey(userId)
+    if (!privateKey) return null
+    const payload: DispatchSigningPayload = {
+      v: 1,
+      nodeId,
+      projectId,
+      machineId,
+      timestamp: new Date().toISOString(),
+      nonce: generateNonce(),
+    }
+    const signature = await signDispatchIntent(privateKey, payload)
+    return { dispatchSignature: signature, dispatchSigningPayload: payload }
+  } catch {
+    // Signing unavailable — send dispatch without signature
+    return null
+  }
 }
 
 // Compute backend info from agent-runner detection
@@ -202,6 +231,8 @@ interface ExecutionState {
       workingDirectory: string
       model?: string
       preferredProvider?: string
+      resumeSessionId?: string
+      forkSession?: boolean
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelPlaygroundSession: (projectId: string) => Promise<void>
@@ -344,6 +375,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     try {
       // Use the dispatch/task endpoint
       const headers = await getAuthHeaders()
+      const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
       const response = await fetch(apiUrl("/api/dispatch/task"), {
         method: "POST",
         headers,
@@ -369,6 +401,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           useWorktree: options?.useWorktree,
           imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
           acceptanceCriteria: node.acceptanceCriteria,
+          ...signing,
         }),
         signal: abortController.signal,
       })
@@ -934,6 +967,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // gets { projectId, nodeId } immediately and can transition the UI.
     getAuthHeaders().then(async (headers) => {
       try {
+        const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -951,6 +985,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             maxTurns: 200,
             workingDirectory: options?.workingDirectory,
             isInteractivePlan: true,
+            ...signing,
           }),
           signal: abortController.signal,
         })
@@ -1183,6 +1218,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // 4. Dispatch via POST /api/dispatch/task (fire-and-forget SSE processing)
     getAuthHeaders().then(async (headers) => {
       try {
+        const signing = await buildDispatchSignature(nodeId, projectId, options.targetMachineId)
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1202,6 +1238,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             skipSafetyCheck: true,
             force: true,
             isInteractivePlan: false,
+            ...(options.resumeSessionId && { resumeSessionId: options.resumeSessionId }),
+            ...(options.forkSession && { forkSession: options.forkSession }),
+            ...signing,
           }),
           signal: abortController.signal,
         })
