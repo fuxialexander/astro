@@ -44,6 +44,7 @@ interface SidebarStore {
 const defaultItems: SidebarItem[] = [
   { id: "dashboard", to: "/dashboard", icon: "Radio", label: "Dashboard", visible: true, protected: true },
   { id: "plan", to: "/projects/new/plan", icon: "Sparkles", label: "Plan", visible: true, protected: true },
+  { id: "playground", to: "/playground", icon: "FlaskConical", label: "Playground", visible: true, protected: false },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Terminal", label: "Environments", visible: true, protected: true },
   { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: false, protected: false },
@@ -56,11 +57,13 @@ function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
   return defaultItems.map((defaultItem) => {
     const storedItem = stored.find((s) => s.id === defaultItem.id)
     if (storedItem) {
-      // Protected items (like Tasks) must always be visible
+      // Always take icon/to/label/protected from defaults (code is source of truth)
+      // Keep user preferences: visible, autoRevealed, userDismissed, ordering
+      const merged = { ...storedItem, icon: defaultItem.icon, to: defaultItem.to, label: defaultItem.label, protected: defaultItem.protected }
       if (defaultItem.protected) {
-        return { ...storedItem, visible: true }
+        return { ...merged, visible: true }
       }
-      return storedItem
+      return merged
     }
     return defaultItem
   })

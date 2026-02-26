@@ -41,7 +41,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
   },
   "plan-list": {
     groupBy: "none",
-    orderBy: "number",
+    orderBy: "dependency",
     orderDirection: "asc",
     showCompleted: true,
     visibleProperties: ["priority", "status", "dueDate", "estimate", "labels", "pr"],
@@ -101,7 +101,16 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
         for (const [key, value] of Object.entries(fromApi)) {
           const viewKey = key as ViewKey
           if (merged[viewKey]) {
-            merged[viewKey] = { ...DEFAULTS[viewKey], ...value }
+            const settings = { ...DEFAULTS[viewKey], ...value }
+            // Migrate removed "number" orderBy to "dependency"
+            if (settings.orderBy === "number") {
+              settings.orderBy = "dependency"
+            }
+            // Remove stale "order" from visibleProperties (now inline in Name column)
+            if (settings.visibleProperties?.includes("order")) {
+              settings.visibleProperties = settings.visibleProperties.filter((p: string) => p !== "order")
+            }
+            merged[viewKey] = settings
           }
         }
         set({ settings: merged, loaded: true })

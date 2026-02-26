@@ -7,18 +7,24 @@ export type ModelTier = "large" | "medium" | "small"
 /**
  * Default model tier → provider → model ID mapping.
  * Users can override individual entries via customModelMap.
+ *
+ * For claude-code, we use CLI aliases ("opus", "sonnet", "haiku") instead of
+ * full model IDs. The Claude Code CLI resolves these aliases via env vars:
+ *   ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL
+ * This ensures Bedrock/Vertex users whose env vars point to provider-specific
+ * model names (e.g. "us.anthropic.claude-opus-4-6-vl") are not overridden.
  */
 export const defaultModelTierMap: Record<ModelTier, Record<string, string>> = {
   large: {
-    "claude-code": "claude-opus-4-6",
+    "claude-code": "opus",
     codex: "o3",
   },
   medium: {
-    "claude-code": "claude-sonnet-4-6",
+    "claude-code": "sonnet",
     codex: "o4-mini",
   },
   small: {
-    "claude-code": "claude-haiku-4-5-20251001",
+    "claude-code": "haiku",
     codex: "codex-mini",
   },
 }
@@ -69,6 +75,7 @@ interface SettingsState {
   modelTier: ModelTier
   defaultProvider: string // '' = auto/first available
   customModelMap: CustomModelMap // user overrides for tier → provider → model
+  editorType: 'cursor' | 'vscode'
   connectionStatus: "connected" | "disconnected" | "checking"
   loaded: boolean
   loading: boolean
@@ -78,6 +85,7 @@ interface SettingsState {
   setModel: (model: string) => void
   setModelTier: (tier: ModelTier) => void
   setDefaultProvider: (provider: string) => void
+  setEditorType: (type: 'cursor' | 'vscode') => void
   setCustomModel: (tier: ModelTier, provider: string, model: string) => void
   removeCustomModel: (tier: ModelTier, provider: string) => void
   /** Resolve current tier to a model ID for the given provider */
@@ -98,10 +106,11 @@ function tierFromModel(model: string): ModelTier {
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
-  model: "claude-sonnet-4-6",
+  model: "sonnet",
   modelTier: "medium",
   defaultProvider: "",
   customModelMap: {},
+  editorType: "cursor",
   connectionStatus: "disconnected",
   loaded: false,
   loading: false,
@@ -122,6 +131,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         } catch {
           // ignore malformed JSON
         }
+      }
+      if (settings.editorType === 'cursor' || settings.editorType === 'vscode') {
+        updates.editorType = settings.editorType
       }
       if (settings.modelTier) {
         const tier = settings.modelTier as ModelTier
@@ -164,6 +176,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const model = resolveModel(modelTier, provider, customModelMap)
     set({ modelTier, model })
     dataClient.updateSettings({ modelTier, model }).catch(() => {})
+  },
+
+  setEditorType: (editorType) => {
+    set({ editorType })
+    dataClient.updateSettings({ editorType }).catch(() => {})
   },
 
   setDefaultProvider: (defaultProvider) => {

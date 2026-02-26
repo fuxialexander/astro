@@ -19,15 +19,15 @@ import {
 describe("resolveModel", () => {
   describe("default mappings (no custom overrides)", () => {
     it("resolves large tier for claude-code", () => {
-      expect(resolveModel("large", "claude-code")).toBe("claude-opus-4-6")
+      expect(resolveModel("large", "claude-code")).toBe("opus")
     })
 
     it("resolves medium tier for claude-code", () => {
-      expect(resolveModel("medium", "claude-code")).toBe("claude-sonnet-4-6")
+      expect(resolveModel("medium", "claude-code")).toBe("sonnet")
     })
 
     it("resolves small tier for claude-code", () => {
-      expect(resolveModel("small", "claude-code")).toBe("claude-haiku-4-5-20251001")
+      expect(resolveModel("small", "claude-code")).toBe("haiku")
     })
 
     it("resolves large tier for codex", () => {
@@ -45,19 +45,19 @@ describe("resolveModel", () => {
 
   describe("fallback behavior", () => {
     it("defaults to claude-code when no provider specified", () => {
-      expect(resolveModel("medium")).toBe("claude-sonnet-4-6")
+      expect(resolveModel("medium")).toBe("sonnet")
     })
 
     it("defaults to claude-code when provider is undefined", () => {
-      expect(resolveModel("large", undefined)).toBe("claude-opus-4-6")
+      expect(resolveModel("large", undefined)).toBe("opus")
     })
 
     it("falls back to claude-code for unknown provider", () => {
-      expect(resolveModel("large", "unknown-provider")).toBe("claude-opus-4-6")
+      expect(resolveModel("large", "unknown-provider")).toBe("opus")
     })
 
     it("falls back to claude-code for bedrock (not in defaults)", () => {
-      expect(resolveModel("medium", "bedrock")).toBe("claude-sonnet-4-6")
+      expect(resolveModel("medium", "bedrock")).toBe("sonnet")
     })
   })
 
@@ -73,14 +73,14 @@ describe("resolveModel", () => {
       const custom: CustomModelMap = {
         large: { "claude-code": "my-custom-opus" },
       }
-      expect(resolveModel("medium", "claude-code", custom)).toBe("claude-sonnet-4-6")
+      expect(resolveModel("medium", "claude-code", custom)).toBe("sonnet")
     })
 
     it("falls back to default when custom map has no entry for provider", () => {
       const custom: CustomModelMap = {
         large: { codex: "custom-codex-large" },
       }
-      expect(resolveModel("large", "claude-code", custom)).toBe("claude-opus-4-6")
+      expect(resolveModel("large", "claude-code", custom)).toBe("opus")
     })
 
     it("supports custom provider in custom map", () => {
@@ -99,7 +99,7 @@ describe("resolveModel", () => {
         large: { bedrock: "bedrock-opus" },
       }
       // claude-code should still use default
-      expect(resolveModel("large", "claude-code", custom)).toBe("claude-opus-4-6")
+      expect(resolveModel("large", "claude-code", custom)).toBe("opus")
       // codex should still use default
       expect(resolveModel("large", "codex", custom)).toBe("o3")
     })
@@ -109,16 +109,16 @@ describe("resolveModel", () => {
         large: { "claude-code": "custom-large" },
       }
       // medium and small should still use defaults
-      expect(resolveModel("medium", "claude-code", custom)).toBe("claude-sonnet-4-6")
-      expect(resolveModel("small", "claude-code", custom)).toBe("claude-haiku-4-5-20251001")
+      expect(resolveModel("medium", "claude-code", custom)).toBe("sonnet")
+      expect(resolveModel("small", "claude-code", custom)).toBe("haiku")
     })
 
     it("handles empty custom map gracefully", () => {
-      expect(resolveModel("large", "claude-code", {})).toBe("claude-opus-4-6")
+      expect(resolveModel("large", "claude-code", {})).toBe("opus")
     })
 
     it("handles undefined custom map gracefully", () => {
-      expect(resolveModel("large", "claude-code", undefined)).toBe("claude-opus-4-6")
+      expect(resolveModel("large", "claude-code", undefined)).toBe("opus")
     })
   })
 })
@@ -146,7 +146,7 @@ describe("getEffectiveModelTierMap", () => {
     expect(result.large["claude-code"]).toBe("custom-opus")
     // Other entries should be unchanged
     expect(result.large.codex).toBe("o3")
-    expect(result.medium["claude-code"]).toBe("claude-sonnet-4-6")
+    expect(result.medium["claude-code"]).toBe("sonnet")
   })
 
   it("adds new providers from custom map", () => {
@@ -160,7 +160,7 @@ describe("getEffectiveModelTierMap", () => {
     expect(result.medium.bedrock).toBe("bedrock-sonnet")
     expect(result.small.bedrock).toBe("bedrock-haiku")
     // Defaults still present
-    expect(result.large["claude-code"]).toBe("claude-opus-4-6")
+    expect(result.large["claude-code"]).toBe("opus")
     expect(result.medium.codex).toBe("o4-mini")
   })
 
@@ -240,7 +240,7 @@ describe("useSettingsStore", () => {
   it("has correct initial state", () => {
     const state = useSettingsStore.getState()
     expect(state.modelTier).toBe("medium")
-    expect(state.model).toBe("claude-sonnet-4-6")
+    expect(state.model).toBe("sonnet")
     expect(state.defaultProvider).toBe("")
     expect(state.customModelMap).toEqual({})
   })
@@ -250,7 +250,7 @@ describe("useSettingsStore", () => {
     store.setModelTier("large")
     const state = useSettingsStore.getState()
     expect(state.modelTier).toBe("large")
-    expect(state.model).toBe("claude-opus-4-6")
+    expect(state.model).toBe("opus")
   })
 
   it("setModelTier updates model for codex provider", () => {
@@ -264,7 +264,7 @@ describe("useSettingsStore", () => {
   it("setDefaultProvider re-resolves model", () => {
     const store = useSettingsStore.getState()
     store.setModelTier("large")
-    expect(useSettingsStore.getState().model).toBe("claude-opus-4-6")
+    expect(useSettingsStore.getState().model).toBe("opus")
     store.setDefaultProvider("codex")
     expect(useSettingsStore.getState().model).toBe("o3")
   })
@@ -272,7 +272,7 @@ describe("useSettingsStore", () => {
   it("getModelForProvider resolves for given provider", () => {
     const store = useSettingsStore.getState()
     store.setModelTier("medium")
-    expect(store.getModelForProvider("claude-code")).toBe("claude-sonnet-4-6")
+    expect(store.getModelForProvider("claude-code")).toBe("sonnet")
     expect(store.getModelForProvider("codex")).toBe("o4-mini")
   })
 
@@ -298,7 +298,7 @@ describe("useSettingsStore", () => {
       store.setCustomModel("large", "claude-code", "custom-value")
       expect(useSettingsStore.getState().customModelMap.large?.["claude-code"]).toBe("custom-value")
       // Then set it back to the default
-      store.setCustomModel("large", "claude-code", "claude-opus-4-6")
+      store.setCustomModel("large", "claude-code", "opus")
       const state = useSettingsStore.getState()
       expect(state.customModelMap.large?.["claude-code"]).toBeUndefined()
     })
@@ -323,7 +323,7 @@ describe("useSettingsStore", () => {
     it("setCustomModel re-resolves current model when affected", () => {
       const store = useSettingsStore.getState()
       store.setModelTier("large")
-      expect(useSettingsStore.getState().model).toBe("claude-opus-4-6")
+      expect(useSettingsStore.getState().model).toBe("opus")
       store.setCustomModel("large", "claude-code", "overridden-opus")
       expect(useSettingsStore.getState().model).toBe("overridden-opus")
     })
@@ -334,7 +334,7 @@ describe("useSettingsStore", () => {
       store.setCustomModel("large", "claude-code", "custom-opus")
       expect(useSettingsStore.getState().model).toBe("custom-opus")
       store.removeCustomModel("large", "claude-code")
-      expect(useSettingsStore.getState().model).toBe("claude-opus-4-6")
+      expect(useSettingsStore.getState().model).toBe("opus")
       expect(useSettingsStore.getState().customModelMap.large?.["claude-code"]).toBeUndefined()
     })
 
@@ -346,7 +346,7 @@ describe("useSettingsStore", () => {
       expect(map.large["claude-code"]).toBe("custom-claude-large")
       expect(map.large.bedrock).toBe("bedrock-opus")
       expect(map.large.codex).toBe("o3") // unchanged
-      expect(map.medium["claude-code"]).toBe("claude-sonnet-4-6") // unchanged
+      expect(map.medium["claude-code"]).toBe("sonnet") // unchanged
     })
   })
 
@@ -372,7 +372,7 @@ describe("useSettingsStore", () => {
       expect(dataClient.updateSettings).toHaveBeenCalledWith(
         expect.objectContaining({
           modelTier: "small",
-          model: "claude-haiku-4-5-20251001",
+          model: "haiku",
         })
       )
     })
