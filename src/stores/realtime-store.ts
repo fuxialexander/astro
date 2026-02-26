@@ -1061,15 +1061,21 @@ function handleRealtimeEvent(
         })
 
         // Also push approval_request activity event into task stream
+        // Remove stale approval_request events for the same task first
         const streams = new Map(state.taskStreams)
         const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.activityEvents = [...stream.activityEvents, {
-          type: 'approval_request' as const,
-          requestId,
-          question,
-          options,
-          timestamp,
-        }]
+        stream.activityEvents = [
+          ...stream.activityEvents.filter(
+            e => !(e.type === 'approval_request' && e.requestId !== requestId)
+          ),
+          {
+            type: 'approval_request' as const,
+            requestId,
+            question,
+            options,
+            timestamp,
+          },
+        ]
         streams.set(taskId, stream)
 
         return { dynamicApprovals: newApprovals, taskStreams: streams }

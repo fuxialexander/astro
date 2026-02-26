@@ -14,7 +14,7 @@ export const defaultModelTierMap: Record<ModelTier, Record<string, string>> = {
     codex: "o3",
   },
   medium: {
-    "claude-code": "claude-sonnet-4-5-20250929",
+    "claude-code": "claude-sonnet-4-6",
     codex: "o4-mini",
   },
   small: {
@@ -98,7 +98,7 @@ function tierFromModel(model: string): ModelTier {
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
-  model: "claude-sonnet-4-5-20250929",
+  model: "claude-sonnet-4-6",
   modelTier: "medium",
   defaultProvider: "",
   customModelMap: {},

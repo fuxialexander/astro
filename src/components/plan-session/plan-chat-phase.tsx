@@ -79,9 +79,28 @@ export function PlanChatPhase({
     )
     if (steerAndApprovalEvents.length === 0) return execEvents
 
-    const merged = [...execEvents, ...steerAndApprovalEvents]
-    merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-    return merged
+    // Filter out AskUserQuestion tool_use events — the approval_request already provides the interactive UI
+    const filteredExecEvents = execEvents.filter(
+      e => !(e.type === 'tool_use' && (e as { toolName?: string }).toolName === 'AskUserQuestion')
+    )
+
+    // Deduplicate approval_request events by requestId (keep latest)
+    const seenRequestIds = new Set<string>()
+    const deduped = [...filteredExecEvents, ...steerAndApprovalEvents]
+    deduped.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    // Walk backwards to keep the latest approval_request per requestId
+    for (let i = deduped.length - 1; i >= 0; i--) {
+      const e = deduped[i]
+      if (e.type === 'approval_request') {
+        const rid = (e as { requestId: string }).requestId
+        if (seenRequestIds.has(rid)) {
+          deduped.splice(i, 1)
+        } else {
+          seenRequestIds.add(rid)
+        }
+      }
+    }
+    return deduped
   }, [execution?.activityEvents, taskStream?.activityEvents])
 
   // Group events for display

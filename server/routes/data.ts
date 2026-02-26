@@ -1005,7 +1005,7 @@ app.post('/usage/increment', async (c) => {
 // ── Settings ──────────────────────────────────────────────────────────
 
 app.get('/settings', async (c) => {
-  const defaults = { model: 'claude-sonnet-4-5-20250929', defaultProvider: '' }
+  const defaults = { model: 'claude-sonnet-4-6', defaultProvider: '' }
   const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.id, c.get('user')!.id))
   if (!profile) {
     return c.json(defaults)
