@@ -363,6 +363,8 @@ dispatchRoute.post('/task', async (c) => {
     githubIssueNumber,
     resumeSessionId,
     forkSession,
+    dispatchSignature,
+    dispatchSigningPayload,
   })
 })
 
@@ -400,6 +402,8 @@ async function dispatchViaRelay(
     githubIssueNumber?: number
     resumeSessionId?: string
     forkSession?: boolean
+    dispatchSignature?: string
+    dispatchSigningPayload?: { v: 1; nodeId: string; projectId: string; machineId: string; timestamp: string; nonce: string }
   }
 ) {
   const astroBaseUrl = process.env.ASTRO_BASE_URL || undefined
@@ -433,6 +437,8 @@ async function dispatchViaRelay(
     githubIssueNumber,
     resumeSessionId,
     forkSession,
+    dispatchSignature,
+    dispatchSigningPayload,
   } = params
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
