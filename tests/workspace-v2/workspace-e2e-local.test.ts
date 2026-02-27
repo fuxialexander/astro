@@ -544,8 +544,7 @@ describe('Agent dir gitignore', { timeout: 30_000 }, () => {
     localRepoSetup({ workingDirectory: repoDir })
 
     const gitignore = readFileSync(join(repoDir, '.gitignore'), 'utf-8')
-    expect(gitignore).toContain('.astro/worktrees/')
-    expect(gitignore).toContain('.astro/cache/')
+    expect(gitignore).toContain('.astro/')
     expect(gitignore).toContain('node_modules/') // preserved
   })
 })

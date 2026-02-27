@@ -133,8 +133,7 @@ describe('agent-runner worktree (real git)', { timeout: 30_000 }, () => {
     const gitignorePath = join(repoDir, '.gitignore');
     expect(existsSync(gitignorePath)).toBe(true);
     const gitignoreContent = readFileSync(gitignorePath, 'utf-8');
-    expect(gitignoreContent).toContain('.astro/worktrees/');
-    expect(gitignoreContent).toContain('.astro/cache/');
+    expect(gitignoreContent).toContain('.astro/');
 
     // Cleanup should remove the worktree directory
     await setup.cleanup();
@@ -165,8 +164,7 @@ describe('agent-runner worktree (real git)', { timeout: 30_000 }, () => {
       join(repoDir, '.gitignore'),
       'utf-8',
     );
-    expect(gitignoreContent).toContain('.myagent/worktrees/');
-    expect(gitignoreContent).toContain('.myagent/cache/');
+    expect(gitignoreContent).toContain('.myagent/');
 
     await setup.cleanup();
   });

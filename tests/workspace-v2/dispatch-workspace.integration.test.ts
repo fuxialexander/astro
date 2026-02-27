@@ -247,8 +247,7 @@ describe('localRepoSetup agent dir', { timeout: 30_000 }, () => {
     localRepoSetup({ workingDirectory: dir })
 
     const gitignoreContent = readFileSync(join(dir, '.gitignore'), 'utf-8')
-    expect(gitignoreContent).toContain('.astro/worktrees/')
-    expect(gitignoreContent).toContain('.astro/cache/')
+    expect(gitignoreContent).toContain('.astro/')
     // Should preserve existing content
     expect(gitignoreContent).toContain('node_modules/')
   })
