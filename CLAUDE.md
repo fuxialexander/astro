@@ -279,14 +279,6 @@ server/
 │   │   └── webhook-verifier.ts
 │   ├── access/                   # Role-based access control
 │   │   └── user-access-control.ts
-│   ├── providers/                # Pluggable agent provider system
-│   │   ├── types.ts              # AgentProvider, TaskDispatch, TaskResult, StreamEvent interfaces
-│   │   ├── registry.ts           # Provider registry management
-│   │   ├── context.ts            # Context assembly for providers
-│   │   └── adapters/             # Provider implementations
-│   │       ├── claude-code.ts    # Claude Code provider adapter
-│   │       ├── codex.ts          # Codex provider adapter
-│   │       └── anthropic-direct.ts # Anthropic direct API provider adapter
 │   ├── dispatch/                 # Task dispatch engine
 │   │   ├── dispatch-engine.ts    # Core dispatch execution logic
 │   │   ├── dispatch-queue.ts     # Task queue management
@@ -350,13 +342,15 @@ docs/
 5. AI generates `startDate`/`endDate` for each plan node; timeline uses topological sort fallback for legacy data
 6. All state persisted via `dataClient` → `POST /api/data/*` → Drizzle ORM (PGlite local / Postgres server)
 
-### Provider & Dispatch System
-- **Provider adapters** (Claude Code, Codex, SLURM) implement a common `AgentProvider` interface
-- **Dispatch engine** routes tasks through a queue → provider selection → execution → result routing
-- **Context assembler** injects vision doc + dependency context into each task
+### Dispatch System (Relay-Based)
+- **Relay-only dispatch**: Backend dispatches all tasks via WebSocket relay to agent runners on user machines (no local execution)
+- **Dispatch engine** routes tasks through a queue → machine selection → relay dispatch → result collection
+- **Context assembler** injects vision doc + dependency context + workspace V2 configuration into each task
+- **Dispatch signing**: All relay dispatches are cryptographically signed for security verification
 - **Streaming events**: `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
 - **Usage metrics**: Execution results include `UsageMetrics` (cost, tokens, model, turns); accumulated in `usage-store` per session
-- **Device auth flow**: OAuth2 Device Authorization Grant (RFC 8628) for machine registration
+- **Device auth flow**: OAuth2 Device Authorization Grant (RFC 8628) for machine registration and token management
+- **Machine registry**: Real-time registry of connected machines with capabilities and load tracking
 
 ## Key Concepts
 
@@ -371,8 +365,10 @@ docs/
 - **Approval System**: Dynamic tool-based approvals (`ask_user_question`) + procedure-level approvals with SSE notifications
 - **Realtime Sync**: Multi-device collaboration via Supabase Realtime with optimistic updates and conflict resolution
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
-- **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
-- **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
+- **Workspace Model**: Claude Code-aligned workspace (Workspace V2) with per-project `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`), and dispatch signing. See `docs/design/WORKSPACE_V2.md`
+- **Teams**: Multi-user team support with team-scoped data model, invitations, role-based access control (owner/admin/member), and shared projects. Every user has a default "Personal" team; team context is passed via `X-Team-Id` header in all API requests.
+- **Model selection**: Plan generation and execution support configurable Claude model versions and sizes (claude-3-5-sonnet, claude-3-opus, claude-3-haiku) with model size selector on plan generation page
+- **Security hardening**: Dispatch signing prevents tampering with task execution parameters; auth enforcement ensures team-scoped data isolation
 
 ## Target Users
 
@@ -394,6 +390,9 @@ docs/
 - Display settings: `DisplayPopover` component with `DisplayPopoverConfig` for per-view groupBy/orderBy/properties
 - Usage tracking: `useUsageStore` accumulates session metrics (cost, tokens, task counts) from execution results
 - Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`
+- Team-scoped queries: All backend queries use `teamScopeFilter()` to ensure team_id isolation; team ID passed via `X-Team-Id` header
+- Dispatch configuration: TaskDispatch includes workspace V2 fields (`agentDir`, `worktreeStrategy`, `deliveryMode`, `baseBranch`, `sourceDirectory`) and dispatch signing
+- Model selection: Store references current model selection; plan generation accepts `modelSize` parameter for Claude version selection
 
 ## Database
 
@@ -474,6 +473,31 @@ npm test
 # For manual relay testing, start server first
 npm run dev:backend
 ```
+
+## Recent Features & Improvements (2026-02-24 onwards)
+
+### Plan Generation & Execution
+- **Model size selector**: Plan generation page now includes model selection dropdown (Opus, Sonnet, Haiku)
+- **Work directory selector**: Plan view allows selection of working directory for task execution
+- **Mobile-friendly plan view**: Plan view header is responsive and decluttered for mobile/iPad use; hover-only UI elements visible on touch devices
+- **Node dependency reconstruction**: PlanNode dependencies are rebuilt from edges on load to ensure consistency
+
+### Security & Reliability
+- **Dispatch signing**: All relay dispatches are cryptographically signed to prevent tampering
+- **Auth enforcement**: Team-scoped data access enforced at middleware level
+- **Session decoupling**: Task lifetime decoupled from SSE connection; extended timeouts prevent premature cancellation
+- **Graceful error handling**: Unreachable machines display friendly error messages in session browser
+
+### Team Management
+- **Team-scoped data model**: All queries use `WHERE team_id = ?`; personal teams auto-created on registration
+- **Team switcher**: Sidebar includes Slack-style team switcher (visible when user has 2+ teams)
+- **Role-based access**: Three roles (owner, admin, member) with hierarchical permissions
+- **Invitation flow**: `/team/invite/:token` route for team invitations with email notifications
+
+### Visual & UX
+- **AI provider status**: Color-coded provider availability display (success green for connected machines)
+- **Approval system**: Dynamic approvals via `ask_user_question` MCP tool; approval timeout improvements
+- **Activity tracking**: Real-time activity feed capturing all project/task events
 
 ## Deployment & Infrastructure
 
