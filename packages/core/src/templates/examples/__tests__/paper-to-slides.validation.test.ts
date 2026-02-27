@@ -43,7 +43,8 @@ const TEST_PARAMETERS = {
 // Expected Output Structure
 // ────────────────────────────────────────────────────────────────────────────
 
-const EXPECTED_OUTPUT_STRUCTURE = {
+/** Expected output structure for reference (used in example outputs) */
+export const EXPECTED_OUTPUT_STRUCTURE = {
   rootFiles: [
     'slides.md',        // Main Slidev entry point
     'package.json',     // Slidev project config
