@@ -539,7 +539,7 @@ relayRoute.get('/sessions', async (c) => {
     )
 
     const allSessions: Array<import('../types/relay.js').ClaudeCodeSessionInfo & { machineId: string; machineName: string }> = []
-    const errors: Array<{ machineId: string; error: string }> = []
+    const errors: Array<{ machineId: string; machineName: string; error: string }> = []
 
     for (const result of results) {
       if (result.status === 'fulfilled') {
@@ -547,7 +547,7 @@ relayRoute.get('/sessions', async (c) => {
         for (const s of sessions) {
           allSessions.push({ ...s, machineId: mId, machineName })
         }
-        if (error) errors.push({ machineId: mId, error })
+        if (error) errors.push({ machineId: mId, machineName, error })
       }
     }
 

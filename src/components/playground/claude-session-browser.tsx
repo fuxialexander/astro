@@ -114,6 +114,13 @@ export function ClaudeSessionBrowser({
           </div>
         ) : (
           <div>
+            {/* Partial error: some machines failed but sessions loaded from others */}
+            {error && (
+              <div className="flex items-start gap-1.5 px-3 py-2 bg-muted/50 border-b border-border/50">
+                <AlertCircle className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+                <p className="text-[10px] text-muted-foreground leading-tight">{error}</p>
+              </div>
+            )}
             {sessions.map((session) => (
               <button
                 key={`${session.machineId}-${session.sessionId}`}

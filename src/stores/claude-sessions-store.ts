@@ -56,16 +56,27 @@ export const useClaudeSessionsStore = create<ClaudeSessionsState>((set, get) => 
 
       const data = await response.json() as {
         sessions: ClaudeCodeSession[]
-        errors: Array<{ machineId: string; error: string }>
+        errors: Array<{ machineId: string; machineName?: string; error: string }>
+      }
+
+      // Build a friendly per-machine error summary
+      let errorMsg: string | null = null
+      if (data.errors.length > 0) {
+        const parts = data.errors.map((e) => {
+          const name = e.machineName || e.machineId.slice(0, 12)
+          return `${name}: ${e.error}`
+        })
+        const total = data.errors.length
+        errorMsg = total === 1
+          ? parts[0]
+          : `${total} machines unreachable — ${parts.join("; ")}`
       }
 
       set({
         sessions: data.sessions,
         loading: false,
         lastLoadedAt: Date.now(),
-        error: data.errors.length > 0
-          ? `Some machines failed: ${data.errors.map((e) => e.error).join(", ")}`
-          : null,
+        error: errorMsg,
       })
     } catch (err) {
       set({
