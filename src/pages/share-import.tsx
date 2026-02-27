@@ -43,6 +43,9 @@ export function ShareImport() {
       const result = importProject(bundle.data as ProjectExportData)
       if (result.success && result.projectId) {
         navigate(`/project/${result.projectId}/graph`)
+      } else {
+        setError(result.warnings?.[0] || "Import failed")
+        setImporting(false)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed")

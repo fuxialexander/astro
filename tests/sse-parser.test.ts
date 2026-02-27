@@ -123,7 +123,7 @@ describe('parseSSEStream', () => {
     expect(events[0].data).toBe('final')
   })
 
-  it('ignores events with no data', async () => {
+  it('emits events with no data (spec compliant)', async () => {
     const events: Array<{ event: string; data: string }> = []
     const resp = mockSSEResponse('event: heartbeat\n\nevent: text\ndata: real\n\n')
 
@@ -131,9 +131,12 @@ describe('parseSSEStream', () => {
       onEvent: (e) => events.push(e),
     })
 
-    // heartbeat has no data lines, so the flush check (dataLines.length === 0) skips it
-    expect(events).toHaveLength(1)
-    expect(events[0].event).toBe('text')
+    // Per SSE spec, events with no data lines are valid and emitted with empty string data
+    expect(events).toHaveLength(2)
+    expect(events[0].event).toBe('heartbeat')
+    expect(events[0].data).toBe('')
+    expect(events[1].event).toBe('text')
+    expect(events[1].data).toBe('real')
   })
 
   it('handles new event: line before previous is flushed (missing empty line)', async () => {

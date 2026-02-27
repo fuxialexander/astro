@@ -150,6 +150,7 @@ dispatchRoute.post('/task', async (c) => {
     useWorktree,
     imageRefs,
     isInteractivePlan,
+    maxTurns,
     skipSafetyCheck,
     acceptanceCriteria,
     dispatchSignature,
@@ -340,6 +341,7 @@ dispatchRoute.post('/task', async (c) => {
     preferredProvider,
     targetMachineId,
     model,
+    maxTurns,
     priority,
     workingDirectory,
     sourceDirectory,
@@ -381,6 +383,7 @@ async function dispatchViaRelay(
     preferredProvider?: ProviderType
     targetMachineId?: string
     model?: string
+    maxTurns?: number
     priority: DispatchPriority
     workingDirectory?: string
     sourceDirectory?: string
@@ -419,6 +422,7 @@ async function dispatchViaRelay(
     preferredProvider,
     targetMachineId,
     model,
+    maxTurns,
     priority,
     workingDirectory,
     sourceDirectory,
@@ -764,6 +768,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     visionDoc,
     preferredProvider,
     model: model || undefined,
+    maxTurns: maxTurns || undefined,
     executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     workingDirectory,
@@ -805,6 +810,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       lastActivity = Date.now()
       resultSent = true
       executionContextStore.remove(executionId)
+      dispatchedTaskDirs.delete(executionId)
 
       // Map relay metrics to dispatch metrics (adding aliases used by hooks)
       const relayMetrics = msg.result.metrics

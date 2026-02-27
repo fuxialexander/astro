@@ -317,8 +317,8 @@ describe('playground-header.tsx source code', () => {
     expect(source).toContain('onClick={onToggleFileSidebar}')
   })
 
-  it('file toggle uses PanelRight icon', () => {
-    expect(source).toContain('PanelRight')
+  it('file toggle uses FolderOpen icon', () => {
+    expect(source).toContain('FolderOpen')
   })
 
   it('file toggle applies bg-muted when sidebar open', () => {

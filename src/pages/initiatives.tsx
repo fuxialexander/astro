@@ -304,6 +304,7 @@ function getProjectColumns(
   setRenamingProjectId: (id: string | null) => void,
   handleRename: (id: string, name: string) => void,
   validateName: (name: string) => string | null,
+  progressMap: Record<string, number>,
 ): ListColumn<Project>[] {
   return [
     {
@@ -378,7 +379,7 @@ function getProjectColumns(
       width: "w-[100px]",
       sortKey: "progress",
       render: (p) => {
-        const pct = p.progress ?? 0
+        const pct = progressMap[p.id] ?? 0
         return (
           <div className="flex items-center gap-2">
             <div className="w-12 h-1.5 bg-muted rounded-full overflow-hidden shrink-0">
@@ -400,16 +401,19 @@ function getProjectColumns(
       label: "Target date",
       width: "w-[100px]",
       sortKey: "targetDate",
-      render: (p) => (
-        <span
-          className={cn(
-            "text-xs",
-            isOverdue(p.targetDate, (p.progress ?? 0) >= 100 ? "completed" : "planned") ? "text-error" : "text-muted-foreground",
-          )}
-        >
-          {formatShortDate(p.targetDate) || "\u2014"}
-        </span>
-      ),
+      render: (p) => {
+        const pct = progressMap[p.id] ?? 0
+        return (
+          <span
+            className={cn(
+              "text-xs",
+              isOverdue(p.targetDate, pct >= 100 ? "completed" : "planned") ? "text-error" : "text-muted-foreground",
+            )}
+          >
+            {formatShortDate(p.targetDate) || "\u2014"}
+          </span>
+        )
+      },
     },
   ]
 }
@@ -423,6 +427,7 @@ export default function InitiativesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showProjectPicker, setShowProjectPicker] = useState(false)
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState("all")
   const [healthFilter, setHealthFilter] = useState("all")
   const displaySettings = useDisplaySettingsStore((s) => s.get("initiative-projects"))
@@ -466,11 +471,28 @@ export default function InitiativesPage() {
   )
   const selectedProjectIds = useMemo(() => selectedProjects.map((p) => p.id), [selectedProjects])
 
+  // Calculate live progress from plan nodes (same logic as sidebar / project-overview)
+  const rawNodes = usePlanStore((s) => s.nodes)
+  const allNodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
+  const progressMap = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const p of projects) {
+      const tasks = allNodes.filter((n) => n.projectId === p.id && n.type !== "milestone")
+      if (tasks.length === 0) {
+        map[p.id] = 0
+        continue
+      }
+      const completed = tasks.filter((n) => n.status === "completed" || n.status === "auto_verified")
+      map[p.id] = Math.round((completed.length / tasks.length) * 100)
+    }
+    return map
+  }, [projects, allNodes])
+
   // Sort and filter projects for the list view
   const sortedFilteredProjects = useMemo(() => {
     let filtered = displaySettings.showCompleted
       ? selectedProjects
-      : selectedProjects.filter((p) => (p.progress ?? 0) < 100)
+      : selectedProjects.filter((p) => (progressMap[p.id] ?? 0) < 100)
 
     if (statusFilter !== "all") {
       filtered = filtered.filter((p) => p.status === statusFilter)
@@ -491,7 +513,7 @@ export default function InitiativesPage() {
           return dir * da.localeCompare(db)
         }
         case "progress":
-          return dir * ((a.progress ?? 0) - (b.progress ?? 0))
+          return dir * ((progressMap[a.id] ?? 0) - (progressMap[b.id] ?? 0))
         case "health": {
           const order = { on_track: 0, at_risk: 1, off_track: 2 }
           return dir * ((order[a.health ?? "on_track"] ?? 0) - (order[b.health ?? "on_track"] ?? 0))
@@ -501,7 +523,7 @@ export default function InitiativesPage() {
       }
     })
     return sorted
-  }, [selectedProjects, displaySettings, statusFilter, healthFilter])
+  }, [selectedProjects, displaySettings, statusFilter, healthFilter, progressMap])
 
   // Group projects for list view
   const listGroups = useMemo((): ListGroup<Project>[] => {
@@ -578,18 +600,22 @@ export default function InitiativesPage() {
     setShowDialog(false)
   }
 
-  const handleDelete = (e: React.MouseEvent, id: string) => {
+  const handleDeleteClick = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
-    if (confirm("Delete this grand plan? Projects will NOT be deleted, only unassigned from this plan.")) {
-      // Unassign projects from this initiative
-      projects.forEach((p) => {
-        if (p.initiativeId === id) {
-          updateProject(p.id, { initiativeId: undefined })
-        }
-      })
-      deleteInitiative(id)
-      if (selectedId === id) setSelectedId(null)
-    }
+    setDeleteConfirmId(id)
+  }
+
+  const handleDeleteConfirm = () => {
+    if (!deleteConfirmId) return
+    // Unassign projects from this initiative
+    projects.forEach((p) => {
+      if (p.initiativeId === deleteConfirmId) {
+        updateProject(p.id, { initiativeId: undefined })
+      }
+    })
+    deleteInitiative(deleteConfirmId)
+    if (selectedId === deleteConfirmId) setSelectedId(null)
+    setDeleteConfirmId(null)
   }
 
   const handleSort = useCallback(
@@ -651,8 +677,8 @@ export default function InitiativesPage() {
   )
 
   const projectColumns = useMemo(
-    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName),
-    [renamingProjectId, validateProjectName, handleProjectRename],
+    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap),
+    [renamingProjectId, validateProjectName, handleProjectRename, progressMap],
   )
 
   return (
@@ -762,7 +788,7 @@ export default function InitiativesPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={(e) => handleDelete(e, initiative.id)}
+                          onClick={(e) => handleDeleteClick(e, initiative.id)}
                           className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
                           title="Delete plan"
                         >
@@ -874,7 +900,7 @@ export default function InitiativesPage() {
                       onSort={handleSort}
                       renderMobileItem={(p) => {
                         const health = healthConfig[p.health ?? "on_track"]
-                        const pct = p.progress ?? 0
+                        const pct = progressMap[p.id] ?? 0
                         return (
                           <button
                             onClick={() => navigate(`/project/${p.id}/graph`)}
@@ -1029,6 +1055,26 @@ export default function InitiativesPage() {
             </Button>
             <Button onClick={handleSave} disabled={!formData.name?.trim()}>
               {editingId ? "Save Changes" : "Create Plan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Delete Grand Plan</DialogTitle>
+            <DialogDescription>
+              This will delete the grand plan. Projects will NOT be deleted, only unassigned from this plan.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm}>
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

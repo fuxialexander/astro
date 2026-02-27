@@ -74,7 +74,7 @@ describe('agent runner SDK adapter — session preservation', () => {
 
 describe('agent runner SDK adapter — task type routing', () => {
   it('uses maxTurns=10 for chat and summarize tasks', () => {
-    expect(source).toContain("(task.type === 'chat' || task.type === 'summarize') ? 10 : 150")
+    expect(source).toContain("isTextOnlyTask ? 10 : 150")
   })
 
   it('allows task.maxTurns to override default', () => {
@@ -179,7 +179,7 @@ describe('agent runner SDK adapter — permissions', () => {
 describe('agent runner SDK adapter — HPC context', () => {
   it('lazily initializes HPC context', () => {
     expect(source).toContain('this.hpcContext === undefined')
-    expect(source).toContain('buildHpcContext()')
+    expect(source).toContain('buildHpcContext')
   })
 
   it('prepends HPC context to prompt when available', () => {

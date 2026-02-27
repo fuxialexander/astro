@@ -32,6 +32,7 @@ import {
   ChatAssistantBlock,
   SummaryCard,
 } from "@/components/activity-blocks"
+import { useRestoredExecution } from "@/hooks/use-restored-execution"
 
 interface UnifiedActivityViewProps {
   node: PlanNode
@@ -83,27 +84,13 @@ export function UnifiedActivityView({
     }
   }, [chatSession, createSessionAction, node.id, projectId])
 
-  // Merge activity events from execution store + realtime store
-  // Execution store has text/tool/file events from local dispatch SSE.
-  // Realtime store has those from relay AND steer messages (user-sent).
-  // We need both: use exec events as base when available, then merge in
-  // steer events from realtime that only exist there.
-  const activityEvents: TaskActivityEvent[] = useMemo(() => {
-    const execEvents = execution?.activityEvents || []
-    const streamEvents = taskStream?.activityEvents || []
-
-    if (execEvents.length === 0) return streamEvents
-    if (streamEvents.length === 0) return execEvents
-
-    // Extract steer events from realtime stream (these are only in the stream)
-    const steerEvents = streamEvents.filter(e => e.type === 'steer')
-    if (steerEvents.length === 0) return execEvents
-
-    // Merge exec events + steer events sorted by timestamp
-    const merged = [...execEvents, ...steerEvents]
-    merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-    return merged
-  }, [execution?.activityEvents, taskStream?.activityEvents])
+  // Get activity events — live during execution, restored from observations after refresh
+  const { activityEvents, isRestoring } = useRestoredExecution(
+    executionId,
+    execution,
+    taskStream,
+    isRunning,
+  )
 
   // Include chat messages as activity events for completed tasks
   const chatMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
@@ -372,7 +359,12 @@ export function UnifiedActivityView({
         {/* Empty state */}
         {!hasFallback && displayBlocks.length === 0 && (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            {isRunning ? "Waiting for output..." : "No output available"}
+            {isRunning ? "Waiting for output..." : isRestoring ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading activity...
+              </span>
+            ) : "No output available"}
           </div>
         )}
 

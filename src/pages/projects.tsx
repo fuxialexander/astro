@@ -91,6 +91,7 @@ function getProjectColumns(
   setRenamingProjectId: (id: string | null) => void,
   handleRename: (id: string, name: string) => void,
   validateName: (name: string) => string | null,
+  progressMap: Record<string, number>,
 ): ListColumn<Project>[] {
   return [
     {
@@ -165,7 +166,7 @@ function getProjectColumns(
       width: "w-[100px]",
       sortKey: "progress",
       render: (p) => {
-        const pct = p.progress ?? 0
+        const pct = progressMap[p.id] ?? 0
         return (
           <div className="flex items-center gap-2">
             <div className="w-12 h-1.5 bg-muted rounded-full overflow-hidden shrink-0">
@@ -187,22 +188,25 @@ function getProjectColumns(
       label: "Target date",
       width: "w-[100px]",
       sortKey: "targetDate",
-      render: (p) => (
-        <span className={cn(
-          "text-xs",
-          isOverdue(p.targetDate, (p.progress ?? 0) >= 100 ? "completed" : "planned")
-            ? "text-error"
-            : "text-muted-foreground"
-        )}>
-          {formatShortDate(p.targetDate) || "\u2014"}
-        </span>
-      ),
+      render: (p) => {
+        const pct = progressMap[p.id] ?? 0
+        return (
+          <span className={cn(
+            "text-xs",
+            isOverdue(p.targetDate, pct >= 100 ? "completed" : "planned")
+              ? "text-error"
+              : "text-muted-foreground"
+          )}>
+            {formatShortDate(p.targetDate) || "\u2014"}
+          </span>
+        )
+      },
     },
   ]
 }
 
-function getProjectBarColors(project: Project) {
-  const pct = project.progress ?? 0
+function getProjectBarColors(project: Project, progressMap: Record<string, number>) {
+  const pct = progressMap[project.id] ?? 0
   if (pct >= 95) return { bg: "bg-success/80", progress: "bg-success" }
   switch (project.health) {
     case "off_track": return { bg: "bg-error/80", progress: "bg-error" }
@@ -320,7 +324,7 @@ export function Projects() {
     },
   ], [deleteProject])
 
-  // Task counts per project
+  // Task counts per project (live from plan nodes, same logic as sidebar)
   const projectTaskCounts = useMemo(() => {
     const counts: Record<string, { total: number; completed: number; inProgress: number }> = {}
     for (const p of projects) {
@@ -334,11 +338,20 @@ export function Projects() {
     return counts
   }, [projects, allNodes])
 
+  // Live progress map derived from task counts
+  const progressMap = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const [id, counts] of Object.entries(projectTaskCounts)) {
+      map[id] = counts.total > 0 ? Math.round((counts.completed / counts.total) * 100) : 0
+    }
+    return map
+  }, [projectTaskCounts])
+
   // Sort projects
   const sortedProjects = useMemo(() => {
     let filtered = displaySettings.showCompleted
       ? projects
-      : projects.filter((p) => (p.progress ?? 0) < 100)
+      : projects.filter((p) => (progressMap[p.id] ?? 0) < 100)
     if (statusFilter !== "all") {
       filtered = filtered.filter((p) => p.status === statusFilter)
     }
@@ -367,7 +380,7 @@ export function Projects() {
           return dir * da.localeCompare(db)
         }
         case "progress":
-          return dir * ((a.progress ?? 0) - (b.progress ?? 0))
+          return dir * ((progressMap[a.id] ?? 0) - (progressMap[b.id] ?? 0))
         case "health": {
           const order = { on_track: 0, at_risk: 1, off_track: 2 }
           return dir * ((order[a.health ?? "on_track"] ?? 0) - (order[b.health ?? "on_track"] ?? 0))
@@ -377,7 +390,7 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, teamFilter])
+  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, teamFilter, progressMap])
 
   // Group projects for list view
   const listGroups = useMemo((): ListGroup<Project>[] => {
@@ -448,7 +461,7 @@ export function Projects() {
   const timelineSortedProjects = useMemo(() => {
     const filtered = timelineDisplaySettings.showCompleted
       ? projects
-      : projects.filter((p) => (p.progress ?? 0) < 100)
+      : projects.filter((p) => (progressMap[p.id] ?? 0) < 100)
     const sorted = [...filtered]
     const dir = timelineDisplaySettings.orderDirection === "asc" ? 1 : -1
     sorted.sort((a, b) => {
@@ -461,7 +474,7 @@ export function Projects() {
           return dir * da.localeCompare(db)
         }
         case "progress":
-          return dir * ((a.progress ?? 0) - (b.progress ?? 0))
+          return dir * ((progressMap[a.id] ?? 0) - (progressMap[b.id] ?? 0))
         case "health": {
           const order = { on_track: 0, at_risk: 1, off_track: 2 }
           return dir * ((order[a.health ?? "on_track"] ?? 0) - (order[b.health ?? "on_track"] ?? 0))
@@ -471,13 +484,13 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, projectDateRanges, timelineDisplaySettings.orderBy, timelineDisplaySettings.orderDirection, timelineDisplaySettings.showCompleted])
+  }, [projects, projectDateRanges, timelineDisplaySettings.orderBy, timelineDisplaySettings.orderDirection, timelineDisplaySettings.showCompleted, progressMap])
 
   // Timeline rows (with grouping support)
   const timelineRows = useMemo((): TimelineRow<Project>[] => {
     const makeItemRow = (p: Project): TimelineRow<Project> => {
-      const { bg, progress } = getProjectBarColors(p)
-      const pct = p.progress ?? 0
+      const { bg, progress } = getProjectBarColors(p, progressMap)
+      const pct = progressMap[p.id] ?? 0
       const dates = projectDateRanges[p.id]
       return {
         kind: "item" as const,
@@ -526,7 +539,7 @@ export function Projects() {
       }
     }
     return result
-  }, [timelineSortedProjects, projectDateRanges, timelineDisplaySettings.groupBy, getInitiativeName])
+  }, [timelineSortedProjects, projectDateRanges, timelineDisplaySettings.groupBy, getInitiativeName, progressMap])
 
   const handleSort = useCallback((sortKey: string) => {
     if (displaySettings.orderBy === sortKey) {
@@ -593,8 +606,8 @@ export function Projects() {
   ]
 
   const projectColumns = useMemo(
-    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName),
-    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId]
+    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap),
+    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId, progressMap]
   )
 
   return (
@@ -777,7 +790,7 @@ export function Projects() {
               renderMobileItem={(p) => {
                 const health = healthConfig[p.health ?? "on_track"]
                 const counts = projectTaskCounts[p.id]
-                const pct = p.progress ?? 0
+                const pct = progressMap[p.id] ?? 0
                 return (
                   <button
                     onClick={() => navigate(`/project/${p.id}/graph`)}
@@ -828,7 +841,7 @@ export function Projects() {
               rowHeight={64}
               renderLeftCell={(proj) => {
                 const counts = projectTaskCounts[proj.id]
-                const pct = proj.progress ?? 0
+                const pct = progressMap[proj.id] ?? 0
                 const statusLabel =
                   pct >= 95
                     ? "completed"
@@ -914,7 +927,7 @@ export function Projects() {
                     <div className="flex flex-col gap-2 px-2 pb-2 overflow-y-auto">
                       {col.projects.map((project) => {
                         const counts = projectTaskCounts[project.id]
-                        const pct = project.progress ?? 0
+                        const pct = progressMap[project.id] ?? 0
                         return (
                           <Link
                             key={project.id}

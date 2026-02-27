@@ -21,6 +21,7 @@ import { ApprovalCard } from "@/components/approval-card"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
 import { cn, getShortId } from "@/lib/utils"
+import { useRestoredExecution } from "@/hooks/use-restored-execution"
 
 export type PanelSize = 'default' | 'three-quarter' | 'full'
 
@@ -67,6 +68,18 @@ export function TaskDetail() {
     return executionId ? s.taskStreams.get(executionId) : undefined
   })
 
+  const isRunning = !!node && (node.status === "in_progress" || node.status === "dispatched")
+    && execution?.status !== "success" && execution?.status !== "failure" && execution?.status !== "cancelled"
+
+  // Get file changes from live execution or restored observations
+  // Hook must be called before any early returns (Rules of Hooks)
+  const { fileChanges: restoredFileChanges } = useRestoredExecution(
+    executionId,
+    execution,
+    taskStream,
+    isRunning,
+  )
+
   if (!node || !projectId) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
@@ -78,22 +91,15 @@ export function TaskDetail() {
     )
   }
 
-  const isRunning = (node.status === "in_progress" || node.status === "dispatched")
-    && execution?.status !== "success" && execution?.status !== "failure" && execution?.status !== "cancelled"
-
-  // Combine file changes from execution store and realtime store, then deduplicate
-  const rawFileChanges = [
-    ...(execution?.fileChanges?.map(f => ({
-      path: f.path,
-      action: f.action,
-      linesAdded: f.linesAdded,
-      linesRemoved: f.linesRemoved,
-      diff: f.diff,
-      timestamp: f.timestamp,
-    })) || []),
-    ...(taskStream?.fileChanges || []),
-  ]
-  const fileChanges = deduplicateFileChanges(rawFileChanges)
+  // Deduplicate file changes (hook already merges execution + stream)
+  const fileChanges = deduplicateFileChanges(restoredFileChanges.map(f => ({
+    path: f.path,
+    action: f.action,
+    linesAdded: f.linesAdded,
+    linesRemoved: f.linesRemoved,
+    diff: f.diff,
+    timestamp: f.timestamp,
+  })))
 
   // Get machine ID for steering (from execution or realtime stream)
   const machineId = execution?.machineId || taskStream?.machineId || ""

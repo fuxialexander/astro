@@ -30,6 +30,7 @@ import { PlanSessionHeader } from "./plan-session-header"
 import { TraceViewer } from "@/components/task-detail/trace-viewer"
 import { cn } from "@/lib/utils"
 import type { TaskActivityEvent } from "@/types"
+import { useRestoredExecution } from "@/hooks/use-restored-execution"
 
 interface PlanChatPhaseProps {
   projectId: string
@@ -80,52 +81,21 @@ export function PlanChatPhase({
 
   const isRunning = execution?.status === "pending" || execution?.status === "running"
 
-  // Auto-switch to trace view when activity events are empty after refresh (not running)
-  const activityEventsEmpty = !execution?.activityEvents?.length
+  // Get activity events — live during execution, restored from observations after refresh
+  const { activityEvents, isRestoring } = useRestoredExecution(
+    executionId,
+    execution,
+    taskStream,
+    isRunning,
+  )
+
+  // Auto-switch to trace view only if restoration also returned empty (legacy executions)
   useEffect(() => {
-    if (!isRunning && activityEventsEmpty && execution?.executionId && !viewModeAutoSwitched.current) {
+    if (!isRunning && !isRestoring && activityEvents.length === 0 && execution?.executionId && !viewModeAutoSwitched.current) {
       viewModeAutoSwitched.current = true
       setViewMode("trace")
     }
-  }, [isRunning, activityEventsEmpty, execution?.executionId])
-
-  // Merge activity events from execution + realtime
-  const activityEvents: TaskActivityEvent[] = useMemo(() => {
-    const execEvents = execution?.activityEvents || []
-    const streamEvents = taskStream?.activityEvents || []
-
-    if (execEvents.length === 0) return streamEvents
-    if (streamEvents.length === 0) return execEvents
-
-    // Merge, preferring exec events as base, adding steer/approval events from realtime
-    const steerAndApprovalEvents = streamEvents.filter(
-      e => e.type === 'steer' || e.type === 'approval_request' || e.type === 'approval_response'
-    )
-    if (steerAndApprovalEvents.length === 0) return execEvents
-
-    // Filter out AskUserQuestion tool_use events — the approval_request already provides the interactive UI
-    const filteredExecEvents = execEvents.filter(
-      e => !(e.type === 'tool_use' && (e as { toolName?: string }).toolName === 'AskUserQuestion')
-    )
-
-    // Deduplicate approval_request events by requestId (keep latest)
-    const seenRequestIds = new Set<string>()
-    const deduped = [...filteredExecEvents, ...steerAndApprovalEvents]
-    deduped.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-    // Walk backwards to keep the latest approval_request per requestId
-    for (let i = deduped.length - 1; i >= 0; i--) {
-      const e = deduped[i]
-      if (e.type === 'approval_request') {
-        const rid = (e as { requestId: string }).requestId
-        if (seenRequestIds.has(rid)) {
-          deduped.splice(i, 1)
-        } else {
-          seenRequestIds.add(rid)
-        }
-      }
-    }
-    return deduped
-  }, [execution?.activityEvents, taskStream?.activityEvents])
+  }, [isRunning, isRestoring, activityEvents.length, execution?.executionId])
 
   // Group events for display
   const displayBlocks = useMemo(() => groupActivityEvents(activityEvents), [activityEvents])
@@ -322,7 +292,12 @@ export function PlanChatPhase({
             {/* Empty state */}
             {displayBlocks.length === 0 && execution?.status !== "failure" && (
               <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                {isRunning ? "Starting planning session..." : "No activity yet"}
+                {isRunning ? "Starting planning session..." : isRestoring ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading activity...
+                  </span>
+                ) : "No activity yet"}
               </div>
             )}
 

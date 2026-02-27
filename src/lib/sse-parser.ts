@@ -36,7 +36,9 @@ export async function parseSSEStream(
   let dataLines: string[] = []
 
   function flushEvent() {
-    if (!currentEvent || dataLines.length === 0) return
+    if (!currentEvent) return
+    // Per SSE spec (RFC 8895 §9.2.6), events with no data lines are valid.
+    // Emit with empty string data so heartbeats and signal-only events aren't dropped.
     const data = dataLines.join("\n")
     handlers.onEvent({ event: currentEvent, data })
     currentEvent = ""

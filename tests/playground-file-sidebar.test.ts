@@ -547,9 +547,9 @@ describe('playground-file-sidebar.tsx source code', () => {
     expect(source).toContain('Refresh')
   })
 
-  it('has open-in-editor button with ExternalLink icon', () => {
-    expect(source).toContain('ExternalLink')
-    expect(source).toContain('Open in editor')
+  it('has open-in-editor via EditorOpenControls', () => {
+    expect(source).toContain('EditorOpenControls')
+    expect(source).toContain('buildFileUrlSync')
   })
 
   it('supports keyboard navigation with ArrowDown', () => {
@@ -609,7 +609,7 @@ describe('playground-file-sidebar.tsx source code', () => {
     expect(source).toContain('w-[280px]')
   })
 
-  it('uses header text "Files"', () => {
-    expect(source).toContain('Files')
+  it('uses EditorOpenControls in header', () => {
+    expect(source).toContain('EditorOpenControls')
   })
 })

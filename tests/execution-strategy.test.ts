@@ -395,9 +395,10 @@ describe('ExecutionStrategyRegistry', () => {
     expect(direct!.available).toBe(true);
   }, 15_000);
 
-  it('detectAll() includes all 4 strategies', async () => {
+  it('detectAll() includes core strategies', async () => {
     const results = await registry.detectAll();
-    expect(results.length).toBe(4);
+    // 5 base strategies (direct, slurm, docker, k8s-exec, ssh) — SSH may expand to per-host entries
+    expect(results.length).toBeGreaterThanOrEqual(5);
     const ids = results.map((s) => s.id);
     expect(ids).toContain('direct');
     expect(ids).toContain('slurm');
@@ -438,6 +439,6 @@ describe('ExecutionStrategyRegistry', () => {
   it('listAll() returns all strategies after detection', async () => {
     await registry.detectAll();
     const all = registry.listAll();
-    expect(all.length).toBe(4);
+    expect(all.length).toBeGreaterThanOrEqual(5);
   }, 15_000);
 });

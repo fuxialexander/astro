@@ -203,47 +203,8 @@ describe('Refinement state machine', () => {
 // Source code verification for all three components
 // ============================================================================
 
-describe('node-inspector.tsx refinement loading', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fs = require('node:fs') as typeof import('node:fs')
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const path = require('node:path') as typeof import('node:path')
-  const source = fs.readFileSync(
-    path.join(process.cwd(), 'src/components/node-inspector.tsx'),
-    'utf-8'
-  )
-
-  it('has justRefined state', () => {
-    expect(source).toContain('justRefined')
-    expect(source).toContain('setJustRefined')
-  })
-
-  it('shows "AI is refining..." overlay during refinement', () => {
-    expect(source).toContain('AI is refining...')
-  })
-
-  it('dims textarea with opacity-60 during refinement', () => {
-    expect(source).toContain('opacity-60')
-  })
-
-  it('shows success ring-1 ring-success/30 after refinement', () => {
-    expect(source).toContain('ring-success/30')
-  })
-
-  it('auto-clears justRefined after 1500ms', () => {
-    expect(source).toContain('setTimeout(() => setJustRefined(false), 1500)')
-  })
-
-  it('sets justRefined only when result is truthy', () => {
-    // The setJustRefined(true) should be inside the `if (result)` block
-    const resultBlock = source.slice(
-      source.indexOf('const result = await refineContent(node.title'),
-      source.indexOf('const result = await refineContent(node.title') + 500,
-    )
-    expect(resultBlock).toContain('if (result)')
-    expect(resultBlock).toContain('setJustRefined(true)')
-  })
-})
+// node-inspector.tsx refinement loading tests removed — the component was
+// redesigned and no longer uses the justRefined/overlay pattern
 
 describe('execution-panel.tsx refinement loading', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -274,38 +235,5 @@ describe('execution-panel.tsx refinement loading', () => {
   })
 })
 
-describe('project-new.tsx refinement loading', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fs = require('node:fs') as typeof import('node:fs')
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const path = require('node:path') as typeof import('node:path')
-  const source = fs.readFileSync(
-    path.join(process.cwd(), 'src/pages/project-new.tsx'),
-    'utf-8'
-  )
-
-  it('has justRefined state', () => {
-    expect(source).toContain('justRefined')
-    expect(source).toContain('setJustRefined')
-  })
-
-  it('shows "AI is refining..." pill overlay during refinement', () => {
-    expect(source).toContain('AI is refining...')
-  })
-
-  it('dims textarea with opacity-60 during refinement', () => {
-    expect(source).toContain('opacity-60')
-  })
-
-  it('disables textarea during refinement', () => {
-    expect(source).toContain('disabled={isRefining}')
-  })
-
-  it('shows success ring after refinement', () => {
-    expect(source).toContain('ring-success/30')
-  })
-
-  it('auto-clears justRefined after 1500ms', () => {
-    expect(source).toContain('setTimeout(() => setJustRefined(false), 1500)')
-  })
-})
+// project-new.tsx was merged into project-new-plan.tsx — refinement loading
+// source tests removed (refinement state machine tests above still cover the logic)

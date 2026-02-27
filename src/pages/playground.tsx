@@ -55,6 +55,7 @@ import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import type { TaskActivityEvent } from "@/types"
+import { useRestoredExecution } from "@/hooks/use-restored-execution"
 
 // Identify playground projects by the projectType field (persisted) or execution key (in-memory fallback)
 function isPlaygroundProject(project: { projectType?: string; id: string }, executions: Map<string, unknown>): boolean {
@@ -200,39 +201,15 @@ export function Playground() {
       .slice(0, 20)
   }, [allProjects, allExecutions])
 
-  // Merge activity events from execution + realtime
-  const activityEvents: TaskActivityEvent[] = useMemo(() => {
-    const execEvents = execution?.activityEvents || []
-    const streamEvents = taskStream?.activityEvents || []
+  const isRunning = execution?.status === "pending" || execution?.status === "running"
 
-    if (execEvents.length === 0) return streamEvents
-    if (streamEvents.length === 0) return execEvents
-
-    const steerAndApprovalEvents = streamEvents.filter(
-      e => e.type === 'steer' || e.type === 'approval_request' || e.type === 'approval_response'
-    )
-    if (steerAndApprovalEvents.length === 0) return execEvents
-
-    const filteredExecEvents = execEvents.filter(
-      e => !(e.type === 'tool_use' && (e as { toolName?: string }).toolName === 'AskUserQuestion')
-    )
-
-    const seenRequestIds = new Set<string>()
-    const deduped = [...filteredExecEvents, ...steerAndApprovalEvents]
-    deduped.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-    for (let i = deduped.length - 1; i >= 0; i--) {
-      const e = deduped[i]
-      if (e.type === 'approval_request') {
-        const rid = (e as { requestId: string }).requestId
-        if (seenRequestIds.has(rid)) {
-          deduped.splice(i, 1)
-        } else {
-          seenRequestIds.add(rid)
-        }
-      }
-    }
-    return deduped
-  }, [execution?.activityEvents, taskStream?.activityEvents])
+  // Get activity events — live during execution, restored from observations after refresh
+  const { activityEvents, isRestoring } = useRestoredExecution(
+    executionId,
+    execution,
+    taskStream,
+    isRunning,
+  )
 
   const displayBlocks = useMemo(() => groupActivityEvents(activityEvents), [activityEvents])
 
@@ -253,8 +230,6 @@ export function Playground() {
     return ids
   }, [activityEvents])
 
-  const isRunning = execution?.status === "pending" || execution?.status === "running"
-
   const headerStatus = execution?.status === "cancelled"
     ? 'stopped'
     : execution?.status === "success" || execution?.status === "failure"
@@ -263,13 +238,13 @@ export function Playground() {
         ? 'waiting'
         : 'running'
 
-  // Auto-switch to trace view when activity events are empty after refresh (not running)
+  // Auto-switch to trace view only if restoration also returned empty (legacy executions)
   useEffect(() => {
-    if (activeProjectId && execution && !isRunning && activityEvents.length === 0 && execution.executionId && !viewModeAutoSwitched.current) {
+    if (activeProjectId && execution && !isRunning && !isRestoring && activityEvents.length === 0 && execution.executionId && !viewModeAutoSwitched.current) {
       viewModeAutoSwitched.current = true
       setViewMode("trace")
     }
-  }, [activeProjectId, execution, isRunning, activityEvents.length])
+  }, [activeProjectId, execution, isRunning, isRestoring, activityEvents.length])
 
   // Auto-scroll
   const eventsLength = activityEvents.length
@@ -536,7 +511,12 @@ export function Playground() {
 
                 {displayBlocks.length === 0 && execution?.status !== "failure" && (
                   <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                    {isRunning ? "Starting session..." : "No activity yet"}
+                    {isRunning ? "Starting session..." : isRestoring ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading activity...
+                      </span>
+                    ) : "No activity yet"}
                   </div>
                 )}
 

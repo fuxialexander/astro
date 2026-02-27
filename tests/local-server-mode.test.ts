@@ -78,22 +78,22 @@ describe('sidebar mergeWithDefaults', () => {
 
   it('forces protected items to be visible even if stored as hidden', () => {
     const stored = [
-      { id: 'tasks', to: '/', icon: 'CheckSquare', label: 'Tasks', visible: false, protected: true },
+      { id: 'dashboard', to: '/', icon: 'Radio', label: 'Dashboard', visible: false, protected: true },
     ]
     const result = mergeWithDefaults(stored)
-    const tasks = result.find(i => i.id === 'tasks')
-    expect(tasks?.visible).toBe(true) // forced visible because protected
+    const dashboard = result.find(i => i.id === 'dashboard')
+    expect(dashboard?.visible).toBe(true) // forced visible because protected
   })
 
   it('adds new default items not present in stored config', () => {
-    // Simulate stored config that doesn't have "agents" item
+    // Simulate stored config that doesn't have "workflows" item
     const stored = [
-      { id: 'tasks', to: '/', icon: 'CheckSquare', label: 'Tasks', visible: true, protected: true },
+      { id: 'dashboard', to: '/', icon: 'Radio', label: 'Dashboard', visible: true, protected: true },
     ]
     const result = mergeWithDefaults(stored)
-    const agents = result.find(i => i.id === 'agents')
-    expect(agents).toBeDefined()
-    expect(agents?.visible).toBe(false) // default visibility
+    const workflows = result.find(i => i.id === 'workflows')
+    expect(workflows).toBeDefined()
+    expect(workflows?.visible).toBe(false) // default visibility
   })
 
   it('preserves stored order within the defaults structure', () => {
