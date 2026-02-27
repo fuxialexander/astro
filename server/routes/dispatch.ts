@@ -19,7 +19,7 @@ import { machineRegistry } from '../lib/machine-registry.js'
 import type { ProviderType, ImageAttachment } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
-import { executionContextStore } from '../lib/execution-context-store.js'
+import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
 import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, userProfiles } from '../lib/db/schema.js'
@@ -987,6 +987,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       waitingForApproval = true
     }
 
+    // Mark this task as having an active dispatch stream so events.ts
+    // relay-direct handlers skip it (avoiding duplicate SSE events).
+    activeDispatchStreams.add(executionId)
+
     relayServer.on('task:result', onResult)
     relayServer.on('task:text', onText)
     relayServer.on('task:session_init', onSessionInit)
@@ -998,6 +1002,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     relayServer.on('task:safety_prompt', onSafetyPrompt)
 
     const cleanup = () => {
+      activeDispatchStreams.delete(executionId)
       relayServer.off('task:result', onResult)
       relayServer.off('task:text', onText)
       relayServer.off('task:session_init', onSessionInit)
@@ -1010,7 +1015,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     }
 
     // Dispatch after listeners registered
-    const dispatched = relayServer.dispatchTask(taskDispatch, machineId)
+    const dispatched = relayServer.dispatchTask(taskDispatch, machineId, user?.id)
 
     if (!dispatched) {
       cleanup()

@@ -27,7 +27,7 @@ export function useRestoredExecution(
   executionId: string,
   execution?: TaskExecution,
   taskStream?: TaskStream,
-  isRunning?: boolean,
+  _isRunning?: boolean,
 ): RestoredExecution {
   const [restoredData, setRestoredData] = useState<{
     activityEvents: TaskActivityEvent[]
@@ -103,30 +103,62 @@ export function useRestoredExecution(
   const traceLoading = useObservationStore((s) => s.isLoading(executionId))
   const traceError = useObservationStore((s) => s.errors.get(executionId))
 
-  // Fetch observations when needed (no live events, not running, has executionId)
+  // Fetch observations when needed:
+  // - No live events in memory (post-refresh or completed execution)
+  // - Has executionId to query
+  // Note: we fetch even when isRunning — after page refresh, past activity
+  // is only available from observations until new SSE events arrive.
   useEffect(() => {
-    if (!executionId || hasLiveEvents || isRunning) return
+    console.log('[use-restored] fetch check:', {
+      executionId: executionId || '(empty)',
+      hasLiveEvents,
+      execEventsLen: execution?.activityEvents?.length ?? 'undef',
+      streamEventsLen: taskStream?.activityEvents?.length ?? 'undef',
+    })
+    if (!executionId || hasLiveEvents) return
     // Check if already fetched
     const existing = getTrace(executionId)
-    if (existing) return
+    if (existing) {
+      console.log('[use-restored] trace already cached for', executionId)
+      return
+    }
+    console.log('[use-restored] fetching trace for', executionId)
     fetchTrace(executionId)
-  }, [executionId, hasLiveEvents, isRunning, fetchTrace, getTrace])
+  }, [executionId, hasLiveEvents, fetchTrace, getTrace])
 
   // Reconstruct from trace when available
   const trace = useObservationStore((s) => s.traces.get(executionId))
   useEffect(() => {
-    // Only clear restored data when live events arrive (not unconditionally)
-    if (hasLiveEvents) {
+    if (!trace) return
+    console.log('[use-restored] trace available:', {
+      executionId,
+      turns: trace.turns.length,
+      events: trace.events.length,
+    })
+    // Only clear restored data when live events from the primary execution store
+    // arrive (the per-dispatch SSE events that were never lost).
+    // Don't clear for realtime-store-only events — those need to be merged.
+    const execEvents = execution?.activityEvents || []
+    if (execEvents.length > 0) {
+      console.log('[use-restored] clearing restored data — exec store has', execEvents.length, 'events')
       setRestoredData(null)
       return
     }
-    if (isRunning || !trace) return
     const result = reconstructActivityFromTrace(trace)
+    console.log('[use-restored] reconstructed:', {
+      activityEvents: result.activityEvents.length,
+      toolTraces: result.toolTraces.length,
+      fileChanges: result.fileChanges.length,
+    })
     setRestoredData(result)
-  }, [trace, hasLiveEvents, isRunning])
+  }, [trace, execution?.activityEvents])
 
-  // Use live data when available, otherwise restored data
-  if (hasLiveEvents || isRunning) {
+  // Determine what to return based on data availability
+  const hasExecStoreEvents = (execution?.activityEvents?.length || 0) > 0
+
+  // Case 1: Primary execution store has events (original tab, no refresh)
+  // → use live data exclusively (restored data not needed)
+  if (hasExecStoreEvents) {
     return {
       activityEvents: liveActivityEvents,
       toolTraces: liveToolTraces,
@@ -135,7 +167,32 @@ export function useRestoredExecution(
     }
   }
 
+  // Case 2: Post-refresh with restored data — merge restored history with
+  // any new live events from the realtime store (global SSE after reconnect)
   if (restoredData) {
+    const streamEvents = taskStream?.activityEvents || []
+    console.log('[use-restored] Case 2: restored=%d stream=%d', restoredData.activityEvents.length, streamEvents.length)
+    if (streamEvents.length > 0) {
+      // Merge: restored history + new realtime events, sorted by timestamp.
+      // Deduplicate by checking if timestamps overlap (within 1s window).
+      const restoredEndTime = restoredData.activityEvents.length > 0
+        ? new Date(restoredData.activityEvents[restoredData.activityEvents.length - 1].timestamp).getTime()
+        : 0
+      // Only include stream events that are newer than the last restored event
+      const newStreamEvents = streamEvents.filter(
+        e => new Date(e.timestamp).getTime() > restoredEndTime - 1000
+      )
+      const mergedEvents = [...restoredData.activityEvents, ...newStreamEvents]
+      mergedEvents.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+      return {
+        activityEvents: mergedEvents,
+        toolTraces: restoredData.toolTraces,
+        fileChanges: liveFileChanges.length > 0 ? liveFileChanges : restoredData.fileChanges,
+        isRestoring: false,
+      }
+    }
+
     return {
       activityEvents: restoredData.activityEvents,
       toolTraces: restoredData.toolTraces,
@@ -144,6 +201,8 @@ export function useRestoredExecution(
     }
   }
 
+  // Case 3: No restored data yet — return whatever live data exists
+  // (may be empty during initial load / observation fetch)
   return {
     activityEvents: liveActivityEvents,
     toolTraces: liveToolTraces,

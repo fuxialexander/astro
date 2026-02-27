@@ -191,8 +191,11 @@ async function streamChatViaRelay(
       relayServer.off('machine:disconnected', onMachineDisconnected)
     }
 
+    // Extract authenticated user for machine ownership filtering
+    const user = c.get('user') as { id: string } | undefined
+
     // Dispatch after listeners are registered
-    const dispatched = relayServer.dispatchTask(task, opts.targetMachineId)
+    const dispatched = relayServer.dispatchTask(task, opts.targetMachineId, user?.id)
 
     if (!dispatched) {
       cleanup()
@@ -530,8 +533,11 @@ agentRoute.post('/generate-plan', async (c) => {
       relayServer.off('machine:disconnected', onMachineDisconnected)
     }
 
+    // Extract authenticated user for machine ownership filtering
+    const planUser = c.get('user') as { id: string } | undefined
+
     // Dispatch after listeners registered
-    const dispatched = relayServer.dispatchTask(taskDispatch, targetMachineId)
+    const dispatched = relayServer.dispatchTask(taskDispatch, targetMachineId, planUser?.id)
 
     if (!dispatched) {
       cleanup()

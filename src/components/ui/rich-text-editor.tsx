@@ -148,6 +148,8 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
           heading: {
             levels: [1, 2, 3],
           },
+          // Disable StarterKit's built-in link to avoid duplicate with our custom Link config
+          link: false,
         }),
         Image.configure({
           HTMLAttributes: {

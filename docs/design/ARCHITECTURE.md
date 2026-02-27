@@ -1,8 +1,8 @@
 # Astro — Architecture
 
-> **Last updated:** 2026-02-22
+> **Last updated:** 2026-02-27
 > **Consolidates:** Previous `ARCHITECTURE.md` (operational) + `SERVER_ARCHITECTURE_V2.md` (strategic)
-> **Status:** PGlite + team-scoped data refactor **complete**. IndexedDB fully removed. Phase 3 (stateless backend) **complete** — all persistent in-memory Maps moved to Postgres.
+> **Status:** PGlite + team-scoped data refactor **complete**. IndexedDB fully removed. Phase 3 (stateless backend) **complete** — all persistent in-memory Maps moved to Postgres. Monorepo extraction (`@astro/core`, `@astroanywhere/cli`) **complete**.
 
 ---
 
@@ -23,7 +23,7 @@ Astro consists of four logical components. Depending on the operating mode, they
  │  │  Vite dev: localhost:5173 / Prod: Cloudflare Pages               │  │
  │  │                                                                  │  │
  │  │  • UI rendering (pages, graph, terminal, chat)                   │  │
- │  │  • Local state (27 Zustand stores)                               │  │
+ │  │  • Local state (29 Zustand stores)                               │  │
  │  │  • SSE event consumption (real-time updates)                     │  │
  │  │  • User inputs: create projects, execute tasks, chat, steer      │  │
  │  └──────────────────────┬────────────────────┬──────────────────────┘  │
@@ -34,7 +34,7 @@ Astro consists of four logical components. Depending on the operating mode, they
  │  │  BACKEND — Hono API Server                                       │  │
  │  │  Dev: localhost:3001 / Prod: Fly.io                              │  │
  │  │                                                                  │  │
- │  │  • HTTP API (20 route files, auth middleware)                     │  │
+ │  │  • HTTP API (19 route files, auth middleware)                     │  │
  │  │  • Data persistence (Postgres via Drizzle — PGlite local,        │  │
  │  │    postgres-js server)                                          │  │
  │  │  • SSE event broadcasting (events → browser)                     │  │
@@ -131,7 +131,7 @@ The backend code is identical. Drizzle ORM queries work against any Postgres ins
 
 ```bash
 # Local (PGlite — no DATABASE_URL needed, Postgres runs in-process via WASM)
-# Data stored in ~/.astro/data/
+# Data stored in ~/.astro/pglite/
 
 # Supabase (beta)
 DATABASE_URL=postgresql://postgres:password@db.abc.supabase.co:5432/postgres
@@ -277,7 +277,7 @@ Frontend on CDN. Backend + Relay on cloud VM. Agent Runners on users' machines.
 
 | Aspect | Local mode | Server mode |
 |--------|-----------|-------------|
-| Database | PGlite (in-process, `~/.astro/data/`) | Postgres (Supabase / Fly.io / AWS RDS) |
+| Database | PGlite (in-process, `~/.astro/pglite/`) | Postgres (Supabase / Fly.io / AWS RDS) |
 | Auth middleware | Fixed `userId` + `teamId` UUIDs | JWT validation → resolve from `team_members` |
 | Teams | One implicit team (invisible to user) | Real teams — create, invite, manage, billing |
 | Server-only routes | Not loaded | Auth, team management, device auth (dynamic import) |
@@ -314,25 +314,28 @@ Frontend on CDN. Backend + Relay on cloud VM. Agent Runners on users' machines.
    ┌──────────▼──────────┐  ┌──────────▼──────────┐
    │  PGlite (local)     │  │  Postgres (server)   │
    │  in-process WASM    │  │  Supabase / Fly.io   │
-   │  ~/.astro/data/     │  │  Postgres / AWS RDS  │
+   │  ~/.astro/pglite/   │  │  Postgres / AWS RDS  │
    │  Zero install.      │  │  Connection string.  │
    └─────────────────────┘  └──────────────────────┘
 ```
 
-### 4.2 Database Schema (28 tables)
+### 4.2 Database Schema (37 tables)
 
 See `DATA_MODEL.md` for the complete schema. Key tables:
 
-**Core entities:** `projects`, `plan_nodes`, `plan_edges`, `task_executions`, `initiatives`
-**Execution detail:** `tool_traces`, `file_changes`, `activity_events`, `execution_summaries`
-**User/Team:** `user_profiles`, `teams`, `team_members`, `display_settings`, `usage_metrics`
-**Auth (server only):** `passkey_credentials`, `connected_accounts`, `device_codes`
-**Machine:** `registered_machines`
-**Session:** `sessions`, `task_chat_sessions`
+**Core entities:** `projects`, `plan_nodes`, `plan_node_dependencies`, `plan_edges`, `task_executions`, `initiatives`
+**Execution detail:** `tool_traces`, `file_changes`, `activity_events`, `observation_events`, `machine_usage_logs`
+**User/Team:** `user_profiles`, `teams`, `team_members`, `invite_tokens`, `project_members`, `display_settings`, `usage_metrics`
+**Auth (server only):** `passkey_credentials`, `connected_accounts`, `device_codes`, `webauthn_challenges`, `refresh_tokens`
+**Machine:** `registered_machines`, `environment_configs`
+**Session:** `sessions`, `task_chat_sessions`, `task_chat_messages`, `chat_sessions`
+**Stateless backend:** `shared_bundles`, `dispatch_queue_entries`
+**Storage:** `blobs`, `node_comments`, `encrypted_api_keys`, `push_tokens`
+**Integrations:** `github_connections`, `audit_logs`
 
 ### 4.3 Frontend Stores — Zero Mode Awareness
 
-All 27 Zustand stores follow the same pattern:
+All 29 Zustand stores follow the same pattern:
 
 ```typescript
 export const useProjectStore = create<ProjectStore>((set) => ({
@@ -595,36 +598,89 @@ The backend coordinates through the relay. It doesn't know about SSH tunnels, SL
 
 ## 10. Package Structure
 
+### 10.1 Monorepo Layout
+
+The codebase is organized as a monorepo with three packages under `packages/`:
+
+| Package | npm name | Description | Type |
+|---------|----------|-------------|------|
+| `packages/core/` | `@astro/core` | Shared types, DB schema (Drizzle), dispatch logic, prompt templates, utility functions | Local package |
+| `packages/cli/` | `@astroanywhere/cli` | CLI with TUI (Ink), commands for managing projects/plans/tasks | Git submodule |
+| `packages/agent-runner/` | `@astroanywhere/agent` | Agent execution engine, WebSocket client, provider adapters, execution strategies | Git submodule |
+
+**`packages/core/` (`@astro/core`)** is the shared foundation. It contains:
+- **DB schema** (`src/db/schema.ts`) — all 37 Drizzle table definitions
+- **DB connection factory** (`src/db/index.ts`) — PGlite / postgres-js driver selection
+- **Migrations** (`src/db/migrate.ts`) — Drizzle migration runner
+- **Local bootstrap** (`src/db/bootstrap-local.ts`) — creates implicit team/user in local mode
+- **Types** (`src/types.ts`, `src/types/*.ts`) — shared TypeScript interfaces (relay, skill, github, device-auth)
+- **Dispatch logic** (`src/dispatch/`) — context assembler, result router, branch manager, machine selector, payload builder
+- **Prompt templates** (`src/prompt-templates.ts`) — system prompts + JSON schema for plan generation
+- **Utilities** — app-mode detection, git URL parsing, error utils, skill parsing/injection
+
+**`server/lib/db/` and `server/lib/dispatch/` are re-export shims.** They re-export from `packages/core/src/db/` and `packages/core/src/dispatch/` respectively, maintaining backward compatibility for existing server imports. For example:
+
+```typescript
+// server/lib/db/schema.ts
+export { projects, planNodes, planEdges, /* ... all 37 table exports */ } from '../../../packages/core/src/db/schema.js'
+
+// server/lib/db/index.ts
+export { db, initDb } from '../../../packages/core/src/db/index.js'
+```
+
+See `PACKAGE_ARCHITECTURE.md` for full details on the package extraction and dependency graph.
+
+### 10.2 Directory Structure
+
 ```
 astro/
 ├── src/                           # [FRONTEND] React SPA (Vite)
 │   ├── app.tsx                    # Root: BrowserRouter, DataLoader, routes
-│   ├── pages/                     # 16 route pages
+│   ├── pages/                     # 18 route pages
 │   ├── components/                # UI components (shadcn/ui pattern)
-│   ├── stores/                    # 27 Zustand stores
+│   ├── stores/                    # 29 Zustand stores
 │   ├── hooks/                     # Reusable hooks (useFileTreeRefresh, useRepoSetup)
 │   ├── lib/                       # Utilities (API client, SSE parser)
 │   └── types/                     # TypeScript interfaces
 │
 ├── server/                        # [BACKEND] Hono API Server + [RELAY]
 │   ├── index.ts                   # Server entry: middleware, routes, startup, relay init
-│   ├── routes/                    # 20 route files
+│   ├── routes/                    # 19 route files
 │   ├── middleware/                # Auth middleware (WebAuthn + local mode)
 │   ├── lib/
 │   │   ├── relay-server.ts        # [RELAY] WebSocket relay server
 │   │   ├── machine-registry.ts    # [RELAY] Connected machine tracking
 │   │   ├── local-backends.ts      # Compute backend detection
-│   │   ├── dispatch/              # Dispatch engine, queue, context, routing
+│   │   ├── dispatch/              # Dispatch engine, queue + re-export shims → @astro/core
 │   │   ├── events/                # Event transport + hooks
 │   │   ├── observability/         # Langfuse tracing, observation collector
-│   │   ├── db/                    # Drizzle ORM + Postgres schema (28 tables)
+│   │   ├── db/                    # Re-export shims → @astro/core (schema, migrations, bootstrap)
 │   │   ├── skill-manager.ts       # Skill discovery + prompt injection
 │   │   ├── slurm/                 # HPC cluster support
 │   │   └── mcp/                   # MCP server (astro-tools-server.ts)
 │   └── types/                     # Relay protocol types
 │
 ├── packages/
-│   └── agent-runner/              # [AGENT RUNNER] (npm: @astroanywhere/agent, binary: astro-agent)
+│   ├── core/                      # [@astro/core] Shared types, DB schema, dispatch logic
+│   │   ├── src/
+│   │   │   ├── index.ts           # Public API (types, utils, app-mode, skills, prompts)
+│   │   │   ├── types.ts           # Shared TypeScript interfaces
+│   │   │   ├── db/                # Drizzle schema (37 tables), migrations, connection factory
+│   │   │   ├── dispatch/          # Context assembler, result router, branch manager, machine selector
+│   │   │   ├── prompt-templates.ts
+│   │   │   ├── skill-parser.ts    # SKILL.md format parser
+│   │   │   ├── skill-injector.ts  # Skill prompt injection
+│   │   │   ├── app-mode.ts        # Local vs server mode detection
+│   │   │   └── git-url-utils.ts   # Git URL parsing
+│   │   └── package.json
+│   │
+│   ├── cli/                       # [@astroanywhere/cli] CLI with TUI (git submodule)
+│   │   ├── src/
+│   │   │   ├── index.ts           # CLI entry (commander)
+│   │   │   └── ...                # TUI components (Ink/React), commands
+│   │   └── package.json
+│   │
+│   └── agent-runner/              # [@astroanywhere/agent] Execution engine (git submodule)
 │       ├── src/
 │       │   ├── cli.ts             # CLI entry point (10 commands)
 │       │   ├── commands/          # start, setup, status, auth, config, providers, resources, hosts, mcp
@@ -796,9 +852,9 @@ See `WORKSPACE_V2.md` for the complete design, including data model changes, API
 
 | Document | Topic |
 |----------|-------|
-| `DATA_MODEL.md` | Complete schema (28 tables), entity relationships, type definitions |
-| `BACKEND.md` | Backend startup, 20 routes, middleware, event system, dispatch, observability |
-| `FRONTEND.md` | 27 stores, 16 pages, user journeys, persistence patterns |
+| `DATA_MODEL.md` | Complete schema (37 tables), entity relationships, type definitions |
+| `BACKEND.md` | Backend startup, 19 routes, middleware, event system, dispatch, observability |
+| `FRONTEND.md` | 29 stores, 18 pages, user journeys, persistence patterns |
 | `RELAY.md` | WebSocket protocol, machine registry, event flow, authentication |
 | `AGENT_RUNNER.md` | CLI, providers, safety system, execution strategies, MCP, worktrees |
 | `EXECUTION_STRATEGIES.md` | Strategy interface, Direct/Docker/SLURM/K8s/SkyPilot details |
@@ -812,4 +868,6 @@ See `WORKSPACE_V2.md` for the complete design, including data model changes, API
 | `ATTENTION_TRIAGE.md` | Attention triage system (proposed) |
 | `COST_TRACKING.md` | Cost tracking and budgets (proposed) |
 | `CROSS_PROJECT_REFERENCES.md` | Cross-project reference system (proposed) |
+| `PACKAGE_ARCHITECTURE.md` | Monorepo package extraction: `@astro/core`, `@astroanywhere/cli`, dependency graph |
+| `CLI_PACKAGE.md` | CLI package design: TUI (Ink), commands, Zustand stores |
 | `WORKSPACE_V2.md` | Workspace model: `.astro/` agent dir, worktrees, delivery modes, directory detection |

@@ -277,7 +277,7 @@ relayRoute.post('/dispatch', async (c) => {
     }
 
     // Dispatch locally
-    const success = relayServer.dispatchTask(task, targetMachineId);
+    const success = relayServer.dispatchTask(task, targetMachineId, user?.id);
 
     if (!success) {
       return c.json({

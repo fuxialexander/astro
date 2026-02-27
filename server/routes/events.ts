@@ -28,7 +28,14 @@ import { getMachine } from '../lib/registered-machines-store.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import type { ApprovalRequestedEvent, ApprovalRespondedEvent } from '../lib/events/types.js'
-import { executionContextStore } from '../lib/execution-context-store.js'
+import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
+import type {
+  TaskTextMessage,
+  TaskSessionInitMessage as RelayTaskSessionInitMessage,
+  TaskProgressMessage as RelayTaskProgressMessage,
+  TaskToolTraceMessage as RelayTaskToolTraceMessage,
+  TaskFileChangeMessage as RelayTaskFileChangeMessage,
+} from '../types/relay.js'
 
 const eventsRoute = new Hono()
 
@@ -390,9 +397,12 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'approval:responded', data }).catch(() => { alive = false })
     }
 
-    // Subscribe to relay events (only events NOT already bridged by dispatch.ts).
-    // dispatch.ts bridges relay → executionEventBus for: stdout, text, progress,
-    // tool_trace, file_change, session_init — subscribing here too causes duplicates.
+    // Subscribe to relay events directly.
+    // For streaming types (text, tool_trace, file_change, session_init, progress),
+    // dispatch.ts also bridges relay → executionEventBus while its SSE stream
+    // is alive. After page refresh that bridge dies, so these relay-direct handlers
+    // serve as fallback. We skip events for tasks with active dispatch streams
+    // to avoid duplicates.
     relayServer.on('task:result', onTaskResult)
     relayServer.on('task:steer_ack', onTaskSteerAck)
     relayServer.on('task:approval_request', onTaskApprovalRequest)
@@ -403,6 +413,54 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('session:attached', onSessionAttached)
     relayServer.on('session:detached', onSessionDetached)
     relayServer.on('session:event', onSessionEvent)
+
+    // Relay-direct handlers for streaming types (fallback after page refresh).
+    // These fire for ALL relay events; skip tasks with active dispatch bridges.
+    const onRelayText = (msg: TaskTextMessage) => {
+      if (!alive || activeDispatchStreams.has(msg.taskId)) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
+      throttle.write(msg.taskId, msg.text)
+    }
+    const onRelaySessionInit = (msg: RelayTaskSessionInitMessage) => {
+      if (!alive || activeDispatchStreams.has(msg.taskId)) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
+      const data = JSON.stringify({ taskId: msg.taskId, sessionId: msg.sessionId, model: msg.model })
+      const id = eventBuffer.push('task:session_init', data)
+      stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
+    }
+    const onRelayProgress = (msg: RelayTaskProgressMessage) => {
+      if (!alive || activeDispatchStreams.has(msg.taskId)) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
+      const data = JSON.stringify({ taskId: msg.taskId, progress: msg.progress, message: msg.message })
+      const id = eventBuffer.push('task:progress', data)
+      stream.writeSSE({ id, event: 'task:progress', data }).catch(() => { alive = false })
+    }
+    const onRelayToolTrace = (msg: RelayTaskToolTraceMessage) => {
+      if (!alive || activeDispatchStreams.has(msg.taskId)) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
+      const data = JSON.stringify({
+        taskId: msg.taskId, toolName: msg.toolName,
+        toolInput: msg.toolInput, toolResult: msg.toolResult,
+        success: msg.success, duration: msg.duration,
+      })
+      const id = eventBuffer.push('task:tool_trace', data)
+      stream.writeSSE({ id, event: 'task:tool_trace', data }).catch(() => { alive = false })
+    }
+    const onRelayFileChange = (msg: RelayTaskFileChangeMessage) => {
+      if (!alive || activeDispatchStreams.has(msg.taskId)) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
+      const data = JSON.stringify({
+        taskId: msg.taskId, path: msg.path, action: msg.action,
+        linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved, diff: msg.diff,
+      })
+      const id = eventBuffer.push('task:file_change', data)
+      stream.writeSSE({ id, event: 'task:file_change', data }).catch(() => { alive = false })
+    }
+    relayServer.on('task:text', onRelayText)
+    relayServer.on('task:session_init', onRelaySessionInit)
+    relayServer.on('task:progress', onRelayProgress)
+    relayServer.on('task:tool_trace', onRelayToolTrace)
+    relayServer.on('task:file_change', onRelayFileChange)
 
     // Merge queue event handlers — filter by project ownership
     const onMergeQueueFailed = async (msg: { nodeId: string; projectId: string; prNumber: number; reason: string; branchName: string }) => {
@@ -468,6 +526,12 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('task:safety_prompt', onTaskSafetyPrompt)
       relayServer.off('machine:connected', onMachineConnected)
       relayServer.off('machine:disconnected', onMachineDisconnected)
+      // Relay-direct streaming fallback cleanup
+      relayServer.off('task:text', onRelayText)
+      relayServer.off('task:session_init', onRelaySessionInit)
+      relayServer.off('task:progress', onRelayProgress)
+      relayServer.off('task:tool_trace', onRelayToolTrace)
+      relayServer.off('task:file_change', onRelayFileChange)
       // Session events cleanup
       relayServer.off('session:attached', onSessionAttached)
       relayServer.off('session:detached', onSessionDetached)

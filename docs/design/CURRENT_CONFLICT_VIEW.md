@@ -1,6 +1,6 @@
 # Current Conflicts: Design Docs vs. Code/Technical Docs
 
-This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-02-24.
+This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-02-27.
 
 ---
 
@@ -78,11 +78,9 @@ Workspace V2 design (`docs/design/WORKSPACE_V2.md`) and its implementation specs
 
 **Resolved (2026-02-22):** DATA_MODEL.md `TaskDispatch` updated with all workspace V2 fields (`agentDir`, `worktreeStrategy`, `deliveryMode` with `'copy'`). RELAY.md `server/types/relay.ts` already includes these fields in code.
 
-### 12. FRONTEND.md — Route table outdated, missing workspace V2 UI
+### 12. ~~FRONTEND.md — Route table outdated, missing workspace V2 UI~~ ✅ RESOLVED
 
-FRONTEND.md route table is missing `/workflows` and `/team/invite/:token`. Does not describe directory detection hook or simplified project creation form.
-
-**Resolution needed:** Update FRONTEND.md route table and project creation section.
+**Resolved (2026-02-27):** FRONTEND.md routes table completely rewritten with all 22 current routes (public + authenticated). Project creation section rewritten to describe the new `project-new-plan.tsx` two-phase interactive experience with inline directory detection (Workspace V2). Stores updated to 29, components expanded from 4 to 13 subsections, hooks and libraries promoted to full sections.
 
 ### 13. ~~Worktree location: global vs. per-project~~ ✅ RESOLVED
 
@@ -94,23 +92,17 @@ FRONTEND.md route table is missing `/workflows` and `/team/invite/:token`. Does 
 
 ARCHITECTURE.md was updated for the execution path unification, but BACKEND.md was not.
 
-### 14. BACKEND.md — Still documents local dispatch path
+### 14. ~~BACKEND.md — Still documents local dispatch path~~ ✅ RESOLVED
 
-ARCHITECTURE.md §1.3 says the backend never calls AI directly (relay-only). BACKEND.md §3.1 still documents both `dispatchLocal()` (~480 lines) and `dispatchViaRelay()` as dual paths.
+**Resolved (2026-02-27):** BACKEND.md §3.1 dispatch section completely rewritten. Removed `dispatchLocal()` documentation. Now describes relay-only execution model with dispatch-queue → machine-selector → relay → agent-runner → result-router flow.
 
-**Resolution needed:** Remove or mark the local dispatch path as deleted in BACKEND.md. Update to describe relay-only dispatch.
+### 15. ~~BACKEND.md — Still documents procedure pipeline~~ ✅ RESOLVED
 
-### 15. BACKEND.md — Still documents procedure pipeline
+**Resolved (2026-02-27):** BACKEND.md §7.2 (Procedure Pipeline) removed entirely. Startup sequence references to procedure classification also removed.
 
-ARCHITECTURE.md §15 marks the procedure pipeline as deleted. BACKEND.md §7.2 still documents the full procedure pipeline system (classifiers, validation loops, etc.).
+### 16. ~~BACKEND.md — Still documents server-side provider adapters~~ ✅ RESOLVED
 
-**Resolution needed:** Remove or mark the procedure pipeline section as deleted in BACKEND.md.
-
-### 16. BACKEND.md — Still documents server-side provider adapters
-
-ARCHITECTURE.md says provider adapters were deleted from the server. BACKEND.md §8 still documents the full provider system (registry, adapters).
-
-**Resolution needed:** Remove or mark the provider adapter section as deleted in BACKEND.md. Note: CLAUDE.md still lists provider adapter files in the project structure — verify whether the files still exist or were actually deleted.
+**Resolved (2026-02-27):** BACKEND.md §8 (Provider System) removed entirely. CLAUDE.md project structure updated to remove `server/lib/providers/` directory listing (directory does not exist). CLAUDE.md now documents `packages/core/` and `packages/cli/` in the monorepo structure.
 
 ---
 
@@ -122,17 +114,13 @@ Inconsistent across docs: `astro.your-domain.com` (dev tunnel), `astroanywhere.c
 
 **Resolution needed:** Clearly distinguish dev vs. prod URL references.
 
-### 17. Database table count inconsistency
+### 17. ~~Database table count inconsistency~~ ✅ RESOLVED
 
-DATA_MODEL.md says "32+ tables", ARCHITECTURE.md says "28 tables". With Phase 3 additions the actual count is 32+.
+**Resolved (2026-02-27):** Both ARCHITECTURE.md and DATA_MODEL.md updated to 37 tables (the actual count in `packages/core/src/db/schema.ts`). ARCHITECTURE.md §4.2 now lists all 37 tables by category.
 
-**Resolution needed:** Update table counts in DATA_MODEL.md and ARCHITECTURE.md to match the actual Drizzle schema.
+### 18. ~~Local data path inconsistency~~ ✅ RESOLVED
 
-### 18. Local data path inconsistency
-
-ARCHITECTURE.md §2.4 says `~/.astro/data/`, §3.1 says `~/.astro/pglite/`. BACKEND.md §5.1 says `~/.astro/pglite/`.
-
-**Resolution needed:** Standardize on one path (`~/.astro/pglite/`) across all docs.
+**Resolved (2026-02-27):** All occurrences of `~/.astro/data/` in ARCHITECTURE.md replaced with `~/.astro/pglite/`. Three occurrences fixed (§2.4, §4.1 x2).
 
 ---
 
@@ -149,16 +137,28 @@ The following design documents in `docs/design/` are forward-looking proposals w
 
 ---
 
+## Major Documentation Refresh (2026-02-27)
+
+All 5 core design documents and CLAUDE.md were comprehensively updated to match the current implementation:
+
+- **BACKEND.md**: Removed 3 deleted sections (local dispatch, procedure pipeline, provider adapters). Rewrote dispatch/execution for relay-only model. Updated routes, startup sequence, and addendum.
+- **FRONTEND.md**: Routes table rewritten (22 routes), stores updated to 29, components expanded from 4 to 13 subsections, hooks/libraries promoted to full sections. Project creation flow rewritten for Workspace V2.
+- **ARCHITECTURE.md**: Fixed data paths (3 occurrences), updated table count to 37, added monorepo structure section, corrected store/route counts.
+- **DATA_MODEL.md**: Updated table count to 37, added 14 new type sections, updated all existing type definitions to match `packages/core/src/types.ts`.
+- **RELAY.md**: Added 3 new protocol sections (File/Repo Ops, Session Attachment, Slurm/HPC). Rewrote protocol gaps as implemented extensions. Added complete message type reference (50+ types).
+- **CLAUDE.md**: Updated project structure tree (removed non-existent files, added `packages/core/`, `packages/cli/`, new pages/stores/components/libs). Updated routes table, package names, tech stack references.
+
+---
+
 ## Summary
 
 | Category | Count |
 |----------|-------|
-| Design doc issues (open) | 0 |
 | Design doc issues (resolved) | 7 (#1, #2, #3, #4, #5, #7, #8) |
-| Workspace V2 conflicts (open) | 1 (#12) |
-| Workspace V2 conflicts (resolved) | 4 (#9, #10, #11, #13) |
-| Execution unification conflicts (open) | 3 (#14, #15, #16) |
-| Other open issues | 3 (#6, #17, #18) |
+| Workspace V2 conflicts (resolved) | 5 (#9, #10, #11, #12, #13) |
+| Execution unification conflicts (resolved) | 3 (#14, #15, #16) |
+| Other issues (resolved) | 2 (#17, #18) |
+| Other issues (open) | 1 (#6 — production domain references) |
 | Aspirational docs (low implementation) | 4 (AGENT_PERFORMANCE, ATTENTION_TRIAGE, COST_TRACKING, CROSS_PROJECT_REFERENCES) |
-| **Total open** | **7** |
-| **Total resolved** | **11** |
+| **Total open** | **1** |
+| **Total resolved** | **17** |

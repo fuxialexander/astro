@@ -147,6 +147,7 @@ export const useObservationStore = create<ObservationState>((set, get) => ({
 
     try {
       const observations = await fetchTraceObservations(traceId)
+      console.log('[observation-store] fetched', observations.length, 'observations for', traceId)
       const tree = buildTraceTree(traceId, observations)
 
       set((state) => {
@@ -157,6 +158,7 @@ export const useObservationStore = create<ObservationState>((set, get) => ({
         return { traces: newTraces, loading: newLoading }
       })
     } catch (err) {
+      console.error('[observation-store] fetch failed for', traceId, err)
       const message = err instanceof Error ? err.message : 'Failed to fetch trace'
       set((state) => {
         const newLoading = new Map(state.loading)

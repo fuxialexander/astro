@@ -197,6 +197,7 @@ function flushRealtimeText(
 
   if (!text) return
 
+  console.log('[realtime] text for', taskId, ':', text.slice(0, 80))
   set((state) => {
     const streams = new Map(state.taskStreams)
     const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
@@ -643,22 +644,51 @@ function handleRealtimeEvent(
         { taskId }
       )
 
+      // Update execution store entry (so UI reflects terminal status after refresh)
+      const execStore = useExecutionStore.getState()
+      for (const [nid, exec] of execStore.executions) {
+        if (exec.executionId === taskId) {
+          execStore.executions.set(nid, {
+            ...exec,
+            status: isSuccess ? 'success' : 'failure',
+            completedAt: new Date(),
+            ...(data.error ? { error: data.error as string } : {}),
+            ...(data.branchName ? { branchName: data.branchName as string } : {}),
+            ...(data.prUrl ? { prUrl: data.prUrl as string } : {}),
+            ...(data.prNumber ? { prNumber: data.prNumber as number } : {}),
+            ...(data.deliveryStatus ? { deliveryStatus: data.deliveryStatus as "success" | "failed" | "skipped" } : {}),
+          })
+          // Trigger Zustand re-render by calling set
+          useExecutionStore.setState({ executions: new Map(execStore.executions) })
+          execStore.persist()
+          break
+        }
+      }
+
       // Update plan node status via plan store
       const planStore = usePlanStore.getState()
       const node = planStore.nodes.find(
         (n) => n.executionId === taskId
       )
       if (node) {
+        // Use finalStatus from server if provided
+        const finalStatus = (data.finalStatus as string) || (
+          isSuccess
+            ? (node.verification === 'auto' ? 'auto_verified' : 'awaiting_judgment')
+            : 'awaiting_judgment'
+        )
         const completionTime = new Date()
         planStore.updateNode(node.id, {
-          status: isSuccess
-            ? (node.verification === 'auto' ? 'auto_verified' : 'awaiting_judgment')
-            : 'awaiting_judgment',
+          status: finalStatus as import('@/types').PlanNode['status'],
           executionOutput: data.output as string | undefined,
           executionError: data.error as string | undefined,
           executionCompletedAt: completionTime,
-          // Set actualEndDate on task completion
+          endDate: completionTime.toISOString(),
           actualEndDate: completionTime,
+          // Persist PR/branch metadata on the plan node
+          ...(data.branchName ? { branchName: data.branchName as string } : {}),
+          ...(data.prUrl ? { prUrl: data.prUrl as string } : {}),
+          ...(data.prNumber ? { prNumber: data.prNumber as number } : {}),
         })
 
         // Browser notification for task completion/failure/judgment

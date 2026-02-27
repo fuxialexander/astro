@@ -1583,16 +1583,17 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   persist: async () => {
     const { executions } = get()
     try {
-      // Sync completed executions to API
-      const completedExecutions = Array.from(executions.values())
-        .filter((exec) => exec.status === 'success' || exec.status === 'failure' || exec.status === 'cancelled')
+      // Sync all executions with valid executionIds to API
+      // (includes running executions so they survive page refresh)
+      const persistable = Array.from(executions.values())
+        .filter((exec) => exec.executionId)
 
-      for (const execution of completedExecutions) {
+      for (const execution of persistable) {
         dataClient.saveExecution(execution).catch((err) => {
           console.warn('[execution-store] Failed to sync execution to API:', err)
         })
       }
-      console.log('[execution-store] Persisted', completedExecutions.length, 'executions to API')
+      console.log('[execution-store] Persisted', persistable.length, 'executions to API')
     } catch (error) {
       console.error('[execution-store] Failed to persist executions:', error)
     }
@@ -1699,6 +1700,14 @@ function handleSSEEvent(
           // Set actualStartDate only on first execution attempt (if not already set)
           ...(node && !node.actualStartDate ? { actualStartDate: now } : {}),
         })
+
+        // Persist running execution to DB so it survives page refresh
+        const freshExec = get().executions.get(nodeId)
+        if (freshExec?.executionId) {
+          dataClient.saveExecution(freshExec).catch((err) => {
+            console.warn('[execution-store] Failed to persist running execution:', err)
+          })
+        }
       } catch {
         // Ignore parse errors
       }

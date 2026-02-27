@@ -87,23 +87,45 @@ All routes are defined in `src/app.tsx` using **React Router v7**, a library tha
 
 ### The Route Table
 
+Routes are defined in `src/app.tsx`. They are organized into three groups: public routes (no authentication required), the root redirect, and authenticated routes wrapped in `AuthGuard` and `ResponsiveLayout` (which switches between desktop sidebar layout and mobile bottom-tab layout at the `md` breakpoint).
+
+#### Public Routes
+
 | Path | Page Component | What the User Sees |
 |------|---------------|-------------|
-| `/` | `dashboard.tsx` | The home screen. Shows stats, pending decisions, active projects, system health, and usage metrics. If the user has no projects yet, it automatically redirects them to `/welcome` so they can get started. |
-| `/projects` | `projects.tsx` | A list of all projects in a table view. Columns are sortable, and projects can be grouped. |
-| `/projects/new` | `project-new.tsx` | A form for creating a new project. When submitted, it triggers AI plan generation -- the AI looks at the project description and automatically creates a plan of tasks. |
-| `/project/:id` | `project-overview.tsx` | The detail page for a single project. The `:id` part is a placeholder -- `/project/abc123` shows project `abc123`. Has overview and updates tabs, plus a dialog for viewing/editing the project's vision document. |
-| `/project/:id/plan` | `plan-view.tsx` | The plan graph -- this is one of the most important pages. It shows the project's tasks as an interactive node-and-edge graph. Users can toggle between Graph view (visual), List view (table), and Timeline view (Gantt chart). Also includes a detail panel for the selected node and a chat panel for talking to the AI about the plan. |
-| `/project/:id/task/:nodeId` | `task-detail.tsx` | Detailed view of a single task's execution. Shows the terminal output, a timeline of tool calls the AI agent made, file changes, and a chat interface for steering the agent. |
-| `/tasks` | `my-tasks.tsx` | A cross-project task list -- all tasks from all projects in one place. Supports filters, grouping, and display customization. |
-| `/environments` | `environments.tsx` | Manage the machines and environments where tasks run. Shows connected machines and SLURM clusters (high-performance computing clusters used for scientific workloads). |
-| `/agents` | `agents.tsx` | View and monitor AI agents. |
-| `/initiatives` | `initiatives.tsx` | Group related projects into higher-level initiatives. |
-| `/settings` | `settings.tsx` | Configure the backend connection and choose which AI model to use. |
-| `/device` | `device-auth.tsx` | A special page for the device authentication flow (used when registering a new machine to run tasks -- similar to how you authorize a smart TV to access your Netflix account by entering a code on your phone). |
-| `/welcome` | `welcome.tsx` | The onboarding experience for new users. Offers two paths: create an empty project, or create a project from an existing code repository. |
 | `/login` | `login.tsx` | The login page, using WebAuthn/passkey authentication (the same technology that lets you log into websites with your fingerprint or face). This is a public route -- you do not need to be logged in to see it. |
+| `/device` | `device-auth.tsx` | A special page for the device authentication flow (used when registering a new machine to run tasks -- similar to how you authorize a smart TV to access your Netflix account by entering a code on your phone). |
 | `/invite/:token` | `team-invite.tsx` | Team invitation acceptance flow. When a user receives an invite link, this page validates the token and lets them join the team. This is a public route. |
+
+#### Root Redirect (`/`)
+
+The root route (`/`) uses `RootRedirect` logic: in local mode, it redirects to `/projects/new/plan` (the interactive plan creation page). In server mode, it checks authentication -- if the user is not logged in, it redirects to the static landing page (`/landing/`). If logged in, it also redirects to `/projects/new/plan`.
+
+#### Authenticated Routes
+
+| Path | Page Component | What the User Sees |
+|------|---------------|-------------|
+| `/welcome` | `project-new-plan.tsx` | The primary entry point -- an interactive plan creation page (same component as `/projects/new/plan`). Two-phase UI: first a goal input form with machine/directory/branch selectors, then a streaming chat phase where the AI generates and refines a plan. |
+| `/dashboard` | `dashboard.tsx` | The home screen. Shows stats, pending decisions, active projects, system health, and usage metrics. |
+| `/projects` | `projects.tsx` | A list of all projects in a table view. Columns are sortable, and projects can be grouped. Inline project creation has replaced the separate `/projects/new` form. |
+| `/projects/new` | Redirects to `/projects` | Legacy redirect. Project creation now happens inline on the projects page or via `/projects/new/plan`. |
+| `/projects/new/plan` | `project-new-plan.tsx` | Interactive plan creation -- the AI-assisted path for creating a new project. Two-phase component: (1) Input Phase with goal textarea, machine selector, directory picker with inline git detection, branch selector, provider/model selectors, and Claude Code session picker; (2) Chat Phase with full-height streaming activity, inline approvals, and plan result cards. |
+| `/project/:id` | `plan-view.tsx` | The plan view for a project. Defaults to graph view. The `:id` part is a placeholder -- `/project/abc123` shows project `abc123`. |
+| `/project/:id/graph` | `plan-view.tsx` | Plan graph view -- the visual interactive node-and-edge graph. |
+| `/project/:id/list` | `plan-view.tsx` | Plan list view -- tasks displayed in a table with sortable columns, grouping, and filters. |
+| `/project/:id/timeline` | `plan-view.tsx` | Plan timeline view -- Gantt-style horizontal timeline showing task scheduling and dependencies. |
+| `/project/:id/board` | `plan-view.tsx` | Plan board view -- Kanban-style columns for task status management. |
+| `/project/:id/overview` | `plan-view.tsx` | Project overview within plan view -- project details, vision doc, milestones, labels, and activity. (Note: `project-overview.tsx` exists as a standalone component but is rendered within plan-view's overview mode, not as a separate route.) |
+| `/project/:id/task/:nodeId` | `task-detail.tsx` | Detailed view of a single task's execution. Shows terminal output, tool call timeline, file changes, session activity, and a chat interface for steering the agent. |
+| `/initiatives` | `initiatives.tsx` | Group related projects into higher-level initiatives. Supports CRUD operations, progress tracking, filtering, and display settings. |
+| `/tasks` | `my-tasks.tsx` | A cross-project task list -- all tasks from all projects in one place. Supports filters, grouping, and display customization. |
+| `/active` | `active-tasks.tsx` | Real-time view of currently executing tasks across all projects. Shows running agents, pending dispatches, and plan generation sessions with elapsed timers and live progress. |
+| `/playground` | `playground.tsx` | General-purpose AI coding session interface. Two-phase component: (1) Landing with goal textarea, machine/directory selectors, and session history; (2) Activity Phase with full-height streaming activity, file sidebar, and inline approvals. |
+| `/environments` | `environments.tsx` | Manage the machines and environments where tasks run. Shows connected machines, SLURM clusters, and the device code registration flow. |
+| `/workflows` | `workflows.tsx` | Workflow management and automation -- an information page explaining Astro's delivery modes (git worktrees, PR creation, branch management, direct copy) with animated SVG illustrations. |
+| `/share/:id` | `share-import.tsx` | Import a shared project from a share link. Validates the bundle, shows a preview, and imports the project into the user's workspace. |
+| `/settings` | `settings.tsx` | Configure the backend connection and choose which AI model to use. |
+| `/plugins/*` | `plugin-routes.tsx` | Dynamic plugin routes. Plugins can register custom views accessible under this path prefix. |
 
 ---
 
@@ -119,7 +141,7 @@ Managing state well is one of the hardest problems in building a user interface.
 
 Astro uses a library called **Zustand** (German for "state") to manage application state. Zustand lets you create **stores** -- think of each store as a dedicated notebook for one topic. The "project store" is the notebook where all project data lives. The "execution store" is the notebook for task execution state. Any part of the UI can read from or write to these notebooks, and when the data changes, every part of the UI that is looking at that data automatically updates.
 
-All stores live in the `src/stores/` directory. There are 27 of them in total, each responsible for a specific domain of data.
+All stores live in the `src/stores/` directory. There are 29 of them in total, each responsible for a specific domain of data.
 
 ### How Data Gets Saved (The Two-Layer Write Pattern)
 
@@ -133,7 +155,7 @@ Think of it this way: you write a note on your whiteboard (instant feedback) and
 
 ### 2.1 DataLoader -- Getting Everything Ready at Startup
 
-Before the user can interact with the app, all the stores need to load their data. This is handled by the `DataLoader` logic embedded in `src/app.tsx` (lines 68-150).
+Before the user can interact with the app, all the stores need to load their data. This is handled by the `DataLoader` component embedded in `src/app.tsx`.
 
 Here is what happens when you open Astro:
 
@@ -142,16 +164,31 @@ DataLoader checks: are we in local mode, or is the user authenticated?
   (In local mode: no login needed, proceed immediately)
   (In server mode: wait until auth is initialized and user has a session)
 
-  Then it loads all stores in parallel:
+  Phase 1 -- Load teams first:
+    - Teams must load before anything else because they set the X-Team-Id header
+      used by all subsequent API calls. If the user changed (sign-out then sign-in
+      as a different user), all stores are reset first.
+
+  Phase 2 -- Once teams are loaded, load all other stores in parallel:
     - projects, plan, settings, user-profile, display-settings,
       usage, task-chats, sessions, initiatives, executions, agent,
-      activities, sidebar, plugins, skills, realtime connection
+      activities, sidebar, plugins, skills
+    - Connect the realtime EventSource stream
+    - Pre-cache the browser hostname for file URL building
+    - Auto-sync GitHub connection status and repos
 
-  While loading, the user sees a loading spinner.
-  Once every store reports loaded: true, the spinner disappears and the app is ready.
+  Background -- After projects load:
+    - Refresh file trees for all projects (in local mode: immediately;
+      in server mode: waits until at least one machine connects via realtime)
+
+  Critical stores (block page render):
+    - teams, projects, plan, user-profile, sidebar
+  Non-critical stores (load in background, page renders without them):
+    - settings, display-settings, task-chats, usage, sessions,
+      initiatives, executions, agent, activities, plugins, skills
 ```
 
-Loading in parallel (all at once) rather than sequentially (one after another) makes startup faster -- instead of waiting for each store to finish before starting the next, they all start loading simultaneously.
+This two-phase approach ensures the team context is correct before loading team-scoped data. Loading non-critical stores in the background means the user sees the app faster -- critical stores block the loading spinner, but settings, usage metrics, and similar secondary data arrive in the background.
 
 ### Store Dependencies
 
@@ -161,21 +198,30 @@ The stores are not completely independent -- some depend on or trigger actions i
 ┌──────────────────────────────────────────────────────────────────┐
 │  STORE DEPENDENCIES                                              │
 │                                                                  │
-│  project-store ─────► plan-store (cascade delete)                │
-│       │                    │                                     │
-│       │                    ├──► execution-store (task dispatch)   │
-│       │                    │         │                            │
-│       │                    │         ├──► realtime-store (SSE)    │
-│       │                    │         └──► usage-store (metrics)   │
-│       │                    │                                     │
-│       │                    └──► agent-store (plan generation)     │
-│       │                              │                            │
-│       └──► initiative-store          └──► settings-store (model)  │
+│  team-store (loads first, sets X-Team-Id header for all APIs)    │
+│       │                                                          │
+│       ├──► project-store ─────► plan-store (cascade delete)      │
+│       │         │                    │                            │
+│       │         │                    ├──► execution-store         │
+│       │         │                    │         │                  │
+│       │         │                    │         ├──► realtime-store│
+│       │         │                    │         └──► usage-store   │
+│       │         │                    │                            │
+│       │         │                    └──► agent-store             │
+│       │         │                              │                  │
+│       │         └──► initiative-store          └──► settings-store│
+│       │                                                          │
+│       ├──► github-store (fetches repos after teams load)         │
+│       └──► all other stores (depend on team context)             │
 │                                                                  │
-│  Independent stores:                                             │
+│  Independent stores (no cross-store dependencies):               │
 │  • user-profile-store    • display-settings-store                │
 │  • task-chat-store       • activity-store                        │
 │  • machines-store        • auth-store                            │
+│  • environment-config-store • claude-sessions-store              │
+│  • keyboard-nav-store    • toast-store                           │
+│  • ui-store              • api-keys-store                        │
+│  • connected-accounts-store                                      │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -336,17 +382,25 @@ These stores handle more focused concerns:
 - **`activity-store`** -- A history of activity events across the app (up to 1000 events), like a detailed audit log of what happened and when.
 - **`display-settings-store`** -- Per-view display preferences. For example, on the task list page, should tasks be grouped by project or by status? Should they be sorted by due date or priority? These preferences persist across sessions.
 - **`machines-store`** -- The list of registered machines (computers) that have been authenticated to run tasks. Supports fetching the list, revoking access, and renaming machines.
-- **`initiative-store`** -- Groups related projects into initiatives (higher-level organizational units).
+- **`initiative-store`** -- Groups related projects into initiatives (higher-level organizational units). Supports CRUD, filtering, and progress aggregation across projects.
 - **`auth-store`** -- Manages the Supabase authentication session (login state, tokens). Completely skipped in local mode since there is no authentication.
 - **`slurm-store`** -- State for HPC (High-Performance Computing) clusters. SLURM is a job scheduler used in scientific computing environments -- this store tracks cluster status, jobs, and queue information.
-- **`session-store`**, **`observation-store`**, **`plugin-store`**, **`skill-store`**, **`sidebar-store`**, **`github-store`**, **`connected-accounts-store`** -- Additional stores for session management, observability traces, plugin integrations, skill definitions, sidebar UI state, GitHub integration, and connected third-party accounts.
-- **`api-keys-store`** -- Manages encrypted API keys for AI providers (Anthropic, Bedrock, etc.).
-- **`team-store`** -- Team management: team creation, membership, invitation state. Used in multi-user server mode.
-- **`toast-store`** -- Toast notification state (success/error/info messages displayed as transient popups).
-- **`keyboard-nav-store`** -- Keyboard navigation state for accessible UI traversal (arrow keys, vim-style bindings).
+- **`session-store`** -- Unified session store for plan chat, task chat, steer messages, and execution sessions. Tracks conversation history and session lifecycle.
+- **`observation-store`** -- Trace observation trees for execution debugging. Stores and retrieves `TraceTree` data from the observability system for post-execution analysis.
+- **`plugin-store`** -- Plugin registry, manifests, and contributions. Manages dynamic loading of plugins that extend the app with custom views and capabilities.
+- **`skill-store`** -- OpenClaw skill registry. Skills are reusable AI capabilities that can be discovered, configured, and injected into agent sessions.
+- **`sidebar-store`** -- Sidebar navigation items, visibility, ordering, and auto-reveal logic. Controls which sidebar items are shown and supports automatic unhiding of items when usage thresholds are met (e.g., showing "Active Tasks" when tasks start running).
+- **`github-store`** -- GitHub integration state: connection status, repositories list, repository selections for projects. Manages the OAuth flow and GitHub API interactions.
+- **`connected-accounts-store`** -- Connected external accounts (Slack, Telegram, GitHub webhooks, Linear) for multi-channel notifications and integrations.
+- **`api-keys-store`** -- Manages encrypted API keys for AI providers (Anthropic, Bedrock, etc.) using Web Crypto API for browser-side encryption.
+- **`team-store`** -- Team management: team creation, membership, invitation state, and member roles. Used in multi-user server mode. Teams must load before other stores to set the `X-Team-Id` header.
+- **`toast-store`** -- Toast notification state (success/error/info/warning messages displayed as transient popups).
+- **`keyboard-nav-store`** -- Keyboard navigation state for accessible UI traversal (arrow keys, vim-style bindings). Tracks focused item and navigable items.
 - **`ui-store`** -- General UI state (sidebar collapsed, command palette open, active view). Separate from `sidebar-store`.
+- **`environment-config-store`** -- Per-backend (and optionally per-machine) environment configuration. Stores custom context strings and display names for environments, allowing users to customize what context is injected into agent sessions for different machines.
+- **`claude-sessions-store`** -- Fetches and caches Claude Code sessions from connected machines via `GET /api/relay/sessions`. Uses a stale-while-revalidate pattern with delta updates (only fetching sessions modified since last load). Each session includes summary, git branch, working directory, and machine info.
 
-**Total: 27 stores.**
+**Total: 29 stores.**
 
 ---
 
@@ -404,15 +458,17 @@ The frontend is built from **components** -- reusable, self-contained pieces of 
 
 This is the centerpiece of Astro's UI -- the visual plan editor where users see their project as an interactive graph of tasks.
 
-**React Flow** is the library powering this. It is a specialized library for drawing interactive node-and-edge graphs in the browser -- the kind where you can drag nodes around, zoom in and out, and draw connections between them.
+**React Flow** (via the `@xyflow/react` package) is the library powering this. It is a specialized library for drawing interactive node-and-edge graphs in the browser -- the kind where you can drag nodes around, zoom in and out, and draw connections between them.
 
-- **`plan-canvas.tsx`** -- The canvas itself. Wraps React Flow with a `ReactFlowProvider` (required for React Flow's internal state management), adds a background grid, and provides controls (zoom buttons, fit-to-screen). Also handles the popover that appears when you click "+" to create a new node.
+- **`plan-canvas.tsx`** -- The canvas itself. Wraps React Flow with a `ReactFlowProvider` (required for React Flow's internal state management), adds a background grid, and provides controls (zoom buttons, fit-to-screen). Also handles the popover that appears when you click "+" to create a new node, and integrates `TaskCreationForm` for inline task creation.
 
 - **`task-node.tsx`** -- The visual representation of a single task in the graph. Each node is color-coded by status (blue for in-progress, green for completed, red for errored, etc.), shows a live progress indicator when the task is executing, and has a hover "+" button for adding child tasks directly from the graph.
 
 - **`plan-graph-tab.tsx`** -- The graph view tab, which includes the canvas plus a node editor panel that opens when you select a node.
 
 - **`plan-timeline-tab.tsx`** -- The Gantt timeline view. Instead of showing tasks as a graph, it shows them on a horizontal timeline, making it easy to see scheduling, overlap, and duration. Similar to project management tools like MS Project or Asana's timeline view.
+
+- **`deletable-edge.tsx`** -- Custom edge component with a delete button that appears on hover. Allows users to remove dependency edges directly from the graph canvas.
 
 ### 4.2 Task Detail (`src/components/task-detail/`)
 
@@ -430,17 +486,190 @@ When you drill into a specific task, you see its full execution history. These c
 
 - **`session-activity-view.tsx`** -- A unified timeline that merges all activity for a session: text output, tool calls, file changes, chat messages, and errors, all in chronological order. Gives a complete narrative of what happened.
 
+- **`expandable-task-panel.tsx`** -- A collapsible panel for task detail that can be expanded/collapsed. Used within the plan view's side panel for task inspection.
+
+- **`task-content-tab.tsx`** -- Content editing tab for a task's rich-text description, shown alongside the activity and execution tabs.
+
+- **`link-list.tsx`** -- Renders a list of links (PRs, commits, references) associated with a task, extracted from execution results and agent output.
+
+- **`trace-viewer/`** -- A sub-directory containing the observability trace viewer, with components for turn-by-turn analysis:
+  - `index.tsx` -- Entry point that renders the trace viewer from a `TraceTree`.
+  - `turn-list.tsx` -- Lists each agent turn (a request-response pair with the AI model).
+  - `turn-detail.tsx` -- Expanded view of a single turn showing prompts, responses, and tool calls.
+  - `trace-summary-card.tsx` -- Summary card showing aggregate metrics (cost, tokens, duration, turns).
+  - `collapsible-content.tsx` -- Utility component for collapsible sections within trace display.
+
 ### 4.3 Execution Panel (`src/components/execution/`)
 
 - **`execution-panel.tsx`** -- The UI for controlling task execution. Shows play/cancel buttons, the live output stream, and information about which AI provider and machine are being used. This is the "control center" for a running task.
 
 - **`provider-status.tsx`** -- Displays which AI providers are available and their status as colored badges (green = available, red = unavailable, yellow = needs authentication).
 
+- **`provider-utils.ts`** -- Utility functions for deriving available providers from machine status, checking provider availability, and mapping provider IDs to human-readable names.
+
+- **`model-utils.ts`** -- Styling utilities for model selection dropdowns (selected/default/badge variants).
+
+### 4.3.1 SLURM Components (`src/components/slurm/`)
+
+- **`cluster-status.tsx`** -- Displays HPC cluster health and capacity (partitions, node counts, utilization).
+
+- **`job-list.tsx`** -- Lists active HPC jobs submitted through the SLURM job scheduler, with status and resource information.
+
 ### 4.4 Agent Chat (`src/components/agent/`)
+
+- **`chat-panel.tsx`** -- A sidebar chat panel for refining the plan through conversation. The user can ask the AI to modify the plan, and the AI responds with both explanatory text and structured plan modifications that get applied automatically.
+
+### 4.5 Plan Session (`src/components/plan-session/`)
+
+These components power the interactive plan creation and chat experience used in `project-new-plan.tsx`:
+
+- **`plan-chat-phase.tsx`** -- The chat phase of plan creation. Renders a full-height streaming activity view with inline approvals, plan result cards, and a message input. Reuses the `DisplayBlock` components from `activity-blocks.tsx`.
+
+- **`plan-result-card.tsx`** -- Displays a generated plan result as a card with project name, node count, and a link to view the plan graph. Shown inline in the chat stream when the AI finishes generating a plan.
+
+- **`plan-session-header.tsx`** -- Header bar for the plan session phase, showing project name and session controls.
+
+- **`inline-approval-card.tsx`** -- Renders approval requests inline within the streaming activity. When the AI agent needs a human decision during plan generation, this card shows the question with approve/deny/input options.
+
+### 4.6 Playground (`src/components/playground/`)
+
+Components for the general-purpose AI coding session interface:
+
+- **`playground-header.tsx`** -- Header bar for the playground, showing session info and controls.
+
+- **`playground-file-sidebar.tsx`** -- File tree sidebar that shows files in the working directory, updated in real-time as the agent makes changes.
+
+- **`session-picker-dialog.tsx`** -- Dialog for selecting an existing Claude Code session to continue. Shows session list with summaries, branches, and timestamps.
+
+- **`claude-session-browser.tsx`** -- Browsable list of Claude Code sessions from connected machines, with search and filtering.
+
+### 4.7 Board View (`src/components/board/`)
+
+Kanban-style board view for plan nodes, complementing the graph, list, and timeline views:
+
+- **`board-view.tsx`** -- The main board layout with draggable columns organized by task status.
+
+- **`board-column.tsx`** -- A single Kanban column representing a status category, with a card count and droppable area.
+
+- **`board-card.tsx`** -- An individual task card within a board column, showing title, assignee, and status.
+
+### 4.8 Views (`src/components/views/`)
+
+Reusable view pattern components used across multiple pages:
+
+- **`item-list-view.tsx`** -- A generic, reusable list view component with grouping, sorting, batch actions, and column configuration. Used by `my-tasks.tsx`, `initiatives.tsx`, and other list pages. Parameterized via generics (`ItemListView<T>`).
+
+- **`item-timeline-view.tsx`** -- A reusable Gantt-style timeline view component. Renders items on a horizontal timeline with configurable date ranges and grouping. Includes a `TimelineAddTaskFooter` for adding new items.
+
+- **`filter-select.tsx`** -- A reusable filter dropdown component used in list and timeline views for filtering by status, project, or other dimensions.
+
+### 4.9 Sharing (`src/components/sharing/`)
+
+- **`import-preview-dialog.tsx`** -- Dialog that previews a shared project bundle before import, showing project metadata, node count, and compatibility warnings.
+
+### 4.10 Additional Top-Level Components
+
+These components live directly under `src/components/` and serve specific cross-cutting concerns:
 
 - **`generation-toasts.tsx`** -- Toast-based notifications during AI plan generation. Displays streaming progress so the user can watch the plan being created in real-time without blocking the UI with a modal overlay.
 
-- **`chat-panel.tsx`** -- A sidebar chat panel for refining the plan through conversation. The user can ask the AI to modify the plan, and the AI responds with both explanatory text and structured plan modifications that get applied automatically.
+- **`activity-blocks.tsx`** -- Reusable activity event display blocks (`TextBlock`, `ToolBlock`, `ToolGroupBlock`, `SteerBlock`, `FileChangeBlock`, `ErrorBlock`). Extracted so that the plan session chat and task detail views can share the same rendering components. Also exports `groupActivityEvents()` which coalesces consecutive events of the same type into `DisplayBlock` groups.
+
+- **`auth-guard.tsx`** -- Authentication guard wrapper. In server mode, redirects unauthenticated users to the login page. In local mode, passes through immediately.
+
+- **`command-palette/`** -- Refactored command palette (Cmd+K) with sub-components: `breadcrumbs.tsx` (navigation breadcrumbs), `command-category.tsx` (grouped sections), `command-item.tsx` (individual items), `command-preview.tsx` (preview pane), `quick-actions.tsx` (frequently used actions).
+
+- **`dynamic-approval-dialog.tsx`** -- Full-screen dialog for dynamic approval requests from agents (the `ask_user_question` MCP tool). Shows the agent's question with approve/deny/input options.
+
+- **`git-init-dialog.tsx`** -- Dialog prompting users to initialize Git in a directory that does not have Git history. Triggered during project setup when the directory exists but is not a Git repository.
+
+- **`github-connect-button.tsx`** -- Button for initiating GitHub OAuth connection flow.
+
+- **`github-project-linker.tsx`** -- UI for linking an Astro project to a GitHub repository, with repository browser.
+
+- **`repo-config-dialog.tsx`** -- Repository configuration settings dialog for existing projects.
+
+- **`session-dialog.tsx`** -- Session management dialog for viewing and switching between execution sessions.
+
+- **`color-icon-picker.tsx`** -- Color and icon selection popover for customizing projects and initiatives.
+
+- **`milestone-dialog.tsx`** -- Milestone creation and editing dialog.
+
+- **`activity-dialog.tsx`** -- Activity history dialog for viewing project-level event timeline.
+
+- **`approval-card.tsx`** -- Approval/decision UI card for procedure-level approvals.
+
+- **`node-inspector.tsx`** -- Detailed node inspector panel for editing task properties (title, description, status, estimate, dependencies, labels, environment).
+
+- **`label-manager-dialog.tsx`** -- Dialog for managing custom labels on plan nodes.
+
+- **`task-creation-form.tsx`** -- Reusable task creation form supporting three modes: `inline` (embedded in a list), `popover` (floating from a button), and `dialog` (modal). Creates nodes via `usePlanStore.addNode()` and adds edges.
+
+- **`display-popover.tsx`** -- Reusable display settings popover with `DisplayPopoverConfig` for per-view groupBy, orderBy, and visible properties.
+
+- **`vision-doc-dialog.tsx`** -- Vision document editor dialog (per-project). Allows viewing and editing the strategic document injected into every AI session.
+
+- **`task-row.tsx`** -- Reusable task row component for list views with status badge, title, and action buttons.
+
+- **`agent-row.tsx`** -- Agent/execution row component for the agents page, showing running status and progress.
+
+- **`branch-selector.tsx`** -- Git branch selection dropdown, used in project creation and playground.
+
+- **`remote-path-browser.tsx`** -- Remote directory browser that lets users pick paths on connected machines via the relay server.
+
+- **`inline-rename-input.tsx`** -- Inline text input for renaming items (projects, nodes) in place.
+
+- **`onboarding-hint.tsx`** -- Contextual onboarding hints shown to new users.
+
+- **`safety-prompt-dialog.tsx`** -- Safety confirmation dialog for potentially destructive operations.
+
+- **`passkey-nudge-banner.tsx`** -- Banner prompting users to set up WebAuthn/passkey authentication.
+
+- **`welcome-profile-dialog.tsx`** -- Welcome dialog for new users to set up their profile.
+
+- **`team-selector-dialog.tsx`** -- Team selection dialog for multi-user mode.
+
+- **`channel-account-card.tsx`** -- Card for displaying and managing connected notification channels (Slack, Telegram, etc.).
+
+- **`toast-container.tsx`** -- Toast notification container that renders queued toast messages.
+
+- **`theme-provider.tsx`** -- Light/dark/system theme context provider.
+
+- **Plugin system components**: `plugin-loader.tsx` (dynamic loading), `plugin-routes.tsx` (route registration), `plugin-settings.tsx` (settings panel), `plugin-error-boundary.tsx` (error isolation).
+
+- **`skill-settings.tsx`** -- Skill configuration panel for managing registered skills.
+
+### 4.11 Layout (`src/components/layout/`)
+
+- **`app-layout.tsx`** -- Desktop layout with sidebar navigation and `<Outlet />` for page content. Includes `WelcomeProfileDialog` and `PasskeyNudgeBanner`.
+
+- **`mobile-layout.tsx`** -- Mobile layout with bottom tab navigation bar. Shown below the `md` breakpoint (768px) via CSS `md:hidden`.
+
+- **`sidebar.tsx`** -- Navigation sidebar with items for Dashboard, Projects, My Tasks, Active Tasks, Environments, and more. Shows user profile, team selector, and a "Local Mode" badge when running locally.
+
+- **`header.tsx`** -- Reusable page header component.
+
+### 4.12 Environments (`src/components/environments/`)
+
+- **`add-environment-dialog.tsx`** -- Dialog for adding new local, HPC, or cloud environments.
+
+- **`machine-detail-dialog.tsx`** -- Detailed view of a connected machine's capabilities, load, and running tasks.
+
+- **`backend-detail-dialog.tsx`** -- Detailed view of a backend server's connection status and configuration.
+
+### 4.13 UI Primitives (`src/components/ui/`)
+
+The `ui/` directory contains shadcn/ui-style Radix primitive wrappers. Notable additions beyond the standard set:
+
+- **`empty-state.tsx`** -- Reusable empty state placeholder with icon, title, and description.
+- **`status-badge.tsx`** -- Status-aware badge component with color mapping.
+- **`typing-indicator.tsx`** -- Animated typing indicator for chat interfaces.
+- **`markdown-renderer.tsx`** -- Markdown-to-React renderer for displaying AI responses.
+- **`streaming-markdown.tsx`** -- Optimized markdown renderer for streaming content that updates incrementally.
+- **`rich-text-editor.tsx`** -- ProseMirror-based rich text editor for vision docs and task descriptions.
+- **`mention-textarea.tsx`** -- Textarea with @-mention support for referencing tasks and projects.
+- **`mention-suggestion.tsx`** -- Suggestion dropdown for mentions.
+- **`file-completion-textarea.tsx`** -- Textarea with file path autocompletion.
 
 ---
 
@@ -450,89 +679,110 @@ These sections trace exactly what happens in the system for the most common user
 
 ### 5.1 Create Project and Generate Plan
 
-This is the first thing most users do: create a project and let the AI generate an initial plan. The project creation form (`project-new.tsx`) is a single unified page that combines project description, directory configuration, repository URL, reference repos, environment selection, and an optional first task -- all in one place.
+This is the first thing most users do: create a project and let the AI generate an initial plan. The project creation experience is now centered on `project-new-plan.tsx` -- an interactive two-phase page that combines goal input with a streaming AI chat session.
 
-**The Unified Form**
+**The Two-Phase UI (`project-new-plan.tsx`)**
 
-The form contains the following sections, presented top-to-bottom:
+The page has two distinct phases:
 
-1. **Project description** (required) -- A textarea where the user describes what they are building. Supports voice input via `VoiceInputButton`.
-2. **Project directory** (optional) -- A text input for the local or remote path. As the user types, the `useDirectoryDetection` hook debounces calls to `GET /api/repo/detect` and shows inline feedback below the input:
-   - If the directory does not exist: "Directory will be created with git initialized."
+**Phase 1: Input Phase**
+
+The user sees a clean goal-entry form with the following elements:
+
+1. **Goal description** (required) -- A textarea where the user describes what they are building or researching.
+2. **Machine selector** -- Dropdown to choose which connected machine will execute the plan session. In local mode, defaults to "Local Machine." In server mode, shows all registered machines with online/offline status.
+3. **Working directory** (optional) -- A text input for the local or remote path on the selected machine. Includes a folder icon button that opens a `RemotePathBrowser` dialog for navigating the machine's filesystem visually.
+4. **Inline directory detection** -- As the user types a directory path, the `useDirectoryDetection` hook debounces calls to `GET /api/repo/detect` on the selected machine and shows inline feedback directly below the input. This is a key Workspace V2 feature:
+   - If the directory does not exist: "New directory -- will be created with git initialized."
    - If it is a git repo with a GitHub/GitLab/Bitbucket remote: "Git repo detected (GitHub). PRs will be created for review."
-   - If it is a git repo with no remote: "Local git repo (no remote). Changes saved as local branches."
-   - If it exists but is not a git repo: "No git history. Initialize Git recommended for safe parallel execution."
-   The delivery mode (`pr`, `push`, `branch`, `direct`) is derived automatically from the detection result using `deriveDeliveryMode()` from `project-source.ts`.
-3. **Repository URL** (collapsed by default) -- Click "+ Add repository URL" to expand. Supports manual URL entry or browsing connected GitHub repos via the GitHub integration.
-4. **Reference repos** (collapsed by default) -- Click "+ Add reference code" to expand. Users can add multiple read-only reference repository URLs that agents can read but will not modify.
-5. **First task** (optional) -- A text input for an initial task node to seed the plan with. Used only in the non-AI path.
-6. **Environment selector** -- In local mode, a dropdown to choose local/remote/HPC/cloud environment type plus machine selector. In server (multi-tenant) mode, shows registered machines as selectable cards with online/offline status.
+   - If it is a git repo with a generic or no remote: "Local git repo. Changes saved as local branches."
+   - If it exists but is not a git repo: "Directory exists, no git. Git init recommended."
+   The delivery mode (`pr`, `push`, `branch`, `direct`) is derived automatically from the detection result using `deriveDeliveryMode()` from `project-source.ts`. A `BranchSelector` component appears when a git repo is detected, letting the user pick the working branch.
+5. **Provider and model selectors** -- Dropdowns for choosing the AI provider (Claude Code, Codex, Anthropic Direct) and model (based on available providers on the selected machine).
+6. **Claude Code session picker** -- When Claude Code sessions are available on the selected machine, a button opens a `SessionPickerDialog` to continue an existing session rather than starting fresh.
+7. **History sidebar** -- Shows recent plan sessions with titles and timestamps, allowing the user to revisit previous planning conversations.
 
-**Two Creation Paths**
+**Phase 2: Chat Phase**
 
-The form offers two submit buttons:
+After the user submits their goal, the page transitions to a full-height streaming activity view powered by `PlanChatPhase`:
 
-- **"Create & Generate Plan"** (primary) -- The AI path. Creates the project, navigates to the graph view, runs `useRepoSetup.setupRepo()` to clone/detect the repository, then calls `startGeneration()` to kick off AI plan generation via SSE.
-- **"Create Project"** (secondary) -- The manual path. Runs repo setup first, creates the project with the resolved directory, optionally adds a first task node, then navigates to the list view.
+- The system dispatches a plan session via `execution-store.startPlanSession()`, which sends a POST to `/api/dispatch/task` with `taskType: 'plan'`.
+- Streaming events arrive via SSE and are rendered as `DisplayBlock` components (same activity blocks used in task detail).
+- The AI's reasoning appears as text blocks in real-time.
+- When the AI needs a human decision, an `InlineApprovalCard` appears inline in the stream.
+- When the AI finishes generating a plan, a `PlanResultCard` appears showing the project name, node count, and a link to view the plan graph.
+- The user can send follow-up messages to refine the plan, continuing the multi-turn conversation.
 
-**AI Path Flow (step by step)**
+**Plan Generation Flow (step by step)**
 
 ```
-User fills out the unified form and clicks "Create & Generate Plan"
+User fills out the goal and optional settings, then clicks "Start"
   |
   v
-A Project object is created with a random UUID, a color, an icon, and
-all form fields (description, sourceDirectory, repository, environment, etc.)
+A Project object is created with a random UUID, a color, an icon,
+and the goal description
   |
   v
 addProject() writes to the Zustand store (optimistic) and Hono backend (persistent)
   |
   v
-The browser navigates to /project/{id}/graph (the plan graph view)
+The page transitions to the Chat Phase (same URL, different UI state)
   |
   v
-useRepoSetup.setupRepo() is called:
-  - POSTs to /api/repo/setup with project details
-  - The backend clones the repo (if URL provided), detects git state,
-    builds a file tree, and extracts key files (CLAUDE.md, README, package.json)
-  - If the directory exists but has no git: a GitInitDialog prompts the user
-  - On success: updates the project with resolved sourceDirectory, repository,
-    structured source object, and deliveryMode
+startPlanSession() dispatches via POST /api/dispatch/task with:
+  - taskType: 'plan'
+  - workingDirectory, machineId, branch, provider, model
+  - The goal description as the task prompt
   |
   v
-startGeneration() is called in the agent-store with repo context:
-  - workingDirectory, fileTree, keyFiles, and targetMachineId are passed in
+SSE stream opens and events arrive as the agent works:
+  - "init" → execution assigned an ID, status becomes "running"
+  - "text" → AI reasoning appears as streaming text blocks
+  - "tool_use" / "tool_result" → tool calls shown as collapsible blocks
+  - "structured_output" with plan JSON → parsed into PlanNode[] and PlanEdge[]
+  - "result" → plan result card shown with link to graph view
   |
   v
-POST /api/agent/generate-plan is sent to the backend, opening an SSE stream
+The plan is saved via usePlanStore.setProjectPlan()
   |
   v
-"text" events arrive one by one as the AI generates content
-  -> Each chunk is appended to streamText (the user sees a live preview
-     of the AI's reasoning as it builds the plan)
-  |
-  v
-A "plan_result" event arrives with the final structured plan (nodes and edges)
-  -> The store parses the JSON into PlanNode[] and PlanEdge[]
-  |
-  v
-Node IDs are prefixed with projectId[:8] for global uniqueness
-  (e.g., "abc12345-task-1" instead of just "task-1")
-  |
-  v
-Milestones are auto-assigned via backward BFS:
-  The system walks backward through the dependency graph to group tasks
-  under the appropriate milestone
-  |
-  v
-usePlanStore.setProjectPlan() saves all nodes and edges
-  |
-  v
-reorganizeProject() calculates a neat visual layout for the graph
-  |
-  v
-The user sees a complete, interactive plan graph they can explore and modify
+The user can click through to /project/{id}/graph to see the interactive plan,
+or continue chatting to refine the plan further
 ```
+
+**Inline Directory Detection (Workspace V2)**
+
+The `useDirectoryDetection` hook is central to the project creation UX. It provides real-time feedback as the user specifies a working directory:
+
+```
+User types a path in the directory input
+  |
+  v
+Debounce (500ms default) prevents excessive API calls
+  |
+  v
+GET /api/repo/detect?path={path}&machineId={machineId}
+  |
+  v
+Backend checks the path on the target machine:
+  - Does the directory exist?
+  - Is it a git repository?
+  - What remotes are configured?
+  - What is the current/default branch?
+  |
+  v
+Returns a DetectionResult:
+  { exists: boolean, isGit: boolean, remoteType: RemoteType,
+    baseBranch?: string, suggestedDeliveryMode: DeliveryMode }
+  |
+  v
+The UI shows inline feedback below the path input:
+  - Icon + colored text indicating the detected state
+  - Delivery mode badge (e.g., "PRs" for GitHub repos)
+  - Branch selector appears for git repos
+```
+
+This detection happens transparently as the user types, so they always know how their changes will be delivered before starting work.
 
 ### 5.2 Execute a Task
 
@@ -753,7 +1003,7 @@ This approach eliminates the complexity of keeping a browser-side cache in sync 
 
 Astro uses TypeScript, which means every piece of data has a defined "shape" -- a type that says what fields it has and what kind of data each field holds. This prevents a whole class of bugs (like trying to read a field that does not exist, or passing a number where a string is expected). Types are like contracts: they guarantee that when you receive a `Project` object, it will always have an `id`, a `name`, a `description`, and so on.
 
-All shared types are defined in `src/types/index.ts` (365 lines). Here are the key ones:
+Core types are defined in `packages/core/src/types.ts` and re-exported through `src/types/index.ts`. The frontend types file also re-exports server-specific types (`GitHubRepo`, `GitHubUser`, `RegisteredMachine`) and adds UI-specific types (`CommandItem`, `CommandContext`). Here are the key types:
 
 - **`Project`**: Represents a user's project. Fields include: `id`, `name`, `description`, `visionDoc` (the strategic document injected into every AI session), `workingDirectory` (where the code lives on disk), `repository` (Git URL), `fileTree` (cached directory listing), `defaultEnvironment`, `defaultMachineId`.
 
@@ -771,96 +1021,173 @@ All shared types are defined in `src/types/index.ts` (365 lines). Here are the k
 
 - **`ProviderStatus`**: Describes an AI provider's availability. Fields: `id`, `name`, `installed` (is the provider software present?), `authStatus` (is the user authenticated with this provider?), `available` (is it ready to use?), `capabilities` (what can this provider do?).
 
-See `src/types/index.ts` for the complete type definitions including all fields, optional flags, and nested types. Additional types are modularized into `src/types/observations.ts` (observability/trace types), `src/types/plugin.ts` (plugin system types), and `src/types/skill.ts` (skill system types).
+See `packages/core/src/types.ts` for the complete core type definitions. Additional types are modularized into:
+- `src/types/index.ts` -- Re-exports core types plus UI-specific types (`CommandItem`, `CommandContext`)
+- `src/types/observations.ts` -- Observability/trace types (`TraceTree`, `TraceTurn`, `TraceGeneration`)
+- `src/types/plugin.ts` -- Plugin system types (`PluginManifest`, `PluginContribution`)
+- `src/types/skill.ts` -- Skill system types (`Skill`, `SkillManifest`)
+- `server/types/github.ts` -- GitHub integration types (re-exported by frontend)
+- `server/types/device-auth.ts` -- Device authentication types (re-exported by frontend)
 
 ---
 
-## Addendum: Recent Additions (audited 2026-02-21)
+## 8. Custom Hooks (`src/hooks/`)
 
-This section documents components, pages, hooks, and libraries added since the original document was written. The main sections above remain accurate for the features they describe; this addendum covers what's new.
-
-### New Pages (2)
-
-| Route | Page | Purpose |
-|-------|------|---------|
-| `/invite/:token` | `team-invite.tsx` | Team invitation acceptance flow (public route) |
-| `/workflows` | `workflows.tsx` | Workflow management and automation |
-
-### Routing Changes
-
-- Default route (`/`) now redirects to `/tasks` (My Tasks) instead of Dashboard
-- Plan view expanded to multiple sub-routes: `/project/:id/graph`, `/project/:id/list`, `/project/:id/timeline`, `/project/:id/board`, `/project/:id/overview` — all handled by `plan-view.tsx` with view mode switching
-- `project-overview.tsx` exists but is no longer used in routing (superseded by plan-view overview mode)
-
-### New Component Directories (6)
-
-| Directory | Purpose |
-|-----------|---------|
-| `src/components/board/` | Kanban board view (board-view.tsx, board-column.tsx, board-card.tsx) |
-| `src/components/command-palette/` | Refactored command palette with sub-components (breadcrumbs, categories, items, quick-actions) |
-| `src/components/mobile/` | Mobile-responsive components (status-bar.tsx) |
-| `src/components/sharing/` | Import/export features (import-preview-dialog.tsx) |
-| `src/components/views/` | Reusable view patterns (filter-select.tsx, item-list-view.tsx, item-timeline-view.tsx) |
-| `src/components/task-detail/trace-viewer/` | Observability trace viewer (turn-list, trace-summary-card, tool-call-item, turn-detail) |
-
-### New Top-Level Components (selected)
-
-- `generation-toasts.tsx` — Toast-based plan generation UI (replaced `generation-overlay.tsx`)
-- `auth-guard.tsx` — Authentication guard for protected routes
-- `color-icon-picker.tsx` — Color and icon selection for projects/initiatives
-- `dynamic-approval-dialog.tsx` — Dynamic approval prompts from agents
-- `git-init-dialog.tsx` — Git repository initialization dialog
-- `github-connect-button.tsx` — GitHub OAuth connection button
-- `repo-config-dialog.tsx` — Repository configuration settings
-- `session-dialog.tsx` — Session management dialog
-- `team-selector-dialog.tsx` — Team selection for multi-user mode
-- `plugin-loader.tsx`, `plugin-routes.tsx`, `plugin-settings.tsx`, `plugin-error-boundary.tsx` — Plugin system UI
-- `skill-settings.tsx` — Skill configuration panel
-- `toast-container.tsx` — Toast notification container
-
-### Custom Hooks (7)
+Custom hooks encapsulate reusable stateful logic across the application. All hooks live in `src/hooks/`.
 
 | Hook | Purpose |
 |------|---------|
-| `use-keyboard-nav.ts` | Keyboard navigation (arrow keys, vim bindings) |
-| `use-bar-drag-resize.ts` | Drag-to-resize for panels and sidebars |
-| `use-voice-transcription.ts` | Voice input transcription |
-| `use-welcome-form-persistence.ts` | Welcome form state persistence across page reloads |
-| `use-repo-setup.ts` | Repository setup orchestration: POSTs to `/api/repo/setup`, updates project with resolved source/deliveryMode/fileTree, handles `needsGitInit` prompt via `GitInitDialog`, and exposes `confirmGitInit` for git initialization |
-| `use-directory-detection.ts` | Debounced directory detection as the user types a path (calls `GET /api/repo/detect`). Returns `DetectionResult` with `exists`, `isGit`, `remoteType`, `suggestedDeliveryMode`. Used for inline feedback in the project creation form. |
+| `use-directory-detection.ts` | Debounced directory detection as the user types a path (calls `GET /api/repo/detect` on the target machine). Returns `DetectionResult` with `exists`, `isGit`, `remoteType`, `baseBranch`, `suggestedDeliveryMode`. Used for inline feedback in project creation and playground forms. Configurable delay (default 500ms). |
+| `use-repo-setup.ts` | Repository setup orchestration: POSTs to `/api/repo/setup`, updates project with resolved source/deliveryMode/fileTree, handles `needsGitInit` prompt via `GitInitDialog`, and exposes `confirmGitInit` for git initialization. |
 | `use-file-tree-refresh.ts` | Auto-refreshes a project's file tree when stale (>5 min), missing, or targeting a different machine. Fetches from `/api/fs/files` (remote) or `/api/repo/file-tree` (local). Also exports `refreshAllFileTrees()` for bulk refresh after initial project load. |
+| `use-branch-list.ts` | Fetches the list of git branches for a given path and machine via `GET /api/repo/branches`. Returns branch info including current, default, and remote branches. |
+| `use-project-machine.ts` | Resolves the effective machine ID for a project -- uses `project.defaultMachineId` if set, otherwise falls back to the only connected machine. |
+| `use-keyboard-nav.ts` | Keyboard navigation (arrow keys, vim-style `j`/`k` bindings) for list views. Tracks focused item and navigable items via `keyboard-nav-store`. |
+| `use-bar-drag-resize.ts` | Drag-to-resize for panels and sidebars. Provides mouse event handlers and computed sizes. |
+| `use-media-query.ts` | CSS media query hook for responsive behavior (e.g., detecting mobile vs desktop). |
+| `use-auto-reveal.ts` | Computes usage counts across stores (projects, active tasks, executions) and triggers sidebar auto-reveal when thresholds are met (e.g., shows "Active Tasks" sidebar item when tasks start running). |
+| `use-restored-execution.ts` | Returns activity events, tool traces, and file changes for a task execution. During live execution, returns in-memory SSE events. After page refresh (when events are lost), reconstructs them from persisted observation data via `reconstructActivityFromTrace()`. |
 
-### New Library Files (16)
+---
+
+## 9. Library Utilities (`src/lib/`)
+
+All library utilities live in `src/lib/`. These are non-React utility modules used across the application.
+
+### Core Client Libraries
 
 | File | Purpose |
 |------|---------|
-| `api-url.ts` | API URL resolution utilities |
-| `color-icon-utils.ts` | Color and icon utility functions |
-| `commands.ts` | Command palette command definitions |
-| `crypto-utils.ts` | Cryptographic utilities (API key encryption) |
-| `data-client.ts` | Server data fetching client |
-| `date-utils.ts` | Date manipulation and formatting |
-| `git-url-utils.ts` | Git URL parsing (HTTPS, SSH formats) |
-| `path-utils.ts` | Path manipulation (getBrowserHostname) |
-| `plugin-context.ts` | Plugin execution context |
-| `plugin-loader.ts` | Dynamic plugin loading system |
-| `project-source.ts` | Project source resolution and delivery mode derivation. Exports: `resolveProjectSource(project)` resolves a `ProjectSource` from legacy project fields; `deriveDeliveryMode(source)` maps git state to `pr`/`push`/`branch`/`direct`; `detectRemoteType(url)` classifies a git URL as `github`/`gitlab`/`bitbucket`/`generic`/`none`; `urlsMatchSameRepo(url1, url2)` normalizes and compares git URLs; `deliveryModeLabel(mode)` and `remoteTypeLabel(type)` return human-readable labels. |
-| `realtime-sync.ts` | Supabase realtime data synchronization |
-| `skill-loader.ts` | Skill loading and discovery |
-| `status-config.ts` | Task status configuration and colors |
-| `supabase-client.ts` | Supabase client initialization |
-| `app-mode.ts` | Local vs server mode detection |
+| `api-client.ts` | HTTP + SSE client for `/api/agent/*` endpoints. Provides typed functions for plan generation, chat, task dispatch. All SSE functions accept `AbortSignal` for cancellation. |
+| `data-client.ts` | Generic data CRUD client for `/api/data/*` endpoints. Used by all stores for persistence. Handles team-scoped requests via `X-Team-Id` header. |
+| `realtime-client.ts` | EventSource wrapper for `/api/events/stream`. Manages SSE connection lifecycle, reconnection, and event routing. |
+| `realtime-sync.ts` | Supabase Realtime data synchronization for multi-user collaborative editing. |
+| `supabase-client.ts` | Supabase browser client initialization and session management. |
+| `api-url.ts` | API URL resolution -- determines the correct base URL for API calls based on environment (dev/prod). |
+| `sse-parser.ts` | Low-level SSE stream parser for processing `data:` events from fetch responses. |
 
-### New Subsystems
+### Mode and Configuration
 
-**Plugin System**: Dynamic plugin loading with error boundaries, routes, and settings UI. Plugins can extend the app with custom views and capabilities.
+| File | Purpose |
+|------|---------|
+| `app-mode.ts` | Local vs server mode detection (`isLocalMode()`, `isServerMode()`). Checks environment variables to determine which operating mode is active. |
+| `constants.ts` | Priority/estimate configuration, default labels, and other application constants. |
+| `status-config.ts` | Task status configuration: maps each status to a color, icon, label, and badge variant. Used consistently across all status displays. |
 
-**Skill System**: Skill loading and management for reusable AI capabilities. Skills are discoverable and configurable.
+### Project and Workspace
 
-**Team & Collaboration**: Team creation, membership, email invitations, and team-scoped project access. Foundation for multi-user server mode.
+| File | Purpose |
+|------|---------|
+| `project-source.ts` | Project source resolution and delivery mode derivation (Workspace V2). Exports: `resolveProjectSource()`, `deriveDeliveryMode()` (`pr`/`push`/`branch`/`direct`), `detectRemoteType()` (`github`/`gitlab`/`bitbucket`/`generic`/`none`), `urlsMatchSameRepo()`, and label helpers. |
+| `project-validation.ts` | Project name validation rules. |
 
-**Observability Trace Viewer**: Rich trace visualization with turn-by-turn analysis, tool call inspection, and summary cards.
+### Graph and Layout
 
-**Board View**: Kanban-style board view for plan nodes, complementing the existing graph, list, and timeline views.
+| File | Purpose |
+|------|---------|
+| `graph-utils.ts` | Graph node position calculation for automatic layout when placing new child nodes. |
+| `graph-sort-utils.ts` | Topological sort for plan nodes based on dependency edges. Used to determine execution order. |
+| `timeline-utils.ts` | Gantt timeline calculations: topological sort for ordering, date assignment for nodes without explicit dates, and row layout computation. |
 
-**Mobile Layout**: Responsive layout with mobile-specific components for smaller screens.
+### Text and Content Processing
+
+| File | Purpose |
+|------|---------|
+| `plan-extraction.ts` | Extracts plan JSON (nodes/edges) from streaming text output. Tries code-fenced JSON first, then falls back to raw JSON detection with brace balancing. |
+| `stream-text-utils.ts` | Strips tool use blocks, code fences, JSON objects, and other noise from stream text, keeping only natural-language reasoning for display. |
+| `text-utils.ts` | General text utilities: `extractTitle()` (extracts a title from text), `splitTitleDescription()` (splits first line as title from rest as description). |
+| `html-utils.ts` | HTML utilities: `escapeHtml()`, `stripHtml()`, `extractBlobUrls()`, `fileToBase64()`. Used for rich text processing. |
+| `prosemirror-markdown.ts` | Converts ProseMirror document nodes to Markdown text. Used by the rich text editor for export. |
+
+### Git and Path
+
+| File | Purpose |
+|------|---------|
+| `git-url-utils.ts` | Git URL parsing for HTTPS, SSH, and other formats. Extracts owner, repo, and host from various URL patterns. |
+| `path-utils.ts` | Path manipulation utilities including `getBrowserHostname()` for file URL building. |
+
+### Security
+
+| File | Purpose |
+|------|---------|
+| `crypto-utils.ts` | Cryptographic utilities using Web Crypto API for browser-side API key encryption. |
+| `dispatch-signing.ts` | ECDSA P-256 dispatch signing -- generates keypairs, signs dispatch intents, and manages keys in IndexedDB. Agent runners verify these signatures to ensure dispatches originated from the user's browser. |
+
+### Notifications
+
+| File | Purpose |
+|------|---------|
+| `notifications.ts` | Browser notification API wrappers: `requestNotificationPermission()`, `showApprovalNotification()`, `showTaskNotification()`, `showPlanCompleteNotification()`. |
+
+### Observability
+
+| File | Purpose |
+|------|---------|
+| `observation-activity-bridge.ts` | Converts observation `TraceTree` data into `TaskActivityEvent[]`, `ToolTrace[]`, and `FileChange[]` arrays. Used to reconstruct activity views from persisted data after page refresh. |
+
+### Plugin and Skill System
+
+| File | Purpose |
+|------|---------|
+| `plugin-loader.ts` | Dynamic plugin loading system. Loads plugin manifests and code at runtime. |
+| `plugin-context.ts` | Plugin execution context: provides plugins with access to stores, API clients, and UI hooks. |
+| `skill-loader.ts` | Skill loading and discovery from registered skill sources. |
+| `skill-parser.ts` | Skill definition parsing. |
+| `skill-provider.ts` | Skill provider abstraction: `createSkillProvider()` for runtime skill injection. Also includes Tauri detection (`isTauri()`). |
+
+### UI Utilities
+
+| File | Purpose |
+|------|---------|
+| `utils.ts` | `cn()` = `clsx` + `tailwind-merge` for Tailwind class merging. The most-imported utility. |
+| `color-icon-utils.ts` | Color and icon utility functions for project/initiative customization. |
+| `date-utils.ts` | Date manipulation, formatting, and relative time display. |
+| `commands.ts` | Command palette command definitions: navigation commands, theme toggle, project search. |
+
+### Sharing
+
+| File | Purpose |
+|------|---------|
+| `sharing/export-project.ts` | Exports a project (with nodes, edges, and metadata) as an `AstroExportBundle`. |
+| `sharing/import-project.ts` | Imports a project from an `AstroExportBundle` into the local store. |
+| `sharing/export-config.ts` | Export configuration options. |
+| `sharing/import-config.ts` | Import configuration and validation. |
+| `sharing/sanitize.ts` | Sanitizes imported data to prevent XSS and other injection. |
+| `sharing/version.ts` | Version compatibility checking for import/export bundles. |
+| `sharing/types.ts` | Type definitions for the sharing/export system. |
+
+---
+
+## 10. Subsystems
+
+### Plugin System
+
+Dynamic plugin loading with error boundaries, routes, and settings UI. Plugins can extend the app with custom views and capabilities registered under `/plugins/*`. The plugin system includes:
+- `plugin-store.ts` for registry and manifest management
+- `plugin-loader.tsx` for dynamic code loading
+- `plugin-routes.tsx` for route registration
+- `plugin-settings.tsx` for per-plugin configuration
+- `plugin-error-boundary.tsx` for fault isolation
+
+### Skill System
+
+Skill loading and management for reusable AI capabilities. Skills are discoverable, configurable, and injectable into agent sessions. Managed by `skill-store.ts` with UI in `skill-settings.tsx`.
+
+### Team and Collaboration
+
+Multi-user team support with invitations, role-based access control, and shared projects. Foundation for server mode collaboration:
+- `team-store.ts` for team CRUD and membership
+- `team-selector-dialog.tsx` for switching teams
+- `team-invite.tsx` page for invitation acceptance
+- Team context (`X-Team-Id` header) scopes all API calls
+
+### Responsive Layout
+
+The app supports both desktop and mobile form factors via `ResponsiveLayout`:
+- Desktop (>=768px): `AppLayout` with sidebar navigation
+- Mobile (<768px): `MobileLayout` with bottom tab bar
+- CSS media queries at the `md` breakpoint control visibility
+
+### Dispatch Signing
+
+Browser-side ECDSA P-256 signing for dispatch authenticity. When a user dispatches a task, their browser signs the intent (node ID, project ID, machine ID, timestamp, nonce) with a keypair stored in IndexedDB. Agent runners verify these signatures to ensure dispatches originated from the user's browser, not from a compromised server.

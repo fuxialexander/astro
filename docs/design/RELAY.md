@@ -55,19 +55,23 @@ The Relay encapsulates all of this complexity behind a clean interface. It creat
 │       │                                                          │
 │       ├── machine.register → Add to Machine Registry             │
 │       │                                                          │
+│       ├── session.* → MCP Bridge session management              │
+│       │                                                          │
+│       ├── slurm.* → HPC job status/output forwarding             │
+│       │                                                          │
 │       └── heartbeat.pong → Update lastHeartbeat timestamp        │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Files
 
-| File | Size | Purpose |
-|------|------|---------|
-| `server/lib/relay-server.ts` | ~1800 lines | The Relay server itself -- handles WebSocket connections, message routing, heartbeats |
-| `packages/agent-runner/src/lib/websocket-client.ts` | 855 lines | The client side -- how Agent Runners connect to and talk with the Relay |
-| `server/types/relay.ts` | 671 lines | Type definitions for every message in the protocol |
-| `server/lib/machine-registry.ts` | ~200 lines | The "phone book" of connected machines (see Section 4) |
-| `server/routes/relay.ts` | ~400 lines | HTTP endpoints for querying relay status and dispatching tasks |
+| File | Purpose |
+|------|---------|
+| `server/lib/relay-server.ts` | The Relay server itself -- handles WebSocket connections, message routing, heartbeats, session attachment, file/repo operations |
+| `packages/agent-runner/src/lib/websocket-client.ts` | The client side -- how Agent Runners connect to and talk with the Relay |
+| `server/types/relay.ts` | Type definitions for every message in the protocol (~1060 lines) |
+| `server/lib/machine-registry.ts` | The "phone book" of connected machines (see Section 4) |
+| `server/routes/relay.ts` | HTTP endpoints for querying relay status, dispatching tasks, Slurm clusters, and session discovery |
 
 ---
 
@@ -112,16 +116,15 @@ Relay WebSocket Server (3002)    <-- wss://astro-relay.domain --    Agent Runner
   TLS, JWT authentication
   Heartbeat monitoring
   Reconnection handling
+  Disconnect grace periods
 ```
 
 Notice the URL changed from `ws://` to `wss://`. The "s" stands for "secure" -- just like `https://` adds encryption to `http://`, `wss://` adds encryption to `ws://`. This is called **TLS** (Transport Layer Security), and it means all messages between the Relay and the Agent Runner are encrypted so nobody on the network can read or tamper with them.
 
 In server mode, the Relay also handles:
-- **JWT authentication** -- verifying that the Agent Runner is who it claims to be (see Section 9)
+- **JWT authentication** -- verifying that the Agent Runner is who it claims to be (see Section 10)
 - **Heartbeat monitoring** -- checking that Agent Runners are still alive (see Section 3.6)
-- **Reconnection handling** -- gracefully dealing with dropped connections
-
-This is the real networking problem the Relay solves.
+- **Reconnection handling** -- gracefully dealing with dropped connections via disconnect grace periods
 
 ### 2.3 Horizontal Scaling (Optional)
 
@@ -149,6 +152,8 @@ This is entirely optional. Single-instance deployments (including all local deve
 ## 3. WebSocket Protocol
 
 All messages between the Relay and Agent Runners are JSON objects with a `type` field that identifies what kind of message it is. The full protocol is defined in `server/types/relay.ts`.
+
+The Relay supports **dual message formats**: a dot-notation format (e.g., `machine.register`) and an underscore format used by the `@astroanywhere/agent` package (e.g., `register`). Both are accepted and normalized internally.
 
 This section walks through every message flow in the system. Each subsection describes a different kind of interaction, with sequence diagrams showing who sends what to whom.
 
@@ -183,14 +188,45 @@ Agent Runner                      Relay Server
     name: string,               // Human-readable display name (e.g., "Zhuoran's MacBook Pro")
     hostname: string,           // The machine's network hostname
     platform: string,           // Operating system (e.g., "darwin", "linux", "win32")
-    arch: string,               // CPU architecture (e.g., "x64", "arm64")
     providers: ProviderInfo[],  // Which AI providers are available (Claude Code, Codex, etc.)
     resources: MachineResources, // Hardware specs: CPU cores, memory, GPU info
-    environmentType: 'local' | 'remote' | 'hpc',
-    executionStrategies?: ExecutionStrategyInfo[],  // How tasks can be run (direct, Docker, etc.)
+    load: MachineLoad,          // Current load: CPU%, memory%, active/queued tasks
+    environmentType?: string,   // 'local' | 'remote' | 'hpc'
+    executionStrategies?: ExecutionStrategyInfo[],  // How tasks can be run (direct, Docker, Slurm, k8s-exec)
+    tags?: string[],            // Freeform tags (runner ID, version)
+    metadata?: Record<string, string>,  // Key-value metadata (runnerId, version)
   },
-  runnerId?: string,            // Optional unique ID for this runner instance
-  userId?: string,              // Which user owns this machine (set in server mode)
+}
+```
+
+**Provider info** includes HPC capability metadata when running on a cluster:
+
+```typescript
+interface ProviderInfo {
+  type: ProviderType,           // 'claude-code' | 'claude-sdk' | 'codex' | 'aws' | 'gcp' | 'custom'
+  version?: string,
+  status: ProviderStatus,       // 'available' | 'busy' | 'unavailable' | 'error'
+  maxConcurrentTasks: number,
+  currentTasks: number,
+  capabilities?: string[],      // ['streaming', 'tools', 'multi-turn']
+  hpcCapability?: {             // Present on Slurm/HPC machines
+    clusterName?: string,
+    partitions: string[],
+    defaultPartition?: string,
+    accounts: string[],
+  },
+}
+```
+
+**Execution strategy info** describes how the machine can run tasks:
+
+```typescript
+interface ExecutionStrategyInfo {
+  id: string,                   // 'direct' | 'docker' | 'slurm' | 'k8s-exec'
+  name: string,                 // Human-readable name
+  available: boolean,           // Whether this strategy is currently usable
+  version?: string,             // Strategy/tool version
+  metadata?: Record<string, unknown>,
 }
 ```
 
@@ -222,24 +258,65 @@ Notice how the Hono server calls `relayServer.dispatchTask()` as a simple functi
 
 ```typescript
 {
-  taskId: string,               // Unique ID for this execution
+  // ── Core identification ──
+  taskId: string,               // Unique execution ID
   projectId: string,            // Which project this task belongs to
   nodeId: string,               // Which plan node this task corresponds to
+  shortNodeId?: string,         // First 6 hex chars of nodeId UUID (for branch names, PR titles)
+  shortProjectId?: string,      // First 6 hex chars of projectId UUID (for PR titles)
   title: string,                // Human-readable task title
   description: string,          // Detailed task description
-  prompt: string,               // The actual prompt to send to the AI agent
-  visionDoc?: string,           // The project's vision document (injected as context)
-  environment?: string,         // Where to run: 'local' | 'remote' | 'hpc' | 'cloud'
-  preferredProvider?: string,   // Which AI provider to use: 'claude-code' | 'claude-sdk' | 'codex'
-  executionStrategy?: string,   // How to run: 'direct' | 'docker' | 'slurm' | 'k8s-exec'
-  priority?: string,            // Task priority level
+
+  // ── Prompt & conversation ──
+  prompt?: string,              // Pre-built prompt (bypasses auto-construction from title/description)
+  systemPrompt?: string,        // System-level instruction for the AI session
+  messages?: ConversationMessage[], // Multi-turn conversation history (user/assistant turns)
+  model?: string,               // Explicit model selection (e.g., 'claude-sonnet-4-20250514')
+
+  // ── Task type & behavior ──
+  type?: TaskDispatchType,      // 'execution' | 'plan' | 'chat' | 'summarize' (default: 'execution')
+  maxTurns?: number,            // Maximum AI conversation turns
+  outputFormat?: {              // Expected structured output
+    type: 'json_schema',
+    schema: Record<string, unknown>,
+  },
+  skipSafetyCheck?: boolean,    // Skip workspace safety check (for text-only tasks)
+  images?: ImageAttachment[],   // Base64-encoded images for multimodal prompts
+
+  // ── Environment & execution ──
+  environment?: string,         // 'local' | 'remote' | 'hpc' | 'cloud'
+  preferredProvider?: ProviderType, // 'claude-code' | 'claude-sdk' | 'codex' | 'aws' | 'gcp' | 'custom'
+  executionStrategy?: string,   // 'direct' | 'slurm' | 'docker' | 'k8s-exec'
+  priority?: number,            // Task priority level
   timeout?: number,             // Maximum execution time in milliseconds
   workingDirectory?: string,    // Directory to run the task in
-  dependencies?: DependencyContext[],  // Context from tasks this one depends on
-  maxTurns?: number,            // Maximum number of AI conversation turns
-  outputFormat?: { type: string, schema: Record },  // Expected output structure
-  deliveryMode?: 'pr' | 'push' | 'branch' | 'direct',  // How results are delivered (default: 'pr')
-  remoteType?: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none',  // Source repo remote type
+  sourceDirectory?: string,     // Original project directory (for data access from worktrees)
+  dependencies?: string[],      // Other task IDs that must complete first
+  visionDoc?: string,           // Project vision context (injected above codebase context)
+
+  // ── Workspace & delivery ──
+  deliveryMode?: 'pr' | 'push' | 'branch' | 'copy' | 'direct',  // How results are delivered
+  remoteType?: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none',
+  agentDir?: string,            // Agent directory name (default: '.astro')
+  baseBranch?: string,          // Target branch for worktree/PR base (e.g., 'main')
+  worktreeStrategy?: 'copy' | 'reference' | 'direct',  // Strategy for non-git projects
+  useWorktree?: boolean,        // Explicit opt-out of worktree creation (default: true)
+
+  // ── Session resume ──
+  resumeSessionId?: string,     // Resume an existing Claude Code session by ID
+  forkSession?: boolean,        // Fork instead of continuing the resumed session
+
+  // ── PR enrichment ──
+  astroBaseUrl?: string,        // Base URL for linking back to tasks in PR bodies
+  githubIssueUrl?: string,      // GitHub issue URL to reference in PR body
+  githubIssueNumber?: number,   // GitHub issue number (e.g., 42 -> "Closes #42")
+
+  // ── Dispatch signing ──
+  dispatchSignature?: string,   // ECDSA P-256 signature (base64url) for authenticity
+  dispatchSigningPayload?: DispatchSigningPayload, // Signed payload for verification
+
+  // ── Metadata ──
+  metadata?: Record<string, string>,
 }
 ```
 
@@ -248,24 +325,42 @@ Notice how the Hono server calls `relayServer.dispatchTask()` as a simple functi
 ```typescript
 {
   taskId: string,
-  status: 'completed' | 'failed' | 'cancelled' | 'timeout',
+  status: 'queued' | 'dispatched' | 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'timeout',
   output?: string,              // The final output text
   error?: string,               // Error message if failed
   exitCode?: number,            // Process exit code (0 = success)
-  startedAt?: string,           // When execution began (ISO timestamp)
-  completedAt?: string,         // When execution ended (ISO timestamp)
+  duration?: number,            // Execution time in milliseconds
   artifacts?: TaskArtifact[],   // Any files or outputs produced
   branchName?: string,          // Git branch the work was done on
   prUrl?: string,               // Pull request URL if one was created
   prNumber?: number,            // Pull request number
+  deliveryStatus?: 'success' | 'failed' | 'skipped',  // Delivery outcome (separate from execution)
+  deliveryError?: string,       // Error message when delivery failed
+  summary?: ExecutionSummaryResult, // Structured execution summary
   metrics?: {
     durationMs?: number,        // How long it took
     inputTokens?: number,       // AI tokens consumed (input)
     outputTokens?: number,      // AI tokens consumed (output)
-    estimatedCostUsd?: number,  // Estimated cost in USD
+    totalCost?: number,         // Estimated cost in USD
     model?: string,             // Which AI model was used
-    turnsUsed?: number,         // How many AI conversation turns
+    numTurns?: number,          // How many AI conversation turns
   },
+}
+```
+
+**Execution summary** (`ExecutionSummaryResult`) -- a structured summary produced by the agent after task completion:
+
+```typescript
+{
+  status: 'success' | 'partial' | 'failure',
+  workCompleted: string,
+  executiveSummary?: string,    // 1-2 paragraph executive summary
+  keyFindings: string[],
+  filesChanged: string[],
+  followUps: string[],
+  prUrl?: string | null,
+  prNumber?: number | null,
+  branchName?: string | null,
 }
 ```
 
@@ -280,7 +375,7 @@ Browser -> POST /api/dispatch/steer -> relayServer.steerTask()
                                            |
                                      task.steer -> Agent Runner
                                            |
-                                     task.steer_ack <- Agent Runner
+                                     task.steer.ack <- Agent Runner
                                            |
                                      SSE event -> Browser
 ```
@@ -292,11 +387,17 @@ Browser -> POST /api/dispatch/steer -> relayServer.steerTask()
   type: 'task.steer',
   taskId: string,
   message: string,      // The user's guidance text (e.g., "Focus on error handling first")
-  action?: string,      // Optional action: 'interrupt' | 'approve' | 'reject'
+  action?: 'guidance' | 'redirect' | 'pause' | 'resume',  // Steering action type
+  interrupt?: boolean,  // Whether to interrupt the agent's current work
 }
 ```
 
-The optional `action` field allows for more than just text guidance. `'interrupt'` tells the agent to stop what it is doing and listen. `'approve'` and `'reject'` are responses to questions the agent may have asked (see Sections 3.4 and 3.5).
+The `action` field controls the nature of the steering:
+- **`guidance`** (default) -- Provide additional context without interrupting
+- **`redirect`** -- Change the agent's current focus
+- **`pause`** / **`resume`** -- Pause or resume agent execution
+
+The `interrupt` flag tells the agent to stop what it is doing immediately and process the steering message.
 
 ### 3.4 Approval Flow
 
@@ -321,7 +422,19 @@ Browser -> POST /api/dispatch/approve -> Relay -> task.approval_response -> Agen
   requestId: string,      // Unique ID for this specific question (so the response can be matched)
   question: string,       // The question to show the user
   options: string[],      // The available choices (e.g., ["Approach A", "Approach B", "Cancel"])
-  timeout?: number,       // How long to wait for an answer (default: 60 seconds)
+}
+```
+
+**Approval response**:
+
+```typescript
+{
+  type: 'task.approval_response',
+  taskId: string,
+  requestId: string,      // Matches the request
+  answered: boolean,      // Whether the user answered (false = timeout)
+  answer?: string,        // The user's selected option
+  message?: string,       // Additional context from the user
 }
 ```
 
@@ -343,11 +456,13 @@ The user can choose from these decisions:
 - **`sandbox`** -- Run in an isolated sandbox environment instead
 - **`cancel`** -- Do not proceed; cancel the task
 
+The safety prompt includes a `safetyTier` field indicating the risk level, and an `options` array with available choices (each with `id`, `label`, and optional `description`).
+
 ### 3.6 Heartbeat
 
 A heartbeat is an **"are you still there?" check**. Every 30 seconds, the Relay sends a `ping` to each connected Agent Runner, and the Agent Runner responds with a `pong`. This serves two purposes:
 
-1. **Liveness detection**: If 3 consecutive pings go unanswered (meaning 90 seconds of silence), the Relay assumes the Agent Runner has disconnected -- maybe the laptop went to sleep, the network dropped, or the process crashed. The Relay then marks that machine as disconnected and stops trying to send it tasks.
+1. **Liveness detection**: If 6 consecutive pings go unanswered (180 seconds of silence, configured via `heartbeatTimeoutMs`), the Relay assumes the Agent Runner has disconnected -- maybe the laptop went to sleep, the network dropped, or the process crashed. The Relay then marks that machine as disconnected and stops trying to send it tasks.
 
 2. **Resource updates**: The `pong` response includes the Agent Runner's current resource usage and active task count, so the Relay always has an up-to-date picture of each machine's availability.
 
@@ -359,49 +474,377 @@ Relay Server                    Agent Runner
      |<-- heartbeat.pong ----------  |  (with resources, active tasks)
 ```
 
-### 3.7 File Operations
+**Disconnect grace period**: When a WebSocket connection drops, the Relay does not immediately fail active tasks. Instead, it enters a **grace period** (default: 180 seconds) during which the machine's registry entry is kept alive with a `reconnecting` status. If the Agent Runner reconnects within this window, the session resumes seamlessly. If the grace period expires, the machine is fully disconnected and active tasks are failed.
 
-The Relay also brokers file-related operations. When the browser needs to list files in a repository (for example, to show a file tree), it cannot access the user's machine directly -- it has to go through the Relay.
+### 3.7 Provider Status
+
+Agent Runners can report individual provider status changes independently of the full heartbeat cycle. This allows the Relay to react quickly when a provider becomes available or goes offline.
+
+```
+Agent Runner -> provider.status -> Relay
+```
+
+**Provider status payload**:
+
+```typescript
+{
+  type: 'provider.status',
+  machineId: string,
+  provider: ProviderInfo,      // Updated provider info (type, status, current tasks, etc.)
+}
+```
+
+The Relay updates the machine's provider list in the registry. If a provider transitions from `unavailable` to `available`, the machine becomes eligible for new task dispatch.
+
+### 3.8 Machine Status
+
+Similar to provider status, but covers the machine's overall load and optionally all providers at once.
+
+```
+Agent Runner -> machine.status -> Relay
+```
+
+**Machine status payload**:
+
+```typescript
+{
+  type: 'machine.status',
+  machineId: string,
+  load: MachineLoad,           // CPU%, memory%, GPU%, active/queued tasks
+  providers?: ProviderInfo[],  // Optionally update all provider statuses
+}
+```
+
+---
+
+## 4. File & Repository Operations
+
+The Relay brokers file-related operations between the browser and agent runners. When the browser needs to interact with the user's filesystem -- listing files, browsing directories, detecting repositories, initializing git -- it goes through the Relay. All of these use a request/response pattern with `correlationId` for matching.
+
+### 4.1 File List
 
 ```
 Browser -> POST /api/repo/files -> Relay -> file_list.request -> Agent Runner
                                                                     |
                                                               git ls-files
                                                                     |
-                                  Relay <- file_list_response <- Agent Runner
+                                  Relay <- file_list.response <- Agent Runner
                                     |
                               HTTP response -> Browser
 ```
 
-The Agent Runner runs `git ls-files` (or equivalent) on its local filesystem, and sends the results back through the Relay to the browser.
+**Request**: `file_list.request` with `path` and `correlationId`
+**Response**: `file_list.response` with `correlationId` and `files: string[]`
 
-A similar pattern exists for `repo_setup.request` / `repo_setup_response`, which handles cloning or initializing a repository on the Agent Runner's machine.
+### 4.2 Directory List
+
+Used for remote path browsing (e.g., selecting a project directory on a connected machine).
+
+**Request**: `directory_list.request` with `path` and `correlationId`
+**Response**: `directory_list.response` with `correlationId`, `path`, `entries: DirectoryEntry[]`, optional `homeDirectory`, and optional `error`
+
+Each `DirectoryEntry` contains:
+```typescript
+{
+  name: string,
+  path: string,
+  isDirectory: boolean,
+  isSymlink?: boolean,
+}
+```
+
+### 4.3 Create Directory
+
+**Request**: `create_directory.request` with `parentPath`, `name`, and `correlationId`
+**Response**: `create_directory.response` with `correlationId`, `success`, optional `path`, and optional `error`
+
+### 4.4 Repo Detect
+
+Inspects a directory to determine its git status, remote configuration, and suggested delivery mode.
+
+**Request**: `repo_detect.request` with `path` and `correlationId`
+**Response**: `repo_detect.response` with:
+
+```typescript
+{
+  correlationId: string,
+  exists: boolean,
+  isGit: boolean,
+  remoteUrl?: string,
+  remoteType: 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none',
+  baseBranch?: string,
+  currentBranch?: string,
+  isDirty?: boolean,
+  dirtyDetails?: { staged: number, unstaged: number, untracked: number },
+  suggestedDeliveryMode: 'pr' | 'push' | 'branch' | 'direct',
+  dirSizeMB?: number | null,
+  error?: string,
+}
+```
+
+### 4.5 Branch List
+
+Lists branches in a repository on the remote machine.
+
+**Request**: `branch_list.request` with `path` and `correlationId`
+**Response**: `branch_list.response` with:
+
+```typescript
+{
+  correlationId: string,
+  branches: Array<{
+    name: string,
+    isRemote: boolean,
+    isCurrent: boolean,
+    isDefault: boolean,
+  }>,
+  defaultBranch?: string,
+  error?: string,
+}
+```
+
+### 4.6 Git Init
+
+Initializes a git repository in a directory on the remote machine, with optional project metadata for the initial commit.
+
+**Request**: `git_init.request` with `correlationId`, `workingDirectory`, `projectId`, `projectName`, and optional `projectDescription`
+**Response**: `git_init.response` with:
+
+```typescript
+{
+  correlationId: string,
+  success: boolean,
+  workingDirectory?: string,
+  fileTree?: string[],
+  source?: Record<string, unknown>,
+  deliveryMode?: string,
+  error?: string,
+}
+```
+
+### 4.7 Repo Setup
+
+Full repository setup (clone, configure, detect) on the remote machine.
+
+**Request**: `repo_setup.request` with `correlationId`, `projectId`, `projectName`, optional `projectDescription`, optional `workingDirectory`, optional `repository`
+**Response**: `repo_setup.response` with success status, working directory, file tree, key files (CLAUDE.md, README.md, package.json), source info, delivery mode, and agent directory path.
+
+### 4.8 Slash Commands
+
+Discovers available slash commands on the agent runner (for command palette integration).
+
+**Request**: `slash_commands.request` with `correlationId` and optional `workingDirectory`
+**Response**: `slash_commands.response` with `correlationId` and `commands: Array<{ name: string, description: string }>`
+
+### 4.9 Sessions List
+
+Discovers existing Claude Code sessions on the agent runner (for session resume/fork).
+
+**Request**: `sessions_list.request` with `correlationId` and optional `maxAgeMs`
+**Response**: `sessions_list.response` with `correlationId`, `sessions: ClaudeCodeSessionInfo[]`, and optional `error`
+
+Each session includes:
+```typescript
+{
+  sessionId: string,
+  summary: string,
+  lastModified: number,
+  fileSize: number,
+  customTitle?: string,
+  firstPrompt?: string,
+  gitBranch?: string,
+  cwd?: string,
+}
+```
 
 ---
 
-## 4. Machine Registry
+## 5. Session Attachment Protocol (MCP Bridge)
 
-**File**: `server/lib/machine-registry.ts` (~200 lines)
+The Relay supports attaching external MCP bridge connections to active task sessions. This enables real-time observation of agent execution from external tools.
 
-The machine registry is the **phone book of currently-connected Agent Runners**. It is an in-memory data structure (meaning it lives in RAM and is fast to query, but is lost if the server restarts -- see Section 5 for the persistent counterpart).
+### 5.1 Session Attach
+
+An MCP bridge connects to the Relay and requests to observe a specific session:
+
+```
+MCP Bridge -> session.attach -> Relay
+                                  |
+                            Validates session exists in DB
+                                  |
+                            session.attach.ack -> MCP Bridge
+                                  |
+                            (events start flowing)
+                                  |
+                            session.event -> MCP Bridge  (ongoing)
+```
+
+**Attach request**:
+
+```typescript
+{
+  type: 'session.attach',
+  taskId: string,
+  sessionId: string,
+  machineId: string,
+}
+```
+
+**Attach acknowledgment**:
+
+```typescript
+{
+  type: 'session.attach.ack',
+  taskId: string,
+  sessionId: string,
+  success: boolean,
+  error?: string,
+}
+```
+
+### 5.2 Session Events
+
+Once attached, the MCP bridge receives a stream of `session.event` messages for the observed session:
+
+```typescript
+{
+  type: 'session.event',
+  sessionId: string,
+  taskId: string,
+  event: {
+    type: 'tool_call' | 'tool_result' | 'file_change' | 'message' | 'error',
+    timestamp: Date,
+    sessionId: string,
+    taskId: string,
+    // ... additional fields depending on event type
+  },
+}
+```
+
+### 5.3 Session Detach
+
+When observation is no longer needed:
+
+```typescript
+{
+  type: 'session.detach',
+  sessionId: string,
+  reason?: string,
+}
+```
+
+The Relay emits `session:attached`, `session:event`, and `session:detached` events on its EventEmitter for internal consumption.
+
+---
+
+## 6. Slurm/HPC Extensions
+
+The Relay protocol natively supports HPC/Slurm operations for running tasks on high-performance computing clusters. These extensions build on top of the standard task dispatch system.
+
+### 6.1 Slurm Task Dispatch
+
+Slurm tasks use the standard `TaskDispatch` interface extended with Slurm-specific configuration:
+
+```typescript
+interface SlurmTaskDispatch extends TaskDispatch {
+  preferredProvider: 'claude-sdk',
+  slurmConfig?: {
+    partition?: string,         // Slurm partition (e.g., 'gpu', 'cpu')
+    nodes?: number,             // Number of nodes
+    ntasks?: number,            // Number of tasks
+    cpusPerTask?: number,       // CPUs per task
+    mem?: string,               // Memory (e.g., '32G')
+    time?: string,              // Time limit (e.g., '4:00:00')
+    gpu?: {
+      type?: string,            // GPU type (e.g., 'A100')
+      count: number,            // Number of GPUs
+    },
+    qos?: string,               // Quality of service
+    account?: string,           // Slurm account
+    modules?: string[],         // Environment modules to load
+    workdir?: string,           // Working directory on the cluster
+  },
+}
+```
+
+### 6.2 Slurm Job Status
+
+Agent runners on HPC machines report Slurm job status changes:
+
+```typescript
+{
+  type: 'slurm.job.status',
+  taskId: string,
+  slurmJobId: string,
+  jobInfo: SlurmJobInfo,        // Full job state including node count, CPU count, times, etc.
+}
+```
+
+Slurm job states: `PENDING`, `RUNNING`, `SUSPENDED`, `COMPLETING`, `COMPLETED`, `FAILED`, `CANCELLED`, `TIMEOUT`, `PREEMPTED`, `NODE_FAIL`, `OUT_OF_MEMORY`, `UNKNOWN`.
+
+### 6.3 Slurm Job Output
+
+Streaming output from Slurm jobs:
+
+```typescript
+{
+  type: 'slurm.job.output',
+  taskId: string,
+  slurmJobId: string,
+  stream: 'stdout' | 'stderr',
+  data: string,
+}
+```
+
+### 6.4 Slurm Job Submitted
+
+Confirmation that a Slurm job was successfully submitted:
+
+```typescript
+{
+  type: 'slurm.job.submitted',
+  taskId: string,
+  slurmJobId: string,
+  scriptPath: string,           // Path to the generated SBATCH script
+  outputPath: string,           // Path for stdout capture
+  errorPath: string,            // Path for stderr capture
+}
+```
+
+### 6.5 Slurm Cluster Information
+
+HPC machines report cluster metadata as part of their provider info during registration. This includes:
+
+```typescript
+interface SlurmClusterInfo {
+  clusterName: string,
+  slurmVersion: string,
+  defaultPartition?: string,
+  partitions: SlurmPartitionInfo[],  // Per-partition: nodes, GPUs, time limits, features
+  qosLevels: string[],
+  accounts: string[],
+}
+```
+
+The Relay exposes dedicated HTTP endpoints for querying Slurm cluster information (see Section 7).
+
+---
+
+## 7. Machine Registry
+
+**File**: `server/lib/machine-registry.ts`
+
+The machine registry is the **phone book of currently-connected Agent Runners**. It is an in-memory data structure (meaning it lives in RAM and is fast to query, but is lost if the server restarts -- see Section 8 for the persistent counterpart).
 
 For each connected machine, the registry knows:
 
 ```typescript
-interface MachineEntry {
-  machineId: string;           // Unique machine identifier
-  name: string;                // Human-readable name (e.g., "Zhuoran's MacBook Pro")
-  hostname: string;            // Network hostname
-  platform: string;            // OS (darwin, linux, win32)
-  arch: string;                // CPU architecture (x64, arm64)
-  environmentType: 'local' | 'remote' | 'hpc';  // What kind of environment
-  providers: ProviderInfo[];   // Available AI providers (Claude Code, Codex, etc.)
-  resources: MachineResources; // Hardware: CPU cores, memory, GPU
-  executionStrategies?: ExecutionStrategyInfo[];  // How tasks can be run
-  connectedAt: Date;           // When this machine connected
-  lastHeartbeat: Date;         // When we last heard from it
-  activeTasks: number;         // How many tasks are currently running on it
-  userId?: string;             // Which user owns this machine
+interface MachineRegistryEntry extends MachineInfo {
+  connectionStatus: MachineConnectionStatus,  // 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error'
+  connectedAt: Date,            // When this machine connected
+  lastHeartbeat: Date,          // When we last heard from it
+  sessionId: string,            // Unique session ID for this connection
+  userId?: string,              // Which user owns this machine
 }
 ```
 
@@ -409,31 +852,35 @@ interface MachineEntry {
 
 These are the operations the Relay performs on the registry:
 
-- **`register(machineId, info)`** -- Add a machine to the phone book when it connects
-- **`unregister(machineId)`** -- Remove a machine when it disconnects
+- **`register(machineId, info, socket, userId)`** -- Add a machine to the phone book when it connects. If a machine with the same ID already exists, the old connection is closed with code `4001` (telling the old client not to reconnect) and replaced.
+- **`disconnect(machineId, reason?)`** -- Remove a machine when it disconnects
+- **`detachSocket(machineId)`** -- Null out the socket but keep the registry entry (used during disconnect grace periods -- status becomes `reconnecting`)
 - **`get(machineId)`** -- Look up a specific machine's information
 - **`isConnected(machineId)`** -- Check if a machine is currently connected
-- **`findBestMachine(criteria?)`** -- The smart part: select the optimal machine for a task (explained below)
+- **`findBestMachine(preferredProvider?, userId?)`** -- The smart part: select the optimal machine for a task (explained below)
 - **`getByUser(userId)`** -- List all machines belonging to a specific user
-- **`updateResources(machineId, resources)`** -- Update a machine's resource info (called when heartbeat data arrives)
-- **`updateActiveTasks(machineId, count)`** -- Update how many tasks a machine is running
+- **`getByProvider(providerType)`** -- List machines that have a specific provider available
+- **`updateLoad(machineId, load)`** -- Update a machine's load info (called when heartbeat data arrives)
+- **`updateProvider(machineId, provider)`** -- Update or add a provider on a machine
+- **`recordHeartbeat(machineId)`** -- Update the lastHeartbeat timestamp
+- **`getSnapshot()`** -- Get a full registry snapshot with summary statistics (total machines, by-provider counts, total active tasks)
 
 ### Best Machine Selection
 
 When the backend needs to dispatch a task and does not specify a particular machine, it calls `findBestMachine()`. The registry considers these factors (in order of priority):
 
-1. **User ownership** -- The machine must belong to the user who requested the task (you cannot accidentally run a task on someone else's laptop)
-2. **Provider availability** -- The machine must have the requested AI provider installed (e.g., if the task needs Claude Code, skip machines that only have Codex)
-3. **Current load** -- Machines with fewer active tasks are preferred (spread work evenly)
-4. **Environment type match** -- If the task specifies `hpc`, only consider HPC machines; if `local`, prefer local machines
+1. **User ownership** -- The machine must belong to the user who requested the task (you cannot accidentally run a task on someone else's laptop). Machines with no `userId` or with the `LOCAL_USER_ID` are accessible to all users.
+2. **Provider availability** -- The machine must have the requested AI provider installed, with status `available` and capacity for more tasks (`currentTasks < maxConcurrentTasks`).
+3. **Connection status** -- Only machines with `connectionStatus === 'connected'` are considered.
+4. **Current load** -- Machines are scored by `cpuPercent + (activeTasks * 10)`, with the lowest score (least loaded) selected first.
 
 ---
 
-## 5. Persistent Machine Store
+## 8. Persistent Machine Store
 
-**File**: `server/lib/registered-machines-store.ts` (~300 lines)
+**File**: `server/lib/registered-machines-store.ts`
 
-The in-memory registry (Section 4) is fast but volatile -- it is wiped whenever the server restarts. The **persistent machine store** is the durable counterpart. It uses Drizzle ORM queries against the unified database (PGlite in local mode, Postgres in server mode), so the system remembers which machines have been registered even after a server restart. The store works identically in both modes -- there is no degraded or missing functionality in local mode.
+The in-memory registry (Section 7) is fast but volatile -- it is wiped whenever the server restarts. The **persistent machine store** is the durable counterpart. It uses Drizzle ORM queries against the unified database (PGlite in local mode, Postgres in server mode), so the system remembers which machines have been registered even after a server restart. The store works identically in both modes -- there is no degraded or missing functionality in local mode.
 
 Think of the relationship this way: the in-memory registry is "who is online right now" (like seeing green dots on a chat app), while the persistent store is "who has an account" (the full member list, including people who are offline).
 
@@ -467,29 +914,46 @@ interface RegisteredMachine {
 
 ---
 
-## 6. HTTP API
+## 9. HTTP API
 
 **File**: `server/routes/relay.ts`
 
-In addition to the WebSocket protocol (which is for real-time communication with Agent Runners), the Relay exposes a set of HTTP endpoints. These are used by the Astro backend and frontend to query Relay status, list machines, and dispatch tasks.
+In addition to the WebSocket protocol (which is for real-time communication with Agent Runners), the Relay exposes a set of HTTP endpoints. These are used by the Astro backend and frontend to query Relay status, list machines, dispatch tasks, manage Slurm clusters, and discover sessions.
+
+### Core Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/relay/health` | Health check -- "is the Relay running?" |
-| GET | `/api/relay/status` | Detailed status: how many machines are connected, how many tasks are active |
-| GET | `/api/relay/machines` | List connected machines (filtered to only show machines owned by the authenticated user) |
-| GET | `/api/relay/machines/:machineId` | Get detailed information about a specific machine |
-| POST | `/api/relay/dispatch` | Dispatch a task to a specific machine |
-| POST | `/api/relay/cancel` | Cancel a running task on a machine |
-| GET | `/api/relay/best-machine` | Find the optimal machine for a task (uses the best-machine selection logic from Section 4) |
+| GET | `/api/relay/health` | Health check -- "is the Relay running?" (includes Redis connection status) |
+| GET | `/api/relay/status` | Detailed status: machine count, config, Redis status |
+| GET | `/api/relay/machines` | List connected machines (filtered by authenticated user, cross-referenced with DB for user-set names) |
+| GET | `/api/relay/machines/:machineId` | Get detailed information about a specific machine (ownership verified) |
+| GET | `/api/relay/machines/provider/:provider` | List machines by provider type |
+| DELETE | `/api/relay/machines/:machineId` | Force disconnect a machine (ownership required) |
+| POST | `/api/relay/dispatch` | Dispatch a task to a specific machine (ownership verified, supports Redis cross-instance routing) |
+| POST | `/api/relay/cancel` | Cancel a running task (ownership verified, supports Redis cross-instance routing) |
+| GET | `/api/relay/tasks/:taskId/machine` | Get the machine running a specific task (via Redis task mapping) |
+| GET | `/api/relay/best-machine` | Find the optimal machine for a task |
+| GET | `/api/relay/sessions` | List Claude Code sessions across connected machines (with caching, fan-out) |
+
+### Slurm/HPC Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/relay/slurm/clusters` | List all HPC-capable machines (machines with `hpcCapability` metadata) |
+| GET | `/api/relay/slurm/clusters/:machineId` | Get detailed Slurm cluster info for a specific machine |
+| GET | `/api/relay/slurm/jobs` | List active Slurm jobs across all clusters |
+| POST | `/api/relay/slurm/dispatch` | Dispatch a task specifically to a Slurm cluster (forces `claude-sdk` provider, validates HPC capability) |
 
 All endpoints except `/health` require authentication (the caller must prove who they are).
 
 **Machine name display**: When listing machines, the API prefers the user-set name from the database (e.g., "My Work Laptop") over the raw hostname (e.g., "zhuoran-mbp.local"). This makes the UI more readable.
 
+**Sessions discovery**: The `/api/relay/sessions` endpoint supports per-machine queries (`?machineId=xxx`) or fan-out to all user-owned machines. Results are cached per-user for 60 seconds, and sessions older than 24 hours are excluded by default. The response includes `machineId` and `machineName` for each session.
+
 ---
 
-## 7. Event Flow Integration
+## 10. Event Flow Integration
 
 The Relay does not just pass messages between the backend and Agent Runners -- it also feeds into Astro's broader event system. This is how real-time updates reach the user's browser and how observability/audit systems record what happened.
 
@@ -520,64 +984,220 @@ Not every Relay message type maps one-to-one to an SSE event or bus event. Here 
 | `task.stdout` | `task:stdout` | `task:stdout` |
 | `task.text` | `task:text` | `task:stdout` (merged into stdout stream) |
 | `task.result` | `task:result` | `task:result` |
-| `task.tool_use` | `task:tool_trace` | `task:tool_trace` |
+| `task.tool_use` / `task.tool_trace` | `task:tool_trace` | `task:tool_trace` |
 | `task.tool_result` | `task:tool_trace` | `task:tool_trace` |
 | `task.file_change` | `task:file_change` | `task:file_change` |
 | `task.progress` | `task:progress` | `task:progress` |
 | `task.session_init` | `task:session_init` | `task:session_init` |
 | `task.approval_request` | `task:approval_request` | -- (not forwarded to bus) |
-| `task.steer_ack` | `task:steer_ack` | -- (not forwarded to bus) |
+| `task.safety_prompt` | `task:safety_prompt` | -- (not forwarded to bus) |
+| `task.steer.ack` | `task:steer_ack` | -- (not forwarded to bus) |
+| `provider.status` | -- | -- (updates registry only) |
+| `machine.status` | -- | -- (updates registry only) |
+| `session.event` | `session:event` | -- (forwarded to attached MCP bridges) |
 
 A few things to note:
 - **`task.text` merges into `task:stdout`** on the bus side. The bus does not distinguish between raw terminal output and AI-generated text -- it is all "output" for logging purposes.
 - **`task.tool_use` and `task.tool_result`** both become `task:tool_trace`. The bus groups them together because a tool call and its result are logically one unit.
-- **Approval requests and steer acknowledgments** go to the browser (so the UI can show them) but not to the execution event bus (they are interactive UI concerns, not execution data).
+- **Approval requests, safety prompts, and steer acknowledgments** go to the browser (so the UI can show them) but not to the execution event bus (they are interactive UI concerns, not execution data).
+- **Provider and machine status updates** only update the registry; they are not forwarded as events.
+- **Session events** are forwarded to attached MCP bridge clients, not to the general event bus.
 
 ---
 
-## 8. Protocol Gaps (Resolved)
+## 11. Protocol Extensions
 
-The Relay protocol was designed primarily for task execution -- sending a prompt to an Agent Runner and streaming back results. As Astro grew, four gaps were identified in the protocol. **All four have now been resolved** by extending the `TaskDispatch` interface in `server/types/relay.ts` (lines 136-224) and forwarding the new fields in `RelayServer.dispatchTask()` in `server/lib/relay-server.ts` (lines 986-989).
+The relay protocol has been extended beyond its original task execution scope to support four additional capabilities in production. These are implemented as fields on the `TaskDispatch` interface in `server/types/relay.ts` and forwarded by `RelayServer.dispatchTask()` in `server/lib/relay-server.ts`.
 
-### Gap 1: No `messages` field -- **RESOLVED**
+### 11.1 Task Type Differentiation (`type` field)
 
-**The problem**: The `TaskDispatch` payload only had a single `prompt` string field for the AI input. But for chat-style interactions, the backend needs to send a structured conversation history -- an array of messages like `[{role: "user", content: "..."}, {role: "assistant", content: "..."}, {role: "user", content: "..."}]`.
+The `type` field tells the agent runner what kind of work a dispatch represents. This enables the agent runner to optimize behavior per task type (e.g., enabling structured output for plan generation, adjusting system prompts for chat).
 
-**Resolution**: A `messages?: ConversationMessage[]` field was added to `TaskDispatch` (`server/types/relay.ts`, line 194). When provided, the agent runner uses this to build the prompt as an `AsyncIterable<SDKUserMessage>` instead of a flat string, preserving multi-turn structure. When omitted, `prompt` is used as a single-turn string (backward-compatible).
+```typescript
+type?: TaskDispatchType  // 'execution' | 'plan' | 'chat' | 'summarize'
+```
 
-### Gap 2: No `systemPrompt` field -- **RESOLVED**
+- **`execution`** (default): Standard task execution -- code changes, tests, etc.
+- **`plan`**: Plan generation -- produces structured JSON output (task graph).
+- **`chat`**: Conversational exchange -- multi-turn chat about a plan or project.
+- **`summarize`**: Single-turn summarization of task output.
 
-**The problem**: Different types of tasks need different system prompts. A chat task uses `buildChatSystemPrompt()`, a planning task uses a planning-specific prompt, etc. But `TaskDispatch` had no way to specify a system prompt separately from the user prompt.
+Defaults to `'execution'` when omitted, maintaining backward compatibility with older agent runners.
 
-**Resolution**: A `systemPrompt?: string` field was added to `TaskDispatch` (`server/types/relay.ts`, line 179). When provided, the agent runner passes this to the Claude SDK's `options.systemPrompt` parameter, keeping it separate from user content. This enables proper system prompt caching across turns.
+### 11.2 System Prompt Injection (`systemPrompt` field)
 
-### Gap 3: No task `type` field -- **RESOLVED**
+The `systemPrompt` field provides a separate system-level instruction for the AI session, decoupled from the user prompt. This enables proper system prompt caching across turns and task-type-specific instructions.
 
-**The problem**: The Relay did not distinguish between different kinds of tasks: plan generation, chat, task execution, and summarization. They all looked like "here is a prompt, run it."
+```typescript
+systemPrompt?: string
+```
 
-**Resolution**: A `type?: TaskDispatchType` field was added to `TaskDispatch` (`server/types/relay.ts`, line 166), where `TaskDispatchType = 'execution' | 'plan' | 'chat' | 'summarize'` (line 122). Defaults to `'execution'` if omitted (backward-compatible). The agent runner can now optimize behavior per task type.
+- For `plan` tasks: planning instructions + JSON schema constraints
+- For `chat` tasks: conversational context instructions
+- For `execution` tasks: usually omitted (agent runner uses defaults)
+- For `summarize` tasks: summarization instructions
 
-### Gap 4: No `model` field -- **RESOLVED**
+When provided, the agent runner passes this to the Claude SDK's `options.systemPrompt` parameter.
 
-**The problem**: The model selection was implicit via the `preferredProvider` field (e.g., "use Claude Code"). There was no way to specify which exact model to use within a provider (e.g., "use Claude Opus 4 via Claude Code").
+### 11.3 Conversation History (`messages` field)
 
-**Resolution**: A `model?: string` field was added to `TaskDispatch` (`server/types/relay.ts`, line 205). The frontend allows users to select models, and this field passes that choice through the relay to the agent runner, which passes it to the SDK's `options.model` parameter. When omitted, the agent runner uses its configured default model.
+The `messages` field carries structured multi-turn conversation history for chat tasks, preserving role structure (user/assistant turns).
 
-### Status
+```typescript
+messages?: ConversationMessage[]  // Array of { role: 'user' | 'assistant', content: string }
+```
 
-All four gaps are resolved. The `dispatchTask()` method in `server/lib/relay-server.ts` forwards `type`, `systemPrompt`, `messages`, and `model` to agent runners when present (lines 986-989). Agent runners that do not recognize these fields will ignore them, maintaining backward compatibility. All AI execution can now go through the Relay uniformly.
+When provided, the agent runner builds the prompt as an `AsyncIterable<SDKUserMessage>` instead of a flat string, preserving the multi-turn structure the Claude SDK expects. When omitted, `prompt` is used as a single-turn string.
+
+### 11.4 Model Selection (`model` field)
+
+The `model` field enables explicit model selection, passing the user's choice through the Relay to the agent runner.
+
+```typescript
+model?: string  // e.g., 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'
+```
+
+When provided, the agent runner passes this to the SDK's `options.model` parameter. When omitted, the agent runner uses its configured default model.
+
+### 11.5 Workspace & Delivery Fields
+
+A set of fields control how the agent runner manages the workspace and delivers results:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `deliveryMode` | `'pr' \| 'push' \| 'branch' \| 'copy' \| 'direct'` | How results are delivered after task completion |
+| `remoteType` | `'github' \| 'gitlab' \| 'bitbucket' \| 'generic' \| 'none'` | Remote type of the source repository |
+| `agentDir` | `string` | Agent directory name (default: `.astro`) |
+| `baseBranch` | `string` | Target branch for worktree creation and PR base |
+| `worktreeStrategy` | `'copy' \| 'reference' \| 'direct'` | Worktree strategy for non-git projects |
+| `useWorktree` | `boolean` | Explicit opt-out of worktree creation |
+| `resumeSessionId` | `string` | Resume an existing Claude Code session by ID |
+| `forkSession` | `boolean` | Fork the resumed session instead of continuing in-place |
+
+### 11.6 Multimodal & PR Enrichment Fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `images` | `ImageAttachment[]` | Base64-encoded images for multimodal prompts |
+| `shortNodeId` | `string` | First 6 hex chars of nodeId UUID (for branch names) |
+| `shortProjectId` | `string` | First 6 hex chars of projectId UUID (for PR titles) |
+| `astroBaseUrl` | `string` | Base URL for linking back to tasks in PR bodies |
+| `githubIssueUrl` | `string` | GitHub issue URL to reference in PR body |
+| `githubIssueNumber` | `number` | GitHub issue number (e.g., 42 -> "Closes #42") |
+
+### 11.7 Dispatch Signing
+
+For production security, dispatches can be cryptographically signed:
+
+```typescript
+dispatchSignature?: string,           // ECDSA P-256 signature (base64url-encoded)
+dispatchSigningPayload?: {
+  v: 1,                               // Schema version
+  nodeId: string,                     // Which task
+  projectId: string,                  // Which project
+  machineId: string,                  // Target machine (prevents redirection)
+  timestamp: string,                  // ISO 8601 (prevents replay)
+  nonce: string,                      // 32-byte hex (prevents replay)
+}
+```
+
+The agent runner can verify the signature to confirm the dispatch came from a legitimate Astro server and was not tampered with or replayed.
+
+### Backward Compatibility
+
+All extension fields are optional. Agent runners that do not recognize them will ignore them. The `dispatchTask()` method in `server/lib/relay-server.ts` conditionally includes each field only when present, ensuring no unnecessary data is sent to older agent runners.
 
 ---
 
-## 9. Authentication
+## 12. Complete Message Type Reference
+
+This section provides a comprehensive reference of all message types in the protocol, organized by direction.
+
+### Agent Runner -> Relay (Inbound)
+
+| Message Type | Interface | Purpose |
+|-------------|-----------|---------|
+| `machine.register` | `MachineRegisterMessage` | Machine registration with capabilities |
+| `machine.unregister` | `MachineUnregisterMessage` | Graceful machine disconnect |
+| `machine.status` | `MachineStatusMessage` | Load and provider status update |
+| `provider.status` | `ProviderStatusMessage` | Individual provider status change |
+| `task.result` | `TaskResultMessage` | Task execution completed |
+| `task.stdout` | `TaskStdoutMessage` | Terminal output streaming |
+| `task.text` | `TaskTextMessage` | Structured text output (sequence-numbered) |
+| `task.progress` | `TaskProgressMessage` | Progress update (0-100%) |
+| `task.session_init` | `TaskSessionInitMessage` | AI session initialized (session ID, model) |
+| `task.tool_trace` | `TaskToolTraceMessage` | Tool call with input/output |
+| `task.file_change` | `TaskFileChangeMessage` | File created/modified/deleted with diff |
+| `task.approval_request` | `TaskApprovalRequestMessage` | Agent asking user a question |
+| `task.steer.ack` | `TaskSteerAckMessage` | Acknowledgment of steering message |
+| `heartbeat.pong` | `HeartbeatPongMessage` | Heartbeat response |
+| `file_list.response` | `FileListResponseMessage` | File listing result |
+| `directory_list.response` | `DirectoryListResponseMessage` | Directory listing result |
+| `create_directory.response` | `CreateDirectoryResponseMessage` | Directory creation result |
+| `repo_detect.response` | `RepoDetectResponseMessage` | Repository detection result |
+| `branch_list.response` | `BranchListResponseMessage` | Branch listing result |
+| `git_init.response` | `GitInitResponseMessage` | Git init result |
+| `slash_commands.response` | `SlashCommandsResponseMessage` | Slash commands listing |
+| `sessions_list.response` | `SessionsListResponseMessage` | Claude Code sessions listing |
+| `slurm.job.status` | `SlurmJobStatusMessage` | Slurm job state change |
+| `slurm.job.output` | `SlurmJobOutputMessage` | Slurm job stdout/stderr |
+| `slurm.job.submitted` | `SlurmJobSubmittedMessage` | Slurm job submission confirmation |
+
+### Relay -> Agent Runner (Outbound)
+
+| Message Type | Interface | Purpose |
+|-------------|-----------|---------|
+| `task.dispatch` | `TaskDispatchMessage` | Dispatch a task for execution |
+| `task.cancel` | `TaskCancelMessage` | Cancel a running task |
+| `task.steer` | `TaskSteerMessage` | Inject guidance into running agent |
+| `task.approval_response` | `TaskApprovalResponseMessage` | User's answer to agent question |
+| `heartbeat.ping` | `HeartbeatPingMessage` | Heartbeat check |
+| `machine.register.ack` | `MachineRegisterAckMessage` | Registration confirmation |
+| `file_list.request` | `FileListRequestMessage` | Request file listing |
+| `directory_list.request` | `DirectoryListRequestMessage` | Request directory listing |
+| `create_directory.request` | `CreateDirectoryRequestMessage` | Request directory creation |
+| `repo_detect.request` | `RepoDetectRequestMessage` | Request repository detection |
+| `branch_list.request` | `BranchListRequestMessage` | Request branch listing |
+| `git_init.request` | `GitInitRequestMessage` | Request git initialization |
+| `slash_commands.request` | `SlashCommandsRequestMessage` | Request slash commands |
+| `sessions_list.request` | `SessionsListRequestMessage` | Request sessions listing |
+| `error` | `ErrorMessage` | Error notification |
+
+### MCP Bridge -> Relay (Session)
+
+| Message Type | Interface | Purpose |
+|-------------|-----------|---------|
+| `session.attach` | `SessionAttachMessage` | Attach to observe a session |
+| `session.detach` | `SessionDetachMessage` | Stop observing a session |
+| `session.event` | `SessionEventMessage` | Session event from MCP bridge |
+
+### Relay -> MCP Bridge (Session)
+
+| Message Type | Interface | Purpose |
+|-------------|-----------|---------|
+| `session.attach.ack` | `SessionAttachAckMessage` | Attachment confirmation |
+| `error` | `ErrorMessage` | Error notification |
+
+### Platform Internal (Redis Pub/Sub)
+
+| Event | Interface | Purpose |
+|-------|-----------|---------|
+| `machine.connected` / `machine.disconnected` / `machine.updated` | `MachineStateChangeEvent` | Machine registry state changes |
+| `task.dispatched` / `task.started` / `task.completed` / `task.failed` / `task.cancelled` | `TaskStateChangeEvent` | Task lifecycle state changes |
+
+---
+
+## 13. Authentication
 
 Authentication answers the question: "How does the Relay know it should trust this Agent Runner?" The answer depends on the mode.
 
-### 9.1 Local Mode
+### 13.1 Local Mode
 
-No authentication. The Agent Runner connects with machine ID headers only. This is safe because in local mode, everything runs on the same machine -- there is no network boundary to protect. Requiring authentication here would just add friction to local development.
+No authentication. The Agent Runner connects with machine ID headers only (`x-runner-id`, `x-machine-id`). This is safe because in local mode, everything runs on the same machine -- there is no network boundary to protect. Requiring authentication here would just add friction to local development.
 
-### 9.2 Server Mode
+In development mode (non-production), the Relay logs a security warning when accepting unauthenticated connections. If JWT verification fails in dev mode, it falls back to accepting the connection with a dev identity.
+
+### 13.2 Server Mode
 
 In server mode, Agent Runners connect over the internet, so we need real authentication. Astro uses the **Device Authorization Grant** flow (defined in RFC 8628), which is the same pattern used by smart TVs and CLI tools that do not have a web browser.
 
@@ -601,4 +1221,49 @@ A **JWT** (JSON Web Token) is a signed token -- think of it as a **tamper-proof 
 - But nobody can forge or modify it without the server's secret key
 - The Relay can verify it is legitimate just by checking the signature -- it does not need to call the database
 
-JWT tokens in Astro contain: `userId` (who owns the machine), `machineId` (which machine), `scopes` (what it is allowed to do), and `exp` (when it expires).
+JWT tokens in Astro contain:
+
+```typescript
+interface MachineJWTPayload {
+  sub: string,         // Machine ID
+  iat: number,         // Issued at (Unix timestamp)
+  exp: number,         // Expires at (Unix timestamp)
+  scopes: string[],    // Permissions (e.g., ['machine:connect', 'task:execute'])
+  machineId: string,   // Which machine
+  userId?: string,     // Which user owns the machine
+  workspaceId?: string, // Which workspace (multi-tenant)
+}
+```
+
+---
+
+## 14. Configuration
+
+The Relay server uses the following configuration, with sensible defaults:
+
+```typescript
+interface RelayServerConfig {
+  port: number,                     // Default: 3002
+  heartbeatIntervalMs: number,      // Default: 30000 (30 seconds)
+  heartbeatTimeoutMs: number,       // Default: 180000 (6 missed heartbeats)
+  disconnectGracePeriodMs: number,  // Default: 180000 (3 minutes)
+  maxConnectionsPerMachine: number, // Default: 1
+  rateLimit: {
+    windowMs: number,               // Default: 60000 (1 minute)
+    maxRequests: number,            // Default: 1000
+    maxTasksPerMinute: number,      // Default: 100
+    maxStdoutBytesPerSecond: number, // Default: 1MB/s
+  },
+  redisUrl?: string,                // Redis URL for horizontal scaling
+  jwtSecret?: string,               // JWT secret for authentication
+}
+```
+
+### Rate Limiting
+
+Each connected machine is subject to rate limiting:
+- **Request rate**: Maximum 1000 requests per minute per machine
+- **Stdout bandwidth**: Maximum 1 MB/s per machine (messages exceeding this are dropped)
+- **Task rate**: Maximum 100 task dispatches per minute
+
+Rate limit state is per-machine and resets each minute.

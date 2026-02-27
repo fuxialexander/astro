@@ -41,6 +41,14 @@ function prune(): void {
 const cleanupTimer = setInterval(prune, CLEANUP_INTERVAL_MS)
 cleanupTimer.unref() // Don't prevent process exit
 
+/**
+ * Tracks executionIds that have an active dispatch.ts SSE bridge.
+ * Used by events.ts to avoid double-sending: when the dispatch bridge
+ * is alive it handles streaming events via executionEventBus; when
+ * it's dead (after page refresh), events.ts subscribes to relay directly.
+ */
+export const activeDispatchStreams = new Set<string>()
+
 export const executionContextStore = {
   register(ctx: Omit<ExecutionContext, 'createdAt'>): void {
     store.set(ctx.executionId, { ...ctx, createdAt: Date.now() })

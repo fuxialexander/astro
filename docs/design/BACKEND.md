@@ -4,7 +4,7 @@
 
 The Astro platform has two main halves that work together: the **Frontend** (what you see in your browser -- buttons, graphs, chat panels) and the **Backend** (a program running on a server that the browser talks to behind the scenes). This document describes the Backend.
 
-Think of the Backend as a **receptionist and filing clerk combined**. When you do something in the browser -- create a project, start a task, chat with the AI -- the browser sends a request to the Backend. The Backend validates the request (is it well-formed? is this user allowed to do this?), looks up or saves data (in a database), and coordinates with other systems (the Relay for remote machines, AI providers for intelligence). The Backend never runs AI itself in the target architecture -- it delegates that work to **Agent Runners**, which are separate programs running on your machines.
+Think of the Backend as a **receptionist and filing clerk combined**. When you do something in the browser -- create a project, start a task, chat with the AI -- the browser sends a request to the Backend. The Backend validates the request (is it well-formed? is this user allowed to do this?), looks up or saves data (in a database), and coordinates with other systems (the Relay for remote machines, AI providers for intelligence). The Backend never runs AI itself -- it delegates that work to **Agent Runners**, which are separate programs running on your machines, coordinated through the Relay WebSocket server.
 
 Here is a quick vocabulary primer for concepts used throughout this document:
 
@@ -13,7 +13,6 @@ Here is a quick vocabulary primer for concepts used throughout this document:
 - **Middleware**: Checkpoints that every request passes through before reaching its destination -- like security guards checking IDs at a building entrance. Middleware can reject bad requests, add information, or enforce rules.
 - **Routes**: Different "departments" that handle different types of requests -- like a hospital has an ER, radiology, and pharmacy. Each route handles a specific kind of work (AI requests go to the agent route, data storage goes to the data route, etc.).
 - **Event system**: An internal announcement system. When something happens (a task completes, a machine connects, an error occurs), it is announced to all interested parties so they can react.
-- **Procedure pipeline**: A recipe with steps. Instead of asking the AI to "do everything at once," we break work into discrete steps (write code, then review it, then commit it, then create a pull request), each with its own rules and checks.
 
 Key technologies used by the Backend:
 
@@ -30,7 +29,7 @@ Key technologies used by the Backend:
 
 ## 2. Startup Sequence
 
-When you start the Backend (by running `npm run dev:backend` or `npm run dev`), it goes through a carefully ordered series of steps to prepare itself. Each step depends on the previous ones completing successfully. This is defined in `server/index.ts`, in the `start()` function (lines 214-421).
+When you start the Backend (by running `npm run dev:backend` or `npm run dev`), it goes through a carefully ordered series of steps to prepare itself. Each step depends on the previous ones completing successfully. This is defined in `server/index.ts`, in the `start()` function.
 
 Here is what happens, in order:
 
@@ -38,11 +37,9 @@ Here is what happens, in order:
 
 2. **Run database migrations** -- `runMigrations()` via Drizzle. "Migrations" are scripted changes to the database structure. If we added a new column to a table since the last time the server ran, the migration applies that change. This ensures the database shape always matches what the code expects.
 
-3. **Initialize AI providers** -- `initializeProviders()` with a 15-second timeout. The Backend detects which AI tools are available on the machine (Claude Code CLI, Codex CLI, etc.). It tries to connect to each one and records which are working. The timeout prevents a broken provider from blocking the entire startup.
+3. **Bootstrap local mode** (if local mode) -- Creates the fixed local team, user profile, and team membership in the PGlite database. This is idempotent and safe to call on every restart.
 
-4. **Load skills** -- `skillManager.loadSkills()`. Skills are reusable capabilities (like "generate a commit message" or "review code") that can be composed into workflows. This step discovers and loads all available skill definitions.
-
-5. **Register event hooks** -- 8+ hooks are registered on the `astroEventTransport` singleton (skipped in test mode so tests run cleanly without side effects):
+4. **Register event hooks** -- 8+ hooks are registered on the `astroEventTransport` singleton (skipped in test mode so tests run cleanly without side effects):
    - `sse-notification` -- Forward events to SSE clients (so the browser sees real-time updates)
    - `audit-log` -- Log user actions for accountability and debugging
    - `usage-metrics` -- Track token counts and cost (how much AI usage is happening)
@@ -53,24 +50,24 @@ Here is what happens, in order:
    - `observability` -- Send tracing data to Langfuse (a tool for monitoring AI application behavior)
    - `langfuse-export` -- (conditional) Export trace data to Langfuse for external observability
 
-6. **Load channel plugins** -- Webhook plugin loading. This loads any configured integrations with external notification services.
+5. **Reset machine connections** -- `resetAllConnectionStatuses()` clears stale state from the previous session. If the server crashed while machines were marked as "connected," this ensures they start fresh and must re-register.
 
-7. **Reset machine connections** -- `resetAllConnectionStatuses()` clears stale state from the previous session. If the server crashed while machines were marked as "connected," this ensures they start fresh and must re-register.
+6. **Connect to Redis** (if configured) -- Redis is an in-memory data store used here for horizontal scaling. If you run multiple Backend instances (for handling more users), Redis lets them share information about which machines are connected and which tasks are running. Not needed for local development with a single server.
 
-8. **Connect to Redis** (if configured) -- Redis is an in-memory data store used here for horizontal scaling. If you run multiple Backend instances (for handling more users), Redis lets them share information about which machines are connected and which tasks are running. Not needed for local development with a single server.
-
-9. **Start relay server** -- The Relay is a WebSocket server on port 3002 that maintains persistent, two-way connections with Agent Runners on user machines. It registers handlers for three key events:
+7. **Start relay server** -- The Relay is a WebSocket server on port 3002 that maintains persistent, two-way connections with Agent Runners on user machines. It registers handlers for three key events:
    - `task:result` -- An Agent Runner finished a task
    - `machine:connected` -- A new machine joined
    - `machine:disconnected` -- A machine went offline
 
-10. **Start dispatch engine** -- `dispatchEngine.start()`. The dispatch engine watches for tasks whose dependencies are satisfied and automatically sends them out for execution. Think of it as a traffic controller that knows when each task is ready to go.
+8. **Start dispatch engine** -- `dispatchEngine.start()`. The dispatch engine watches for tasks whose dependencies are satisfied and automatically sends them out for execution. Think of it as a traffic controller that knows when each task is ready to go.
 
-11. **Start cleanup scheduler** -- A 24-hour cycle that deletes old execution data and chat history to prevent the database from growing indefinitely. This is disabled in test mode and in local mode (PGlite handles its own cleanup).
+9. **Start cleanup scheduler** -- A 24-hour cycle that deletes old execution data and chat history to prevent the database from growing indefinitely. This is disabled in test mode and in local mode (PGlite handles its own cleanup).
 
-12. **Start HTTP server** -- Finally, Hono begins listening on port 3001. The Backend is now ready to accept requests from the browser.
+10. **Start periodic cleanup tasks** -- Expired WebAuthn challenges are cleaned every minute and expired device codes every 5 minutes.
 
-**Shutdown** (lines 425-445): When the server receives a termination signal (SIGTERM or SIGINT -- for example, when you press Ctrl+C), it gracefully shuts down each component in reverse order: stop the cleanup scheduler, observation collector, dispatch engine, HTTP server, relay, and Redis connection. If graceful shutdown takes longer than 3 seconds, it forces a hard kill to avoid hanging.
+11. **Start HTTP server** -- Finally, Hono begins listening on port 3001. The Backend is now ready to accept requests from the browser.
+
+**Shutdown**: When the server receives a termination signal (SIGTERM or SIGINT -- for example, when you press Ctrl+C), it gracefully shuts down each component in reverse order: stop the cleanup scheduler, observation collector, dispatch engine, HTTP server, relay, and Redis connection. If graceful shutdown takes longer than 3 seconds, it forces a hard kill to avoid hanging.
 
 ### How a Request Flows Through the Backend
 
@@ -110,13 +107,13 @@ Once the server is running, every incoming request from the browser passes throu
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-This pattern applies to all request types, though the specifics vary: a health check stops at the route handler (no relay or events needed), while a plan generation request follows a similar pipeline but routes through the agent provider instead of the relay.
+This pattern applies to all request types, though the specifics vary: a health check stops at the route handler (no relay or events needed), while a plan generation request follows a similar pipeline but may route through the relay to an agent runner for AI processing.
 
 ---
 
 ## 3. Routes
 
-Routes are the Backend's "departments" -- each one handles a specific category of requests. There are 20 route files in `server/routes/`, mounted in `server/index.ts` at lines 148-166.
+Routes are the Backend's "departments" -- each one handles a specific category of requests. There are 19 route files in `server/routes/`, mounted in `server/index.ts`.
 
 When the browser sends a request to a URL like `/api/agent/generate-plan`, the Backend looks at the path (`/api/agent/generate-plan`) and forwards the request to the matching route handler (`agent.ts`), which knows how to process that specific type of request.
 
@@ -124,52 +121,48 @@ When the browser sends a request to a URL like `/api/agent/generate-plan`, the B
 
 These routes handle all interactions with AI -- generating plans, chatting, dispatching tasks, and getting results.
 
-#### `/api/agent` (`agent.ts`, 1177 lines)
+#### `/api/agent` (`agent.ts`)
 
-This is the main AI interaction endpoint. It handles plan generation (asking the AI to break a project into tasks), chat (discussing and refining a plan with the AI), and direct task dispatch (sending a single task to an AI agent).
+This is the main AI interaction endpoint. It handles plan generation (asking the AI to break a project into tasks), chat (discussing and refining a plan with the AI), and execution summary generation. All AI operations route through the relay to agent runners.
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | POST | `/generate-plan` | AI plan generation via SSE stream |
 | POST | `/chat` | Plan-level refinement chat |
+| POST | `/plan-chat` | Plan-level chat (alias for /chat) |
 | POST | `/task-chat` | Task-level chat with execution context |
-| POST | `/dispatch` | Direct task dispatch (bypasses dispatch engine) |
 | POST | `/summarize` | Generate execution summary |
 | POST | `/abort` | Cancel running session |
-| GET | `/providers` | List available AI providers |
-| POST | `/providers/detect` | Force re-detect providers |
 
-**Plan generation** (`/generate-plan`, lines 92-570):
+**Plan generation** (`/generate-plan`):
 
 This is what happens when you create a new project and the AI generates a plan (a graph of tasks). The browser describes what the user wants to build, and the AI returns a structured plan with nodes (tasks) and edges (dependencies between tasks).
 
-- Input: description, visionDoc, projectId, model, providerId, workingDirectory, fileTree, targetMachineId
+- Input: description, visionDoc, projectId, model, workingDirectory, fileTree, keyFiles, targetMachineId, gitState
 - Validation via Zod schemas (description max 50K chars, fileTree max 10K items, visionDoc max 100K). These limits prevent accidentally sending enormous payloads that would overwhelm the AI or the server.
-- Two execution paths (depending on where the AI should run):
-  - **Relay path** (line 116): When `targetMachineId` is provided and is not a local directory, the request is forwarded to an Agent Runner on a remote machine via `generatePlanViaRelay()`
-  - **Local path** (lines 131-351): The Backend calls the AI provider directly with `provider.stream()` and streams the result back as SSE
+- Dispatched through the relay as a `RelayTaskDispatch` with `type: 'plan'` and `outputFormat: { type: 'json_schema' }` to enforce structured JSON output conforming to the plan graph schema
 - Returns an SSE stream: `text` events during generation (so the user sees progress), `plan_result` with the final JSON plan, and `done` when complete
 
-**Chat** (`/chat`, lines 626-750):
+**Chat** (`/chat`, `/plan-chat`):
 
 This powers the chat panel where users discuss and refine their plan with the AI. The user can say things like "break task 3 into smaller pieces" or "add a testing step after the implementation."
 
 - Input: message, sessionId, projectId, visionDoc, planNodes, planEdges, messages (conversation history)
-- Uses `getChatProvider()`, which prefers the `anthropic-direct` adapter (calls the Anthropic API directly rather than going through a CLI tool)
+- Routes through the relay via `streamChatViaRelay()` -- the same relay-based execution path as task dispatch
 - The AI can respond with structured modification blocks that automatically update the plan:
   - `astro-updates` -- change existing nodes
   - `astro-edges` -- add or modify dependency edges
   - `astro-add-nodes` -- add entirely new nodes
 - Returns an SSE stream
 
-**Task chat** (`/task-chat`, lines 755-832):
+**Task chat** (`/task-chat`):
 
 Similar to plan-level chat, but focused on a single task. The AI has access to that task's execution output, description, and context, so you can ask questions like "why did the build fail?" or "what should I change in the config?"
 
 - Input: message, sessionId, nodeId, projectId, taskTitle, taskDescription, taskOutput, visionDoc, model, messages
-- Same streaming pattern as plan chat but with task execution context injected into the conversation
+- Same relay-based streaming pattern as plan chat but with task execution context injected into the conversation
 
-**Summarize** (`/summarize`, lines 1096-1153):
+**Summarize** (`/summarize`):
 
 After a task finishes executing, this endpoint generates a concise summary of what happened. This is useful because raw execution output can be thousands of lines long.
 
@@ -177,56 +170,50 @@ After a task finishes executing, this endpoint generates a concise summary of wh
 - Makes a single-turn Anthropic API call (no back-and-forth, just one question and one answer) to generate a structured JSON summary
 - Returns an `ExecutionSummary` with: workCompleted (what was done), filesChanged (which files were modified), status (success/failure), and followUps (suggested next steps)
 
-#### `/api/dispatch` (`dispatch.ts`, 1564 lines)
+#### `/api/dispatch` (`dispatch.ts`)
 
-This is the full task dispatch endpoint -- the route that actually sends tasks to AI agents for execution. It handles the complete lifecycle: setting up a workspace, running the AI, managing the results, creating pull requests, and cleaning up.
+This is the full task dispatch endpoint -- the route that sends tasks to AI agents for execution via the relay. All AI execution flows through the relay to agent runners; there is no local execution path on the server.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/task` | Main task dispatch (lines 93-266) |
+| POST | `/task` | Main task dispatch (relay-only, SSE streaming) |
 | POST | `/cancel` | Cancel running task |
 | POST | `/steer` | Send guidance to running agent |
 | POST | `/prune-branch` | Kill task + all downstream dependents |
 | POST | `/approve` | Respond to approval request |
+| POST | `/request-dynamic-approval` | Request dynamic approval from user (MCP tool) |
 | POST | `/reset` | Reset task execution state |
 | POST | `/cleanup` | Clean up worktree/sandbox |
+| GET | `/status` | Get dispatch engine status (queue stats, active executions) |
+| GET | `/ready/:projectId` | Find tasks ready for dispatch in a project |
+| POST | `/engine/start` | Start the dispatch engine |
+| POST | `/engine/stop` | Stop the dispatch engine |
 
-**Task dispatch** (`/task`, lines 93-266):
+**Task dispatch** (`/task`):
 
-This is the entry point for executing a task. When you click "Run" on a task in the UI, this is what handles it.
+This is the entry point for executing a task. When you click "Run" on a task in the UI, this is what handles it. All tasks are dispatched through the relay to agent runners -- there is no local execution path on the server.
 
-- Input: nodeId, projectId, title, description, dependencies, environment, verification, visionDoc, dependencyOutputs, preferredProvider, targetMachineId, model, maxTurns, dryRun
-- Fork at line 210 -- the Backend decides whether to run the task locally or on a remote machine: `useRelay = environment !== 'local' || targetMachineId`
-  - **Relay path** leads to `dispatchViaRelay()` (lines 800-1058)
-  - **Local path** leads to `dispatchLocal()` (lines 308-792)
+- Input: nodeId, projectId, title, description, dependencies, verification, visionDoc, dependencyOutputs, preferredProvider, targetMachineId, model, maxTurns, workingDirectory, deliveryMode, acceptanceCriteria, dryRun, and more
+- **Server-side resolution**: Before dispatching, the route fetches the plan node and project from the database to fill in any missing fields (title, description, visionDoc, dependencies, working directory, delivery mode). This means the frontend can send a minimal payload (just nodeId and projectId) and the server will resolve everything else.
+- **Dependency validation**: Checks that all upstream dependencies have completed outputs. If dependencies are not met and `force` is not set, the request is rejected with a 400 error.
+- **Serial execution constraint**: For `direct` delivery mode (non-git directories without isolation), only one task per project can run at a time to prevent file conflicts (returns 409 if violated).
+- **Machine selection**: If no `targetMachineId` is specified, the server falls back to the project's `defaultMachineId`, then to `machineRegistry.findBestMachine()` which evaluates connected machines by load and capabilities.
+- **Prompt assembly**: Builds a full task prompt including vision doc, dependency outputs, and workspace/delivery instructions. Different delivery modes (`pr`, `push`, `branch`, `copy`, `direct`) produce different workspace instruction blocks so the agent knows how to handle branching, commits, and PRs.
 - Returns an SSE stream with execution events (so the browser can show live progress)
 
-**`dispatchLocal()`** (lines 308-792, ~480 lines):
+**`dispatchViaRelay()`**:
 
-This is the full local execution pipeline -- the most complex single function in the Backend. Here is what it does, step by step:
+All task execution flows through this function, which dispatches through the Relay WebSocket to an Agent Runner. The Agent Runner on the target machine does the actual AI work (worktree creation, code generation, testing, commits, PR creation). This function listens for events from the Relay and re-emits them as SSE to the browser. It handles: task results, stdout (live output text), text events, tool traces (what tools the AI used), file changes, progress updates, session initialization, approval requests, and safety decisions.
 
-1. **Select provider** from the registry (decide which AI tool to use -- Claude Code, Codex, etc.)
-2. **Assemble context** (the vision document + outputs from tasks this one depends on) via `contextAssembler`. This ensures the AI has all the background information it needs.
-3. **Create git worktree** via `createServerWorktree()`. A "worktree" is a separate copy of the code repository. This lets the AI make changes without affecting the main codebase until we are ready to merge.
-4. **Classify task** via `classifyTask()`. The Backend asks a fast AI model (Claude Haiku) to categorize the task: is it a full development task? A bug fix? Research? This determines which procedure (recipe) to follow.
-5. **Run procedure pipeline** if a procedure was identified:
-   - Loop through subroutines in order (e.g., implement, then verify, then commit, then create PR)
-   - Each subroutine: build the prompt (instructions for the AI), execute via `provider.stream()`, check if the result passes validation
-   - Validation loop: run a command (e.g., `npm run build`), and if it fails, retry up to 3 times with feedback about what went wrong
-6. **Or run single execution** if no procedure matched (just run the AI once with no multi-step workflow)
-7. **Push branch and create PR** via `pushAndCreatePR()`. Once the AI's changes are ready, push them to GitHub and create a pull request for human review.
-8. **Generate execution summary** -- a concise description of what happened
-9. **Clean up worktree** -- remove the temporary copy of the code
+Key features:
+- **Image attachments**: Resolves `imageRefs` (blob UUIDs) to base64-encoded images and includes them in the dispatch payload for multimodal agent input.
+- **Execution tracking**: Stores execution context in `executionContextStore` for user-scoped SSE filtering and ownership validation.
+- **Environment config injection**: If the target machine has custom environment configuration (conda envs, module loads, etc.), it is injected into the dispatch payload.
+- **Heartbeat timeout**: An activity timer (configurable, default 12 minutes) detects stalled executions. The timer pauses when the agent is waiting for a user approval response via `ask_user_question`.
 
-**`dispatchViaRelay()`** (lines 800-1058):
+**Steer** (`/steer`):
 
-When a task should run on a remote machine (not the server itself), this function dispatches it through the Relay WebSocket. The Agent Runner on the remote machine does the actual work, and this function listens for events from the Relay and re-emits them as SSE to the browser. It handles: task results, stdout (live output text), text events, tool traces (what tools the AI used), file changes, progress updates, session initialization, and approval requests.
-
-**Steer** (`/steer`, lines 1068-1280):
-
-"Steering" lets you send guidance to an AI agent while it is running. For example, if you see it going down the wrong path, you can send a message like "focus on the database layer first, not the UI." The steer endpoint routes this message differently depending on where the task is running:
-- For local tasks: imports `steerLocalTask` from the claude-code adapter
-- For relay tasks: `relayServer.steerTask()` forwards the message through the WebSocket
+"Steering" lets you send guidance to an AI agent while it is running. For example, if you see it going down the wrong path, you can send a message like "focus on the database layer first, not the UI." The steer endpoint routes the message through the relay: `relayServer.steerTask()` forwards it through the WebSocket to the Agent Runner.
 
 ### 3.2 Event Routes
 
@@ -339,10 +326,9 @@ These routes handle various supporting features. Each is relatively self-contain
 
 | Route | File | Purpose |
 |-------|------|---------|
-| `/api/health` | `health.ts` | Health check -- the browser pings this to confirm the Backend is alive. Also returns provider status, backend detection info, and session statistics. |
+| `/api/health` | `health.ts` | Health check -- the browser pings this to confirm the Backend is alive. Also returns backend detection info and session statistics. |
 | `/api/github` | `github.ts` | GitHub webhook handler -- receives notifications from GitHub (e.g., "a PR was merged") and acts on them |
 | `/api/notifications` | `notifications.ts` | Push notifications to the browser |
-| `/api/transcribe` | `transcribe.ts` | Audio transcription -- converts voice recordings to text |
 | `/api/fs` | `fs.ts` | File system operations -- lets the browser read/write files on the server |
 | `/api/repo` | `repo.ts` | Repository operations -- git clone, branch listing, file tree generation |
 | `/api/skills` | `skills.ts` | Available skills/tools that agents can use |
@@ -350,6 +336,7 @@ These routes handle various supporting features. Each is relatively self-contain
 | `/api/connected-accounts` | `connected-accounts.ts` | OAuth integrations (connect GitHub, Linear, etc.) |
 | `/api/system` | `system.ts` | System information (OS, memory, disk, versions) |
 | `/api/observations` | `observations.ts` | Observability/tracing data -- detailed records of what the AI did, for debugging and analysis |
+| `/api/teams` | `teams.ts` | Team management -- CRUD, invitations, member roles |
 | `/.well-known` | `well-known.ts` | Standards endpoints -- well-known URIs used by various internet standards (e.g., OAuth discovery) |
 
 ---
@@ -555,82 +542,39 @@ The two branches from the Relay Server serve different purposes. The `executionE
 
 The dispatch system is the Backend's traffic controller for task execution. It decides when tasks are ready to run, where to run them, and what to do with the results.
 
-### 7.1 Dispatch Engine (`server/lib/dispatch/dispatch-engine.ts`, ~800 lines)
+### 7.1 Dispatch Engine (`server/lib/dispatch/dispatch-engine.ts`, ~900 lines)
 
-The dispatch engine orchestrates the full lifecycle of task execution:
+The dispatch engine orchestrates the full lifecycle of task execution. All task execution routes through the relay to agent runners -- the server never runs AI itself.
+
+**Lifecycle:**
 
 1. **Watch** for tasks whose dependencies are all satisfied (all upstream tasks have completed successfully)
 2. **Queue** ready tasks by priority (critical > high > normal > low). Higher-priority tasks are dispatched first.
-3. **Dispatch** the task to the appropriate executor -- either a local AI provider or a remote Agent Runner via the relay
+3. **Dispatch** the task through the relay to an Agent Runner, which performs the actual AI work
 4. **Stream** events back to the browser via SSE so the user sees real-time progress
 5. **Route results**: when a task finishes, update the plan node's status, emit completion events, and trigger any downstream tasks that were waiting on this one
 6. **Prune**: when a branch is killed (the user decides to abandon a line of work), cancel the task and all tasks that depend on it, recursively
 
-Components that the dispatch engine relies on:
-- `DispatchQueue` (`dispatch-queue.ts`) -- A priority-ordered task queue. Tasks are inserted in priority order and dispatched from the front.
-- `ContextAssembler` (`context-assembler.ts`) -- Builds the full context that the AI needs: the project's vision document + outputs from completed upstream tasks. This is how the AI "knows" what came before.
-- `ResultRouter` (`result-router.ts`) -- Takes the result of a finished task and routes it to the right places: updates the plan node's status, stores the output, triggers downstream tasks.
-- `BranchManager` (`branch-manager.ts`) -- Tracks which tasks are on which branches. When a branch is pruned, the BranchManager identifies all downstream tasks that should be cancelled.
+**Hybrid architecture -- in-memory maps + DB persistence:**
 
-### 7.2 Procedure Pipeline
+The engine maintains two in-memory Maps that must stay in-memory:
 
-> **REMOVED** — never implemented. Procedure files (`procedure-types.ts`, `procedure-classifier.ts`, `procedure-executor.ts`) do not exist. The description below is a design-only artifact retained for historical reference.
+- `activeExecutions` (Map<nodeId, { abortController, executionId, projectId }>) -- Kept in-memory because `AbortController` is a process-local construct that cannot be serialized. Each server instance owns the AbortControllers for executions it is running. Task execution status is separately persisted to the database by the dispatch and route layers.
+- `pendingApprovals` (Map<approvalId, { resolve, reject, nodeId, ... }>) -- Kept in-memory because Promise `resolve`/`reject` callbacks cannot be serialized. When a user responds to an approval request, the response must be routed to the specific server instance holding the pending Promise.
 
-The procedure pipeline is a multi-step workflow system for task execution. Instead of giving the AI a single prompt and hoping for the best, we break the work into discrete, well-defined steps -- like following a recipe.
+**Approval system:**
 
-Why does this matter? A single AI session might write code, forget to test it, make a messy commit, and skip the PR. The procedure pipeline enforces discipline: first write the code, then verify it builds, then commit it properly, then create a PR. Each step has rules about what the AI is allowed to do and how its output is validated.
+The engine supports both procedure-level approvals (pause before a step) and dynamic approvals via the `ask_user_question` MCP tool. Dynamic approvals allow the agent to ask the user questions mid-execution without changing node status. Approvals wait indefinitely (no timeout) -- cleanup happens when the user responds or the execution is cancelled.
 
-**Definitions** (`server/lib/dispatch/procedure-types.ts`, 329 lines):
+**Components** (located in `server/lib/dispatch/`, with core logic re-exported from `packages/core/`):
 
-Three built-in procedures (recipes):
+- `DispatchQueue` (`dispatch-queue.ts`) -- A priority-ordered task queue backed by Postgres via Drizzle ORM (`dispatchQueueEntries` table). Manages concurrency limits per project (`maxConcurrentPerProject`, default 5) and globally (`maxConcurrentTotal`, default 20). Supports retry with exponential backoff and jitter. Queue statuses: `pending → ready → queued → dispatched → in_progress → completed|failed|cancelled`.
+- `ContextAssembler` (`context-assembler.ts`) -- Builds the full context that the AI needs: the project's vision document + outputs from completed upstream tasks + dependency resolution. Re-exported from `@astro/core`.
+- `ResultRouter` (`result-router.ts`) -- Takes the result of a finished task and determines the target node status (`auto_verified`, `completed`, `awaiting_judgment`, etc.) based on verification hints and downstream dependencies. Re-exported from `@astro/core`.
+- `BranchManager` (`branch-manager.ts`) -- Tracks which tasks are on which branches. Finds branch structure from the plan graph, identifies downstream nodes, and determines which nodes to cancel/prune when a branch is killed. Re-exported from `@astro/core`.
+- `MachineSelector` (`machine-selector.ts`) -- Selects the optimal machine for task dispatch based on configurable policies. Re-exported from `@astro/core`.
 
-**`full-development`** -- For implementing a new feature from scratch:
-1. `implement` -- Write the code. Includes a validation loop: after the AI writes code, the system runs `npm run build` (or another build command). If it fails, the AI gets the error output and tries again, up to 3 times.
-2. `verify` -- A read-only code review. The AI examines the code it wrote but is not allowed to make changes. This catches logical errors and style issues.
-3. `git-commit` -- Stage the changed files and create a commit with a conventional commit message (a standardized format like "feat: add user authentication").
-4. `gh-pr` -- Create a GitHub pull request with a title, description, and summary of changes.
-5. `summary` -- Generate a structured JSON summary of what was accomplished.
-
-**`bug-fix`** -- For fixing a known bug (fewer steps since no PR review is needed for urgency):
-1. `implement` -- Debug and fix the issue (with validation loop)
-2. `git-commit` -- Commit the fix
-3. `summary` -- Generate a fix summary
-
-**`research`** -- For exploratory tasks that do not produce code changes:
-1. `gather` -- Explore the codebase, read files, take notes, investigate
-2. `summary` -- Write a research report summarizing findings
-
-Each subroutine (step) can have special flags:
-- `singleTurn: true` -- The AI gets one shot (one prompt, one response, no tool usage). Used for simple output-only steps like summaries.
-- `usesValidationLoop: true` -- After the AI finishes, run a validation command. If it fails, send the error back to the AI and retry (up to 3 times).
-- `disallowAllTools: true` -- The AI can only produce text, not use tools (read files, run commands, etc.). Used for review and summary steps.
-- `requiresApproval: true` -- Pause and ask the user for permission before proceeding. Used for high-stakes steps.
-- Session threading -- The `sessionId` carries context across subroutines, so the AI in step 2 knows what the AI in step 1 did.
-
-**Executor utilities** (`server/lib/dispatch/procedure-executor.ts`, 217 lines):
-
-Helper functions used by the procedure pipeline:
-- `interpolatePrompt()` -- Template variable substitution. Replaces placeholders like `{{taskDescription}}` with actual values in prompt templates.
-- `runValidationCommand()` -- Execute a validation command (like `npm run build`) and capture its output.
-- `isValidationPassed()` -- Check whether the validation command succeeded (exit code 0) or failed.
-- `buildFixerPrompt()` -- When validation fails, generate a prompt that tells the AI "here is what went wrong, please fix it."
-
-**Classifier** (`server/lib/dispatch/procedure-classifier.ts`, 87 lines):
-
-Before running a task, the Backend needs to decide which procedure to use. The classifier asks a fast, cheap AI model (Claude Haiku) to categorize the task based on its title and description.
-
-- Uses a direct `new Anthropic({ apiKey })` call with claude-haiku (a small, fast model)
-- Input: task title + description
-- Output: `{ procedure: 'full-development' | 'bug-fix' | 'research' | null, classification: string }`
-- Falls back to `null` (no procedure, single-shot execution) when no API key is available or on failure
-
-**Orchestration** (`dispatch.ts`, lines 591-677):
-
-The actual execution loop that runs a procedure:
-- Loop through subroutines in sequence (step 1, then step 2, then step 3...)
-- For each step: build the prompt from the template, execute via `provider.stream()`, check validation if applicable, emit SSE events so the browser sees progress
-
-### 7.3 Context Assembly
+### 7.2 Context Assembly
 
 `server/lib/dispatch/context-assembler.ts`:
 
@@ -642,54 +586,15 @@ Before an AI agent starts working on a task, it needs context -- background info
 
 ---
 
-## 8. Provider System (Current State)
-
-> **REMOVED** — `server/lib/providers/` deleted during Execution Path Unification (PR #126). All task execution now routes through the relay to agent runners. The description below is retained for historical reference only.
-
-The "provider system" is the Backend's abstraction layer for different AI tools. Rather than hardcoding "use Claude Code," the Backend has a plugin system where different AI providers can be registered, detected, and selected at runtime.
-
-Note: The server currently has its own provider system for local execution. This is what the server/local mode separation work targets for eventual removal -- in the target architecture, all AI execution happens on Agent Runners, and the server only coordinates.
-
-### 8.1 Provider Registry (`server/lib/providers/registry.ts`)
-
-The registry is a directory of all available AI providers:
-
-- `initializeProviders()` -- Called during startup (see section 2, step 3). Detects which providers are available on the machine (e.g., is the Claude Code CLI installed? Is Codex available?).
-- `providerRegistry.getProvider(id)` -- Look up a specific provider by its ID (e.g., `'claude-code'`).
-- `providerRegistry.getAllProviders()` -- List all registered providers and their availability status.
-
-### 8.2 Provider Adapters
-
-Each adapter wraps a specific AI tool behind a common interface, so the rest of the Backend can use any of them interchangeably.
-
-| Adapter | File | Description |
-|---------|------|-------------|
-| `anthropic-direct` | `server/lib/providers/adapters/anthropic-direct.ts` | Calls the Anthropic API directly over HTTP. Used for chat, summarization, and plan generation where CLI tools are not needed. |
-| `claude-code` | `server/lib/providers/adapters/claude-code.ts` | Runs the Claude Code CLI as a subprocess. Claude Code can read/write files, run terminal commands, and make complex code changes. |
-| `codex` | `server/lib/providers/adapters/codex.ts` | Runs the OpenAI Codex CLI. An alternative to Claude Code for task execution. |
-
-### 8.3 Provider Types (`server/lib/providers/types.ts`)
-
-Defines the TypeScript interfaces that all providers must implement:
-
-- `AgentProvider` -- The main interface: methods like `stream()` (execute a task and stream results), `isAvailable()` (check if this provider works), etc.
-- `TaskDispatch` -- Describes a task being sent for execution (title, description, context, working directory, etc.)
-- `TaskResult` -- Describes the result of a completed task (output, status, files changed, cost, etc.)
-- `StreamEvent` -- The events a provider emits during execution (text output, tool usage, file changes, progress, errors, etc.)
-
-These types are used by the relay protocol as well and will be kept even after provider adapters are removed from the server.
-
----
-
-## 9. Prompt Templates
+## 8. Prompt Templates
 
 `server/lib/prompt-templates.ts` (452 lines):
 
-> **Note:** These templates are used for **plan generation and chat only**, NOT for task execution. Task execution prompts are assembled by the agent runner (via the relay), not by the server.
+> **Note:** The plan generation and chat prompts below are assembled server-side. Task execution prompts are assembled in `dispatch.ts` (see section 3.1) with vision doc, dependency outputs, and workspace/delivery instructions, then sent through the relay to the agent runner.
 
 Prompt templates are the instructions we give to the AI. Just as a manager gives different instructions for different tasks ("write a report" vs. "review this code"), the Backend has different prompt templates for different AI interactions. These templates are carefully crafted to produce consistent, high-quality outputs.
 
-### 9.1 Plan Generation Prompt
+### 8.1 Plan Generation Prompt
 
 `buildPlanSystemPrompt(visionDoc?, repoContext?)`:
 
@@ -702,7 +607,7 @@ This prompt tells the AI how to generate a plan -- a directed graph of tasks and
 - Milestones have startDate/endDate; tasks have a milestoneId linking them to their parent milestone
 - User-provided content is wrapped in `<user_vision>` / `<user_content>` XML delimiters to separate user input from system instructions
 
-### 9.2 Chat Prompt
+### 8.2 Chat Prompt
 
 `buildChatSystemPrompt(visionDoc?, planNodes?, planEdges?)`:
 
@@ -714,7 +619,7 @@ This prompt enables the plan-level chat -- where users can discuss and modify th
   - `astro-add-nodes` -- add new nodes
 - Decomposition rules: sub-tasks should be orthogonal (not overlapping in scope), ~20 minutes of expert work each, max size M
 
-### 9.3 Task Execution Prompt
+### 8.3 Task Execution Prompt
 
 `buildTaskExecutionPrompt(context)`:
 
@@ -724,7 +629,7 @@ This prompt is used when dispatching a task to an AI agent for execution. It pro
 - Dependency outputs (what upstream tasks produced -- so the AI can build on prior work)
 - The working directory (where the code lives)
 
-### 9.4 Task Chat Prompt
+### 8.4 Task Chat Prompt
 
 `buildTaskChatSystemPrompt(context)`:
 
@@ -735,11 +640,11 @@ This prompt powers task-specific chat, where users can ask questions about a spe
 
 ---
 
-## 10. Observability
+## 9. Observability
 
 Observability is the ability to understand what happened inside a system after the fact. When an AI agent runs a task, it might make dozens of tool calls, read many files, and produce pages of output. Observability tooling records all of this in a structured way so developers can debug issues, understand AI behavior, and improve prompts.
 
-### 10.1 Observation Collector (`server/lib/observability/observation-collector.ts`)
+### 9.1 Observation Collector (`server/lib/observability/observation-collector.ts`)
 
 The observation collector subscribes to the execution event bus (see section 6.2) and captures detailed records of AI behavior. It listens for these events:
 
@@ -764,7 +669,7 @@ Each turn becomes a "generation observation" with:
 - `output`: `{ text, toolCalls }` (what the AI produced)
 - Tool observations are linked as children via `parentObservationId`, creating a tree structure that shows which tools were called during which turn
 
-### 10.2 Langfuse Exporter (`server/lib/observability/langfuse-exporter.ts`)
+### 9.2 Langfuse Exporter (`server/lib/observability/langfuse-exporter.ts`)
 
 The Langfuse exporter takes the structured observations from the collector and batch-exports them to Langfuse (an external observability platform). It is registered as a hook on `astroEventTransport`, meaning it runs automatically whenever relevant events occur.
 
@@ -772,7 +677,7 @@ Langfuse provides a web UI where you can browse traces, see token usage, compare
 
 ---
 
-## 11. Environment Configuration
+## 10. Environment Configuration
 
 `server/lib/environment.ts` (293 lines):
 
@@ -800,94 +705,57 @@ The Backend's behavior is controlled by environment variables -- settings that a
 
 ---
 
-## Addendum: Recent Additions (audited 2026-02-21)
+## Addendum: Additional Subsystems (audited 2026-02-27)
 
-This section documents subsystems, routes, and infrastructure added since the original document was written. The main sections above remain accurate for the features they describe; this addendum covers what's new.
+This section documents subsystems and infrastructure that complement the main sections above.
 
-### New Route Endpoints
+### Teams & Collaboration
 
-**Dispatch route** now has 14 endpoints (was 7):
-- `POST /approval` — Approval flow for dynamic approvals
-- `POST /request-dynamic-approval` — Request dynamic approval from user
-- `GET /status` — Get dispatch engine status
-- `GET /ready/:projectId` — Check if project is ready for dispatch
-- `POST /engine/start` — Start dispatch engine
-- `POST /engine/stop` — Stop dispatch engine
-
-**Teams route** (`server/routes/teams.ts`) — NEW:
-- Team CRUD, invitation management, member role management
-
-**Connected accounts route** (`server/routes/connected-accounts.ts`) — 5 endpoints:
-- OAuth integration with GitHub, Linear, and other external services
-
-### New Subsystems
-
-**Teams & Collaboration** (`server/routes/teams.ts`, `server/lib/email-service.ts`):
+(`server/routes/teams.ts`, `server/lib/email-service.ts`):
 - Team creation, membership management, email-based invitations with tokens
 - Team member roles: owner, admin, member
 - Database tables: `teams`, `teamMembers`, `inviteTokens`, `projectMembers`
 
-**Channel Notification System** (`server/lib/channel/`):
-- `channel-config-manager.ts` — Channel configuration
-- `channel-router.ts` — Route notifications to correct platform
-- `channel-formatter.ts` — Format messages for Slack, Linear, Telegram
-- `channel-types.ts` — Type definitions
-- `webhook-verifier.ts` — Webhook signature verification
+### Channel Notification System
 
-**Access Control** (`server/lib/access/user-access-control.ts`):
+(`server/lib/channel/`):
+
+A multi-channel notification system that routes task events to external platforms:
+- `channel-config-manager.ts` -- Manages per-project channel configuration (which events go to which channels)
+- `channel-router.ts` -- Routes notifications to the correct platform based on configuration
+- `channel-formatter.ts` -- Formats event data into platform-specific message formats for Slack, Linear, and Telegram
+- `channel-types.ts` -- Type definitions for channel configuration and messages
+- `webhook-verifier.ts` -- Verifies webhook signatures for inbound messages from external platforms
+
+The channel system is integrated via the `channel-notification-hook` on the event transport (section 6.1). When a task completes, fails, or requires approval, the hook checks the project's channel configuration and dispatches formatted notifications.
+
+### Access Control
+
+(`server/lib/access/user-access-control.ts`):
 - Global and per-project allowlist/blocklist
 - Hierarchical access control rules
 
-**Push Notifications** (`server/routes/notifications.ts`, `server/lib/push-notifications.ts`):
-- Browser push notification registration and delivery
-- Database table: `pushTokens`
+### Safety Rails
 
-**Merge Queue** (`server/lib/events/hooks/merge-queue-hook.ts`):
-- Automatic merge queue management for completed PRs
-- Configurable merge strategy (squash, merge, rebase)
+(`server/lib/observability/safety-rails.ts`):
+- Safety guardrails for AI execution, including approval gates and risk assessment
 
-**Chat Session Pool** (`server/lib/chat-session-pool.ts`):
-- Session pooling and reuse for chat conversations
-- Cleanup scheduler (every 10 minutes) removes expired sessions
-
-**Machine Selector** (`server/lib/dispatch/machine-selector.ts`):
-- Intelligent machine selection for task dispatch
-- Considers machine load, capabilities, and proximity
-
-### New Library Files (selected)
+### Additional Library Files
 
 | File | Purpose |
 |------|---------|
 | `email-service.ts` | Email sending for team invitations |
 | `push-notifications.ts` | Browser push notification delivery |
 | `github-client.ts` | GitHub API wrapper |
-| `github-store.ts` | GitHub state persistence |
-| `chat-session-pool.ts` | Session pooling with auto-cleanup |
-| `worktree-manager.ts` | Git worktree lifecycle management |
-| `worktree-registry.ts` | Worktree tracking |
-| `signal-processor.ts` | Signal handling (graceful shutdown) |
-| `error-utils.ts` | Error handling utilities |
-| `local-backends.ts` | Local provider detection |
 | `repo-context.ts` | Repository context assembly for prompts |
 | `repo-setup.ts` | Repository setup utilities |
+| `error-utils.ts` | Error handling utilities |
+| `execution-event-bus.ts` | Singleton event emitter for task execution events |
+| `execution-context-store.ts` | Maps executionId to user/project/machine for SSE scoping |
+| `skill-manager.ts` | Skill registry and prompt injection |
+| `challenge-store.ts` | WebAuthn challenge storage with TTL |
 
-### Provider Subsystem Additions
+### Middleware
 
-| File | Purpose |
-|------|---------|
-| `providers/cache-utils.ts` | Provider response caching |
-| `providers/context.ts` | Context assembly for provider calls |
-| `providers/session-logger.ts` | Session logging for debugging |
-| `providers/mcp-loader.ts` | MCP tool dynamic loading |
-
-### New Middleware
-
-- `server/middleware/audit.ts` — Audit logging middleware for request tracking
-
-### Startup Sequence Addition
-
-- **Chat pool cleanup scheduler** runs every 10 minutes to remove expired chat sessions (added after step 11)
-
-### Safety Rails
-
-- `server/lib/observability/safety-rails.ts` — Safety guardrails for AI execution, including approval gates and risk assessment
+- `server/middleware/auth.ts` -- Authentication middleware (see section 4.1)
+- `server/middleware/audit.ts` -- Audit logging middleware for request tracking

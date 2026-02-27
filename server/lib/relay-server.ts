@@ -1198,26 +1198,23 @@ export class RelayServer extends EventEmitter {
 
   /**
    * Dispatch a task to an agent runner
+   * @param userId - Authenticated user ID for machine ownership filtering
    */
-  dispatchTask(task: TaskDispatch, targetMachineId?: string): boolean {
+  dispatchTask(task: TaskDispatch, targetMachineId?: string, userId?: string): boolean {
     let machineId = targetMachineId;
 
     // Find best machine if not specified
     if (!machineId) {
       let bestMachine = machineRegistry.findBestMachine(
-        task.environment,
-        task.preferredProvider
+        task.preferredProvider,
+        userId
       );
 
-      // Fallback: try other environment types if no machine matches the requested one
-      if (!bestMachine) {
-        for (const fallbackEnv of ['local', 'remote', 'hpc', 'cloud'] as const) {
-          if (fallbackEnv === task.environment) continue;
-          bestMachine = machineRegistry.findBestMachine(fallbackEnv, task.preferredProvider);
-          if (bestMachine) {
-            console.log(`[relay] No '${task.environment}' machine available, falling back to '${fallbackEnv}' machine ${bestMachine.machineId}`);
-            break;
-          }
+      // Fallback: try without provider filter if no machine matches
+      if (!bestMachine && task.preferredProvider) {
+        bestMachine = machineRegistry.findBestMachine(undefined, userId);
+        if (bestMachine) {
+          console.log(`[relay] No '${task.preferredProvider}' provider available, falling back to machine ${bestMachine.machineId}`);
         }
       }
 
