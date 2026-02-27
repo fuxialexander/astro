@@ -11,10 +11,11 @@
  * Template Categories:
  * - software-development: web-app, api-development
  * - data-science: data-pipeline
- * - machine-learning: ml-pipeline
+ * - machine-learning: ml-pipeline, benchmark-runner
  * - computational-biology: drug-discovery
  * - security: security-audit
- * - research-analysis: paper-to-slides
+ * - research-analysis: paper-to-slides, literature-review
+ * - documentation: code-documentation
  */
 
 export { webAppTemplate } from './web-app.js'
@@ -24,6 +25,9 @@ export { apiDevelopmentTemplate } from './api-development.js'
 export { securityAuditTemplate } from './security-audit.js'
 export { dataPipelineTemplate } from './data-pipeline.js'
 export { paperToSlidesTemplate } from './paper-to-slides.js'
+export { codeDocumentationTemplate } from './code-documentation.js'
+export { literatureReviewTemplate } from './literature-review.js'
+export { benchmarkRunnerTemplate } from './benchmark-runner.js'
 
 import { webAppTemplate } from './web-app.js'
 import { mlPipelineTemplate } from './ml-pipeline.js'
@@ -32,6 +36,9 @@ import { apiDevelopmentTemplate } from './api-development.js'
 import { securityAuditTemplate } from './security-audit.js'
 import { dataPipelineTemplate } from './data-pipeline.js'
 import { paperToSlidesTemplate } from './paper-to-slides.js'
+import { codeDocumentationTemplate } from './code-documentation.js'
+import { literatureReviewTemplate } from './literature-review.js'
+import { benchmarkRunnerTemplate } from './benchmark-runner.js'
 import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 /** All built-in templates */
@@ -43,16 +50,20 @@ export const BUILTIN_TEMPLATES: UseCaseTemplate[] = [
   drugDiscoveryTemplate,
   securityAuditTemplate,
   paperToSlidesTemplate,
+  codeDocumentationTemplate,
+  literatureReviewTemplate,
+  benchmarkRunnerTemplate,
 ]
 
 /** Templates grouped by category */
 export const TEMPLATES_BY_CATEGORY: Record<string, UseCaseTemplate[]> = {
   'software-development': [webAppTemplate, apiDevelopmentTemplate],
   'data-science': [dataPipelineTemplate],
-  'machine-learning': [mlPipelineTemplate],
+  'machine-learning': [mlPipelineTemplate, benchmarkRunnerTemplate],
   'computational-biology': [drugDiscoveryTemplate],
   'security': [securityAuditTemplate],
-  'research-analysis': [paperToSlidesTemplate],
+  'research-analysis': [paperToSlidesTemplate, literatureReviewTemplate],
+  'documentation': [codeDocumentationTemplate],
 }
 
 /** Get a template by ID */

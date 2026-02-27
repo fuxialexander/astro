@@ -76,6 +76,9 @@ export {
   drugDiscoveryTemplate,
   securityAuditTemplate,
   paperToSlidesTemplate,
+  codeDocumentationTemplate,
+  literatureReviewTemplate,
+  benchmarkRunnerTemplate,
 
   // Collections
   BUILTIN_TEMPLATES,
