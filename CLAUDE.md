@@ -110,25 +110,30 @@ src/
 ├── globals.css                   # Tailwind v4 theme, CSS variables, light/dark tokens
 ├── pages/
 │   ├── dashboard.tsx             # Home: stats, pending decisions, active projects, system health, usage metrics
-│   ├── projects.tsx              # Project list with table (grouped, sortable columns)
+│   ├── projects.tsx              # Project list with table (grouped, sortable columns); inline creation now on this page
 │   ├── project-new.tsx           # New project form (unified: description + directory detection)
+│   ├── project-new-plan.tsx      # New project creation with AI plan generation (replaces /projects/new)
 │   ├── project-overview.tsx      # Project details: overview + updates tabs, vision doc dialog
 │   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List/Timeline toggle)
 │   ├── my-tasks.tsx              # Cross-project task list with filters, grouping, display settings
 │   ├── task-detail.tsx           # Task-agent detail: output, tool traces, file changes, steer chat
+│   ├── active-tasks.tsx          # Active sessions browser and task execution view
+│   ├── playground.tsx            # Agent playground: session exploration and prototyping
 │   ├── environments.tsx          # Machine/environment management, SLURM cluster display
 │   ├── agents.tsx                # Agent management and monitoring
 │   ├── initiatives.tsx           # Initiatives/projects grouping
 │   ├── workflows.tsx             # Workflow management
 │   ├── device-auth.tsx           # Device code OAuth2 authentication flow
-│   ├── welcome.tsx               # Multi-step onboarding (user type, domains, repo)
 │   ├── login.tsx                 # WebAuthn/passkey login (public route)
 │   ├── team-invite.tsx           # Team invitation flow
+│   ├── share-import.tsx          # Share bundle import and export
+│   ├── welcome.tsx               # Onboarding: redirects to plan creation (old multi-step now simplified)
 │   └── settings.tsx              # Backend connection, model selection
 ├── components/
 │   ├── ui/                       # shadcn/ui Radix primitives (button, input, badge, card, dialog, sheet, etc.)
 │   ├── layout/
-│   │   ├── app-layout.tsx        # Sidebar + <Outlet /> wrapper
+│   │   ├── app-layout.tsx        # Desktop sidebar + <Outlet /> wrapper (shown on md breakpoint+)
+│   │   ├── mobile-layout.tsx     # Mobile bottom tab bar (hidden on md breakpoint+; Dashboard, Plan, Projects, Envs)
 │   │   ├── sidebar.tsx           # Nav items (Dashboard, Projects, My Tasks, Environments), user profile
 │   │   └── header.tsx            # Reusable page header
 │   ├── task-creation-form.tsx    # Reusable task creation (inline/popover/dialog modes)
@@ -321,21 +326,29 @@ docs/
 ### Routes
 | Path | Page | Status |
 |------|------|--------|
-| `/` | Dashboard | Implemented (auto-redirects to /welcome if no projects; stats, pending decisions, active projects, system health, usage metrics) |
-| `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
-| `/projects/new` | New Project | Implemented (unified form: description + directory with inline detection) |
-| `/project/:id` | Project Overview | Implemented (overview + updates tabs, vision doc dialog) |
-| `/project/:id/plan` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation across all views) |
+| `/` | Root | Implemented (redirects to /projects/new/plan in local mode, landing page if unauthenticated) |
+| `/welcome` | Welcome | Implemented (redirects to /projects/new/plan for onboarding) |
+| `/projects` | Projects list | Implemented (list view with inline creation form) |
+| `/projects/new` | New Project | Redirects to `/projects` (inline creation now on projects page) |
+| `/projects/new/plan` | New Project with Plan | Implemented (AI-assisted plan generation for new projects) |
+| `/project/:id` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation) |
+| `/project/:id/graph` | Plan Graph | Implemented (graph view variant) |
+| `/project/:id/list` | Plan List | Implemented (list view variant) |
+| `/project/:id/timeline` | Plan Timeline | Implemented (Gantt timeline view variant) |
+| `/project/:id/board` | Plan Board | Implemented (board view variant) |
+| `/project/:id/overview` | Project Overview | Implemented (overview + updates tabs, vision doc dialog) |
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat, session activity) |
 | `/tasks` | My Tasks | Implemented (cross-project task list with filters, grouping, display settings) |
+| `/active` | Active Tasks | Implemented (session browser and active task monitoring) |
+| `/playground` | Playground | Implemented (agent session explorer and prototyping) |
 | `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow) |
 | `/agents` | Agents | Implemented (agent listing and monitoring) |
 | `/initiatives` | Initiatives | Implemented (initiatives/projects grouping) |
 | `/workflows` | Workflows | Implemented (workflow management) |
 | `/settings` | Settings | Implemented (health check + model selection) |
 | `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
-| `/welcome` | Welcome | Implemented (simplified 2-option onboarding: empty project or repo-based project) |
 | `/login` | Login | Implemented (WebAuthn/passkey authentication) |
+| `/share/:id` | Share Import | Implemented (import/export shared plan bundles) |
 | `/team/invite/:token` | Team Invite | Implemented (team invitation flow) |
 | `/landing/` | Landing Page | Implemented (static HTML, public marketing page) |
 | `/landing/about` | Why Astro? | Implemented (static HTML, philosophy/naming page) |
@@ -373,6 +386,9 @@ docs/
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
 - **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
 - **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
+- **Dispatch Signing (Security)**: ECDSA P-256 signature verification for task dispatch to prevent unauthorized execution. Browser signs payloads; agent runner validates against registered browser keys. Replay prevention via nonce tracking and timestamp validation (5-min window)
+- **Auth Enforcement**: Authenticated user ID derivation from session; block unauthorized device/machine operations in production
+- **Mobile-First Responsive**: Dual-layout architecture with desktop sidebar and mobile bottom tab bar; CSS-based visibility switching at md breakpoint (768px)
 
 ## Target Users
 
@@ -381,12 +397,20 @@ docs/
 
 ## Code Patterns
 
+### Layout & Responsive Design
+- **Responsive Layout Pattern**: Use `ResponsiveLayout` wrapper with `AppLayout` (desktop sidebar, hidden on <md) + `MobileLayout` (bottom tab bar, hidden on ≥md). Both render `<Outlet />`, CSS ensures only one visible
+- **Mobile Tab Navigation**: Bottom fixed tab bar with 4 tabs (Dashboard, Plan, Projects, Envs); uses Lucide icons
 - Use `cn()` from `@/lib/utils` for Tailwind class merging
+
+### Component & State Management
 - Follow existing shadcn/ui component patterns in `src/components/ui/`
 - Zustand stores: use `(s) => s.field` selectors, persist via `dataClient` → `/api/data/*`
 - React Flow: define node data type as `type TaskNodeData = Node<{ ... }>`, use `NodeProps<TaskNodeData>`, cast `nodeTypes` to `any`; wrap in `ReactFlowProvider` when using `useReactFlow()` hooks
 - Task creation: use `TaskCreationForm` component with `mode="inline"|"popover"|"dialog"`; creates nodes via `usePlanStore.addNode()` + `addEdge()`
+
+### Data & Execution
 - SSE streaming: use `readSSE()` from `api-client.ts` for server-sent events
+- **Dispatch Signing (ECDSA P-256)**: Browser generates keypair, signs every task dispatch with `{nodeId, projectId, machineId, timestamp, nonce}`, agent runner verifies. Replay prevention via nonce tracking + 5-min timestamp window
 - Status types: `planned | dispatched | in_progress | auto_verified | awaiting_approval | awaiting_judgment | completed | pruned`
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
 - PlanNode execution fields: `executionId`, `executionOutput`, `executionError`, `executionStartedAt`, `executionCompletedAt`
