@@ -29,6 +29,8 @@
     "env:prod": "bash scripts/switch-env.sh prod",
     "env:init": "bash scripts/switch-env.sh init",
     "astro-cli": "tsx packages/cli/src/index.ts",
+    "arxiv": "tsx server/lib/tools/arxiv/cli.ts",
+    "arxiv-mcp": "tsx server/lib/tools/arxiv/mcp-server.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
