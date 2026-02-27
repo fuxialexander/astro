@@ -75,6 +75,7 @@ export {
   dataPipelineTemplate,
   drugDiscoveryTemplate,
   securityAuditTemplate,
+  paperToSlidesTemplate,
 
   // Collections
   BUILTIN_TEMPLATES,

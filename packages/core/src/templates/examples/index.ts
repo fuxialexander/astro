@@ -14,6 +14,7 @@
  * - machine-learning: ml-pipeline
  * - computational-biology: drug-discovery
  * - security: security-audit
+ * - research-analysis: paper-to-slides
  */
 
 export { webAppTemplate } from './web-app.js'
@@ -22,6 +23,7 @@ export { drugDiscoveryTemplate } from './drug-discovery.js'
 export { apiDevelopmentTemplate } from './api-development.js'
 export { securityAuditTemplate } from './security-audit.js'
 export { dataPipelineTemplate } from './data-pipeline.js'
+export { paperToSlidesTemplate } from './paper-to-slides.js'
 
 import { webAppTemplate } from './web-app.js'
 import { mlPipelineTemplate } from './ml-pipeline.js'
@@ -29,6 +31,7 @@ import { drugDiscoveryTemplate } from './drug-discovery.js'
 import { apiDevelopmentTemplate } from './api-development.js'
 import { securityAuditTemplate } from './security-audit.js'
 import { dataPipelineTemplate } from './data-pipeline.js'
+import { paperToSlidesTemplate } from './paper-to-slides.js'
 import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 /** All built-in templates */
@@ -39,6 +42,7 @@ export const BUILTIN_TEMPLATES: UseCaseTemplate[] = [
   dataPipelineTemplate,
   drugDiscoveryTemplate,
   securityAuditTemplate,
+  paperToSlidesTemplate,
 ]
 
 /** Templates grouped by category */
@@ -48,6 +52,7 @@ export const TEMPLATES_BY_CATEGORY: Record<string, UseCaseTemplate[]> = {
   'machine-learning': [mlPipelineTemplate],
   'computational-biology': [drugDiscoveryTemplate],
   'security': [securityAuditTemplate],
+  'research-analysis': [paperToSlidesTemplate],
 }
 
 /** Get a template by ID */
