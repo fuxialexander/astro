@@ -236,7 +236,7 @@ function ConnectedMachinesCard({ machines, onRemove, onMachineClick }: {
                     key={p.type}
                     className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
                       p.status === "available"
-                        ? "text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/30"
+                        ? "text-success bg-success/10"
                         : "text-muted-foreground bg-muted/50"
                     }`}
                   >
