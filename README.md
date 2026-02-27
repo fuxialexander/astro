@@ -97,15 +97,60 @@ Frontend: Render dependency graph in React Flow
 
 ## Features
 
-- **AI-Powered Planning**: Decompose goals into dependency graphs with AI
-- **Multi-Environment Execution**: Local, Docker, HPC (SLURM), Kubernetes, cloud
-- **Real-time Streaming**: Live task output, tool traces, file changes via SSE
-- **Git Worktree Isolation**: Each task runs on its own branch in an isolated worktree
-- **Automatic PR Creation**: Completed tasks push branches and create pull requests
-- **Safety System**: Git state checks prevent unsafe concurrent execution
-- **Device Authentication**: OAuth2 device code flow (RFC 8628) for secure machine registration
-- **Visual Planning**: Interactive directed graph with React Flow
-- **Context Injection**: Vision doc + dependency outputs injected into every AI session
+### AI-Powered Planning
+Decompose complex goals into structured dependency graphs with AI assistance. Astro analyzes your project description and automatically generates a plan with explicit task dependencies, enabling strategic oversight and parallel execution planning.
+
+### Multi-Environment Execution
+Run tasks across diverse compute environments without rewriting workflows:
+- **Local**: Execute on your machine (laptop, workstation)
+- **Docker**: Containerized execution for reproducible environments
+- **HPC (SLURM)**: Submit jobs to high-performance computing clusters
+- **Kubernetes**: Orchestrated container workloads
+- **Cloud**: AWS, GCP, or other cloud platforms
+
+The dispatch system automatically selects the optimal environment based on task requirements and machine availability.
+
+### Real-time Streaming
+Monitor task execution in real-time with live SSE (Server-Sent Events) streaming:
+- **Task Output**: Live stdout/stderr with syntax highlighting and search
+- **Tool Traces**: Detailed timeline of tool calls (searches, API calls, file ops) with input/output inspection
+- **File Changes**: Track modified files and view inline diffs as the agent works
+- **Progress Updates**: Real-time progress indicators and status changes
+
+### Git Worktree Isolation
+Each task executes in its own isolated git worktree on a unique branch. This prevents concurrent tasks from interfering with each other and allows safe parallel execution. Branches are automatically cleaned up after task completion.
+
+### Automatic PR Creation
+Completed tasks automatically push their branches and create pull requests, streamlining code review workflows. The system respects your delivery mode preferences (PR, direct push, branch-only, etc.) and includes execution summaries in PR descriptions.
+
+### Safety System
+Built-in guardrails prevent unsafe concurrent execution:
+- **Git State Checks**: Verify clean working trees before task dispatch
+- **Conflict Prevention**: Prevent concurrent writes to the same files
+- **Graceful Cancellation**: Cancel downstream tasks when dependencies fail
+- **Rollback Capability**: Revert changes if verification fails
+
+### Device Authentication
+Secure machine registration using OAuth2 device code flow (RFC 8628):
+- **No Credential Passing**: Devices authenticate without exposing secrets
+- **User Verification**: Browser-based verification during registration
+- **Token Management**: Automatic token lifecycle management (refresh, revoke)
+- **Multi-Device Support**: Register multiple machines to the same team account
+
+### Visual Planning
+Interactive directed graph visualization of your plan:
+- **React Flow Canvas**: Pan, zoom, and explore the dependency graph
+- **Node Details**: Click nodes to view/edit task properties, estimates, and status
+- **Dynamic Layout**: Automatic graph layout with explicit dependency visualization
+- **Real-time Updates**: Watch nodes update as tasks execute
+
+### Context Injection
+Persistent context automatically injected into every AI session:
+- **Vision Document**: Project-level context describing product goals or research questions
+- **Dependency Outputs**: Results from upstream tasks feed into downstream task contexts
+- **Codebase Context**: Relevant code files and repository metadata automatically included
+- **Smart Filtering**: Only relevant context is included to stay within token budgets
+
 
 ## Prerequisites
 
