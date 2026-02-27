@@ -63,7 +63,7 @@ npm run env:switch       # Show current mode
 
 The `dev:local` and `dev:dev` commands switch env automatically before starting. Each mode switch also kills stale processes on ports 5173/3001/3002.
 
-**Data Layer:** All modes use the same Drizzle ORM schema (`server/lib/db/schema.ts`). Frontend stores use `dataClient` (`src/lib/data-client.ts`) which calls `/api/data/*` endpoints — no direct PGlite access from the frontend.
+**Data Layer:** All modes use the same Drizzle ORM schema from `packages/core/src/db/schema.ts` (source of truth). `server/lib/db/` contains re-export shims for backward compatibility. Frontend stores use `dataClient` (`src/lib/data-client.ts`) which calls `/api/data/*` endpoints — no direct PGlite access from the frontend.
 
 **Visual Indicator:** Sidebar shows "Local Mode" badge when in local mode.
 
@@ -96,6 +96,9 @@ Everything runs locally — no Fly.io, Redis, or external services needed for de
 
 ### Path Alias
 `@/` maps to `./src/` (configured in both `vite.config.ts` and `tsconfig.app.json`).
+
+### Re-export Shim Pattern
+Shared logic (DB schema, dispatch, types, utilities) has been extracted to `packages/core/`. The `server/lib/db/` files are thin re-export shims that forward to `packages/core/src/db/` for backward compatibility. When adding new DB tables or modifying the schema, edit `packages/core/src/db/schema.ts` (the source of truth) and ensure the re-export in `server/lib/db/schema.ts` includes any new exports.
 
 ### Project Structure
 ```
@@ -134,21 +137,53 @@ src/
 │   ├── task-creation-form.tsx    # Reusable task creation (inline/popover/dialog modes)
 │   ├── display-popover.tsx       # Reusable display settings popover (groupBy, orderBy, properties)
 │   ├── vision-doc-dialog.tsx     # Vision document editor dialog (per-project)
+│   ├── node-inspector.tsx        # Node detail inspector/sidebar for plan editing
+│   ├── repo-config-dialog.tsx    # Repository configuration dialog
+│   ├── github-repo-picker-dialog.tsx # GitHub repository selection dialog
+│   ├── label-manager-dialog.tsx  # Label management dialog
+│   ├── label-picker.tsx          # Label selection picker component
+│   ├── property-picker.tsx       # Property selection picker component
 │   ├── plan-graph/
 │   │   ├── plan-canvas.tsx       # React Flow wrapper (ReactFlowProvider, background, controls, graph popover creation)
 │   │   ├── task-node.tsx         # Custom node component with status styling, live progress, hover '+' button
-│   │   ├── plan-graph-tab.tsx    # Graph view tab with node editor
-│   │   └── plan-timeline-tab.tsx # Gantt timeline view (tabbed)
+│   │   ├── deletable-edge.tsx    # Custom deletable edge component
+│   │   └── plan-generate-view.tsx # Plan generation view component
 │   ├── task-detail/
 │   │   ├── task-output-view.tsx  # Terminal-style output viewer with search, copy, auto-scroll
 │   │   ├── tool-trace-view.tsx   # Vertical timeline of tool calls with collapsible I/O
 │   │   ├── file-changes-view.tsx # File change list with diff display
 │   │   ├── steer-chat.tsx        # Agent steering chat (sends guidance to running agent)
 │   │   ├── task-chat.tsx         # Task-level chat interface
-│   │   └── session-activity-view.tsx # Session activity timeline view
+│   │   ├── task-content-tab.tsx  # Task content tab component
+│   │   ├── session-activity-view.tsx # Session activity timeline view
+│   │   ├── expandable-task-panel.tsx # Expandable task detail panel
+│   │   ├── link-list.tsx         # Link list component
+│   │   ├── attachment-list.tsx   # Attachment list component
+│   │   ├── comment-section.tsx   # Comment section component
+│   │   ├── unified-activity-view.tsx # Unified activity view
+│   │   └── trace-viewer/         # Structured trace viewer
+│   │       ├── index.tsx         # Trace viewer entry point
+│   │       ├── turn-list.tsx     # Turn list display
+│   │       ├── turn-detail.tsx   # Turn detail display
+│   │       ├── trace-summary-card.tsx # Trace summary card
+│   │       ├── tool-call-item.tsx # Tool call item display
+│   │       └── collapsible-content.tsx # Collapsible content wrapper
 │   ├── execution/
 │   │   ├── execution-panel.tsx   # Task execution UI with play/cancel/output
 │   │   └── provider-status.tsx   # Provider availability display
+│   ├── board/
+│   │   ├── board-view.tsx        # Board/kanban view
+│   │   ├── board-column.tsx      # Board column component
+│   │   └── board-card.tsx        # Board card component
+│   ├── views/
+│   │   ├── filter-select.tsx     # Filter selection component
+│   │   ├── item-list-view.tsx    # Generic item list view
+│   │   └── item-timeline-view.tsx # Generic item timeline view
+│   ├── playground/
+│   │   ├── claude-session-browser.tsx # Claude session browser component
+│   │   ├── session-picker-dialog.tsx  # Session selection dialog
+│   │   ├── playground-header.tsx      # Playground page header
+│   │   └── playground-file-sidebar.tsx # File sidebar for playground
 │   ├── slurm/
 │   │   ├── cluster-status.tsx    # Cluster health/capacity display
 │   │   └── job-list.tsx          # Active HPC jobs list
@@ -158,8 +193,33 @@ src/
 │   ├── agent/
 │   │   └── chat-panel.tsx        # Sidebar chat for plan refinement
 │   ├── activity-dialog.tsx       # Activity history dialog for projects
+│   ├── activity-blocks.tsx       # Activity block components
 │   ├── approval-card.tsx         # Approval/decision UI component
+│   ├── dynamic-approval-dialog.tsx # Dynamic approval dialog
 │   ├── milestone-dialog.tsx      # Milestone creation/edit dialog
+│   ├── session-dialog.tsx        # Session management dialog
+│   ├── color-icon-picker.tsx     # Color/icon picker component
+│   ├── inline-rename-input.tsx   # Inline rename input component
+│   ├── branch-selector.tsx       # Branch selection component
+│   ├── remote-path-browser.tsx   # Remote path browser
+│   ├── github-connect-button.tsx # GitHub connection button
+│   ├── github-project-linker.tsx # GitHub project linking
+│   ├── channel-account-card.tsx  # Channel account card
+│   ├── welcome-profile-dialog.tsx # Welcome profile dialog
+│   ├── passkey-nudge-banner.tsx  # Passkey registration nudge banner
+│   ├── safety-prompt-dialog.tsx  # Safety prompt dialog
+│   ├── onboarding-hint.tsx       # Onboarding hint component
+│   ├── agent-row.tsx             # Agent row component
+│   ├── task-row.tsx              # Task row component
+│   ├── toast-container.tsx       # Toast notification container
+│   ├── auth-guard.tsx            # Authentication guard wrapper
+│   ├── git-init-dialog.tsx       # Git initialization dialog
+│   ├── team-selector-dialog.tsx  # Team selection dialog
+│   ├── plugin-loader.tsx         # Plugin loader component
+│   ├── plugin-routes.tsx         # Plugin route registration
+│   ├── plugin-settings.tsx       # Plugin settings UI
+│   ├── plugin-error-boundary.tsx # Plugin error boundary
+│   ├── skill-settings.tsx        # Skill settings UI
 │   ├── theme-provider.tsx        # Light/dark/system theme context
 │   └── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
 ├── stores/                          # All stores persist via dataClient → /api/data/* → Drizzle
@@ -233,7 +293,6 @@ server/
 │   ├── share.ts                  # Share/export bundles
 │   ├── skills.ts                 # Skill registry
 │   ├── system.ts                 # System information
-│   ├── transcribe.ts             # Audio transcription
 │   ├── device-auth.ts            # Device authorization flow (RFC 8628)
 │   └── well-known.ts             # OpenID/WebAuthn discovery
 ├── lib/
@@ -254,12 +313,15 @@ server/
 │   ├── registered-machines-store.ts # Machine registration persistence
 │   ├── ensure-user-profile.ts    # Self-heal auth.users ↔ user_profiles desync
 │   ├── github-client.ts          # GitHub API wrapper
+│   ├── github-store.ts           # GitHub state management
 │   ├── email-service.ts          # Email notifications
 │   ├── push-notifications.ts     # Push notification service
 │   ├── cleanup-scheduler.ts      # Automated cleanup tasks
 │   ├── repo-setup.ts             # Repository initialization
 │   ├── repo-context.ts           # Repository context assembly
 │   ├── git-url-utils.ts          # Git URL parsing
+│   ├── skill-manager.ts          # Skill management
+│   ├── skill-injector.ts         # Skill injection into agent context
 │   ├── events/                   # Distributed event transport
 │   │   ├── astro-event-transport.ts # Singleton event bus (SSE, audit, usage hooks)
 │   │   ├── types.ts              # Event type definitions
@@ -309,10 +371,58 @@ server/
     └── relay.ts                  # WebSocket protocol types for relay communication
 
 packages/
+├── core/                         # @astro/core — shared DB schema, types, dispatch logic
+│   └── src/
+│       ├── index.ts              # Package entry point
+│       ├── types.ts              # Shared type definitions
+│       ├── app-mode.ts           # Mode detection (shared between frontend/backend)
+│       ├── error-utils.ts        # Shared error utilities
+│       ├── git-url-utils.ts      # Shared git URL parsing
+│       ├── prompt-templates.ts   # Shared prompt templates
+│       ├── skill-parser.ts       # Skill parsing
+│       ├── skill-injector.ts     # Skill injection
+│       ├── db/
+│       │   ├── index.ts          # DB factory (PGlite local / postgres-js server) — source of truth
+│       │   ├── schema.ts         # Drizzle ORM schema (all tables) — source of truth
+│       │   ├── migrate.ts        # Drizzle migration runner — source of truth
+│       │   └── bootstrap-local.ts # Local mode team/user initialization
+│       ├── dispatch/
+│       │   ├── index.ts          # Dispatch module entry point
+│       │   ├── types.ts          # Dispatch type definitions
+│       │   ├── payload.ts        # Dispatch payload construction
+│       │   ├── context-assembler.ts # Context assembly
+│       │   ├── result-router.ts  # Result routing
+│       │   ├── branch-manager.ts # Branch management
+│       │   └── machine-selector.ts # Machine selection
+│       └── types/
+│           ├── relay.ts          # Relay type definitions
+│           ├── skill.ts          # Skill type definitions
+│           ├── github.ts         # GitHub type definitions
+│           └── device-auth.ts    # Device auth type definitions
+├── cli/                          # @astroanywhere/cli — CLI for managing projects, plans, tasks
+│   └── src/
+│       ├── index.ts              # CLI entry point (Commander.js)
+│       ├── client.ts             # API client for CLI
+│       ├── config.ts             # CLI configuration
+│       ├── output.ts             # Output formatting
+│       ├── commands/             # CLI commands
+│       │   ├── auth.ts           # Authentication commands
+│       │   ├── project.ts        # Project management
+│       │   ├── plan.ts           # Plan management
+│       │   ├── task.ts           # Task management
+│       │   ├── activity.ts       # Activity commands
+│       │   ├── search.ts         # Search commands
+│       │   ├── trace.ts          # Trace viewing
+│       │   ├── env.ts            # Environment commands
+│       │   ├── config.ts         # Config commands
+│       │   └── completion.ts     # Shell completion
+│       └── tui/                  # Terminal UI (Ink-based)
+│           ├── sse-client.ts     # SSE client for TUI
+│           ├── stores/           # Zustand stores for TUI state
+│           ├── hooks/            # Custom hooks (vim mode, fuzzy search, etc.)
+│           ├── commands/         # TUI command registry
+│           └── lib/              # TUI utilities (formatting, status colors, tree builder)
 └── agent-runner/                 # Git submodule → github.com/fuxialexander/astro-agent
-
-cli/
-└── astro-agent/                  # CLI tools for agent runner
 
 docs/
 └── ...                           # Architecture documentation
@@ -321,26 +431,33 @@ docs/
 ### Routes
 | Path | Page | Status |
 |------|------|--------|
-| `/` | Dashboard | Implemented (auto-redirects to /welcome if no projects; stats, pending decisions, active projects, system health, usage metrics) |
-| `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
-| `/projects/new` | New Project | Implemented (unified form: description + directory with inline detection) |
-| `/project/:id` | Project Overview | Implemented (overview + updates tabs, vision doc dialog) |
-| `/project/:id/plan` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation across all views) |
+| `/` | Root Redirect | Implemented (redirects to /projects/new/plan in local mode, /landing/ if unauthenticated, or /projects otherwise) |
+| `/dashboard` | Dashboard | Implemented (stats, pending decisions, active projects, system health, usage metrics) |
+| `/projects` | Projects list | Implemented (list + project creation dialog) |
+| `/projects/new` | Redirect | Redirects to `/projects` |
+| `/projects/new/plan` | New Project + Plan | Implemented (project creation with plan generation) |
+| `/project/:id` | Plan View | Implemented (graph + list + timeline + board toggle, detail panel + chat) |
+| `/project/:id/graph` | Plan View (graph) | Implemented (graph view of plan) |
+| `/project/:id/list` | Plan View (list) | Implemented (list view of plan) |
+| `/project/:id/timeline` | Plan View (timeline) | Implemented (timeline/Gantt view) |
+| `/project/:id/board` | Plan View (board) | Implemented (board/kanban view) |
+| `/project/:id/overview` | Plan View (overview) | Implemented (project overview tab) |
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat, session activity) |
 | `/tasks` | My Tasks | Implemented (cross-project task list with filters, grouping, display settings) |
+| `/active` | Active Tasks | Implemented (active/running tasks view) |
 | `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow) |
-| `/agents` | Agents | Implemented (agent listing and monitoring) |
 | `/initiatives` | Initiatives | Implemented (initiatives/projects grouping) |
 | `/workflows` | Workflows | Implemented (workflow management) |
+| `/playground` | Playground | Implemented (AI experimentation with Claude sessions) |
 | `/settings` | Settings | Implemented (health check + model selection) |
 | `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
-| `/welcome` | Welcome | Implemented (simplified 2-option onboarding: empty project or repo-based project) |
+| `/welcome` | New Project + Plan | Implemented (maps to ProjectNewPlan component) |
 | `/login` | Login | Implemented (WebAuthn/passkey authentication) |
-| `/team/invite/:token` | Team Invite | Implemented (team invitation flow) |
+| `/invite/:token` | Team Invite | Implemented (team invitation flow) |
+| `/share/:id` | Share Import | Implemented (shared bundle import) |
 | `/landing/` | Landing Page | Implemented (static HTML, public marketing page) |
 | `/landing/about` | Why Astro? | Implemented (static HTML, philosophy/naming page) |
-| `/issues` | Issues List | **Not implemented** (designed in UI.pen, no code) |
-| `/issues/board` | Issues Board | **Not implemented** (designed in UI.pen, no code) |
+| `/plugins/*` | Plugin Routes | Implemented (dynamic plugin-contributed routes) |
 
 ### Data Flow
 1. Stores load from backend on mount via `DataLoader` component (`dataClient.load()` → `GET /api/data/*`)
