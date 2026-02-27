@@ -633,8 +633,8 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       >
         <Background gap={40} size={2} color="var(--muted-foreground)" style={{ opacity: 0.15 }} variant={BackgroundVariant.Dots} />
 
-        {/* Status legend — top-left to avoid overlap with execute controls on narrow screens */}
-        <div className="react-flow__panel absolute top-3 left-3 z-10 flex items-center gap-3 rounded-lg border border-border bg-card/85 backdrop-blur-sm px-2.5 py-1.5 shadow-sm text-[10px] font-medium">
+        {/* Status legend — top-left, hidden on mobile (colors are self-explanatory from nodes) */}
+        <div className="react-flow__panel absolute top-3 left-3 z-10 hidden md:flex items-center gap-3 rounded-lg border border-border bg-card/85 backdrop-blur-sm px-2.5 py-1.5 shadow-sm text-[10px] font-medium">
           <div className="flex items-center gap-1.5">
             <div className="h-2 w-2 rounded-full bg-success" />
             <span className="text-muted-foreground">Completed</span>
@@ -653,7 +653,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           </div>
         </div>
 
-        {/* Unified graph controls */}
+        {/* Unified graph controls — zoom in/out hidden on mobile */}
         <div className="react-flow__panel absolute bottom-3 left-2.5 z-10 flex flex-col rounded-xl border border-border bg-card shadow-lg overflow-hidden">
           <button
             type="button"
@@ -663,21 +663,21 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           >
             <LayoutGrid className="h-4 w-4" />
           </button>
-          <div className="h-px bg-border" />
+          <div className="hidden md:block h-px bg-border" />
           <button
             type="button"
             onClick={() => rfZoomIn({ duration: 200 })}
             title="Zoom in"
-            className="flex h-9 w-9 items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
+            className="hidden md:flex h-9 w-9 items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
           </button>
-          <div className="h-px bg-border" />
+          <div className="hidden md:block h-px bg-border" />
           <button
             type="button"
             onClick={() => rfZoomOut({ duration: 200 })}
             title="Zoom out"
-            className="flex h-9 w-9 items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
+            className="hidden md:flex h-9 w-9 items-center justify-center text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
             <Minus className="h-4 w-4" />
           </button>
@@ -728,9 +728,9 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
                 </button>
               )
             )}
-            {/* Machine + work directory row */}
+            {/* Machine + work directory row — hidden on mobile */}
             {resolvedMachineId && (
-              <div className="flex items-center gap-1.5">
+              <div className="hidden md:flex items-center gap-1.5">
                 {resolvedMachineName && (
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground bg-card/85 backdrop-blur-sm border border-border rounded-lg px-2 py-1.5 shadow-sm">
                     <Server className="h-3 w-3 shrink-0" />

@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { FileText, MessageSquare, Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Download, Folder, Check, Pencil, GitBranch, List, Clock, Kanban } from "lucide-react"
+import { FileText, MessageSquare, Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Download, Folder, Check, Pencil, GitBranch, List, Clock, Kanban, ChevronLeft, MoreVertical } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
 import { NodeInspectorSheet, NodeInspectorSidebar } from "@/components/node-inspector"
@@ -1350,7 +1351,15 @@ export function PlanView() {
   return (
     <div className="flex h-full flex-col">
       {/* Header: project identity + Plan|Overview toggle + view mode + actions */}
-      <header className="flex flex-col md:flex-row md:items-center gap-3 border-b border-border px-4 md:px-6 py-3 md:h-14 md:py-0 shrink-0">
+      <header className="flex items-center gap-2 md:gap-3 border-b border-border px-2 md:px-6 h-11 md:h-14 shrink-0">
+        {/* Mobile back button */}
+        <button
+          onClick={() => navigate('/projects')}
+          className="md:hidden flex items-center justify-center h-8 w-8 -ml-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+
         {/* Project identity */}
         <div className="flex items-center gap-3 shrink-0">
           <ColorIconBadge
@@ -1360,6 +1369,7 @@ export function PlanView() {
             editable
             onColorChange={(color) => updateProject(project.id, { color })}
             onIconChange={(icon) => updateProject(project.id, { icon })}
+            className="hidden md:flex"
           />
           {isRenaming ? (
             <InlineRenameInput
@@ -1371,18 +1381,18 @@ export function PlanView() {
             />
           ) : (
             <span
-              className="text-lg font-semibold shrink-0 group/name cursor-default"
+              className="text-sm md:text-lg font-semibold shrink-0 truncate max-w-[140px] md:max-w-none group/name cursor-default"
               onDoubleClick={() => setIsRenaming(true)}
             >
               {project.name}
-              <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }} />
+              <Pencil className="h-3 w-3 ml-1.5 hidden md:inline-block opacity-0 group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }} />
             </span>
           )}
-          <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
+          <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0 hidden md:block" />
         </div>
 
-        {/* Plan | Overview Toggle */}
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Plan | Overview Toggle — desktop only */}
+        <div className="hidden md:flex items-center gap-1 shrink-0">
           <button
             onClick={() => navigate(`/project/${project.id}/graph`)}
             className={cn(
@@ -1411,8 +1421,8 @@ export function PlanView() {
         {activeTab === "plan" && (
           <>
             <Separator orientation="vertical" className="h-5 shrink-0 hidden md:block" />
-            <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
-              <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 md:gap-2 shrink-0">
+              <div className="flex items-center gap-0.5 md:gap-1">
                 {(
                   [
                     { mode: "graph" as ViewMode, icon: GitBranch },
@@ -1425,37 +1435,38 @@ export function PlanView() {
                     key={mode}
                     onClick={() => navigate(`/project/${project.id}/${mode}`)}
                     className={cn(
-                      "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize flex items-center gap-1.5",
+                      "rounded-lg px-2 md:px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize flex items-center gap-1.5",
                       viewMode === mode
-                        ? "text-accent-foreground border-b-2 border-accent"
+                        ? "text-accent-foreground bg-accent/10 md:bg-transparent md:border-b-2 md:border-accent"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
-                    <ModeIcon className="h-3.5 w-3.5 md:hidden" />
+                    <ModeIcon className="h-4 w-4 md:hidden" />
                     <span className="hidden md:inline">{mode}</span>
                   </button>
                 ))}
               </div>
-              {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
-              {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
-              {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
-              {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
+              <div className="hidden md:flex items-center gap-2">
+                {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
+                {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
+                {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
+                {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
+              </div>
             </div>
           </>
         )}
-        <div className="flex-1 min-w-0 hidden md:block" />
+        <div className="flex-1 min-w-0" />
 
-        {/* Action buttons - Vision/Export only visible when Plan is active */}
+        {/* Action buttons - Vision/Export only visible on desktop when Plan is active */}
         {activeTab === "plan" && (
-          <div className="flex items-center gap-2 shrink-0 overflow-x-auto">
-            <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)} className="hidden md:flex">
+          <div className="hidden md:flex items-center gap-2 shrink-0">
+            <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)}>
               <FileText className="h-3.5 w-3.5" />
               Vision
             </Button>
             <Button
               variant="outline"
               size="sm"
-              className="hidden md:flex"
               onClick={() => {
                 const bundle = exportProject(project.id)
                 downloadBundle(bundle)
@@ -1467,15 +1478,65 @@ export function PlanView() {
           </div>
         )}
 
-        {/* Chat button - always visible */}
+        {/* Chat button */}
         <Button
           variant={chatOpen ? "default" : "outline"}
-          size="sm"
+          size="icon"
+          className="h-8 w-8 md:h-auto md:w-auto md:px-3 md:py-1.5"
           onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setSelectedNode(null); if (chatOpen) setChatInitialMessage(undefined) }}
         >
-          <MessageSquare className="h-3.5 w-3.5" />
+          <MessageSquare className="h-4 w-4 md:h-3.5 md:w-3.5" />
           <span className="hidden md:inline ml-1.5">Chat</span>
         </Button>
+
+        {/* Mobile overflow menu */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="md:hidden flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+              <MoreVertical className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {/* Plan/Overview toggle */}
+            <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/graph`)}>
+              Plan
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/overview`)}>
+              Overview
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {/* Vision Doc */}
+            <DropdownMenuItem onClick={() => setVisionOpen(true)}>
+              <FileText className="h-3.5 w-3.5 mr-2" />
+              Vision Doc
+            </DropdownMenuItem>
+            {/* Export */}
+            <DropdownMenuItem onClick={() => {
+              const bundle = exportProject(project.id)
+              downloadBundle(bundle)
+            }}>
+              <Download className="h-3.5 w-3.5 mr-2" />
+              Export
+            </DropdownMenuItem>
+            {/* Rename */}
+            <DropdownMenuItem onClick={() => setIsRenaming(true)}>
+              <Pencil className="h-3.5 w-3.5 mr-2" />
+              Rename
+            </DropdownMenuItem>
+            {/* Display settings on mobile */}
+            {activeTab === "plan" && (
+              <>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1.5">
+                  {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
+                  {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
+                  {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
+                  {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
+                </div>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
 
       {/* Canvas/List + Detail/Chat pane */}
