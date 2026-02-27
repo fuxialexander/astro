@@ -366,19 +366,25 @@ ${`- docusaurus: Use MDX, add frontmatter with sidebar_position
 - markdown: Use standard GFM with manual table of contents
 - gitbook: Include page references in SUMMARY.md`}`,
 
-    planRefinement: `You are refining a documentation generation plan. The user may want to:
+    planRefinement: `You are refining a documentation generation plan for {{repoUrls}}.
 
-- Focus on specific modules or APIs
+The current plan targets {{language}} documentation in {{docFormat}} format for a {{audience}} audience.
+
+The user may want to:
+- Focus on specific modules or APIs (narrow scope)
 - Change the documentation depth or audience level
-- Add or remove documentation sections
+- Add or remove documentation sections from {{docSections}}
 - Modify the output format or structure
 - Include additional code examples or tutorials
+- Adjust the API depth (currently: {{maxDepth}})
+- Change how existing docs are handled (currently: {{existingDocs}})
 
 When the user suggests changes:
-1. Identify which tasks/sections are affected
-2. Propose specific modifications to the task DAG
-3. Estimate impact on documentation completeness
-4. Suggest whether new tasks need to be added`,
+1. Identify which tasks/sections in the current plan are affected
+2. Propose specific modifications to the task DAG (add, remove, or update nodes)
+3. Estimate impact on documentation completeness and quality
+4. Suggest whether new tasks need to be added or existing ones can be repurposed
+5. Maintain the parallel structure — documentation sections should remain independent where possible`,
 
     sharedContext: `Code documentation generation context:
 
@@ -388,6 +394,7 @@ When the user suggests changes:
 - **Clarity**: Use simple language, avoid jargon where possible
 - **Examples**: Show, don't just tell - include working code
 - **Searchability**: Use consistent terminology for discoverability
+- **Freshness**: Ensure docs match the code at the specified branch/commit
 
 ## Code Analysis Strategies
 - Parse AST for accurate signature extraction
@@ -395,13 +402,15 @@ When the user suggests changes:
 - Analyze test files for usage examples
 - Examine issues/PRs for common pain points
 - Check README for project overview and quick start
+- Inspect package.json / setup.py / Cargo.toml for dependency docs
 
 ## Repository Structure Analysis
 - Identify entry points (main, index, lib)
-- Map module dependencies
+- Map module dependencies and internal architecture
 - Find configuration files for setup docs
-- Locate example directories
+- Locate example directories (examples/, demo/, sample/)
 - Parse CI config for build/test instructions
+- Check for existing docs/ directory structure
 
 ## Common Documentation Gaps
 - Missing installation prerequisites
@@ -409,6 +418,31 @@ When the user suggests changes:
 - No migration guides between versions
 - Missing error handling examples
 - Insufficient type documentation
+- Undocumented CLI flags or configuration options
+
+## Language-Specific Documentation Conventions
+
+### TypeScript/JavaScript
+- TypeDoc for API reference generation
+- Extract from .d.ts files and JSDoc comments
+- Document generic type parameters and utility types
+- Show import paths clearly
+
+### Python
+- Sphinx/Google/NumPy docstring format
+- Extract from __init__.py re-exports
+- Document type hints and Optional parameters
+- Include pip install instructions
+
+### Go
+- godoc conventions for package and function docs
+- Document exported symbols only
+- Show import paths and package structure
+
+### Rust
+- rustdoc conventions with /// doc comments
+- Document trait implementations and feature flags
+- Show cargo add instructions
 
 ## Mermaid Diagram Templates
 Architecture diagram:
@@ -435,6 +469,15 @@ classDiagram
         +method()
     }
     ChildClass --|> BaseClass
+\`\`\`
+
+Module dependency diagram:
+\`\`\`mermaid
+graph LR
+    core --> utils
+    api --> core
+    cli --> api
+    tests --> api
 \`\`\``,
   },
 
