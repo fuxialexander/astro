@@ -1,0 +1,458 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astroanywhere.dev/schemas/use-case-template.schema.json",
+  "title": "Astro Use Case Template",
+  "description": "Schema for defining reusable project templates in Astro. Templates capture domain knowledge, prompt patterns, parameter schemas, and parallelization strategies for common project types.",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "description",
+    "category",
+    "version",
+    "requiredParameters",
+    "optionalParameters",
+    "prompts",
+    "source",
+    "enabled"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-/]*[a-z0-9]$",
+      "minLength": 2,
+      "maxLength": 100,
+      "description": "Unique template identifier in kebab-case. Built-in: 'astro/...' prefix. Community: 'community/...' prefix. Custom: no prefix."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 80,
+      "description": "Human-readable template name (2-5 words)."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 2000,
+      "description": "Detailed description of the template's purpose and typical use."
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "software-development",
+        "data-science",
+        "machine-learning",
+        "devops-infrastructure",
+        "research-analysis",
+        "documentation",
+        "testing-qa",
+        "security",
+        "computational-biology",
+        "custom"
+      ],
+      "description": "Template category for organization and filtering."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version (e.g., '1.0.0')."
+    },
+    "icon": {
+      "type": "string",
+      "maxLength": 4,
+      "description": "Emoji icon for visual identification."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 30 },
+      "maxItems": 10,
+      "uniqueItems": true,
+      "description": "Tags for search and filtering."
+    },
+    "maturity": {
+      "type": "string",
+      "enum": ["stable", "beta", "experimental"],
+      "default": "stable",
+      "description": "Template maturity level."
+    },
+    "requiredParameters": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/parameter" },
+      "description": "Parameters that must be provided before plan generation."
+    },
+    "optionalParameters": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/parameter" },
+      "description": "Parameters with sensible defaults for fine-tuning."
+    },
+    "prompts": {
+      "$ref": "#/$defs/promptConfig",
+      "description": "Prompt templates for plan generation and task execution."
+    },
+    "outputFormat": {
+      "$ref": "#/$defs/outputFormatSpec",
+      "description": "Output format specification for task results."
+    },
+    "parallelization": {
+      "$ref": "#/$defs/parallelizationConfig",
+      "description": "Parallelization and dispatch configuration."
+    },
+    "execution": {
+      "$ref": "#/$defs/executionConfig",
+      "description": "Execution-level settings for generated tasks."
+    },
+    "planHints": {
+      "$ref": "#/$defs/planGenerationHints",
+      "description": "Hints for the plan generation AI."
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "computational-biology",
+          "web-development",
+          "data-engineering",
+          "ml-ai",
+          "devops-infrastructure",
+          "mobile-development",
+          "systems-programming",
+          "scientific-computing",
+          "security",
+          "other"
+        ]
+      },
+      "uniqueItems": true,
+      "description": "Domain expertise areas this template targets."
+    },
+    "recommendedSkills": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true,
+      "description": "OpenClaw skill names to activate during execution."
+    },
+    "extends": {
+      "type": "string",
+      "description": "ID of a parent template to inherit from."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["builtin", "workspace", "community", "custom"],
+      "description": "Where this template was loaded from."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether this template is active and selectable."
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Template author name."
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL to template documentation or source."
+    }
+  },
+  "additionalProperties": false,
+
+  "$defs": {
+    "parameter": {
+      "type": "object",
+      "required": ["id", "name", "description", "type", "required"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+          "description": "Unique parameter ID, used in prompt interpolation as {{id}}."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Human-readable parameter name."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "What this parameter controls."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "select", "multi-select", "file-path", "code"],
+          "description": "Value type — determines UI component."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether a value must be provided."
+        },
+        "default": {
+          "description": "Default value (type must match parameter type).",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "placeholder": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Placeholder text for the input."
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "value"],
+            "properties": {
+              "label": { "type": "string" },
+              "value": { "type": "string" },
+              "description": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "description": "Available options for select/multi-select parameters."
+        },
+        "validation": {
+          "type": "object",
+          "properties": {
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "pattern": { "type": "string" },
+            "message": { "type": "string" }
+          },
+          "additionalProperties": false,
+          "description": "Validation constraints."
+        },
+        "visibleWhen": {
+          "type": "object",
+          "required": ["parameterId", "operator"],
+          "properties": {
+            "parameterId": { "type": "string" },
+            "operator": {
+              "type": "string",
+              "enum": ["equals", "not-equals", "contains", "not-empty"]
+            },
+            "value": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "number" },
+                { "type": "boolean" }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "description": "Condition for parameter visibility."
+        },
+        "group": {
+          "type": "string",
+          "description": "Display group name."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Display order within group."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "promptConfig": {
+      "type": "object",
+      "required": ["planGeneration"],
+      "properties": {
+        "planGeneration": {
+          "type": "string",
+          "minLength": 50,
+          "description": "System prompt for plan generation. Supports {{param}} interpolation."
+        },
+        "taskExecution": {
+          "type": "string",
+          "description": "System prompt for task execution."
+        },
+        "planRefinement": {
+          "type": "string",
+          "description": "System prompt for plan refinement chat."
+        },
+        "sharedContext": {
+          "type": "string",
+          "description": "Domain knowledge prepended to all prompts."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "outputFormatSpec": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["json_schema", "markdown", "free"],
+          "description": "Output format type."
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema for structured output (when type is 'json_schema')."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of expected output."
+        },
+        "example": {
+          "type": "string",
+          "description": "Example output for reference."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "parallelizationConfig": {
+      "type": "object",
+      "properties": {
+        "maxConcurrentTasks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Maximum concurrent tasks for this template's project."
+        },
+        "autoDispatch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-dispatch tasks when dependencies are met."
+        },
+        "defaultPriority": {
+          "type": "string",
+          "enum": ["critical", "high", "normal", "low"],
+          "description": "Default dispatch priority for tasks."
+        },
+        "retry": {
+          "type": "object",
+          "required": ["maxRetries", "retryDelayMs", "exponentialBackoff"],
+          "properties": {
+            "maxRetries": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "retryDelayMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 300000
+            },
+            "exponentialBackoff": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Retry configuration for failed tasks."
+        },
+        "machineSelectionPolicy": {
+          "type": "string",
+          "enum": ["round-robin", "priority", "least-loaded", "manual", "label-match"],
+          "description": "Machine selection strategy."
+        },
+        "requiredMachineLabels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Required machine labels for task assignment."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "executionConfig": {
+      "type": "object",
+      "properties": {
+        "preferredModel": {
+          "type": "string",
+          "description": "Preferred AI model identifier."
+        },
+        "maxTurns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 30,
+          "description": "Maximum tool-use cycles per task."
+        },
+        "maxBudgetPerTask": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100,
+          "description": "Maximum USD budget per task execution."
+        },
+        "skills": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "OpenClaw skill names to activate."
+        },
+        "deliveryMode": {
+          "type": "string",
+          "enum": ["pr", "push", "branch", "copy", "direct"],
+          "description": "How task results are delivered."
+        },
+        "skipSafetyCheck": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip safety checks for text-only tasks."
+        },
+        "defaultVerification": {
+          "type": "string",
+          "enum": ["auto", "human", "mixed"],
+          "default": "mixed",
+          "description": "Verification strategy for completed tasks."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "planGenerationHints": {
+      "type": "object",
+      "properties": {
+        "targetNodeCount": {
+          "type": "object",
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "minimum": 3, "maximum": 50 },
+            "max": { "type": "integer", "minimum": 3, "maximum": 50 }
+          },
+          "additionalProperties": false,
+          "description": "Target range for number of plan nodes."
+        },
+        "defaultEstimate": {
+          "type": "string",
+          "enum": ["XS", "S", "M", "L", "XL"],
+          "description": "Default task size estimate."
+        },
+        "suggestedMilestones": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "description"],
+            "properties": {
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "maxItems": 10,
+          "description": "Common milestone patterns for this use case."
+        },
+        "commonLabels": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^l[1-5]$" },
+          "description": "Commonly relevant label IDs (l1-l5)."
+        },
+        "preferParallelTasks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to favor parallel task structures."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

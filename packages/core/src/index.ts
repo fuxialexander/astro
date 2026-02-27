@@ -7,6 +7,7 @@ export * from './types/skill.js'
 export * from './types/github.js'
 export * from './types/relay.js'
 export * from './types/device-auth.js'
+export * from './types/use-case-template.js'
 
 // Utilities
 export * from './error-utils.js'
