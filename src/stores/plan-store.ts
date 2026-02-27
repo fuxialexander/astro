@@ -221,6 +221,22 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       })
 
       const nodes = apiNodes
+
+      // Rebuild node.dependencies from edges (source of truth).
+      // The server doesn't persist node.dependencies, so after a page refresh
+      // all nodes have dependencies: []. Derive from the edge graph.
+      const nodeIdSet = new Set(nodes.map((n) => n.id))
+      const depsMap = new Map<string, string[]>()
+      for (const e of edges) {
+        if (!nodeIdSet.has(e.source) || !nodeIdSet.has(e.target)) continue
+        let deps = depsMap.get(e.target)
+        if (!deps) { deps = []; depsMap.set(e.target, deps) }
+        deps.push(e.source)
+      }
+      for (const node of nodes) {
+        node.dependencies = depsMap.get(node.id) ?? []
+      }
+
       ensurePositions(nodes, edges)
       // Reconcile milestone statuses on load (handles stale data)
       reconcileMilestones(nodes, edges)
