@@ -89,6 +89,7 @@ Everything runs locally — no Fly.io, Redis, or external services needed for de
 - **Command Palette**: cmdk
 - **Backend**: Hono.js on Node.js (port 3001), proxied via Vite `/api` → localhost:3001
 - **AI**: @anthropic-ai/claude-agent-sdk for plan generation + chat
+- **MCP**: @modelcontextprotocol/sdk for MCP server integration with 15 self-directed agent tools
 - **Deployment**: Cloudflare Tunnel (dev) + Fly.io (backend, production) + Cloudflare Pages (frontend, production)
 - **Landing Page**: Static HTML in `public/landing/` (served at `/landing/`)
 
@@ -113,7 +114,7 @@ src/
 │   ├── projects.tsx              # Project list with table (grouped, sortable columns)
 │   ├── project-new.tsx           # New project form (unified: description + directory detection)
 │   ├── project-overview.tsx      # Project details: overview + updates tabs, vision doc dialog
-│   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List/Timeline toggle)
+│   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List/Timeline toggle, mobile-friendly header, decluttered canvas)
 │   ├── my-tasks.tsx              # Cross-project task list with filters, grouping, display settings
 │   ├── task-detail.tsx           # Task-agent detail: output, tool traces, file changes, steer chat
 │   ├── environments.tsx          # Machine/environment management, SLURM cluster display
@@ -164,7 +165,7 @@ src/
 │   └── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
 ├── stores/                          # All stores persist via dataClient → /api/data/* → Drizzle
 │   ├── activity-store.ts         # Activity tracking and history
-│   ├── agent-store.ts            # AI generation state, SSE streaming, abort
+│   ├── agent-store.ts            # AI generation state, SSE streaming, abort, model size selector
 │   ├── api-keys-store.ts         # Encrypted API keys for external services (Web Crypto API)
 │   ├── auth-store.ts             # Supabase auth session, user state, WebAuthn/passkey
 │   ├── connected-accounts-store.ts # Connected external accounts (Slack, Telegram, GitHub webhooks, Linear)
@@ -199,8 +200,10 @@ src/
 │   ├── supabase-client.ts        # Supabase browser client
 │   ├── app-mode.ts               # Local vs server mode detection
 │   ├── project-source.ts         # ProjectSource resolution, delivery mode derivation
+│   ├── dispatch-signing.ts       # Browser-side ECDSA P-256 signing for secure task dispatch
 │   ├── constants.ts              # Priority/estimate config, default labels
 │   ├── graph-utils.ts            # Graph node position calculation for child placement
+│   ├── graph-sort-utils.ts       # Topological sort + dependency graph utilities
 │   ├── timeline-utils.ts         # Gantt timeline calculations (topological sort, date assignment)
 │   ├── path-utils.ts             # Path manipulation utilities
 │   ├── git-url-utils.ts          # Git URL parsing
@@ -360,9 +363,10 @@ docs/
 
 ## Key Concepts
 
-- **Plan graph**: Core data model is a directed graph (not a flat list) supporting linear pipelines and branching exploration trees with explicit dependencies
+- **Plan graph**: Core data model is a directed graph (not a flat list) supporting linear pipelines and branching exploration trees with explicit dependencies. Node dependencies are synced from edge graph on load to ensure consistency across page refreshes.
 - **Tiered verification**: Auto-close for verifiable tasks (tests pass, build succeeds), human judgment for strategic/product decisions
 - **Multi-environment dispatch**: Tasks run across local machines, HPC clusters (Slurm), and cloud (AWS/GCP)
+- **Dispatch signing**: Browser-side ECDSA P-256 signatures (`src/lib/dispatch-signing.ts`) prove dispatch authenticity to agent runners, preventing server compromise attacks. Signatures stored in IndexedDB, verified with timestamp + nonce + machine ID.
 - **Vision/context injection**: A persistent document describing product vision or research question is injected into every agent session, above codebase context
 - **Branch pruning**: Killing a branch auto-cancels all downstream tasks
 - **Agent-agnostic execution**: Wraps existing agents (e.g., Claude Code), does not build custom agents
@@ -373,6 +377,7 @@ docs/
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
 - **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
 - **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
+- **Mobile-first UI**: Plan view header and graph canvas optimized for mobile and touch devices (iPad compatibility with hover-only UI toggles)
 
 ## Target Users
 
@@ -391,8 +396,11 @@ docs/
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
 - PlanNode execution fields: `executionId`, `executionOutput`, `executionError`, `executionStartedAt`, `executionCompletedAt`
 - PlanNode list fields: `dueDate` (ISO YYYY-MM-DD), `estimate` (XS/S/M/L/XL), `milestoneId`
+- **PlanNode dependencies**: Always derive from `planEdges` during store load via `graph-sort-utils.ts` to keep `node.dependencies` in sync after page refresh (server doesn't persist this field)
 - Display settings: `DisplayPopover` component with `DisplayPopoverConfig` for per-view groupBy/orderBy/properties
 - Usage tracking: `useUsageStore` accumulates session metrics (cost, tokens, task counts) from execution results
+- Dispatch signing: Use `dispatch-signing.ts` utilities for browser-side ECDSA signing; signatures prevent replay attacks via timestamp + nonce + machine ID validation
+- Model selection: `agent-store.ts` supports model size selector for plan generation (passed to Claude Agent SDK); allows user choice of model capability trade-offs
 - Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`
 
 ## Database
@@ -406,6 +414,11 @@ docs/
 ## UI/Design
 
 **When matching a design reference, ask clarifying questions about visual style (glassmorphism, flat, material weight) BEFORE implementing. Start with a small component to validate the approach.**
+
+**Mobile & Touch Considerations:**
+- Plan view optimized for mobile with responsive header (not just desktop)
+- Touch devices (iPad, mobile) treat hover-only elements as toggles via `@supports (hover: none)` media query. Use explicit tap targets instead of hover-dependent UI.
+- Graph canvas has decluttered mobile-friendly controls that auto-hide unnecessary elements on small screens
 
 ## Error Handling
 
