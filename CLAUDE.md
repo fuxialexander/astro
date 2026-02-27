@@ -112,10 +112,14 @@ src/
 │   ├── dashboard.tsx             # Home: stats, pending decisions, active projects, system health, usage metrics
 │   ├── projects.tsx              # Project list with table (grouped, sortable columns)
 │   ├── project-new.tsx           # New project form (unified: description + directory detection)
-│   ├── project-overview.tsx      # Project details: overview + updates tabs, vision doc dialog
-│   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List/Timeline toggle)
+│   ├── project-overview.tsx      # Project details: overview + updates tabs, vision doc dialog (via plan-view)
+│   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List/Timeline/Board toggle)
 │   ├── my-tasks.tsx              # Cross-project task list with filters, grouping, display settings
+│   ├── active-tasks.tsx          # Active tasks: running/pending/generating tasks across all projects
 │   ├── task-detail.tsx           # Task-agent detail: output, tool traces, file changes, steer chat
+│   ├── playground.tsx            # General-purpose AI coding session (like Claude Code)
+│   ├── project-new-plan.tsx      # New project creation with plan initialization (at /projects/new/plan and /welcome)
+│   ├── share-import.tsx          # Import shared project bundles
 │   ├── environments.tsx          # Machine/environment management, SLURM cluster display
 │   ├── agents.tsx                # Agent management and monitoring
 │   ├── initiatives.tsx           # Initiatives/projects grouping
@@ -128,7 +132,8 @@ src/
 ├── components/
 │   ├── ui/                       # shadcn/ui Radix primitives (button, input, badge, card, dialog, sheet, etc.)
 │   ├── layout/
-│   │   ├── app-layout.tsx        # Sidebar + <Outlet /> wrapper
+│   │   ├── app-layout.tsx        # Sidebar + <Outlet /> wrapper (desktop)
+│   │   ├── mobile-layout.tsx     # Bottom tab bar navigation (mobile)
 │   │   ├── sidebar.tsx           # Nav items (Dashboard, Projects, My Tasks, Environments), user profile
 │   │   └── header.tsx            # Reusable page header
 │   ├── task-creation-form.tsx    # Reusable task creation (inline/popover/dialog modes)
@@ -161,14 +166,27 @@ src/
 │   ├── approval-card.tsx         # Approval/decision UI component
 │   ├── milestone-dialog.tsx      # Milestone creation/edit dialog
 │   ├── theme-provider.tsx        # Light/dark/system theme context
-│   └── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
+│   ├── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
+│   ├── playground/
+│   │   ├── playground-header.tsx # Header for playground mode
+│   │   └── playground-file-sidebar.tsx # File sidebar for playground
+│   ├── sharing/                  # Export/import project bundles
+│   ├── board/                    # Project board view components
+│   ├── views/                    # Reusable view components
+│   ├── plan-session/             # Plan session and approval components
+│   ├── activity-blocks.tsx       # Reusable activity block components (text, tool, file change, error)
+│   ├── plugin-loader.tsx         # Dynamic plugin loading
+│   ├── plugin-routes.tsx         # Plugin route mounting
+│   └── remote-path-browser.tsx   # Remote path browsing for environments
 ├── stores/                          # All stores persist via dataClient → /api/data/* → Drizzle
 │   ├── activity-store.ts         # Activity tracking and history
 │   ├── agent-store.ts            # AI generation state, SSE streaming, abort
 │   ├── api-keys-store.ts         # Encrypted API keys for external services (Web Crypto API)
 │   ├── auth-store.ts             # Supabase auth session, user state, WebAuthn/passkey
+│   ├── claude-sessions-store.ts  # Claude AI coding sessions state
 │   ├── connected-accounts-store.ts # Connected external accounts (Slack, Telegram, GitHub webhooks, Linear)
 │   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties)
+│   ├── environment-config-store.ts # Environment and machine configuration
 │   ├── execution-store.ts        # Task execution state, SSE stream processing, provider/machine management
 │   ├── github-store.ts           # GitHub integration: connection, repositories, selections
 │   ├── initiative-store.ts       # Initiatives/projects grouping
@@ -233,9 +251,13 @@ server/
 │   ├── share.ts                  # Share/export bundles
 │   ├── skills.ts                 # Skill registry
 │   ├── system.ts                 # System information
-│   ├── transcribe.ts             # Audio transcription
 │   ├── device-auth.ts            # Device authorization flow (RFC 8628)
 │   └── well-known.ts             # OpenID/WebAuthn discovery
+├── plugins/                      # Notification channel plugins
+│   ├── channel-github/           # GitHub notifications (webhooks, PR notifications)
+│   ├── channel-slack/            # Slack notifications
+│   ├── channel-telegram/         # Telegram notifications
+│   └── channel-linear/           # Linear notifications
 ├── lib/
 │   ├── db/                       # Database abstraction layer
 │   │   ├── index.ts              # DB factory (PGlite local / postgres-js server)
@@ -244,6 +266,14 @@ server/
 │   │   └── bootstrap-local.ts    # Local mode team/user initialization
 │   ├── session-manager.ts        # In-memory AbortController map for agent sessions
 │   ├── prompt-templates.ts       # System prompts + JSON schema for plan generation
+│   ├── challenge-store.ts        # Challenge/prompt state management
+│   ├── execution-context-store.ts # Execution context caching and retrieval
+│   ├── execution-event-bus.ts    # Event bus for execution events
+│   ├── error-utils.ts            # Error handling and formatting utilities
+│   ├── signal-processor.ts       # Signal handling for graceful shutdown
+│   ├── skill-injector.ts         # MCP skill injection into execution context
+│   ├── skill-manager.ts          # Skill registry and management
+│   ├── local-backends.ts         # Local backend services (PGlite, etc.)
 │   ├── relay-server.ts           # WebSocket relay server for agent runner communication
 │   ├── machine-registry.ts       # Live machine registry with connection tracking
 │   ├── event-buffer.ts           # Ring buffer for SSE reconnection replay (Last-Event-ID)
@@ -254,6 +284,7 @@ server/
 │   ├── registered-machines-store.ts # Machine registration persistence
 │   ├── ensure-user-profile.ts    # Self-heal auth.users ↔ user_profiles desync
 │   ├── github-client.ts          # GitHub API wrapper
+│   ├── github-store.ts           # Server-side GitHub token/state management
 │   ├── email-service.ts          # Email notifications
 │   ├── push-notifications.ts     # Push notification service
 │   ├── cleanup-scheduler.ts      # Automated cleanup tasks
@@ -321,26 +352,33 @@ docs/
 ### Routes
 | Path | Page | Status |
 |------|------|--------|
-| `/` | Dashboard | Implemented (auto-redirects to /welcome if no projects; stats, pending decisions, active projects, system health, usage metrics) |
-| `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
-| `/projects/new` | New Project | Implemented (unified form: description + directory with inline detection) |
-| `/project/:id` | Project Overview | Implemented (overview + updates tabs, vision doc dialog) |
-| `/project/:id/plan` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation across all views) |
+| `/` | Root | Auto-redirects to `/projects/new/plan` (local) or `/projects` (authenticated) |
+| `/projects` | Projects list | Implemented (list view, inline project creation) |
+| `/projects/new` | New Project | Redirects to `/projects` |
+| `/projects/new/plan` | New Project with Plan | Implemented (create project + init plan in one flow) |
+| `/welcome` | Welcome/Setup | Same as `/projects/new/plan` (initial onboarding) |
+| `/project/:id` | Plan View (default graph) | Implemented (graph canvas + node detail + chat, dependencies) |
+| `/project/:id/graph` | Plan Graph View | Graph visualization with node editor |
+| `/project/:id/list` | Plan List View | List view of plan nodes |
+| `/project/:id/timeline` | Plan Timeline View | Gantt timeline visualization |
+| `/project/:id/board` | Plan Board View | Board/kanban view |
+| `/project/:id/overview` | Project Overview | Overview + updates tabs, vision doc dialog |
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat, session activity) |
-| `/tasks` | My Tasks | Implemented (cross-project task list with filters, grouping, display settings) |
-| `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow) |
-| `/agents` | Agents | Implemented (agent listing and monitoring) |
-| `/initiatives` | Initiatives | Implemented (initiatives/projects grouping) |
-| `/workflows` | Workflows | Implemented (workflow management) |
-| `/settings` | Settings | Implemented (health check + model selection) |
-| `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
-| `/welcome` | Welcome | Implemented (simplified 2-option onboarding: empty project or repo-based project) |
-| `/login` | Login | Implemented (WebAuthn/passkey authentication) |
-| `/team/invite/:token` | Team Invite | Implemented (team invitation flow) |
-| `/landing/` | Landing Page | Implemented (static HTML, public marketing page) |
-| `/landing/about` | Why Astro? | Implemented (static HTML, philosophy/naming page) |
-| `/issues` | Issues List | **Not implemented** (designed in UI.pen, no code) |
-| `/issues/board` | Issues Board | **Not implemented** (designed in UI.pen, no code) |
+| `/tasks` | My Tasks | Cross-project task list with filters, grouping, display settings |
+| `/active` | Active Tasks | Live view of running, pending, generating tasks |
+| `/playground` | Playground | General-purpose AI coding session (like Claude Code) |
+| `/share/:id` | Share Import | Import shared project bundles |
+| `/environments` | Environments | Machine registration, SLURM clusters, device code flow |
+| `/agents` | Agents | Agent listing and monitoring |
+| `/initiatives` | Initiatives | Initiatives/projects grouping |
+| `/workflows` | Workflows | Workflow management |
+| `/settings` | Settings | Backend connection, model selection, health check |
+| `/device` | Device Auth | OAuth2 device code authorization flow (RFC 8628) |
+| `/login` | Login | WebAuthn/passkey authentication |
+| `/invite/:token` | Team Invite | Team invitation flow |
+| `/landing/` | Landing Page | Static HTML marketing page |
+| `/landing/about` | Why Astro? | Static HTML philosophy/naming page |
+| `/plugins/*` | Plugin Routes | Dynamic routes from loaded plugins |
 
 ### Data Flow
 1. Stores load from backend on mount via `DataLoader` component (`dataClient.load()` → `GET /api/data/*`)
@@ -373,6 +411,12 @@ docs/
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
 - **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
 - **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
+- **Plugin System**: Dynamic component/route loading from plugins; plugins contribute routes via PluginRoutes
+- **Mobile-First Layout**: Responsive design with separate AppLayout (desktop) and MobileLayout (mobile) using CSS media queries
+- **Channel Notifications**: Multi-channel notification system (GitHub, Slack, Telegram, Linear) via pluggable channel adapters
+- **Playground Mode**: General-purpose AI coding sessions with full execution access, file browsing, and activity tracking
+- **Project Sharing**: Export/import project bundles with version compatibility checking and recovery UI
+- **Execution Event Bus**: Central event bus for coordinating execution events across multiple subscribers
 
 ## Target Users
 
@@ -394,6 +438,10 @@ docs/
 - Display settings: `DisplayPopover` component with `DisplayPopoverConfig` for per-view groupBy/orderBy/properties
 - Usage tracking: `useUsageStore` accumulates session metrics (cost, tokens, task counts) from execution results
 - Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`
+- Plugin system: Components automatically load from `PluginLoader` with `PluginRoutes` for dynamic route mounting
+- Responsive layout: `AppLayout` (desktop, sidebar) + `MobileLayout` (mobile, bottom tabs) via CSS media queries at md breakpoint
+- Mobile patterns: Use `useMediaQuery` hook for responsive behavior; MobileLayout appears at md breakpoint (768px) and below
+- Activity blocks: Use `groupActivityEvents()` to compose reusable blocks (TextBlock, ToolBlock, FileChangeBlock, ErrorBlock) from execution streams
 
 ## Database
 
