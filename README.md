@@ -106,6 +106,81 @@ Frontend: Render dependency graph in React Flow
 - **Device Authentication**: OAuth2 device code flow (RFC 8628) for secure machine registration
 - **Visual Planning**: Interactive directed graph with React Flow
 - **Context Injection**: Vision doc + dependency outputs injected into every AI session
+- **Teams & Collaboration**: Multi-user team support with invitations and role-based access control
+- **Activity Feed**: Real-time tracking of all project and task events
+- **Approval System**: Dynamic tool-based approvals for strategic decisions
+- **Realtime Sync**: Multi-device collaboration via Supabase Realtime
+- **MCP Tools**: 15 built-in tools for agents to self-direct work (plan management, project CRUD, data access)
+
+## Teams & Collaboration
+
+Astro supports multi-user teams with shared projects and real-time collaboration:
+
+- **Team Management**: Create teams, invite members, and manage access via the web UI
+- **Shared Projects**: Team members can collaborate on the same project simultaneously
+- **Role-Based Access**: Control who can view, edit, or run tasks in shared projects
+- **Realtime Sync**: Changes across devices sync instantly via Supabase Realtime
+- **Activity Feed**: See all team activity — task execution, plan changes, approvals — in chronological order
+
+For multi-user deployments, use **Server Mode** (Workflow B) with a remote Supabase database.
+
+## Workspace Model (Workspace V2)
+
+Each task runs in an isolated workspace for safety and reproducibility:
+
+- **Git Worktrees**: Each task creates a git worktree, keeping work isolated from the main branch
+- **Delivery Modes**: Choose how task results are delivered: PR (pull request), push (direct commit), branch (stash on branch), copy (copy files only), or direct (in-place edits)
+- **Directory Detection**: Automatically detect the target directory when creating projects
+- **Safety Checks**: Verify git state before execution to prevent unsafe concurrent operations
+- **Agent Runner Integration**: Seamless integration with local and remote agent runners
+
+See [docs/design/WORKSPACE_V2.md](docs/design/WORKSPACE_V2.md) for detailed workspace design.
+
+## MCP Tools for Agents
+
+Agents running inside Astro tasks have access to **15 MCP (Model Context Protocol) tools** for autonomous work:
+
+### Plan Management (5 tools)
+- `query_plan` — Get the full plan graph (nodes + edges)
+- `create_task` — Create new tasks in the plan
+- `update_task` — Update task properties (description, estimate, status)
+- `create_dependency` — Create dependency edges between tasks
+- `delete_task` — Remove tasks from the plan
+
+### Project Management (4 tools)
+- `query_projects` — List all projects
+- `get_project` — Get project details and metadata
+- `create_project` — Create new projects programmatically
+- `update_project` — Update project properties
+
+### Initiative Management (3 tools)
+- `query_initiatives` — List initiatives/project groupings
+- `create_initiative` — Create new initiatives
+- `update_initiative` — Update initiative properties
+
+### Data Access (2 tools)
+- `get_user_profile` — Get user context and preferences
+- `query_executions` — Query execution history and results
+
+### User Interaction (1 tool)
+- `ask_user_question` — Ask the user for decisions during task execution
+
+Agents can use these tools to self-direct their work, create new tasks based on findings, and ask for human guidance when needed.
+
+## Activity Feed & Approval System
+
+Astro tracks all activity and provides flexible approval mechanisms:
+
+### Activity Feed
+- **Real-Time Events**: See task execution, plan changes, file modifications, and team activity instantly
+- **Chronological View**: Browse project history with detailed event logs
+- **Cross-Project Tracking**: View activity across all projects in one feed
+
+### Approval System
+- **Dynamic Approvals**: Use `ask_user_question` tool to ask users for decisions during task execution
+- **Tiered Verification**: Auto-close verifiable tasks (tests pass, builds succeed); require human judgment for strategic decisions
+- **SSE Notifications**: Receive approval requests via Server-Sent Events in real-time
+- **Procedure-Level Approvals**: Configure approval workflows for specific task types
 
 ## Prerequisites
 
@@ -443,6 +518,70 @@ astro/
 - **Relay**: WebSocket (ws library), Redis pub/sub (optional)
 - **Agent Runner**: @anthropic-ai/claude-agent-sdk, Claude CLI, Codex
 - **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend)
+
+## Common Workflows
+
+Here are typical ways to use Astro:
+
+### Workflow 1: AI-Assisted Code Review & Refactoring
+1. Create a project pointing to a code repository
+2. Describe the refactoring goal (e.g., "extract common utilities from these 3 modules")
+3. Astro generates a decomposed plan with specific tasks
+4. Click "Run" on a task → AI reviews code, creates a PR with changes
+5. Review the PR, merge when ready
+6. Next task runs automatically with the updated context
+
+### Workflow 2: Multi-Step Analysis Pipeline
+1. Create a research project with an analysis goal
+2. AI decomposes into: data fetch → preprocessing → analysis → visualization
+3. Dispatch each task to different machines (laptop for fetch, GPU cluster for analysis, laptop for viz)
+4. Live output streaming shows progress; auto-verify when results pass checks
+5. Explore branches: "what if we used a different normalization method?"
+
+### Workflow 3: Team Code Review & Approval
+1. Team creates a shared project for a feature
+2. Manager reviews the AI-generated plan, approves key decisions
+3. Tasks run in parallel across team member machines
+4. Each task is auto-verified or requires approval via `ask_user_question`
+5. Activity feed shows all progress; realtime sync keeps team aligned
+
+## Configuration & Environment Variables
+
+### Essential Environment Variables
+
+Create `.env` from `.env.example` and set these values:
+
+**Local Mode:**
+```bash
+# Local mode defaults work out-of-the-box with PGlite
+cp .env.example .env
+npm run env:init
+npm run dev:local
+```
+
+**Server Mode:**
+```bash
+# Set these in .env before running npm run env:init
+CLAUDE_API_KEY=<your-api-key>          # Claude API key (for plan generation)
+SUPABASE_URL=<your-url>                # Supabase project URL
+SUPABASE_ANON_KEY=<your-key>           # Supabase anonymous key
+SUPABASE_SERVICE_ROLE_KEY=<your-key>   # Supabase service role key
+FLY_APP=<your-app-name>                # Fly.io app name
+CLOUDFLARED_DOMAIN=<your-domain>       # Cloudflare tunnel domain
+JWT_SECRET=<generate-with-openssl>     # Generate: openssl rand -hex 32
+RELAY_JWT_SECRET=<generate>            # Generate: openssl rand -hex 32
+```
+
+**Agent Runner Variables:**
+Agent runners (local and remote) look for these `ASTRO_*` prefixed variables:
+- `ASTRO_SERVER_URL` — Astro backend API URL
+- `ASTRO_RELAY_URL` — WebSocket relay URL
+- `ASTRO_AUTH_TOKEN` — JWT token for authentication
+- `ASTRO_MACHINE_NAME` — Name of this machine
+- `ASTRO_PROJECT_ID` — Current project ID
+- `ASTRO_EXECUTION_ID` — Current task execution ID
+
+See [docs/setup/environment-variables.md](docs/setup/environment-variables.md) for the complete reference.
 
 ## Testing
 
