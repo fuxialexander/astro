@@ -112,10 +112,13 @@ src/
 │   ├── dashboard.tsx             # Home: stats, pending decisions, active projects, system health, usage metrics
 │   ├── projects.tsx              # Project list with table (grouped, sortable columns)
 │   ├── project-new.tsx           # New project form (unified: description + directory detection)
+│   ├── project-new-plan.tsx      # New project plan page (shared with /welcome + /projects/new/plan)
 │   ├── project-overview.tsx      # Project details: overview + updates tabs, vision doc dialog
 │   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List/Timeline toggle)
 │   ├── my-tasks.tsx              # Cross-project task list with filters, grouping, display settings
+│   ├── active-tasks.tsx          # Active/running tasks page (real-time task tracking)
 │   ├── task-detail.tsx           # Task-agent detail: output, tool traces, file changes, steer chat
+│   ├── playground.tsx            # General-purpose AI coding session interface (like Claude Code)
 │   ├── environments.tsx          # Machine/environment management, SLURM cluster display
 │   ├── agents.tsx                # Agent management and monitoring
 │   ├── initiatives.tsx           # Initiatives/projects grouping
@@ -167,7 +170,9 @@ src/
 │   ├── agent-store.ts            # AI generation state, SSE streaming, abort
 │   ├── api-keys-store.ts         # Encrypted API keys for external services (Web Crypto API)
 │   ├── auth-store.ts             # Supabase auth session, user state, WebAuthn/passkey
+│   ├── claude-sessions-store.ts  # Claude Code sessions cache from connected machines via /api/relay/sessions
 │   ├── connected-accounts-store.ts # Connected external accounts (Slack, Telegram, GitHub webhooks, Linear)
+│   ├── environment-config-store.ts # Environment configurations per backend and machine
 │   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties)
 │   ├── execution-store.ts        # Task execution state, SSE stream processing, provider/machine management
 │   ├── github-store.ts           # GitHub integration: connection, repositories, selections
@@ -324,17 +329,25 @@ docs/
 | `/` | Dashboard | Implemented (auto-redirects to /welcome if no projects; stats, pending decisions, active projects, system health, usage metrics) |
 | `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
 | `/projects/new` | New Project | Implemented (unified form: description + directory with inline detection) |
+| `/projects/new/plan` | New Project Plan | Implemented (AI plan generation for new project; shared UI with /welcome) |
 | `/project/:id` | Project Overview | Implemented (overview + updates tabs, vision doc dialog) |
 | `/project/:id/plan` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation across all views) |
+| `/project/:id/graph` | Plan Graph View | Implemented (React Flow graph visualization) |
+| `/project/:id/list` | Plan List View | Implemented (hierarchical task list view) |
+| `/project/:id/timeline` | Plan Timeline View | Implemented (Gantt timeline view) |
+| `/project/:id/board` | Plan Board View | Implemented (task board view) |
+| `/project/:id/overview` | Plan Overview | Implemented (project details and information) |
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat, session activity) |
 | `/tasks` | My Tasks | Implemented (cross-project task list with filters, grouping, display settings) |
+| `/active` | Active Tasks | Implemented (real-time tracking of running and pending tasks across projects) |
+| `/playground` | Playground | Implemented (general-purpose AI coding session interface, goal-driven dispatch) |
 | `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow) |
 | `/agents` | Agents | Implemented (agent listing and monitoring) |
 | `/initiatives` | Initiatives | Implemented (initiatives/projects grouping) |
 | `/workflows` | Workflows | Implemented (workflow management) |
 | `/settings` | Settings | Implemented (health check + model selection) |
 | `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
-| `/welcome` | Welcome | Implemented (simplified 2-option onboarding: empty project or repo-based project) |
+| `/welcome` | Welcome | Implemented (shared with /projects/new/plan; AI plan generation for new project) |
 | `/login` | Login | Implemented (WebAuthn/passkey authentication) |
 | `/team/invite/:token` | Team Invite | Implemented (team invitation flow) |
 | `/landing/` | Landing Page | Implemented (static HTML, public marketing page) |
