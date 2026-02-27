@@ -97,6 +97,10 @@
       "$ref": "#/$defs/parallelizationConfig",
       "description": "Parallelization and dispatch configuration."
     },
+    "inputParallelization": {
+      "$ref": "#/$defs/inputParallelizationConfig",
+      "description": "Input-based parallelization configuration for generating parallel plan branches from multi-value inputs."
+    },
     "execution": {
       "$ref": "#/$defs/executionConfig",
       "description": "Execution-level settings for generated tasks."
@@ -305,6 +309,65 @@
         "example": {
           "type": "string",
           "description": "Example output for reference."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "inputParallelizationConfig": {
+      "type": "object",
+      "required": ["parameterId", "splitStrategy"],
+      "properties": {
+        "parameterId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+          "description": "The parameter ID that triggers parallelization when it contains multiple values."
+        },
+        "splitStrategy": {
+          "type": "string",
+          "enum": ["comma", "newline", "line", "json-array", "space", "semicolon", "custom"],
+          "description": "How to split the parameter value into individual inputs."
+        },
+        "splitPattern": {
+          "type": "string",
+          "description": "Custom regex pattern for splitting (required when splitStrategy is 'custom')."
+        },
+        "mergeStrategy": {
+          "type": "string",
+          "enum": ["concatenate", "aggregate", "individual", "merge-directories"],
+          "default": "individual",
+          "description": "How to merge outputs from all parallel branches."
+        },
+        "branchLabelFormat": {
+          "type": "string",
+          "maxLength": 100,
+          "default": "Branch {{index}}/{{total}}",
+          "description": "Format string for naming parallel branches. Supports {{index}}, {{value}}, {{total}}, {{shortValue}} placeholders."
+        },
+        "maxBranches": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10,
+          "description": "Maximum number of parallel branches to generate."
+        },
+        "minInputsForParallel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 2,
+          "description": "Minimum number of inputs required to trigger parallelization."
+        },
+        "addMergeTask": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to add a merge task that combines all branch outputs."
+        },
+        "mergeTaskDescription": {
+          "type": "string",
+          "maxLength": 500,
+          "default": "Merge results from all parallel branches",
+          "description": "Description for the auto-generated merge task."
         }
       },
       "additionalProperties": false

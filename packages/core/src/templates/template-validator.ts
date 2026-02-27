@@ -47,6 +47,8 @@ const VALID_ESTIMATES = ['XS', 'S', 'M', 'L', 'XL'] as const
 const VALID_DELIVERY_MODES = ['pr', 'push', 'branch', 'copy', 'direct'] as const
 const VALID_VERIFICATION_MODES = ['auto', 'human', 'mixed'] as const
 const VALID_MACHINE_POLICIES = ['round-robin', 'priority', 'least-loaded', 'manual', 'label-match'] as const
+const VALID_SPLIT_STRATEGIES = ['comma', 'newline', 'line', 'json-array', 'space', 'semicolon', 'custom'] as const
+const VALID_MERGE_STRATEGIES = ['concatenate', 'aggregate', 'individual', 'merge-directories'] as const
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-/]*[a-z0-9]$/
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/
@@ -252,6 +254,86 @@ export function validateTemplate(
         path: 'parallelization.machineSelectionPolicy',
         message: `Invalid machine selection policy. Must be one of: ${VALID_MACHINE_POLICIES.join(', ')}`,
         code: 'INVALID_VALUE',
+      })
+    }
+  }
+
+  // ── Input Parallelization Validation ───────────────────────────────────
+  if (template.inputParallelization) {
+    const ip = template.inputParallelization
+
+    // Validate parameterId is required
+    if (!ip.parameterId) {
+      errors.push({
+        path: 'inputParallelization.parameterId',
+        message: 'parameterId is required for input parallelization',
+        code: 'MISSING_REQUIRED',
+      })
+    } else if (!parameterIds.has(ip.parameterId)) {
+      errors.push({
+        path: 'inputParallelization.parameterId',
+        message: `Referenced parameter "${ip.parameterId}" does not exist in requiredParameters or optionalParameters`,
+        code: 'INVALID_REFERENCE',
+      })
+    }
+
+    // Validate splitStrategy
+    if (!ip.splitStrategy) {
+      errors.push({
+        path: 'inputParallelization.splitStrategy',
+        message: 'splitStrategy is required for input parallelization',
+        code: 'MISSING_REQUIRED',
+      })
+    } else if (!(VALID_SPLIT_STRATEGIES as readonly string[]).includes(ip.splitStrategy)) {
+      errors.push({
+        path: 'inputParallelization.splitStrategy',
+        message: `Invalid split strategy. Must be one of: ${VALID_SPLIT_STRATEGIES.join(', ')}`,
+        code: 'INVALID_VALUE',
+      })
+    }
+
+    // Validate splitPattern is provided when splitStrategy is 'custom'
+    if (ip.splitStrategy === 'custom' && !ip.splitPattern) {
+      errors.push({
+        path: 'inputParallelization.splitPattern',
+        message: 'splitPattern is required when splitStrategy is "custom"',
+        code: 'MISSING_REQUIRED',
+      })
+    }
+
+    // Validate mergeStrategy
+    if (ip.mergeStrategy && !(VALID_MERGE_STRATEGIES as readonly string[]).includes(ip.mergeStrategy)) {
+      errors.push({
+        path: 'inputParallelization.mergeStrategy',
+        message: `Invalid merge strategy. Must be one of: ${VALID_MERGE_STRATEGIES.join(', ')}`,
+        code: 'INVALID_VALUE',
+      })
+    }
+
+    // Validate maxBranches
+    if (ip.maxBranches !== undefined && (ip.maxBranches < 1 || ip.maxBranches > 100)) {
+      errors.push({
+        path: 'inputParallelization.maxBranches',
+        message: 'maxBranches must be between 1 and 100',
+        code: 'INVALID_VALUE',
+      })
+    }
+
+    // Validate minInputsForParallel
+    if (ip.minInputsForParallel !== undefined && (ip.minInputsForParallel < 1 || ip.minInputsForParallel > 10)) {
+      errors.push({
+        path: 'inputParallelization.minInputsForParallel',
+        message: 'minInputsForParallel must be between 1 and 10',
+        code: 'INVALID_VALUE',
+      })
+    }
+
+    // Validate branchLabelFormat if provided
+    if (ip.branchLabelFormat && ip.branchLabelFormat.length > 100) {
+      warnings.push({
+        path: 'inputParallelization.branchLabelFormat',
+        message: 'branchLabelFormat is very long (>100 chars) — consider shortening',
+        code: 'LARGE_TEMPLATE',
       })
     }
   }

@@ -6,6 +6,22 @@ const MILESTONE_WIDTH = 200
 // const MILESTONE_HEIGHT = 40
 const VERTICAL_GAP = 60
 const HORIZONTAL_GAP = 40
+// Gap between parallel branches (wider for visual separation)
+const PARALLEL_BRANCH_GAP = 60
+
+/**
+ * Represents a detected parallel branch pattern in the graph.
+ */
+export interface ParallelBranchGroup {
+  /** The node that fans out to multiple branches */
+  fanOutNodeId: string
+  /** The nodes that are the start of each parallel branch */
+  branchStartIds: string[]
+  /** The node that all branches merge into (if any) */
+  fanInNodeId?: string
+  /** All nodes that belong to this parallel group (excluding fan-out/fan-in) */
+  branchNodeIds: string[]
+}
 
 /**
  * Check if a proposed position overlaps with any existing node.
@@ -111,10 +127,155 @@ export function calculateChildPosition(
 }
 
 /**
+ * Detect parallel branch patterns in a plan graph.
+ *
+ * Identifies fan-out/fan-in patterns where a single node has multiple children
+ * that are independent (don't depend on each other), forming parallel branches.
+ *
+ * @param nodes - All nodes in the graph
+ * @param edges - All edges in the graph
+ * @returns Array of detected parallel branch groups
+ */
+export function detectParallelBranches(
+  nodes: PlanNode[],
+  edges: PlanEdge[]
+): ParallelBranchGroup[] {
+  const nodeIds = new Set(nodes.map((n) => n.id))
+  const validEdges = edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+
+  // Build adjacency lists
+  const children = new Map<string, string[]>()
+  const parents = new Map<string, string[]>()
+
+  for (const n of nodes) {
+    children.set(n.id, [])
+    parents.set(n.id, [])
+  }
+
+  for (const e of validEdges) {
+    children.get(e.source)!.push(e.target)
+    parents.get(e.target)!.push(e.source)
+  }
+
+  const groups: ParallelBranchGroup[] = []
+
+  // Find nodes with multiple children (potential fan-out points)
+  for (const n of nodes) {
+    const childIds = children.get(n.id) ?? []
+    if (childIds.length < 2) continue
+
+    // Check if the children are independent (don't depend on each other)
+    const childSet = new Set(childIds)
+    let areIndependent = true
+
+    for (const childId of childIds) {
+      const childParents = parents.get(childId) ?? []
+      // If any child has a parent that is another child, they're not independent
+      for (const parentId of childParents) {
+        if (parentId !== n.id && childSet.has(parentId)) {
+          areIndependent = false
+          break
+        }
+      }
+      if (!areIndependent) break
+    }
+
+    if (!areIndependent) continue
+
+    // Found a fan-out pattern - now trace each branch
+    const branchNodes = new Set<string>()
+
+    // BFS to find all nodes in each branch until they merge
+    const queue: string[] = [...childIds]
+    const visited = new Set<string>()
+
+    while (queue.length > 0) {
+      const nodeId = queue.shift()!
+      if (visited.has(nodeId)) continue
+      visited.add(nodeId)
+
+      // Check if this node is a merge point (has multiple parents from the branch)
+      const nodeParents = parents.get(nodeId) ?? []
+      const branchParents = nodeParents.filter((p) => branchNodes.has(p) || childIds.includes(p))
+
+      if (branchParents.length > 1) {
+        // This is a potential merge point - don't add to branch nodes
+        continue
+      }
+
+      branchNodes.add(nodeId)
+      const nodeChildren = children.get(nodeId) ?? []
+      queue.push(...nodeChildren)
+    }
+
+    // Find merge node - a node that depends on multiple branches
+    let fanInNodeId: string | undefined
+    for (const nodeId of nodeIds) {
+      if (branchNodes.has(nodeId)) continue
+      if (childIds.includes(nodeId)) continue
+
+      const nodeParents = parents.get(nodeId) ?? []
+      const branchParents = nodeParents.filter((p) => branchNodes.has(p))
+
+      if (branchParents.length > 1) {
+        fanInNodeId = nodeId
+        break
+      }
+    }
+
+    groups.push({
+      fanOutNodeId: n.id,
+      branchStartIds: childIds,
+      fanInNodeId,
+      branchNodeIds: Array.from(branchNodes),
+    })
+  }
+
+  return groups
+}
+
+/**
+ * Calculate which branch group a node belongs to.
+ *
+ * @param nodeId - The node to check
+ * @param branchGroups - Detected parallel branch groups
+ * @returns The group and branch index, or undefined if not in a branch
+ */
+export function getNodeBranchInfo(
+  nodeId: string,
+  branchGroups: ParallelBranchGroup[]
+): { groupIndex: number; branchIndex: number } | undefined {
+  for (let gi = 0; gi < branchGroups.length; gi++) {
+    const group = branchGroups[gi]
+
+    // Check if node is a branch start
+    const branchStartIndex = group.branchStartIds.indexOf(nodeId)
+    if (branchStartIndex >= 0) {
+      return { groupIndex: gi, branchIndex: branchStartIndex }
+    }
+
+    // Check if node is in branch nodes and trace back to branch start
+    if (group.branchNodeIds.includes(nodeId)) {
+      // Find which branch this node belongs to by tracing back
+      // For now, use a simple heuristic: assign based on position in branchNodeIds
+      // A more accurate approach would trace the path back to branchStartIds
+      return { groupIndex: gi, branchIndex: 0 }
+    }
+  }
+  return undefined
+}
+
+/**
  * Auto-layout a set of nodes and edges as a top-to-bottom hierarchy.
  * Uses topological sort to assign ranks, then arranges nodes to prefer
  * vertical distribution for dependent nodes (showing clear sequential flow)
  * while keeping independent nodes horizontal.
+ *
+ * Enhanced to handle parallel branch patterns (fan-out/fan-in) by:
+ * 1. Detecting parallel branch groups
+ * 2. Assigning consistent columns to nodes in the same branch
+ * 3. Centering fan-out and fan-in nodes above/below their branches
+ *
  * Returns a map of nodeId → new position.
  */
 export function layoutGraph(
@@ -126,15 +287,21 @@ export function layoutGraph(
   const nodeIds = new Set(nodes.map((n) => n.id))
   const validEdges = edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
 
+  // Detect parallel branch patterns first
+  const parallelGroups = detectParallelBranches(nodes, validEdges)
+
   // Build adjacency lists
   const children = new Map<string, string[]>()
+  const parents = new Map<string, string[]>()
   const inDegree = new Map<string, number>()
   for (const n of nodes) {
     children.set(n.id, [])
+    parents.set(n.id, [])
     inDegree.set(n.id, 0)
   }
   for (const e of validEdges) {
     children.get(e.source)!.push(e.target)
+    parents.get(e.target)!.push(e.source)
     inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1)
   }
 
@@ -181,13 +348,52 @@ export function layoutGraph(
     ranks.get(r)!.push(n)
   }
 
-  // Identify dependency chains: nodes that have exactly one child and that child has exactly one parent
-  // These form linear chains that should be in the same column
+  // Identify dependency chains and parallel branches for column assignment
   const chainColumn = new Map<string, number>() // nodeId → column index
   let nextColumn = 0
 
-  // Assign columns to nodes
-  const assignedToColumn = new Set<string>()
+  // Pre-assign columns to parallel branch nodes
+  // This ensures nodes in the same branch stay in the same column
+  for (const group of parallelGroups) {
+    const branchColumnStart = nextColumn
+
+    // Assign each branch start to its own column
+    for (let bi = 0; bi < group.branchStartIds.length; bi++) {
+      const branchStartId = group.branchStartIds[bi]
+      chainColumn.set(branchStartId, branchColumnStart + bi)
+
+      // Trace down the branch and assign all descendant nodes to the same column
+      const branchQueue: string[] = [branchStartId]
+      const visited = new Set<string>()
+
+      while (branchQueue.length > 0) {
+        const nodeId = branchQueue.shift()!
+        if (visited.has(nodeId)) continue
+        visited.add(nodeId)
+
+        // Only follow children that are in this branch's node set
+        for (const childId of children.get(nodeId) ?? []) {
+          if (group.branchNodeIds.includes(childId) && !chainColumn.has(childId)) {
+            // Check if this child only has one path back to branch start
+            const childParentList = parents.get(childId) ?? []
+            const branchParents = childParentList.filter((p) =>
+              visited.has(p) || p === branchStartId
+            )
+
+            if (branchParents.length === 1) {
+              chainColumn.set(childId, branchColumnStart + bi)
+              branchQueue.push(childId)
+            }
+          }
+        }
+      }
+    }
+
+    nextColumn = branchColumnStart + group.branchStartIds.length
+  }
+
+  // Assign columns to remaining nodes
+  const assignedToColumn = new Set<string>(chainColumn.keys())
 
   // Process ranks top-down to assign columns
   const maxRank = Math.max(...ranks.keys())
@@ -225,7 +431,8 @@ export function layoutGraph(
   // Assign positions based on rank and column
   const positions = new Map<string, { x: number; y: number }>()
   const margin = 40
-  const columnWidth = NODE_WIDTH + HORIZONTAL_GAP
+  // Use wider spacing for parallel branches for visual clarity
+  const columnWidth = NODE_WIDTH + (parallelGroups.length > 0 ? PARALLEL_BRANCH_GAP : HORIZONTAL_GAP)
 
   for (let r = 0; r <= maxRank; r++) {
     const row = ranks.get(r)

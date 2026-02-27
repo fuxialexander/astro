@@ -33,12 +33,12 @@ export const paperToSlidesTemplate: UseCaseTemplate = {
   requiredParameters: [
     {
       id: 'paperSource',
-      name: 'Paper Source',
+      name: 'Paper Source(s)',
       description:
-        'URL to the paper. Supports arXiv abstract pages (https://arxiv.org/abs/XXXX.XXXXX), arXiv PDF links, or GitHub repository URLs containing a paper (LaTeX source, README, or PDF).',
+        'URL(s) to the paper(s). Supports arXiv abstract pages (https://arxiv.org/abs/XXXX.XXXXX), arXiv PDF links, or GitHub repository URLs. For multiple papers, enter one URL per line - each will be processed as a separate parallel branch.',
       type: 'string',
       required: true,
-      placeholder: 'https://arxiv.org/abs/2502.15872',
+      placeholder: 'https://arxiv.org/abs/2502.15872\nhttps://arxiv.org/abs/2501.12345\nhttps://arxiv.org/abs/2503.67890',
       validation: {
         pattern: '^https?://.+',
         message: 'Must be a valid URL (arXiv link, GitHub repo, or direct PDF link)',
@@ -265,10 +265,19 @@ Each task should produce one or two markdown files. A section like "method" migh
 
 ### Parallelism
 
+**Within a Single Paper:**
 - Paper fetching and parsing must complete before analysis
 - Content analysis must complete before any slide generation
 - Per-section slide generation tasks can ALL run in parallel (they depend only on the analysis output)
 - Assembly depends on ALL section generation tasks completing
+
+**Multiple Papers (Input Parallelization):**
+If multiple paper URLs are provided (one per line), the plan should generate parallel branches:
+- Each paper gets its own independent branch in the plan graph
+- Branches are positioned side-by-side horizontally (x offset of 260 between branches)
+- Each branch follows the same structure: Fetch → Analyze → Generate Sections → Assemble
+- Branches can execute completely in parallel since they are independent
+- No merge task is needed - each paper produces its own slide deck
 
 ### Labels
 - l1=Frontend (Slidev markup, CSS, theme configuration)
@@ -598,6 +607,35 @@ graph TD
       exponentialBackoff: true,
     },
     machineSelectionPolicy: 'priority',
+  },
+
+  // ── Input Parallelization ──────────────────────────────────────────────
+  // When multiple paper URLs are provided (one per line), Astro generates
+  // parallel plan branches - one for each paper. Each branch processes its
+  // paper independently, allowing concurrent slide generation.
+  inputParallelization: {
+    // The paperSource parameter triggers parallelization when it contains multiple URLs
+    parameterId: 'paperSource',
+
+    // Split on newlines - each line is a separate paper URL
+    splitStrategy: 'newline',
+
+    // Each paper produces its own independent slide deck
+    mergeStrategy: 'individual',
+
+    // Label format for parallel branches in the plan graph
+    // {{shortValue}} will show the truncated URL (first 30 chars)
+    branchLabelFormat: 'Paper {{index}}: {{shortValue}}',
+
+    // Maximum 5 papers can be processed in parallel
+    maxBranches: 5,
+
+    // Require at least 2 papers to trigger parallel branches
+    // Single paper uses the standard sequential plan
+    minInputsForParallel: 2,
+
+    // No merge task needed since each paper produces independent output
+    addMergeTask: false,
   },
 
   // ── Execution ─────────────────────────────────────────────────────────

@@ -280,6 +280,142 @@ export interface OutputFormatSpec {
 }
 
 // ============================================================================
+// Input Parallelization Configuration
+// ============================================================================
+
+/**
+ * Strategy for splitting a multi-value input parameter into separate values.
+ *
+ * - 'comma': Split on commas (e.g., "url1,url2,url3")
+ * - 'newline': Split on newlines (for multi-line text inputs)
+ * - 'line': Split on any line separator (newline, carriage return, or both)
+ * - 'json-array': Parse as JSON array (e.g., '["url1","url2"]')
+ * - 'space': Split on whitespace
+ * - 'semicolon': Split on semicolons
+ * - 'custom': Use a custom regex pattern (requires splitPattern)
+ */
+export type InputSplitStrategy =
+  | 'comma'
+  | 'newline'
+  | 'line'
+  | 'json-array'
+  | 'space'
+  | 'semicolon'
+  | 'custom'
+
+/**
+ * Strategy for merging outputs from parallel branches.
+ *
+ * - 'concatenate': Join all outputs into a single combined result
+ * - 'aggregate': Collect outputs into an array/list structure
+ * - 'individual': Keep outputs separate (each branch produces independent deliverable)
+ * - 'merge-directories': For file outputs, merge into a single directory structure
+ */
+export type OutputMergeStrategy =
+  | 'concatenate'
+  | 'aggregate'
+  | 'individual'
+  | 'merge-directories'
+
+/**
+ * Configuration for input-based parallelization.
+ *
+ * When a template parameter accepts multiple values (e.g., multiple arXiv URLs),
+ * this configuration tells Astro how to:
+ * 1. Split the input into individual values
+ * 2. Generate parallel plan branches for each value
+ * 3. Merge the outputs from all branches
+ *
+ * Example: Paper-to-Slides with 3 arXiv URLs generates 3 parallel branches,
+ * each processing one paper independently, then optionally merging into a
+ * combined slide deck or keeping them separate.
+ */
+export interface InputParallelizationConfig {
+  /**
+   * The parameter ID that triggers parallelization when it contains multiple values.
+   *
+   * Must reference a parameter defined in requiredParameters or optionalParameters.
+   * Typically a 'string' type parameter that can contain multiple URLs, file paths,
+   * or other delimited values.
+   */
+  parameterId: string
+
+  /**
+   * How to split the parameter value into individual inputs.
+   *
+   * @default 'newline'
+   */
+  splitStrategy: InputSplitStrategy
+
+  /**
+   * Custom regex pattern for splitting (only used when splitStrategy is 'custom').
+   *
+   * The pattern is used with String.split(), so it should match the delimiter.
+   * Example: '\\s*[,;]\\s*' to split on comma or semicolon with optional whitespace.
+   */
+  splitPattern?: string
+
+  /**
+   * How to merge outputs from all parallel branches.
+   *
+   * @default 'individual'
+   */
+  mergeStrategy: OutputMergeStrategy
+
+  /**
+   * Format string for naming parallel branches in the plan graph.
+   *
+   * Supports placeholders:
+   * - {{index}}: 1-based index of the input (1, 2, 3, ...)
+   * - {{value}}: The input value (may be truncated for display)
+   * - {{total}}: Total number of inputs
+   * - {{shortValue}}: Truncated value (first 30 chars)
+   *
+   * @default 'Branch {{index}}/{{total}}'
+   */
+  branchLabelFormat?: string
+
+  /**
+   * Maximum number of parallel branches to generate.
+   *
+   * If the input has more values than this limit, extra values are ignored
+   * with a warning. This prevents accidentally generating huge plans from
+   * malformed input.
+   *
+   * @default 10
+   */
+  maxBranches?: number
+
+  /**
+   * Minimum number of inputs required to trigger parallelization.
+   *
+   * If fewer inputs are provided, the plan is generated without parallel
+   * branches (single-input mode). Set to 1 to always use parallel structure
+   * even for single inputs.
+   *
+   * @default 2
+   */
+  minInputsForParallel?: number
+
+  /**
+   * Whether to add a merge task at the end that combines all branch outputs.
+   *
+   * When true and mergeStrategy is not 'individual', a final merge task is
+   * automatically added to the plan that depends on all parallel branches.
+   *
+   * @default true (for non-individual merge strategies)
+   */
+  addMergeTask?: boolean
+
+  /**
+   * Description of the merge task (if addMergeTask is true).
+   *
+   * @default 'Merge results from all parallel branches'
+   */
+  mergeTaskDescription?: string
+}
+
+// ============================================================================
 // Parallelization Configuration
 // ============================================================================
 
@@ -609,6 +745,16 @@ export interface UseCaseTemplate {
    * Parallelization and dispatch configuration.
    */
   parallelization?: ParallelizationConfig
+
+  /**
+   * Input-based parallelization configuration.
+   *
+   * When configured, Astro generates parallel plan branches when the specified
+   * parameter contains multiple values. For example, if a Paper-to-Slides
+   * template receives 3 arXiv URLs, it generates 3 parallel branches that
+   * each process one paper independently.
+   */
+  inputParallelization?: InputParallelizationConfig
 
   /**
    * Execution-level settings.
