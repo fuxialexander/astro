@@ -156,7 +156,7 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
                   >
                     <div className="flex items-center gap-2">
                       {p.status === "available" ? (
-                        <CheckCircle2 className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+                        <CheckCircle2 className="h-4 w-4 text-success" />
                       ) : (
                         <XCircle className="h-4 w-4 text-warning" />
                       )}
