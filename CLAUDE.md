@@ -112,9 +112,11 @@ src/
 │   ├── dashboard.tsx             # Home: stats, pending decisions, active projects, system health, usage metrics
 │   ├── projects.tsx              # Project list with table (grouped, sortable columns)
 │   ├── project-new.tsx           # New project form (unified: description + directory detection)
+│   ├── project-new-plan.tsx      # Interactive plan mode page (goal input + streaming chat phase with approvals)
 │   ├── project-overview.tsx      # Project details: overview + updates tabs, vision doc dialog
 │   ├── plan-view.tsx             # Plan graph canvas + node detail panel + chat (Graph/List/Timeline toggle)
 │   ├── my-tasks.tsx              # Cross-project task list with filters, grouping, display settings
+│   ├── active-tasks.tsx          # Real-time active task tracking (running/pending/generating status)
 │   ├── task-detail.tsx           # Task-agent detail: output, tool traces, file changes, steer chat
 │   ├── environments.tsx          # Machine/environment management, SLURM cluster display
 │   ├── agents.tsx                # Agent management and monitoring
@@ -124,6 +126,7 @@ src/
 │   ├── welcome.tsx               # Multi-step onboarding (user type, domains, repo)
 │   ├── login.tsx                 # WebAuthn/passkey login (public route)
 │   ├── team-invite.tsx           # Team invitation flow
+│   ├── playground.tsx            # Development/testing playground (local dev only)
 │   └── settings.tsx              # Backend connection, model selection
 ├── components/
 │   ├── ui/                       # shadcn/ui Radix primitives (button, input, badge, card, dialog, sheet, etc.)
@@ -139,6 +142,8 @@ src/
 │   │   ├── task-node.tsx         # Custom node component with status styling, live progress, hover '+' button
 │   │   ├── plan-graph-tab.tsx    # Graph view tab with node editor
 │   │   └── plan-timeline-tab.tsx # Gantt timeline view (tabbed)
+│   ├── plan-session/
+│   │   └── plan-chat-phase.tsx   # Streaming plan generation chat with inline approvals
 │   ├── task-detail/
 │   │   ├── task-output-view.tsx  # Terminal-style output viewer with search, copy, auto-scroll
 │   │   ├── tool-trace-view.tsx   # Vertical timeline of tool calls with collapsible I/O
@@ -148,7 +153,8 @@ src/
 │   │   └── session-activity-view.tsx # Session activity timeline view
 │   ├── execution/
 │   │   ├── execution-panel.tsx   # Task execution UI with play/cancel/output
-│   │   └── provider-status.tsx   # Provider availability display
+│   │   ├── provider-status.tsx   # Provider availability display
+│   │   └── provider-utils.ts     # Provider availability helpers + delivery mode detection
 │   ├── slurm/
 │   │   ├── cluster-status.tsx    # Cluster health/capacity display
 │   │   └── job-list.tsx          # Active HPC jobs list
@@ -158,17 +164,34 @@ src/
 │   ├── agent/
 │   │   └── chat-panel.tsx        # Sidebar chat for plan refinement
 │   ├── activity-dialog.tsx       # Activity history dialog for projects
+│   ├── activity-blocks.tsx       # Activity blocks visualization
 │   ├── approval-card.tsx         # Approval/decision UI component
+│   ├── dynamic-approval-dialog.tsx # Dynamic approval dialog with custom questions
 │   ├── milestone-dialog.tsx      # Milestone creation/edit dialog
 │   ├── theme-provider.tsx        # Light/dark/system theme context
-│   └── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
+│   ├── command-palette.tsx       # Cmd+K palette (navigation + theme toggle + project search)
+│   ├── plugin-loader.tsx         # Plugin loading and lifecycle management
+│   ├── plugin-error-boundary.tsx # Error boundary for plugin crashes
+│   ├── plugin-routes.tsx         # Dynamic plugin-contributed routes
+│   ├── plugin-settings.tsx       # Plugin settings UI
+│   ├── session-dialog.tsx        # Claude Code sessions browser (machine sessions)
+│   ├── branch-selector.tsx       # Git branch selection component
+│   ├── remote-path-browser.tsx   # Remote path/directory browser for machines
+│   ├── repo-config-dialog.tsx    # Repository configuration dialog
+│   ├── git-init-dialog.tsx       # Git initialization dialog
+│   ├── skill-settings.tsx        # Skill registry settings UI
+│   ├── onboarding-hint.tsx       # Context-aware onboarding hints
+│   ├── auth-guard.tsx            # Authentication guard wrapper
+│   └── safety-prompt-dialog.tsx  # Safety-related approval prompts
 ├── stores/                          # All stores persist via dataClient → /api/data/* → Drizzle
 │   ├── activity-store.ts         # Activity tracking and history
 │   ├── agent-store.ts            # AI generation state, SSE streaming, abort
 │   ├── api-keys-store.ts         # Encrypted API keys for external services (Web Crypto API)
 │   ├── auth-store.ts             # Supabase auth session, user state, WebAuthn/passkey
+│   ├── claude-sessions-store.ts  # Claude Code sessions cache from connected machines (machine sessions browser)
 │   ├── connected-accounts-store.ts # Connected external accounts (Slack, Telegram, GitHub webhooks, Linear)
 │   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties)
+│   ├── environment-config-store.ts # Per-machine/backend environment variables and custom context
 │   ├── execution-store.ts        # Task execution state, SSE stream processing, provider/machine management
 │   ├── github-store.ts           # GitHub integration: connection, repositories, selections
 │   ├── initiative-store.ts       # Initiatives/projects grouping
@@ -180,7 +203,7 @@ src/
 │   ├── project-store.ts          # Projects CRUD
 │   ├── realtime-store.ts         # Real-time events: machines, activity feed, task streams
 │   ├── session-store.ts          # Unified session store: plan chat, task chat, steer messages, execution sessions
-│   ├── settings-store.ts         # Model selection, backend health
+│   ├── settings-store.ts         # Model selection, backend health, model tier (size) selector
 │   ├── sidebar-store.ts          # Sidebar navigation items, visibility, ordering
 │   ├── skill-store.ts            # OpenClaw skill registry
 │   ├── slurm-store.ts            # HPC/Slurm cluster state (clusters, jobs, queue tracking)
@@ -309,14 +332,55 @@ server/
     └── relay.ts                  # WebSocket protocol types for relay communication
 
 packages/
-└── agent-runner/                 # Git submodule → github.com/fuxialexander/astro-agent
+├── agent-runner/                 # Git submodule → github.com/fuxialexander/astro-agent
+├── cli/                          # CLI tools and entry points
+└── tui/                          # Terminal UI for Astro
 
-cli/
-└── astro-agent/                  # CLI tools for agent runner
+plugins/
+├── celltype/                     # Celltype bioinformatics toolbox plugin (190+ tools)
+├── gtd-workflow/                 # Getting Things Done workflow plugin
+└── example-theme/                # Example theme customization plugin
 
 docs/
 └── ...                           # Architecture documentation
 ```
+
+### Plugin System
+
+**Architecture:** Astro features a modular plugin system that allows extending functionality without modifying core code.
+
+**Plugin Structure:**
+- **Manifest**: Declare plugin metadata (id, name, version, capabilities)
+- **Contributions**: Register skills, routes, themes, UI components
+- **Lifecycle**: Activate/deactivate hooks for setup/teardown
+- **Safety**: Error boundary wrapping, isolated plugin scope
+
+**Key Components:**
+- `plugin-loader.tsx` — Loads and manages plugin lifecycle
+- `plugin-error-boundary.tsx` — Catches and displays plugin errors gracefully
+- `plugin-routes.tsx` — Registers plugin-contributed routes dynamically
+- `plugin-settings.tsx` — UI for enabling/disabling plugins
+
+**Types:**
+```typescript
+interface AstroPlugin {
+  manifest: {
+    id: string
+    name: string
+    version: string
+    description: string
+    author: string
+    capabilities: ("skills" | "routes" | "themes")[]
+  }
+  activate(context: PluginContext): Promise<PluginContributions>
+  deactivate?(): Promise<void>
+}
+```
+
+**Example Plugins:**
+- **celltype-toolbox**: Registers 190+ bioinformatics tools as skills (pure prompt injection, tools run on user machine via MCP)
+- **gtd-workflow**: Getting Things Done task management workflow
+- **example-theme**: Demonstrates theme customization capabilities
 
 ### Routes
 | Path | Page | Status |
@@ -326,17 +390,20 @@ docs/
 | `/projects/new` | New Project | Implemented (unified form: description + directory with inline detection) |
 | `/project/:id` | Project Overview | Implemented (overview + updates tabs, vision doc dialog) |
 | `/project/:id/plan` | Plan View | Implemented (graph + list + timeline toggle, detail panel + chat, task creation across all views) |
+| `/project/:id/plan/new` | Interactive Plan Mode | Implemented (goal input phase → streaming chat with inline approvals) |
 | `/project/:id/task/:nodeId` | Task Detail | Implemented (output, tools, files, steer chat, session activity) |
 | `/tasks` | My Tasks | Implemented (cross-project task list with filters, grouping, display settings) |
-| `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow) |
+| `/active` | Active Tasks | Implemented (real-time tracking: running/pending/generating tasks with elapsed timers) |
+| `/environments` | Environments | Implemented (machine registration, SLURM clusters, device code flow, session browser) |
 | `/agents` | Agents | Implemented (agent listing and monitoring) |
 | `/initiatives` | Initiatives | Implemented (initiatives/projects grouping) |
 | `/workflows` | Workflows | Implemented (workflow management) |
-| `/settings` | Settings | Implemented (health check + model selection) |
+| `/settings` | Settings | Implemented (health check, model selection, model tier selector) |
 | `/device` | Device Auth | Implemented (standalone OAuth2 device code flow) |
 | `/welcome` | Welcome | Implemented (simplified 2-option onboarding: empty project or repo-based project) |
 | `/login` | Login | Implemented (WebAuthn/passkey authentication) |
 | `/team/invite/:token` | Team Invite | Implemented (team invitation flow) |
+| `/playground` | Playground | Implemented (development/testing page, local dev only) |
 | `/landing/` | Landing Page | Implemented (static HTML, public marketing page) |
 | `/landing/about` | Why Astro? | Implemented (static HTML, philosophy/naming page) |
 | `/issues` | Issues List | **Not implemented** (designed in UI.pen, no code) |
@@ -373,6 +440,11 @@ docs/
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
 - **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
 - **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
+- **Plugin System**: Modular architecture for extending capabilities (skills, routes, themes) without core changes
+- **Mobile-Friendly UX**: Touch-optimized UI for iPad/mobile devices with hover-only elements on touch devices
+- **Security Hardening**: Dispatch signing, enhanced auth enforcement, SSE scoping for session isolation
+- **Model Tier Selection**: User-selectable model size (cost/performance trade-off) in plan generation and settings
+- **PR Delivery**: Robust pull request creation with delivery-aware prompts and gate checks
 
 ## Target Users
 
@@ -394,6 +466,45 @@ docs/
 - Display settings: `DisplayPopover` component with `DisplayPopoverConfig` for per-view groupBy/orderBy/properties
 - Usage tracking: `useUsageStore` accumulates session metrics (cost, tokens, task counts) from execution results
 - Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`
+- Model tier selection: Use `resolveModel(modelTier: ModelTier)` from `settings-store.ts` to get cost-appropriate models
+- Mobile UX: Use `useMediaQuery()` hook for responsive breakpoints; touch devices suppress hover-only UI elements
+- Provider detection: Use `deriveAvailableProviders()` and `isProviderAvailable()` from `execution/provider-utils.ts`
+- Delivery mode: Query via `data-client` or `project-source.ts` to determine PR/push/branch delivery strategy
+
+### Custom Hooks
+
+Key custom hooks for common patterns:
+- `useDirectoryDetection()` — Detect project structure (Node, Python, Ruby, etc.)
+- `useBranchList()` — Fetch and filter git branches from machine
+- `useProjectMachine()` — Get optimal machine for project execution
+- `useRepoSetup()` — Handle git initialization and cloning
+- `useMediaQuery(query: string)` — Responsive design breakpoints
+- `useKeyboardNav(items: any[])` — Keyboard navigation (arrow keys, Enter, Esc)
+- `useBarDragResize(ref: HTMLElement)` — Draggable divider for panel resizing
+- `useFileTreeRefresh(projectId: string)` — Refresh file tree with debouncing
+- `useAutoReveal(expanded: boolean)` — Auto-scroll to reveal focused items
+
+## Recent Architectural Improvements
+
+### Security Hardening (v0.2.x)
+- **Dispatch signing**: Task dispatch messages are cryptographically signed to prevent tampering
+- **Auth enforcement**: Enhanced authentication checks across SSE connections and API routes
+- **SSE scoping**: Server-sent events are now scoped per user session to prevent cross-user leaks
+
+### UI/UX Enhancements
+- **Mobile-friendly plan view**: Decluttered graph canvas, touch-optimized controls, iPad compatibility
+- **Hover-only UI**: Touch devices suppress hover-only elements (buttons, menus) to improve mobile UX
+- **Model size selector**: Users can choose between faster/cheaper vs slower/better-quality models in plan generation
+
+### Plan Generation Improvements
+- **Interactive plan mode** (`/project/:id/plan/new`): Two-phase flow with goal input and streaming chat with inline approvals
+- **Delivery-aware prompts**: Plan generation instructions vary based on chosen delivery mode (PR, push, branch)
+- **PR delivery robustness**: Improved pull request creation with delivery gates and advanced validation
+
+### Real-Time Features
+- **Claude Code sessions browser**: View active sessions on connected machines via `claude-sessions-store.ts`
+- **Active task tracking**: Real-time dashboard for running/pending/generating tasks with elapsed timers
+- **Environment-specific config**: Per-machine/backend environment variables and custom context via `environment-config-store.ts`
 
 ## Database
 
