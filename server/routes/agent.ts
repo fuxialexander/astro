@@ -252,6 +252,7 @@ async function executeViaRelay(opts: {
   systemPrompt?: string
   maxTurns?: number
   type?: 'chat' | 'plan' | 'execution' | 'summarize'
+  userId?: string
 }): Promise<{ success: boolean; output?: string; error?: string }> {
   const task: RelayTaskDispatch = {
     taskId: opts.taskId,
@@ -299,7 +300,7 @@ async function executeViaRelay(opts: {
     relayServer.on('task:text', onText)
     relayServer.on('task:result', onResult)
 
-    const dispatched = relayServer.dispatchTask(task)
+    const dispatched = relayServer.dispatchTask(task, undefined, opts.userId)
     if (!dispatched) {
       clearTimeout(timeout)
       cleanup()
@@ -823,6 +824,7 @@ agentRoute.post('/summarize', async (c) => {
 
   console.log(`[summarize] Summary requested for task: ${body.taskTitle} (status: ${body.status})`)
 
+  const summaryUser = c.get('user') as { id: string } | undefined
   const prompt = buildSummaryPrompt(body)
   const taskId = `summary-${Date.now()}`
   const result = await executeViaRelay({
@@ -832,6 +834,7 @@ agentRoute.post('/summarize', async (c) => {
     prompt,
     type: 'summarize',
     maxTurns: 1,
+    userId: summaryUser?.id,
   })
 
   if (result.success && result.output) {
@@ -867,6 +870,7 @@ agentRoute.post('/generate-title', async (c) => {
     return c.json({ error: 'Description is required' }, 400)
   }
 
+  const titleUser = c.get('user') as { id: string } | undefined
   const prompt = buildTitleGenerationPrompt(description)
   const taskId = `title-${Date.now()}`
   const result = await executeViaRelay({
@@ -876,6 +880,7 @@ agentRoute.post('/generate-title', async (c) => {
     prompt,
     type: 'summarize',
     maxTurns: 1,
+    userId: titleUser?.id,
   })
 
   if (result.success && result.output) {
@@ -911,6 +916,7 @@ agentRoute.post('/refine', async (c) => {
     return c.json({ error: 'At least one of title or description is required' }, 400)
   }
 
+  const refineUser = c.get('user') as { id: string } | undefined
   const prompt = buildRefinementPrompt({ title: body.title, description: body.description, context: body.context })
   const taskId = `refine-${Date.now()}`
   const result = await executeViaRelay({
@@ -920,6 +926,7 @@ agentRoute.post('/refine', async (c) => {
     prompt,
     type: 'summarize',
     maxTurns: 1,
+    userId: refineUser?.id,
   })
 
   if (result.success && result.output) {
@@ -959,6 +966,7 @@ agentRoute.post('/suggest-labels', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
+  const labelUser = c.get('user') as { id: string } | undefined
   const prompt = buildLabelSuggestionPrompt(body.title, body.description)
   const taskId = `labels-${Date.now()}`
   const result = await executeViaRelay({
@@ -968,6 +976,7 @@ agentRoute.post('/suggest-labels', async (c) => {
     prompt,
     type: 'summarize',
     maxTurns: 1,
+    userId: labelUser?.id,
   })
 
   if (result.success && result.output) {

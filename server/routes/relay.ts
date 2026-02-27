@@ -263,7 +263,7 @@ relayRoute.post('/dispatch', async (c) => {
 
       if (machineInstance && machineInstance !== redisPubSub.getInstanceId()) {
         // Machine is on another instance, route via pub/sub
-        await redisPubSub.requestTaskDispatch(task, targetMachineId);
+        await redisPubSub.requestTaskDispatch(task, targetMachineId, user?.id);
         await redisPubSub.mapTaskToMachine(task.taskId, targetMachineId);
 
         return c.json({
@@ -291,7 +291,7 @@ relayRoute.post('/dispatch', async (c) => {
     // Track task-to-machine mapping
     const machine = targetMachineId
       ? machineRegistry.get(targetMachineId)
-      : machineRegistry.findBestMachine(task.preferredProvider);
+      : machineRegistry.findBestMachine(task.preferredProvider, user?.id);
 
     if (machine && redisPubSub.isConnected()) {
       await redisPubSub.mapTaskToMachine(task.taskId, machine.machineId);
@@ -754,7 +754,8 @@ relayRoute.post('/slurm/dispatch', async (c) => {
     // Find target cluster
     let targetMachineId = targetClusterId;
     if (!targetMachineId) {
-      const bestMachine = machineRegistry.findBestMachine('claude-sdk');
+      const slurmUser = c.get('user') as AuthUser | undefined;
+      const bestMachine = machineRegistry.findBestMachine('claude-sdk', slurmUser?.id);
       if (!bestMachine) {
         return c.json({
           error: 'No HPC machine available',
@@ -781,7 +782,8 @@ relayRoute.post('/slurm/dispatch', async (c) => {
     }
 
     // Dispatch to relay server
-    const success = relayServer.dispatchTask(hpcTask, targetMachineId);
+    const hpcUser = c.get('user') as AuthUser | undefined;
+    const success = relayServer.dispatchTask(hpcTask, targetMachineId, hpcUser?.id);
 
     if (!success) {
       return c.json({

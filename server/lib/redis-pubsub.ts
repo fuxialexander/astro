@@ -37,6 +37,7 @@ interface TaskDispatchEvent {
   instanceId: string;
   task: TaskDispatch;
   targetMachineId?: string;
+  userId?: string;
 }
 
 /** Message published for task cancellation */
@@ -193,12 +194,14 @@ export class RedisPubSub extends EventEmitter {
    */
   async requestTaskDispatch(
     task: TaskDispatch,
-    targetMachineId?: string
+    targetMachineId?: string,
+    userId?: string
   ): Promise<void> {
     const event: TaskDispatchEvent = {
       instanceId: this.instanceId,
       task,
       targetMachineId,
+      userId,
     };
     await this.publish(CHANNELS.TASK_DISPATCH, event);
   }

@@ -10,7 +10,7 @@ import { Hono } from 'hono'
 import { relayServer, type RepoSetupRelayResult, type RepoDetectRelayResult, type GitInitRelayResult, type BranchListRelayResult } from '../lib/relay-server.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { errorMessage } from '../lib/error-utils.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
 const repoRoute = new Hono()
 
@@ -268,7 +268,8 @@ repoRoute.post('/setup', async (c) => {
   // Determine target machine: use provided or auto-select best
   let machineId = targetMachineId
   if (!machineId) {
-    const bestMachine = machineRegistry.findBestMachine()
+    const repoUser = c.get('user') as AuthUser | undefined
+    const bestMachine = machineRegistry.findBestMachine(undefined, repoUser?.id)
     if (!bestMachine) {
       return c.json({ error: 'No connected machine available. Connect an agent runner to set up repositories.' }, 503)
     }
@@ -324,7 +325,8 @@ repoRoute.post('/git-init', async (c) => {
   // Determine target machine: use provided or auto-select best
   let machineId = targetMachineId
   if (!machineId) {
-    const bestMachine = machineRegistry.findBestMachine()
+    const repoUser = c.get('user') as AuthUser | undefined
+    const bestMachine = machineRegistry.findBestMachine(undefined, repoUser?.id)
     if (!bestMachine) {
       return c.json({ error: 'No connected machine available. Connect an agent runner to initialize git.' }, 503)
     }

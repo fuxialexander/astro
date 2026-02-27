@@ -296,7 +296,7 @@ async function start() {
       redisPubSub.on('task:dispatch', async (event) => {
         // Only handle if this instance has the machine
         if (event.targetMachineId && machineRegistry.isConnected(event.targetMachineId)) {
-          relayServer.dispatchTask(event.task, event.targetMachineId)
+          relayServer.dispatchTask(event.task, event.targetMachineId, event.userId)
         }
       })
 
