@@ -348,7 +348,7 @@ export function MyTasks() {
         hasActiveFilters
           ? { label: "Clear Filters", onClick: clearFilters }
           : projects.length === 0
-          ? { label: "Create Project", href: "/projects/new" }
+          ? { label: "Create Project", href: "/projects" }
           : { label: "View Projects", href: "/projects" }
       }
       className="h-full"
@@ -373,28 +373,18 @@ export function MyTasks() {
           )}
         </div>
         <div className="flex items-center gap-3">
-          {/* Only show view toggle when there are tasks */}
           {sortedTasks.length > 0 && (
-            <div className="flex items-center gap-1">
-              {(["list", "timeline", "board"] as MyTasksViewMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
-                  className={cn(
-                    "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize",
-                    viewMode === mode
-                      ? "text-accent-foreground border-b-2 border-accent"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
+            <DisplayPopover config={{
+              ...(viewMode === "list" ? myTasksDisplayConfig : viewMode === "timeline" ? myTasksTimelineDisplayConfig : myTasksBoardDisplayConfig),
+              viewAsOptions: [
+                { value: "list", label: "List" },
+                { value: "timeline", label: "Timeline" },
+                { value: "board", label: "Board" },
+              ],
+              activeViewAs: viewMode,
+              onViewAsChange: (v) => setViewMode(v as MyTasksViewMode),
+            }} />
           )}
-          {sortedTasks.length > 0 && viewMode === "list" && <DisplayPopover config={myTasksDisplayConfig} />}
-          {sortedTasks.length > 0 && viewMode === "timeline" && <DisplayPopover config={myTasksTimelineDisplayConfig} />}
-          {sortedTasks.length > 0 && viewMode === "board" && <DisplayPopover config={myTasksBoardDisplayConfig} />}
         </div>
       </div>
 

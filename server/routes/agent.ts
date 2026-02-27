@@ -608,6 +608,39 @@ agentRoute.post('/chat', async (c) => {
   })
 })
 
+agentRoute.post('/plan-chat', async (c) => {
+  let body: z.infer<typeof chatSchema>
+  try {
+    const rawBody = await c.req.json()
+    body = chatSchema.parse(rawBody)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: 'Invalid input', details: err.errors }, 400)
+    }
+    return c.json({ error: 'Invalid JSON' }, 400)
+  }
+
+  const { message, sessionId: existingSessionId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
+  const taskId = existingSessionId || `plan-chat-${projectId}-${Date.now()}`
+
+  // Look up the project's working directory
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory }).from(projects).where(eq(projects.id, projectId)).limit(1)
+
+  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
+  return streamChatViaRelay(c, {
+    taskId,
+    projectId,
+    nodeId: '',
+    prompt: message,
+    systemPrompt,
+    type: 'chat',
+    messages: historyMessages,
+    model: model || 'haiku',  // Default to small model for plan chat
+    maxTurns: 50,
+    workingDirectory: project?.workingDirectory ?? undefined,
+  })
+})
+
 const taskChatSchema = z.object({
   message: z.string().min(1).max(50000),
   sessionId: z.string().optional(),

@@ -19,15 +19,15 @@ import {
 describe("resolveModel", () => {
   describe("default mappings (no custom overrides)", () => {
     it("resolves large tier for claude-code", () => {
-      expect(resolveModel("large", "claude-code")).toBe("opus")
+      expect(resolveModel("large", "claude-sdk")).toBe("opus")
     })
 
     it("resolves medium tier for claude-code", () => {
-      expect(resolveModel("medium", "claude-code")).toBe("sonnet")
+      expect(resolveModel("medium", "claude-sdk")).toBe("sonnet")
     })
 
     it("resolves small tier for claude-code", () => {
-      expect(resolveModel("small", "claude-code")).toBe("haiku")
+      expect(resolveModel("small", "claude-sdk")).toBe("haiku")
     })
 
     it("resolves large tier for codex", () => {
@@ -35,7 +35,7 @@ describe("resolveModel", () => {
     })
 
     it("resolves medium tier for codex", () => {
-      expect(resolveModel("medium", "codex")).toBe("o4-mini")
+      expect(resolveModel("medium", "codex")).toBe("gpt-5.3-codex")
     })
 
     it("resolves small tier for codex", () => {
@@ -64,23 +64,23 @@ describe("resolveModel", () => {
   describe("with custom model map", () => {
     it("uses custom override when present", () => {
       const custom: CustomModelMap = {
-        large: { "claude-code": "my-custom-opus" },
+        large: { "claude-sdk": "my-custom-opus" },
       }
-      expect(resolveModel("large", "claude-code", custom)).toBe("my-custom-opus")
+      expect(resolveModel("large", "claude-sdk", custom)).toBe("my-custom-opus")
     })
 
     it("falls back to default when custom map has no entry for tier", () => {
       const custom: CustomModelMap = {
-        large: { "claude-code": "my-custom-opus" },
+        large: { "claude-sdk": "my-custom-opus" },
       }
-      expect(resolveModel("medium", "claude-code", custom)).toBe("sonnet")
+      expect(resolveModel("medium", "claude-sdk", custom)).toBe("sonnet")
     })
 
     it("falls back to default when custom map has no entry for provider", () => {
       const custom: CustomModelMap = {
         large: { codex: "custom-codex-large" },
       }
-      expect(resolveModel("large", "claude-code", custom)).toBe("opus")
+      expect(resolveModel("large", "claude-sdk", custom)).toBe("opus")
     })
 
     it("supports custom provider in custom map", () => {
@@ -99,26 +99,26 @@ describe("resolveModel", () => {
         large: { bedrock: "bedrock-opus" },
       }
       // claude-code should still use default
-      expect(resolveModel("large", "claude-code", custom)).toBe("opus")
+      expect(resolveModel("large", "claude-sdk", custom)).toBe("opus")
       // codex should still use default
       expect(resolveModel("large", "codex", custom)).toBe("o3")
     })
 
     it("custom map does not affect other tiers", () => {
       const custom: CustomModelMap = {
-        large: { "claude-code": "custom-large" },
+        large: { "claude-sdk": "custom-large" },
       }
       // medium and small should still use defaults
-      expect(resolveModel("medium", "claude-code", custom)).toBe("sonnet")
-      expect(resolveModel("small", "claude-code", custom)).toBe("haiku")
+      expect(resolveModel("medium", "claude-sdk", custom)).toBe("sonnet")
+      expect(resolveModel("small", "claude-sdk", custom)).toBe("haiku")
     })
 
     it("handles empty custom map gracefully", () => {
-      expect(resolveModel("large", "claude-code", {})).toBe("opus")
+      expect(resolveModel("large", "claude-sdk", {})).toBe("opus")
     })
 
     it("handles undefined custom map gracefully", () => {
-      expect(resolveModel("large", "claude-code", undefined)).toBe("opus")
+      expect(resolveModel("large", "claude-sdk", undefined)).toBe("opus")
     })
   })
 })
@@ -140,13 +140,13 @@ describe("getEffectiveModelTierMap", () => {
 
   it("merges custom overrides into defaults", () => {
     const custom: CustomModelMap = {
-      large: { "claude-code": "custom-opus" },
+      large: { "claude-sdk": "custom-opus" },
     }
     const result = getEffectiveModelTierMap(custom)
-    expect(result.large["claude-code"]).toBe("custom-opus")
+    expect(result.large["claude-sdk"]).toBe("custom-opus")
     // Other entries should be unchanged
     expect(result.large.codex).toBe("o3")
-    expect(result.medium["claude-code"]).toBe("sonnet")
+    expect(result.medium["claude-sdk"]).toBe("sonnet")
   })
 
   it("adds new providers from custom map", () => {
@@ -160,14 +160,14 @@ describe("getEffectiveModelTierMap", () => {
     expect(result.medium.bedrock).toBe("bedrock-sonnet")
     expect(result.small.bedrock).toBe("bedrock-haiku")
     // Defaults still present
-    expect(result.large["claude-code"]).toBe("opus")
-    expect(result.medium.codex).toBe("o4-mini")
+    expect(result.large["claude-sdk"]).toBe("opus")
+    expect(result.medium.codex).toBe("gpt-5.3-codex")
   })
 
   it("does not mutate the default map", () => {
     const originalLarge = { ...defaultModelTierMap.large }
     const custom: CustomModelMap = {
-      large: { "claude-code": "modified", bedrock: "new-entry" },
+      large: { "claude-sdk": "modified", bedrock: "new-entry" },
     }
     getEffectiveModelTierMap(custom)
     expect(defaultModelTierMap.large).toEqual(originalLarge)
@@ -186,9 +186,9 @@ describe("defaultModelTierMap", () => {
   })
 
   it("has claude-code entries for all tiers", () => {
-    expect(defaultModelTierMap.large["claude-code"]).toBeTruthy()
-    expect(defaultModelTierMap.medium["claude-code"]).toBeTruthy()
-    expect(defaultModelTierMap.small["claude-code"]).toBeTruthy()
+    expect(defaultModelTierMap.large["claude-sdk"]).toBeTruthy()
+    expect(defaultModelTierMap.medium["claude-sdk"]).toBeTruthy()
+    expect(defaultModelTierMap.small["claude-sdk"]).toBeTruthy()
   })
 
   it("has codex entries for all tiers", () => {
@@ -198,15 +198,15 @@ describe("defaultModelTierMap", () => {
   })
 
   it("claude-code large is opus", () => {
-    expect(defaultModelTierMap.large["claude-code"]).toContain("opus")
+    expect(defaultModelTierMap.large["claude-sdk"]).toContain("opus")
   })
 
   it("claude-code medium is sonnet", () => {
-    expect(defaultModelTierMap.medium["claude-code"]).toContain("sonnet")
+    expect(defaultModelTierMap.medium["claude-sdk"]).toContain("sonnet")
   })
 
   it("claude-code small is haiku", () => {
-    expect(defaultModelTierMap.small["claude-code"]).toContain("haiku")
+    expect(defaultModelTierMap.small["claude-sdk"]).toContain("haiku")
   })
 })
 
@@ -272,8 +272,8 @@ describe("useSettingsStore", () => {
   it("getModelForProvider resolves for given provider", () => {
     const store = useSettingsStore.getState()
     store.setModelTier("medium")
-    expect(store.getModelForProvider("claude-code")).toBe("sonnet")
-    expect(store.getModelForProvider("codex")).toBe("o4-mini")
+    expect(store.getModelForProvider("claude-sdk")).toBe("sonnet")
+    expect(store.getModelForProvider("codex")).toBe("gpt-5.3-codex")
   })
 
   it("getModelForProvider uses default provider when none given", () => {
@@ -287,27 +287,27 @@ describe("useSettingsStore", () => {
   describe("custom model map", () => {
     it("setCustomModel adds override", () => {
       const store = useSettingsStore.getState()
-      store.setCustomModel("large", "claude-code", "my-custom-model")
+      store.setCustomModel("large", "claude-sdk", "my-custom-model")
       const state = useSettingsStore.getState()
-      expect(state.customModelMap.large?.["claude-code"]).toBe("my-custom-model")
+      expect(state.customModelMap.large?.["claude-sdk"]).toBe("my-custom-model")
     })
 
     it("setCustomModel removes override when matching default", () => {
       const store = useSettingsStore.getState()
       // First set a custom value
-      store.setCustomModel("large", "claude-code", "custom-value")
-      expect(useSettingsStore.getState().customModelMap.large?.["claude-code"]).toBe("custom-value")
+      store.setCustomModel("large", "claude-sdk", "custom-value")
+      expect(useSettingsStore.getState().customModelMap.large?.["claude-sdk"]).toBe("custom-value")
       // Then set it back to the default
-      store.setCustomModel("large", "claude-code", "opus")
+      store.setCustomModel("large", "claude-sdk", "opus")
       const state = useSettingsStore.getState()
-      expect(state.customModelMap.large?.["claude-code"]).toBeUndefined()
+      expect(state.customModelMap.large?.["claude-sdk"]).toBeUndefined()
     })
 
     it("setCustomModel affects getModelForProvider", () => {
       const store = useSettingsStore.getState()
       store.setModelTier("large")
-      store.setCustomModel("large", "claude-code", "my-custom-opus")
-      expect(useSettingsStore.getState().getModelForProvider("claude-code")).toBe("my-custom-opus")
+      store.setCustomModel("large", "claude-sdk", "my-custom-opus")
+      expect(useSettingsStore.getState().getModelForProvider("claude-sdk")).toBe("my-custom-opus")
     })
 
     it("setCustomModel supports new custom providers", () => {
@@ -324,29 +324,29 @@ describe("useSettingsStore", () => {
       const store = useSettingsStore.getState()
       store.setModelTier("large")
       expect(useSettingsStore.getState().model).toBe("opus")
-      store.setCustomModel("large", "claude-code", "overridden-opus")
+      store.setCustomModel("large", "claude-sdk", "overridden-opus")
       expect(useSettingsStore.getState().model).toBe("overridden-opus")
     })
 
     it("removeCustomModel removes override and restores default", () => {
       const store = useSettingsStore.getState()
       store.setModelTier("large")
-      store.setCustomModel("large", "claude-code", "custom-opus")
+      store.setCustomModel("large", "claude-sdk", "custom-opus")
       expect(useSettingsStore.getState().model).toBe("custom-opus")
-      store.removeCustomModel("large", "claude-code")
+      store.removeCustomModel("large", "claude-sdk")
       expect(useSettingsStore.getState().model).toBe("opus")
-      expect(useSettingsStore.getState().customModelMap.large?.["claude-code"]).toBeUndefined()
+      expect(useSettingsStore.getState().customModelMap.large?.["claude-sdk"]).toBeUndefined()
     })
 
     it("getEffectiveTierMap merges custom overrides", () => {
       const store = useSettingsStore.getState()
       store.setCustomModel("large", "bedrock", "bedrock-opus")
-      store.setCustomModel("large", "claude-code", "custom-claude-large")
+      store.setCustomModel("large", "claude-sdk", "custom-claude-large")
       const map = useSettingsStore.getState().getEffectiveTierMap()
-      expect(map.large["claude-code"]).toBe("custom-claude-large")
+      expect(map.large["claude-sdk"]).toBe("custom-claude-large")
       expect(map.large.bedrock).toBe("bedrock-opus")
       expect(map.large.codex).toBe("o3") // unchanged
-      expect(map.medium["claude-code"]).toBe("sonnet") // unchanged
+      expect(map.medium["claude-sdk"]).toBe("sonnet") // unchanged
     })
   })
 

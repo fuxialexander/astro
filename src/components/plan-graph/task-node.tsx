@@ -193,7 +193,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           type="button"
           onClick={handleCheckboxClick}
           className={cn(
-            "relative z-10 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors cursor-pointer",
+            "relative z-10 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors cursor-pointer p-1 -m-1",
             isChecked
               ? "border-primary bg-primary text-primary-foreground"
               : "border-muted-foreground/40 bg-transparent hover:border-primary/60"

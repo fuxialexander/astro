@@ -175,6 +175,8 @@ interface PlanState {
   removeProjectPlan: (projectId: string) => void
   /** Mark node IDs as recently updated (visual pulse). Auto-clears after 2s. */
   markNodesAsUpdating: (nodeIds: string[]) => void
+  /** Reset a node for re-execution: close PR, delete branch, clean worktree, reset status */
+  resetNode: (nodeId: string, projectId: string) => Promise<{ success: boolean; errors?: string[] }>
 }
 
 // Empty seed data — new users start with no plans and create via /projects/new
@@ -470,5 +472,32 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       markNodesTimer = undefined
       set({ recentlyUpdatedNodeIds: new Set() })
     }, 2000) as unknown as number
+  },
+
+  resetNode: async (nodeId, projectId) => {
+    const { resetTask } = await import("@/lib/api-client")
+    const result = await resetTask(nodeId, projectId)
+    if (result.success) {
+      // Optimistically update local state
+      const nextNodes = get().nodes.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              status: 'planned' as const,
+              prUrl: undefined,
+              prNumber: undefined,
+              branchName: undefined,
+              executionId: undefined,
+              executionOutput: undefined,
+              executionError: undefined,
+              executionStartedAt: undefined,
+              executionCompletedAt: undefined,
+              updatedAt: new Date(),
+            }
+          : n,
+      )
+      set({ nodes: nextNodes })
+    }
+    return result
   },
 }))

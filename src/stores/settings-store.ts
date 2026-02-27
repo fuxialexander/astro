@@ -8,7 +8,7 @@ export type ModelTier = "large" | "medium" | "small"
  * Default model tier → provider → model ID mapping.
  * Users can override individual entries via customModelMap.
  *
- * For claude-code, we use CLI aliases ("opus", "sonnet", "haiku") instead of
+ * For claude-sdk, we use CLI aliases ("opus", "sonnet", "haiku") instead of
  * full model IDs. The Claude Code CLI resolves these aliases via env vars:
  *   ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL
  * This ensures Bedrock/Vertex users whose env vars point to provider-specific
@@ -16,15 +16,15 @@ export type ModelTier = "large" | "medium" | "small"
  */
 export const defaultModelTierMap: Record<ModelTier, Record<string, string>> = {
   large: {
-    "claude-code": "opus",
+    "claude-sdk": "opus",
     codex: "o3",
   },
   medium: {
-    "claude-code": "sonnet",
-    codex: "o4-mini",
+    "claude-sdk": "sonnet",
+    codex: "gpt-5.3-codex",
   },
   small: {
-    "claude-code": "haiku",
+    "claude-sdk": "haiku",
     codex: "codex-mini",
   },
 }
@@ -43,12 +43,12 @@ export type CustomModelMap = Partial<Record<ModelTier, Record<string, string>>>
  * Checks custom overrides first, then default map, then falls back to claude-code.
  */
 export function resolveModel(tier: ModelTier, provider?: string, customMap?: CustomModelMap): string {
-  const effectiveProvider = provider || "claude-code"
+  const effectiveProvider = provider || "claude-sdk"
   // Check user customizations first
   const custom = customMap?.[tier]?.[effectiveProvider]
   if (custom) return custom
   // Then check defaults
-  return defaultModelTierMap[tier]?.[effectiveProvider] ?? defaultModelTierMap[tier]["claude-code"]
+  return defaultModelTierMap[tier]?.[effectiveProvider] ?? defaultModelTierMap[tier]["claude-sdk"]
 }
 
 /**
@@ -76,6 +76,7 @@ interface SettingsState {
   defaultProvider: string // '' = auto/first available
   customModelMap: CustomModelMap // user overrides for tier → provider → model
   editorType: 'cursor' | 'vscode'
+  yoloMode: boolean // auto-approve agent decisions
   connectionStatus: "connected" | "disconnected" | "checking"
   loaded: boolean
   loading: boolean
@@ -86,6 +87,7 @@ interface SettingsState {
   setModelTier: (tier: ModelTier) => void
   setDefaultProvider: (provider: string) => void
   setEditorType: (type: 'cursor' | 'vscode') => void
+  setYoloMode: (enabled: boolean) => void
   setCustomModel: (tier: ModelTier, provider: string, model: string) => void
   removeCustomModel: (tier: ModelTier, provider: string) => void
   /** Resolve current tier to a model ID for the given provider */
@@ -111,6 +113,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   defaultProvider: "",
   customModelMap: {},
   editorType: "cursor",
+  yoloMode: false,
   connectionStatus: "disconnected",
   loaded: false,
   loading: false,
@@ -135,10 +138,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (settings.editorType === 'cursor' || settings.editorType === 'vscode') {
         updates.editorType = settings.editorType
       }
+      if (settings.yoloMode === 'true') {
+        updates.yoloMode = true
+      }
       if (settings.modelTier) {
         const tier = settings.modelTier as ModelTier
         updates.modelTier = tier
-        updates.model = resolveModel(tier, settings.defaultProvider || get().defaultProvider || "claude-code", updates.customModelMap || get().customModelMap)
+        updates.model = resolveModel(tier, settings.defaultProvider || get().defaultProvider || "claude-sdk", updates.customModelMap || get().customModelMap)
       } else if (settings.model) {
         // Backward compat: derive tier from legacy model string
         updates.model = settings.model
@@ -172,7 +178,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setModelTier: (modelTier) => {
     const { defaultProvider, customModelMap } = get()
-    const provider = defaultProvider || "claude-code"
+    const provider = defaultProvider || "claude-sdk"
     const model = resolveModel(modelTier, provider, customModelMap)
     set({ modelTier, model })
     dataClient.updateSettings({ modelTier, model }).catch(() => {})
@@ -183,9 +189,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     dataClient.updateSettings({ editorType }).catch(() => {})
   },
 
+  setYoloMode: (enabled) => {
+    set({ yoloMode: enabled })
+    dataClient.updateSettings({ yoloMode: String(enabled) }).catch(() => {})
+  },
+
   setDefaultProvider: (defaultProvider) => {
     const { modelTier, customModelMap } = get()
-    const model = resolveModel(modelTier, defaultProvider || "claude-code", customModelMap)
+    const model = resolveModel(modelTier, defaultProvider || "claude-sdk", customModelMap)
     set({ defaultProvider, model })
     dataClient.updateSettings({ defaultProvider, model, modelTier: modelTier }).catch(() => {})
   },
@@ -202,7 +213,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       next[tier]![provider] = model
     }
     // Re-resolve current model if affected
-    const currentModel = resolveModel(modelTier, defaultProvider || "claude-code", next)
+    const currentModel = resolveModel(modelTier, defaultProvider || "claude-sdk", next)
     set({ customModelMap: next, model: currentModel })
     dataClient.updateSettings({ customModelMap: JSON.stringify(next), model: currentModel }).catch(() => {})
   },
@@ -214,14 +225,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       delete next[tier]![provider]
       if (Object.keys(next[tier]!).length === 0) delete next[tier]
     }
-    const currentModel = resolveModel(modelTier, defaultProvider || "claude-code", next)
+    const currentModel = resolveModel(modelTier, defaultProvider || "claude-sdk", next)
     set({ customModelMap: next, model: currentModel })
     dataClient.updateSettings({ customModelMap: JSON.stringify(next), model: currentModel }).catch(() => {})
   },
 
   getModelForProvider: (provider?: string) => {
     const { modelTier, defaultProvider, customModelMap } = get()
-    return resolveModel(modelTier, provider || defaultProvider || "claude-code", customModelMap)
+    return resolveModel(modelTier, provider || defaultProvider || "claude-sdk", customModelMap)
   },
 
   getEffectiveTierMap: () => {

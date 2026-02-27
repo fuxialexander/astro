@@ -25,7 +25,7 @@ const VALID_CLI_ALIASES = ['opus', 'sonnet', 'haiku']
 describe('Model alias validation', () => {
   describe('defaultModelTierMap claude-code models use CLI aliases', () => {
     const claudeCodeModels = Object.entries(defaultModelTierMap).map(
-      ([tier, providers]) => ({ tier, model: providers['claude-code'] })
+      ([tier, providers]) => ({ tier, model: providers['claude-sdk'] })
     )
 
     for (const { tier, model } of claudeCodeModels) {
@@ -37,21 +37,21 @@ describe('Model alias validation', () => {
 
   describe('alias-to-tier mapping is correct', () => {
     it('large tier uses "opus" alias', () => {
-      expect(defaultModelTierMap.large['claude-code']).toBe('opus')
+      expect(defaultModelTierMap.large['claude-sdk']).toBe('opus')
     })
 
     it('medium tier uses "sonnet" alias', () => {
-      expect(defaultModelTierMap.medium['claude-code']).toBe('sonnet')
+      expect(defaultModelTierMap.medium['claude-sdk']).toBe('sonnet')
     })
 
     it('small tier uses "haiku" alias', () => {
-      expect(defaultModelTierMap.small['claude-code']).toBe('haiku')
+      expect(defaultModelTierMap.small['claude-sdk']).toBe('haiku')
     })
   })
 
   describe('aliases contain model family names', () => {
     const allClaudeModels = Object.values(defaultModelTierMap)
-      .map((providers) => providers['claude-code'])
+      .map((providers) => providers['claude-sdk'])
 
     for (const model of allClaudeModels) {
       it(`"${model}" contains a model family name`, () => {
@@ -72,7 +72,7 @@ describe('Model alias validation', () => {
       })
 
       it(`resolveModel("${tier}", "claude-code") is a valid CLI alias`, () => {
-        const model = resolveModel(tier, 'claude-code')
+        const model = resolveModel(tier, 'claude-sdk')
         expect(VALID_CLI_ALIASES).toContain(model)
       })
     }
@@ -85,7 +85,7 @@ describe('Model alias validation', () => {
     it('alias is passed through unchanged', () => {
       // Simulate what the SDK does (sdk.mjs line 7686-7687):
       // if (model) args.push("--model", model);
-      const model = resolveModel('medium', 'claude-code')
+      const model = resolveModel('medium', 'claude-sdk')
       const args: string[] = []
       if (model) {
         args.push('--model', model)
@@ -108,8 +108,8 @@ describe('Model alias validation', () => {
       expect(defaultModelTierMap.large.codex).toBe('o3')
     })
 
-    it('codex medium is "o4-mini"', () => {
-      expect(defaultModelTierMap.medium.codex).toBe('o4-mini')
+    it('codex medium is "gpt-5.3-codex"', () => {
+      expect(defaultModelTierMap.medium.codex).toBe('gpt-5.3-codex')
     })
 
     it('codex small is "codex-mini"', () => {

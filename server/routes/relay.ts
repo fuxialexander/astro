@@ -463,14 +463,27 @@ relayRoute.get('/best-machine', (c) => {
  * If machineId is provided, queries that single machine.
  * If omitted, fans out to all user-owned connected machines.
  */
+// ── Sessions cache: per-user in-memory cache with 60s TTL ──
+const sessionsCache = new Map<string, {
+  sessions: Array<import('../types/relay.js').ClaudeCodeSessionInfo & { machineId: string; machineName: string }>
+  fetchedAt: number
+}>()
+const SESSIONS_CACHE_TTL = 60_000 // 60 seconds
+// Default maxAge for agent-runner: only scan files from last 24h
+const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
 relayRoute.get('/sessions', async (c) => {
   const user = c.get('user') as AuthUser | undefined
   const machineId = c.req.query('machineId')
+  const sinceParam = c.req.query('since')
+  const sinceTs = sinceParam ? parseInt(sinceParam, 10) : 0
   const TIMEOUT_MS = 15000
+  const cacheKey = user?.id || 'local'
 
   /** Helper: request sessions from a single machine */
   async function requestFromMachine(
-    targetMachineId: string
+    targetMachineId: string,
+    maxAgeMs?: number,
   ): Promise<{ machineId: string; machineName: string; sessions: Array<import('../types/relay.js').ClaudeCodeSessionInfo>; error?: string }> {
     const machine = machineRegistry.get(targetMachineId)
     const machineName = machine?.name || targetMachineId
@@ -497,7 +510,7 @@ relayRoute.get('/sessions', async (c) => {
 
       relayServer.on('sessions_list:response', handler)
 
-      const sent = relayServer.requestSessionsList(targetMachineId, correlationId)
+      const sent = relayServer.requestSessionsList(targetMachineId, correlationId, maxAgeMs)
       if (!sent) {
         clearTimeout(timeout)
         relayServer.removeListener('sessions_list:response', handler)
@@ -514,14 +527,26 @@ relayRoute.get('/sessions', async (c) => {
         return c.json({ error: 'Machine not found' }, 404)
       }
 
-      // Single machine request
-      const result = await requestFromMachine(machineId)
-      const sessions = result.sessions.map((s) => ({
-        ...s,
-        machineId: result.machineId,
-        machineName: result.machineName,
-      }))
-      return c.json({ sessions, errors: result.error ? [{ machineId, error: result.error }] : [] })
+      // Single machine request (always fresh, no cache for targeted queries)
+      const result = await requestFromMachine(machineId, DEFAULT_MAX_AGE_MS)
+      const sessions = result.sessions
+        .filter((s) => !sinceTs || s.lastModified > sinceTs)
+        .map((s) => ({
+          ...s,
+          machineId: result.machineId,
+          machineName: result.machineName,
+        }))
+      return c.json({ sessions, errors: result.error ? [{ machineId, error: result.error }] : [], delta: sinceTs > 0 })
+    }
+
+    // ── Check cache first ──
+    const cached = sessionsCache.get(cacheKey)
+    if (cached && Date.now() - cached.fetchedAt < SESSIONS_CACHE_TTL) {
+      // Serve from cache, apply since filter
+      const filteredSessions = sinceTs > 0
+        ? cached.sessions.filter((s) => s.lastModified > sinceTs)
+        : cached.sessions
+      return c.json({ sessions: filteredSessions, errors: [], delta: sinceTs > 0, cached: true })
     }
 
     // Fan out to all user-owned connected machines
@@ -535,7 +560,7 @@ relayRoute.get('/sessions', async (c) => {
     }
 
     const results = await Promise.allSettled(
-      userMachines.map((m) => requestFromMachine(m.machineId))
+      userMachines.map((m) => requestFromMachine(m.machineId, DEFAULT_MAX_AGE_MS))
     )
 
     const allSessions: Array<import('../types/relay.js').ClaudeCodeSessionInfo & { machineId: string; machineName: string }> = []
@@ -554,7 +579,14 @@ relayRoute.get('/sessions', async (c) => {
     // Sort by lastModified descending
     allSessions.sort((a, b) => b.lastModified - a.lastModified)
 
-    return c.json({ sessions: allSessions, errors })
+    // ── Update cache (store full results, filter for response) ──
+    sessionsCache.set(cacheKey, { sessions: allSessions, fetchedAt: Date.now() })
+
+    const filteredSessions = sinceTs > 0
+      ? allSessions.filter((s) => s.lastModified > sinceTs)
+      : allSessions
+
+    return c.json({ sessions: filteredSessions, errors, delta: sinceTs > 0 })
   } catch (err) {
     console.error('[relay] Error fetching sessions:', err)
     return c.json({ sessions: [], errors: [{ machineId: machineId || 'all', error: 'Internal error' }] })

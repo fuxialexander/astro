@@ -36,8 +36,8 @@ interface PlanChatPhaseProps {
   projectName: string
   machineName?: string
   workingDirectory?: string
-  /** Called after the plan session is cancelled (abort button) */
-  onCancel?: () => void
+  /** Called when user navigates back to the landing page */
+  onBack?: () => void
 }
 
 export function PlanChatPhase({
@@ -45,7 +45,7 @@ export function PlanChatPhase({
   projectName,
   machineName,
   workingDirectory,
-  onCancel,
+  onBack,
 }: PlanChatPhaseProps) {
   const nodeId = `plan-${projectId}`
   const [input, setInput] = useState("")
@@ -155,9 +155,9 @@ export function PlanChatPhase({
 
   // Compute status for header
   const headerStatus = !execution
-    ? 'cancelled' as const
+    ? 'stopped' as const
     : execution.status === "cancelled"
-      ? 'cancelled' as const
+      ? 'stopped' as const
       : execution.status === "success" || execution.status === "failure"
         ? (execution.error ? 'error' as const : 'completed' as const)
         : pendingApprovals.length > 0
@@ -178,10 +178,10 @@ export function PlanChatPhase({
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50)
   }
 
-  // Send steer message
+  // Send steer message (works for running sessions; stopped sessions get resumed)
   async function handleSend() {
     const text = input.trim()
-    if (!text || sending || !isRunning) return
+    if (!text || sending) return
 
     setInput("")
     setSending(true)
@@ -235,6 +235,7 @@ export function PlanChatPhase({
             options={event.options}
             answered={isAnswered}
             answer={responseEvent?.answer}
+            autoApproved={responseEvent?.autoApproved}
             onRespond={handleApprovalResponse}
           />
         )
@@ -255,7 +256,8 @@ export function PlanChatPhase({
         status={headerStatus}
         machineName={machineName}
         workingDirectory={workingDirectory}
-        onAbort={() => { cancelPlanSession(projectId); onCancel?.() }}
+        onAbort={() => cancelPlanSession(projectId)}
+        onBack={onBack}
       />
       {isFromPlayground && (
         <div className="px-4 py-1.5 border-b border-border bg-background shrink-0">
@@ -358,39 +360,37 @@ export function PlanChatPhase({
         </>
       )}
 
-      {/* Input Bar */}
-      {isRunning && (
-        <div className="border-t border-border bg-background shrink-0">
-          <div className="flex items-end gap-2 p-3">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSend()
-                }
-              }}
-              placeholder="Guide the planning session..."
-              rows={1}
-              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-            />
-            <Button
-              size="icon"
-              className="h-9 w-9 shrink-0"
-              onClick={handleSend}
-              disabled={!input.trim() || sending}
-            >
-              {sending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
+      {/* Input Bar — always visible for running sessions and resuming stopped ones */}
+      <div className="border-t border-border bg-background shrink-0">
+        <div className="flex items-end gap-2 p-3">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                handleSend()
+              }
+            }}
+            placeholder={isRunning ? "Guide the planning session..." : "Send a message to resume..."}
+            rows={1}
+            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          />
+          <Button
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            onClick={handleSend}
+            disabled={!input.trim() || sending}
+          >
+            {sending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
         </div>
-      )}
+      </div>
     </div>
   )
 }

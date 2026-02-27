@@ -51,7 +51,7 @@ function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
   const progress = stream?.progress ?? 0
 
   const linkTo = task.nodeId.startsWith("plan-")
-    ? `/projects/new/plan?projectId=${projectId}`
+    ? `/project/${projectId}/graph`
     : task.nodeId.startsWith("playground-")
       ? `/playground?projectId=${projectId}`
       : task.status === "generating"

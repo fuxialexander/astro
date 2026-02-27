@@ -22,7 +22,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, userProfiles } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -161,88 +161,89 @@ dispatchRoute.post('/task', async (c) => {
   // PR body enrichment fields (resolved from DB)
   let githubIssueUrl: string | undefined
   let githubIssueNumber: number | undefined
+  let baseBranch: string | undefined
 
   // ── Server-side resolution: fill missing fields from DB ──────────
-  // Allows clients to send just { projectId, nodeId } and have the
-  // server assemble the full dispatch payload from the database.
-  if (!title || !description || !workingDirectory || !visionDoc || !deliveryMode) {
-    try {
-      // Fetch plan node
-      const [dbNode] = await db.select().from(planNodes)
-        .where(eq(planNodes.clientId, nodeId)).limit(1)
-      // Fetch project
-      const [dbProject] = await db.select().from(projects)
-        .where(eq(projects.id, projectId)).limit(1)
+  // Always fetch plan node + project so that PR enrichment fields
+  // (githubIssueUrl, githubIssueNumber) are resolved even when the
+  // frontend sends all primary fields (title, description, etc.).
+  try {
+    // Fetch plan node
+    const [dbNode] = await db.select().from(planNodes)
+      .where(eq(planNodes.clientId, nodeId)).limit(1)
+    // Fetch project
+    const [dbProject] = await db.select().from(projects)
+      .where(eq(projects.id, projectId)).limit(1)
 
-      if (dbNode) {
-        title ??= dbNode.title
-        description ??= dbNode.description || dbNode.content || dbNode.title
-        verification ??= (dbNode.verification as 'auto' | 'human') || undefined
-        acceptanceCriteria ??= dbNode.acceptanceCriteria as typeof acceptanceCriteria
-        githubIssueUrl ??= (dbNode as Record<string, unknown>).githubIssueUrl as string | undefined
-        githubIssueNumber ??= (dbNode as Record<string, unknown>).githubIssueNumber as number | undefined
+    if (dbNode) {
+      title ??= dbNode.title
+      description ??= dbNode.description || dbNode.content || dbNode.title
+      verification ??= (dbNode.verification as 'auto' | 'human') || undefined
+      acceptanceCriteria ??= dbNode.acceptanceCriteria as typeof acceptanceCriteria
+      githubIssueUrl ??= (dbNode as Record<string, unknown>).githubIssueUrl as string | undefined
+      githubIssueNumber ??= (dbNode as Record<string, unknown>).githubIssueNumber as number | undefined
 
-        // Resolve dependencies from DB if not provided
-        if (dependencies.length === 0) {
-          const depRows = await db.select({ depId: planNodeDependencies.dependsOnClientId })
-            .from(planNodeDependencies)
-            .where(and(
-              eq(planNodeDependencies.nodeProjectId, projectId),
-              eq(planNodeDependencies.nodeClientId, nodeId)
-            ))
-          dependencies = depRows.map(r => r.depId)
-        }
+      // Resolve dependencies from DB if not provided
+      if (dependencies.length === 0) {
+        const depRows = await db.select({ depId: planNodeDependencies.dependsOnClientId })
+          .from(planNodeDependencies)
+          .where(and(
+            eq(planNodeDependencies.nodeProjectId, projectId),
+            eq(planNodeDependencies.nodeClientId, nodeId)
+          ))
+        dependencies = depRows.map(r => r.depId)
+      }
 
-        // Build dependency outputs from DB if not provided
-        if (dependencyOutputs.length === 0 && dependencies.length > 0) {
-          const allProjectNodes = await db.select({
-            clientId: planNodes.clientId,
-            title: planNodes.title,
-            executionOutput: planNodes.executionOutput,
-            projectId: planNodes.projectId,
-          }).from(planNodes)
-            .where(eq(planNodes.projectId, projectId))
+      // Build dependency outputs from DB if not provided
+      if (dependencyOutputs.length === 0 && dependencies.length > 0) {
+        const allProjectNodes = await db.select({
+          clientId: planNodes.clientId,
+          title: planNodes.title,
+          executionOutput: planNodes.executionOutput,
+          projectId: planNodes.projectId,
+        }).from(planNodes)
+          .where(eq(planNodes.projectId, projectId))
 
-          for (const depId of dependencies) {
-            const depNode = allProjectNodes.find(n => n.clientId === depId)
-            if (depNode?.executionOutput) {
-              dependencyOutputs.push({
-                nodeId: depNode.clientId,
-                title: depNode.title,
-                output: depNode.executionOutput,
-              })
-            }
+        for (const depId of dependencies) {
+          const depNode = allProjectNodes.find(n => n.clientId === depId)
+          if (depNode?.executionOutput) {
+            dependencyOutputs.push({
+              nodeId: depNode.clientId,
+              title: depNode.title,
+              output: depNode.executionOutput,
+            })
           }
         }
       }
-
-      if (dbProject) {
-        visionDoc ??= dbProject.visionDoc || undefined
-        deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
-        const source = dbProject.source as { localPath?: string; remoteType?: string } | null
-        remoteType ??= (source?.remoteType as typeof remoteType) || undefined
-
-        // Resolve working directory from project
-        if (!workingDirectory) {
-          if (dbProject.defaultMachineId && dbProject.workingDirectory && !dbProject.repository) {
-            workingDirectory = dbProject.workingDirectory
-          } else {
-            const localPath = source?.localPath ?? dbProject.workingDirectory
-            if (localPath) {
-              workingDirectory = localPath
-            } else if (dbProject.repository) {
-              workingDirectory = dbProject.repository
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[dispatch] Failed to resolve fields from DB:', err)
-      return c.json(
-        { success: false, error: 'Failed to resolve task details from database' },
-        500
-      )
     }
+
+    if (dbProject) {
+      visionDoc ??= dbProject.visionDoc || undefined
+      deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
+      const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string } | null
+      remoteType ??= (source?.remoteType as typeof remoteType) || undefined
+      baseBranch = source?.baseBranch || undefined
+
+      // Resolve working directory from project
+      if (!workingDirectory) {
+        if (dbProject.defaultMachineId && dbProject.workingDirectory && !dbProject.repository) {
+          workingDirectory = dbProject.workingDirectory
+        } else {
+          const localPath = source?.localPath ?? dbProject.workingDirectory
+          if (localPath) {
+            workingDirectory = localPath
+          } else if (dbProject.repository) {
+            workingDirectory = dbProject.repository
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[dispatch] Failed to resolve fields from DB:', err)
+    return c.json(
+      { success: false, error: 'Failed to resolve task details from database' },
+      500
+    )
   }
 
   // Server-side fallback: use project's defaultMachineId when client doesn't specify a machine
@@ -273,7 +274,7 @@ dispatchRoute.post('/task', async (c) => {
     )
   }
 
-  // Dry run validation
+  // Dry run dependency validation (fail fast before prompt assembly)
   if (dryRun) {
     const pendingDeps = dependencies.filter((depId) => {
       const depOutput = dependencyOutputs.find((d) => d.nodeId === depId)
@@ -287,12 +288,6 @@ dispatchRoute.post('/task', async (c) => {
         validationIssues: [`Pending dependencies: ${pendingDeps.join(', ')}`],
       })
     }
-
-    return c.json({
-      success: true,
-      dryRun: true,
-      validationIssues: [],
-    })
   }
 
   // Check dependencies (unless forced)
@@ -351,6 +346,7 @@ dispatchRoute.post('/task', async (c) => {
     computeBackend,
     deliveryMode,
     remoteType,
+    baseBranch,
     agentDir,
     worktreeStrategy,
     useWorktree,
@@ -365,6 +361,7 @@ dispatchRoute.post('/task', async (c) => {
     forkSession,
     dispatchSignature,
     dispatchSigningPayload,
+    dryRun,
   })
 })
 
@@ -390,6 +387,7 @@ async function dispatchViaRelay(
     computeBackend?: string
     deliveryMode?: string
     remoteType?: string
+    baseBranch?: string
     agentDir?: string
     worktreeStrategy?: string
     useWorktree?: boolean
@@ -404,9 +402,11 @@ async function dispatchViaRelay(
     forkSession?: boolean
     dispatchSignature?: string
     dispatchSigningPayload?: { v: 1; nodeId: string; projectId: string; machineId: string; timestamp: string; nonce: string }
+    dryRun?: boolean
   }
 ) {
-  const astroBaseUrl = process.env.ASTRO_BASE_URL || undefined
+  // Derive Astro base URL: env var > request Origin header
+  const astroBaseUrl = process.env.ASTRO_BASE_URL || c.req.header('origin')
 
   const {
     nodeId,
@@ -425,6 +425,7 @@ async function dispatchViaRelay(
     computeBackend,
     deliveryMode,
     remoteType,
+    baseBranch,
     agentDir,
     worktreeStrategy,
     useWorktree,
@@ -439,6 +440,7 @@ async function dispatchViaRelay(
     forkSession,
     dispatchSignature,
     dispatchSigningPayload,
+    dryRun,
   } = params
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
@@ -448,39 +450,41 @@ async function dispatchViaRelay(
   // Extract user for ownership verification
   const user = c.get('user') as AuthUser | undefined
 
-  // Find target machine
+  // Find target machine (skip for dry runs — prompt assembly doesn't need a machine)
   let machineId = targetMachineId
-  if (!machineId) {
-    const bestMachine = machineRegistry.findBestMachine(preferredProvider, user?.id)
-    if (!bestMachine) {
-      return c.json(
-        {
-          success: false,
-          error: `No available machine. Start an agent runner with: npx astro-agent start --relay wss://<your-relay-url>`,
-        },
-        400
-      )
+  if (!dryRun) {
+    if (!machineId) {
+      const bestMachine = machineRegistry.findBestMachine(preferredProvider, user?.id)
+      if (!bestMachine) {
+        return c.json(
+          {
+            success: false,
+            error: `No available machine. Start an agent runner with: npx astro-agent start --relay wss://<your-relay-url>`,
+          },
+          400
+        )
+      }
+      machineId = bestMachine.machineId
+    } else {
+      // Verify ownership of explicitly targeted machine
+      const targetMachine = machineRegistry.get(machineId)
+      if (targetMachine?.userId && targetMachine.userId !== LOCAL_USER_ID && user?.id && targetMachine.userId !== user.id) {
+        return c.json(
+          { success: false, error: `Machine ${machineId} not found or not authorized` },
+          403
+        )
+      }
     }
-    machineId = bestMachine.machineId
-  } else {
-    // Verify ownership of explicitly targeted machine
-    const targetMachine = machineRegistry.get(machineId)
-    if (targetMachine?.userId && targetMachine.userId !== LOCAL_USER_ID && user?.id && targetMachine.userId !== user.id) {
-      return c.json(
-        { success: false, error: `Machine ${machineId} not found or not authorized` },
-        403
-      )
-    }
-  }
 
-  // Register execution context for user-scoped SSE filtering + ownership validation
-  executionContextStore.register({
-    executionId,
-    projectId,
-    nodeId,
-    userId: user?.id || LOCAL_USER_ID,
-    machineId: machineId!,
-  })
+    // Register execution context for user-scoped SSE filtering + ownership validation
+    executionContextStore.register({
+      executionId,
+      projectId,
+      nodeId,
+      userId: user?.id || LOCAL_USER_ID,
+      machineId: machineId!,
+    })
+  }
 
   // Build prompt — interactive plans use the dedicated planning prompt template;
   // regular executions use the standard task execution prompt.
@@ -667,7 +671,22 @@ You have an \`ask_user_question\` tool. When you call it, execution pauses and t
 
 ### Verification
 
-${verificationSection}`)
+${verificationSection}
+
+### Executive Summary
+
+**IMPORTANT: When you have finished the task, you MUST end your response with an executive summary in exactly this format:**
+
+## Executive Summary
+**Status:** success | partial | failure
+**What was done:** One sentence describing the overall outcome.
+- Key finding or change 1
+- Key finding or change 2
+- Key finding or change 3
+**Follow-ups:**
+- Suggested follow-up action (if any)
+
+This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
   }
 
   // Fetch images from blob DB if referenced in task content
@@ -704,6 +723,25 @@ ${verificationSection}`)
 
   const relayPrompt = promptParts.join('\n\n---\n\n')
 
+  // Dry run: return assembled prompt without dispatching
+  if (dryRun) {
+    return c.json({
+      success: true,
+      dryRun: true,
+      validationIssues: [],
+      prompt: relayPrompt,
+      systemPrompt: relaySystemPrompt,
+      taskMeta: {
+        astroBaseUrl,
+        githubIssueUrl,
+        githubIssueNumber,
+        deliveryMode: deliveryMode ?? 'pr',
+        shortProjectId,
+        shortNodeId,
+      },
+    })
+  }
+
   // Fetch project record from DB for event hooks (git-pull-hook needs workingDirectory)
   let projectRecord: Project | undefined
   try {
@@ -732,6 +770,7 @@ ${verificationSection}`)
     sourceDirectory,
     deliveryMode: deliveryMode ?? 'pr',
     remoteType,
+    baseBranch,
     agentDir,
     worktreeStrategy,
     useWorktree,
@@ -794,6 +833,9 @@ ${verificationSection}`)
           branchName: msg.result.branchName,
           prUrl: msg.result.prUrl,
           prNumber: msg.result.prNumber,
+          deliveryStatus: msg.result.deliveryStatus,
+          deliveryError: msg.result.deliveryError,
+          summary: msg.result.summary,
         }),
       }).catch(() => { alive = false })
 
@@ -807,6 +849,8 @@ ${verificationSection}`)
         branchName: msg.result.branchName,
         prUrl: msg.result.prUrl,
         prNumber: msg.result.prNumber,
+        deliveryStatus: msg.result.deliveryStatus,
+        deliveryError: msg.result.deliveryError,
       }
       astroEventTransport.emitEvent({
         type: 'task.completed',
@@ -1276,6 +1320,22 @@ dispatchRoute.post('/request-dynamic-approval', async (c) => {
     return c.json({ success: false, error: 'options must be array of 2-5 strings' }, 400)
   }
 
+  // Check YOLO mode: auto-approve with first option
+  const user = c.get('user') as AuthUser | undefined
+  if (user?.id) {
+    try {
+      const [profile] = await db.select({ settings: userProfiles.settings })
+        .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
+      const yoloMode = (profile?.settings as Record<string, string> | null)?.yoloMode === 'true'
+      if (yoloMode && options.length > 0) {
+        console.log(`[dispatch] YOLO auto-approved: execution=${executionId} answer="${options[0]}"`)
+        return c.json({ success: true, selectedOption: options[0] })
+      }
+    } catch {
+      // fail open — proceed with normal approval flow
+    }
+  }
+
   try {
     const selectedOption = await dispatchEngine.requestDynamicApproval(
       executionId,
@@ -1383,6 +1443,154 @@ dispatchRoute.post('/cleanup', async (c) => {
   // In relay mode, the agent runner handles worktree cleanup.
   // We could forward a cleanup command via relay if needed.
   return c.json({ success: true, removed: false })
+})
+
+/**
+ * Reset a task node for re-execution.
+ *
+ * Performs a full cleanup:
+ * 1. Close the PR if one exists (via GitHub API)
+ * 2. Delete the remote branch (via GitHub API)
+ * 3. Send worktree cleanup command to agent runner (via relay)
+ * 4. Clear PR/branch fields from the plan node in DB
+ * 5. Reset node status back to 'planned'
+ */
+dispatchRoute.post('/reset', async (c) => {
+  const { nodeId, projectId, machineId: requestMachineId } = await c.req.json<{
+    nodeId: string
+    projectId: string
+    machineId?: string
+  }>()
+
+  if (!nodeId || !projectId) {
+    return c.json({ success: false, error: 'nodeId and projectId required' }, 400)
+  }
+
+  const user = c.get('user') as AuthUser | undefined
+  const userId = user?.id || LOCAL_USER_ID
+
+  // Load the node to get current PR/branch data
+  const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
+  if (!node) {
+    return c.json({ success: false, error: 'Node not found' }, 404)
+  }
+
+  const errors: string[] = []
+
+  // Load project to get GitHub owner/repo
+  const [project] = await db.select().from(projects).where(eq(projects.clientId, projectId)).limit(1)
+
+  // Get GitHub token for the authenticated user (used for PR close + branch delete)
+  const { githubStore } = await import('../lib/github-store.js')
+  const ghConnection = await githubStore.getConnection(userId)
+  const ghToken = ghConnection?.accessToken
+  const ghRepo = project?.githubOwner && project?.githubRepo
+    ? `${project.githubOwner}/${project.githubRepo}`
+    : null
+
+  // 1. Close PR if exists (via GitHub API using user's token)
+  if (node.prNumber && ghRepo) {
+    if (!ghToken) {
+      console.warn('[dispatch/reset] No GitHub token available to close PR')
+      errors.push('No GitHub token — cannot close PR (connect GitHub in Settings)')
+    } else {
+      try {
+        const response = await fetch(
+          `https://api.github.com/repos/${ghRepo}/pulls/${node.prNumber}`,
+          {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${ghToken}`,
+              Accept: 'application/vnd.github.v3+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ state: 'closed' }),
+          },
+        )
+        if (response.ok) {
+          console.log(`[dispatch/reset] Closed PR #${node.prNumber}`)
+        } else {
+          const errText = await response.text()
+          console.warn(`[dispatch/reset] Failed to close PR #${node.prNumber}: ${response.status} ${errText}`)
+          errors.push(`Failed to close PR #${node.prNumber}: ${response.status}`)
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[dispatch/reset] Error closing PR: ${msg}`)
+        errors.push(`Error closing PR: ${msg}`)
+      }
+    }
+  }
+
+  // 2. Delete remote branch via GitHub API (using user's token)
+  if (node.branchName && ghRepo && ghToken) {
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${ghRepo}/git/refs/heads/${node.branchName}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${ghToken}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        },
+      )
+      if (response.ok || response.status === 422) {
+        console.log(`[dispatch/reset] Deleted remote branch ${node.branchName}`)
+      } else {
+        const errText = await response.text()
+        console.warn(`[dispatch/reset] Failed to delete branch ${node.branchName}: ${response.status} ${errText}`)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn(`[dispatch/reset] Error deleting remote branch: ${msg}`)
+    }
+  }
+
+  // 3. Send cleanup command to agent runner via relay
+  const targetMachineId = requestMachineId || project?.defaultMachineId
+  if (targetMachineId && node.branchName) {
+    const sent = relayServer.cleanupTask(nodeId, targetMachineId, node.branchName)
+    if (sent) {
+      console.log(`[dispatch/reset] Cleanup command sent to machine ${targetMachineId}`)
+    } else {
+      console.warn(`[dispatch/reset] Could not send cleanup to machine ${targetMachineId} (not connected)`)
+      // Non-fatal — machine may be offline
+    }
+  }
+
+  // 4. Clear PR/branch fields and reset status in DB
+  try {
+    await db.update(planNodes)
+      .set({
+        prUrl: null,
+        prNumber: null,
+        branchName: null,
+        executionId: null,
+        executionOutput: null,
+        executionError: null,
+        executionStartedAt: null,
+        executionCompletedAt: null,
+        status: 'planned',
+        updatedAt: new Date(),
+      })
+      .where(eq(planNodes.clientId, nodeId))
+    console.log(`[dispatch/reset] Node ${nodeId} reset to planned state`)
+  } catch (dbErr) {
+    const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
+    console.error(`[dispatch/reset] Failed to reset node in DB: ${msg}`)
+    return c.json({ success: false, error: `Database update failed: ${msg}` }, 500)
+  }
+
+  return c.json({
+    success: true,
+    errors: errors.length > 0 ? errors : undefined,
+    reset: {
+      prClosed: !!node.prNumber,
+      branchDeleted: !!node.branchName,
+      nodeReset: true,
+    },
+  })
 })
 
 export { dispatchRoute }

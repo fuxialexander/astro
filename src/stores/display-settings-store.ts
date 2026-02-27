@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
 
-export type ViewKey = "projects" | "projects-timeline" | "plan-list" | "plan-graph" | "my-tasks" | "my-tasks-timeline" | "plan-board" | "my-tasks-board"
+export type ViewKey = "projects" | "projects-timeline" | "plan-list" | "plan-graph" | "my-tasks" | "my-tasks-timeline" | "plan-board" | "my-tasks-board" | "initiative-projects"
 
 export interface DisplaySettings {
   groupBy: string
@@ -22,7 +22,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderBy: "name",
     orderDirection: "asc",
     showCompleted: true,
-    visibleProperties: ["status", "health", "progress", "targetDate"],
+    visibleProperties: ["progress", "targetDate"],
   },
   "projects-timeline": {
     groupBy: "none",
@@ -40,11 +40,11 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     visibleProperties: [],
   },
   "plan-list": {
-    groupBy: "none",
+    groupBy: "milestone",
     orderBy: "dependency",
     orderDirection: "asc",
     showCompleted: true,
-    visibleProperties: ["priority", "status", "dueDate", "estimate", "labels", "pr"],
+    visibleProperties: ["status", "labels", "pr"],
     zoom: "day",
   },
   "my-tasks": {
@@ -52,7 +52,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderBy: "updatedAt",
     orderDirection: "desc",
     showCompleted: false,
-    visibleProperties: ["status", "priority", "project", "dueDate", "estimate", "pr"],
+    visibleProperties: ["status", "pr"],
   },
   "my-tasks-timeline": {
     groupBy: "none",
@@ -68,7 +68,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderDirection: "asc",
     showCompleted: false,
     columnBy: "status",
-    visibleProperties: ["priority", "estimate", "dueDate", "pr"],
+    visibleProperties: ["pr"],
   },
   "my-tasks-board": {
     groupBy: "none",
@@ -77,6 +77,13 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     showCompleted: false,
     columnBy: "status",
     visibleProperties: ["priority", "project", "dueDate", "pr"],
+  },
+  "initiative-projects": {
+    groupBy: "none",
+    orderBy: "name",
+    orderDirection: "asc",
+    showCompleted: true,
+    visibleProperties: ["status", "health", "progress", "targetDate"],
   },
 }
 

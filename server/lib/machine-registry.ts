@@ -165,6 +165,28 @@ export class MachineRegistry extends EventEmitter {
   }
 
   /**
+   * Detach the socket from a machine without removing it from the registry.
+   * Used during the disconnect grace period — the machine entry stays so it
+   * can be seamlessly replaced when the agent runner reconnects.
+   */
+  detachSocket(machineId: string): boolean {
+    const connection = this.machines.get(machineId);
+    if (!connection) return false;
+
+    // Clear heartbeat timer — no socket to ping
+    if (connection.heartbeatTimer) {
+      clearTimeout(connection.heartbeatTimer);
+      connection.heartbeatTimer = undefined;
+    }
+
+    // Null out the socket but keep the registry entry
+    connection.socket = null;
+    connection.entry.connectionStatus = 'reconnecting';
+
+    return true;
+  }
+
+  /**
    * Disconnect a machine
    */
   disconnect(machineId: string, reason?: string): boolean {

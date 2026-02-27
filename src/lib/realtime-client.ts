@@ -19,6 +19,7 @@ export type RealtimeEventType =
   | 'task:file_change'
   | 'task:session_init'
   | 'task:approval_request'
+  | 'task:approval_auto_responded'
   | 'task:safety_prompt'
   | 'machine:connected'
   | 'machine:disconnected'
@@ -103,6 +104,7 @@ export class RealtimeClient {
       'task:file_change',
       'task:session_init',
       'task:approval_request',
+      'task:approval_auto_responded',
       'task:safety_prompt',
       'machine:connected',
       'machine:disconnected',

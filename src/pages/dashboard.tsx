@@ -107,7 +107,7 @@ export function Dashboard() {
         </div>
         <div className="flex items-center gap-2 md:gap-3">
           <Button asChild className="min-h-11">
-            <Link to="/projects/new">
+            <Link to="/projects">
               <Plus className="h-4 w-4" />
               New Project
             </Link>
@@ -468,7 +468,7 @@ export function Dashboard() {
                       description="Create a project to get started with AI-assisted planning and execution."
                       action={{
                         label: "Create Project",
-                        onClick: () => navigate("/projects/new"),
+                        onClick: () => navigate("/projects"),
                       }}
                       className="py-6"
                     />

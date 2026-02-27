@@ -26,6 +26,8 @@ import {
 interface ClaudeSessionBrowserProps {
   onSelectSession: (session: ClaudeCodeSession) => void
   onClose: () => void
+  /** When true, renders without fixed width/border (for Sheet embedding) */
+  embedded?: boolean
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -41,13 +43,28 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString()
 }
 
+function cleanText(raw: string): string {
+  return raw
+    .replace(/^\s*(\[[\w\s]+\]\s*)+/g, "")
+    .replace(/^\s*<[^>]+>[^<]*(<\/[^>]+>)?\s*/g, "")
+    .trim()
+}
+
 function getSessionTitle(session: ClaudeCodeSession): string {
-  return session.customTitle || session.summary || session.firstPrompt || session.sessionId.slice(0, 8)
+  for (const candidate of [session.firstPrompt, session.customTitle, session.summary]) {
+    if (!candidate?.trim()) continue
+    const cleaned = cleanText(candidate)
+    if (cleaned.length >= 5) return cleaned
+  }
+  const raw = session.firstPrompt || session.summary || session.customTitle
+  if (raw?.trim()) return raw.trim().slice(0, 100)
+  return session.sessionId.slice(0, 8)
 }
 
 export function ClaudeSessionBrowser({
   onSelectSession,
   onClose,
+  embedded = false,
 }: ClaudeSessionBrowserProps) {
   const sessions = useClaudeSessionsStore((s) => s.sessions)
   const loading = useClaudeSessionsStore((s) => s.loading)
@@ -65,15 +82,19 @@ export function ClaudeSessionBrowser({
   }, [loadSessions])
 
   return (
-    <div className="flex flex-col h-full w-[280px] border-l border-border bg-background shrink-0">
-      {/* Header */}
+    <div className={cn(
+      "flex flex-col h-full bg-background shrink-0",
+      embedded ? "w-full" : "w-[280px] border-l border-border"
+    )}>
+      {/* Header — hidden when embedded in Sheet (Sheet provides its own header) */}
+      {!embedded && (
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
         <Terminal className="h-4 w-4 text-primary shrink-0" />
         <span className="text-xs font-medium truncate flex-1">Claude Code Sessions</span>
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6"
+          className="h-7 w-7 md:h-6 md:w-6"
           onClick={handleRefresh}
           disabled={loading}
           title="Refresh sessions"
@@ -83,13 +104,14 @@ export function ClaudeSessionBrowser({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6"
+          className="h-7 w-7 md:h-6 md:w-6"
           onClick={onClose}
           title="Close"
         >
           <X className="h-3 w-3" />
         </Button>
       </div>
+      )}
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto">

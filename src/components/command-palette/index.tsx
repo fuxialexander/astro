@@ -118,7 +118,7 @@ export function CommandPalette() {
 
       // Add action commands
       if (cmd.id === "action-new-project") {
-        return { ...cmd, action: () => navigate("/projects/new") }
+        return { ...cmd, action: () => navigate("/projects") }
       }
       if (cmd.id === "action-plan-generation") {
         return { ...cmd, action: () => navigate("/projects/new/plan") }
@@ -428,7 +428,7 @@ export function CommandPalette() {
   }, [open, flatCommands])
 
   const handleTeamSelection = useCallback((teamId: string) => {
-    navigate(`/projects/new?teamId=${teamId}`)
+    navigate(`/projects?teamId=${teamId}`)
   }, [navigate])
 
   if (!open) return null

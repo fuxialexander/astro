@@ -17,9 +17,9 @@ import {
   RefreshCw,
   FileText,
   X,
-  ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { EditorOpenControls, type EditorType } from "@/components/ui/editor-open-controls"
 import { cn } from "@/lib/utils"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
@@ -37,8 +37,10 @@ interface PlaygroundFileSidebarProps {
   machineName?: string
   machineHostname?: string
   workingDirectory: string
-  editorType?: 'cursor' | 'vscode'
+  editorType?: EditorType
   onClose: () => void
+  /** When true, renders without fixed width/border (for Sheet embedding) */
+  embedded?: boolean
 }
 
 async function fetchDirectoryList(
@@ -66,9 +68,12 @@ export function PlaygroundFileSidebar({
   machineName,
   machineHostname,
   workingDirectory,
-  editorType = 'cursor',
+  editorType: initialEditorType = 'cursor',
   onClose,
+  embedded = false,
 }: PlaygroundFileSidebarProps) {
+  const [activeEditor, setActiveEditor] = useState<EditorType>(initialEditorType)
+  const [useLocal, setUseLocal] = useState(true)
   const [path, setPath] = useState(workingDirectory)
   const [entries, setEntries] = useState<DirectoryEntry[]>([])
   const [loading, setLoading] = useState(false)
@@ -130,7 +135,8 @@ export function PlaygroundFileSidebar({
       navigateTo(entry.path)
     } else {
       // Open file in editor
-      const url = buildFileUrlSync(entry.path, undefined, machine, false, editorType)
+      const forceLocal = useLocal ? true : 'remote' as const
+      const url = buildFileUrlSync(entry.path, undefined, machine as Parameters<typeof buildFileUrlSync>[2], forceLocal, activeEditor)
       if (url) {
         window.open(url, '_blank')
       }
@@ -175,28 +181,22 @@ export function PlaygroundFileSidebar({
   const directories = entries.filter((e) => e.isDirectory)
   const files = entries.filter((e) => !e.isDirectory)
 
-  const openCurrentInEditor = () => {
-    const url = buildFileUrlSync(path, undefined, machine, false, editorType)
-    if (url) {
-      window.open(url, '_blank')
-    }
-  }
-
   return (
-    <div className="flex flex-col h-full w-[280px] border-l border-border bg-background shrink-0">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-        <Folder className="h-4 w-4 text-primary shrink-0" />
-        <span className="text-xs font-medium truncate flex-1">Files</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          onClick={openCurrentInEditor}
-          title="Open in editor"
-        >
-          <ExternalLink className="h-3 w-3" />
-        </Button>
+    <div className={cn(
+      "flex flex-col h-full bg-background shrink-0",
+      embedded ? "w-full" : "w-[280px] border-l border-border"
+    )}>
+      {/* Header — hidden when embedded in Sheet (Sheet provides its own header) */}
+      {!embedded && (
+      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border shrink-0">
+        <EditorOpenControls
+          path={path}
+          machine={machine}
+          defaultEditor={initialEditorType}
+          onEditorChange={setActiveEditor}
+          onLocalChange={setUseLocal}
+        />
+        <div className="flex-1" />
         <Button
           variant="ghost"
           size="icon"
@@ -217,6 +217,7 @@ export function PlaygroundFileSidebar({
           <X className="h-3 w-3" />
         </Button>
       </div>
+      )}
 
       {/* Breadcrumbs */}
       <div className="flex items-center gap-0.5 px-2 py-1.5 text-[11px] overflow-x-auto border-b border-border shrink-0">

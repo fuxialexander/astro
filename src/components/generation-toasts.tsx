@@ -71,7 +71,7 @@ function SessionCard({ session }: { session: GenerationSession }) {
 
   function handleNavigate() {
     if (session.isInteractive) {
-      navigate(`/projects/new/plan?projectId=${session.projectId}`)
+      navigate(`/project/${session.projectId}/graph`)
     } else {
       navigate(`/project/${session.projectId}`)
     }

@@ -21,6 +21,7 @@ interface InlineApprovalCardProps {
   options: string[]
   answered?: boolean
   answer?: string
+  autoApproved?: boolean
   onRespond: (requestId: string, answer: string) => Promise<void>
 }
 
@@ -30,6 +31,7 @@ export function InlineApprovalCard({
   options,
   answered,
   answer,
+  autoApproved,
   onRespond,
 }: InlineApprovalCardProps) {
   const [selectedOption, setSelectedOption] = useState<string>(options[0] || "")
@@ -65,7 +67,14 @@ export function InlineApprovalCard({
           <Check className="h-4 w-4 mt-0.5 shrink-0 text-success" />
           <div className="flex-1 min-w-0">
             <p className="text-xs text-muted-foreground mb-1">{question}</p>
-            <p className="text-sm font-medium text-foreground">{answer}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-foreground">{answer}</p>
+              {autoApproved && (
+                <span className="text-[9px] font-bold bg-warning/15 text-warning rounded px-1.5 py-0.5 uppercase tracking-wide">
+                  YOLO
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>

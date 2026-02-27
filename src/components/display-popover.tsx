@@ -20,6 +20,12 @@ export interface DisplayPopoverConfig {
   groupByLabel?: string
   showZoom?: boolean
   showTimelineOptions?: boolean
+  /** "View as" options to switch between layout variants (e.g., list, timeline, board) */
+  viewAsOptions?: DisplayOption[]
+  /** Callback when a "View as" option is selected */
+  onViewAsChange?: (value: string) => void
+  /** Currently active "View as" value */
+  activeViewAs?: string
 }
 
 function InlineSelect({
@@ -127,6 +133,32 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
       </PopoverTrigger>
       <PopoverContent className="w-72">
         <div className="flex flex-col gap-3">
+          {/* View as (layout variants) */}
+          {config.viewAsOptions && config.viewAsOptions.length > 0 && (
+            <>
+              <div>
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase">View as</span>
+                <div className="mt-1.5 flex items-center gap-1">
+                  {config.viewAsOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => config.onViewAsChange?.(opt.value)}
+                      className={cn(
+                        "rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer capitalize",
+                        config.activeViewAs === opt.value
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Separator />
+            </>
+          )}
+
           {/* Grouping (board views) */}
           {config.columnByOptions && (
             <InlineSelect

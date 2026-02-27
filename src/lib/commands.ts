@@ -70,11 +70,11 @@ export const navigationCommands: CommandDefinition[] = [
   },
   {
     id: "nav-initiatives",
-    label: "Initiatives",
-    description: "View strategic initiatives",
+    label: "Grand Plans",
+    description: "View grand plans",
     icon: Target,
     category: "navigation",
-    keywords: ["initiatives", "goals", "strategy"],
+    keywords: ["initiatives", "goals", "strategy", "grand plans"],
   },
   {
     id: "nav-active",
@@ -150,11 +150,11 @@ export const actionCommands: CommandDefinition[] = [
   },
   {
     id: "action-new-initiative",
-    label: "New Initiative",
-    description: "Create a strategic initiative",
+    label: "New Grand Plan",
+    description: "Create a grand plan",
     icon: Plus,
     category: "actions",
-    keywords: ["create", "initiative", "goal"],
+    keywords: ["create", "initiative", "goal", "grand plan"],
   },
   {
     id: "action-toggle-theme",

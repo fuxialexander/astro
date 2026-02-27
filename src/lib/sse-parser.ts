@@ -84,6 +84,9 @@ export async function parseChatSSE(
   response: Response,
   handlers: {
     onText?: (text: string) => void
+    onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
+    onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
+    onSessionInit?: (data: { sessionId: string; model?: string }) => void
     onPlanResult?: (result: unknown) => void
     onDone?: (sessionId: string) => void
     onError?: (error: string) => void
@@ -94,6 +97,15 @@ export async function parseChatSSE(
       switch (event) {
         case "text":
           handlers.onText?.(data)
+          break
+        case "tool_use":
+          try { handlers.onToolUse?.(JSON.parse(data)) } catch { /* ignore */ }
+          break
+        case "tool_result":
+          try { handlers.onToolResult?.(JSON.parse(data)) } catch { /* ignore */ }
+          break
+        case "session_init":
+          try { handlers.onSessionInit?.(JSON.parse(data)) } catch { /* ignore */ }
           break
         case "plan_result":
           try {
@@ -115,6 +127,8 @@ export async function parseChatSSE(
           break
         case "aborted":
           handlers.onDone?.("")
+          break
+        case "heartbeat":
           break
       }
     },

@@ -103,7 +103,7 @@ function ColumnHeader<T>({
       >
         <span className={cn(
           "text-[13px] font-medium text-primary flex items-center gap-1 cursor-pointer",
-          isNameColumn ? "justify-start" : "justify-end text-right shrink-0",
+          isNameColumn ? "justify-start" : "justify-center text-center shrink-0",
           width,
           col?.headerClassName
         )}>
@@ -117,7 +117,7 @@ function ColumnHeader<T>({
     return (
       <span className={cn(
         "text-[13px] font-medium text-muted-foreground flex",
-        isNameColumn ? "justify-start" : "justify-end text-right shrink-0",
+        isNameColumn ? "justify-start" : "justify-center text-center shrink-0",
         width,
         col?.headerClassName
       )}>
@@ -132,7 +132,7 @@ function ColumnHeader<T>({
       onClick={() => onSort(sortKey)}
       className={cn(
         "flex items-center gap-1 text-[13px] font-medium transition-colors cursor-pointer select-none",
-        isNameColumn ? "justify-start" : "justify-end text-right shrink-0",
+        isNameColumn ? "justify-start" : "justify-center text-center shrink-0",
         isSorted ? "text-foreground" : "text-muted-foreground hover:text-foreground",
         width,
         col?.headerClassName,
@@ -484,7 +484,7 @@ export function ItemListView<T>({
                     {/* Other visible columns — wrap below title on mobile, inline on desktop */}
                     <div className="flex items-center gap-2 sm:gap-0 flex-wrap sm:flex-nowrap w-full sm:w-auto sm:shrink sm:overflow-hidden mt-1 sm:mt-0">
                       {otherCols.map((col) => (
-                        <div key={col.id} className={cn("flex items-center sm:justify-end sm:text-right shrink-0", col.width)}>
+                        <div key={col.id} className={cn("flex items-center sm:justify-center sm:text-center shrink-0", col.width)}>
                           {col.render(item)}
                         </div>
                       ))}

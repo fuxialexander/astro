@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
-import { PRIORITIES, ESTIMATES } from "@/lib/constants"
 import { cn } from "@/lib/utils"
 import { extractTitle } from "@/lib/text-utils"
 import { generateTitle, suggestLabels } from "@/lib/api-client"
@@ -275,31 +274,6 @@ export function TaskCreationForm({
           <option value="milestone">Milestone</option>
         </select>
 
-        {nodeType === "task" && (
-          <>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as Priority)}
-              className="h-7 rounded-md border border-border bg-background px-2 text-xs cursor-pointer"
-            >
-              {PRIORITIES.map((p) => (
-                <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-              ))}
-            </select>
-
-            <select
-              value={estimate}
-              onChange={(e) => setEstimate(e.target.value as Estimate | "")}
-              className="h-7 rounded-md border border-border bg-background px-2 text-xs cursor-pointer"
-            >
-              <option value="">Est.</option>
-              {ESTIMATES.map((e) => (
-                <option key={e} value={e}>{e}</option>
-              ))}
-            </select>
-          </>
-        )}
-
         {(parentNodeId || childNodeId) && (
           <select
             value={edgeType}
@@ -310,13 +284,6 @@ export function TaskCreationForm({
             <option value="branch">Branch</option>
           </select>
         )}
-
-        <input
-          type="date"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
-          className="h-7 rounded-md border border-border bg-background px-2 text-xs cursor-pointer"
-        />
 
         {milestones.length > 0 && (
           <select

@@ -9,7 +9,7 @@ import { GenerationToasts } from "@/components/generation-toasts"
 import { AuthGuard } from "@/components/auth-guard"
 import { Dashboard } from "@/pages/dashboard"
 import { Projects } from "@/pages/projects"
-import { ProjectNew } from "@/pages/project-new"
+// ProjectNew removed — inline creation now happens on /projects page
 import { PlanView } from "@/pages/plan-view"
 import Initiatives from "@/pages/initiatives"
 import { Login } from "@/pages/login"
@@ -38,6 +38,7 @@ import { PluginLoader } from "@/components/plugin-loader"
 import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
+import { useGitHubStore } from "@/stores/github-store"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
@@ -49,6 +50,7 @@ import { ActiveTasks } from "@/pages/active-tasks"
 import { TeamInvite } from "@/pages/team-invite"
 import { ProjectNewPlan } from "@/pages/project-new-plan"
 import { Playground } from "@/pages/playground"
+import { ShareImport } from "@/pages/share-import"
 
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
@@ -118,6 +120,9 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadSkills = useSkillStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
+  const fetchGitHubStatus = useGitHubStore((s) => s.fetchStatus)
+  const gitHubConnected = useGitHubStore((s) => s.connected)
+  const fetchGitHubRepos = useGitHubStore((s) => s.fetchRepos)
   const teamsLoaded = useTeamStore((s) => s.loaded)
   const projectsLoaded = useProjectStore((s) => s.loaded)
   const planLoaded = usePlanStore((s) => s.loaded)
@@ -202,6 +207,18 @@ function DataLoader({ children }: { children: React.ReactNode }) {
       refreshAllFileTrees()
     }
   }, [projectsLoaded, realtimeMachines.size])
+
+  // Auto-sync GitHub: check connection status on load, fetch repos if connected
+  useEffect(() => {
+    if (!shouldLoadData || !teamsLoaded) return
+    fetchGitHubStatus().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldLoadData, teamsLoaded])
+
+  useEffect(() => {
+    if (gitHubConnected) fetchGitHubRepos().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gitHubConnected])
 
   // Critical stores: must load before rendering (navigation + core data)
   const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded
@@ -288,7 +305,7 @@ export default function App() {
                 <Route path="welcome" element={<ProjectNewPlan />} />
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
-                <Route path="projects/new" element={<ProjectNew />} />
+                <Route path="projects/new" element={<Navigate to="/projects" replace />} />
                 <Route path="projects/new/plan" element={<ProjectNewPlan />} />
                 <Route path="project/:id" element={<PlanView />} />
                 <Route path="project/:id/graph" element={<PlanView />} />
@@ -304,6 +321,7 @@ export default function App() {
                 <Route path="playground" element={<Playground />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />
+                <Route path="share/:id" element={<ShareImport />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="plugins/*" element={<PluginRoutes />} />
               </Route>

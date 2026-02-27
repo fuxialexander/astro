@@ -174,6 +174,38 @@ export async function chatWithAgent(
   })
 }
 
+export async function planChatWithAgent(
+  params: { message: string; sessionId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
+  callbacks: {
+    onText: (text: string) => void
+    onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
+    onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
+    onDone: (sessionId: string) => void
+    onError: (error: string) => void
+  },
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(apiUrl("/api/agent/plan-chat"), {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(params),
+    signal,
+  })
+
+  if (!res.ok) {
+    callbacks.onError(`Server error: ${res.status}`)
+    return
+  }
+
+  await parseChatSSE(res, {
+    onText: callbacks.onText,
+    onToolUse: callbacks.onToolUse,
+    onToolResult: callbacks.onToolResult,
+    onDone: callbacks.onDone,
+    onError: callbacks.onError,
+  })
+}
+
 export async function abortAgent(sessionId: string): Promise<void> {
   await fetch(apiUrl("/api/agent/abort"), {
     method: "POST",
@@ -393,6 +425,29 @@ export async function dispatchTask(
     onError: callbacks.onError,
     onDone: callbacks.onDone,
   })
+}
+
+/**
+ * Reset a task node for re-execution.
+ * Closes PR, deletes branch, cleans worktree, clears node fields.
+ */
+export async function resetTask(
+  nodeId: string,
+  projectId: string,
+  machineId?: string,
+): Promise<{ success: boolean; errors?: string[] }> {
+  const response = await fetch(apiUrl("/api/dispatch/reset"), {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ nodeId, projectId, machineId }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Reset failed: ${response.status} ${text}`)
+  }
+
+  return response.json()
 }
 
 // ============================================================================

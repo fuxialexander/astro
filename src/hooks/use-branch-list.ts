@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { apiUrl } from '@/lib/api-url'
 import { getAccessToken } from '@/lib/supabase-client'
 
@@ -9,124 +9,67 @@ export interface BranchInfo {
   isDefault: boolean
 }
 
-export interface BranchListResult {
-  branches: BranchInfo[]
-  defaultBranch?: string
-}
-
-/**
- * Lazy branch list fetcher. Does NOT auto-fetch — call `fetchBranches()` or
- * `fetchGitHubBranches()` manually.
- * Caches results per key (path+machineId or repo fullName).
- */
 export function useBranchList() {
   const [branches, setBranches] = useState<BranchInfo[]>([])
-  const [defaultBranch, setDefaultBranch] = useState<string | undefined>()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  const cacheRef = useRef<Map<string, BranchListResult>>(new Map())
 
-  const applyResult = useCallback((data: BranchListResult, cacheKey: string) => {
-    setBranches(data.branches)
-    setDefaultBranch(data.defaultBranch)
-    cacheRef.current.set(cacheKey, data)
-    setIsLoading(false)
-  }, [])
-
-  /** Fetch branches from a local/remote directory via relay */
   const fetchBranches = useCallback(async (path: string, machineId: string) => {
-    const cacheKey = `relay:${path}:${machineId}`
-    const cached = cacheRef.current.get(cacheKey)
-    if (cached) {
-      setBranches(cached.branches)
-      setDefaultBranch(cached.defaultBranch)
-      return
-    }
-
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-
     setIsLoading(true)
     setError(null)
-
-    try {
-      const headers: Record<string, string> = {}
-      const branchToken = await getAccessToken()
-      if (branchToken) headers['Authorization'] = `Bearer ${branchToken}`
-      const res = await fetch(
-        apiUrl(`/api/repo/branches?path=${encodeURIComponent(path)}&machineId=${encodeURIComponent(machineId)}`),
-        { signal: controller.signal, headers },
-      )
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || 'Failed to fetch branches')
-      }
-
-      const data: BranchListResult = await res.json()
-      if (!controller.signal.aborted) {
-        applyResult(data, cacheKey)
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      if (!controller.signal.aborted) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch branches')
-        setBranches([])
-        setIsLoading(false)
-      }
-    }
-  }, [applyResult])
-
-  /** Fetch branches from GitHub API (for connected GitHub repos) */
-  const fetchGitHubBranches = useCallback(async (repoFullName: string) => {
-    const cacheKey = `github:${repoFullName}`
-    const cached = cacheRef.current.get(cacheKey)
-    if (cached) {
-      setBranches(cached.branches)
-      setDefaultBranch(cached.defaultBranch)
-      return
-    }
-
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-
-    setIsLoading(true)
-    setError(null)
-
     try {
       const headers: Record<string, string> = {}
       const token = await getAccessToken()
       if (token) headers['Authorization'] = `Bearer ${token}`
       const res = await fetch(
-        apiUrl(`/api/github/branches/${encodeURIComponent(repoFullName.split('/')[0])}/${encodeURIComponent(repoFullName.split('/')[1])}`),
-        { signal: controller.signal, headers },
+        apiUrl(`/api/repo/branches?path=${encodeURIComponent(path)}&machineId=${encodeURIComponent(machineId)}`),
+        { headers },
       )
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Failed to fetch branches')
       }
-
-      const data: BranchListResult = await res.json()
-      if (!controller.signal.aborted) {
-        applyResult(data, cacheKey)
-      }
+      const data = await res.json()
+      setBranches(data.branches || [])
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      if (!controller.signal.aborted) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch branches')
-        setBranches([])
-        setIsLoading(false)
-      }
+      setError(err instanceof Error ? err.message : 'Failed to fetch branches')
+      setBranches([])
+    } finally {
+      setIsLoading(false)
     }
-  }, [applyResult])
-
-  const clearCache = useCallback(() => {
-    cacheRef.current.clear()
   }, [])
 
-  return { branches, defaultBranch, isLoading, error, fetchBranches, fetchGitHubBranches, clearCache }
+  const fetchGitHubBranches = useCallback(async (repository: string) => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const headers: Record<string, string> = {}
+      const token = await getAccessToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const res = await fetch(
+        apiUrl(`/api/github/repos/${encodeURIComponent(repository)}/branches`),
+        { headers },
+      )
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to fetch GitHub branches')
+      }
+      const data = await res.json()
+      // GitHub API returns { name, commit, protected } — normalize to BranchInfo
+      const normalized: BranchInfo[] = (data.branches || data || []).map((b: { name: string }) => ({
+        name: b.name,
+        isRemote: true,
+        isCurrent: false,
+        isDefault: false,
+      }))
+      setBranches(normalized)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch GitHub branches')
+      setBranches([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  return { branches, isLoading, error, fetchBranches, fetchGitHubBranches }
 }

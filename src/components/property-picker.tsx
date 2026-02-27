@@ -28,7 +28,7 @@ export function PropertyPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer"
+          className="inline-flex items-center rounded-md p-2 -m-2 hover:bg-muted transition-colors cursor-pointer"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >

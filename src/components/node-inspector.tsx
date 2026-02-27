@@ -6,10 +6,13 @@ import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { PropertyPicker } from "@/components/property-picker"
+import { LabelPicker } from "@/components/label-picker"
+import { LabelManagerDialog } from "@/components/label-manager-dialog"
 
 import { ExecutionPanel } from "@/components/execution"
 
 import { usePlanStore, isLive } from "@/stores/plan-store"
+import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels } from "@/lib/status-config"
@@ -106,6 +109,11 @@ export function NodeInspectorContent({
 
   const [addDepOpen, setAddDepOpen] = useState(false)
   const [addDepSearch, setAddDepSearch] = useState("")
+  const [labelManagerOpen, setLabelManagerOpen] = useState(false)
+
+  // Get project labels for this node
+  const projectForLabels = useProjectStore((s) => s.projects.find((p) => p.id === node.projectId))
+  const projectLabels = projectForLabels?.labels ?? []
 
   const filteredCandidates = useMemo(() => {
     if (!addDepSearch) return addCandidates
@@ -186,6 +194,33 @@ export function NodeInspectorContent({
             </span>
           </PropertyPicker>
         </div>
+
+        {/* Labels */}
+        <div className="flex items-center justify-between text-[13px]">
+          <span className="text-muted-foreground">Labels</span>
+          {projectLabels.length > 0 ? (
+            <LabelPicker
+              labelIds={node.labelIds ?? []}
+              allLabels={projectLabels}
+              displayMode="badges"
+              onChange={(labelIds) => handleUpdate({ labelIds })}
+              onManageLabels={() => setLabelManagerOpen(true)}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setLabelManagerOpen(true)}
+              className="text-[13px] text-primary hover:underline cursor-pointer"
+            >
+              Add labels
+            </button>
+          )}
+        </div>
+        <LabelManagerDialog
+          open={labelManagerOpen}
+          onOpenChange={setLabelManagerOpen}
+          projectId={node.projectId}
+        />
 
         {/* Dependencies */}
         <div className="flex flex-col gap-1.5">

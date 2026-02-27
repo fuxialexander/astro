@@ -1581,15 +1581,11 @@ function EnvironmentsSettingsContent() {
   const onlineMachines = execMachines.filter((m) => m.status !== "offline")
   const availableProviders = providers.filter((p) => p.available)
 
-  // Collect all known provider IDs: defaults + custom overrides + detected
+  // Collect provider IDs from defaults + custom overrides only (not detected providers)
   const effectiveMap = getEffectiveTierMap()
   const allProviderIds = new Set<string>()
   for (const tier of ["large", "medium", "small"] as ModelTier[]) {
     for (const pid of Object.keys(effectiveMap[tier])) allProviderIds.add(pid)
-  }
-  // Also add detected providers by their type/id
-  for (const p of availableProviders) {
-    if (p.id && !allProviderIds.has(p.id)) allProviderIds.add(p.id)
   }
   const providerIds = Array.from(allProviderIds)
   const builtinProviders = new Set(Object.keys(defaultModelTierMap.large))

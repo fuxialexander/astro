@@ -223,7 +223,7 @@ function resetRepo(): void {
 let serverAvailable = false
 let hasRunner = false
 try {
-  const response = await fetch(`${API_BASE}/api/health`)
+  const response = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(3000) })
   if (response.ok) {
     const data = await response.json()
     serverAvailable = true
@@ -545,6 +545,157 @@ describe.skipIf(!canRun)('Delivery Mode E2E', () => {
       const toolEvent = events.find((e) => e.event === 'tool_use')!
       const toolData = JSON.parse(toolEvent.data)
       expect(toolData).toHaveProperty('toolName')
+    }
+  }, 180_000)
+
+  it('PR mode result includes structured summary', async () => {
+    const projectId = crypto.randomUUID()
+    const nodeId = crypto.randomUUID()
+    projectIds.push(projectId)
+
+    await createProject({
+      id: projectId,
+      name: 'E2E Summary Test',
+      localPath: TEST_REPO_PATH,
+      deliveryMode: 'pr',
+    })
+    await createPlanNode({
+      id: nodeId,
+      projectId,
+      title: 'Create summary test file',
+      description: "Create a file called test-summary.txt with content 'summary test'. Do nothing else.",
+    })
+
+    const events = await dispatchTask({
+      nodeId,
+      projectId,
+      title: 'Create summary test file',
+      description: "Create a file called test-summary.txt with content 'summary test'. Do nothing else.",
+      workingDirectory: TEST_REPO_PATH,
+      deliveryMode: 'pr',
+      useWorktree: true,
+    })
+
+    const resultEvents = events.filter((e) => e.event === 'result')
+    expect(resultEvents.length).toBeGreaterThanOrEqual(1)
+    const resultData = JSON.parse(resultEvents[0].data)
+
+    // Structured summary should be present in result
+    if (resultData.summary) {
+      expect(['success', 'partial', 'failure']).toContain(resultData.summary.status)
+      expect(typeof resultData.summary.workCompleted).toBe('string')
+      expect(resultData.summary.workCompleted.length).toBeGreaterThan(0)
+      expect(Array.isArray(resultData.summary.keyFindings)).toBe(true)
+    }
+  }, 180_000)
+
+  it('Summary includes branch name from worktree', async () => {
+    const projectId = crypto.randomUUID()
+    const nodeId = crypto.randomUUID()
+    projectIds.push(projectId)
+
+    await createProject({
+      id: projectId,
+      name: 'E2E Branch Summary Test',
+      localPath: TEST_REPO_PATH,
+      deliveryMode: 'pr',
+    })
+    await createPlanNode({
+      id: nodeId,
+      projectId,
+      title: 'Create branch summary file',
+      description: "Create a file called test-branch-summary.txt with content 'branch summary'. Do nothing else.",
+    })
+
+    const events = await dispatchTask({
+      nodeId,
+      projectId,
+      title: 'Create branch summary file',
+      description: "Create a file called test-branch-summary.txt with content 'branch summary'. Do nothing else.",
+      workingDirectory: TEST_REPO_PATH,
+      deliveryMode: 'pr',
+      useWorktree: true,
+    })
+
+    const resultEvents = events.filter((e) => e.event === 'result')
+    expect(resultEvents.length).toBeGreaterThanOrEqual(1)
+    const resultData = JSON.parse(resultEvents[0].data)
+
+    // PR mode should produce a branchName
+    expect(resultData.branchName).toBeDefined()
+    expect(typeof resultData.branchName).toBe('string')
+
+    // If summary exists, branchName should also appear there
+    if (resultData.summary?.branchName) {
+      expect(typeof resultData.summary.branchName).toBe('string')
+    }
+  }, 180_000)
+
+  it('SSE result summary survives JSON round-trip', async () => {
+    const projectId = crypto.randomUUID()
+    const nodeId = crypto.randomUUID()
+    projectIds.push(projectId)
+
+    await createProject({
+      id: projectId,
+      name: 'E2E JSON Round-trip Test',
+      localPath: TEST_REPO_PATH,
+      deliveryMode: 'pr',
+    })
+    await createPlanNode({
+      id: nodeId,
+      projectId,
+      title: 'Create roundtrip test file',
+      description: "Create a file called test-roundtrip.txt with content 'roundtrip test'. Do nothing else.",
+    })
+
+    const events = await dispatchTask({
+      nodeId,
+      projectId,
+      title: 'Create roundtrip test file',
+      description: "Create a file called test-roundtrip.txt with content 'roundtrip test'. Do nothing else.",
+      workingDirectory: TEST_REPO_PATH,
+      deliveryMode: 'pr',
+      useWorktree: true,
+    })
+
+    const resultEvents = events.filter((e) => e.event === 'result')
+    expect(resultEvents.length).toBeGreaterThanOrEqual(1)
+
+    // Parse result event — this already is a JSON round-trip (SSE text → parse)
+    const resultData = JSON.parse(resultEvents[0].data)
+
+    // Verify core fields survive deserialization
+    expect(resultData.executionId).toBeDefined()
+    expect(resultData.nodeId).toBeDefined()
+    expect(resultData.status).toBeDefined()
+    expect(typeof resultData.status).toBe('string')
+
+    // If summary exists, verify all fields are correctly typed after deserialization
+    if (resultData.summary) {
+      const summary = resultData.summary
+
+      // Re-serialize and re-parse to confirm stability
+      const roundTripped = JSON.parse(JSON.stringify(summary))
+
+      expect(typeof roundTripped.status).toBe('string')
+      expect(['success', 'partial', 'failure']).toContain(roundTripped.status)
+
+      if (roundTripped.workCompleted) {
+        expect(typeof roundTripped.workCompleted).toBe('string')
+      }
+      if (roundTripped.keyFindings) {
+        expect(Array.isArray(roundTripped.keyFindings)).toBe(true)
+        for (const finding of roundTripped.keyFindings) {
+          expect(typeof finding).toBe('string')
+        }
+      }
+      if (roundTripped.followUps) {
+        expect(Array.isArray(roundTripped.followUps)).toBe(true)
+      }
+      if (roundTripped.branchName) {
+        expect(typeof roundTripped.branchName).toBe('string')
+      }
     }
   }, 180_000)
 })

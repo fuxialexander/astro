@@ -1104,6 +1104,34 @@ function handleRealtimeEvent(
       break
     }
 
+    case 'task:approval_auto_responded': {
+      const taskId = data.taskId as string
+      const requestId = data.requestId as string
+      const question = data.question as string
+      const options = data.options as string[]
+      const answer = data.answer as string
+      const timestamp = new Date()
+
+      // Push both approval_request and approval_response (auto-approved) into task stream
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
+        streams.set(taskId, {
+          ...stream,
+          activityEvents: [
+            ...stream.activityEvents,
+            { type: 'approval_request' as const, requestId, question, options, timestamp },
+            { type: 'approval_response' as const, requestId, question, answer, autoApproved: true, timestamp },
+          ],
+        })
+        // Do NOT add to dynamicApprovals — no dialog needed
+        return { taskStreams: streams }
+      })
+
+      addActivity(set, 'approval', `Auto-approved: ${question} → ${answer}`, { taskId })
+      break
+    }
+
     case 'task:safety_prompt': {
       const taskId = data.taskId as string
       const safetyTier = data.safetyTier as string

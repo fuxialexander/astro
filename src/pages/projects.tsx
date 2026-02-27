@@ -1,10 +1,12 @@
-import { useMemo, useState, useCallback, useRef } from "react"
+import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, List, Clock, Kanban, Github, ChevronRight } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ImportPreviewDialog } from "@/components/sharing/import-preview-dialog"
+import { GitHubRepoPickerDialog } from "@/components/github-repo-picker-dialog"
+import { useGitHubStore } from "@/stores/github-store"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { FilterSelect } from "@/components/views/filter-select"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
@@ -22,6 +24,8 @@ import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
+import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
+import { DEFAULT_LABELS } from "@/lib/constants"
 import type { Project } from "@/types"
 
 const healthConfig: Record<string, { label: string; dotClass: string; textClass: string }> = {
@@ -44,7 +48,7 @@ const projectsDisplayConfig: DisplayPopoverConfig = {
   viewKey: "projects",
   groupByOptions: [
     { value: "none", label: "No grouping" },
-    { value: "initiative", label: "Initiative" },
+    { value: "initiative", label: "Grand Plan" },
     { value: "status", label: "Status" },
     { value: "health", label: "Health" },
   ],
@@ -66,7 +70,7 @@ const projectsTimelineDisplayConfig: DisplayPopoverConfig = {
   viewKey: "projects-timeline",
   groupByOptions: [
     { value: "none", label: "No grouping" },
-    { value: "initiative", label: "Initiative" },
+    { value: "initiative", label: "Grand Plan" },
     { value: "status", label: "Status" },
     { value: "health", label: "Health" },
   ],
@@ -158,9 +162,25 @@ function getProjectColumns(
     {
       id: "progress",
       label: "Progress",
-      width: "w-[80px]",
+      width: "w-[100px]",
       sortKey: "progress",
-      render: (p) => <span className="text-xs">{p.progress ?? 0}%</span>,
+      render: (p) => {
+        const pct = p.progress ?? 0
+        return (
+          <div className="flex items-center gap-2">
+            <div className="w-12 h-1.5 bg-muted rounded-full overflow-hidden shrink-0">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  pct >= 95 ? "bg-success" : pct > 0 ? "bg-primary" : ""
+                )}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <span className="text-xs text-muted-foreground tabular-nums">{pct}%</span>
+          </div>
+        )
+      },
     },
     {
       id: "targetDate",
@@ -203,6 +223,7 @@ export function Projects() {
     () => allProjectsRaw.filter((p) => p.projectType !== 'playground' && !executions.has(`playground-${p.id}`)),
     [allProjectsRaw, executions]
   )
+  const addProject = useProjectStore((s) => s.addProject)
   const updateProject = useProjectStore((s) => s.updateProject)
   const deleteProject = useProjectStore((s) => s.deleteProject)
   const rawAllNodes = usePlanStore((s) => s.nodes)
@@ -221,6 +242,48 @@ export function Projects() {
   const [importBundle, setImportBundle] = useState<import("@/lib/sharing/types").AstroExportBundle | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+  const createInputRef = useRef<HTMLInputElement>(null)
+  const [githubPickerOpen, setGithubPickerOpen] = useState(false)
+
+  // GitHub integration — DataLoader already fetches status+repos on app startup;
+  // this re-syncs repos when navigating to the projects page
+  const githubConnected = useGitHubStore((s) => s.connected)
+  const syncGitHubRepos = useGitHubStore((s) => s.syncRepos)
+
+  useEffect(() => {
+    if (githubConnected) syncGitHubRepos()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
+
+  // Focus input when inline creation row appears
+  useEffect(() => {
+    if (creating) {
+      requestAnimationFrame(() => createInputRef.current?.focus())
+    }
+  }, [creating])
+
+  const handleInlineCreate = useCallback((name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) {
+      setCreating(false)
+      return
+    }
+    const id = crypto.randomUUID()
+    addProject({
+      id,
+      name: trimmed,
+      description: "",
+      visionDoc: "",
+      status: "active",
+      color: getRandomColor(),
+      icon: getRandomProjectIcon(),
+      labels: DEFAULT_LABELS,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as Project)
+    setCreating(false)
+    navigate(`/project/${id}/graph`)
+  }, [addProject, navigate])
 
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -523,10 +586,10 @@ export function Projects() {
     return null
   }, [projects, renamingProjectId])
 
-  const viewTabs: { id: ViewTab; label: string; icon: typeof List }[] = [
-    { id: "all", label: "List", icon: List },
-    { id: "timeline", label: "Timeline", icon: Clock },
-    { id: "board", label: "Board", icon: Kanban },
+  const viewAsOptions = [
+    { value: "all", label: "List" },
+    { value: "timeline", label: "Timeline" },
+    { value: "board", label: "Board" },
   ]
 
   const projectColumns = useMemo(
@@ -540,32 +603,34 @@ export function Projects() {
         <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-primary font-semibold">Projects</h1>
-            <div className="flex items-center gap-1">
-              {viewTabs.map((tab) => {
-                const TabIcon = tab.icon
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setViewTab(tab.id)}
-                    className={cn(
-                      "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer flex items-center gap-1.5",
-                      viewTab === tab.id
-                        ? "text-accent-foreground border-b-2 border-accent"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <TabIcon className="h-3.5 w-3.5 md:hidden" />
-                    <span className="hidden md:inline">{tab.label}</span>
-                  </button>
-                )
-              })}
-            </div>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="gap-1.5">
-              <Upload className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">Import</span>
-            </Button>
+            {githubConnected ? (
+              <div className="flex items-center rounded-md border border-border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer"
+                  title="Import from JSON"
+                >
+                  <Braces className="h-3.5 w-3.5" />
+                </button>
+                <div className="w-px h-5 bg-border" />
+                <button
+                  type="button"
+                  onClick={() => setGithubPickerOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer"
+                  title="Import from GitHub"
+                >
+                  <Github className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="gap-1.5">
+                <Upload className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">Import</span>
+              </Button>
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -573,14 +638,16 @@ export function Projects() {
               className="hidden"
               onChange={handleImportFile}
             />
-            <Button size="sm" asChild>
-              <Link to="/projects/new" className="gap-1.5">
-                <Plus className="h-3.5 w-3.5" />
-                <span className="hidden md:inline">Add project</span>
-              </Link>
+            <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              <span className="hidden md:inline">Add project</span>
             </Button>
-            {viewTab !== "timeline" && <DisplayPopover config={projectsDisplayConfig} />}
-            {viewTab === "timeline" && <DisplayPopover config={projectsTimelineDisplayConfig} />}
+            <DisplayPopover config={{
+              ...(viewTab === "timeline" ? projectsTimelineDisplayConfig : projectsDisplayConfig),
+              viewAsOptions,
+              activeViewAs: viewTab,
+              onViewAsChange: (v) => setViewTab(v as ViewTab),
+            }} />
           </div>
         </div>
 
@@ -589,6 +656,12 @@ export function Projects() {
           open={!!importBundle}
           onOpenChange={(open) => { if (!open) setImportBundle(null) }}
           bundle={importBundle}
+        />
+
+        {/* GitHub Repo Picker */}
+        <GitHubRepoPickerDialog
+          open={githubPickerOpen}
+          onOpenChange={setGithubPickerOpen}
         />
 
         {/* Filter Bar */}
@@ -620,10 +693,10 @@ export function Projects() {
               onChange={setHealthFilter}
             />
             <FilterSelect
-              label="Initiative"
+              label="Grand Plan"
               value={initiativeFilter}
               options={[
-                { value: "all", label: "All initiatives" },
+                { value: "all", label: "All grand plans" },
                 ...initiatives.map((i) => ({ value: i.id, label: i.name })),
               ]}
               onChange={setInitiativeFilter}
@@ -650,7 +723,7 @@ export function Projects() {
                 description="Create your first project and let AI help you break it down into a structured plan with clear dependencies and verification steps."
                 action={{
                   label: "Create Project",
-                  onClick: () => navigate("/projects/new"),
+                  onClick: () => setCreating(true),
                 }}
                 className="h-full"
               />
@@ -666,6 +739,41 @@ export function Projects() {
               sortColumn={displaySettings.orderBy}
               sortDirection={displaySettings.orderDirection}
               onSort={handleSort}
+              footer={() => creating ? (
+                <div className="flex items-center gap-2.5 px-6 py-2.5 border-b border-border hover:bg-muted/30 transition-colors">
+                  <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <input
+                    ref={createInputRef}
+                    type="text"
+                    placeholder="Project name... (Enter to create, Esc to cancel)"
+                    className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        handleInlineCreate((e.target as HTMLInputElement).value)
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault()
+                        setCreating(false)
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const val = e.target.value.trim()
+                      if (val) handleInlineCreate(val)
+                      else setCreating(false)
+                    }}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCreating(true)}
+                  className="flex items-center gap-2.5 px-6 h-9 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer border-b border-border"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Add project</span>
+                </button>
+              )}
               renderMobileItem={(p) => {
                 const health = healthConfig[p.health ?? "on_track"]
                 const counts = projectTaskCounts[p.id]
@@ -763,7 +871,7 @@ export function Projects() {
                 icon={Folder}
                 title="No projects to display"
                 description="Create a project to see it on the timeline."
-                action={{ label: "Create Project", onClick: () => navigate("/projects/new") }}
+                action={{ label: "Create Project", onClick: () => setCreating(true) }}
                 className="h-full"
               />
             </div>
@@ -780,7 +888,7 @@ export function Projects() {
                   description="Create your first project and let AI help you break it down into a structured plan."
                   action={{
                     label: "Create Project",
-                    onClick: () => navigate("/projects/new"),
+                    onClick: () => setCreating(true),
                   }}
                 />
               </div>

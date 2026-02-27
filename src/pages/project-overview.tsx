@@ -10,17 +10,19 @@ import {
   MessageSquare,
   FolderGit2,
   Diamond,
-  ExternalLink,
   Loader2,
-  Save,
+  Download,
+  Link2,
+  Check,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { EditorOpenControls } from "@/components/ui/editor-open-controls"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { MilestoneDialog } from "@/components/milestone-dialog"
 import { ActivityDialog } from "@/components/activity-dialog"
+import { LabelManagerDialog } from "@/components/label-manager-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -32,6 +34,8 @@ import { cn } from "@/lib/utils"
 import { deliveryModeLabel, remoteTypeLabel } from "@/lib/project-source"
 import { dataClient } from "@/lib/data-client"
 import { fileToBase64 } from "@/lib/html-utils"
+import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
+import { apiUrl } from "@/lib/api-url"
 import type { Project, PlanNode } from "@/types"
 
 const healthLabels: Record<string, string> = {
@@ -83,15 +87,17 @@ export function OverviewTab({
   const [milestoneDialogOpen, setMilestoneDialogOpen] = useState(false)
   const [editingMilestone, setEditingMilestone] = useState<PlanNode | undefined>(undefined)
   const [editingStatus, setEditingStatus] = useState(false)
+  const [labelManagerOpen, setLabelManagerOpen] = useState(false)
   const [editingStartDate, setEditingStartDate] = useState(false)
   const [editingTargetDate, setEditingTargetDate] = useState(false)
   const [editingInitiative, setEditingInitiative] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState(project.description)
-  const [descriptionHasChanges, setDescriptionHasChanges] = useState(false)
-  const [isSavingDescription, setIsSavingDescription] = useState(false)
+  const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+  const [sharing, setSharing] = useState(false)
+  const [shareCopied, setShareCopied] = useState(false)
   const descriptionEditorRef = useRef<RichTextEditorRef>(null)
-  const [useLocalUrls, setUseLocalUrls] = useState(true) // true = Local, false = Remote
-  const [useVSCode, setUseVSCode] = useState(false) // false = Cursor, true = VSCode
+  const descriptionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Editor state is now managed by EditorOpenControls component
 
   // Check if repo setup is in progress for this project
   const generationSession = useAgentStore((s) => s.sessions.get(project.id))
@@ -189,27 +195,31 @@ export function OverviewTab({
     }
   }
 
-  // Handle description changes from rich text editor
+  // Handle description changes from rich text editor with debounced autosave
   const handleDescriptionChange = useCallback((html: string) => {
     setDescriptionDraft(html)
-    setDescriptionHasChanges(html !== project.description)
-  }, [project.description])
+    if (html === project.description) return
 
-  const handleDescriptionSave = useCallback(async () => {
-    if (!descriptionHasChanges) return
-    setIsSavingDescription(true)
-    try {
-      updateProject(project.id, { description: descriptionDraft })
+    if (descriptionDebounceRef.current) clearTimeout(descriptionDebounceRef.current)
+    descriptionDebounceRef.current = setTimeout(() => {
+      setDescriptionSaveStatus("saving")
+      updateProject(project.id, { description: html })
       addActivity({
         projectId: project.id,
         type: "project.updated",
         title: "Updated project description",
       })
-      setDescriptionHasChanges(false)
-    } finally {
-      setIsSavingDescription(false)
+      setDescriptionSaveStatus("saved")
+      setTimeout(() => setDescriptionSaveStatus("idle"), 1500)
+    }, 800)
+  }, [project.id, project.description, updateProject, addActivity])
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (descriptionDebounceRef.current) clearTimeout(descriptionDebounceRef.current)
     }
-  }, [project.id, descriptionDraft, descriptionHasChanges, updateProject, addActivity])
+  }, [])
 
   const handleDescriptionImageUpload = useCallback(async (file: File): Promise<string | null> => {
     try {
@@ -222,36 +232,17 @@ export function OverviewTab({
     }
   }, [project.id])
 
-  // Generate editor URL (Cursor/VSCode) with local/remote protocol
-  // Use project's assigned machine, or fall back to the only available machine
+  // Machine info for editor URL construction
   const defaultMachine = project.defaultMachineId
     ? machines.find((m) => m.id === project.defaultMachineId)
     : (machines.length === 1 ? machines[0] : undefined)
-  const editorUrl = (() => {
-    if (!project.workingDirectory) return null
-
-    const path = project.workingDirectory
-    const editorScheme = useVSCode ? 'vscode' : 'cursor'
-
-    // Local mode - use file:// protocol
-    if (useLocalUrls) {
-      return `${editorScheme}://file${path}`
-    }
-
-    // Remote mode - use SSH remote URL (prefer user-set name as SSH alias)
-    if (defaultMachine?.name) {
-      return `${editorScheme}://vscode-remote/ssh-remote+${defaultMachine.name}${path}`
-    }
-
-    // Fallback to local file URL
-    return `${editorScheme}://file${path}`
-  })()
 
   return (
     <div className="flex flex-1 overflow-hidden">
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
       <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
       <ActivityDialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen} projectId={project.id} />
+      <LabelManagerDialog open={labelManagerOpen} onOpenChange={setLabelManagerOpen} projectId={project.id} />
       <MilestoneDialog
         open={milestoneDialogOpen}
         onOpenChange={setMilestoneDialogOpen}
@@ -265,22 +256,20 @@ export function OverviewTab({
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">Description</h3>
-            {descriptionHasChanges && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleDescriptionSave}
-                disabled={isSavingDescription}
-                className="h-7 text-xs gap-1.5"
-              >
-                {isSavingDescription ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              {descriptionSaveStatus === "saving" && (
+                <>
                   <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Save className="h-3 w-3" />
-                )}
-                Save
-              </Button>
-            )}
+                  Saving...
+                </>
+              )}
+              {descriptionSaveStatus === "saved" && (
+                <>
+                  <CircleCheck className="h-3 w-3" />
+                  Saved
+                </>
+              )}
+            </span>
           </div>
           <RichTextEditor
             ref={descriptionEditorRef}
@@ -367,9 +356,9 @@ export function OverviewTab({
             >
               <FileText className="h-[18px] w-[18px] text-primary" />
               <div className="flex-1 flex flex-col gap-0.5">
-                <span className="text-sm font-medium">Vision Document</span>
+                <span className="text-sm font-medium">skill.md</span>
                 <span className="text-xs text-muted-foreground">
-                  {project.visionDoc ? "Product vision and context for agents" : "Click to add vision context for agents"}
+                  {project.visionDoc ? "Skill context for agents" : "Click to add skill context for agents"}
                 </span>
               </div>
               <span className="text-xs font-medium text-primary">
@@ -393,11 +382,6 @@ export function OverviewTab({
                     <span className="text-xs text-muted-foreground font-mono truncate" title={project.workingDirectory || project.repository}>
                       {project.workingDirectory || project.repository}
                     </span>
-                    {editorUrl && (
-                      <span className="text-[10px] text-muted-foreground/70 font-mono truncate mt-0.5 break-all" title={editorUrl}>
-                        {editorUrl}
-                      </span>
-                    )}
                   </div>
                   <button
                     onClick={() => setRepoOpen(true)}
@@ -406,30 +390,11 @@ export function OverviewTab({
                     Edit
                   </button>
                 </div>
-                {editorUrl && (
-                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                    <Badge
-                      variant="outline"
-                      className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-6 px-2"
-                      onClick={() => setUseLocalUrls(!useLocalUrls)}
-                    >
-                      {useLocalUrls ? "Local" : "Remote"}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-6 px-2"
-                      onClick={() => setUseVSCode(!useVSCode)}
-                    >
-                      {useVSCode ? "VSCode" : "Cursor"}
-                    </Badge>
-                    <a
-                      href={editorUrl}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 transition-colors h-6"
-                    >
-                      <ExternalLink className="h-3 w-3 text-primary" />
-                      <span className="text-[10px] font-medium text-primary">Open in Editor</span>
-                    </a>
-                  </div>
+                {project.workingDirectory && (
+                  <EditorOpenControls
+                    path={project.workingDirectory}
+                    machine={defaultMachine}
+                  />
                 )}
               </div>
             )}
@@ -490,6 +455,63 @@ export function OverviewTab({
                 </span>
               </div>
             )}
+            {/* Export project */}
+            <div
+              className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
+              onClick={() => {
+                const bundle = exportProject(project.id)
+                downloadBundle(bundle)
+              }}
+            >
+              <Download className="h-[18px] w-[18px] text-primary" />
+              <div className="flex-1 flex flex-col gap-0.5">
+                <span className="text-sm font-medium">Export as JSON</span>
+                <span className="text-xs text-muted-foreground">Download project plan as a file</span>
+              </div>
+            </div>
+            {/* Share as link */}
+            <div
+              className={cn(
+                "flex items-center gap-3 rounded-lg bg-muted p-3 px-4 transition-colors",
+                sharing ? "opacity-60 cursor-wait" : "cursor-pointer hover:bg-muted/80"
+              )}
+              onClick={async () => {
+                if (sharing) return
+                setSharing(true)
+                try {
+                  const bundle = exportProject(project.id)
+                  const res = await fetch(apiUrl("/api/share"), {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(bundle),
+                  })
+                  if (!res.ok) throw new Error("Failed to create share link")
+                  const { id: shareId } = await res.json()
+                  const url = `${window.location.origin}/share/${shareId}`
+                  await navigator.clipboard.writeText(url)
+                  setShareCopied(true)
+                  setTimeout(() => setShareCopied(false), 2000)
+                } catch (err) {
+                  console.error("[share] Failed:", err)
+                } finally {
+                  setSharing(false)
+                }
+              }}
+            >
+              {shareCopied ? (
+                <Check className="h-[18px] w-[18px] text-success" />
+              ) : (
+                <Link2 className="h-[18px] w-[18px] text-primary" />
+              )}
+              <div className="flex-1 flex flex-col gap-0.5">
+                <span className="text-sm font-medium">
+                  {shareCopied ? "Link copied!" : "Share as link"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {shareCopied ? "Anyone with the link can import this project" : "Create a shareable link to this plan"}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -610,7 +632,7 @@ export function OverviewTab({
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Initiative</span>
+            <span className="text-[13px] text-muted-foreground">Grand Plan</span>
             {editingInitiative ? (
               <select
                 className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
@@ -622,7 +644,7 @@ export function OverviewTab({
                 onBlur={() => setEditingInitiative(false)}
                 autoFocus
               >
-                <option value="">No initiative</option>
+                <option value="">No grand plan</option>
                 {initiatives
                   .filter(i => i.status === "active")
                   .map((initiative) => (
@@ -686,11 +708,11 @@ export function OverviewTab({
           )}
 
           {/* Labels */}
-          {project.labels && project.labels.length > 0 && (
-            <div className="flex items-center justify-between">
-              <span className="text-[13px] text-muted-foreground">Labels</span>
-              <div className="flex items-center gap-1 flex-wrap justify-end">
-                {project.labels.map((label) => (
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] text-muted-foreground">Labels</span>
+            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+              {project.labels && project.labels.length > 0 ? (
+                project.labels.map((label) => (
                   <span
                     key={label.id}
                     className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
@@ -698,10 +720,16 @@ export function OverviewTab({
                   >
                     {label.name}
                   </span>
-                ))}
-              </div>
+                ))
+              ) : null}
+              <button
+                onClick={() => setLabelManagerOpen(true)}
+                className="text-[11px] text-primary hover:underline cursor-pointer"
+              >
+                Manage
+              </button>
             </div>
-          )}
+          </div>
         </div>
 
         <Separator />

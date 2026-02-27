@@ -17,7 +17,8 @@ import { useAgentStore } from "@/stores/agent-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { Switch } from "@/components/ui/switch"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 
 const iconMap: Record<string, typeof CheckSquare> = {
@@ -55,6 +56,10 @@ const projectColors = [
 export function Sidebar() {
   const { theme, setTheme } = useTheme()
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
+  const modelTier = useSettingsStore((s) => s.modelTier)
+  const setModelTier = useSettingsStore((s) => s.setModelTier)
+  const yoloMode = useSettingsStore((s) => s.yoloMode)
+  const setYoloMode = useSettingsStore((s) => s.setYoloMode)
   const profile = useUserProfileStore((s) => s.profile)
   const authUser = useAuthStore((s) => s.user)
   const projects = useProjectStore((s) => s.projects)
@@ -317,195 +322,195 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Navigation */}
-      <nav
-        className="flex flex-col gap-1 px-4 py-2"
-        onMouseDown={handleLongPressStart}
-        onMouseUp={handleLongPressEnd}
-        onMouseLeave={handleLongPressEnd}
-        onTouchStart={handleLongPressStart}
-        onTouchEnd={handleLongPressEnd}
-      >
-        {/* Visible items */}
-        {(isEditing ? sidebarItems : visibleItems).map((item, index) => {
-          const Icon = iconMap[item.icon] || CheckSquare
-          const isHidden = !item.visible
+      {/* Scrollable middle section: navigation + projects */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {/* Navigation */}
+        <nav
+          className="flex flex-col gap-1 px-4 py-2"
+          onMouseDown={handleLongPressStart}
+          onMouseUp={handleLongPressEnd}
+          onMouseLeave={handleLongPressEnd}
+          onTouchStart={handleLongPressStart}
+          onTouchEnd={handleLongPressEnd}
+        >
+          {/* Visible items */}
+          {(isEditing ? sidebarItems : visibleItems).map((item, index) => {
+            const Icon = iconMap[item.icon] || CheckSquare
+            const isHidden = !item.visible
 
-          return (
-            <div
-              key={item.id}
-              draggable={isEditing}
-              onDragStart={(e) => handleDragStart(e, index)}
-              onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, index)}
-              className={cn(
-                "relative group",
-                isHidden && "opacity-40"
-              )}
-            >
-              {isEditing ? (
-                <div
-                  className={cn(
-                    "flex items-center gap-2 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium bg-muted/30 border-2 border-dashed",
-                    isHidden ? "border-muted-foreground/20" : "border-muted-foreground/40"
-                  )}
-                >
-                  <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-                  <Icon className="h-5 w-5" />
-                  <span className="flex-1">{item.label}</span>
-                  {!item.protected && (
-                    <button
-                      onClick={() => toggleItemVisibility(item.id)}
-                      className={cn(
-                        "flex h-5 w-5 items-center justify-center rounded-full transition-colors",
-                        isHidden
-                          ? "bg-success hover:bg-success/90 text-white"
-                          : "bg-error hover:bg-error/90 text-white"
-                      )}
-                    >
-                      {isHidden ? <Plus className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
-                    </button>
-                  )}
-                </div>
-              ) : !isHidden ? (
-                <NavLink
-                  to={item.to}
-                  end
-                  className={({ isActive }) =>
-                    cn(
-                      "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
-                      isActive
-                        ? "bg-accent text-accent-foreground font-semibold"
-                        : "text-muted-foreground hover:bg-muted/50"
-                    )
-                  }
-                >
-                  <Icon className="h-5 w-5" />
-                  <span className="flex-1">{item.label}</span>
-                  {item.autoRevealed && (
-                    <>
-                      <span className="text-[9px] font-semibold bg-info/10 text-info rounded-full px-1.5 py-0.5">
-                        New
-                      </span>
+            return (
+              <div
+                key={item.id}
+                draggable={isEditing}
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, index)}
+                className={cn(
+                  "relative group",
+                  isHidden && "opacity-40"
+                )}
+              >
+                {isEditing ? (
+                  <div
+                    className={cn(
+                      "flex items-center gap-2 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium bg-muted/30 border-2 border-dashed",
+                      isHidden ? "border-muted-foreground/20" : "border-muted-foreground/40"
+                    )}
+                  >
+                    <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+                    <Icon className="h-5 w-5" />
+                    <span className="flex-1">{item.label}</span>
+                    {!item.protected && (
                       <button
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          dismissAutoReveal(item.id)
-                        }}
-                        className="p-0.5 rounded-sm hover:bg-muted/80 transition-colors"
-                        aria-label={`Dismiss ${item.label}`}
+                        onClick={() => toggleItemVisibility(item.id)}
+                        className={cn(
+                          "flex h-5 w-5 items-center justify-center rounded-full transition-colors",
+                          isHidden
+                            ? "bg-success hover:bg-success/90 text-white"
+                            : "bg-error hover:bg-error/90 text-white"
+                        )}
                       >
-                        <X className="h-3 w-3 text-muted-foreground" />
+                        {isHidden ? <Plus className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
                       </button>
-                    </>
-                  )}
-                  {item.id === "active" && activeCount > 0 && (
-                    <span className="flex items-center gap-1 rounded-full bg-info/10 px-1.5 py-0.5 text-[10px] font-semibold text-info">
-                      <div className="relative h-1.5 w-1.5">
-                        <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
-                      </div>
-                      {activeCount}
-                    </span>
-                  )}
-                </NavLink>
-              ) : null}
-            </div>
-          )
-        })}
-
-        {/* Edit mode toggle button */}
-        {isEditing && (
-          <button
-            onClick={() => setEditing(false)}
-            className="mt-2 rounded-[10px] px-3.5 py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            Done
-          </button>
-        )}
-      </nav>
-
-      {/* Projects Section */}
-      {projects.length > 0 && (
-        <div className="flex flex-col gap-2 px-5 pb-6 font-primary">
-          <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground">
-            PROJECTS
-          </div>
-          <div className="flex flex-col gap-2">
-            {projects.filter(p => p.status === 'active' && p.projectType !== 'playground').slice(0, 5).map((project, index) => {
-              const isActive = activeProjectId === project.id
-              const progress = calculateProgress(project.id)
-              const healthWidth = getHealthBarWidth(progress)
-              const color = getProjectColor(index)
-
-              return (
-                <div
-                  key={project.id}
-                  className={cn(
-                    "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 transition-colors",
-                    isActive
-                      ? "bg-accent"
-                      : "hover:bg-muted/50"
-                  )}
-                >
-                  {/* Colored icon */}
-                  {(() => {
-                    const projIcon = project.icon || "FaBox"
-                    const projColor = project.color || color
-                    const FaIcon = getFaIcon(projIcon)
-                    if (FaIcon) {
-                      return <FaIcon size={16} style={{ color: projColor }} className="shrink-0" />
-                    }
-                    return <span className="text-base leading-none shrink-0">{projIcon}</span>
-                  })()}
-
-                  {/* Project name - editable on double-click */}
-                  {renamingProjectId === project.id ? (
-                    <InlineRenameInput
-                      value={project.name}
-                      onSave={(newName) => handleProjectRename(project.id, newName)}
-                      onCancel={() => setRenamingProjectId(null)}
-                      validate={validateProjectName}
-                      className="flex-1"
-                    />
-                  ) : (
-                    <span
-                      onDoubleClick={(e) => {
-                        e.stopPropagation()
-                        setRenamingProjectId(project.id)
-                      }}
-                      onClick={() => navigate(`/project/${project.id}/list`)}
-                      className={cn(
-                        "flex-1 text-sm truncate cursor-pointer",
+                    )}
+                  </div>
+                ) : !isHidden ? (
+                  <NavLink
+                    to={item.to}
+                    end
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
                         isActive
-                          ? "text-accent-foreground font-semibold"
-                          : "text-muted-foreground font-medium"
-                      )}
-                    >
-                      {project.name}
-                    </span>
-                  )}
+                          ? "bg-accent text-accent-foreground font-semibold"
+                          : "text-muted-foreground hover:bg-muted/50"
+                      )
+                    }
+                  >
+                    <Icon className="h-5 w-5" />
+                    <span className="flex-1">{item.label}</span>
+                    {item.autoRevealed && (
+                      <>
+                        <span className="text-[9px] font-semibold bg-info/10 text-info rounded-full px-1.5 py-0.5">
+                          New
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            dismissAutoReveal(item.id)
+                          }}
+                          className="p-0.5 rounded-sm hover:bg-muted/80 transition-colors"
+                          aria-label={`Dismiss ${item.label}`}
+                        >
+                          <X className="h-3 w-3 text-muted-foreground" />
+                        </button>
+                      </>
+                    )}
+                    {item.id === "active" && activeCount > 0 && (
+                      <span className="flex items-center gap-1 rounded-full bg-info/10 px-1.5 py-0.5 text-[10px] font-semibold text-info">
+                        <div className="relative h-1.5 w-1.5">
+                          <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
+                        </div>
+                        {activeCount}
+                      </span>
+                    )}
+                  </NavLink>
+                ) : null}
+              </div>
+            )
+          })}
 
-                  {/* Running indicator or health bar */}
-                  {projectsWithRunning.has(project.id) ? (
-                    <Loader2 className="h-3.5 w-3.5 text-info animate-spin shrink-0" />
-                  ) : (
-                    <div className="w-10 h-1 bg-muted rounded-sm overflow-hidden shrink-0">
-                      <div
-                        className="h-full rounded-sm bg-primary"
-                        style={{ width: `${healthWidth}px` }}
+          {/* Edit mode toggle button */}
+          {isEditing && (
+            <button
+              onClick={() => setEditing(false)}
+              className="mt-2 rounded-[10px] px-3.5 py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              Done
+            </button>
+          )}
+        </nav>
+
+        {/* Projects Section */}
+        {projects.length > 0 && (
+          <div className="flex flex-col gap-2 px-5 pb-6 font-primary">
+            <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground">
+              PROJECTS
+            </div>
+            <div className="flex flex-col gap-2">
+              {projects.filter(p => p.status === 'active' && p.projectType !== 'playground').map((project, index) => {
+                const isActive = activeProjectId === project.id
+                const progress = calculateProgress(project.id)
+                const healthWidth = getHealthBarWidth(progress)
+                const color = getProjectColor(index)
+
+                return (
+                  <div
+                    key={project.id}
+                    className={cn(
+                      "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 transition-colors",
+                      isActive
+                        ? "bg-accent"
+                        : "hover:bg-muted/50"
+                    )}
+                  >
+                    {/* Colored icon */}
+                    {(() => {
+                      const projIcon = project.icon || "FaBox"
+                      const projColor = project.color || color
+                      const FaIcon = getFaIcon(projIcon)
+                      if (FaIcon) {
+                        return <FaIcon size={16} style={{ color: projColor }} className="shrink-0" />
+                      }
+                      return <span className="text-base leading-none shrink-0">{projIcon}</span>
+                    })()}
+
+                    {/* Project name - editable on double-click */}
+                    {renamingProjectId === project.id ? (
+                      <InlineRenameInput
+                        value={project.name}
+                        onSave={(newName) => handleProjectRename(project.id, newName)}
+                        onCancel={() => setRenamingProjectId(null)}
+                        validate={validateProjectName}
+                        className="flex-1"
                       />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+                    ) : (
+                      <span
+                        onDoubleClick={(e) => {
+                          e.stopPropagation()
+                          setRenamingProjectId(project.id)
+                        }}
+                        onClick={() => navigate(`/project/${project.id}/list`)}
+                        className={cn(
+                          "flex-1 text-sm truncate cursor-pointer",
+                          isActive
+                            ? "text-accent-foreground font-semibold"
+                            : "text-muted-foreground font-medium"
+                        )}
+                      >
+                        {project.name}
+                      </span>
+                    )}
 
-      {/* Spacer to push content to bottom */}
-      <div className="flex-1" />
+                    {/* Running indicator or health bar */}
+                    {projectsWithRunning.has(project.id) ? (
+                      <Loader2 className="h-3.5 w-3.5 text-info animate-spin shrink-0" />
+                    ) : (
+                      <div className="w-10 h-1 bg-muted rounded-sm overflow-hidden shrink-0">
+                        <div
+                          className="h-full rounded-sm bg-primary"
+                          style={{ width: `${healthWidth}px` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Local Mode Badge */}
       {!showAuth && (
@@ -515,28 +520,73 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* Theme Toggle — Light ↔ Dark */}
-      <div className="px-4 py-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setTheme(theme === "dark" ? "light" : "dark")
-          }}
-          className="w-full justify-start gap-3 rounded-[10px] px-3.5 py-2.5 h-auto font-medium text-[15px] text-muted-foreground hover:bg-muted/50"
-        >
-          {theme === "dark" ? (
-            <>
-              <Sun className="h-5 w-5" />
-              <span>Light Mode</span>
-            </>
-          ) : (
-            <>
-              <Moon className="h-5 w-5" />
-              <span>Dark Mode</span>
-            </>
-          )}
-        </Button>
+      {/* Quick Settings: Model Size, Auto Approval, Dark Mode */}
+      <div className="px-4 py-2 flex flex-col gap-0.5">
+        {/* Model Size Selector */}
+        <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+          <div className="flex items-center gap-3">
+            <Cpu className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-muted-foreground">Model</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {(["small", "medium", "large"] as const).map((tier) => (
+              <Tooltip key={tier}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setModelTier(tier)}
+                    className={cn(
+                      "flex items-center justify-center rounded-full transition-colors",
+                      tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
+                      modelTier === tier
+                        ? "bg-primary"
+                        : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
+                    )}
+                  >
+                    <div className={cn(
+                      "rounded-full",
+                      tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
+                      modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
+                    )} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        </div>
+
+        {/* Auto Approval Toggle */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+              <div className="flex items-center gap-3">
+                <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
+                <span className="text-sm font-medium text-muted-foreground">Auto Approval</span>
+              </div>
+              <Switch
+                checked={yoloMode}
+                onCheckedChange={setYoloMode}
+              />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            Auto-approve all agent decisions with the recommended option
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Dark Mode Toggle */}
+        <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+          <div className="flex items-center gap-3">
+            {theme === "dark" ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
+            <span className="text-sm font-medium text-muted-foreground">Dark Mode</span>
+          </div>
+          <Switch
+            checked={theme === "dark"}
+            onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+          />
+        </div>
       </div>
 
       {/* User Profile - Icon Row */}

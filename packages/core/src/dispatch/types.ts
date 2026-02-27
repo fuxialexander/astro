@@ -31,7 +31,22 @@ export interface TaskResult {
   branchName?: string
   prUrl?: string
   prNumber?: number
+  /** Delivery outcome — separate from execution status */
+  deliveryStatus?: 'success' | 'failed' | 'skipped'
+  /** Error message when deliveryStatus is 'failed' */
+  deliveryError?: string
   filesChanged?: Array<{ path: string; diff?: string }>
+  /** Structured execution summary (generated via follow-up structured output turn) */
+  summary?: {
+    status: 'success' | 'partial' | 'failure'
+    workCompleted: string
+    keyFindings: string[]
+    filesChanged: string[]
+    followUps: string[]
+    prUrl?: string | null
+    prNumber?: number | null
+    branchName?: string | null
+  }
 }
 
 /** Verification hints from task execution (structured form of verification field) */
@@ -454,7 +469,7 @@ export interface DispatchEngineConfig {
  */
 export const DEFAULT_DISPATCH_CONFIG: DispatchEngineConfig = {
   autoDispatch: true,
-  maxConcurrentPerProject: 5,
+  maxConcurrentPerProject: 1,
   maxConcurrentTotal: 20,
   defaultPriority: 'normal',
   defaultMaxRetries: 2,

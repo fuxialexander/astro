@@ -7,8 +7,8 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
-import { useSearchParams, useNavigate, useLocation } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, Play, FileCode2 } from "lucide-react"
+import { useSearchParams, useLocation } from "react-router"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
@@ -16,7 +16,9 @@ import { useProjectStore } from "@/stores/project-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
+import { useClaudeSessionsStore } from "@/stores/claude-sessions-store"
 import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
+import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
@@ -29,7 +31,6 @@ import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@
 export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
   const projectIdParam = searchParams.get("projectId")
-  const navigate = useNavigate()
   const location = useLocation()
 
   // Playground context from location state
@@ -44,7 +45,8 @@ export function ProjectNewPlan() {
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null)
   const [selectedProvider, setSelectedProvider] = useState("")
   const [selectedModel, setSelectedModel] = useState("")
-  const [modelTier, setModelTier] = useState<ModelTier>("large")
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
+  const modelTier: ModelTier = "large"
 
   // Git detection (debounced)
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
@@ -52,8 +54,7 @@ export function ProjectNewPlan() {
 
   // Chat phase state
   const [activeProjectId, setActiveProjectId] = useState<string | null>(projectIdParam)
-  // Track project IDs created by startPlanSession in this session (safe to delete on cancel)
-  const ownedProjectIds = useRef(new Set<string>())
+
 
   // Stores
   const startPlanSession = useExecutionStore((s) => s.startPlanSession)
@@ -62,6 +63,7 @@ export function ProjectNewPlan() {
     activeProjectId ? s.executions.get(`plan-${activeProjectId}`) : undefined
   )
   const allProjects = useProjectStore((s) => s.projects)
+  const deleteProject = useProjectStore((s) => s.deleteProject)
   const project = useProjectStore((s) =>
     activeProjectId ? s.projects.find((p) => p.id === activeProjectId) : undefined
   )
@@ -74,26 +76,30 @@ export function ProjectNewPlan() {
     fromPlaygroundId ? s.executions.get(`playground-${fromPlaygroundId}`) : undefined
   )
 
-  // Recent interactive plan sessions (projects that have a plan-${id} execution)
+  // Recent plan chat sessions (projectType === 'plan')
   const planHistory = useMemo(() => {
     return allProjects
-      .filter((p) => p.projectType !== 'playground' && allExecutions.has(`plan-${p.id}`))
+      .filter((p) => p.projectType === 'plan')
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      .slice(0, 10)
-  }, [allProjects, allExecutions])
+      .slice(0, 20)
+  }, [allProjects])
 
-  // View a past plan session
+  // Playground sessions (for the session picker)
+  const playgroundHistory = useMemo(() => {
+    return allProjects
+      .filter((p) => p.projectType === 'playground')
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 20)
+  }, [allProjects])
+
+  // Sessions store (Claude Code sessions from connected machines)
+  const loadSessions = useClaudeSessionsStore((s) => s.loadSessions)
+
+  // View a past plan session — always open in chat phase
   const viewSession = useCallback((projectId: string) => {
-    const exec = allExecutions.get(`plan-${projectId}`)
-    if (exec?.status === 'pending' || exec?.status === 'running') {
-      // Still running — open in chat phase
-      setActiveProjectId(projectId)
-      setSearchParams({ projectId })
-    } else {
-      // Completed — navigate to the project's plan view
-      navigate(`/project/${projectId}/list`)
-    }
-  }, [allExecutions, setSearchParams, navigate])
+    setActiveProjectId(projectId)
+    setSearchParams({ projectId })
+  }, [setSearchParams])
 
   // Machines
   const machines = useExecutionStore((s) => s.machines)
@@ -120,10 +126,11 @@ export function ProjectNewPlan() {
     if (!providersLoaded) loadProviders()
   }, [providersLoaded, loadProviders])
 
-  // Request notification permission on mount
+  // Request notification permission and load sessions on mount
   useEffect(() => {
     requestNotificationPermission()
-  }, [])
+    loadSessions()
+  }, [loadSessions])
 
   // Reset provider/model when machine changes and current provider isn't available
   useEffect(() => {
@@ -135,8 +142,14 @@ export function ProjectNewPlan() {
     }
   }, [selectedMachine?.machineId]) // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on machine change
 
-  // If URL has projectId, transition to chat phase
+  // Sync URL → state: if URL gains a projectId we don't have, adopt it.
+  // But ignore when URL still has the stale param during back navigation.
+  const backingRef = useRef(false)
   useEffect(() => {
+    if (backingRef.current) {
+      backingRef.current = false
+      return
+    }
     if (projectIdParam && !activeProjectId) {
       setActiveProjectId(projectIdParam)
     }
@@ -236,19 +249,21 @@ export function ProjectNewPlan() {
 
     try {
       const effectiveModel = selectedModel || resolveModel(modelTier, selectedProvider || undefined, customModelMap)
+      // Use first line of description as project name (truncated)
+      const firstLine = description.trim().split('\n')[0].slice(0, 80)
       const { projectId } = await startPlanSession(
         description.trim(),
-        "",
+        firstLine,
         {
           targetMachineId: selectedMachine?.machineId,
           workingDirectory: workingDir || undefined,
           preferredProvider: selectedProvider || undefined,
           model: effectiveModel,
           visionDoc: playgroundVisionDoc,
+          baseBranch: effectiveBranch || undefined,
         }
       )
 
-      ownedProjectIds.current.add(projectId)
       setActiveProjectId(projectId)
       setSearchParams({ projectId })
     } catch (error) {
@@ -259,7 +274,7 @@ export function ProjectNewPlan() {
   }
 
   // ─── Chat Phase ─────────────────────────────────────────────────
-  if (activeProjectId && execution) {
+  if (activeProjectId && (execution || project)) {
     return (
       <div className="h-full">
         <PlanChatPhase
@@ -267,15 +282,10 @@ export function ProjectNewPlan() {
           projectName={project?.name || "New Project"}
           machineName={machineName}
           workingDirectory={project?.workingDirectory || workingDir || undefined}
-          onCancel={() => {
-            const pid = activeProjectId
+          onBack={() => {
+            backingRef.current = true
             setActiveProjectId(null)
             setSearchParams({})
-            // Only delete the project if it was created by this session (not loaded from URL)
-            if (pid && ownedProjectIds.current.has(pid)) {
-              ownedProjectIds.current.delete(pid)
-              useExecutionStore.getState().cleanupPlanSession(pid)
-            }
           }}
         />
       </div>
@@ -284,12 +294,12 @@ export function ProjectNewPlan() {
 
   // ─── Input Phase ────────────────────────────────────────────────
   return (
-    <div className="flex flex-col items-center justify-center min-h-full p-6">
+    <div className="flex flex-col items-center justify-start min-h-full p-4 md:p-6 overflow-auto">
       <div className="w-full max-w-2xl">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold font-sans mb-2">Interactive Plan</h1>
+        <div className="text-center mb-8 mt-4 md:mt-8">
+          <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">Plan</h1>
           <p className="text-sm text-muted-foreground">
-            Describe your goal. Agent will explore your codebase, ask questions, and build a plan collaboratively.
+            Describe your goal in detail. Agent will build a plan with you collaboratively.
           </p>
         </div>
 
@@ -322,21 +332,40 @@ export function ProjectNewPlan() {
             </div>
           )}
 
-          {/* Goal textarea */}
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault()
-                handleSubmit()
-              }
-            }}
-            placeholder="What do you want to build or accomplish?"
-            rows={8}
-            autoFocus
-            className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-          />
+          {/* Goal textarea + session resume */}
+          <div className="flex flex-col rounded-lg border border-border bg-background overflow-hidden focus-within:ring-2 focus-within:ring-ring">
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  handleSubmit()
+                }
+              }}
+              placeholder="What do you want to build or accomplish?"
+              rows={5}
+              autoFocus
+              className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
+            />
+
+            {/* OR divider + resume button */}
+            <div className="px-4 pb-3">
+              <div className="flex items-center gap-3 mb-2.5">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">or</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <button
+                type="button"
+                onClick={() => setSessionPickerOpen(true)}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Resume a previous session
+              </button>
+            </div>
+          </div>
 
           {/* Machine selector */}
           {(isServerMode() || allMachines.length > 0) && (
@@ -403,36 +432,9 @@ export function ProjectNewPlan() {
             </div>
           )}
 
-          {/* Model size selector */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs text-muted-foreground">Model size:</span>
-            <div className="flex flex-wrap gap-2">
-              {(["small", "medium", "large"] as const).map((tier) => {
-                const label = tier === "small" ? "Small" : tier === "medium" ? "Medium" : "Large"
-                const resolved = resolveModel(tier, selectedProvider || undefined, customModelMap)
-                return (
-                  <button
-                    key={tier}
-                    onClick={() => { setModelTier(tier); setSelectedModel("") }}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
-                      modelTier === tier
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:bg-muted"
-                    )}
-                  >
-                    <Sparkles className="h-3 w-3" />
-                    {label}
-                    <span className="text-[10px] text-muted-foreground">({resolved})</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
           {/* Working directory — only shown when a machine is selected */}
           {selectedMachine && (
-            <div className="flex flex-col gap-2">
+            <div className="animate-reveal flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -494,7 +496,7 @@ export function ProjectNewPlan() {
 
         {/* Recent Plan Sessions */}
         {planHistory.length > 0 && (
-          <div className="mt-10">
+          <div id="plan-history" className="mt-10">
             <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
               Recent Sessions
@@ -505,7 +507,7 @@ export function ProjectNewPlan() {
                 const statusLabel = exec?.status === 'running' ? 'Running'
                   : exec?.status === 'success' ? 'Completed'
                   : exec?.status === 'failure' ? 'Failed'
-                  : exec?.status === 'cancelled' ? 'Cancelled'
+                  : exec?.status === 'cancelled' ? 'Stopped'
                   : 'Pending'
                 const statusColor = exec?.status === 'running' ? 'bg-primary'
                   : exec?.status === 'success' ? 'bg-success'
@@ -526,12 +528,26 @@ export function ProjectNewPlan() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant="outline" className="text-[10px]">
-                        {statusLabel}
-                      </Badge>
-                      {exec?.status !== 'running' && exec?.status !== 'pending' && (
-                        <Play className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity" />
+                      {statusLabel && (
+                        <Badge variant="outline" className="text-[10px] hidden md:inline-flex">
+                          {statusLabel}
+                        </Badge>
                       )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (activeProjectId === p.id) {
+                            setActiveProjectId(null)
+                            setSearchParams({})
+                          }
+                          allExecutions.delete(`plan-${p.id}`)
+                          deleteProject(p.id)
+                        }}
+                        className="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 [@media(hover:none)]:opacity-60 hover:bg-destructive/10 transition-all text-destructive"
+                        title="Delete session"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </button>
                 )
@@ -551,6 +567,35 @@ export function ProjectNewPlan() {
             onSelect={(path) => setWorkingDir(path)}
           />
         )}
+
+        {/* Session picker dialog */}
+        <SessionPickerDialog
+          open={sessionPickerOpen}
+          onOpenChange={setSessionPickerOpen}
+          onSelectSession={(session) => {
+            // Pre-fill form from Claude Code session
+            const title = session.customTitle || session.summary || session.firstPrompt || ""
+            if (title) setDescription(title)
+            if (session.cwd) setWorkingDir(session.cwd)
+            const machine = allMachines.find((m) => m.machineId === session.machineId)
+            if (machine) setSelectedMachine(machine)
+          }}
+          playgroundSessions={playgroundHistory}
+          onSelectPlaygroundSession={(projectId) => {
+            // Navigate to plan with playground context
+            const pg = allProjects.find((p) => p.id === projectId)
+            if (pg) {
+              if (pg.description) setDescription(pg.description)
+              if (pg.workingDirectory) setWorkingDir(pg.workingDirectory)
+              if (pg.defaultMachineId) {
+                const machine = allMachines.find((m) => m.machineId === pg.defaultMachineId)
+                if (machine) setSelectedMachine(machine)
+              }
+            }
+          }}
+          planSessions={planHistory}
+          onSelectPlanSession={viewSession}
+        />
       </div>
     </div>
   )

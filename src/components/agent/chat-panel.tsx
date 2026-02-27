@@ -14,8 +14,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FileCompletionTextarea, type MentionItem, type SlashCommand } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
-import { chatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
-import { useSettingsStore } from "@/stores/settings-store"
+import { planChatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -361,7 +361,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   }, [resolvedMachineId, project?.workingDirectory])
 
   // Settings defaults
-  const getModelForProvider = useSettingsStore((s) => s.getModelForProvider)
   const defaultProvider = useSettingsStore((s) => s.defaultProvider)
 
   // Provider list from execution store
@@ -391,9 +390,11 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
 
   const effectiveProviderId = selectedProvider || defaultProvider || undefined
 
+  const customModelMap = useSettingsStore((s) => s.customModelMap)
+  // Plan chat defaults to small tier (haiku); large is reserved for plan generation
   const effectiveModel = (() => {
     if (selectedModel) return selectedModel
-    return getModelForProvider(effectiveProviderId)
+    return resolveModel("small", effectiveProviderId, customModelMap)
   })()
 
   // Abort any in-flight SSE stream on unmount (e.g. page navigation)
@@ -557,8 +558,12 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     // synchronously in onDone (React 18 batches setState updaters).
     let rawAssistantText = ""
 
+    // Plan-mutating MCP tools that should trigger a plan refresh
+    const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency"])
+    let needsPlanRefresh = false
+
     try {
-      await chatWithAgent(
+      await planChatWithAgent(
         {
           message: text,
           sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
@@ -575,11 +580,28 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
             rawAssistantText += chunk
             appendToLastAssistantMessage(sid, chunk)
           },
+          onToolUse: (data) => {
+            if (PLAN_MUTATING_TOOLS.has(data.toolName)) {
+              needsPlanRefresh = true
+            }
+          },
+          onToolResult: (data) => {
+            if (PLAN_MUTATING_TOOLS.has(data.toolName)) {
+              needsPlanRefresh = true
+            }
+          },
           onDone: (newProviderSessionId) => {
             if (newProviderSessionId) setProviderSessionId(sid, newProviderSessionId)
 
+            // Refresh plan from server if MCP tools modified the plan
+            if (needsPlanRefresh) {
+              usePlanStore.getState().load()
+            }
+
             // Extract mutations from the raw text (available synchronously,
             // unlike React state which may be batched).
+            // This is a fallback for text-block mutations; MCP tool calls
+            // are handled above via plan refresh.
             const { cleanContent, mutations } = extractMutations(rawAssistantText)
             const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
 

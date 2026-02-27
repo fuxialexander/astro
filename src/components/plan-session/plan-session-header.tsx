@@ -4,11 +4,11 @@
  * Shows project name, status badge, abort button, and optional machine/directory info.
  */
 
-import { Loader2, X, Laptop, CheckCircle2, AlertCircle, XCircle } from "lucide-react"
+import { Loader2, X, Laptop, CheckCircle2, AlertCircle, XCircle, ChevronLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-type PlanSessionStatus = 'planning' | 'waiting' | 'completed' | 'error' | 'cancelled'
+type PlanSessionStatus = 'planning' | 'waiting' | 'completed' | 'error' | 'stopped'
 
 interface PlanSessionHeaderProps {
   projectName: string
@@ -16,6 +16,7 @@ interface PlanSessionHeaderProps {
   machineName?: string
   workingDirectory?: string
   onAbort: () => void
+  onBack?: () => void
 }
 
 export function PlanSessionHeader({
@@ -24,6 +25,7 @@ export function PlanSessionHeader({
   machineName,
   workingDirectory,
   onAbort,
+  onBack,
 }: PlanSessionHeaderProps) {
   const statusConfig: Record<PlanSessionStatus, { label: string; color: string; icon: React.ReactNode }> = {
     planning: {
@@ -46,8 +48,8 @@ export function PlanSessionHeader({
       color: "bg-destructive/10 text-destructive",
       icon: <AlertCircle className="h-3 w-3" />,
     },
-    cancelled: {
-      label: "Cancelled",
+    stopped: {
+      label: "Stopped",
       color: "bg-muted text-muted-foreground",
       icon: <XCircle className="h-3 w-3" />,
     },
@@ -57,6 +59,14 @@ export function PlanSessionHeader({
 
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-background shrink-0">
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer shrink-0"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      )}
       <div className="flex-1 min-w-0">
         <h2 className="text-sm font-semibold truncate">{projectName}</h2>
         <div className="flex items-center gap-2 mt-0.5">

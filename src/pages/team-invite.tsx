@@ -35,7 +35,12 @@ export function TeamInvite() {
       }
 
       try {
-        const response = await fetch(apiUrl(`/api/teams/invite/${token}`))
+        const headers: HeadersInit = {}
+        const currentSession = useAuthStore.getState().session
+        if (currentSession?.access_token) {
+          headers['Authorization'] = `Bearer ${currentSession.access_token}`
+        }
+        const response = await fetch(apiUrl(`/api/teams/invite/${token}`), { headers })
 
         if (!response.ok) {
           const data = await response.json()

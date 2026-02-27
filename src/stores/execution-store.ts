@@ -216,12 +216,27 @@ interface ExecutionState {
       preferredProvider?: string
       visionDoc?: string
       repository?: string
+      baseBranch?: string
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelPlanSession: (projectId: string) => Promise<void>
   /** Remove execution entry and delete the project created by startPlanSession. */
   cleanupPlanSession: (projectId: string) => void
   steerPlanSession: (projectId: string, message: string) => Promise<boolean>
+
+  /** Start a plan session for an existing project (doesn't create a new project) */
+  startPlanSessionForProject: (
+    projectId: string,
+    description: string,
+    options?: {
+      targetMachineId?: string
+      workingDirectory?: string
+      model?: string
+      preferredProvider?: string
+      visionDoc?: string
+      baseBranch?: string
+    }
+  ) => Promise<{ projectId: string; nodeId: string }>
 
   // Playground session methods
   startPlaygroundSession: (
@@ -487,9 +502,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 
   resetExecution: async (nodeId: string) => {
-    // Grab executionId before any cleanup (needed for server call)
+    // Grab execution and node before any cleanup
     const execution = get().executions.get(nodeId)
-    const executionId = execution?.executionId
+    const planStore = usePlanStore.getState()
+    const node = planStore.nodes.find((n) => n.id === nodeId)
+    const projectId = node?.projectId || execution?.projectId
 
     // Cancel any in-progress execution first
     const controller = abortControllers.get(nodeId)
@@ -498,13 +515,17 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       abortControllers.delete(nodeId)
     }
 
-    // Call server to clean up relay task, dispatch engine state, and pending approvals
+    // Call server to clean up: close PR, delete branch, cleanup worktree, reset node
     try {
       const headers = await getAuthHeaders()
       await fetch(apiUrl("/api/dispatch/reset"), {
         method: "POST",
         headers,
-        body: JSON.stringify({ nodeId, executionId }),
+        body: JSON.stringify({
+          nodeId,
+          projectId,
+          machineId: execution?.machineId,
+        }),
       })
     } catch {
       // Best effort — continue with local cleanup even if server call fails
@@ -520,14 +541,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return { executions: newExecutions }
     })
 
-    // Reset PlanNode execution fields and status
-    const planStore = usePlanStore.getState()
+    // Reset PlanNode execution fields, PR fields, and status
     planStore.updateNode(nodeId, {
       executionId: undefined,
       executionOutput: undefined,
       executionError: undefined,
       executionStartedAt: undefined,
       executionCompletedAt: undefined,
+      prUrl: undefined,
+      prNumber: undefined,
+      branchName: undefined,
       status: "planned",
     })
 
@@ -933,6 +956,15 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       workingDirectory: options?.workingDirectory,
       repository: options?.repository,
       defaultMachineId: options?.targetMachineId,
+      projectType: 'plan',
+      ...(options?.baseBranch ? {
+        source: {
+          localPath: options?.workingDirectory || '',
+          baseBranch: options.baseBranch,
+          isGit: true,
+          remoteType: 'none' as const,
+        },
+      } : {}),
     } as Project)
 
     const nodeId = `plan-${projectId}`
@@ -1127,6 +1159,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }
       return { executions: newExecutions }
     })
+
+    get().persist()
   },
 
   /** Remove execution entry and delete the project created by startPlanSession. */
@@ -1172,6 +1206,180 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       console.error("[plan-session] Error steering:", error)
       return false
     }
+  },
+
+  // ─── Start Plan Session For Existing Project ──────────────────────────
+
+  startPlanSessionForProject: async (projectId, description, options) => {
+    const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+    if (!project) throw new Error(`Project ${projectId} not found`)
+
+    const nodeId = `plan-${projectId}`
+
+    // Update project if options provide new values
+    const updates: Partial<Project> = {}
+    if (options?.workingDirectory && options.workingDirectory !== project.workingDirectory) {
+      updates.workingDirectory = options.workingDirectory
+    }
+    if (options?.targetMachineId && options.targetMachineId !== project.defaultMachineId) {
+      updates.defaultMachineId = options.targetMachineId
+    }
+    if (options?.visionDoc) {
+      updates.visionDoc = options.visionDoc
+    }
+    if (options?.baseBranch) {
+      updates.source = {
+        ...(project.source || { localPath: project.workingDirectory || '', isGit: true, remoteType: 'none' as const }),
+        baseBranch: options.baseBranch,
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      useProjectStore.getState().updateProject(projectId, updates)
+    }
+
+    // Create execution entry
+    const execution: TaskExecution = {
+      nodeId,
+      projectId,
+      executionId: "",
+      status: "pending",
+      streamText: "",
+      toolTraces: [],
+      fileChanges: [],
+      activityEvents: [],
+      startedAt: new Date(),
+    }
+
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      newExecutions.set(nodeId, execution)
+      return { executions: newExecutions }
+    })
+
+    // Create abort controller
+    const abortController = new AbortController()
+    abortControllers.set(nodeId, abortController)
+
+    // Dispatch via POST /api/dispatch/task (fire-and-forget SSE processing)
+    getAuthHeaders().then(async (headers) => {
+      try {
+        const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const response = await fetch(apiUrl("/api/dispatch/task"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            nodeId,
+            projectId,
+            title: `Interactive planning: ${description.slice(0, 50)}`,
+            description,
+            dependencies: [],
+            verification: "human",
+            visionDoc: options?.visionDoc,
+            targetMachineId: options?.targetMachineId,
+            model: options?.model,
+            preferredProvider: options?.preferredProvider,
+            maxTurns: 200,
+            workingDirectory: options?.workingDirectory || project.workingDirectory,
+            isInteractivePlan: true,
+            ...signing,
+          }),
+          signal: abortController.signal,
+        })
+
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => null)
+          const detail = errorBody?.error || ""
+          throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
+        }
+
+        // Process SSE stream
+        const planStore = usePlanStore.getState()
+        await parseSSEStream(response, {
+          onEvent: ({ event, data }) => {
+            handleSSEEvent(event, data, nodeId, set, get, planStore)
+
+            if (event === "result") {
+              try {
+                const exec = get().executions.get(nodeId)
+                if (exec?.streamText) {
+                  const planJson = extractPlanJsonFromText(exec.streamText)
+                  if (planJson) {
+                    const prefix = projectId.slice(0, 8)
+                    const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
+                    const now = new Date()
+
+                    const nodes: PlanNode[] = planJson.nodes.map((n: Record<string, unknown>) => ({
+                      id: prefixId(n.id as string),
+                      projectId,
+                      type: (n.type as PlanNode["type"]) || "task",
+                      title: (n.title as string) || "",
+                      description: (n.description as string) || "",
+                      content: n.description ? `<p>${n.description as string}</p>` : '',
+                      status: (n.status as PlanNode["status"]) || "planned",
+                      parentId: n.parentId ? prefixId(n.parentId as string) : null,
+                      dependencies: (n.dependencies as string[] || []).map(prefixId),
+                      verification: (n.verification as PlanNode["verification"]) || "human",
+                      position: (n.position as { x: number; y: number }) || { x: 40, y: 40 },
+                      startDate: n.startDate as string | undefined,
+                      endDate: n.endDate as string | undefined,
+                      priority: n.priority as PlanNode["priority"],
+                      estimate: n.estimate as PlanNode["estimate"],
+                      dueDate: n.dueDate as string | undefined,
+                      labelIds: n.labelIds as string[] | undefined,
+                      milestoneId: n.milestoneId ? prefixId(n.milestoneId as string) : undefined,
+                      createdAt: now,
+                      updatedAt: now,
+                    }))
+
+                    const edges: PlanEdge[] = (planJson.edges || []).map((e: Record<string, unknown>) => ({
+                      id: prefixId(e.id as string),
+                      source: prefixId(e.source as string),
+                      target: prefixId(e.target as string),
+                      type: (e.type as PlanEdge["type"]) || "dependency",
+                    }))
+
+                    planStore.setProjectPlan(projectId, nodes, edges)
+                    planStore.reorganizeProject(projectId)
+
+                    if (planJson.projectName) {
+                      useProjectStore.getState().updateProject(projectId, { name: planJson.projectName })
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error("[plan-session] Failed to extract plan:", e)
+              }
+            }
+          },
+        })
+      } catch (error) {
+        if (!get().executions.has(nodeId)) return
+        if (error instanceof Error && error.name === "AbortError") {
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
+            }
+            return { executions: newExecutions }
+          })
+        } else {
+          const message = error instanceof Error ? error.message : "Unknown error"
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, status: "failure", error: message, completedAt: new Date() })
+            }
+            return { executions: newExecutions }
+          })
+        }
+      } finally {
+        abortControllers.delete(nodeId)
+      }
+    })
+
+    return { projectId, nodeId }
   },
 
   // ─── Playground Session Methods ──────────────────────────────────────
@@ -1320,6 +1528,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }
       return { executions: newExecutions }
     })
+
+    // Persist cancelled state to DB
+    get().persist()
   },
 
   steerPlaygroundSession: async (projectId, message) => {
@@ -1709,6 +1920,8 @@ function handleSSEEvent(
               ...(parsed.branchName ? { branchName: parsed.branchName } : {}),
               ...(parsed.prUrl ? { prUrl: parsed.prUrl } : {}),
               ...(parsed.prNumber ? { prNumber: parsed.prNumber } : {}),
+              ...(parsed.deliveryStatus ? { deliveryStatus: parsed.deliveryStatus } : {}),
+              ...(parsed.deliveryError ? { deliveryError: parsed.deliveryError } : {}),
             })
           }
           return { executions: newExecutions }
@@ -1778,10 +1991,50 @@ function handleSSEEvent(
           setTimeout(() => dispatchNextBatchWave(projectId), 100)
         }
 
-        // Fire async summary generation (non-blocking)
-        // Generate summary for all tasks that enter awaiting_judgment, not just successful ones
+        // Summary generation: use structured summary from agent result if available,
+        // otherwise fall back to parsing from stream text, then relay-based /api/agent/summarize.
         if (execution && (finalStatus === "awaiting_judgment" || (isSuccess && node?.verification !== "auto"))) {
-          requestExecutionSummary(nodeId, execution, node)
+          const freshExec = get().executions.get(nodeId)
+
+          if (parsed.summary?.status && parsed.summary?.workCompleted) {
+            // Primary path: structured summary from agent follow-up turn — guaranteed valid JSON
+            const summary: ExecutionSummary = {
+              workCompleted: parsed.summary.workCompleted,
+              executiveSummary: parsed.summary.executiveSummary,
+              keyFindings: parsed.summary.keyFindings || [],
+              filesChanged: parsed.summary.filesChanged || freshExec?.fileChanges?.map((f: { path: string }) => f.path) || [],
+              status: parsed.summary.status,
+              followUps: parsed.summary.followUps || [],
+            }
+            useExecutionStore.setState((state) => {
+              const newExecs = new Map(state.executions)
+              const ex = newExecs.get(nodeId)
+              if (ex) newExecs.set(nodeId, { ...ex, summary })
+              return { executions: newExecs }
+            })
+          } else {
+            // Fallback: try parsing from stream text (regex-based)
+            const parsedSummary = freshExec?.streamText ? parseExecutiveSummary(freshExec.streamText) : null
+
+            if (parsedSummary?.status && parsedSummary?.workCompleted) {
+              const summary: ExecutionSummary = {
+                workCompleted: parsedSummary.workCompleted,
+                keyFindings: parsedSummary.keyFindings || [],
+                filesChanged: freshExec?.fileChanges?.map((f) => f.path) ?? [],
+                status: parsedSummary.status,
+                followUps: parsedSummary.followUps || [],
+              }
+              useExecutionStore.setState((state) => {
+                const newExecs = new Map(state.executions)
+                const ex = newExecs.get(nodeId)
+                if (ex) newExecs.set(nodeId, { ...ex, summary })
+                return { executions: newExecs }
+              })
+            } else {
+              // Last resort: try relay-based summarization
+              requestExecutionSummary(nodeId, freshExec || execution, node)
+            }
+          }
         }
 
         // Persist completed execution to database
@@ -1938,7 +2191,7 @@ async function requestExecutionSummary(
  * Parse an executive summary from the agent's stream text.
  * Looks for the structured "## Executive Summary" block at the end of output.
  */
-function parseExecutiveSummary(streamText: string): Partial<ExecutionSummary> | null {
+export function parseExecutiveSummary(streamText: string): Partial<ExecutionSummary> | null {
   const match = streamText.match(/## Executive Summary\s*\n([\s\S]*?)(?:\n```|$)/)
   if (!match) return null
 

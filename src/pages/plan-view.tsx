@@ -1,15 +1,11 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { FileText, MessageSquare, Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Download, Folder, Check, Pencil, GitBranch, List, Clock, Kanban, ChevronLeft, MoreVertical } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Pencil, GitBranch, List, ChevronLeft, MoreVertical, FolderGit2, ExternalLink } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { TaskRow } from "@/components/task-row"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
@@ -19,10 +15,14 @@ import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
 import { ItemTimelineView, TimelineAddTaskFooter, type TimelineRow } from "@/components/views/item-timeline-view"
 import { PropertyPicker } from "@/components/property-picker"
+import { LabelPicker } from "@/components/label-picker"
+import { LabelManagerDialog } from "@/components/label-manager-dialog"
 import { ColorIconBadge } from "@/components/color-icon-picker"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
+import { RepoConfigDialog } from "@/components/repo-config-dialog"
+import { useMachinesStore } from "@/stores/machines-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore, type DisplaySettings, type ViewKey } from "@/stores/display-settings-store"
@@ -32,12 +32,12 @@ import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } f
 import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { formatDueDateShort } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
+import { remoteTypeLabel } from "@/lib/project-source"
 import { cn } from "@/lib/utils"
 import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
-import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
-import type { PlanNode, Priority, Label } from "@/types"
+import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
 
@@ -50,6 +50,7 @@ const planListDisplayConfig: DisplayPopoverConfig = {
     { value: "milestone", label: "Milestone" },
     { value: "status", label: "Status" },
     { value: "priority", label: "Priority" },
+    { value: "label", label: "Label" },
   ],
   orderByOptions: [
     { value: "id", label: "ID" },
@@ -77,6 +78,7 @@ const planTimelineDisplayConfig: DisplayPopoverConfig = {
     { value: "milestone", label: "Milestone" },
     { value: "status", label: "Status" },
     { value: "priority", label: "Priority" },
+    { value: "label", label: "Label" },
   ],
   orderByOptions: [
     { value: "name", label: "Name" },
@@ -132,6 +134,172 @@ const planBoardDisplayConfig: DisplayPopoverConfig = {
   ],
 }
 
+// --- Compact workdir bar shown below the header ---
+function WorkdirBar({ project }: { project: Project }) {
+  const [repoOpen, setRepoOpen] = useState(false)
+  const [useVSCode, setUseVSCode] = useState(false)
+  const [useLocalUrls, setUseLocalUrls] = useState(true)
+  const machines = useMachinesStore((s) => s.machines)
+  const fetchMachines = useMachinesStore((s) => s.fetchMachines)
+
+  useEffect(() => {
+    if (machines.length === 0) fetchMachines()
+  }, [machines.length, fetchMachines])
+
+  const defaultMachine = project.defaultMachineId
+    ? machines.find((m) => m.id === project.defaultMachineId)
+    : (machines.length === 1 ? machines[0] : undefined)
+
+  const editorUrl = (() => {
+    if (!project.workingDirectory) return null
+    const path = project.workingDirectory
+    const scheme = useVSCode ? 'vscode' : 'cursor'
+    if (useLocalUrls) return `${scheme}://file${path}`
+    if (defaultMachine?.name) return `${scheme}://vscode-remote/ssh-remote+${defaultMachine.name}${path}`
+    return `${scheme}://file${path}`
+  })()
+
+  const hasWorkdir = !!(project.workingDirectory || project.repository)
+
+  return (
+    <>
+      <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
+      <div className="flex items-center gap-2 border-b border-border px-3 md:px-6 h-8 shrink-0 bg-muted/30 text-xs">
+        <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        {hasWorkdir ? (
+          <>
+            {/* Git source info: repo name / branch */}
+            {project.source?.isGit && (
+              <div className="flex items-center gap-1 shrink-0 text-muted-foreground">
+                <span className="text-[10px] font-medium">
+                  {project.githubOwner && project.githubRepo
+                    ? `${project.githubOwner}/${project.githubRepo}`
+                    : project.source.remoteType !== 'none'
+                      ? remoteTypeLabel(project.source.remoteType)
+                      : 'Local Git'}
+                </span>
+                {project.source.baseBranch && (
+                  <>
+                    <span className="text-muted-foreground/40">/</span>
+                    <GitBranch className="h-3 w-3" />
+                    <span className="text-[10px] font-mono">{project.source.baseBranch}</span>
+                  </>
+                )}
+                <span className="text-muted-foreground/30 mx-0.5">|</span>
+              </div>
+            )}
+            <span className="text-muted-foreground font-mono truncate" title={project.workingDirectory || project.repository}>
+              {project.workingDirectory || project.repository}
+            </span>
+            {defaultMachine && (
+              <span className="text-muted-foreground/60 shrink-0">
+                ({defaultMachine.name || 'unknown'})
+              </span>
+            )}
+            <button
+              onClick={() => setRepoOpen(true)}
+              className="text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer shrink-0"
+              title="Edit working directory"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+            <div className="flex items-center gap-1 ml-auto shrink-0">
+              <Badge
+                variant="outline"
+                className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-5 px-1.5"
+                onClick={() => setUseLocalUrls(!useLocalUrls)}
+              >
+                {useLocalUrls ? "Local" : "Remote"}
+              </Badge>
+              <Badge
+                variant="outline"
+                className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-5 px-1.5"
+                onClick={() => setUseVSCode(!useVSCode)}
+              >
+                {useVSCode ? "VSCode" : "Cursor"}
+              </Badge>
+              {editorUrl && (
+                <a
+                  href={editorUrl}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/10 hover:bg-primary/20 transition-colors h-5"
+                >
+                  <ExternalLink className="h-3 w-3 text-primary" />
+                  <span className="text-[10px] font-medium text-primary">Open</span>
+                </a>
+              )}
+            </div>
+          </>
+        ) : (
+          <button
+            onClick={() => setRepoOpen(true)}
+            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            <span>Set working directory</span>
+          </button>
+        )}
+      </div>
+    </>
+  )
+}
+
+// --- Bottom resizable chat panel ---
+function ChatBottomPanel({
+  projectId,
+  visionDoc,
+  initialMessage,
+  onNodeSelect,
+}: {
+  projectId: string
+  visionDoc?: string
+  initialMessage?: string
+  onNodeSelect: (nodeId: string) => void
+}) {
+  const [height, setHeight] = useState(300)
+  const isDragging = useRef(false)
+  const startY = useRef(0)
+  const startHeight = useRef(0)
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true
+    startY.current = e.clientY
+    startHeight.current = height
+    e.preventDefault()
+  }, [height])
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return
+      const delta = startY.current - e.clientY
+      const newHeight = Math.max(200, Math.min(window.innerHeight * 0.6, startHeight.current + delta))
+      setHeight(newHeight)
+    }
+    const handleMouseUp = () => {
+      isDragging.current = false
+    }
+    document.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mouseup", handleMouseUp)
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
+    }
+  }, [])
+
+  return (
+    <div className="flex flex-col border-t border-border shrink-0" style={{ height }}>
+      {/* Drag handle */}
+      <div
+        className="h-1.5 cursor-row-resize flex items-center justify-center hover:bg-accent/50 transition-colors group"
+        onMouseDown={handleMouseDown}
+      >
+        <div className="w-8 h-0.5 rounded-full bg-border group-hover:bg-muted-foreground transition-colors" />
+      </div>
+      <div className="flex-1 overflow-hidden">
+        <ChatPanel projectId={projectId} visionDoc={visionDoc} initialMessage={initialMessage} onNodeSelect={onNodeSelect} />
+      </div>
+    </div>
+  )
+}
+
 // --- Shared sorting logic for plan nodes ---
 function sortPlanNodes(nodes: PlanNode[], orderBy: string, dir: number): PlanNode[] {
   if (orderBy === "dependency") {
@@ -163,91 +331,7 @@ function sortPlanNodes(nodes: PlanNode[], orderBy: string, dir: number): PlanNod
   return sorted
 }
 
-// --- Label Picker (multi-select popover for labels column) ---
-function LabelPicker({
-  nodeId,
-  labelIds,
-  allLabels,
-  nodeLabels,
-  disabled,
-  onUpdate,
-}: {
-  nodeId: string
-  labelIds: string[]
-  allLabels: Label[]
-  nodeLabels: Label[]
-  disabled?: boolean
-  onUpdate?: (id: string, updates: Partial<PlanNode>) => void
-}) {
-  const [open, setOpen] = useState(false)
-
-  if (allLabels.length === 0) return null
-
-  const trigger = (
-    <div className="flex items-center gap-1 min-h-[20px]">
-      {nodeLabels.length > 0 ? nodeLabels.map((label) => (
-        <span
-          key={label.id}
-          className="h-2.5 w-2.5 rounded-full shrink-0"
-          title={label.name}
-          style={{ backgroundColor: label.color }}
-        />
-      )) : (
-        <span className="text-[10px] text-muted-foreground/50">—</span>
-      )}
-    </div>
-  )
-
-  if (disabled || !onUpdate) return trigger
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {trigger}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-44 p-1"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Labels</p>
-        {allLabels.map((label) => {
-          const isActive = labelIds.includes(label.id)
-          return (
-            <button
-              key={label.id}
-              type="button"
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer",
-                "hover:bg-accent transition-colors",
-                isActive && "bg-accent/50"
-              )}
-              onClick={() => {
-                const next = isActive
-                  ? labelIds.filter((id) => id !== label.id)
-                  : [...labelIds, label.id]
-                onUpdate(nodeId, { labelIds: next })
-              }}
-            >
-              <span
-                className="h-3 w-3 rounded-full shrink-0"
-                style={{ backgroundColor: label.color }}
-              />
-              <span className="flex-1 text-left text-xs">{label.name}</span>
-              {isActive && <Check className="h-3.5 w-3.5 text-foreground" />}
-            </button>
-          )
-        })}
-      </PopoverContent>
-    </Popover>
-  )
-}
+// LabelPicker extracted to @/components/label-picker
 
 // --- Plan List Column Definitions ---
 function makePlanColumns(
@@ -256,6 +340,7 @@ function makePlanColumns(
   onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void,
   projectMap?: Map<string, string>,
   executionOrderMap?: Map<string, number>,
+  onManageLabels?: () => void,
 ): ListColumn<PlanNode>[] {
   return [
     {
@@ -388,18 +473,15 @@ function makePlanColumns(
       label: "Labels",
       width: "w-[80px]",
       render: (node) => {
-        const nodeLabels = (node.labelIds || [])
-          .map((id) => project?.labels?.find((l) => l.id === id))
-          .filter(Boolean)
         const allLabels = project?.labels || []
         return (
           <LabelPicker
-            nodeId={node.id}
             labelIds={node.labelIds || []}
             allLabels={allLabels}
-            nodeLabels={nodeLabels.filter((l): l is Label => !!l)}
             disabled={!onNodeUpdate}
-            onUpdate={onNodeUpdate}
+            displayMode="dots"
+            onChange={(labelIds) => onNodeUpdate?.(node.id, { labelIds })}
+            onManageLabels={onManageLabels}
           />
         )
       },
@@ -447,33 +529,22 @@ function makePlanColumns(
 // In cross-project mode (projectId not a valid UUID), shows a project picker before creating.
 function InlineListCreationRow({
   projectId,
-  columns,
-  displaySettings,
   defaultMilestoneId,
   onCreated,
 }: {
   projectId: string
-  columns: ListColumn<PlanNode>[]
-  displaySettings: DisplaySettings
+  columns?: ListColumn<PlanNode>[]
+  displaySettings?: DisplaySettings
   defaultMilestoneId?: string
   onCreated?: () => void
 }) {
   const addNode = usePlanStore((s) => s.addNode)
   const allProjects = useProjectStore((s) => s.projects)
   const [taskName, setTaskName] = useState("")
-  const [priority, setPriority] = useState<Priority>("medium")
-  const [status, setStatus] = useState<PlanNode["status"]>("planned")
-  const [dueDate, setDueDate] = useState("")
-  const [estimate, setEstimate] = useState<PlanNode["estimate"]>(undefined)
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
-  const [showProjectPicker, setShowProjectPicker] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
-  const dateInputRef = useRef<HTMLInputElement>(null)
-  const projectPickerRef = useRef<HTMLDivElement>(null)
 
   // Detect cross-project mode: projectId is not a valid UUID
   const isCrossProject = !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)
-  const effectiveProjectId = isCrossProject ? selectedProjectId : projectId
 
   const createTask = useCallback((targetProjectId: string) => {
     if (!taskName.trim()) return
@@ -487,42 +558,30 @@ function InlineListCreationRow({
       type: "task",
       title: taskTitle,
       description: taskDescription,
-      status,
+      status: "planned",
       parentId: null,
       dependencies: [],
       verification: "auto",
       position: { x: 0, y: 0 },
-      priority,
-      dueDate: dueDate || undefined,
-      estimate,
+      priority: "medium",
       milestoneId: defaultMilestoneId,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
 
-    // Reset form but keep input open for rapid creation
     setTaskName("")
-    setPriority("medium")
-    setStatus("planned")
-    setDueDate("")
-    setEstimate(undefined)
-    setSelectedProjectId(null)
-    setShowProjectPicker(false)
-
-    // Re-focus input for continuous task entry
     requestAnimationFrame(() => nameInputRef.current?.focus())
-  }, [taskName, status, priority, dueDate, estimate, defaultMilestoneId, addNode])
+  }, [taskName, defaultMilestoneId, addNode])
 
   const handleCreate = () => {
     if (!taskName.trim()) return
 
     if (isCrossProject) {
-      // In cross-project mode, if only one project, use it directly
       if (allProjects.length === 1) {
         createTask(allProjects[0].id)
       } else {
-        // Show project picker
-        setShowProjectPicker(true)
+        // Use first project as fallback in cross-project mode
+        createTask(allProjects[0]?.id ?? projectId)
       }
       return
     }
@@ -536,141 +595,24 @@ function InlineListCreationRow({
       handleCreate()
     } else if (e.key === "Escape") {
       e.preventDefault()
-      if (showProjectPicker) {
-        setShowProjectPicker(false)
-      } else {
-        onCreated?.()
-      }
+      onCreated?.()
     }
   }
 
-  // Match ItemListView column filtering: name always visible, others by displaySettings
-  const nameCol = columns.find((c) => c.id === "name")
-  const otherCols = columns.filter((c) =>
-    c.id !== "name" &&
-    (displaySettings.visibleProperties?.includes(c.id) ?? true)
-  )
-
-  const { text: dueDateText, className: dueDateClass } = formatDueDateShort(dueDate || undefined)
-
-  const selectedProjectName = effectiveProjectId
-    ? allProjects.find((p) => p.id === effectiveProjectId)?.name
-    : undefined
-
   return (
     <div className="flex items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-colors">
-      {/* Name column */}
-      <div className={cn("min-w-0 overflow-hidden", nameCol?.width ?? "flex-1")}>
+      <div className="min-w-0 flex-1">
         <input
           ref={nameInputRef}
           type="text"
           value={taskName}
           onChange={(e) => setTaskName(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Task name..."
+          placeholder="Task name... (Enter to create, Esc to cancel)"
           autoFocus
           className="w-full bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground"
         />
       </div>
-
-      {/* Other visible columns — same visual style as real task rows */}
-      {otherCols.map((col) => (
-        <div key={col.id} className={cn("flex items-center justify-end", col.width)}>
-          {col.id === "priority" ? (() => {
-            const config = PRIORITY_CONFIG[priority]
-            const PIcon = config.icon
-            return (
-              <PropertyPicker
-                value={priority}
-                options={PRIORITY_OPTIONS}
-                title="Set priority"
-                onSelect={(id) => setPriority(id as Priority)}
-              >
-                <PIcon className={cn("h-3.5 w-3.5", config.color)} />
-              </PropertyPicker>
-            )
-          })() : col.id === "status" ? (
-            <PropertyPicker
-              value={status}
-              options={STATUS_OPTIONS}
-              title="Set status"
-              onSelect={(id) => setStatus(id as PlanNode["status"])}
-            >
-              <Badge variant={statusVariant[status] ?? "secondary"} className="text-[10px]">
-                {status.replace(/_/g, " ")}
-              </Badge>
-            </PropertyPicker>
-          ) : col.id === "dueDate" ? (
-            <div className="relative inline-flex items-center rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors">
-              <span className={cn("text-xs", dueDateClass)}>{dueDateText}</span>
-              <input
-                ref={dateInputRef}
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-                tabIndex={-1}
-              />
-            </div>
-          ) : col.id === "estimate" ? (
-            <PropertyPicker
-              value={estimate}
-              options={ESTIMATE_OPTIONS}
-              title="Set estimate"
-              onSelect={(id) => setEstimate(id as PlanNode["estimate"])}
-            >
-              <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {estimate ?? "\u2014"}
-              </span>
-            </PropertyPicker>
-          ) : col.id === "project" && isCrossProject ? (
-            <div className="relative" ref={projectPickerRef}>
-              <Popover open={showProjectPicker} onOpenChange={setShowProjectPicker}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-sm p-0.5 -m-0.5 hover:bg-muted transition-colors cursor-pointer text-xs text-muted-foreground"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Folder className="h-3 w-3 shrink-0" />
-                    {selectedProjectName ?? "Select project"}
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="end"
-                  className="w-56 p-1"
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Select project</p>
-                  {allProjects.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer",
-                        "hover:bg-accent transition-colors",
-                        effectiveProjectId === p.id && "bg-accent/50"
-                      )}
-                      onClick={() => {
-                        if (taskName.trim()) {
-                          createTask(p.id)
-                        } else {
-                          setSelectedProjectId(p.id)
-                          setShowProjectPicker(false)
-                        }
-                      }}
-                    >
-                      <ColorIconBadge icon={p.icon} color={p.color} className="!p-0 !rounded-none" />
-                      <span className="flex-1 text-left truncate">{p.name}</span>
-                      {effectiveProjectId === p.id && <Check className="h-3.5 w-3.5 text-foreground" />}
-                    </button>
-                  ))}
-                </PopoverContent>
-              </Popover>
-            </div>
-          ) : null}
-        </div>
-      ))}
     </div>
   )
 }
@@ -757,10 +699,15 @@ export function PlanListView({
   const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
+  const [labelManagerOpen, setLabelManagerOpen] = useState(false)
 
   const handleNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
     updateNode(id, updates)
   }, [updateNode])
+
+  const handleManageLabels = useCallback(() => {
+    setLabelManagerOpen(true)
+  }, [])
 
   const planBatchActions: BatchAction[] = useMemo(() => [
     {
@@ -842,7 +789,7 @@ export function PlanListView({
     return map
   }, [allProjectNodes])
 
-  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap])
+  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels])
 
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
@@ -923,8 +870,35 @@ export function PlanListView({
       }))
     }
 
+    if (displaySettings.groupBy === "label") {
+      const allLabels = project?.labels ?? []
+      const labelMap = new Map(allLabels.map((l) => [l.id, l]))
+      const result: ListGroup<PlanNode>[] = []
+      for (const l of allLabels) {
+        const grouped = tasks.filter((n) => n.labelIds?.includes(l.id))
+        result.push({
+          key: `label-${l.id}`,
+          label: l.name,
+          icon: (
+            <span
+              className="h-2.5 w-2.5 rounded-full shrink-0"
+              style={{ backgroundColor: l.color }}
+            />
+          ),
+          items: grouped,
+        })
+      }
+      const noLabel = tasks.filter(
+        (n) => !n.labelIds?.length || !n.labelIds.some((lid) => labelMap.has(lid)),
+      )
+      if (noLabel.length > 0) {
+        result.push({ key: "no-label", label: "No label", items: noLabel })
+      }
+      return result
+    }
+
     return [{ key: "all", label: "All Tasks", items: tasks }]
-  }, [tasks, milestones, projects, displaySettings.groupBy])
+  }, [tasks, milestones, projects, displaySettings.groupBy, project?.labels])
 
   // Open creation row for the first group when Enter is pressed globally
   useEffect(() => {
@@ -993,28 +967,37 @@ export function PlanListView({
     : ["name", ...(displaySettings.visibleProperties || [])]
 
   return (
-    <ItemListView
-      columns={columns}
-      groups={groups}
-      visibleColumns={visibleColumnsWithName}
-      onItemClick={(node) => onNodeSelect(node)}
-      getItemId={(n) => n.id}
-      getItemClass={(n) => cn(n.status === "pruned" && "opacity-50")}
-      footer={renderAddTaskRow}
-      batchActions={planBatchActions}
-      sortColumn={displaySettings.orderBy}
-      sortDirection={displaySettings.orderDirection}
-      onSort={handleSort}
-      renderMobileItem={(node) => (
-        <TaskRow
-          task={node}
-          projectName={projectNameMap.get(node.projectId)}
-          showProject={displaySettings.groupBy === "project" ? false : !!nodes}
-          onClick={() => onNodeSelect(node)}
-          className={cn(node.status === "pruned" && "opacity-50")}
+    <>
+      {projectId && (
+        <LabelManagerDialog
+          open={labelManagerOpen}
+          onOpenChange={setLabelManagerOpen}
+          projectId={projectId}
         />
       )}
-    />
+      <ItemListView
+        columns={columns}
+        groups={groups}
+        visibleColumns={visibleColumnsWithName}
+        onItemClick={(node) => onNodeSelect(node)}
+        getItemId={(n) => n.id}
+        getItemClass={(n) => cn(n.status === "pruned" && "opacity-50")}
+        footer={renderAddTaskRow}
+        batchActions={planBatchActions}
+        sortColumn={displaySettings.orderBy}
+        sortDirection={displaySettings.orderDirection}
+        onSort={handleSort}
+        renderMobileItem={(node) => (
+          <TaskRow
+            task={node}
+            projectName={projectNameMap.get(node.projectId)}
+            showProject={displaySettings.groupBy === "project" ? false : !!nodes}
+            onClick={() => onNodeSelect(node)}
+            className={cn(node.status === "pruned" && "opacity-50")}
+          />
+        )}
+      />
+    </>
   )
 }
 
@@ -1253,7 +1236,7 @@ export function PlanView() {
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
-  const [chatOpen, setChatOpen] = useState(false)
+
 
   /** Select a node: navigate to its task detail page */
   const handleNodeSelect = useCallback((node: PlanNode | null) => {
@@ -1302,13 +1285,12 @@ export function PlanView() {
     return { viewMode: 'graph' as ViewMode, activeTab: 'plan' as const }
   }, [location.pathname])
 
-  // Redirect to default view if on base project URL
+  // Redirect bare /project/:id to /project/:id/graph
   useEffect(() => {
+    if (!id) return
     const pathParts = location.pathname.split('/')
     const lastPart = pathParts[pathParts.length - 1]
-
-    // If the URL ends with just the project ID (no view specified), redirect to graph view
-    if (lastPart === id && id) {
+    if (lastPart === id) {
       navigate(`/project/${id}/graph`, { replace: true })
     }
   }, [location.pathname, id, navigate])
@@ -1325,7 +1307,6 @@ export function PlanView() {
     if (!node) return
     const message = `Decompose @${node.title} into smaller sub-tasks with minimal overlap. Each sub-task should be agent-solvable in one session.`
     setChatInitialMessage(message)
-    setChatOpen(true)
     setSelectedNode(null)
   }, [planNodes])
 
@@ -1391,7 +1372,7 @@ export function PlanView() {
           <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0 hidden md:block" />
         </div>
 
-        {/* Plan | Overview Toggle — desktop only */}
+        {/* To Do | Prompt Toggle — desktop only */}
         <div className="hidden md:flex items-center gap-1 shrink-0">
           <button
             onClick={() => navigate(`/project/${project.id}/graph`)}
@@ -1402,7 +1383,7 @@ export function PlanView() {
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            Plan
+            To Do
           </button>
           <button
             onClick={() => navigate(`/project/${project.id}/overview`)}
@@ -1413,81 +1394,64 @@ export function PlanView() {
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            Overview
+            Prompt
           </button>
         </div>
 
-        {/* View mode toggle - only visible when Plan is active */}
-        {activeTab === "plan" && (
-          <>
-            <Separator orientation="vertical" className="h-5 shrink-0 hidden md:block" />
-            <div className="flex items-center gap-1 md:gap-2 shrink-0">
-              <div className="flex items-center gap-0.5 md:gap-1">
-                {(
-                  [
-                    { mode: "graph" as ViewMode, icon: GitBranch },
-                    { mode: "list" as ViewMode, icon: List },
-                    { mode: "timeline" as ViewMode, icon: Clock },
-                    { mode: "board" as ViewMode, icon: Kanban },
-                  ] as const
-                ).map(({ mode, icon: ModeIcon }) => (
-                  <button
-                    key={mode}
-                    onClick={() => navigate(`/project/${project.id}/${mode}`)}
-                    className={cn(
-                      "rounded-lg px-2 md:px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer capitalize flex items-center gap-1.5",
-                      viewMode === mode
-                        ? "text-accent-foreground bg-accent/10 md:bg-transparent md:border-b-2 md:border-accent"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <ModeIcon className="h-4 w-4 md:hidden" />
-                    <span className="hidden md:inline">{mode}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="hidden md:flex items-center gap-2">
-                {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
-                {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
-                {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
-                {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
-              </div>
-            </div>
-          </>
-        )}
         <div className="flex-1 min-w-0" />
 
-        {/* Action buttons - Vision/Export only visible on desktop when Plan is active */}
+        {/* View mode toggle - right-aligned, only visible when Plan is active */}
         {activeTab === "plan" && (
-          <div className="hidden md:flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={() => setVisionOpen(true)}>
-              <FileText className="h-3.5 w-3.5" />
-              Vision
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Toggle switch: Graph | List — click anywhere to swap */}
+            <button
+              type="button"
               onClick={() => {
-                const bundle = exportProject(project.id)
-                downloadBundle(bundle)
+                const isGraph = viewMode === "graph"
+                navigate(`/project/${project.id}/${isGraph ? "list" : "graph"}`)
               }}
+              className="flex items-center h-7 rounded-lg bg-muted p-0.5 cursor-pointer"
             >
-              <Download className="h-3.5 w-3.5" />
-              Export
-            </Button>
+              {(
+                [
+                  { mode: "graph" as ViewMode, icon: GitBranch, label: "Graph" },
+                  { mode: "list" as ViewMode, icon: List, label: "List" },
+                ] as const
+              ).map(({ mode, icon: ModeIcon, label }) => {
+                const isActive = viewMode === mode || (mode === "list" && (viewMode === "timeline" || viewMode === "board"))
+                return (
+                  <span
+                    key={mode}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md px-2.5 h-6 text-xs font-medium transition-all",
+                      isActive
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    <ModeIcon className="h-3.5 w-3.5" />
+                    <span className="hidden md:inline">{label}</span>
+                  </span>
+                )
+              })}
+            </button>
+            <div className="hidden md:flex items-center gap-2">
+              {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
+              {(viewMode === "list" || viewMode === "timeline" || viewMode === "board") && (
+                <DisplayPopover config={{
+                  ...(viewMode === "list" ? planListDisplayConfig : viewMode === "timeline" ? planTimelineDisplayConfig : planBoardDisplayConfig),
+                  viewAsOptions: [
+                    { value: "list", label: "List" },
+                    { value: "timeline", label: "Timeline" },
+                    { value: "board", label: "Board" },
+                  ],
+                  activeViewAs: viewMode,
+                  onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
+                }} />
+              )}
+            </div>
           </div>
         )}
-
-        {/* Chat button */}
-        <Button
-          variant={chatOpen ? "default" : "outline"}
-          size="icon"
-          className="h-8 w-8 md:h-auto md:w-auto md:px-3 md:py-1.5"
-          onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setSelectedNode(null); if (chatOpen) setChatInitialMessage(undefined) }}
-        >
-          <MessageSquare className="h-4 w-4 md:h-3.5 md:w-3.5" />
-          <span className="hidden md:inline ml-1.5">Chat</span>
-        </Button>
 
         {/* Mobile overflow menu */}
         <DropdownMenu>
@@ -1497,27 +1461,14 @@ export function PlanView() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            {/* Plan/Overview toggle */}
+            {/* To Do/Prompt toggle */}
             <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/graph`)}>
-              Plan
+              To Do
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/overview`)}>
-              Overview
+              Prompt
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {/* Vision Doc */}
-            <DropdownMenuItem onClick={() => setVisionOpen(true)}>
-              <FileText className="h-3.5 w-3.5 mr-2" />
-              Vision Doc
-            </DropdownMenuItem>
-            {/* Export */}
-            <DropdownMenuItem onClick={() => {
-              const bundle = exportProject(project.id)
-              downloadBundle(bundle)
-            }}>
-              <Download className="h-3.5 w-3.5 mr-2" />
-              Export
-            </DropdownMenuItem>
             {/* Rename */}
             <DropdownMenuItem onClick={() => setIsRenaming(true)}>
               <Pencil className="h-3.5 w-3.5 mr-2" />
@@ -1529,9 +1480,18 @@ export function PlanView() {
                 <DropdownMenuSeparator />
                 <div className="px-2 py-1.5">
                   {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
-                  {viewMode === "list" && <DisplayPopover config={planListDisplayConfig} />}
-                  {viewMode === "timeline" && <DisplayPopover config={planTimelineDisplayConfig} />}
-                  {viewMode === "board" && <DisplayPopover config={planBoardDisplayConfig} />}
+                  {(viewMode === "list" || viewMode === "timeline" || viewMode === "board") && (
+                    <DisplayPopover config={{
+                      ...(viewMode === "list" ? planListDisplayConfig : viewMode === "timeline" ? planTimelineDisplayConfig : planBoardDisplayConfig),
+                      viewAsOptions: [
+                        { value: "list", label: "List" },
+                        { value: "timeline", label: "Timeline" },
+                        { value: "board", label: "Board" },
+                      ],
+                      activeViewAs: viewMode,
+                      onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
+                    }} />
+                  )}
                 </div>
               </>
             )}
@@ -1539,65 +1499,50 @@ export function PlanView() {
         </DropdownMenu>
       </header>
 
+      {/* Working directory bar */}
+      <WorkdirBar project={project} />
+
       {/* Canvas/List + Detail/Chat pane */}
-      <div className="flex flex-1 overflow-hidden relative">
-        {activeTab === "overview" ? (
-          <OverviewTab project={project} />
-        ) : viewMode === "graph" ? (
-          <div className="flex-1 relative overflow-hidden">
-            <div className="absolute inset-0 touch-pan-x touch-pan-y">
-              <PlanCanvas projectId={project.id} onNodeSelect={handleNodeSelect} onDecomposeNode={handleDecomposeNode} />
-            </div>
-          </div>
-        ) : viewMode === "list" ? (
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <PlanListView projectId={project.id} onNodeSelect={handleNodeSelect} />
-          </div>
-        ) : viewMode === "board" ? (
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <PlanBoardView projectId={project.id} onNodeSelect={handleNodeSelect} />
-          </div>
-        ) : (
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <PlanTimelineView projectId={project.id} onNodeSelect={handleNodeSelect} />
-          </div>
-        )}
-
-        {/* No floating button needed - each view has inline creation */}
-
-        {/* Chat panel — bottom sheet on mobile, right sidebar on desktop */}
-        {chatOpen && (
-          <>
-            {/* Mobile: bottom sheet */}
-            {isMobile && (
-              <Sheet open={chatOpen} onOpenChange={(open) => { setChatOpen(open); if (!open) setChatInitialMessage(undefined) }}>
-                <SheetContent side="bottom" className="h-[80vh] w-full">
-                  <SheetHeader>
-                    <SheetTitle>Plan Chat</SheetTitle>
-                  </SheetHeader>
-                  <div className="flex-1 overflow-hidden mt-4">
-                    <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} onNodeSelect={handleChatNodeSelect} />
-                  </div>
-                </SheetContent>
-              </Sheet>
-            )}
-
-            {/* Desktop: right sidebar */}
-            {!isMobile && (
-              <div className="w-[380px] shrink-0">
-                <ChatPanel projectId={project.id} visionDoc={project.visionDoc} initialMessage={chatInitialMessage} onNodeSelect={handleChatNodeSelect} />
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex flex-1 overflow-hidden relative">
+          {activeTab === "overview" ? (
+            <OverviewTab project={project} />
+          ) : viewMode === "graph" ? (
+            <div className="flex-1 relative overflow-hidden">
+              <div className="absolute inset-0 touch-pan-x touch-pan-y">
+                <PlanCanvas projectId={project.id} onNodeSelect={handleNodeSelect} onDecomposeNode={handleDecomposeNode} />
               </div>
-            )}
-          </>
-        )}
+            </div>
+          ) : viewMode === "list" ? (
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <PlanListView projectId={project.id} onNodeSelect={handleNodeSelect} />
+            </div>
+          ) : viewMode === "board" ? (
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <PlanBoardView projectId={project.id} onNodeSelect={handleNodeSelect} />
+            </div>
+          ) : (
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <PlanTimelineView projectId={project.id} onNodeSelect={handleNodeSelect} />
+            </div>
+          )}
 
-        {/* Detail pane with Execution Panel — full-screen sheet on mobile, right sidebar on desktop */}
-        {inspectorProps && !chatOpen && (
-          <>
-            {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
-            {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
-          </>
-        )}
+          {/* Detail pane with Execution Panel — full-screen sheet on mobile, right sidebar on desktop */}
+          {inspectorProps && (
+            <>
+              {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
+              {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
+            </>
+          )}
+        </div>
+
+        {/* Chat panel — always visible as bottom resizable panel */}
+        <ChatBottomPanel
+          projectId={project.id}
+          visionDoc={project.visionDoc}
+          initialMessage={chatInitialMessage}
+          onNodeSelect={handleChatNodeSelect}
+        />
       </div>
 
       {/* Vision Document Dialog */}

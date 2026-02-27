@@ -44,6 +44,7 @@ import {
   type SessionDetachMessage,
   type SessionEventMessage,
   type SessionEvent,
+  type ExecutionSummaryResult,
 } from '../types/relay.js';
 import { machineRegistry } from './machine-registry.js';
 
@@ -481,6 +482,9 @@ interface AgentRunnerTaskResultMessage {
     branchName?: string;
     prUrl?: string;
     prNumber?: number;
+    deliveryStatus?: 'success' | 'failed' | 'skipped';
+    deliveryError?: string;
+    summary?: ExecutionSummaryResult;
   };
 }
 
@@ -539,6 +543,8 @@ export class RelayServer extends EventEmitter {
   private attachedSessions: Map<string, AttachedSession> = new Map();
   // Track which machine each task was dispatched to (for cancel without explicit machineId)
   private taskToMachine: Map<string, string> = new Map();
+  // Grace period timers for machines that disconnected — delays task failure to allow reconnection
+  private disconnectGracePeriods: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   constructor(config: Partial<RelayServerConfig> = {}) {
     super();
@@ -607,6 +613,12 @@ export class RelayServer extends EventEmitter {
         clearInterval(this.heartbeatInterval);
         this.heartbeatInterval = null;
       }
+
+      // Clear all pending disconnect grace periods
+      for (const timer of this.disconnectGracePeriods.values()) {
+        clearTimeout(timer);
+      }
+      this.disconnectGracePeriods.clear();
 
       machineRegistry.shutdown();
 
@@ -756,15 +768,16 @@ export class RelayServer extends EventEmitter {
 
     socket.on('close', (code, reason) => {
       if (currentMachineId) {
-        // Only disconnect if this socket is still the active connection for this machine.
+        // Only act if this socket is still the active connection for this machine.
         // When a machine re-registers, the old socket is closed but the registry already
         // has the new socket — disconnecting here would kill the new connection.
         const current = machineRegistry.getConnection(currentMachineId);
         if (current && current.socket === socket) {
-          console.log(`[relay] Connection closed for machine ${currentMachineId}: ${code} - ${reason.toString()}`);
-          machineRegistry.disconnect(currentMachineId, reason.toString() || `close_code_${code}`);
-          this.rateLimitState.delete(currentMachineId);
-          this.emit('machine:disconnected', currentMachineId, reason.toString());
+          const reasonStr = reason.toString() || `close_code_${code}`;
+          console.log(`[relay] Connection closed for machine ${currentMachineId}: ${code} - ${reasonStr}`);
+          // Start grace period instead of immediate disconnect — allows the agent runner
+          // to reconnect without failing active tasks
+          this.startDisconnectGracePeriod(currentMachineId, reasonStr);
         } else {
           console.log(`[relay] Stale connection closed for machine ${currentMachineId}: ${code} - ${reason.toString()} (ignored, new connection active)`);
         }
@@ -776,8 +789,8 @@ export class RelayServer extends EventEmitter {
       if (currentMachineId) {
         const current = machineRegistry.getConnection(currentMachineId);
         if (current && current.socket === socket) {
-          machineRegistry.disconnect(currentMachineId, 'socket_error');
-          this.emit('machine:disconnected', currentMachineId, 'socket_error');
+          // Start grace period instead of immediate disconnect
+          this.startDisconnectGracePeriod(currentMachineId, 'socket_error');
         }
       }
     });
@@ -1042,6 +1055,9 @@ export class RelayServer extends EventEmitter {
     const { machineId, machineInfo } = message;
 
     try {
+      // Cancel any pending disconnect grace period — machine is reconnecting
+      this.cancelDisconnectGracePeriod(machineId);
+
       // Extract userId from JWT payload stored on socket
       const jwtPayload = (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload;
       const userId = jwtPayload?.userId || LOCAL_USER_ID;
@@ -1083,6 +1099,8 @@ export class RelayServer extends EventEmitter {
    */
   private handleMachineUnregister(message: MachineUnregisterMessage): void {
     const { machineId, reason } = message;
+    // Explicit unregister — cancel any grace period and disconnect immediately
+    this.cancelDisconnectGracePeriod(machineId);
     machineRegistry.disconnect(machineId, reason || 'client_unregister');
     this.emit('machine:disconnected', machineId, reason);
   }
@@ -1260,6 +1278,7 @@ export class RelayServer extends EventEmitter {
         ...(task.deliveryMode && { deliveryMode: task.deliveryMode }),
         ...(task.remoteType && { remoteType: task.remoteType }),
         ...(task.agentDir && { agentDir: task.agentDir }),
+        ...(task.baseBranch && { baseBranch: task.baseBranch }),
         ...(task.worktreeStrategy && { worktreeStrategy: task.worktreeStrategy }),
         ...(task.useWorktree !== undefined && { useWorktree: task.useWorktree }),
         ...(task.skipSafetyCheck !== undefined && { skipSafetyCheck: task.skipSafetyCheck }),
@@ -1323,6 +1342,33 @@ export class RelayServer extends EventEmitter {
     socket.send(JSON.stringify(agentRunnerMsg));
     this.taskToMachine.delete(taskId);
     console.log(`[relay] Task ${taskId} cancel request sent to machine ${resolvedMachineId}`);
+    return true;
+  }
+
+  /**
+   * Send a cleanup command to an agent runner to remove worktree + local branch.
+   * Used by the reset function to clean up before re-execution.
+   */
+  cleanupTask(taskId: string, machineId: string, branchName?: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.warn(`[relay] Machine ${machineId} not connected for task cleanup`);
+      return false;
+    }
+
+    const cleanupMsg = {
+      type: 'task_cleanup',
+      timestamp: new Date().toISOString(),
+      payload: { taskId, branchName },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== 1 /* WebSocket.OPEN */) {
+      console.warn(`[relay] Socket not open for task cleanup on machine ${machineId}`);
+      return false;
+    }
+    socket.send(JSON.stringify(cleanupMsg));
+    console.log(`[relay] Task ${taskId} cleanup request sent to machine ${machineId}`);
     return true;
   }
 
@@ -1456,6 +1502,47 @@ export class RelayServer extends EventEmitter {
         this.emit('machine:disconnected', machineId, 'heartbeat_timeout');
       }
     );
+  }
+
+  /**
+   * Start a disconnect grace period for a machine.
+   * Instead of immediately failing tasks, detaches the socket and waits
+   * for the agent runner to reconnect. If it doesn't reconnect within
+   * the grace period, the machine is fully disconnected and tasks are failed.
+   */
+  private startDisconnectGracePeriod(machineId: string, reason: string): void {
+    // Cancel any existing grace period for this machine
+    this.cancelDisconnectGracePeriod(machineId);
+
+    // Detach socket but keep machine in registry (status → 'reconnecting')
+    machineRegistry.detachSocket(machineId);
+
+    const gracePeriodMs = this.config.disconnectGracePeriodMs;
+    console.log(`[relay] Machine ${machineId} entering disconnect grace period (${gracePeriodMs / 1000}s) — reason: ${reason}`);
+
+    const timer = setTimeout(() => {
+      this.disconnectGracePeriods.delete(machineId);
+      console.log(`[relay] Grace period expired for machine ${machineId} — disconnecting`);
+      machineRegistry.disconnect(machineId, reason);
+      this.rateLimitState.delete(machineId);
+      this.emit('machine:disconnected', machineId, reason);
+    }, gracePeriodMs);
+
+    this.disconnectGracePeriods.set(machineId, timer);
+  }
+
+  /**
+   * Cancel a pending disconnect grace period (machine reconnected).
+   */
+  private cancelDisconnectGracePeriod(machineId: string): boolean {
+    const timer = this.disconnectGracePeriods.get(machineId);
+    if (timer) {
+      clearTimeout(timer);
+      this.disconnectGracePeriods.delete(machineId);
+      console.log(`[relay] Machine ${machineId} reconnected within grace period — disconnect cancelled`);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -1607,6 +1694,9 @@ export class RelayServer extends EventEmitter {
         tags: [runnerId, version],
         metadata: { runnerId, version },
       };
+
+      // Cancel any pending disconnect grace period — machine is reconnecting
+      this.cancelDisconnectGracePeriod(machineId);
 
       // Extract userId from JWT payload stored on socket
       const jwtPayload = (socket as unknown as { jwtPayload?: MachineJWTPayload }).jwtPayload;
@@ -1874,7 +1964,7 @@ export class RelayServer extends EventEmitter {
 
   private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {
     const { payload } = message;
-    const { taskId, status, exitCode, output, error, artifacts, metrics, branchName, prUrl, prNumber } = payload;
+    const { taskId, status, exitCode, output, error, artifacts, metrics, branchName, prUrl, prNumber, deliveryStatus, deliveryError, summary } = payload;
     this.taskToMachine.delete(taskId);
 
     // Convert to standard result message
@@ -1900,6 +1990,9 @@ export class RelayServer extends EventEmitter {
         branchName,
         prUrl,
         prNumber,
+        deliveryStatus,
+        deliveryError,
+        summary,
       },
     };
     this.emit('task:result', resultMsg);
@@ -2016,7 +2109,7 @@ export class RelayServer extends EventEmitter {
   /**
    * Request a sessions list from a connected machine
    */
-  requestSessionsList(machineId: string, correlationId: string): boolean {
+  requestSessionsList(machineId: string, correlationId: string, maxAgeMs?: number): boolean {
     const connection = machineRegistry.getConnection(machineId);
     if (!connection) {
       console.error(`[relay] Machine ${machineId} not found for sessions list request`);
@@ -2026,7 +2119,7 @@ export class RelayServer extends EventEmitter {
     const msg = {
       type: 'sessions_list_request',
       timestamp: new Date().toISOString(),
-      payload: { correlationId },
+      payload: { correlationId, ...(maxAgeMs ? { maxAgeMs } : {}) },
     };
 
     const socket = connection.socket;

@@ -14,7 +14,7 @@
 export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'aws' | 'gcp' | 'custom';
 
 /** Status of a machine connection */
-export type MachineConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+export type MachineConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 
 /** Status of a provider on a machine */
 export type ProviderStatus = 'available' | 'busy' | 'unavailable' | 'error';
@@ -263,6 +263,14 @@ export interface TaskDispatch {
   agentDir?: string;
 
   /**
+   * Target branch for worktree creation and PR base (e.g., 'main', 'develop').
+   * Resolved from project.source.baseBranch at dispatch time.
+   * When provided, the agent runner uses this instead of auto-detecting from
+   * .astro/config.json or git symbolic-ref.
+   */
+  baseBranch?: string;
+
+  /**
    * Worktree strategy for non-git or copy-based execution.
    * - 'copy': Copy project files to worktree dir (default for 'copy' deliveryMode)
    * - 'reference': Create empty dir with file map (for large datasets)
@@ -321,6 +329,23 @@ export interface TaskDispatch {
   forkSession?: boolean;
 }
 
+/** Structured execution summary produced by the agent after task completion */
+export interface ExecutionSummaryResult {
+  status: 'success' | 'partial' | 'failure';
+  workCompleted: string;
+  /** 1-2 paragraph executive summary: what was done, why, approach taken, and key decisions */
+  executiveSummary?: string;
+  keyFindings: string[];
+  filesChanged: string[];
+  followUps: string[];
+  /** PR URL if the agent created a pull request during execution */
+  prUrl?: string | null;
+  /** PR number if the agent created a pull request during execution */
+  prNumber?: number | null;
+  /** Branch name the agent worked on or created */
+  branchName?: string | null;
+}
+
 /** Task result from agent runner */
 export interface TaskResult {
   taskId: string;
@@ -334,6 +359,12 @@ export interface TaskResult {
   branchName?: string;
   prUrl?: string;
   prNumber?: number;
+  /** Delivery outcome — separate from execution status */
+  deliveryStatus?: 'success' | 'failed' | 'skipped';
+  /** Error message when deliveryStatus is 'failed' */
+  deliveryError?: string;
+  /** Structured execution summary (generated via follow-up structured output turn) */
+  summary?: ExecutionSummaryResult;
   metrics?: {
     durationMs?: number;
     inputTokens?: number;
@@ -870,6 +901,7 @@ export interface RelayServerConfig {
   port: number;
   heartbeatIntervalMs: number;
   heartbeatTimeoutMs: number;
+  disconnectGracePeriodMs: number;
   maxConnectionsPerMachine: number;
   rateLimit: RateLimitConfig;
   redisUrl?: string;
@@ -880,7 +912,8 @@ export interface RelayServerConfig {
 export const DEFAULT_RELAY_CONFIG: RelayServerConfig = {
   port: 3002,
   heartbeatIntervalMs: 30000,  // 30 seconds
-  heartbeatTimeoutMs: 90000,   // 3 missed heartbeats
+  heartbeatTimeoutMs: 180000,  // 6 missed heartbeats
+  disconnectGracePeriodMs: 180000,  // 180 seconds grace period before failing tasks
   maxConnectionsPerMachine: 1,
   rateLimit: {
     windowMs: 60000,  // 1 minute

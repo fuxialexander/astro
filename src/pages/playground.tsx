@@ -20,13 +20,14 @@ import {
   Send,
   ArrowDown,
   Clock,
-  Play,
   Layers,
   Sparkles,
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -47,7 +48,7 @@ import {
   ErrorBlock,
   type DisplayBlock,
 } from "@/components/activity-blocks"
-import { ClaudeSessionBrowser } from "@/components/playground/claude-session-browser"
+import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { useClaudeSessionsStore, type ClaudeCodeSession } from "@/stores/claude-sessions-store"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { isServerMode } from "@/lib/app-mode"
@@ -61,6 +62,7 @@ function isPlaygroundProject(project: { projectType?: string; id: string }, exec
 }
 
 export function Playground() {
+  const isMobile = useMediaQuery("(max-width: 767px)")
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const projectIdParam = searchParams.get("projectId")
@@ -73,7 +75,7 @@ export function Playground() {
   const [showPathBrowser, setShowPathBrowser] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState("")
   const [selectedModel, setSelectedModel] = useState("")
-  const [sessionBrowserOpen, setSessionBrowserOpen] = useState(true)
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
 
   // Activity phase state
   const [activeProjectId, setActiveProjectId] = useState<string | null>(projectIdParam)
@@ -156,8 +158,14 @@ export function Playground() {
     }
   }, [selectedMachine?.machineId])
 
-  // If URL has projectId, transition to activity phase
+  // Sync URL → state: if URL gains a projectId we don't have, adopt it.
+  // But ignore when URL still has the stale param during handleBack (activeProjectId was just cleared).
+  const backingRef = useRef(false)
   useEffect(() => {
+    if (backingRef.current) {
+      backingRef.current = false
+      return
+    }
     if (projectIdParam && !activeProjectId) {
       setActiveProjectId(projectIdParam)
     }
@@ -247,11 +255,13 @@ export function Playground() {
 
   const isRunning = execution?.status === "pending" || execution?.status === "running"
 
-  const headerStatus = execution?.status === "success" || execution?.status === "failure"
-    ? (execution.error ? 'error' : 'completed')
-    : pendingApprovals.length > 0
-      ? 'waiting'
-      : 'running'
+  const headerStatus = execution?.status === "cancelled"
+    ? 'stopped'
+    : execution?.status === "success" || execution?.status === "failure"
+      ? (execution.error ? 'error' : 'completed')
+      : pendingApprovals.length > 0
+        ? 'waiting'
+        : 'running'
 
   // Auto-switch to trace view when activity events are empty after refresh (not running)
   useEffect(() => {
@@ -339,7 +349,7 @@ export function Playground() {
   // Send steer message
   const handleSend = useCallback(async () => {
     const text = input.trim()
-    if (!text || sending || !isRunning || !activeProjectId) return
+    if (!text || sending || !activeProjectId) return
 
     setSending(true)
     const savedInput = input
@@ -359,7 +369,7 @@ export function Playground() {
     } finally {
       setSending(false)
     }
-  }, [input, sending, isRunning, activeProjectId, execution?.executionId, addSteerMessage, steerPlaygroundSession])
+  }, [input, sending, activeProjectId, execution?.executionId, addSteerMessage, steerPlaygroundSession])
 
   // Handle approval response
   const handleApprovalResponse = useCallback(async (requestId: string, answer: string) => {
@@ -398,6 +408,7 @@ export function Playground() {
             options={event.options}
             answered={isAnswered}
             answer={responseEvent?.answer}
+            autoApproved={responseEvent?.autoApproved}
             onRespond={handleApprovalResponse}
           />
         )
@@ -411,17 +422,13 @@ export function Playground() {
 
   // Go back to landing phase
   const handleBack = useCallback(() => {
+    backingRef.current = true
     setActiveProjectId(null)
     setSearchParams({})
     setInput("")
     setFileSidebarOpen(false)
   }, [setSearchParams])
 
-  // Navigate to plan creation with playground context
-  const handleStartPlan = useCallback(() => {
-    if (!activeProjectId) return
-    navigate('/projects/new/plan', { state: { fromPlaygroundId: activeProjectId } })
-  }, [activeProjectId, navigate])
 
   // View a past session
   const viewSession = useCallback((projectId: string) => {
@@ -466,14 +473,14 @@ export function Playground() {
         <div className="flex flex-col flex-1 min-w-0 relative">
           <PlaygroundHeader
             title={sessionTitle}
-            status={headerStatus as 'running' | 'waiting' | 'completed' | 'error'}
+            status={headerStatus as 'running' | 'waiting' | 'completed' | 'error' | 'stopped'}
             machineName={machineName}
             workingDirectory={project?.workingDirectory || workingDir || undefined}
             fileSidebarOpen={fileSidebarOpen}
             onBack={handleBack}
             onAbort={() => cancelPlaygroundSession(activeProjectId)}
             onToggleFileSidebar={() => setFileSidebarOpen(!fileSidebarOpen)}
-            onStartPlan={handleStartPlan}
+
           />
 
           {/* View mode tabs — Activity / Trace */}
@@ -554,60 +561,66 @@ export function Playground() {
             </>
           )}
 
-          {/* Completion Footer */}
-          {!isRunning && execution?.status === "success" && (
-            <div className="border-t border-border bg-background shrink-0 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Session completed</span>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleStartPlan}>
-                <Sparkles className="h-3.5 w-3.5" />
-                Start Planning from This
+          {/* Input Bar — always visible for running sessions and resuming stopped ones */}
+          <div className="border-t border-border bg-background shrink-0">
+            <div className="flex items-end gap-2 p-3">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
+                placeholder={isRunning ? "Send a message..." : "Send a message to resume..."}
+                rows={1}
+                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+              />
+              <Button
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={handleSend}
+                disabled={!input.trim() || sending}
+              >
+                {sending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
               </Button>
             </div>
-          )}
-
-          {/* Input Bar */}
-          {isRunning && (
-            <div className="border-t border-border bg-background shrink-0">
-              <div className="flex items-end gap-2 p-3">
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSend()
-                    }
-                  }}
-                  placeholder="Send a message..."
-                  rows={1}
-                  className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-                />
-                <Button
-                  size="icon"
-                  className="h-9 w-9 shrink-0"
-                  onClick={handleSend}
-                  disabled={!input.trim() || sending}
-                >
-                  {sending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
 
-        {/* File Sidebar */}
-        {fileSidebarOpen && execution?.machineId && (project?.workingDirectory || workingDir) && (
-          <PlaygroundFileSidebar
-            machineId={execution.machineId}
-            machineName={machineName}
-            workingDirectory={project?.workingDirectory || workingDir}
-            onClose={() => setFileSidebarOpen(false)}
-          />
+        {/* File Sidebar — Sheet on mobile, inline on desktop */}
+        {isMobile ? (
+          <Sheet open={fileSidebarOpen} onOpenChange={setFileSidebarOpen}>
+            <SheetContent side="bottom" className="h-[70vh] w-full p-0">
+              <SheetHeader className="px-4 pt-4 pb-2">
+                <SheetTitle>Files</SheetTitle>
+              </SheetHeader>
+              {execution?.machineId && (project?.workingDirectory || workingDir) && (
+                <PlaygroundFileSidebar
+                  machineId={execution.machineId}
+                  machineName={machineName}
+                  workingDirectory={project?.workingDirectory || workingDir}
+                  onClose={() => setFileSidebarOpen(false)}
+                  embedded
+                />
+              )}
+            </SheetContent>
+          </Sheet>
+        ) : (
+          fileSidebarOpen && execution?.machineId && (project?.workingDirectory || workingDir) && (
+            <PlaygroundFileSidebar
+              machineId={execution.machineId}
+              machineName={machineName}
+              workingDirectory={project?.workingDirectory || workingDir}
+              onClose={() => setFileSidebarOpen(false)}
+            />
+          )
         )}
       </div>
     )
@@ -616,44 +629,52 @@ export function Playground() {
   // ─── Landing Phase ───────────────────────────────────────────────
   return (
     <div className="flex h-full">
-    <div className="flex flex-col items-center justify-start min-h-full p-6 overflow-auto flex-1">
+    <div className="flex flex-col items-center justify-start min-h-full p-4 md:p-6 overflow-auto flex-1">
       <div className="w-full max-w-2xl">
-        <div className="text-center mb-8 mt-8">
-          <div className="flex items-center justify-center gap-2">
-            <h1 className="text-2xl font-bold font-sans mb-2">Playground</h1>
-            {!sessionBrowserOpen && allMachines.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mb-2 gap-1.5 text-xs text-muted-foreground"
-                onClick={() => setSessionBrowserOpen(true)}
-              >
-                <Terminal className="h-3.5 w-3.5" />
-                Sessions
-              </Button>
-            )}
-          </div>
+        <div className="text-center mb-8 mt-4 md:mt-8">
+          <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">Playground</h1>
           <p className="text-sm text-muted-foreground">
-            Start a coding session. The agent has full access to your codebase — no safety checks, no planning overhead.
+            A regular Claude Code session in any of your machines.
           </p>
         </div>
 
         <div className="flex flex-col gap-4">
-          {/* Goal textarea */}
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault()
-                handleSubmit()
-              }
-            }}
-            placeholder="What would you like to work on?"
-            rows={6}
-            autoFocus
-            className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-          />
+          {/* Goal textarea + session resume */}
+          <div className="flex flex-col rounded-lg border border-border bg-background overflow-hidden focus-within:ring-2 focus-within:ring-ring">
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  handleSubmit()
+                }
+              }}
+              placeholder="What would you like to work on?"
+              rows={5}
+              autoFocus
+              className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
+            />
+
+            {/* OR divider + resume button */}
+            {(allMachines.length > 0 || playgroundHistory.length > 0) && (
+              <div className="px-4 pb-3">
+                <div className="flex items-center gap-3 mb-2.5">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">or</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSessionPickerOpen(true)}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                >
+                  <Terminal className="h-3.5 w-3.5" />
+                  Resume a previous session
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Machine selector */}
           {(isServerMode() || allMachines.length > 0) && (
@@ -729,7 +750,7 @@ export function Playground() {
 
           {/* Working directory — required, shown when a machine is selected */}
           {selectedMachine && (
-            <div className="flex flex-col gap-1.5">
+            <div className="animate-reveal flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">
                 Working directory <span className="text-destructive">*</span>
               </span>
@@ -755,7 +776,7 @@ export function Playground() {
 
           {/* Submit button */}
           <div className="flex items-center justify-end gap-3">
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground hidden md:block">
               Cmd+Enter to submit
             </p>
             <Button
@@ -784,13 +805,15 @@ export function Playground() {
               {playgroundHistory.map((p) => {
                 const exec = allExecutions.get(`playground-${p.id}`)
                 const statusLabel = exec?.status === 'running' ? 'Running'
+                  : exec?.status === 'pending' ? 'Pending'
                   : exec?.status === 'success' ? 'Completed'
                   : exec?.status === 'failure' ? 'Failed'
-                  : exec?.status === 'cancelled' ? 'Cancelled'
-                  : 'Pending'
+                  : exec?.status === 'cancelled' ? 'Stopped'
+                  : ''
                 const statusColor = exec?.status === 'running' ? 'bg-primary'
+                  : exec?.status === 'pending' ? 'bg-muted-foreground'
                   : exec?.status === 'success' ? 'bg-success'
-                  : exec?.status === 'failure' ? 'bg-destructive'
+                  : exec?.status === 'failure' || exec?.status === 'cancelled' ? 'bg-destructive'
                   : 'bg-muted-foreground'
 
                 return (
@@ -807,14 +830,16 @@ export function Playground() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant="outline" className="text-[10px]">
-                        {statusLabel}
-                      </Badge>
+                      {statusLabel && (
+                        <Badge variant="outline" className="text-[10px] hidden md:inline-flex">
+                          {statusLabel}
+                        </Badge>
+                      )}
                       {exec?.status === 'success' && (
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-6 text-[10px] gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
+                          className="h-6 text-[10px] gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hidden md:inline-flex"
                           onClick={(e) => {
                             e.stopPropagation()
                             navigate('/projects/new/plan', { state: { fromPlaygroundId: p.id } })
@@ -823,9 +848,6 @@ export function Playground() {
                           <Sparkles className="h-3 w-3" />
                           Plan
                         </Button>
-                      )}
-                      {exec?.status !== 'running' && exec?.status !== 'pending' && (
-                        <Play className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity" />
                       )}
                       <button
                         onClick={(e) => {
@@ -859,13 +881,14 @@ export function Playground() {
       </div>
     </div>
 
-    {/* Claude Code Session Browser sidebar */}
-    {sessionBrowserOpen && allMachines.length > 0 && (
-      <ClaudeSessionBrowser
-        onSelectSession={handleForkSession}
-        onClose={() => setSessionBrowserOpen(false)}
-      />
-    )}
+    {/* Session picker dialog */}
+    <SessionPickerDialog
+      open={sessionPickerOpen}
+      onOpenChange={setSessionPickerOpen}
+      onSelectSession={handleForkSession}
+      playgroundSessions={playgroundHistory}
+      onSelectPlaygroundSession={viewSession}
+    />
     </div>
   )
 }

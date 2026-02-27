@@ -26,6 +26,8 @@ export interface SessionMessage {
 
 export interface ExecutionSummary {
   workCompleted: string;
+  /** 1-2 paragraph executive summary: what was done, why, approach taken, and key decisions */
+  executiveSummary?: string;
   keyFindings: string[];
   filesChanged: string[];
   status: 'success' | 'partial' | 'failure';
@@ -144,7 +146,7 @@ export interface Project {
   deliveryMode?: DeliveryMode
   agentDir?: string
   worktreeStrategy?: WorktreeStrategy
-  projectType?: 'default' | 'playground' | 'github'
+  projectType?: 'default' | 'playground' | 'github' | 'plan'
   githubOwner?: string
   githubRepo?: string
   githubRepoId?: number
@@ -275,7 +277,7 @@ export type TaskActivityEvent =
   | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: Date }
   | { type: 'error'; error: string; timestamp: Date }
   | { type: 'approval_request'; requestId: string; question: string; options: string[]; timestamp: Date }
-  | { type: 'approval_response'; requestId: string; question: string; answer: string; timestamp: Date }
+  | { type: 'approval_response'; requestId: string; question: string; answer: string; autoApproved?: boolean; timestamp: Date }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {
@@ -309,6 +311,10 @@ export interface TaskExecution {
   branchName?: string;
   prUrl?: string;
   prNumber?: number;
+  /** Delivery outcome — separate from execution status */
+  deliveryStatus?: 'success' | 'failed' | 'skipped';
+  /** Error message when deliveryStatus is 'failed' */
+  deliveryError?: string;
   computeBackend?: string;
   summary?: ExecutionSummary;
   subroutineProgress?: {

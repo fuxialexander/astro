@@ -97,15 +97,59 @@ Frontend: Render dependency graph in React Flow
 
 ## Features
 
-- **AI-Powered Planning**: Decompose goals into dependency graphs with AI
-- **Multi-Environment Execution**: Local, Docker, HPC (SLURM), Kubernetes, cloud
-- **Real-time Streaming**: Live task output, tool traces, file changes via SSE
-- **Git Worktree Isolation**: Each task runs on its own branch in an isolated worktree
-- **Automatic PR Creation**: Completed tasks push branches and create pull requests
-- **Safety System**: Git state checks prevent unsafe concurrent execution
-- **Device Authentication**: OAuth2 device code flow (RFC 8628) for secure machine registration
-- **Visual Planning**: Interactive directed graph with React Flow
-- **Context Injection**: Vision doc + dependency outputs injected into every AI session
+### AI-Powered Planning
+Decompose complex goals into structured dependency graphs with AI assistance. Astro analyzes your project description and automatically generates a plan with explicit task dependencies, enabling strategic oversight and parallel execution planning.
+
+### Multi-Environment Execution
+Run tasks across diverse compute environments without rewriting workflows:
+- **Local**: Execute on your machine (laptop, workstation)
+- **Docker**: Containerized execution for reproducible environments
+- **HPC (SLURM)**: Submit jobs to high-performance computing clusters
+- **Kubernetes**: Orchestrated container workloads
+- **Cloud**: AWS, GCP, or other cloud platforms
+
+The dispatch system automatically selects the optimal environment based on task requirements and machine availability.
+
+### Real-time Streaming
+Monitor task execution in real-time with live SSE (Server-Sent Events) streaming:
+- **Task Output**: Live stdout/stderr with syntax highlighting and search
+- **Tool Traces**: Detailed timeline of tool calls (searches, API calls, file ops) with input/output inspection
+- **File Changes**: Track modified files and view inline diffs as the agent works
+- **Progress Updates**: Real-time progress indicators and status changes
+
+### Git Worktree Isolation
+Each task executes in its own isolated git worktree on a unique branch. This prevents concurrent tasks from interfering with each other and allows safe parallel execution. Branches are automatically cleaned up after task completion.
+
+### Automatic PR Creation
+Completed tasks automatically push their branches and create pull requests, streamlining code review workflows. The system respects your delivery mode preferences (PR, direct push, branch-only, etc.) and includes execution summaries in PR descriptions.
+
+### Safety System
+Built-in guardrails prevent unsafe concurrent execution:
+- **Git State Checks**: Verify clean working trees before task dispatch
+- **Conflict Prevention**: Prevent concurrent writes to the same files
+- **Graceful Cancellation**: Cancel downstream tasks when dependencies fail
+- **Rollback Capability**: Revert changes if verification fails
+
+### Device Authentication
+Secure machine registration using OAuth2 device code flow (RFC 8628):
+- **No Credential Passing**: Devices authenticate without exposing secrets
+- **User Verification**: Browser-based verification during registration
+- **Token Management**: Automatic token lifecycle management (refresh, revoke)
+- **Multi-Device Support**: Register multiple machines to the same team account
+
+### Visual Planning
+Interactive directed graph visualization of your plan:
+- **React Flow Canvas**: Pan, zoom, and explore the dependency graph
+- **Node Details**: Click nodes to view/edit task properties, estimates, and status
+- **Dynamic Layout**: Automatic graph layout with explicit dependency visualization
+- **Real-time Updates**: Watch nodes update as tasks execute
+
+### Context Injection
+Persistent context automatically injected into every AI session:
+- **Vision Document**: Project-level context describing product goals or research questions
+- **Dependency Outputs**: Results from upstream tasks feed into downstream task contexts
+- **Codebase Context**: Relevant code files and repository metadata automatically included
+- **Smart Filtering**: Only relevant context is included to stay within token budgets
 
 ## Prerequisites
 
@@ -122,7 +166,13 @@ Astro runs in two modes. Pick the one that fits your needs.
 
 ### Workflow A: Local Mode (single user, no auth)
 
-Everything runs on your machine. PGlite (Postgres-in-WASM) runs in-process — no Docker, no Supabase, no external services.
+Everything runs on your machine with zero external dependencies. PGlite (Postgres-in-WASM) runs in-process — no Docker, no Supabase, no external services needed.
+
+**What you'll get:**
+- Full Astro UI at `http://localhost:5173`
+- AI-powered planning and task execution
+- All data stored locally (no external DB)
+- Perfect for rapid prototyping and testing
 
 **Step 1.** Clone and install:
 ```bash
@@ -134,26 +184,38 @@ npm install
 
 **Step 2.** Initialize environment (one-time):
 ```bash
-cp .env.example .env     # Create shared env file (defaults work for local)
+cp .env.example .env     # Create shared env file
 npm run env:init         # Generate env profiles (.env.local.dev, .env.prod)
 ```
 
-**Step 3.** Start everything (frontend + backend + relay + agent runner):
+**Step 3.** Start everything:
 ```bash
 npm run dev:local
 ```
 
-**Step 4.** Open http://localhost:5173. You're done.
+This single command:
+- Switches to local mode (enables PGlite)
+- Starts the Vite dev server (frontend, port 5173)
+- Starts the Hono API server (backend, port 3001)
+- Starts the WebSocket relay (port 3002)
+- Automatically starts an agent runner subprocess
 
-The agent runner starts automatically as a subprocess — it connects to the local relay on `ws://localhost:3002` and executes AI tasks using your local Claude CLI credentials (`claude login`).
+**Step 4.** Open `http://localhost:5173` and you're ready to go.
+
+**Before you start:** Ensure Claude CLI is authenticated locally:
+```bash
+claude login    # Saves credentials to ~/.claude/
+```
+
+The agent runner automatically connects to the local relay and uses your Claude CLI credentials for AI execution. You'll see it appear in the **Environments** section of the UI once it connects.
 
 ### Workflow B: Server Mode (multi-user, deployed)
 
-Backend runs on Fly.io, frontend on Cloudflare Pages, data in remote Supabase. Agent runners connect from user machines via WebSocket.
+For teams and production deployments. Backend runs on Fly.io, frontend on Cloudflare Pages, data in remote Supabase. Agent runners on user machines connect via WebSocket.
 
 > **Org deployment:** If multiple team members need to deploy independently from their own machines, see [docs/setup/org-deployment.md](docs/setup/org-deployment.md).
 
-**Step 1.** Clone and install (same as above):
+**Step 1.** Clone and install:
 ```bash
 git clone --recurse-submodules git@github.com:fuxialexander/astro.git
 cd astro
@@ -161,45 +223,114 @@ nvm use
 npm install
 ```
 
-**Step 2.** Initialize environment (one-time):
+**Step 2.** Create and fill environment files:
 ```bash
-cp .env.example .env   # Create shared env file
-# Edit .env: set JWT secrets (openssl rand -hex 32), FLY_APP, CLOUDFLARED_DOMAIN
-npm run env:init       # Generates .env.local.dev and .env.prod from .env
+cp .env.example .env
+# Edit .env with:
+#   - JWT secrets: openssl rand -hex 32
+#   - FLY_APP: your desired Fly.io app name (must be globally unique)
+#   - CLOUDFLARED_DOMAIN: your deployment domain
+npm run env:init       # Generates .env.local.dev and .env.prod
 ```
 
-**Step 3.** Fill in prod credentials:
+**Step 3.** Fill in production credentials:
 ```bash
-# Edit .env.prod: add your remote Supabase credentials (URL, anon key, service role key)
+# Edit .env.prod and add:
+#   - Supabase URL, anon key, and service role key
+#   - Frontend domain (Cloudflare Pages URL)
 ```
 
-**Step 4.** Switch to prod mode and deploy:
+**Step 4.** Deploy:
 ```bash
-npm run env:prod      # Symlinks .env.local → .env.prod
-npm run deploy        # Deploys backend (Fly.io) + frontend (Cloudflare Pages)
+npm run env:prod      # Symlink .env.local → .env.prod (activates prod mode)
+npm run deploy        # Deploys backend to Fly.io + frontend to Cloudflare Pages
 ```
 
-**Step 4.** Connect an agent runner from any machine:
+**Step 5.** Verify the deployment:
+```bash
+curl -s https://<your-fly-app>.fly.dev/api/health | python3 -m json.tool
+```
+
+**Step 6.** Connect agent runners from user machines:
 ```bash
 npx tsx packages/agent-runner/src/cli.ts launch --force-setup \
   --api https://<your-fly-app>.fly.dev \
   --relay wss://<your-fly-app>.fly.dev:3002
 ```
-This runs device auth (opens a browser for verification) and starts the agent in foreground mode. The agent connects to the relay and appears in the web UI under Environments.
+
+This starts device authentication (opens a browser for secure verification) and launches the agent. Once connected, the agent appears in the **Environments** section of the web UI.
 
 ### Running Components Separately
 
+You can start each component individually for debugging or selective development.
+
 ```bash
-npm run dev:frontend   # Vite only (port 5173)
-npm run dev:backend    # Hono + relay only (ports 3001, 3002)
-npm run dev:agent      # Agent runner only (connects to ws://localhost:3002)
+# Terminal 1: Start the frontend dev server
+npm run dev:frontend   # Vite dev server only (http://localhost:5173)
+
+# Terminal 2: Start the backend (API + relay)
+npm run dev:backend    # Hono API server + WebSocket relay (ports 3001, 3002)
+
+# Terminal 3: Start the agent runner separately
+npm run dev:agent      # Agent subprocess (auto-connects to ws://localhost:3002)
 ```
+
+**When to use this:**
+- Debugging a specific component without restarting everything
+- Working on UI without touching the backend
+- Testing backend changes without rebuilding the frontend
+- Profiling or adding logging to specific processes
+
+**Note:** In local mode, `npm run dev:local` starts all three automatically in one process. Separating them is useful for more granular development.
 
 ### Verify Setup
 
 ```bash
 npm run verify    # Check Node version, deps, ports, config
 ```
+
+### Troubleshooting Common Setup Issues
+
+**Issue: Port already in use (5173, 3001, 3002)**
+```bash
+# Kill processes on those ports (macOS/Linux)
+lsof -ti:5173 | xargs kill -9
+lsof -ti:3001 | xargs kill -9
+lsof -ti:3002 | xargs kill -9
+
+# Then restart with npm run dev:local
+```
+
+**Issue: Node version mismatch**
+- Ensure you've run `nvm use` to load the version from `.nvmrc`
+- Run `node --version` to verify (should be 25.6.0 or higher)
+- If `nvm` is not installed, see [nvm documentation](https://github.com/nvm-sh/nvm)
+
+**Issue: Claude CLI not authenticated**
+- Agent runner needs Claude credentials to execute tasks
+- Run `claude login` to authenticate (credentials saved to `~/.claude/`)
+- For server mode: set `ANTHROPIC_API_KEY` in `.env.prod`
+
+**Issue: Agent runner fails to start**
+- Check that ports 3002 (relay) and 3001 (API) are available
+- Verify Claude CLI is installed: `which claude`
+- Check logs: `npm run dev:local` shows stderr from subprocesses
+- Try running the agent manually: `npm run dev:agent`
+
+**Issue: Supabase not starting in dev mode**
+- Dev mode requires Docker running
+- If you see "connection refused", start Docker and retry: `npm run dev:dev`
+- For local-only development, use `npm run dev:local` (no Docker needed)
+
+**Issue: Environment file errors**
+- Ensure `.env` exists: `cp .env.example .env`
+- Verify `.env.local` is a symlink (not a copy) after mode switch
+- Check that mode-specific files exist: `ls -la .env.local*`
+
+**Still stuck?** See the full setup guides:
+- Local mode: [docs/setup/local-mode.md](docs/setup/local-mode.md)
+- Server mode: [docs/setup/server-mode.md](docs/setup/server-mode.md)
+- Environment variables: [docs/setup/environment-variables.md](docs/setup/environment-variables.md)
 
 ## Agent Runner
 

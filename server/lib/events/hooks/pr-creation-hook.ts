@@ -53,8 +53,8 @@ export const prCreationHook: EventHook = async (event: AstroEvent) => {
 
   console.log(`[pr-creation-hook] Processing task.completed: nodeId=${node.id}, status=${result.status}, prUrl=${result.prUrl}, prNumber=${result.prNumber}, branchName=${result.branchName}`)
 
-  // Only process successful tasks
-  if (result.status !== 'success') return
+  // Persist PR data whenever prUrl/prNumber/branchName exist, regardless of execution status.
+  // Delivery may have succeeded even if execution failed, or the agent may have created a PR itself.
 
   // Path 1: Agent already created PR — just record it
   if (result.prUrl && result.prNumber) {

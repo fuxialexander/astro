@@ -547,14 +547,16 @@ export function ItemTimelineView<T>({
                     {onDateChange && (
                       <>
                         <div
-                          className="drag-handle absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
-                          onMouseDown={(e) => handleDragMouseDown(e, "left", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate)}
+                          className="drag-handle absolute top-0 bottom-0 w-3 -left-1.5 cursor-col-resize flex items-center justify-center z-10"
+                          onMouseDown={(e) => { e.stopPropagation(); handleDragMouseDown(e, "left", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate) }}
+                          onClick={(e) => e.stopPropagation()}
                         >
                           <div className="w-0.5 h-2 rounded-full bg-white/60" />
                         </div>
                         <div
-                          className="drag-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize flex items-center justify-center"
-                          onMouseDown={(e) => handleDragMouseDown(e, "right", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate)}
+                          className="drag-handle absolute top-0 bottom-0 w-3 -right-1.5 cursor-col-resize flex items-center justify-center z-10"
+                          onMouseDown={(e) => { e.stopPropagation(); handleDragMouseDown(e, "right", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate) }}
+                          onClick={(e) => e.stopPropagation()}
                         >
                           <div className="w-0.5 h-2 rounded-full bg-white/60" />
                         </div>

@@ -398,7 +398,7 @@ export function TaskDetail() {
 
       {/* Completion Banner for finished tasks */}
       {(node.status === "auto_verified" || node.status === "completed") && node.executionCompletedAt && !isRunning && (
-        <div className="px-4 md:px-6 pt-3">
+        <div className="px-4 md:px-6 pt-3 space-y-2">
           <div className={cn(
             "flex items-center gap-2.5 rounded-lg border px-4 py-2.5 text-sm",
             execution?.status === "failure"
@@ -432,6 +432,15 @@ export function TaskDetail() {
               </>
             )}
           </div>
+          {/* Delivery failure warning — shown when task succeeded but delivery (push/PR) failed */}
+          {execution?.deliveryStatus === "failed" && execution?.deliveryError && (
+            <div className="flex items-center gap-2.5 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-sm text-warning">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span className="font-medium">Delivery failed</span>
+              <span className="text-xs opacity-70">&middot;</span>
+              <span className="text-xs opacity-70 truncate">{execution.deliveryError}</span>
+            </div>
+          )}
         </div>
       )}
 
