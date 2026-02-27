@@ -23,7 +23,7 @@ import {
   templateToMarkdown,
   loadTemplateFromMarkdown,
 } from '../../index.js'
-import type { UseCaseTemplate } from '../../../types/use-case-template.js'
+// UseCaseTemplate type used implicitly via template objects
 
 // ────────────────────────────────────────────────────────────────────────────
 // Registry Integration Tests

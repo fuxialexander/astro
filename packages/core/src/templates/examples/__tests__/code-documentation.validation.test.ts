@@ -52,7 +52,8 @@ const MULTI_REPO_PARAMETERS = {
 // Expected Output Structure
 // ────────────────────────────────────────────────────────────────────────────
 
-const EXPECTED_OUTPUT_STRUCTURE = {
+/** Expected output structure for reference (used in example outputs below) */
+export const EXPECTED_OUTPUT_STRUCTURE = {
   rootFiles: [
     'index.md',       // Landing page
     'sidebar.js',     // Navigation (Docusaurus)
@@ -664,11 +665,13 @@ describe('Code Documentation Generator Template', () => {
     })
 
     it('targets reasonable node count', () => {
-      expect(template.planHints?.targetNodeCount?.min).toBeGreaterThanOrEqual(6)
-      expect(template.planHints?.targetNodeCount?.max).toBeLessThanOrEqual(20)
-      expect(template.planHints?.targetNodeCount?.min).toBeLessThan(
-        template.planHints?.targetNodeCount?.max!
-      )
+      const nodeCount = template.planHints?.targetNodeCount
+      expect(nodeCount).toBeDefined()
+      expect(nodeCount?.min).toBeGreaterThanOrEqual(6)
+      expect(nodeCount?.max).toBeLessThanOrEqual(20)
+      if (nodeCount) {
+        expect(nodeCount.min).toBeLessThan(nodeCount.max)
+      }
     })
 
     it('has four suggested milestones', () => {
