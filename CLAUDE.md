@@ -363,6 +363,7 @@ docs/
 - **Plan graph**: Core data model is a directed graph (not a flat list) supporting linear pipelines and branching exploration trees with explicit dependencies
 - **Tiered verification**: Auto-close for verifiable tasks (tests pass, build succeeds), human judgment for strategic/product decisions
 - **Multi-environment dispatch**: Tasks run across local machines, HPC clusters (Slurm), and cloud (AWS/GCP)
+- **Dispatch signing**: ECDSA P-256 browser-based signing of all task dispatches; agent runner verifies before execution (prevents replay/tampering)
 - **Vision/context injection**: A persistent document describing product vision or research question is injected into every agent session, above codebase context
 - **Branch pruning**: Killing a branch auto-cancels all downstream tasks
 - **Agent-agnostic execution**: Wraps existing agents (e.g., Claude Code), does not build custom agents
@@ -373,6 +374,7 @@ docs/
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
 - **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
 - **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
+- **Short IDs**: Projects and nodes display short 6-character hex IDs (from UUID prefix) instead of sequential numbers; topology-based ordering
 
 ## Target Users
 
@@ -382,10 +384,13 @@ docs/
 ## Code Patterns
 
 - Use `cn()` from `@/lib/utils` for Tailwind class merging
+- **Short IDs**: Use `getShortId()` utility for display (first 6 hex chars of UUID); replace sequential numbering for project/node references
+- **Mobile responsiveness**: Use `useMediaQuery` hook (extracted in `@/lib/utils.ts`) for responsive UI; `md:` breakpoint commonly used for tablet/desktop distinctions
 - Follow existing shadcn/ui component patterns in `src/components/ui/`
 - Zustand stores: use `(s) => s.field` selectors, persist via `dataClient` → `/api/data/*`
 - React Flow: define node data type as `type TaskNodeData = Node<{ ... }>`, use `NodeProps<TaskNodeData>`, cast `nodeTypes` to `any`; wrap in `ReactFlowProvider` when using `useReactFlow()` hooks
 - Task creation: use `TaskCreationForm` component with `mode="inline"|"popover"|"dialog"`; creates nodes via `usePlanStore.addNode()` + `addEdge()`
+- **Dispatch signing**: Every task dispatch signed with ECDSA P-256 (browser keypair); agent runner verifies before execution; includes nodeId, projectId, machineId, timestamp, nonce; replay prevention via 5-min window + nonce tracking
 - SSE streaming: use `readSSE()` from `api-client.ts` for server-sent events
 - Status types: `planned | dispatched | in_progress | auto_verified | awaiting_approval | awaiting_judgment | completed | pruned`
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
@@ -406,6 +411,21 @@ docs/
 ## UI/Design
 
 **When matching a design reference, ask clarifying questions about visual style (glassmorphism, flat, material weight) BEFORE implementing. Start with a small component to validate the approach.**
+
+## Security & Authentication
+
+**Dispatch Signing**
+- Browser generates ECDSA P-256 keypair on first run, stored in IndexedDB
+- Every task dispatch is signed by the browser; payload includes `nodeId`, `projectId`, `machineId`, `timestamp`, `nonce`
+- Agent runner receives `dispatchSignature` + `dispatchSigningPayload`, verifies before task execution
+- Replay prevention: nonce tracking + 5-minute timestamp validation window
+- Multi-key support: one keypair per browser client, agent runner maintains key registry per project
+
+**Auth Enforcement**
+- `requireAuth` middleware added to sensitive routes (device-auth, fs, observations, notifications, repo, skills)
+- Use authenticated `userId` from Supabase session, never accept `userId` from request body
+- Machine simulation (`simulate-machine`) blocked in production environments
+- SSE scoping: event stream includes auth checks, user receives only their project/task events
 
 ## Error Handling
 
