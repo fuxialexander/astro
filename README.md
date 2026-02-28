@@ -98,7 +98,7 @@ Frontend: Render dependency graph in React Flow
 ## Features
 
 ### AI-Powered Planning
-Decompose complex goals into structured dependency graphs with AI assistance. Astro analyzes your project description and automatically generates a plan with explicit task dependencies, enabling strategic oversight and parallel execution planning.
+Decompose complex goals into dependency graphs with AI assistance. Automatically generates plans with explicit task dependencies for strategic oversight and parallel execution.
 
 ### Multi-Environment Execution
 Run tasks across diverse compute environments without rewriting workflows:
@@ -111,49 +111,29 @@ Run tasks across diverse compute environments without rewriting workflows:
 The dispatch system automatically selects the optimal environment based on task requirements and machine availability.
 
 ### Real-time Streaming
-Monitor task execution in real-time with live SSE (Server-Sent Events) streaming:
-- **Task Output**: Live stdout/stderr with syntax highlighting and search
-- **Tool Traces**: Detailed timeline of tool calls (searches, API calls, file ops) with input/output inspection
-- **File Changes**: Track modified files and view inline diffs as the agent works
-- **Progress Updates**: Real-time progress indicators and status changes
+Monitor task execution via live Server-Sent Events: task output with syntax highlighting, tool call traces, file diffs, and real-time progress updates.
 
 ### Git Worktree Isolation
-Each task executes in its own isolated git worktree on a unique branch. This prevents concurrent tasks from interfering with each other and allows safe parallel execution. Branches are automatically cleaned up after task completion.
+Each task runs in its own isolated git worktree with automatic cleanup, enabling safe parallel execution without conflicts.
 
 ### Automatic PR Creation
-Completed tasks automatically push their branches and create pull requests, streamlining code review workflows. The system respects your delivery mode preferences (PR, direct push, branch-only, etc.) and includes execution summaries in PR descriptions.
+Completed tasks automatically create pull requests with execution summaries. The system respects delivery mode preferences (PR, direct push, branch-only) for flexible code review workflows.
 
 ### Safety System
-Built-in guardrails prevent unsafe concurrent execution:
-- **Git State Checks**: Verify clean working trees before task dispatch
-- **Conflict Prevention**: Prevent concurrent writes to the same files
-- **Graceful Cancellation**: Cancel downstream tasks when dependencies fail
-- **Rollback Capability**: Revert changes if verification fails
+Built-in guardrails: git state checks, conflict prevention, graceful cancellation of downstream tasks on failure, and rollback capabilities.
 
 ### Device Authentication
-Secure machine registration using OAuth2 device code flow (RFC 8628):
-- **No Credential Passing**: Devices authenticate without exposing secrets
-- **User Verification**: Browser-based verification during registration
-- **Token Management**: Automatic token lifecycle management (refresh, revoke)
-- **Multi-Device Support**: Register multiple machines to the same team account
+Secure machine registration via OAuth2 device code flow (RFC 8628) with automatic token lifecycle management, browser-based verification, and multi-device support.
 
 ### Visual Planning
-Interactive directed graph visualization of your plan:
-- **React Flow Canvas**: Pan, zoom, and explore the dependency graph
-- **Node Details**: Click nodes to view/edit task properties, estimates, and status
-- **Dynamic Layout**: Automatic graph layout with explicit dependency visualization
-- **Real-time Updates**: Watch nodes update as tasks execute
+Interactive React Flow graph with pan/zoom, editable node details, automatic layout, and real-time execution updates.
 
 ### Context Injection
-Persistent context automatically injected into every AI session:
-- **Vision Document**: Project-level context describing product goals or research questions
-- **Dependency Outputs**: Results from upstream tasks feed into downstream task contexts
-- **Codebase Context**: Relevant code files and repository metadata automatically included
-- **Smart Filtering**: Only relevant context is included to stay within token budgets
+Persistent context auto-injected: vision documents, upstream task results, codebase files, and smart filtering to optimize token usage.
 
 ## Celltype/CLI Integration: Biomedical Research Toolkit
 
-Astro integrates with **celltype/cli**, an autonomous drug discovery and biomedical research platform with 190+ computational biology tools. This enables researchers to leverage advanced analysis capabilities directly within Astro tasks.
+Astro integrates with **celltype/cli**, a biomedical research platform with 190+ computational biology tools for target discovery, molecular design, genomics, clinical development, and safety assessment.
 
 ### Available Research Tools
 
@@ -222,16 +202,9 @@ Astro integrates with **celltype/cli**, an autonomous drug discovery and biomedi
 
 ### Using Celltype Tools in Astro
 
-Create plan nodes that leverage these tools for structured biomedical research:
+Create plan nodes leveraging celltype/cli tools: target discovery, molecular design, clinical development, and genomics tasks. Results from upstream analyses automatically feed downstream task contexts for complex multi-step research workflows with full dependency tracking.
 
-1. **Target Discovery Task**: Query disease associations → validate with expression data → assess druggability
-2. **Molecular Design Task**: Predict structures → dock compounds → optimize via FEP
-3. **Clinical Development Task**: Indication mapping → population sizing → trial search → competitive analysis
-4. **Genomics Task**: GWAS associations → eQTL colocalization → variant annotation → causal prioritization
-
-Each task can specify which tool category it uses, and results from upstream analyses automatically feed downstream task contexts. This enables complex multi-step research workflows with full dependency tracking.
-
-For complete tool documentation, see the [celltype/cli documentation](https://github.com/celltype-ai/celltype) or the individual skill references below the Features section.
+For complete tool documentation, see the [celltype/cli repository](https://github.com/celltype-ai/celltype).
 
 ## Prerequisites
 
@@ -248,7 +221,7 @@ Astro runs in two modes. Pick the one that fits your needs.
 
 ### Workflow A: Local Mode (single user, no auth)
 
-Everything runs on your machine with zero external dependencies. PGlite (Postgres-in-WASM) runs in-process — no Docker, no Supabase, no external services needed.
+Everything runs on your machine with zero external dependencies. PGlite (Postgres-in-WASM) runs in-process, so no Docker or external services are required.
 
 **What you'll get:**
 - Full Astro UI at `http://localhost:5173`
@@ -293,7 +266,7 @@ The agent runner automatically connects to the local relay and uses your Claude 
 
 ### Workflow B: Server Mode (multi-user, deployed)
 
-For teams and production deployments. Backend runs on Fly.io, frontend on Cloudflare Pages, data in remote Supabase. Agent runners on user machines connect via WebSocket.
+Deploy to production with multi-user support. Backend runs on Fly.io, frontend on Cloudflare Pages, and data persists in remote Supabase. Agent runners on user machines connect via WebSocket.
 
 > **Org deployment:** If multiple team members need to deploy independently from their own machines, see [docs/setup/org-deployment.md](docs/setup/org-deployment.md).
 
