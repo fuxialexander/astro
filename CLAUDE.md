@@ -516,10 +516,12 @@ docs/
 - **Provider adapters** live in `packages/agent-runner/src/providers/` (base adapter, SLURM adapter)
 - **Dispatch engine** (`server/lib/dispatch/`) routes tasks through a queue → machine selection → execution → result routing
 - **Dispatch logic shared** via `packages/core/src/dispatch/` (types, context assembly, result routing, branch management, payload construction)
-- **Context assembler** injects vision doc + dependency context into each task
+- **Dispatch security**: Browser generates ECDSA P-256 signature (via `src/lib/dispatch-signing.ts`) included in dispatch payload; agent runners verify signature against user's public key to ensure authenticity
+- **Context assembler** injects vision doc + dependency context into each task; propagates `userId` through relay dispatch and machine selection for proper access control
 - **Streaming events**: `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
 - **Usage metrics**: Execution results include `UsageMetrics` (cost, tokens, model, turns); accumulated in `usage-store` per session
-- **Device auth flow**: OAuth2 Device Authorization Grant (RFC 8628) for machine registration
+- **Device auth flow**: OAuth2 Device Authorization Grant (RFC 8628) for machine registration; machines authenticated via JWT tokens stored in `registered-machines-store.ts`
+- **Relay dispatch**: WebSocket relay accepts task dispatch with `dispatchSignature` and validates before forwarding to connected agent runners; single-instance relay mode (no Redis) supported locally
 
 ## Key Concepts
 
@@ -530,12 +532,14 @@ docs/
 - **Branch pruning**: Killing a branch auto-cancels all downstream tasks
 - **Agent-agnostic execution**: Wraps existing agents (e.g., Claude Code), does not build custom agents
 - **Data flywheel**: Planning traces (decomposition, overrides, pruning decisions, outcomes) improve future plans via context engineering, not model retraining
-- **Activity Feed**: Real-time activity tracking system, captures all project/task events
+- **Activity Feed**: Real-time activity tracking system, captures all project/task events with persistence via relay fallback for page refresh resilience
 - **Approval System**: Dynamic tool-based approvals (`ask_user_question`) + procedure-level approvals with SSE notifications
 - **Realtime Sync**: Multi-device collaboration via Supabase Realtime with optimistic updates and conflict resolution
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
 - **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
 - **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
+- **Dispatch Security**: Browser-side ECDSA P-256 signing ensures task dispatches originate from the user's browser (not a compromised server); signatures include nodeId, projectId, machineId, timestamp, and nonce to prevent replay and redirection attacks
+- **Execution Constraints**: `maxTurns` parameter (default 100) controls maximum number of agent turns per task, preventing runaway executions; configurable per-task for specific scenarios (e.g., 200 for complex tasks)
 
 ## Target Users
 
@@ -557,6 +561,10 @@ docs/
 - Display settings: `DisplayPopover` component with `DisplayPopoverConfig` for per-view groupBy/orderBy/properties
 - Usage tracking: `useUsageStore` accumulates session metrics (cost, tokens, task counts) from execution results
 - Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`
+- Dispatch signing: Use `generateDispatchKeyPair()`, `signDispatchIntent()`, and `getSigningPrivateKey()` from `src/lib/dispatch-signing.ts` to create browser-side signatures; keys stored in IndexedDB; always include `dispatchSignature` and `dispatchSigningPayload` when dispatching tasks via relay
+- Execution constraints: Pass `maxTurns` option to `startExecution()` (defaults to 100); override with 200 for complex multi-step tasks requiring deeper reasoning or exploration
+- Plan extraction: Use `extractPlanFromJSON()` from `src/lib/plan-extraction.ts` which handles multi-fence code blocks (e.g., "```json" and "```\njson") to robustly find plan JSON in agent streaming output
+- Activity persistence: Activity events sync via relay-direct SSE fallback if normal SSE connection drops, ensuring page refresh doesn't lose real-time updates; activity store combines relay events with stored history
 
 ## Database
 
