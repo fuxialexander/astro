@@ -6,7 +6,7 @@
  */
 
 import { db } from './db/index.js';
-import { taskExecutions, taskChatSessions, pushTokens } from './db/schema.js';
+import { taskExecutions, taskChatSessions, pushTokens, streamingEvents } from './db/schema.js';
 import { lt } from 'drizzle-orm';
 import { cleanupExpiredTokens } from './token-manager.js';
 
@@ -124,6 +124,33 @@ async function cleanupExpiredPushTokens(): Promise<number> {
 }
 
 /**
+ * Clean up old streaming events (older than 7 days)
+ */
+async function cleanupOldStreamingEvents(retentionDays: number = 7): Promise<number> {
+  console.log(`[cleanup] Running old streaming events cleanup (retention: ${retentionDays} days)...`);
+
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+    const result = await db
+      .delete(streamingEvents)
+      .where(lt(streamingEvents.createdAt, cutoffDate));
+
+    const count = result.rowCount ?? 0;
+    console.log(`[cleanup] Cleaned up ${count} old streaming events`);
+    return count;
+  } catch (error: unknown) {
+    const err = error as { cause?: { code?: string } }
+    if (err?.cause?.code === '42P01') {
+      console.warn('[cleanup] Skipping - streaming_events table not found. Run migrations to enable.');
+      return 0;
+    }
+    throw error;
+  }
+}
+
+/**
  * Run all cleanup tasks
  */
 async function runCleanup(): Promise<void> {
@@ -136,6 +163,7 @@ async function runCleanup(): Promise<void> {
       cleanupOldExecutions(config.retentionDays.executions),
       cleanupOldChatHistory(config.retentionDays.chatHistory),
       cleanupExpiredPushTokens(),
+      cleanupOldStreamingEvents(),
     ]);
 
     const totalCleaned = results.reduce((sum, count) => sum + count, 0);

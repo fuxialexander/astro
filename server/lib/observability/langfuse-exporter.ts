@@ -91,12 +91,17 @@ class LangfuseExporter {
   private config: LangfuseExportConfig
   private buffer: Array<Record<string, unknown>> = []
   private flushTimer: ReturnType<typeof setInterval> | null = null
+  private consecutiveFailures = 0
+  private static readonly MAX_RETRY_FAILURES = 3
+  private static readonly MAX_BUFFER_SIZE = 500
 
   constructor(config: LangfuseExportConfig) {
     this.config = config
     this.flushTimer = setInterval(() => {
       this.flush().catch((err) => {
-        console.warn('[langfuse] Periodic flush failed:', err)
+        if (this.consecutiveFailures <= 1) {
+          console.warn('[langfuse] Periodic flush failed:', err)
+        }
       })
     }, LANGFUSE_FLUSH_INTERVAL_MS)
     console.log(`[langfuse] Exporter initialized, target: ${config.baseUrl}`)
@@ -158,6 +163,8 @@ class LangfuseExporter {
 
   /**
    * Send buffered events to Langfuse ingestion API.
+   * On failure, re-queues events (up to MAX_BUFFER_SIZE) and suppresses
+   * repeated error logs after MAX_RETRY_FAILURES consecutive failures.
    */
   async flush(): Promise<void> {
     if (this.buffer.length === 0) return
@@ -178,14 +185,37 @@ class LangfuseExporter {
       })
 
       if (!response.ok) {
-        console.warn(`[langfuse] Ingestion failed: ${response.status} ${response.statusText}`)
+        this.handleFlushFailure(batch, `${response.status} ${response.statusText}`)
       } else {
+        if (this.consecutiveFailures > 0) {
+          console.log(`[langfuse] Connection recovered after ${this.consecutiveFailures} failure(s)`)
+        }
+        this.consecutiveFailures = 0
         console.log(`[langfuse] Exported ${batch.length} events`)
       }
     } catch (err) {
-      // Fail silently — Langfuse is optional
-      console.warn('[langfuse] Export failed (Langfuse unreachable?):', (err as Error).message)
+      this.handleFlushFailure(batch, (err as Error).message)
     }
+  }
+
+  private handleFlushFailure(batch: Array<Record<string, unknown>>, reason: string): void {
+    this.consecutiveFailures++
+
+    // Log first failure and periodic reminders, suppress the rest
+    if (this.consecutiveFailures === 1) {
+      console.warn(`[langfuse] Export failed: ${reason}`)
+    } else if (this.consecutiveFailures === LangfuseExporter.MAX_RETRY_FAILURES) {
+      console.warn(`[langfuse] Export failed ${this.consecutiveFailures} times in a row, suppressing further warnings`)
+    }
+
+    // Re-queue events for retry, but cap buffer to avoid unbounded growth
+    if (this.consecutiveFailures <= LangfuseExporter.MAX_RETRY_FAILURES) {
+      const headroom = LangfuseExporter.MAX_BUFFER_SIZE - this.buffer.length
+      if (headroom > 0) {
+        this.buffer.unshift(...batch.slice(0, headroom))
+      }
+    }
+    // After MAX_RETRY_FAILURES, drop events — Langfuse is likely down
   }
 
   /**

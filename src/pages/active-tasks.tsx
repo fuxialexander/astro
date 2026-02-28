@@ -50,13 +50,11 @@ function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
   const stream = task.executionId ? useRealtimeStore.getState().taskStreams.get(task.executionId) : undefined
   const progress = stream?.progress ?? 0
 
-  const linkTo = task.nodeId.startsWith("plan-")
-    ? `/project/${projectId}/graph`
+  const linkTo = task.nodeId.startsWith("plan-") || task.status === "generating"
+    ? `/welcome?projectId=${projectId}`
     : task.nodeId.startsWith("playground-")
       ? `/playground?projectId=${projectId}`
-      : task.status === "generating"
-        ? `/project/${projectId}/graph`
-        : `/project/${projectId}/task/${task.nodeId}`
+      : `/project/${projectId}/task/${task.nodeId}`
 
   return (
     <Link

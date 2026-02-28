@@ -101,10 +101,25 @@ function DiffRenderer({ diff }: { diff: string }) {
   )
 }
 
+// Compute line counts from diff if not provided
+function computeLineCounts(change: FileChange): { added: number; removed: number } {
+  if (change.linesAdded != null || change.linesRemoved != null) {
+    return { added: change.linesAdded || 0, removed: change.linesRemoved || 0 }
+  }
+  if (!change.diff) return { added: 0, removed: 0 }
+  let added = 0, removed = 0
+  for (const line of change.diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) added++
+    else if (line.startsWith("-") && !line.startsWith("---")) removed++
+  }
+  return { added, removed }
+}
+
 function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change: FileChange; machineId?: string; useLocalUrls: boolean; useVSCode: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const config = actionConfig[change.action] || actionConfig.modified
   const Icon = config.icon
+  const lineCounts = useMemo(() => computeLineCounts(change), [change])
 
   const registeredMachines = useMachinesStore((s) => s.machines)
   const machine = machineId
@@ -145,14 +160,14 @@ function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {change.linesAdded != null && change.linesAdded > 0 && (
+          {lineCounts.added > 0 && (
             <span className="flex items-center gap-0.5 text-xs font-mono text-success">
-              <Plus className="h-3 w-3" />{change.linesAdded}
+              <Plus className="h-3 w-3" />{lineCounts.added}
             </span>
           )}
-          {change.linesRemoved != null && change.linesRemoved > 0 && (
+          {lineCounts.removed > 0 && (
             <span className="flex items-center gap-0.5 text-xs font-mono text-error">
-              <Minus className="h-3 w-3" />{change.linesRemoved}
+              <Minus className="h-3 w-3" />{lineCounts.removed}
             </span>
           )}
           {fileUrl && (
@@ -213,8 +228,8 @@ export function FileChangesView({ changes, machineId }: FileChangesViewProps) {
   const created = changes.filter((c) => c.action === "created").length
   const modified = changes.filter((c) => c.action === "modified").length
   const deleted = changes.filter((c) => c.action === "deleted").length
-  const totalAdded = changes.reduce((sum, c) => sum + (c.linesAdded || 0), 0)
-  const totalRemoved = changes.reduce((sum, c) => sum + (c.linesRemoved || 0), 0)
+  const totalAdded = changes.reduce((sum, c) => sum + computeLineCounts(c).added, 0)
+  const totalRemoved = changes.reduce((sum, c) => sum + computeLineCounts(c).removed, 0)
 
   return (
     <div className="flex-1 overflow-auto p-6">

@@ -515,10 +515,13 @@ export function ProjectNewPlan() {
                   : 'bg-muted-foreground'
 
                 return (
-                  <button
+                  <div
                     key={p.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => viewSession(p.id)}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left group"
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') viewSession(p.id) }}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left group cursor-pointer"
                   >
                     <span className={cn("h-2 w-2 rounded-full shrink-0", statusColor)} />
                     <div className="flex-1 min-w-0">
@@ -549,7 +552,7 @@ export function ProjectNewPlan() {
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>

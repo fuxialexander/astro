@@ -29,6 +29,7 @@ import { executionEventBus } from '../lib/execution-event-bus.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import type { ApprovalRequestedEvent, ApprovalRespondedEvent } from '../lib/events/types.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
+import { streamingEventLog } from '../lib/streaming-event-log.js'
 import type {
   TaskTextMessage,
   TaskSessionInitMessage as RelayTaskSessionInitMessage,
@@ -57,6 +58,8 @@ eventsRoute.get('/stream', async (c) => {
   // projectId filter is reserved for future use
   void c.req.query('projectId')
   const lastEventId = c.req.header('Last-Event-ID')
+  // Client sends lastSeq on reconnect for DB-backed catch-up of streaming events
+  const lastSeqParam = c.req.query('lastSeq')
 
   // Extract authenticated user for filtering machine events
   const user = c.get('user') as AuthUser | undefined
@@ -122,6 +125,7 @@ eventsRoute.get('/stream', async (c) => {
     }
 
     // Replay missed events on reconnection (filtered by user ownership)
+    // EventBuffer handles non-task events (machine:connected, approval events)
     if (lastEventId) {
       const missed = eventBuffer.getAfter(lastEventId)
       for (const event of missed) {
@@ -183,6 +187,10 @@ eventsRoute.get('/stream', async (c) => {
         output: msg.result.output,
         error: msg.result.error,
         duration: msg.result.duration,
+        branchName: msg.result.branchName,
+        prUrl: msg.result.prUrl,
+        prNumber: msg.result.prNumber,
+        deliveryStatus: msg.result.deliveryStatus,
       })
       const id = eventBuffer.push('task:result', data)
       stream.writeSSE({ id, event: 'task:result', data }).catch(() => { alive = false })
@@ -419,41 +427,52 @@ eventsRoute.get('/stream', async (c) => {
     const onRelayText = (msg: TaskTextMessage) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
+      // Buffer text for batch persistence (flushed on next structural event)
+      streamingEventLog.appendText(msg.taskId, msg.text)
       throttle.write(msg.taskId, msg.text)
     }
-    const onRelaySessionInit = (msg: RelayTaskSessionInitMessage) => {
+    const onRelaySessionInit = async (msg: RelayTaskSessionInitMessage) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
-      const data = JSON.stringify({ taskId: msg.taskId, sessionId: msg.sessionId, model: msg.model })
-      const id = eventBuffer.push('task:session_init', data)
+      const eventData = { taskId: msg.taskId, sessionId: msg.sessionId, model: msg.model }
+      const seq = await streamingEventLog.append(msg.taskId, 'session_init', eventData)
+      const data = JSON.stringify(eventData)
+      const id = seq ? String(seq) : eventBuffer.push('task:session_init', data)
       stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
     }
-    const onRelayProgress = (msg: RelayTaskProgressMessage) => {
+    const onRelayProgress = async (msg: RelayTaskProgressMessage) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
-      const data = JSON.stringify({ taskId: msg.taskId, progress: msg.progress, message: msg.message })
-      const id = eventBuffer.push('task:progress', data)
+      const eventData = { taskId: msg.taskId, progress: msg.progress, message: msg.message }
+      const seq = await streamingEventLog.append(msg.taskId, 'progress', eventData)
+      const data = JSON.stringify(eventData)
+      const id = seq ? String(seq) : eventBuffer.push('task:progress', data)
       stream.writeSSE({ id, event: 'task:progress', data }).catch(() => { alive = false })
     }
-    const onRelayToolTrace = (msg: RelayTaskToolTraceMessage) => {
+    const onRelayToolTrace = async (msg: RelayTaskToolTraceMessage) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
-      const data = JSON.stringify({
+      const eventData = {
         taskId: msg.taskId, toolName: msg.toolName,
         toolInput: msg.toolInput, toolResult: msg.toolResult,
         success: msg.success, duration: msg.duration,
-      })
-      const id = eventBuffer.push('task:tool_trace', data)
+      }
+      const eventType = msg.toolInput !== undefined ? 'tool_use' : 'tool_result'
+      const seq = await streamingEventLog.append(msg.taskId, eventType, eventData)
+      const data = JSON.stringify(eventData)
+      const id = seq ? String(seq) : eventBuffer.push('task:tool_trace', data)
       stream.writeSSE({ id, event: 'task:tool_trace', data }).catch(() => { alive = false })
     }
-    const onRelayFileChange = (msg: RelayTaskFileChangeMessage) => {
+    const onRelayFileChange = async (msg: RelayTaskFileChangeMessage) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
-      const data = JSON.stringify({
+      const eventData = {
         taskId: msg.taskId, path: msg.path, action: msg.action,
         linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved, diff: msg.diff,
-      })
-      const id = eventBuffer.push('task:file_change', data)
+      }
+      const seq = await streamingEventLog.append(msg.taskId, 'file_change', eventData)
+      const data = JSON.stringify(eventData)
+      const id = seq ? String(seq) : eventBuffer.push('task:file_change', data)
       stream.writeSSE({ id, event: 'task:file_change', data }).catch(() => { alive = false })
     }
     relayServer.on('task:text', onRelayText)
@@ -563,6 +582,29 @@ eventsRoute.get('/stream', async (c) => {
       }, 1000)
     })
   })
+})
+
+/**
+ * Catch-up endpoint for streaming events.
+ *
+ * GET /api/events/catch-up?executionIds=X,Y&afterSeq=N&limit=1000
+ *
+ * Returns missed streaming events from the DB for reconnection/hydration.
+ */
+eventsRoute.get('/catch-up', async (c) => {
+  const executionIdsParam = c.req.query('executionIds') || ''
+  const afterSeq = parseInt(c.req.query('afterSeq') || '0', 10) || 0
+  const limit = Math.min(parseInt(c.req.query('limit') || '1000', 10) || 1000, 5000)
+
+  const executionIds = executionIdsParam.split(',').map(s => s.trim()).filter(Boolean)
+  if (executionIds.length === 0) {
+    return c.json({ events: [], lastSeq: afterSeq })
+  }
+
+  const events = await streamingEventLog.getAfter(executionIds, afterSeq, limit)
+  const lastSeq = events.length > 0 ? events[events.length - 1].seq : afterSeq
+
+  return c.json({ events, lastSeq })
 })
 
 export { eventsRoute }

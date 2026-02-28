@@ -595,7 +595,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         idsToDelete.push(id)
       }
     }
-    set({ sessions })
+
+    // Also clear activeSessionIds that reference deleted sessions
+    const activeSessionIds = new Map(get().activeSessionIds)
+    const deletedSet = new Set(idsToDelete)
+    for (const [key, sessionId] of activeSessionIds) {
+      if (deletedSet.has(sessionId)) {
+        activeSessionIds.delete(key)
+      }
+    }
+
+    set({ sessions, activeSessionIds })
 
     // Fire-and-forget API calls
     for (const id of idsToDelete) {

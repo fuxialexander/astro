@@ -10,7 +10,7 @@ interface ProjectState {
   loading: boolean
   error: string | null
   load: () => Promise<void>
-  addProject: (project: Project) => void
+  addProject: (project: Project) => Promise<void>
   updateProject: (id: string, updates: Partial<Project>) => void
   updateFileTree: (id: string, files: string[], machineId?: string) => void
   deleteProject: (id: string) => void
@@ -35,11 +35,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  addProject: (project) => {
+  addProject: async (project) => {
     // Number is assigned server-side — add optimistically without number
-    const next = [...get().projects, project]
+    const now = new Date()
+    const withDefaults = {
+      ...project,
+      createdAt: project.createdAt ?? now,
+      updatedAt: project.updatedAt ?? now,
+    }
+    const next = [...get().projects, withDefaults]
     set({ projects: next })
-    dataClient.createProject(project).then((created) => {
+    try {
+      const created = await dataClient.createProject(withDefaults)
       // Merge server-assigned number into local project
       if (created.number != null) {
         const updated = get().projects.map((p) =>
@@ -47,10 +54,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         )
         set({ projects: updated })
       }
-    }).catch((err) => {
+    } catch (err) {
       console.error('[project-store] Failed to sync project to backend:', err)
       useToastStore.getState().add({ type: 'error', title: 'Failed to save project', description: 'Project may be lost on refresh. Check your connection.' })
-    })
+    }
   },
 
   updateProject: (id, updates) => {

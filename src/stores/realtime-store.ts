@@ -16,6 +16,7 @@ import { usePlanStore } from './plan-store'
 import { useProjectStore } from './project-store'
 import { useExecutionStore } from './execution-store'
 import { useMachinesStore } from './machines-store'
+import { applyPlanFromText } from '@/lib/plan-extraction'
 import type { TaskActivityEvent } from '@/types'
 
 export interface HpcCapability {
@@ -186,6 +187,14 @@ let activityCounter = 0
 const realtimeTextBatch = new Map<string, string>()
 const realtimeTextTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+/** Clear text-batch state for a given taskId (used by resetExecution). */
+export function clearRealtimeTextBatch(taskId: string) {
+  const timer = realtimeTextTimers.get(taskId)
+  if (timer) clearTimeout(timer)
+  realtimeTextTimers.delete(taskId)
+  realtimeTextBatch.delete(taskId)
+}
+
 function flushRealtimeText(
   taskId: string,
   set: (fn: (state: RealtimeState) => Partial<RealtimeState>) => void,
@@ -285,8 +294,9 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       const stream = existing
         ? { ...existing, steerMessages: [...existing.steerMessages], activityEvents: [...existing.activityEvents] }
         : createEmptyTaskStream(taskId)
+      // Add to steerMessages (for tracking) but NOT to activityEvents yet —
+      // the message should only appear in the timeline after the agent ack's it.
       stream.steerMessages.push({ message, interrupted, timestamp: now })
-      stream.activityEvents.push({ type: 'steer' as const, message, interrupted, timestamp: now })
       streams.set(taskId, stream)
       return { taskStreams: streams }
     })
@@ -297,21 +307,33 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       const streams = new Map(state.taskStreams)
       const existing = streams.get(taskId)
       if (existing && existing.steerMessages[index]) {
-        // Create new stream object to trigger Zustand selector re-renders
         const newSteerMessages = [...existing.steerMessages]
         newSteerMessages[index] = { ...newSteerMessages[index], ...update }
-        // Also update the corresponding activity event
-        let steerCount = 0
-        const newActivityEvents = existing.activityEvents.map(e => {
-          if (e.type === 'steer') {
-            if (steerCount === index) {
-              steerCount++
-              return { ...e, ...update }
-            }
-            steerCount++
+
+        // Only add to activityEvents when the agent acknowledged the message
+        const newActivityEvents = [...existing.activityEvents]
+        if (update.accepted !== undefined) {
+          const steerMsg = newSteerMessages[index]
+          if (update.accepted) {
+            // Accepted steers render as chat_user (visually identical to post-completion chat)
+            newActivityEvents.push({
+              type: 'chat_user' as const,
+              message: steerMsg.message,
+              timestamp: steerMsg.timestamp,
+            })
+          } else {
+            // Failed steers keep the steer type (shows error indicator)
+            newActivityEvents.push({
+              type: 'steer' as const,
+              message: steerMsg.message,
+              interrupted: steerMsg.interrupted,
+              accepted: false,
+              ackMessage: update.ackMessage,
+              timestamp: steerMsg.timestamp,
+            })
           }
-          return e
-        })
+        }
+
         streams.set(taskId, { ...existing, steerMessages: newSteerMessages, activityEvents: newActivityEvents })
       }
       return { taskStreams: streams }
@@ -545,6 +567,25 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         return { taskStreams: streams }
       })
 
+      // Reconstruct dynamicApprovals from pending approval_request events
+      set((state) => {
+        const newApprovals = new Map(state.dynamicApprovals)
+        for (const [, execEvents] of byExecution) {
+          const hydrated = hydrateStreamingEvents(execEvents)
+          for (const approval of hydrated.pendingApprovals) {
+            newApprovals.set(approval.requestId, {
+              taskId: approval.executionId,
+              requestId: approval.requestId,
+              question: approval.question,
+              options: approval.options,
+              machineId: approval.machineId,
+              timestamp: approval.timestamp,
+            })
+          }
+        }
+        return { dynamicApprovals: newApprovals }
+      })
+
       // Reconcile plan nodes and execution store with hydrated result data
       for (const [execId, execEvents] of byExecution) {
         const hydrated = hydrateStreamingEvents(execEvents)
@@ -604,7 +645,7 @@ function reconcileResultFromCatchUp(
   // Update execution store
   const execStore = useExecutionStore.getState()
   for (const [nid, exec] of execStore.executions) {
-    if (exec.executionId === executionId && exec.status !== 'success' && exec.status !== 'failure') {
+    if (exec.executionId === executionId && exec.status !== 'success') {
       execStore.executions.set(nid, {
         ...exec,
         status: isSuccess ? 'success' : 'failure',
@@ -639,6 +680,22 @@ function reconcileResultFromCatchUp(
       ...(hydrated.prNumber ? { prNumber: hydrated.prNumber } : {}),
     })
     console.log('[realtime] Reconciled plan node', node.id, '→', finalStatus, 'from catch-up')
+  }
+
+  // If this is a plan session, extract plan nodes from caught-up stdout
+  for (const [nid, exec] of execStore.executions) {
+    if (exec.executionId === executionId && nid.startsWith('plan-')) {
+      const planProjectId = nid.replace(/^plan-/, '')
+      // Only extract if project doesn't already have plan nodes
+      const existingNodes = planStore.nodes.filter(n => n.projectId === planProjectId)
+      if (existingNodes.length === 0 && hydrated.stdout) {
+        const result = applyPlanFromText(planProjectId, hydrated.stdout)
+        if (result.applied) {
+          console.log('[realtime] Plan extracted from catch-up:', result.nodeCount, 'nodes')
+        }
+      }
+      break
+    }
   }
 }
 
@@ -806,7 +863,7 @@ function handleRealtimeEvent(
         }
       })
 
-      const isSuccess = status === 'completed'
+      const isSuccess = status === 'success' || status === 'completed'
       addActivity(
         set,
         isSuccess ? 'success' : 'failure',
@@ -868,6 +925,25 @@ function handleRealtimeEvent(
         showTaskNotification(pName, node.title, isSuccess ? 'completed' : 'failed')
         if (!isSuccess) {
           showTaskNotification(pName, node.title, 'awaiting_judgment')
+        }
+      }
+
+      // If this is a plan session result, extract plan nodes from accumulated stdout
+      for (const [nid, exec] of execStore.executions) {
+        if (exec.executionId === taskId && nid.startsWith('plan-')) {
+          const planProjectId = nid.replace(/^plan-/, '')
+          const existingNodes = planStore.nodes.filter(n => n.projectId === planProjectId)
+          if (existingNodes.length === 0) {
+            // Get accumulated stdout from task stream
+            const stream = useRealtimeStore.getState().taskStreams.get(taskId)
+            if (stream?.stdout) {
+              const result = applyPlanFromText(planProjectId, stream.stdout)
+              if (result.applied) {
+                console.log('[realtime] Plan extracted from live SSE result:', result.nodeCount, 'nodes')
+              }
+            }
+          }
+          break
         }
       }
       break
@@ -1045,6 +1121,7 @@ function handleRealtimeEvent(
 
     case 'task:steer_ack': {
       const taskId = data.taskId as string
+      const accepted = data.accepted as boolean
       set((state) => {
         const streams = new Map(state.taskStreams)
         const existing = streams.get(taskId)
@@ -1054,23 +1131,40 @@ function handleRealtimeEvent(
           const lastIdx = newSteerMessages.length - 1
           newSteerMessages[lastIdx] = {
             ...newSteerMessages[lastIdx],
-            accepted: data.accepted as boolean,
+            accepted,
             ackMessage: data.message as string | undefined,
             ...(data.interrupted !== undefined ? { interrupted: data.interrupted as boolean } : {}),
           }
-          // Also update the corresponding activity event
+          // Remove any pending steer activity event and replace with final version
           const newActivityEvents = [...existing.activityEvents]
+          // Find and remove the pending steer event (accepted === undefined)
           for (let i = newActivityEvents.length - 1; i >= 0; i--) {
             const e = newActivityEvents[i]
             if (e.type === 'steer' && e.accepted === undefined) {
-              newActivityEvents[i] = {
-                ...e,
-                accepted: data.accepted as boolean,
-                ackMessage: data.message as string | undefined,
-                ...(data.interrupted !== undefined ? { interrupted: data.interrupted as boolean } : {}),
-              }
+              newActivityEvents.splice(i, 1)
               break
             }
+          }
+          // Add the resolved event
+          const steerMsg = newSteerMessages[lastIdx]
+          if (accepted) {
+            // Accepted steers render as chat_user
+            newActivityEvents.push({
+              type: 'chat_user' as const,
+              message: steerMsg.message,
+              timestamp: steerMsg.timestamp,
+            })
+          } else {
+            // Failed steers keep the steer type (shows error indicator)
+            newActivityEvents.push({
+              type: 'steer' as const,
+              message: steerMsg.message,
+              interrupted: steerMsg.interrupted,
+              accepted: false,
+              ackMessage: data.message as string | undefined,
+              ...(data.interrupted !== undefined ? { interrupted: data.interrupted as boolean } : {}),
+              timestamp: steerMsg.timestamp,
+            })
           }
           streams.set(taskId, { ...existing, steerMessages: newSteerMessages, activityEvents: newActivityEvents })
         }

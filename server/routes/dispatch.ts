@@ -28,6 +28,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
+import { streamingEventLog } from '../lib/streaming-event-log.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
 const dispatchedTaskDirs = new Map<string, string>()  // taskId → workingDirectory
@@ -168,13 +169,23 @@ dispatchRoute.post('/task', async (c) => {
   // Always fetch plan node + project so that PR enrichment fields
   // (githubIssueUrl, githubIssueNumber) are resolved even when the
   // frontend sends all primary fields (title, description, etc.).
+  const user = c.get('user') as AuthUser | undefined
   try {
     // Fetch plan node
     const [dbNode] = await db.select().from(planNodes)
       .where(eq(planNodes.clientId, nodeId)).limit(1)
-    // Fetch project
+    // Fetch project (team-scoped: verify the user has access)
     const [dbProject] = await db.select().from(projects)
-      .where(eq(projects.id, projectId)).limit(1)
+      .where(and(
+        eq(projects.id, projectId),
+        or(
+          eq(projects.teamId, user!.teamId),
+          and(isNull(projects.teamId), eq(projects.ownerId, user!.id))
+        )
+      )).limit(1)
+    if (!dbProject) {
+      return c.json({ success: false, error: 'Project not found or not authorized' }, 404)
+    }
 
     if (dbNode) {
       title ??= dbNode.title
@@ -747,9 +758,18 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
   }
 
   // Fetch project record from DB for event hooks (git-pull-hook needs workingDirectory)
+  // Already verified project access above, so this is a safe lookup
   let projectRecord: Project | undefined
   try {
-    const [row] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+    const [row] = await db.select().from(projects).where(
+      and(
+        eq(projects.id, projectId),
+        or(
+          eq(projects.teamId, user!.teamId),
+          and(isNull(projects.teamId), eq(projects.ownerId, user!.id))
+        )
+      )
+    ).limit(1)
     projectRecord = row as unknown as Project | undefined
   } catch (err) {
     console.warn('[dispatch] Failed to fetch project for event hooks:', err)
@@ -805,7 +825,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     let waitingForApproval = false
     const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
-    const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
+    const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
       if (!alive || msg.result.taskId !== executionId) return
       lastActivity = Date.now()
       resultSent = true
@@ -826,23 +846,28 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         turnsUsed: relayMetrics.numTurns,  // Alias used by usage-metrics-hook
       } : undefined
 
+      const resultData = {
+        executionId,
+        nodeId,
+        status: msg.result.status === 'completed' ? 'success' : 'failure',
+        output: msg.result.output,
+        error: msg.result.error,
+        duration: msg.result.duration,
+        metrics: dispatchMetrics,
+        branchName: msg.result.branchName,
+        prUrl: msg.result.prUrl,
+        prNumber: msg.result.prNumber,
+        deliveryStatus: msg.result.deliveryStatus,
+        deliveryError: msg.result.deliveryError,
+        summary: msg.result.summary,
+      }
+      // Persist result event (also flushes any pending text)
+      const seq = await streamingEventLog.append(executionId, 'result', resultData)
+
       stream.writeSSE({
+        id: String(seq),
         event: 'result',
-        data: JSON.stringify({
-          executionId,
-          nodeId,
-          status: msg.result.status === 'completed' ? 'success' : 'failure',
-          output: msg.result.output,
-          error: msg.result.error,
-          duration: msg.result.duration,
-          metrics: dispatchMetrics,
-          branchName: msg.result.branchName,
-          prUrl: msg.result.prUrl,
-          prNumber: msg.result.prNumber,
-          deliveryStatus: msg.result.deliveryStatus,
-          deliveryError: msg.result.deliveryError,
-          summary: msg.result.summary,
-        }),
+        data: JSON.stringify(resultData),
       }).catch(() => { alive = false })
 
       // Emit task.completed AstroEvent for observability hooks (observation collector, usage metrics, langfuse)
@@ -888,6 +913,21 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         console.error('[dispatch] Error emitting task.completed event:', err)
       })
 
+      // Persist PR/branch metadata directly to plan_nodes so it survives page refresh
+      const prPatch: Record<string, unknown> = { updatedAt: new Date() }
+      if (msg.result.branchName) prPatch.branchName = msg.result.branchName
+      if (msg.result.prUrl) prPatch.prUrl = msg.result.prUrl
+      if (msg.result.prNumber) prPatch.prNumber = msg.result.prNumber
+      if (Object.keys(prPatch).length > 1) {
+        db.update(planNodes)
+          .set(prPatch)
+          .where(eq(planNodes.clientId, nodeId))
+          .execute()
+          .catch((err: unknown) => {
+            console.error('[dispatch] Error persisting PR metadata to plan node:', err)
+          })
+      }
+
       // Auto-assign defaultMachineId on the project if not yet set
       if (msg.result.status === 'completed' && machineId) {
         db.update(projects)
@@ -907,31 +947,39 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       waitingForApproval = false
+      // Buffer text for batch persistence (flushed when next structural event arrives)
+      streamingEventLog.appendText(executionId, msg.text)
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }
 
-    const onSessionInit = (msg: import('../types/relay.js').TaskSessionInitMessage) => {
+    const onSessionInit = async (msg: import('../types/relay.js').TaskSessionInitMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      const data = { sessionId: msg.sessionId, model: msg.model }
+      const seq = await streamingEventLog.append(executionId, 'session_init', data)
       stream.writeSSE({
+        id: String(seq),
         event: 'session_init',
-        data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
+        data: JSON.stringify(data),
       }).catch(() => { alive = false })
       executionEventBus.emit('task:session_init', { taskId: executionId, sessionId: msg.sessionId, model: msg.model || 'unknown' })
     }
 
-    const onProgress = (msg: import('../types/relay.js').TaskProgressMessage) => {
+    const onProgress = async (msg: import('../types/relay.js').TaskProgressMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      const data = { message: msg.message, percentage: msg.progress }
+      const seq = await streamingEventLog.append(executionId, 'progress', data)
       stream.writeSSE({
+        id: String(seq),
         event: 'progress',
-        data: JSON.stringify({ message: msg.message, percentage: msg.progress }),
+        data: JSON.stringify(data),
       }).catch(() => { alive = false })
       executionEventBus.emit('task:progress', { taskId: executionId, message: msg.message, progress: msg.progress })
     }
 
-    const onToolTrace = (msg: import('../types/relay.js').TaskToolTraceMessage) => {
+    const onToolTrace = async (msg: import('../types/relay.js').TaskToolTraceMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       waitingForApproval = false
@@ -939,27 +987,36 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       // Only send tool_use SSE when toolInput is present (avoid orphan tool_use
       // events for result-only traces from relay's separate toolUse/toolResult flow)
       if (msg.toolInput !== undefined) {
+        const data = { toolName: msg.toolName, toolInput: msg.toolInput }
+        const seq = await streamingEventLog.append(executionId, 'tool_use', data)
         stream.writeSSE({
+          id: String(seq),
           event: 'tool_use',
-          data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
+          data: JSON.stringify(data),
         }).catch(() => { alive = false })
         executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolInput: msg.toolInput })
       }
       if (msg.toolResult !== undefined) {
+        const resultData = { toolName: msg.toolName, success: msg.success, result: msg.toolResult }
+        const seq = await streamingEventLog.append(executionId, 'tool_result', resultData)
         stream.writeSSE({
+          id: String(seq),
           event: 'tool_result',
-          data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
+          data: JSON.stringify(resultData),
         }).catch(() => { alive = false })
         executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true })
       }
     }
 
-    const onFileChange = (msg: import('../types/relay.js').TaskFileChangeMessage) => {
+    const onFileChange = async (msg: import('../types/relay.js').TaskFileChangeMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      const data = { path: msg.path, action: msg.action, linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved }
+      const seq = await streamingEventLog.append(executionId, 'file_change', data)
       stream.writeSSE({
+        id: String(seq),
         event: 'file_change',
-        data: JSON.stringify({ path: msg.path, action: msg.action, linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved }),
+        data: JSON.stringify(data),
       }).catch(() => { alive = false })
       executionEventBus.emit('task:file_change', { taskId: executionId, path: msg.path, action: msg.action })
     }
@@ -975,10 +1032,13 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       alive = false
     }
 
-    const onApprovalRequest = (msg: { taskId: string; requestId: string; question: string; options: string[] }) => {
+    const onApprovalRequest = (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       waitingForApproval = true
+      // Persist approval_request so it survives page refresh
+      const approvalData = { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: msg.machineId || machineId }
+      streamingEventLog.append(executionId, 'approval_request', approvalData).catch(() => {})
     }
 
     const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
@@ -1066,6 +1126,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       alive = false
       clearInterval(heartbeat)
       cleanup()
+      // Flush any buffered text before disconnect
+      streamingEventLog.flushText(executionId).catch(() => {})
       // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 
@@ -1123,6 +1185,11 @@ dispatchRoute.post('/steer', async (c) => {
     )
   }
 
+  // Persist steer message to streaming_events for page-refresh recovery
+  streamingEventLog.append(taskId, 'steer_message', {
+    message, action, interrupt,
+  }).catch(() => {})
+
   return c.json({ success: true, taskId, machineId, message: 'Steer message sent' })
 })
 
@@ -1163,6 +1230,9 @@ dispatchRoute.post('/approval', async (c) => {
       500
     )
   }
+
+  // Persist approval_response so hydration knows this approval was answered
+  streamingEventLog.append(taskId, 'approval_response', { requestId, answer, answered }).catch(() => {})
 
   return c.json({ success: true, taskId, machineId, requestId, message: 'Approval response sent' })
 })

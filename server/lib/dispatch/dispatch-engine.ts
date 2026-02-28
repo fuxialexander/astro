@@ -544,6 +544,10 @@ export class DispatchEngine extends EventEmitter {
                 status: event.result.status === 'success' ? 'completed' : 'failed',
                 output: fullOutput,
                 duration: event.result.metrics?.durationMs,
+                branchName: event.result.branchName,
+                prUrl: event.result.prUrl,
+                prNumber: event.result.prNumber,
+                deliveryStatus: event.result.deliveryStatus,
               },
             })
             break
@@ -660,6 +664,9 @@ export class DispatchEngine extends EventEmitter {
         executionOutput: output,
         executionCompletedAt: new Date(),
         executionError: result.errorMessage,
+        ...(result.branchName ? { branchName: result.branchName } : {}),
+        ...(result.prUrl ? { prUrl: result.prUrl } : {}),
+        ...(result.prNumber ? { prNumber: result.prNumber } : {}),
       })
     }
 

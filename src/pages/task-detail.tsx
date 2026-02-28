@@ -37,7 +37,7 @@ function deduplicateFileChanges(changes: Array<{ path: string; action: string; l
 export function TaskDetail() {
   const navigate = useNavigate()
   const { id: projectId, nodeId } = useParams<{ id: string; nodeId: string }>()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const node = usePlanStore((s) => s.nodes.find((n) => n.id === nodeId))
   const updateNode = usePlanStore((s) => s.updateNode)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
@@ -388,9 +388,13 @@ export function TaskDetail() {
                   <Check className="h-3.5 w-3.5 mr-1" />
                   Approve
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => nodeId && updateNode(nodeId, { status: "planned" })} className="min-h-9">
-                  <RotateCcw className="h-3.5 w-3.5 mr-1" />
-                  Retry
+                <Button variant="outline" size="sm" disabled={isResetting} onClick={async () => {
+                  if (!nodeId) return
+                  setIsResetting(true)
+                  try { await resetExecution(nodeId) } finally { setIsResetting(false) }
+                }} className="min-h-9">
+                  <RotateCcw className={cn("h-3.5 w-3.5 mr-1", isResetting && "animate-spin")} />
+                  {isResetting ? "Resetting..." : "Reset"}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => nodeId && updateNode(nodeId, { status: "pruned" })} className="min-h-9 text-muted-foreground">
                   <Scissors className="h-3.5 w-3.5 mr-1" />
@@ -453,11 +457,11 @@ export function TaskDetail() {
       {/* Main content area: Tabs + optional Inspector sidebar */}
       <div className="flex flex-1 min-h-0">
         {/* Tabbed Content: Content + Activity + Files */}
-        <Tabs defaultValue={searchParams.get('tab') || "content"} className="flex-1 flex flex-col min-h-0 min-w-0">
+        <Tabs value={searchParams.get('tab') || "content"} onValueChange={(v) => setSearchParams((prev) => { const next = new URLSearchParams(prev); next.set('tab', v); return next }, { replace: true })} className="flex-1 flex flex-col min-h-0 min-w-0">
           <TabsList className="mx-4 md:mx-6 mt-3 md:mt-4 w-fit">
             <TabsTrigger value="content" className="text-xs md:text-sm">
               <FileText className="h-3.5 w-3.5 mr-1.5" />
-              Content
+              Note
               {((node.attachments?.length || 0) + (node.links?.length || 0)) > 0 && (
                 <span className="ml-1.5 text-muted-foreground">
                   ({(node.attachments?.length || 0) + (node.links?.length || 0)})

@@ -5,7 +5,7 @@
  * and task detail views can share the same rendering components.
  */
 
-import { useState } from "react"
+import React, { useState } from "react"
 import {
   Loader2,
   CheckCircle2,
@@ -16,17 +16,18 @@ import {
   AlertCircle,
   Plus,
   Minus,
-  Zap,
+  Pencil,
+  GitBranch,
+  PlusCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
-import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation'
   events: TaskActivityEvent[]
 }
 
@@ -117,6 +118,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'approval_response', events: [event] })
+        break
+      case 'mutation':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'mutation', events: [event] })
         break
     }
   }
@@ -215,17 +221,18 @@ export function ToolStatusIcon({ icon }: { icon: 'spinner' | 'check' | 'x' | 'ch
 
 // ─── Block Components ───────────────────────────────────────────────
 
-export function TextBlock({ events, isStreaming }: { events: TaskActivityEvent[]; isStreaming?: boolean }) {
-  const text = events
+export function TextBlock({ events, isStreaming, onLinkClick, preprocessContent }: { events: TaskActivityEvent[]; isStreaming?: boolean; onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void; preprocessContent?: (text: string) => string }) {
+  let text = events
     .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
     .map(e => e.content)
     .join('')
 
   if (!text) return null
+  if (preprocessContent) text = preprocessContent(text)
 
   return (
     <div className="px-4 py-1">
-      <StreamingMarkdown content={text} isStreaming={isStreaming} className="text-xs leading-relaxed" />
+      <StreamingMarkdown content={text} isStreaming={isStreaming} className="text-xs leading-relaxed" onLinkClick={onLinkClick} />
     </div>
   )
 }
@@ -405,42 +412,16 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
 }
 
 export function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'steer' }> }) {
-  const isInterrupted = event.interrupted === true
-
+  // SteerBlock now only renders for failed/rejected steers.
+  // Accepted steers are emitted as chat_user events and rendered by ChatUserBlock.
   return (
     <div className="flex flex-col items-end gap-1 px-4 py-1.5">
-      <div className={cn(
-        "rounded-lg px-3 py-2 text-sm max-w-[80%]",
-        isInterrupted
-          ? "bg-warning text-white"
-          : "bg-primary text-primary-foreground"
-      )}>
-        <div className="flex items-center gap-1.5">
-          {isInterrupted && <Zap className="h-3.5 w-3.5 shrink-0" />}
-          <p className="whitespace-pre-wrap">{event.message}</p>
-        </div>
+      <div className="rounded-lg px-3 py-2 text-sm max-w-[80%] bg-error/20 text-foreground border border-error/30">
+        <p className="whitespace-pre-wrap">{event.message}</p>
       </div>
       <div className="flex items-center gap-1.5">
-        {event.accepted === true && (
-          <>
-            <CheckCircle2 className="h-3 w-3 text-success" />
-            <span className="text-[10px] text-success">
-              {isInterrupted ? "Interrupted" : "Queued"}
-            </span>
-          </>
-        )}
-        {event.accepted === false && (
-          <>
-            <XCircle className="h-3 w-3 text-error" />
-            <span className="text-[10px] text-error">{event.ackMessage || "Failed"}</span>
-          </>
-        )}
-        {event.accepted === undefined && (
-          <>
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-            <span className="text-[10px] text-muted-foreground">Sending...</span>
-          </>
-        )}
+        <XCircle className="h-3 w-3 text-error" />
+        <span className="text-[10px] text-error">{event.ackMessage || "Failed to send"}</span>
       </div>
     </div>
   )
@@ -534,13 +515,69 @@ export function ChatUserBlock({ event }: { event: Extract<TaskActivityEvent, { t
   )
 }
 
-export function ChatAssistantBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'chat_assistant' }> }) {
+export function ChatAssistantBlock({ event, isStreaming, onLinkClick }: { event: Extract<TaskActivityEvent, { type: 'chat_assistant' }>; isStreaming?: boolean; onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void }) {
   return (
     <div className="flex flex-col items-start gap-1 px-4 py-1.5">
       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Claude</span>
       <div className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground max-w-[90%]">
-        <MarkdownRenderer content={event.content} className="font-secondary text-sm leading-relaxed" />
+        <StreamingMarkdown content={event.content} isStreaming={isStreaming} className="text-xs leading-relaxed" onLinkClick={onLinkClick} />
       </div>
+    </div>
+  )
+}
+
+export function MutationBlock({
+  event,
+  getNodeTitle,
+  onNodeSelect,
+}: {
+  event: Extract<TaskActivityEvent, { type: 'mutation' }>
+  getNodeTitle?: (nodeId: string) => string
+  onNodeSelect?: (nodeId: string) => void
+}) {
+  const { nodeUpdates, edgeOps, newNodes } = event
+  const hasContent = nodeUpdates.length > 0 || edgeOps.length > 0 || newNodes.length > 0
+
+  if (!hasContent) return null
+
+  return (
+    <div className="mx-4 my-1.5 space-y-1">
+      {nodeUpdates.map((update, i) => {
+        const { nodeId, ...fields } = update
+        const title = getNodeTitle?.(nodeId) || nodeId.slice(0, 8)
+        const fieldEntries = Object.entries(fields).filter(([k]) => k !== 'nodeId')
+        return (
+          <div key={`upd-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/50 text-xs">
+            <Pencil className="h-3 w-3 text-muted-foreground shrink-0" />
+            <button
+              className={cn("font-medium truncate", onNodeSelect ? "text-primary hover:underline cursor-pointer" : "text-foreground")}
+              onClick={() => onNodeSelect?.(nodeId)}
+              disabled={!onNodeSelect}
+            >
+              {title}
+            </button>
+            <span className="text-muted-foreground truncate">
+              {fieldEntries.map(([k, v]) => `${k}\u2192${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ')}
+            </span>
+            <CheckCircle2 className="h-3 w-3 text-success shrink-0 ml-auto" />
+          </div>
+        )
+      })}
+      {edgeOps.map((op, i) => (
+        <div key={`edge-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/50 text-xs">
+          <GitBranch className="h-3 w-3 text-muted-foreground shrink-0" />
+          <span className="text-muted-foreground">
+            {op.action === 'add' ? 'Added' : 'Removed'} edge: {getNodeTitle?.(op.source) || op.source.slice(0, 8)} &rarr; {getNodeTitle?.(op.target) || op.target.slice(0, 8)}
+          </span>
+        </div>
+      ))}
+      {newNodes.map((node, i) => (
+        <div key={`new-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/50 text-xs">
+          <PlusCircle className="h-3 w-3 text-success shrink-0" />
+          <span className="font-medium text-foreground">{node.title}</span>
+          {node.type && <span className="text-muted-foreground">({node.type})</span>}
+        </div>
+      ))}
     </div>
   )
 }

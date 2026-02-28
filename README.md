@@ -164,11 +164,6 @@ Persistent context automatically injected into every AI session:
 - **Codebase Context**: Relevant code and repository metadata
 - **Smart Filtering**: Only relevant context stays within token budgets
 
-## Biomedical Research Integration
-
-Astro integrates **celltype/cli**, a biomedical research toolkit with 190+ computational biology tools for target discovery, molecular design, genomics, transcriptomics, safety assessment, and clinical development.
-
-See [celltype/cli docs](https://github.com/celltype-ai/celltype) for details.
 
 ## Prerequisites
 

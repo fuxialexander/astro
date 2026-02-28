@@ -418,6 +418,7 @@ create index idx_passkeys_user on passkey_credentials(user_id);
 
 -- Enable RLS on all tables
 alter table user_profiles enable row level security;
+alter table audit_logs enable row level security;
 alter table initiatives enable row level security;
 alter table projects enable row level security;
 alter table project_members enable row level security;
@@ -620,6 +621,12 @@ create policy "Service can manage passkeys"
   on passkey_credentials for insert with check (true);
 create policy "Users can delete own passkeys"
   on passkey_credentials for delete using (user_id = auth.uid());
+
+-- Audit logs: user-scoped
+create policy "Users can view own audit logs"
+  on audit_logs for select using (auth.uid() = user_id);
+create policy "Service role can insert audit logs"
+  on audit_logs for insert with check (auth.role() = 'service_role');
 
 -- ============================================================================
 -- Sessions Table (unified session store)

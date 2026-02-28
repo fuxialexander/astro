@@ -1,3 +1,63 @@
+import type { PlanNode, PlanEdge } from '@/types'
+import { usePlanStore } from '@/stores/plan-store'
+import { useProjectStore } from '@/stores/project-store'
+
+/**
+ * Extracts plan JSON from text and applies it to the plan store.
+ * Returns whether the plan was applied and how many nodes were created.
+ */
+export function applyPlanFromText(
+  projectId: string,
+  text: string,
+): { applied: boolean; nodeCount: number } {
+  const planJson = extractPlanJsonFromText(text)
+  if (!planJson) return { applied: false, nodeCount: 0 }
+
+  const prefix = projectId.slice(0, 8)
+  const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
+  const now = new Date()
+
+  const nodes: PlanNode[] = planJson.nodes.map((n: Record<string, unknown>) => ({
+    id: prefixId(n.id as string),
+    projectId,
+    type: (n.type as PlanNode['type']) || 'task',
+    title: (n.title as string) || '',
+    description: (n.description as string) || '',
+    content: n.description ? `<p>${n.description as string}</p>` : '',
+    status: (n.status as PlanNode['status']) || 'planned',
+    parentId: n.parentId ? prefixId(n.parentId as string) : null,
+    dependencies: (n.dependencies as string[] || []).map(prefixId),
+    verification: (n.verification as PlanNode['verification']) || 'human',
+    position: (n.position as { x: number; y: number }) || { x: 40, y: 40 },
+    startDate: n.startDate as string | undefined,
+    endDate: n.endDate as string | undefined,
+    priority: n.priority as PlanNode['priority'],
+    estimate: n.estimate as PlanNode['estimate'],
+    dueDate: n.dueDate as string | undefined,
+    labelIds: n.labelIds as string[] | undefined,
+    milestoneId: n.milestoneId ? prefixId(n.milestoneId as string) : undefined,
+    createdAt: now,
+    updatedAt: now,
+  }))
+
+  const edges: PlanEdge[] = (planJson.edges || []).map((e: Record<string, unknown>) => ({
+    id: prefixId(e.id as string),
+    source: prefixId(e.source as string),
+    target: prefixId(e.target as string),
+    type: (e.type as PlanEdge['type']) || 'dependency',
+  }))
+
+  const planStore = usePlanStore.getState()
+  planStore.setProjectPlan(projectId, nodes, edges)
+  planStore.reorganizeProject(projectId)
+
+  if (planJson.projectName) {
+    useProjectStore.getState().updateProject(projectId, { name: planJson.projectName })
+  }
+
+  return { applied: true, nodeCount: nodes.length }
+}
+
 /**
  * Extracts plan JSON (with nodes/edges) from streaming text output.
  * Tries ALL code-fenced JSON blocks (last match first, since the plan is

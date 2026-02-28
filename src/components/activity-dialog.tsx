@@ -115,7 +115,7 @@ export function ActivityDialog({ open, onOpenChange, projectId }: Props) {
           ) : (
             <div className="flex flex-col gap-3">
               {filteredActivities.map((activity) => {
-                const config = activityConfig[activity.type]
+                const config = activityConfig[activity.type] || { icon: CircleCheck, color: "text-muted-foreground", label: activity.type }
                 const Icon = config.icon
 
                 return (

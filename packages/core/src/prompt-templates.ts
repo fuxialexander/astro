@@ -318,7 +318,8 @@ Use a fenced code block with language \`astro-updates\` containing a JSON array:
 
 Each object must have "nodeId" (required) plus any fields to change:
 - "title" (string) — node title
-- "description" (string) — detailed description
+- "description" (string) — plain text description (short summary)
+- "content" (string) — rich HTML description (rendered in the UI). When the user asks to change a task's description/content, always set BOTH: "description" with plain text and "content" with HTML (use <p>, <ul>, <li>, <strong>, <code> tags as appropriate)
 - "type" (string) — "milestone" | "task" | "decision"
 - "status" (string) — "planned" | "dispatched" | "in_progress" | "auto_verified" | "awaiting_judgment" | "completed" | "pruned"
 - "priority" (string) — "urgent" | "high" | "medium" | "low" | "none"
@@ -396,6 +397,12 @@ export interface TaskChatContext {
   taskDescription: string
   taskOutput?: string
   visionDoc?: string
+  /** Whether this chat resumes a previous execution session */
+  isResumedSession?: boolean
+  /** Branch name from the execution (if any) */
+  branchName?: string
+  /** PR URL from the execution (if any) */
+  prUrl?: string
 }
 
 /**
@@ -432,6 +439,24 @@ Be concise and helpful. Focus on the specific task at hand.`)
       ? context.taskOutput.slice(0, 10000) + '\n\n[... output truncated ...]'
       : context.taskOutput
     parts.push(`## Task Output (Agent Execution Results)\n\n<agent_output>\n${truncatedOutput}\n</agent_output>`)
+  }
+
+  // Add execution context when resuming from a previous session
+  if (context.isResumedSession) {
+    const contextLines: string[] = [
+      '## Session Context',
+      '',
+      'You are resuming a previous execution session. The git worktree used during execution has been cleaned up.',
+      'You are now working in the original project directory, NOT the isolated worktree.',
+    ]
+    if (context.branchName) {
+      contextLines.push(`The task\'s changes are on branch \`${context.branchName}\`. You can check out or diff against this branch.`)
+    }
+    if (context.prUrl) {
+      contextLines.push(`A pull request was created: ${context.prUrl}`)
+    }
+    contextLines.push('', 'If the user asks you to modify files, note that changes will be on the current branch, not the task\'s branch.')
+    parts.push(contextLines.join('\n'))
   }
 
   return parts.join('\n\n---\n\n')

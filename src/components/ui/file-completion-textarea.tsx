@@ -463,11 +463,16 @@ export function FileCompletionTextarea({
         }
       }
 
-      // Submit on Enter (only when no dropdown is active)
-      // Enter = queue (default), Shift+Enter = interrupt+send
-      if (e.key === "Enter" && !isActive && !slashActive && onSubmit) {
+      // Submit on Cmd+Enter / Ctrl+Enter (only when no dropdown is active)
+      // Cmd+Enter = send, Shift+Enter = interrupt+send (steering shortcut)
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isActive && !slashActive && onSubmit) {
         e.preventDefault()
         onSubmit({ interrupt: e.shiftKey })
+        return
+      }
+      if (e.key === "Enter" && e.shiftKey && !isActive && !slashActive && onSubmit) {
+        e.preventDefault()
+        onSubmit({ interrupt: true })
         return
       }
 

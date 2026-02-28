@@ -38,9 +38,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   const updateLastAssistantMessage = useSessionStore((s) => s.updateLastAssistantMessage)
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
   const clearSessionsForNode = useSessionStore((s) => s.clearSessionsForNode)
-  const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
-  // Subscribe to sessions so component re-renders when messages change
-  useSessionStore((s) => s.sessions)
+  const allSessions = useSessionStore((s) => s.sessions)
 
   const planNodes = usePlanStore((s) => s.nodes)
   const mentionItems: MentionItem[] = useMemo(() => {
@@ -62,8 +60,15 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   }, [resolvedMachineId, project?.workingDirectory])
 
   // Get or create task-chat session for this node
-  const taskChatSessions = getSessionsForNode(node.id, "task-chat")
-  const session = taskChatSessions[taskChatSessions.length - 1]
+  const session = useMemo(() => {
+    let latest: ReturnType<typeof allSessions.get> | undefined
+    for (const session of allSessions.values()) {
+      if (session.nodeId === node.id && session.type === "task-chat") {
+        if (!latest || session.createdAt > latest.createdAt) latest = session
+      }
+    }
+    return latest
+  }, [allSessions, node.id])
   const messages = session?.messages || []
   const messagesLength = messages.length
 
@@ -145,6 +150,8 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
             rawText += chunk
             appendToLastAssistantMessage(sid, chunk)
           },
+          onToolUse: () => {},
+          onToolResult: () => {},
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
             // Force immediate save — appendToLastAssistantMessage only debounce-saves

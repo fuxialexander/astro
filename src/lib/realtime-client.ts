@@ -46,9 +46,12 @@ export class RealtimeClient {
   private handlers = new Map<string, Set<RealtimeEventHandler>>()
   private globalHandlers = new Set<RealtimeEventHandler>()
   private _connected = false
+  private _wasConnected = false
   private url: string
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private lastProjectId?: string
+  private _lastSeq = 0
+  private _onReconnect: (() => void) | null = null
 
   constructor(baseUrl = '/api/events/stream') {
     this.url = apiUrl(baseUrl)
@@ -56,6 +59,11 @@ export class RealtimeClient {
 
   get connected(): boolean {
     return this._connected
+  }
+
+  /** Highest sequence number seen from streaming events (for catch-up) */
+  get lastSeq(): number {
+    return this._lastSeq
   }
 
   async connect(projectId?: string): Promise<void> {
@@ -76,13 +84,21 @@ export class RealtimeClient {
     const params = new URLSearchParams()
     if (projectId) params.set('projectId', projectId)
     if (token) params.set('token', token)
+    // Include lastSeq on reconnect so the server can do DB-backed catch-up
+    if (this._lastSeq > 0) params.set('lastSeq', String(this._lastSeq))
 
     const url = params.toString() ? `${this.url}?${params}` : this.url
     this.eventSource = new EventSource(url)
 
     this.eventSource.onopen = () => {
+      const wasReconnect = this._wasConnected
       this._connected = true
+      this._wasConnected = true
       this.emit({ type: 'heartbeat' as RealtimeEventType, data: { connected: true } })
+      // Fire reconnect callback so the store can trigger catch-up hydration
+      if (wasReconnect && this._onReconnect) {
+        this._onReconnect()
+      }
     }
 
     this.eventSource.onerror = () => {
@@ -128,10 +144,19 @@ export class RealtimeClient {
           data = e.data
         }
 
+        const eventId = (e as MessageEvent & { lastEventId?: string }).lastEventId
+        // Track highest seq for catch-up on reconnect
+        if (eventId) {
+          const seq = parseInt(eventId, 10)
+          if (!isNaN(seq) && seq > this._lastSeq) {
+            this._lastSeq = seq
+          }
+        }
+
         const event: RealtimeEvent = {
           type,
           data,
-          id: (e as MessageEvent & { lastEventId?: string }).lastEventId,
+          id: eventId,
         }
 
         this.emit(event)
@@ -178,6 +203,11 @@ export class RealtimeClient {
     } else {
       this.handlers.get(type)?.delete(handler)
     }
+  }
+
+  /** Register a callback that fires on successful reconnection (not initial connect) */
+  set onReconnect(cb: (() => void) | null) {
+    this._onReconnect = cb
   }
 
   private emit(event: RealtimeEvent): void {

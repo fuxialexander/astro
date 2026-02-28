@@ -293,7 +293,7 @@ describe('Plan Session - Store', () => {
       (item: { id: string }) => item.id === 'plan',
     )
     expect(planItem).toBeDefined()
-    expect(planItem.to).toBe('/projects/new/plan')
+    expect(planItem.to).toBe('/plan')
     expect(planItem.visible).toBe(true)
     expect(planItem.label).toBe('Plan')
   })

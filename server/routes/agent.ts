@@ -13,12 +13,26 @@ import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { activeDispatchStreams } from '../lib/execution-context-store.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, TaskStdoutMessage } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects } from '../lib/db/schema.js'
-import { eq, isNull, and } from 'drizzle-orm'
+import { eq, isNull, and, or } from 'drizzle-orm'
+
+/** Verify the user has access to the given project (team-scoped). */
+async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<boolean> {
+  const [row] = await db.select({ id: projects.id }).from(projects).where(
+    and(
+      eq(projects.id, projectId),
+      or(
+        eq(projects.teamId, user.teamId),
+        and(isNull(projects.teamId), eq(projects.ownerId, user.id))
+      )
+    )
+  ).limit(1)
+  return !!row
+}
 
 /** Scratch directory for text-only relay tasks (label suggestion, refine, etc.) */
 const SCRATCH_DIR = join(homedir(), '.astro', 'tmp')
@@ -57,6 +71,7 @@ const generatePlanSchema = z.object({
 const chatSchema = z.object({
   message: z.string().min(1).max(50000),
   sessionId: z.string().max(100).optional(),
+  streamId: z.string().max(200).optional(),
   projectId: z.string().min(1).max(100),
   visionDoc: z.string().max(100000).optional(),
   model: z.string().max(100).optional(),
@@ -87,8 +102,14 @@ async function streamChatViaRelay(
     workingDirectory?: string
     targetMachineId?: string
     model?: string
+    resumeSessionId?: string
+    streamId?: string
   }
 ) {
+  // persistId: where streaming events are stored. Defaults to taskId (relay routing key),
+  // but callers can supply a stable streamId so the frontend can find events after refresh.
+  const persistId = opts.streamId || opts.taskId
+
   const task: RelayTaskDispatch = {
     taskId: opts.taskId,
     projectId: opts.projectId,
@@ -103,6 +124,7 @@ async function streamChatViaRelay(
     maxTurns: opts.maxTurns ?? 50,
     workingDirectory: opts.workingDirectory,
     useWorktree: false,
+    ...(opts.resumeSessionId && { resumeSessionId: opts.resumeSessionId }),
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
@@ -111,12 +133,13 @@ async function streamChatViaRelay(
   return streamSSE(c, async (stream) => {
     let alive = true
     let lastActivity = Date.now()
+    let providerSessionId: string | undefined  // Real Claude SDK session ID from session_init
     const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
     const onText = (msg: TaskTextMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
-      streamingEventLog.appendText(opts.taskId, msg.text)
+      streamingEventLog.appendText(persistId, msg.text)
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: opts.taskId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }
@@ -124,10 +147,11 @@ async function streamChatViaRelay(
     const onResult = async (msg: TaskResultMessage) => {
       if (!alive || msg.result.taskId !== opts.taskId) return
       lastActivity = Date.now()
-      await streamingEventLog.append(opts.taskId, 'result', { sessionId: opts.taskId })
+      const resolvedSessionId = providerSessionId || opts.taskId
+      await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId })
       stream.writeSSE({
         event: 'done',
-        data: JSON.stringify({ sessionId: opts.taskId }),
+        data: JSON.stringify({ sessionId: resolvedSessionId }),
       }).catch(() => {})
       alive = false
     }
@@ -135,7 +159,7 @@ async function streamChatViaRelay(
     const onToolTrace = async (msg: TaskToolTraceMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
-      const useSeq = await streamingEventLog.append(opts.taskId, 'tool_use', { toolName: msg.toolName, toolInput: msg.toolInput })
+      const useSeq = await streamingEventLog.append(persistId, 'tool_use', { toolName: msg.toolName, toolInput: msg.toolInput })
       stream.writeSSE({
         event: 'tool_use',
         data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
@@ -143,7 +167,7 @@ async function streamChatViaRelay(
       }).catch(() => { alive = false })
       executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolInput: msg.toolInput })
       if (msg.toolResult !== undefined) {
-        const resultSeq = await streamingEventLog.append(opts.taskId, 'tool_result', { toolName: msg.toolName, success: msg.success, result: msg.toolResult })
+        const resultSeq = await streamingEventLog.append(persistId, 'tool_result', { toolName: msg.toolName, success: msg.success, result: msg.toolResult })
         stream.writeSSE({
           event: 'tool_result',
           data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
@@ -156,7 +180,7 @@ async function streamChatViaRelay(
     const onFileChange = async (msg: TaskFileChangeMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
-      const seq = await streamingEventLog.append(opts.taskId, 'file_change', { path: msg.path, action: msg.action })
+      const seq = await streamingEventLog.append(persistId, 'file_change', { path: msg.path, action: msg.action })
       stream.writeSSE({
         event: 'file_change',
         data: JSON.stringify({ path: msg.path, action: msg.action }),
@@ -168,7 +192,8 @@ async function streamChatViaRelay(
     const onSessionInit = async (msg: TaskSessionInitMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
-      const seq = await streamingEventLog.append(opts.taskId, 'session_init', { sessionId: msg.sessionId, model: msg.model })
+      providerSessionId = msg.sessionId  // Capture real Claude SDK session ID
+      const seq = await streamingEventLog.append(persistId, 'session_init', { sessionId: msg.sessionId, model: msg.model })
       stream.writeSSE({
         event: 'session_init',
         data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
@@ -208,10 +233,12 @@ async function streamChatViaRelay(
 
     // Track active stream to prevent double-persistence from events.ts
     activeDispatchStreams.add(opts.taskId)
+    if (persistId !== opts.taskId) activeDispatchStreams.add(persistId)
 
     const cleanupAll = () => {
       cleanup()
       activeDispatchStreams.delete(opts.taskId)
+      if (persistId !== opts.taskId) activeDispatchStreams.delete(persistId)
     }
 
     // Dispatch after listeners are registered
@@ -247,7 +274,7 @@ async function streamChatViaRelay(
       alive = false
       clearInterval(heartbeat)
       cleanupAll()
-      streamingEventLog.flushText(opts.taskId).catch(() => {})
+      streamingEventLog.flushText(persistId).catch(() => {})
       // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 
@@ -625,13 +652,23 @@ agentRoute.post('/chat', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { message, sessionId: existingSessionId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
+  const { message, sessionId: existingSessionId, streamId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
+  const chatUser = c.get('user') as AuthUser
   const taskId = existingSessionId || `chat-${projectId}-${Date.now()}`
+
+  // Verify project ownership
+  if (!await verifyProjectAccess(projectId, chatUser)) {
+    return c.json({ error: 'Project not found' }, 404)
+  }
 
   // Look up the project's working directory
   const [project] = await db.select({ workingDirectory: projects.workingDirectory }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
+
+  // Persist user message for catch-up hydration
+  await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -643,6 +680,7 @@ agentRoute.post('/chat', async (c) => {
     model: model || undefined,
     maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
+    streamId,
   })
 })
 
@@ -658,13 +696,23 @@ agentRoute.post('/plan-chat', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { message, sessionId: existingSessionId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
+  const { message, sessionId: existingSessionId, streamId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
+  const planChatUser = c.get('user') as AuthUser
   const taskId = existingSessionId || `plan-chat-${projectId}-${Date.now()}`
+
+  // Verify project ownership
+  if (!await verifyProjectAccess(projectId, planChatUser)) {
+    return c.json({ error: 'Project not found' }, 404)
+  }
 
   // Look up the project's working directory
   const [project] = await db.select({ workingDirectory: projects.workingDirectory }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
+
+  // Persist user message for catch-up hydration
+  await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -676,24 +724,29 @@ agentRoute.post('/plan-chat', async (c) => {
     model: model || 'haiku',  // Default to small model for plan chat
     maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
+    streamId,
   })
 })
 
 const taskChatSchema = z.object({
   message: z.string().min(1).max(50000),
-  sessionId: z.string().optional(),
+  sessionId: z.string().nullable().optional(),
+  streamId: z.string().max(200).optional(),
   nodeId: z.string().min(1),
   projectId: z.string().uuid(),
   taskTitle: z.string().max(1000),
-  taskDescription: z.string().max(50000),
-  taskOutput: z.string().max(100000).optional(),
-  visionDoc: z.string().max(100000).optional(),
-  model: z.string().optional(),
-  providerId: z.string().optional(),
+  taskDescription: z.string().max(50000).default(""),
+  taskOutput: z.string().max(100000).nullable().optional(),
+  visionDoc: z.string().max(100000).nullable().optional(),
+  model: z.string().nullable().optional(),
+  providerId: z.string().nullable().optional(),
   messages: z.array(z.object({
     role: z.enum(['user', 'assistant']),
     content: z.string().max(50000),
   })).max(100).optional(),
+  // Execution context for resumed sessions
+  branchName: z.string().max(500).nullable().optional(),
+  prUrl: z.string().max(2000).nullable().optional(),
 })
 
 agentRoute.post('/task-chat', async (c) => {
@@ -707,6 +760,7 @@ agentRoute.post('/task-chat', async (c) => {
   const {
     message,
     sessionId: existingSessionId,
+    streamId,
     nodeId,
     projectId,
     taskTitle,
@@ -715,9 +769,18 @@ agentRoute.post('/task-chat', async (c) => {
     visionDoc,
     model,
     messages: historyMessages,
+    branchName,
+    prUrl,
   } = body
 
+  const isResumedSession = !!existingSessionId
   const taskId = existingSessionId || `task-chat-${nodeId}-${Date.now()}`
+
+  // Verify project ownership
+  const taskChatUser = c.get('user') as AuthUser
+  if (!await verifyProjectAccess(projectId, taskChatUser)) {
+    return c.json({ error: 'Project not found' }, 404)
+  }
 
   // Look up the project's working directory
   const [project] = await db.select({ workingDirectory: projects.workingDirectory }).from(projects).where(eq(projects.id, projectId)).limit(1)
@@ -727,7 +790,14 @@ agentRoute.post('/task-chat', async (c) => {
     taskDescription,
     taskOutput,
     visionDoc,
+    isResumedSession,
+    branchName: branchName || undefined,
+    prUrl: prUrl || undefined,
   })
+
+  // Persist user message for catch-up hydration
+  await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -739,6 +809,9 @@ agentRoute.post('/task-chat', async (c) => {
     model: model || undefined,
     maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
+    // When we have a provider session ID, pass it so agent-runner can resume the Claude session
+    resumeSessionId: existingSessionId || undefined,
+    streamId,
   })
 })
 

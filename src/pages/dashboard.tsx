@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { stripHtml } from "@/lib/html-utils"
 import { Link, useNavigate } from "react-router"
 import {
@@ -74,6 +74,8 @@ export function Dashboard() {
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
   const getExecution = useExecutionStore((s) => s.getExecution)
   const executionsLoaded = useExecutionStore((s) => s.loaded)
+  const resetExecution = useExecutionStore((s) => s.resetExecution)
+  const [resettingId, setResettingId] = useState<string | null>(null)
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const navigate = useNavigate()
@@ -386,9 +388,12 @@ export function Dashboard() {
                             <Check className="h-3.5 w-3.5 mr-1" />
                             Approve
                           </Button>
-                          <Button variant="outline" size="sm" onClick={() => updateNode(node.id, { status: "planned" })} className="min-h-9">
-                            <RotateCcw className="h-3.5 w-3.5 mr-1" />
-                            Retry
+                          <Button variant="outline" size="sm" disabled={resettingId === node.id} onClick={async () => {
+                            setResettingId(node.id)
+                            try { await resetExecution(node.id) } finally { setResettingId(null) }
+                          }} className="min-h-9">
+                            <RotateCcw className={cn("h-3.5 w-3.5 mr-1", resettingId === node.id && "animate-spin")} />
+                            {resettingId === node.id ? "Resetting..." : "Reset"}
                           </Button>
                           <Button variant="ghost" size="sm" onClick={() => updateNode(node.id, { status: "pruned" })} className="min-h-9 text-muted-foreground">
                             <Scissors className="h-3.5 w-3.5 mr-1" />

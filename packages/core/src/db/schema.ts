@@ -607,3 +607,15 @@ export const environmentConfigs = pgTable('environment_configs', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
+
+// ── Streaming Events ─────────────────────────────────────────────
+// Append-only log of streaming events for SSE catch-up on reconnection.
+// Structural events (tool_use, tool_result, file_change, etc.) are persisted
+// immediately; text is accumulated per-turn and flushed at tool boundaries.
+export const streamingEvents = pgTable('streaming_events', {
+  seq: integer('seq').primaryKey().generatedAlwaysAsIdentity(),
+  executionId: text('execution_id').notNull(),
+  eventType: text('event_type').notNull(), // 'text' | 'tool_use' | 'tool_result' | 'file_change' | 'session_init' | 'progress' | 'result'
+  data: jsonb('data').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})

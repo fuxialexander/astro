@@ -1,6 +1,5 @@
-import { useState, useCallback, useRef, useMemo } from 'react'
-import { Save, Loader2, ExternalLink, Paperclip, Link2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
+import { Loader2, ExternalLink, Paperclip, Link2, CircleCheck } from 'lucide-react'
 import { RichTextEditor, type RichTextEditorRef } from '@/components/ui/rich-text-editor'
 import { AttachmentList } from './attachment-list'
 import { LinkList } from './link-list'
@@ -30,9 +29,9 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
   // Initialize with content or fall back to description for backward compat
   const initialContent = node.content || (node.description ? `<p>${node.description}</p>` : '')
   const [draftContent, setDraftContent] = useState(initialContent)
-  const [isSaving, setIsSaving] = useState(false)
-  const [hasChanges, setHasChanges] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [activeSection, setActiveSection] = useState<'content' | 'attachments' | 'links'>('content')
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Build mention items from sibling plan nodes + file tree
   const mentionItems = useMemo<MentionSuggestionItem[]>(() => {
@@ -53,21 +52,24 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
 
   const handleContentChange = useCallback((html: string) => {
     setDraftContent(html)
-    setHasChanges(html !== initialContent)
-  }, [initialContent])
+    if (html === initialContent) return
 
-  const handleSave = useCallback(async () => {
-    if (!hasChanges) return
-    setIsSaving(true)
-    try {
-      // Sync markdown into description so agents and dispatch get structured text
-      const markdown = editorRef.current?.getMarkdown() || draftContent
-      await updateNode(node.id, { content: draftContent, description: markdown })
-      setHasChanges(false)
-    } finally {
-      setIsSaving(false)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      setSaveStatus('saving')
+      const markdown = editorRef.current?.getMarkdown() || html
+      await updateNode(node.id, { content: html, description: markdown })
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus('idle'), 1500)
+    }, 800)
+  }, [node.id, initialContent, updateNode])
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [node.id, draftContent, hasChanges, updateNode])
+  }, [])
 
   const handleImageUpload = useCallback(async (file: File): Promise<string | null> => {
     try {
@@ -124,24 +126,23 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
 
   return (
     <div className="p-4 md:p-6">
-      {/* Save button - sticky at top when content changes */}
-      {hasChanges && (
-        <div className="sticky top-0 z-10 -mx-4 md:-mx-6 px-4 md:px-6 py-2 mb-4 bg-background/95 backdrop-blur border-b border-border flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">
-            Unsaved changes
-          </span>
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={isSaving}
-          >
-            {isSaving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-            ) : (
-              <Save className="h-3.5 w-3.5 mr-1.5" />
+      {/* Autosave status indicator */}
+      {saveStatus !== 'idle' && (
+        <div className="flex items-center justify-end mb-2">
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            {saveStatus === 'saving' && (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Saving...
+              </>
             )}
-            Save
-          </Button>
+            {saveStatus === 'saved' && (
+              <>
+                <CircleCheck className="h-3 w-3" />
+                Saved
+              </>
+            )}
+          </span>
         </div>
       )}
 

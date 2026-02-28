@@ -48,6 +48,7 @@ import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
 import { cleanupExpiredChallenges } from './lib/challenge-store.js'
 import { cleanupExpiredDeviceCodes } from './lib/device-code-store.js'
+import { streamingEventLog } from './lib/streaming-event-log.js'
 
 // Validate environment variables on startup
 try {
@@ -467,6 +468,7 @@ async function shutdown(signal: string) {
   try {
     stopCleanupScheduler()
     await observationCollector.stop()
+    await streamingEventLog.flushAll()
     dispatchEngine.stop()
     httpServer?.close()
     await relayServer.stop()

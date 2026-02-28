@@ -278,6 +278,7 @@ export type TaskActivityEvent =
   | { type: 'error'; error: string; timestamp: Date }
   | { type: 'approval_request'; requestId: string; question: string; options: string[]; timestamp: Date }
   | { type: 'approval_response'; requestId: string; question: string; answer: string; autoApproved?: boolean; timestamp: Date }
+  | { type: 'mutation'; nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>; edgeOps: Array<{ action: string; source: string; target: string; type?: string }>; newNodes: Array<{ title: string; description: string; type?: string; id?: string }>; timestamp: Date }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {

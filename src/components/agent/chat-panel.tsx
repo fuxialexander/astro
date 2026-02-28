@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { stripHtml, escapeHtml } from "@/lib/html-utils"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle, MessageSquare, Plus, History, Trash2, Activity } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,12 +20,21 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { SessionDialog } from "@/components/session-dialog"
-import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
-import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
 import { useRealtimeStore } from "@/stores/realtime-store"
-import { ChatActivityView } from "@/components/agent/chat-activity-view"
-import type { PlanNode, ProviderStatus, Session } from "@/types"
+import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
+import {
+  TextBlock,
+  ToolBlock,
+  ToolGroupBlock,
+  SteerBlock,
+  FileChangeBlock,
+  ErrorBlock,
+  ChatUserBlock,
+  ChatAssistantBlock,
+  MutationBlock,
+} from "@/components/activity-blocks"
+import type { PlanNode, ProviderStatus, Session, TaskActivityEvent } from "@/types"
 
 /** A node update: nodeId + any properties to patch */
 interface ParsedNodeUpdate {
@@ -151,13 +159,13 @@ interface ChatPanelProps {
   initialMessage?: string
   /** Called when the user clicks a [node_id] link in a chat message */
   onNodeSelect?: (nodeId: string) => void
+  /** Extra elements rendered in the header bar (right side, before provider selector) */
+  headerActions?: React.ReactNode
 }
 
-export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }: ChatPanelProps) {
+export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions }: ChatPanelProps) {
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
-  const [activeTab, setActiveTab] = useState<'chat' | 'activity'>('chat')
-  const [toolCallCount, setToolCallCount] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const initialMessageSent = useRef(false)
@@ -172,7 +180,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId)
   const getSession = useSessionStore((s) => s.getSession)
   const renameSession = useSessionStore((s) => s.renameSession)
-  const truncateAfterMessage = useSessionStore((s) => s.truncateAfterMessage)
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const clearActiveSessionId = useSessionStore((s) => s.clearActiveSessionId)
   // Subscribe to sessions and activeSessionIds so memos recompute on changes
@@ -277,15 +284,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     }
   }, [currentSession?.id, deleteSession, planChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
 
-  // Handler to edit a user message: truncate history and populate input
-  const handleEditMessage = useCallback((messageId: string) => {
-    if (!currentSession || isStreaming) return
-    const content = truncateAfterMessage(currentSession.id, messageId)
-    if (content !== undefined) {
-      setInput(content)
-    }
-  }, [currentSession, isStreaming, truncateAfterMessage])
-
   // Handler to clear all sessions
   const handleClearAllSessions = useCallback(() => {
     for (const session of planChatSessions) {
@@ -300,6 +298,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     content: m.content,
     appliedMutations: m.appliedMutations as AppliedMutations | undefined,
   }))
+
+  // Activity view: hydrate events from streaming_events or session messages
+  const sessionMessages = useMemo(() => currentSession?.messages || [], [currentSession?.messages])
+  const { displayBlocks, isRestoring } = useChatActivityEvents(
+    currentSession?.id,
+    sessionMessages,
+    isStreaming,
+  )
 
   // Plan store — read nodes/edges for context, write updates
   const rawPlanNodes = usePlanStore((s) => s.nodes)
@@ -415,7 +421,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages])
+  }, [displayBlocks.length, isStreaming])
 
   /** Apply all mutations (node updates + edge operations + new nodes) to the plan store.
    *  Returns the real (prefixed) node IDs that were affected. */
@@ -472,6 +478,12 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         if (key === "nodeId") continue // not a property
         if (INTERNAL_FIELDS.has(key)) continue // skip internal fields
         ;(patch as Record<string, unknown>)[key] = value
+      }
+
+      // When description is updated, also generate the HTML content field
+      // (UI renders content, not description)
+      if (typeof patch.description === 'string' && !patch.content) {
+        patch.content = `<p>${escapeHtml(patch.description)}</p>`
       }
 
       // If dependencies were updated, reconcile edges automatically
@@ -558,6 +570,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
       (m) => m.role === "assistant" && m.content.length > 0
     )
 
+    // Push user message to realtime store for activity timeline
+    // session.id is always available and stable across all turns
+    useRealtimeStore.getState().pushActivityEvent(session.id, {
+      type: 'chat_user',
+      message: text,
+      timestamp: new Date(),
+    })
+
     // Track raw assistant text outside React state so it's available
     // synchronously in onDone (React 18 batches setState updaters).
     let rawAssistantText = ""
@@ -566,10 +586,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency"])
     let needsPlanRefresh = false
 
-    // Use the existing providerSessionId as the relay task ID for pushing activity events.
-    // On first message it's not set yet — we'll get it from onDone.
-    const sessionTaskId = hasCompletedExchange ? session.providerSessionId : undefined
-    let resolvedTaskId = sessionTaskId || ''
+    // Use session.id as the stable key for pushing activity events.
+    // It's always available (unlike providerSessionId which comes back from onDone).
+    const resolvedTaskId = session.id
     let localToolCount = 0
 
     try {
@@ -577,6 +596,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         {
           message: text,
           sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
+          streamId: session.id,
           projectId,
           visionDoc,
           model: effectiveModel,
@@ -589,42 +609,41 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
           onText: (chunk) => {
             rawAssistantText += chunk
             appendToLastAssistantMessage(sid, chunk)
+            useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
+              type: 'text',
+              content: chunk,
+              timestamp: new Date(),
+            })
           },
           onToolUse: (data) => {
             if (PLAN_MUTATING_TOOLS.has(data.toolName)) {
               needsPlanRefresh = true
             }
             localToolCount++
-            setToolCallCount(localToolCount)
-            if (resolvedTaskId) {
-              useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
-                type: 'tool_use',
-                id: `tool-${localToolCount}`,
-                toolName: data.toolName,
-                toolInput: data.toolInput,
-                timestamp: new Date(),
-              })
-            }
+            useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
+              type: 'tool_use',
+              id: `tool-${localToolCount}`,
+              toolName: data.toolName,
+              toolInput: data.toolInput,
+              timestamp: new Date(),
+            })
           },
           onToolResult: (data) => {
             if (PLAN_MUTATING_TOOLS.has(data.toolName)) {
               needsPlanRefresh = true
             }
-            if (resolvedTaskId) {
-              useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
-                type: 'tool_result',
-                id: `tool-${localToolCount}`,
-                toolName: data.toolName,
-                toolResult: data.result,
-                success: data.success,
-                timestamp: new Date(),
-              })
-            }
+            useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
+              type: 'tool_result',
+              id: `tool-${localToolCount}`,
+              toolName: data.toolName,
+              toolResult: data.result,
+              success: data.success,
+              timestamp: new Date(),
+            })
           },
           onDone: (newProviderSessionId) => {
             if (newProviderSessionId) {
               setProviderSessionId(sid, newProviderSessionId)
-              resolvedTaskId = newProviderSessionId
             }
 
             // Refresh plan from server if MCP tools modified the plan
@@ -646,6 +665,15 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
               if (affectedNodeIds.length > 0) {
                 markNodesAsUpdating(affectedNodeIds)
               }
+
+              // Push mutation event to realtime store for activity timeline
+              useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
+                type: 'mutation',
+                nodeUpdates: mutations.nodeUpdates,
+                edgeOps: mutations.edgeOps,
+                newNodes: mutations.newNodes,
+                timestamp: new Date(),
+              })
 
               // Update message display with clean content and mutation record
               updateLastAssistantMessage(sid, cleanContent, mutations)
@@ -716,6 +744,27 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
       return _match
     })
   }, [nodeIdSet, planNodes])
+
+  /**
+   * Strip raw tool call XML from text and apply node ref preprocessing.
+   * The relay streams Claude's raw output which includes tool call XML
+   * (e.g. <function_calls>, <function_calls>, <invoke>, etc.);
+   * these are already represented as separate tool_use/tool_result activity events,
+   * so the XML in the text stream is redundant and should be hidden.
+   */
+  const preprocessTextContent = useCallback((text: string) => {
+    // Strip complete function_calls blocks (with or without antml: prefix)
+    let cleaned = text.replace(/<(?:antml:)?function_calls>[\s\S]*?<\/(?:antml:)?function_calls>/g, '')
+    // Strip incomplete/trailing function_calls blocks (during streaming, the closing tag may not have arrived yet)
+    cleaned = cleaned.replace(/<(?:antml:)?function_calls>[\s\S]*$/g, '')
+    // Strip standalone invoke blocks that may appear outside function_calls wrappers
+    cleaned = cleaned.replace(/<(?:antml:)?invoke\b[\s\S]*?<\/(?:antml:)?invoke>/g, '')
+    cleaned = cleaned.replace(/<(?:antml:)?invoke\b[\s\S]*$/g, '')
+    // Trim leftover whitespace from stripped blocks
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim()
+    if (!cleaned) return ''
+    return preprocessNodeRefs(cleaned)
+  }, [preprocessNodeRefs])
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-card">
@@ -807,6 +856,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         </div>
 
         <div className="flex items-center gap-2">
+          {headerActions}
           {/* Provider Selector */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -885,173 +935,92 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         </div>
       </div>
 
-      {/* Chat / Activity tab bar */}
-      <div className="flex shrink-0 border-b border-border">
-        <button
-          onClick={() => setActiveTab('chat')}
-          className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
-            activeTab === 'chat'
-              ? 'text-foreground border-b-2 border-primary'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Chat
-        </button>
-        <button
-          onClick={() => setActiveTab('activity')}
-          className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors flex items-center justify-center gap-1.5 ${
-            activeTab === 'activity'
-              ? 'text-foreground border-b-2 border-primary'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          <Activity className="h-3 w-3" />
-          Activity
-          {toolCallCount > 0 && (
-            <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 min-w-[16px]">
-              {toolCallCount}
-            </Badge>
-          )}
-        </button>
+      {/* Activity Timeline */}
+      <div className="flex-1 overflow-auto py-3 bg-muted/20" ref={scrollRef}>
+        {displayBlocks.length === 0 && !isStreaming && (
+          <div className="flex items-center justify-center h-full">
+            {isRestoring ? (
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading activity...
+              </span>
+            ) : (
+              <p className="text-xs text-muted-foreground text-center py-8">
+                Ask questions or request changes to your plan.
+                Use <span className="font-mono text-[10px] bg-muted px-1 rounded">/help</span> for commands,{" "}
+                <span className="font-mono text-[10px] bg-muted px-1 rounded">@</span> to reference tasks.
+              </p>
+            )}
+          </div>
+        )}
+
+        {displayBlocks.map((block, i) => {
+          const isLastBlock = i === displayBlocks.length - 1
+          switch (block.type) {
+            case 'text':
+              return (
+                <TextBlock
+                  key={i}
+                  events={block.events}
+                  isStreaming={isStreaming && isLastBlock}
+                  preprocessContent={preprocessTextContent}
+                  onLinkClick={(href) => {
+                    const match = href.match(/^astro:node:(.+)$/)
+                    if (match) {
+                      onNodeSelect?.(match[1])
+                      return true
+                    }
+                  }}
+                />
+              )
+            case 'tool':
+              return <ToolBlock key={i} events={block.events} isRunning={isStreaming} />
+            case 'tool_group':
+              return <ToolGroupBlock key={i} events={block.events} isRunning={isStreaming} />
+            case 'steer':
+              return <SteerBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
+            case 'file_change':
+              return <FileChangeBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} />
+            case 'error':
+              return <ErrorBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
+            case 'chat_user':
+              return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} />
+            case 'chat_assistant':
+              return (
+                <ChatAssistantBlock
+                  key={i}
+                  event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>}
+                  isStreaming={isStreaming && isLastBlock}
+                  onLinkClick={(href) => {
+                    const match = href.match(/^astro:node:(.+)$/)
+                    if (match) {
+                      onNodeSelect?.(match[1])
+                      return true
+                    }
+                  }}
+                />
+              )
+            case 'mutation':
+              return (
+                <MutationBlock
+                  key={i}
+                  event={block.events[0] as Extract<TaskActivityEvent, { type: 'mutation' }>}
+                  getNodeTitle={getNodeTitle}
+                  onNodeSelect={onNodeSelect}
+                />
+              )
+            default:
+              return null
+          }
+        })}
+
+        {/* Typing indicator when streaming starts but no events yet */}
+        {isStreaming && displayBlocks.length === 0 && (
+          <div className="px-4 py-2">
+            <TypingIndicator className="text-muted-foreground py-1" />
+          </div>
+        )}
       </div>
-
-      {/* Activity tab */}
-      {activeTab === 'activity' && (
-        <ChatActivityView
-          sessionId={currentSession?.providerSessionId || ''}
-          isStreaming={isStreaming}
-        />
-      )}
-
-      {/* Messages (Chat tab) */}
-      {activeTab === 'chat' && <ScrollArea className="flex-1 p-4" ref={scrollRef}>
-        <div className="flex flex-col gap-4">
-          {messages.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-8">
-              Ask questions or request changes to your plan.
-              Use <span className="font-mono text-[10px] bg-muted px-1 rounded">/help</span> for commands,{" "}
-              <span className="font-mono text-[10px] bg-muted px-1 rounded">@</span> to reference tasks.
-            </p>
-          )}
-          {messages.map((msg, i) => (
-            <div
-              key={msg.id}
-              className={`group/msg flex flex-col gap-1 ${msg.role === "user" ? "items-end" : "items-start"}`}
-            >
-              <div className="flex items-center gap-1.5">
-                {msg.role === "user" && !isStreaming && (
-                  <button
-                    onClick={() => handleEditMessage(msg.id)}
-                    className="opacity-0 group-hover/msg:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
-                    title="Edit & resend"
-                  >
-                    <Pencil className="h-3 w-3 text-muted-foreground" />
-                  </button>
-                )}
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {msg.role === "user" ? "You" : providerLabel}
-                </span>
-              </div>
-              <div
-                className={`rounded-lg px-3 py-2 text-sm leading-relaxed max-w-[320px] ${
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-foreground"
-                }`}
-              >
-                {msg.content ? (
-                  msg.role === "assistant" ? (
-                    isStreaming && i === messages.length - 1 ? (
-                      <StreamingMarkdown
-                        content={preprocessNodeRefs(msg.content)}
-                        isStreaming
-                        className="text-sm"
-                        onLinkClick={(href) => {
-                          const match = href.match(/^astro:node:(.+)$/)
-                          if (match) {
-                            onNodeSelect?.(match[1])
-                            return true
-                          }
-                        }}
-                      />
-                    ) : (
-                      <MarkdownRenderer
-                        content={preprocessNodeRefs(msg.content)}
-                        className="text-sm"
-                        onLinkClick={(href) => {
-                          const match = href.match(/^astro:node:(.+)$/)
-                          if (match) {
-                            onNodeSelect?.(match[1])
-                            return true
-                          }
-                        }}
-                      />
-                    )
-                  ) : (
-                    <pre className="whitespace-pre-wrap font-primary text-sm">
-                      {msg.content}
-                    </pre>
-                  )
-                ) : isStreaming && i === messages.length - 1 ? (
-                  <TypingIndicator className="text-muted-foreground py-1" />
-                ) : null}
-              </div>
-              {/* Show applied mutation banners */}
-              {msg.appliedMutations && (msg.appliedMutations.nodeUpdates.length > 0 || msg.appliedMutations.edgeOps.length > 0 || msg.appliedMutations.newNodes.length > 0) && (
-                <div className="flex flex-col gap-1 mt-1 max-w-[320px]">
-                  {msg.appliedMutations.nodeUpdates.map((u, j) => {
-                    const changedFields = Object.keys(u).filter((k) => k !== "nodeId" && !INTERNAL_FIELDS.has(k))
-                    const summary = changedFields.map((k) => {
-                      const val = u[k]
-                      // Resolve milestoneId and dependencies to human-readable names
-                      if (k === "milestoneId" && typeof val === "string") return `milestone\u2192${getNodeTitle(val)}`
-                      if (k === "dependencies" && Array.isArray(val)) return `deps\u2192[${val.map(getNodeTitle).join(", ")}]`
-                      if (typeof val === "string" && val.length > 30) return k
-                      return `${k}\u2192${val}`
-                    }).join(", ")
-                    return (
-                      <div
-                        key={`u-${j}`}
-                        className="flex items-center gap-1.5 rounded-md bg-primary/10 border border-primary/20 px-2.5 py-1.5 text-[11px] text-primary"
-                      >
-                        <Pencil className="h-3 w-3 shrink-0" />
-                        <span className="truncate">
-                          <strong>{getNodeTitle(u.nodeId)}</strong> {summary}
-                        </span>
-                        <CheckCircle2 className="h-3 w-3 shrink-0 ml-auto" />
-                      </div>
-                    )
-                  })}
-                  {msg.appliedMutations.edgeOps.map((op, j) => (
-                    <div
-                      key={`e-${j}`}
-                      className="flex items-center gap-1.5 rounded-md bg-info/10 border border-info/20 px-2.5 py-1.5 text-[11px] text-info"
-                    >
-                      <GitBranch className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        {op.action === "add" ? "Added" : "Removed"} edge: {getNodeTitle(op.source)} → {getNodeTitle(op.target)}
-                      </span>
-                      <CheckCircle2 className="h-3 w-3 shrink-0 ml-auto" />
-                    </div>
-                  ))}
-                  {msg.appliedMutations.newNodes.map((n, j) => (
-                    <div
-                      key={`n-${j}`}
-                      className="flex items-center gap-1.5 rounded-md bg-success/10 border border-success/20 px-2.5 py-1.5 text-[11px] text-success"
-                    >
-                      <PlusCircle className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        Created <strong>{n.title}</strong>{n.type && n.type !== "task" ? ` (${n.type})` : ""}
-                      </span>
-                      <CheckCircle2 className="h-3 w-3 shrink-0 ml-auto" />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </ScrollArea>}
 
       {/* Input */}
       <div className="flex items-end gap-2 border-t border-border p-3">

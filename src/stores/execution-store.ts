@@ -10,8 +10,9 @@ import { dataClient } from "@/lib/data-client"
 import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
 import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
+import { useSessionStore } from "./session-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
-import { extractPlanJsonFromText } from "@/lib/plan-extraction"
+import { applyPlanFromText } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
 
@@ -442,6 +443,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         })
         planStore.updateNode(nodeId, { status: "planned" })
       } else {
+        // Don't mark as failure if the page is unloading (refresh/navigate away)
+        // — the task is still running server-side, catch-up will reconcile on reload
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          console.log('[execution] SSE interrupted by page unload, skipping failure marking')
+          return
+        }
         // Error occurred
         const message = error instanceof Error ? error.message : "Unknown error"
         set((state) => {
@@ -531,15 +538,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       // Best effort — continue with local cleanup even if server call fails
     }
 
-    // Clear chat session for this task
-    useTaskChatStore.getState().clearSession(nodeId)
-
-    // Clear execution from in-memory store
-    set((state) => {
-      const newExecutions = new Map(state.executions)
-      newExecutions.delete(nodeId)
-      return { executions: newExecutions }
-    })
+    // Clean up all Zustand state for this node across all stores
+    const oldExecutionId = execution?.executionId || node?.executionId
+    await cleanupNodeZustandState(nodeId, oldExecutionId)
 
     // Reset PlanNode execution fields, PR fields, and status
     planStore.updateNode(nodeId, {
@@ -948,7 +949,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // 1. Create project
     const projectId = crypto.randomUUID()
     const displayName = projectName || "New Project"
-    useProjectStore.getState().addProject({
+    await useProjectStore.getState().addProject({
       id: projectId,
       name: displayName,
       description,
@@ -1038,64 +1039,15 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             if (event === "result") {
               try {
                 const exec = get().executions.get(nodeId)
-                console.log(`[plan-session] Result event received for ${nodeId}, streamText length: ${exec?.streamText?.length ?? 0}`)
                 if (exec?.streamText) {
-                  // Log the tail of streamText to see if it contains the JSON fence
-                  const tail = exec.streamText.slice(-500)
-                  console.log(`[plan-session] streamText tail (last 500 chars):`, tail)
-                  const planJson = extractPlanJsonFromText(exec.streamText)
-                  console.log(`[plan-session] extractPlanJsonFromText result:`, planJson ? `found ${planJson.nodes?.length} nodes` : 'null')
-                  if (planJson) {
-                    const prefix = projectId.slice(0, 8)
-                    const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
-                    const now = new Date()
-
-                    const nodes: PlanNode[] = planJson.nodes.map((n: Record<string, unknown>) => ({
-                      id: prefixId(n.id as string),
-                      projectId,
-                      type: (n.type as PlanNode["type"]) || "task",
-                      title: (n.title as string) || "",
-                      description: (n.description as string) || "",
-                      content: n.description ? `<p>${n.description as string}</p>` : '',
-                      status: (n.status as PlanNode["status"]) || "planned",
-                      parentId: n.parentId ? prefixId(n.parentId as string) : null,
-                      dependencies: (n.dependencies as string[] || []).map(prefixId),
-                      verification: (n.verification as PlanNode["verification"]) || "human",
-                      position: (n.position as { x: number; y: number }) || { x: 40, y: 40 },
-                      startDate: n.startDate as string | undefined,
-                      endDate: n.endDate as string | undefined,
-                      priority: n.priority as PlanNode["priority"],
-                      estimate: n.estimate as PlanNode["estimate"],
-                      dueDate: n.dueDate as string | undefined,
-                      labelIds: n.labelIds as string[] | undefined,
-                      milestoneId: n.milestoneId ? prefixId(n.milestoneId as string) : undefined,
-                      createdAt: now,
-                      updatedAt: now,
-                    }))
-
-                    const edges: PlanEdge[] = (planJson.edges || []).map((e: Record<string, unknown>) => ({
-                      id: prefixId(e.id as string),
-                      source: prefixId(e.source as string),
-                      target: prefixId(e.target as string),
-                      type: (e.type as PlanEdge["type"]) || "dependency",
-                    }))
-
-                    console.log(`[plan-session] Calling setProjectPlan with ${nodes.length} nodes, ${edges.length} edges for project ${projectId}`)
-                    planStore.setProjectPlan(projectId, nodes, edges)
-                    planStore.reorganizeProject(projectId)
-
-                    if (planJson.projectName) {
-                      useProjectStore.getState().updateProject(projectId, { name: planJson.projectName })
-                    }
-
-                    console.log(`[plan-session] Plan extracted: ${nodes.length} nodes, ${edges.length} edges`)
+                  const result = applyPlanFromText(projectId, exec.streamText)
+                  if (result.applied) {
+                    console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
                   }
                 }
               } catch (e) {
                 console.error("[plan-session] Failed to extract plan:", e)
               }
-
-              // Toast tracking disabled — plan UI handles status directly
             }
           },
         })
@@ -1112,6 +1064,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             return { executions: newExecutions }
           })
         } else {
+          // Don't mark as failure if the page is unloading (refresh/navigate away)
+          // — the task is still running server-side, catch-up will reconcile on reload
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            console.log('[plan-session] SSE interrupted by page unload, skipping failure marking')
+            return
+          }
           const message = error instanceof Error ? error.message : "Unknown error"
           set((state) => {
             const newExecutions = new Map(state.executions)
@@ -1307,54 +1265,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             if (event === "result") {
               try {
                 const exec = get().executions.get(nodeId)
-                console.log(`[plan-session-forProject] Result event for ${nodeId}, streamText length: ${exec?.streamText?.length ?? 0}`)
                 if (exec?.streamText) {
-                  const tail = exec.streamText.slice(-500)
-                  console.log(`[plan-session-forProject] streamText tail:`, tail)
-                  const planJson = extractPlanJsonFromText(exec.streamText)
-                  console.log(`[plan-session-forProject] extraction result:`, planJson ? `found ${planJson.nodes?.length} nodes` : 'null')
-                  if (planJson) {
-                    const prefix = projectId.slice(0, 8)
-                    const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
-                    const now = new Date()
-
-                    const nodes: PlanNode[] = planJson.nodes.map((n: Record<string, unknown>) => ({
-                      id: prefixId(n.id as string),
-                      projectId,
-                      type: (n.type as PlanNode["type"]) || "task",
-                      title: (n.title as string) || "",
-                      description: (n.description as string) || "",
-                      content: n.description ? `<p>${n.description as string}</p>` : '',
-                      status: (n.status as PlanNode["status"]) || "planned",
-                      parentId: n.parentId ? prefixId(n.parentId as string) : null,
-                      dependencies: (n.dependencies as string[] || []).map(prefixId),
-                      verification: (n.verification as PlanNode["verification"]) || "human",
-                      position: (n.position as { x: number; y: number }) || { x: 40, y: 40 },
-                      startDate: n.startDate as string | undefined,
-                      endDate: n.endDate as string | undefined,
-                      priority: n.priority as PlanNode["priority"],
-                      estimate: n.estimate as PlanNode["estimate"],
-                      dueDate: n.dueDate as string | undefined,
-                      labelIds: n.labelIds as string[] | undefined,
-                      milestoneId: n.milestoneId ? prefixId(n.milestoneId as string) : undefined,
-                      createdAt: now,
-                      updatedAt: now,
-                    }))
-
-                    const edges: PlanEdge[] = (planJson.edges || []).map((e: Record<string, unknown>) => ({
-                      id: prefixId(e.id as string),
-                      source: prefixId(e.source as string),
-                      target: prefixId(e.target as string),
-                      type: (e.type as PlanEdge["type"]) || "dependency",
-                    }))
-
-                    console.log(`[plan-session-forProject] setProjectPlan: ${nodes.length} nodes, ${edges.length} edges`)
-                    planStore.setProjectPlan(projectId, nodes, edges)
-                    planStore.reorganizeProject(projectId)
-
-                    if (planJson.projectName) {
-                      useProjectStore.getState().updateProject(projectId, { name: planJson.projectName })
-                    }
+                  const result = applyPlanFromText(projectId, exec.streamText)
+                  if (result.applied) {
+                    console.log(`[plan-session-forProject] Plan extracted: ${result.nodeCount} nodes`)
                   }
                 }
               } catch (e) {
@@ -1375,6 +1289,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             return { executions: newExecutions }
           })
         } else {
+          // Don't mark as failure if the page is unloading (refresh/navigate away)
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            console.log('[plan-session-forProject] SSE interrupted by page unload, skipping failure marking')
+            return
+          }
           const message = error instanceof Error ? error.message : "Unknown error"
           set((state) => {
             const newExecutions = new Map(state.executions)
@@ -1399,7 +1318,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // 1. Create project for this playground session
     const projectId = crypto.randomUUID()
     const displayName = description.slice(0, 60) || "Playground Session"
-    useProjectStore.getState().addProject({
+    await useProjectStore.getState().addProject({
       id: projectId,
       name: displayName,
       description,
@@ -1632,6 +1551,89 @@ async function processExecutionStream(
 const textBatchPending = new Map<string, string>()
 const textBatchTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+/**
+ * Clean up all Zustand state associated with a node/execution.
+ * Called by both resetExecution (execution-store) and resetNode (plan-store).
+ */
+export async function cleanupNodeZustandState(nodeId: string, executionId?: string) {
+  // Clear chat session for this task
+  useTaskChatStore.getState().clearSession(nodeId)
+
+  // Clear all sessions (steer + task-chat) for this node from session store
+  // Also clear activeSessionIds that point to deleted sessions
+  const sessionStore = useSessionStore.getState()
+  sessionStore.clearSessionsForNode(nodeId)
+
+  // Clear module-level text batch buffers (execution-store)
+  clearTextBatch(nodeId)
+
+  // Clear realtime store state (taskStream, text batches, approvals, safety prompts, attached sessions)
+  if (executionId) {
+    const { useRealtimeStore, clearRealtimeTextBatch } = await import("./realtime-store")
+    clearRealtimeTextBatch(executionId)
+    useRealtimeStore.setState((state) => {
+      const streams = new Map(state.taskStreams)
+      streams.delete(executionId)
+      // Remove dynamic approvals for this execution
+      const newApprovals = new Map(state.dynamicApprovals)
+      for (const [rid, approval] of newApprovals) {
+        if (approval.taskId === executionId) newApprovals.delete(rid)
+      }
+      // Remove safety prompts for this execution
+      const newPrompts = new Map(state.safetyPrompts)
+      newPrompts.delete(executionId)
+      // Remove attached sessions for this execution
+      const newAttached = new Map(state.attachedSessions)
+      for (const [sid, session] of newAttached) {
+        if (session.taskId === executionId) newAttached.delete(sid)
+      }
+      return { taskStreams: streams, dynamicApprovals: newApprovals, safetyPrompts: newPrompts, attachedSessions: newAttached }
+    })
+
+    // Clear observation traces for this execution
+    const { useObservationStore } = await import("./observation-store")
+    useObservationStore.setState((state) => {
+      const traces = new Map(state.traces)
+      const loading = new Map(state.loading)
+      const errors = new Map(state.errors)
+      traces.delete(executionId)
+      loading.delete(executionId)
+      errors.delete(executionId)
+      return { traces, loading, errors }
+    })
+  }
+
+  // Clear pending approvals for this node
+  const execStore = useExecutionStore.getState()
+  useExecutionStore.setState((state) => {
+    const newApprovals = new Map(state.pendingApprovals)
+    for (const [aid, approval] of newApprovals) {
+      if (approval.nodeId === nodeId) newApprovals.delete(aid)
+    }
+    return { pendingApprovals: newApprovals }
+  })
+
+  // Clear selectedExecutionId if it points to this node
+  if (execStore.selectedExecutionId === nodeId) {
+    useExecutionStore.setState({ selectedExecutionId: null })
+  }
+
+  // Clear execution from in-memory store
+  useExecutionStore.setState((state) => {
+    const newExecutions = new Map(state.executions)
+    newExecutions.delete(nodeId)
+    return { executions: newExecutions }
+  })
+}
+
+/** Clear text-batch state for a given nodeId (used by resetExecution). */
+export function clearTextBatch(nodeId: string) {
+  const timer = textBatchTimers.get(nodeId)
+  if (timer) clearTimeout(timer)
+  textBatchTimers.delete(nodeId)
+  textBatchPending.delete(nodeId)
+}
+
 function flushTextBatch(
   nodeId: string,
   set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
@@ -1664,6 +1666,11 @@ function flushTextBatch(
     }
     return { executions: newExecutions }
   })
+}
+
+/** Check if a nodeId corresponds to a real plan node (not a synthetic plan/playground session node). */
+function isRealPlanNode(nodeId: string): boolean {
+  return !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')
 }
 
 // Helper: Handle individual SSE events
@@ -1701,16 +1708,18 @@ function handleSSEEvent(
           return { executions: newExecutions }
         })
         const now = new Date()
-        const node = planStore.nodes.find((n) => n.id === nodeId)
-        planStore.updateNode(nodeId, {
-          status: "in_progress",
-          executionId: parsed.executionId,
-          executionStartedAt: now,
-          // Update startDate with real execution start time (ISO datetime)
-          startDate: now.toISOString(),
-          // Set actualStartDate only on first execution attempt (if not already set)
-          ...(node && !node.actualStartDate ? { actualStartDate: now } : {}),
-        })
+        if (isRealPlanNode(nodeId)) {
+          const node = planStore.nodes.find((n) => n.id === nodeId)
+          planStore.updateNode(nodeId, {
+            status: "in_progress",
+            executionId: parsed.executionId,
+            executionStartedAt: now,
+            // Update startDate with real execution start time (ISO datetime)
+            startDate: now.toISOString(),
+            // Set actualStartDate only on first execution attempt (if not already set)
+            ...(node && !node.actualStartDate ? { actualStartDate: now } : {}),
+          })
+        }
 
         // Persist running execution to DB so it survives page refresh
         const freshExec = get().executions.get(nodeId)
@@ -1912,7 +1921,7 @@ function handleSSEEvent(
     case "result": {
       try {
         const parsed = JSON.parse(data)
-        const isSuccess = parsed.status === "success"
+        const isSuccess = parsed.status === "success" || parsed.status === "completed"
         const execution = get().executions.get(nodeId)
 
         // Extract metrics from result event
@@ -1958,27 +1967,30 @@ function handleSSEEvent(
         let finalStatus: PlanNode["status"] = parsed.finalStatus
 
         if (!finalStatus) {
+          const deliveryOk = !parsed.deliveryStatus || parsed.deliveryStatus === 'success' || parsed.deliveryStatus === 'skipped'
           if (isSuccess) {
-            finalStatus = node?.verification === "auto" ? "auto_verified" : "awaiting_judgment"
+            finalStatus = (node?.verification === "auto" && deliveryOk) ? "auto_verified" : "awaiting_judgment"
           } else {
             finalStatus = "awaiting_judgment"
           }
         }
 
         const completionTime = new Date()
-        planStore.updateNode(nodeId, {
-          status: finalStatus,
-          executionOutput: execution?.streamText || parsed.output,
-          executionCompletedAt: completionTime,
-          // Update endDate with real execution completion time (ISO datetime)
-          endDate: completionTime.toISOString(),
-          // Set actualEndDate to capture final execution completion timestamp
-          actualEndDate: completionTime,
-          // Persist PR/branch metadata on the plan node
-          ...(parsed.branchName && { branchName: parsed.branchName }),
-          ...(parsed.prUrl && { prUrl: parsed.prUrl }),
-          ...(parsed.prNumber && { prNumber: parsed.prNumber }),
-        })
+        if (isRealPlanNode(nodeId)) {
+          planStore.updateNode(nodeId, {
+            status: finalStatus,
+            executionOutput: execution?.streamText || parsed.output,
+            executionCompletedAt: completionTime,
+            // Update endDate with real execution completion time (ISO datetime)
+            endDate: completionTime.toISOString(),
+            // Set actualEndDate to capture final execution completion timestamp
+            actualEndDate: completionTime,
+            // Persist PR/branch metadata on the plan node
+            ...(parsed.branchName && { branchName: parsed.branchName }),
+            ...(parsed.prUrl && { prUrl: parsed.prUrl }),
+            ...(parsed.prNumber && { prNumber: parsed.prNumber }),
+          })
+        }
 
         // Auto-assign defaultMachineId on the project if not set
         if (isSuccess && execution?.machineId && execution?.projectId) {
@@ -2094,14 +2106,16 @@ function handleSSEEvent(
           }
           return { executions: newExecutions }
         })
-        planStore.updateNode(nodeId, {
-          status: "awaiting_judgment",
-          executionError: errorMessage,
-          // Update endDate with real execution error time (ISO datetime)
-          endDate: errorTime.toISOString(),
-          // Set actualEndDate even on error to track when task stopped
-          actualEndDate: errorTime,
-        })
+        if (isRealPlanNode(nodeId)) {
+          planStore.updateNode(nodeId, {
+            status: "awaiting_judgment",
+            executionError: errorMessage,
+            // Update endDate with real execution error time (ISO datetime)
+            endDate: errorTime.toISOString(),
+            // Set actualEndDate even on error to track when task stopped
+            actualEndDate: errorTime,
+          })
+        }
 
         // Fire async summary generation for failed tasks (non-blocking)
         if (execution) {
@@ -2129,7 +2143,9 @@ function handleSSEEvent(
         }
         return { executions: newExecutions }
       })
-      planStore.updateNode(nodeId, { status: "planned" })
+      if (isRealPlanNode(nodeId)) {
+        planStore.updateNode(nodeId, { status: "planned" })
+      }
 
       // Persist cancelled execution to database
       useExecutionStore.getState().persist()

@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   XCircle,
   ArrowDown,
+  Info,
 } from "lucide-react"
 import { apiUrl } from "@/lib/api-url"
 import { Button } from "@/components/ui/button"
@@ -19,7 +20,6 @@ import { chatWithTask } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
-import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import {
   groupActivityEvents,
   TextBlock,
@@ -33,6 +33,7 @@ import {
   SummaryCard,
 } from "@/components/activity-blocks"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
+import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 
 interface UnifiedActivityViewProps {
   node: PlanNode
@@ -55,6 +56,7 @@ export function UnifiedActivityView({
 }: UnifiedActivityViewProps) {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
+  const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
   const [isChatStreaming, setIsChatStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -66,23 +68,28 @@ export function UnifiedActivityView({
   const model = useSettingsStore((s) => s.model)
 
   // Session store actions
+  const sessionsLoaded = useSessionStore((s) => s.loaded)
   const createSessionAction = useSessionStore((s) => s.createSession)
   const addMessage = useSessionStore((s) => s.addMessage)
-  const appendToLastAssistantMessage = useSessionStore((s) => s.appendToLastAssistantMessage)
-  const updateLastAssistantMessage = useSessionStore((s) => s.updateLastAssistantMessage)
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
-  const getSessionsForNode = useSessionStore((s) => s.getSessionsForNode)
-
-  // Get or create task-chat session for this node
-  const taskChatSessions = getSessionsForNode(node.id, "task-chat")
-  const chatSession = taskChatSessions[taskChatSessions.length - 1]
+  // Get or create task-chat session for this node — wait for sessions to load first
+  const allSessions = useSessionStore((s) => s.sessions)
+  const chatSession = useMemo(() => {
+    let latest: ReturnType<typeof allSessions.get> | undefined
+    for (const session of allSessions.values()) {
+      if (session.nodeId === node.id && session.type === "task-chat") {
+        if (!latest || session.createdAt > latest.createdAt) latest = session
+      }
+    }
+    return latest
+  }, [allSessions, node.id])
 
   // Ensure chat session exists
   useEffect(() => {
-    if (!chatSession) {
+    if (sessionsLoaded && !chatSession) {
       createSessionAction({ type: "task-chat", projectId, nodeId: node.id })
     }
-  }, [chatSession, createSessionAction, node.id, projectId])
+  }, [sessionsLoaded, chatSession, createSessionAction, node.id, projectId])
 
   // Get activity events — live during execution, restored from observations after refresh
   const { activityEvents, isRestoring } = useRestoredExecution(
@@ -92,16 +99,20 @@ export function UnifiedActivityView({
     isRunning,
   )
 
-  // Include chat messages as activity events for completed tasks
-  const chatMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
+  // Chat stream events (proper text/tool_use/tool_result tracking)
+  const {
+    chatEventsRef,
+    chatEventsVersion,
+    pushChatEvent,
+    flushChatEvents,
+    chatToolCounterRef,
+  } = useChatStreamEvents()
+
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
-    const chatEvents: TaskActivityEvent[] = chatMessages.map(msg => ({
-      type: msg.role === 'user' ? 'chat_user' as const : 'chat_assistant' as const,
-      ...(msg.role === 'user' ? { message: msg.content } : { content: msg.content }),
-      timestamp: msg.timestamp || new Date(),
-    })) as TaskActivityEvent[]
-    return [...activityEvents, ...chatEvents]
-  }, [activityEvents, chatMessages])
+    void chatEventsVersion
+    return [...activityEvents, ...chatEventsRef.current]
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
+  }, [activityEvents, chatEventsVersion])
 
   // Group events for display
   const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])
@@ -128,14 +139,16 @@ export function UnifiedActivityView({
   async function handleSteer(text: string, interrupt = false) {
     if (!text || sending) return
     setSending(true)
+    setPendingSteerText(text)
 
-    // Add message to store immediately for UI
+    // Track in store (not yet in activity timeline — waits for ack)
     addSteerMessage(executionId, text, interrupt)
     const steerIndex = (taskStream?.steerMessages.length || 0)
 
     // Set 15s timeout
     const timeoutId = setTimeout(() => {
       updateSteerMessage(executionId, steerIndex, { accepted: false, ackMessage: "Timed out" })
+      setPendingSteerText(null)
     }, 15000)
 
     try {
@@ -155,6 +168,7 @@ export function UnifiedActivityView({
 
       if (!response.ok) {
         clearTimeout(timeoutId)
+        setPendingSteerText(null)
         const errText = await response.text().catch(() => "Unknown error")
         updateSteerMessage(executionId, steerIndex, {
           accepted: false,
@@ -162,6 +176,7 @@ export function UnifiedActivityView({
         })
       } else {
         clearTimeout(timeoutId)
+        setPendingSteerText(null)
         // Check if the response is an SSE stream (resumed session)
         const contentType = response.headers.get("content-type") || ""
         if (contentType.includes("text/event-stream")) {
@@ -229,7 +244,7 @@ export function UnifiedActivityView({
                       const newExecutions = new Map(state.executions)
                       const exec = newExecutions.get(nodeId)
                       if (exec) {
-                        exec.status = parsed.status === "success" ? "success" : "failure"
+                        exec.status = (parsed.status === "success" || parsed.status === "completed") ? "success" : "failure"
                         exec.completedAt = new Date()
                         if (parsed.sessionId) exec.sessionId = parsed.sessionId
                       }
@@ -259,6 +274,7 @@ export function UnifiedActivityView({
       }
     } catch (error) {
       clearTimeout(timeoutId)
+      setPendingSteerText(null)
       updateSteerMessage(executionId, steerIndex, {
         accepted: false,
         ackMessage: `Failed: ${error instanceof Error ? error.message : "Network error"}`,
@@ -273,8 +289,12 @@ export function UnifiedActivityView({
     if (!text || isChatStreaming || !chatSession) return
 
     const sid = chatSession.id
+
+    // Add user event for display
+    pushChatEvent({ type: 'chat_user', message: text, timestamp: new Date() })
+
+    // Store in session for conversation history (sent to backend on subsequent turns)
     addMessage(sid, { role: "user", content: text })
-    addMessage(sid, { role: "assistant", content: "" })
 
     setIsChatStreaming(true)
     abortRef.current = new AbortController()
@@ -286,35 +306,80 @@ export function UnifiedActivityView({
 
     let rawText = ""
     try {
+      // For the first chat turn, resume the execution's Claude session if available.
+      // Subsequent turns use the chat session's own provider session ID.
+      const resumeId = chatSession.providerSessionId || execution?.sessionId
+
       await chatWithTask(
         {
           message: text,
-          sessionId: chatSession.providerSessionId,
+          sessionId: resumeId,
+          streamId: executionId,
           nodeId: node.id,
           projectId,
           taskTitle: node.title,
-          taskDescription: node.content ? stripHtml(node.content) : node.description,
+          taskDescription: node.content ? stripHtml(node.content) : (node.description || node.title || ""),
           taskOutput: outputText,
           visionDoc: project?.visionDoc,
           model,
           messages: historyMessages,
+          branchName: execution?.branchName,
+          prUrl: execution?.prUrl,
         },
         {
-          onText: (chunk) => { rawText += chunk; appendToLastAssistantMessage(sid, chunk) },
+          onText: (chunk) => {
+            rawText += chunk
+            pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
+          },
+          onToolUse: (data) => {
+            const id = `chat-tool-${++chatToolCounterRef.current}`
+            pushChatEvent({
+              type: 'tool_use',
+              id,
+              toolName: data.toolName,
+              toolInput: data.toolInput,
+              timestamp: new Date(),
+            })
+          },
+          onToolResult: (data) => {
+            const events = chatEventsRef.current
+            let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
+            for (let i = events.length - 1; i >= 0; i--) {
+              const e = events[i]
+              if (e.type === 'tool_use' && e.toolName === data.toolName) {
+                const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
+                if (!hasResult) {
+                  matchId = e.id
+                  break
+                }
+              }
+            }
+            pushChatEvent({
+              type: 'tool_result',
+              id: matchId,
+              toolName: data.toolName,
+              toolResult: data.result,
+              success: data.success,
+              timestamp: new Date(),
+            })
+          },
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
-            // Force immediate save — appendToLastAssistantMessage only debounce-saves
-            updateLastAssistantMessage(sid, rawText)
+            // Store full text in session for conversation history
+            addMessage(sid, { role: "assistant", content: rawText })
+            flushChatEvents()
             setIsChatStreaming(false)
           },
           onError: (error) => {
-            appendToLastAssistantMessage(sid, `\n\nError: ${error}`)
+            pushChatEvent({ type: 'error', error, timestamp: new Date() })
+            flushChatEvents()
             setIsChatStreaming(false)
           },
         },
         abortRef.current.signal,
       )
     } catch {
+      flushChatEvents()
       setIsChatStreaming(false)
     }
   }
@@ -350,7 +415,7 @@ export function UnifiedActivityView({
         )}
 
         {/* Fallback for old tasks without activity events */}
-        {hasFallback && chatMessages.length === 0 && (
+        {hasFallback && (
           <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground px-4 py-2">
             {outputText}
           </pre>
@@ -368,47 +433,15 @@ export function UnifiedActivityView({
           </div>
         )}
 
-        {/* Fallback text + chat messages (old tasks) */}
-        {hasFallback && chatMessages.length > 0 && (
-          <>
-            <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground px-4 py-2">
-              {outputText}
-            </pre>
-            <div className="border-t border-border my-2" />
-            {chatMessages.map((msg) => (
-              <div key={msg.id}>
-                {msg.role === 'user' ? (
-                  <div className="flex flex-col items-end gap-1 px-4 py-1.5">
-                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">You</span>
-                    <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[80%]">
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-start gap-1 px-4 py-1.5">
-                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Claude</span>
-                    <div className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground max-w-[90%]">
-                      <MarkdownRenderer
-                        content={msg.content || (isChatStreaming && msg.role === "assistant" ? "..." : "")}
-                        className="font-secondary text-sm leading-relaxed"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </>
-        )}
-
         {/* Activity event blocks */}
         {displayBlocks.map((block, i) => {
           switch (block.type) {
             case 'text':
               return <TextBlock key={i} events={block.events} />
             case 'tool':
-              return <ToolBlock key={i} events={block.events} isRunning={isRunning} />
+              return <ToolBlock key={i} events={block.events} isRunning={isRunning || isChatStreaming} />
             case 'tool_group':
-              return <ToolGroupBlock key={i} events={block.events} isRunning={isRunning} />
+              return <ToolGroupBlock key={i} events={block.events} isRunning={isRunning || isChatStreaming} />
             case 'steer':
               return <SteerBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
             case 'file_change':
@@ -427,6 +460,27 @@ export function UnifiedActivityView({
         {/* Streaming cursor */}
         {isRunning && activityEvents.length > 0 && (
           <span className="px-4 animate-pulse text-info text-xs font-mono">|</span>
+        )}
+
+        {/* Pending steer: message queued, waiting for agent ack */}
+        {pendingSteerText && (
+          <div className="flex flex-col items-end gap-1 px-4 py-1.5">
+            <div className="rounded-lg px-3 py-2 text-sm max-w-[80%] bg-primary/50 text-primary-foreground">
+              <p className="whitespace-pre-wrap">{pendingSteerText}</p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+              <span className="text-[10px] text-muted-foreground">Sending...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Chat streaming indicator (post-completion thinking) */}
+        {isChatStreaming && (
+          <div className="flex items-center gap-2 px-4 py-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Thinking...</span>
+          </div>
         )}
 
         {/* Completion footer */}
@@ -489,10 +543,24 @@ export function UnifiedActivityView({
 
       {/* Input Bar */}
       <div className="border-t border-border bg-background shrink-0">
+      {/* Resumed session notice */}
+      {!isRunning && !canSteer && execution?.sessionId && (
+        <div className="px-3 pt-2 pb-0 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <Info className="h-3 w-3 shrink-0" />
+          <span>
+            Follow-up chat{execution.branchName ? ` — changes on \`${execution.branchName}\`` : ''}{execution.prUrl ? ` — ` : ''}
+          </span>
+          {execution.prUrl && (
+            <a href={execution.prUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
+              View PR
+            </a>
+          )}
+        </div>
+      )}
       {isRunning && (
         <div className="px-3 pt-2 pb-0">
           <span className="text-[10px] text-muted-foreground">
-            Enter to queue · Shift+Enter to interrupt
+            Cmd+Enter to send · Shift+Enter to interrupt
           </span>
         </div>
       )}

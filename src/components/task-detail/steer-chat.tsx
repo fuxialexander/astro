@@ -113,7 +113,7 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
                   const newExecutions = new Map(state.executions)
                   const exec = newExecutions.get(nodeId)
                   if (exec) {
-                    exec.status = parsed.status === "success" ? "success" : "failure"
+                    exec.status = (parsed.status === "success" || parsed.status === "completed") ? "success" : "failure"
                     exec.completedAt = new Date()
                     if (parsed.sessionId) exec.sessionId = parsed.sessionId
                   }

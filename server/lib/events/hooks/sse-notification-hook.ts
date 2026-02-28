@@ -34,6 +34,10 @@ export const sseNotificationHook: EventHook = async (event) => {
           output: event.result.stdout,
           duration: event.result.metrics?.durationMs,
           metrics: event.result.metrics,
+          branchName: event.result.branchName,
+          prUrl: event.result.prUrl,
+          prNumber: event.result.prNumber,
+          deliveryStatus: event.result.deliveryStatus,
         },
       })
       break

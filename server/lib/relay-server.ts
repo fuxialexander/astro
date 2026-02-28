@@ -1293,6 +1293,8 @@ export class RelayServer extends EventEmitter {
         ...(task.githubIssueNumber !== undefined && { githubIssueNumber: task.githubIssueNumber }),
         ...(task.dispatchSignature && { dispatchSignature: task.dispatchSignature }),
         ...(task.dispatchSigningPayload && { dispatchSigningPayload: task.dispatchSigningPayload }),
+        // Session resumption
+        ...(task.resumeSessionId && { resumeSessionId: task.resumeSessionId }),
       },
     };
 

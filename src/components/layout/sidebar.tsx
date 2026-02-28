@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from "react"
-import { NavLink, useNavigate, useParams } from "react-router"
-import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical } from "lucide-react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import { NavLink, useNavigate, useParams, useLocation } from "react-router"
+import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -18,6 +18,7 @@ import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 
@@ -53,7 +54,7 @@ const projectColors = [
   "#A08B7B", // Warm taupe
 ]
 
-export function Sidebar() {
+export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const { theme, setTheme } = useTheme()
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const modelTier = useSettingsStore((s) => s.modelTier)
@@ -68,6 +69,7 @@ export function Sidebar() {
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const signOut = useAuthStore((s) => s.signOut)
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const sidebarItems = useSidebarStore((s) => s.items)
   const isEditing = useSidebarStore((s) => s.isEditing)
   const setEditing = useSidebarStore((s) => s.setEditing)
@@ -78,6 +80,7 @@ export function Sidebar() {
   const addToast = useToastStore((s) => s.add)
   const navigate = useNavigate()
   const params = useParams()
+  const location = useLocation()
   const showAuth = isServerMode()
 
   const activeProjectId = params.id
@@ -124,9 +127,9 @@ export function Sidebar() {
     return { activeCount: count, projectsWithRunning: running }
   }, [executions, agentSessions, planNodes])
 
-  // Long press state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const longPressTimer = useRef<number | null>(null)
+  const [showHint, setShowHint] = useState(() => !localStorage.getItem("sidebar-hint-dismissed"))
 
   // Rename state
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
@@ -140,18 +143,29 @@ export function Sidebar() {
   // Removed: syncWithProjectCount was hiding Tasks when < 2 projects
   // Tasks is always visible as the home route
 
-  const handleLongPressStart = () => {
+  const handleLongPressStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
     longPressTimer.current = window.setTimeout(() => {
       setEditing(true)
-    }, 500) // 500ms long press
-  }
+      setShowHint(false)
+      localStorage.setItem("sidebar-hint-dismissed", "1")
+    }, 500)
+    // Prevent iOS Safari link preview / context menu on touch
+    if ("touches" in e) {
+      e.preventDefault()
+    }
+  }, [setEditing])
 
-  const handleLongPressEnd = () => {
+  const handleLongPressEnd = useCallback(() => {
     if (longPressTimer.current) {
       window.clearTimeout(longPressTimer.current)
       longPressTimer.current = null
     }
-  }
+  }, [])
+
+  const dismissHint = useCallback(() => {
+    setShowHint(false)
+    localStorage.setItem("sidebar-hint-dismissed", "1")
+  }, [])
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index)
@@ -290,12 +304,23 @@ export function Sidebar() {
     return null
   }
 
+  const activeProjects = useMemo(
+    () => projects.filter(p => p.status === 'active' && p.projectType !== 'playground'),
+    [projects]
+  )
+
   return (
-    <aside className="hidden md:flex h-full w-[260px] shrink-0 flex-col border-r border-border bg-card">
+    <aside className={cn(
+      "hidden md:flex h-full shrink-0 flex-col border-r border-border bg-card overflow-hidden",
+      collapsed ? "w-[52px]" : "w-[260px]",
+    )}>
       {/* Logo Section */}
-      <div className="flex h-14 shrink-0 items-center gap-2 px-5 py-5">
-        <div className="relative">
-          <img src="/icon-32.png" alt="Astro" className="h-7 w-7 rounded-[6px]" />
+      <div className={cn(
+        "flex h-14 shrink-0 items-center",
+        collapsed ? "justify-center px-0" : "gap-2 px-5 py-5"
+      )}>
+        <div className="relative shrink-0">
+          <img src="/icon-192.png" alt="Astro" className="h-7 w-7 rounded-[6px]" />
           <div
             className={cn(
               "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white dark:border-card",
@@ -303,40 +328,102 @@ export function Sidebar() {
             )}
           />
         </div>
-        <span className="font-secondary text-2xl font-bold text-foreground">
-          Astro
-        </span>
+        {!collapsed && (
+          <span className="font-secondary text-2xl font-bold text-foreground">
+            Astro
+          </span>
+        )}
       </div>
 
       {/* Command Palette Search Button */}
-      <div className="px-4 pt-4 pb-2">
-        <button
-          onClick={() => setCommandPaletteOpen(true)}
-          className="flex w-full items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium text-muted-foreground bg-muted/30 hover:bg-muted/50 transition-colors border border-border/50"
-        >
-          <Search className="h-4 w-4 shrink-0" />
-          <span className="flex-1 text-left text-sm">Search...</span>
-          <kbd className="hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-border/70 bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-            {isMac ? "⌘" : "Ctrl+"}K
-          </kbd>
-        </button>
-      </div>
+      {collapsed ? (
+        <div className="flex justify-center py-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setCommandPaletteOpen(true)}
+                className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/50 transition-colors"
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Search ({isMac ? "⌘" : "Ctrl+"}K)</TooltipContent>
+          </Tooltip>
+        </div>
+      ) : (
+        <div className="px-4 pt-4 pb-2">
+          <button
+            onClick={() => setCommandPaletteOpen(true)}
+            className="flex w-full items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium text-muted-foreground bg-muted/30 hover:bg-muted/50 transition-colors border border-border/50"
+          >
+            <Search className="h-4 w-4 shrink-0" />
+            <span className="flex-1 text-left text-sm">Search...</span>
+            <kbd className="hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-border/70 bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+              {isMac ? "⌘" : "Ctrl+"}K
+            </kbd>
+          </button>
+        </div>
+      )}
 
       {/* Scrollable middle section: navigation + projects */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div
+        className="flex-1 min-h-0 overflow-y-auto"
+        style={collapsed ? { scrollbarWidth: "none" } : undefined}
+      >
         {/* Navigation */}
         <nav
-          className="flex flex-col gap-1 px-4 py-2"
-          onMouseDown={handleLongPressStart}
-          onMouseUp={handleLongPressEnd}
-          onMouseLeave={handleLongPressEnd}
-          onTouchStart={handleLongPressStart}
-          onTouchEnd={handleLongPressEnd}
+          className={cn("flex flex-col gap-1 py-2", collapsed ? "items-center" : "px-4")}
+          style={{ WebkitTouchCallout: "none" } as React.CSSProperties}
+          onMouseDown={collapsed ? undefined : handleLongPressStart}
+          onMouseUp={collapsed ? undefined : handleLongPressEnd}
+          onMouseLeave={collapsed ? undefined : handleLongPressEnd}
+          onTouchStart={collapsed ? undefined : handleLongPressStart}
+          onTouchEnd={collapsed ? undefined : handleLongPressEnd}
+          onContextMenu={collapsed ? undefined : (e) => e.preventDefault()}
         >
+          {/* Long-press hint bubble (expanded only) */}
+          {!collapsed && showHint && !isEditing && (
+            <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-xs text-muted-foreground mb-1">
+              <span className="flex-1">Long press below to edit</span>
+              <button onClick={dismissHint} className="p-0.5 rounded hover:bg-muted-foreground/10 transition-colors shrink-0">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
           {/* Visible items */}
-          {(isEditing ? sidebarItems : visibleItems).map((item, index) => {
+          {(isEditing && !collapsed ? sidebarItems : visibleItems).map((item, index) => {
             const Icon = iconMap[item.icon] || CheckSquare
             const isHidden = !item.visible
+
+            if (collapsed) {
+              if (isHidden) return null
+              const isItemActive = location.pathname === item.to
+              return (
+                <div key={item.id} className="flex justify-center w-full">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => navigate(item.to)}
+                        className={cn(
+                          "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
+                          isItemActive
+                            ? "bg-accent text-accent-foreground"
+                            : "text-muted-foreground hover:bg-muted/50"
+                        )}
+                      >
+                        <Icon className="h-[18px] w-[18px]" />
+                        {item.id === "active" && activeCount > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-3.5 min-w-[14px] rounded-full bg-info text-[8px] font-bold text-white px-0.5">
+                            {activeCount}
+                          </span>
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{item.label}</TooltipContent>
+                  </Tooltip>
+                </div>
+              )
+            }
 
             return (
               <div
@@ -421,8 +508,8 @@ export function Sidebar() {
             )
           })}
 
-          {/* Edit mode toggle button */}
-          {isEditing && (
+          {/* Edit mode toggle button (expanded only) */}
+          {isEditing && !collapsed && (
             <button
               onClick={() => setEditing(false)}
               className="mt-2 rounded-[10px] px-3.5 py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -433,17 +520,56 @@ export function Sidebar() {
         </nav>
 
         {/* Projects Section */}
-        {projects.length > 0 && (
-          <div className="flex flex-col gap-2 px-5 pb-6 font-primary">
-            <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground">
-              PROJECTS
-            </div>
-            <div className="flex flex-col gap-2">
-              {projects.filter(p => p.status === 'active' && p.projectType !== 'playground').map((project, index) => {
+        {activeProjects.length > 0 && (
+          <div className={cn("flex flex-col gap-2 pb-6 font-primary", collapsed ? "items-center" : "px-5")}>
+            {!collapsed && (
+              <div className="text-xs font-medium tracking-[0.5px] text-muted-foreground">
+                PROJECTS
+              </div>
+            )}
+            {collapsed && <div className="w-6 h-px bg-border my-1" />}
+            <div className={cn("flex flex-col", collapsed ? "items-center gap-1" : "gap-2")}>
+              {activeProjects.map((project, index) => {
                 const isActive = activeProjectId === project.id
                 const progress = calculateProgress(project.id)
                 const healthWidth = getHealthBarWidth(progress)
                 const color = getProjectColor(index)
+
+                const projectIcon = (() => {
+                  const projIcon = project.icon || "FaBox"
+                  const projColor = project.color || color
+                  const FaIcon = getFaIcon(projIcon)
+                  if (FaIcon) {
+                    return <FaIcon size={collapsed ? 18 : 16} style={{ color: projColor }} className="shrink-0" />
+                  }
+                  return <span className="text-base leading-none shrink-0">{projIcon}</span>
+                })()
+
+                if (collapsed) {
+                  return (
+                    <div key={project.id} className="flex justify-center w-full">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => navigate(`/project/${project.id}/list`)}
+                            className={cn(
+                              "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
+                              isActive ? "bg-accent" : "hover:bg-muted/50"
+                            )}
+                          >
+                            {projectIcon}
+                            {projectsWithRunning.has(project.id) && (
+                              <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-3 w-3">
+                                <Loader2 className="h-3 w-3 text-info animate-spin" />
+                              </span>
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">{project.name}</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  )
+                }
 
                 return (
                   <div
@@ -455,16 +581,7 @@ export function Sidebar() {
                         : "hover:bg-muted/50"
                     )}
                   >
-                    {/* Colored icon */}
-                    {(() => {
-                      const projIcon = project.icon || "FaBox"
-                      const projColor = project.color || color
-                      const FaIcon = getFaIcon(projIcon)
-                      if (FaIcon) {
-                        return <FaIcon size={16} style={{ color: projColor }} className="shrink-0" />
-                      }
-                      return <span className="text-base leading-none shrink-0">{projIcon}</span>
-                    })()}
+                    {projectIcon}
 
                     {/* Project name - editable on double-click */}
                     {renamingProjectId === project.id ? (
@@ -489,7 +606,7 @@ export function Sidebar() {
                             : "text-muted-foreground font-medium"
                         )}
                       >
-                        {project.name}
+                        {project.name.includes('/') ? project.name.split('/').slice(1).join('/') : project.name}
                       </span>
                     )}
 
@@ -514,121 +631,241 @@ export function Sidebar() {
 
       {/* Local Mode Badge */}
       {!showAuth && (
-        <div className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground border-t border-border dark:border-border">
-          <div className="h-2 w-2 rounded-full bg-warning" />
-          Local Mode
+        collapsed ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex justify-center py-2 border-t border-border">
+                <div className="h-2 w-2 rounded-full bg-warning" />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">Local Mode</TooltipContent>
+          </Tooltip>
+        ) : (
+          <div className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground border-t border-border dark:border-border">
+            <div className="h-2 w-2 rounded-full bg-warning" />
+            Local Mode
+          </div>
+        )
+      )}
+
+      {/* Quick Settings */}
+      {collapsed ? (
+        <div className="flex flex-col gap-1 py-2">
+          {/* Model Size — popup horizontal selector */}
+          <div className="flex justify-center w-full">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors">
+                  <Cpu className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="right" align="center" className="w-auto p-2">
+                <div className="flex items-center gap-2">
+                  {(["small", "medium", "large"] as const).map((tier) => (
+                    <Tooltip key={tier}>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => setModelTier(tier)}
+                          className={cn(
+                            "flex items-center justify-center rounded-full transition-colors",
+                            tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
+                            modelTier === tier
+                              ? "bg-primary"
+                              : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
+                          )}
+                        >
+                          <div className={cn(
+                            "rounded-full",
+                            tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
+                            modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
+                          )} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <div className="flex justify-center w-full">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setYoloMode(!yoloMode)}
+                  className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
+                >
+                  <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Auto Approval: {yoloMode ? "On" : "Off"}</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="flex justify-center w-full">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
+                >
+                  {theme === "dark" ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Toggle {theme === "dark" ? "Light" : "Dark"} Mode</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      ) : (
+        <div className="px-4 py-2 flex flex-col gap-0.5">
+          {/* Model Size Selector */}
+          <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+            <div className="flex items-center gap-3">
+              <Cpu className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium text-muted-foreground">Model</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {(["small", "medium", "large"] as const).map((tier) => (
+                <Tooltip key={tier}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setModelTier(tier)}
+                      className={cn(
+                        "flex items-center justify-center rounded-full transition-colors",
+                        tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
+                        modelTier === tier
+                          ? "bg-primary"
+                          : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
+                      )}
+                    >
+                      <div className={cn(
+                        "rounded-full",
+                        tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
+                        modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
+                      )} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+
+          {/* Auto Approval Toggle */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+                <div className="flex items-center gap-3">
+                  <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
+                  <span className="text-sm font-medium text-muted-foreground">Auto Approval</span>
+                </div>
+                <Switch
+                  checked={yoloMode}
+                  onCheckedChange={setYoloMode}
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              Auto-approve all agent decisions with the recommended option
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Dark Mode Toggle */}
+          <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+            <div className="flex items-center gap-3">
+              {theme === "dark" ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
+              <span className="text-sm font-medium text-muted-foreground">Dark Mode</span>
+            </div>
+            <Switch
+              checked={theme === "dark"}
+              onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+            />
+          </div>
         </div>
       )}
 
-      {/* Quick Settings: Model Size, Auto Approval, Dark Mode */}
-      <div className="px-4 py-2 flex flex-col gap-0.5">
-        {/* Model Size Selector */}
-        <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
-          <div className="flex items-center gap-3">
-            <Cpu className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium text-muted-foreground">Model</span>
+      {/* Bottom: User Profile / Expand button */}
+      {collapsed ? (
+        <div className="flex flex-col gap-1.5 border-t border-border py-3">
+          <div className="flex justify-center w-full">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => navigate("/settings")}
+                  className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
+                  title="Settings"
+                >
+                  <Settings className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Settings</TooltipContent>
+            </Tooltip>
           </div>
-          <div className="flex items-center gap-2">
-            {(["small", "medium", "large"] as const).map((tier) => (
-              <Tooltip key={tier}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setModelTier(tier)}
-                    className={cn(
-                      "flex items-center justify-center rounded-full transition-colors",
-                      tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
-                      modelTier === tier
-                        ? "bg-primary"
-                        : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
-                    )}
-                  >
-                    <div className={cn(
-                      "rounded-full",
-                      tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
-                      modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
-                    )} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
-                </TooltipContent>
-              </Tooltip>
-            ))}
+          <div className="flex justify-center w-full">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={toggleSidebar}
+                  className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
+                >
+                  <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Expand sidebar</TooltipContent>
+            </Tooltip>
           </div>
         </div>
-
-        {/* Auto Approval Toggle */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
-              <div className="flex items-center gap-3">
-                <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
-                <span className="text-sm font-medium text-muted-foreground">Auto Approval</span>
-              </div>
-              <Switch
-                checked={yoloMode}
-                onCheckedChange={setYoloMode}
-              />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            Auto-approve all agent decisions with the recommended option
-          </TooltipContent>
-        </Tooltip>
-
-        {/* Dark Mode Toggle */}
-        <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
-          <div className="flex items-center gap-3">
-            {theme === "dark" ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
-            <span className="text-sm font-medium text-muted-foreground">Dark Mode</span>
-          </div>
-          <Switch
-            checked={theme === "dark"}
-            onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-          />
-        </div>
-      </div>
-
-      {/* User Profile - Icon Row */}
-      <div className="flex items-center justify-between border-t border-border dark:border-border px-5 py-3 gap-2">
-        {/* User Avatar & Info */}
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Avatar className="h-8 w-8 shrink-0">
-            <AvatarImage src={profile.avatarUrl} />
-            <AvatarFallback className="text-[13px] font-bold">{getInitials(profile.name || authUser?.email || "")}</AvatarFallback>
-          </Avatar>
-          <div className="flex flex-col items-start gap-0.5 min-w-0">
-            <span className="text-[13px] font-semibold text-foreground truncate w-full">
-              {getDisplayName(profile.name || authUser?.email || "")}
-            </span>
-            {(profile.email || authUser?.email) && (
-              <span className="text-[11px] text-muted-foreground truncate w-full">
-                {profile.email || authUser?.email}
+      ) : (
+        <div className="flex items-center justify-between border-t border-border dark:border-border px-5 py-3 gap-2">
+          {/* User Avatar & Info */}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Avatar className="h-8 w-8 shrink-0">
+              <AvatarImage src={profile.avatarUrl} />
+              <AvatarFallback className="text-[13px] font-bold">{getInitials(profile.name || authUser?.email || "")}</AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col items-start gap-0.5 min-w-0">
+              <span className="text-[13px] font-semibold text-foreground truncate w-full">
+                {getDisplayName(profile.name || authUser?.email || "")}
               </span>
+              {(profile.email || authUser?.email) && (
+                <span className="text-[11px] text-muted-foreground truncate w-full">
+                  {profile.email || authUser?.email}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Icon Actions */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => navigate("/settings")}
+              className="p-2 rounded-md hover:bg-muted/50 transition-colors"
+              title="Settings"
+            >
+              <Settings className="h-4 w-4 text-muted-foreground" />
+            </button>
+            <button
+              onClick={toggleSidebar}
+              className="p-2 rounded-md hover:bg-muted/50 transition-colors"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
+            </button>
+            {showAuth && (
+              <button
+                onClick={handleSignOut}
+                className="p-2 rounded-md hover:bg-destructive/10 transition-colors"
+                title="Sign Out"
+              >
+                <LogOut className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+              </button>
             )}
           </div>
         </div>
-
-        {/* Icon Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => navigate("/settings")}
-            className="p-2 rounded-md hover:bg-muted/50 transition-colors"
-            title="Settings"
-          >
-            <Settings className="h-4 w-4 text-muted-foreground" />
-          </button>
-          {showAuth && (
-            <button
-              onClick={handleSignOut}
-              className="p-2 rounded-md hover:bg-destructive/10 transition-colors"
-              title="Sign Out"
-            >
-              <LogOut className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-            </button>
-          )}
-        </div>
-      </div>
+      )}
     </aside>
   )
 }

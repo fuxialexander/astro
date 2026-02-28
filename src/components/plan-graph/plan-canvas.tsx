@@ -18,7 +18,8 @@ import { useActivityStore } from "@/stores/activity-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
-import { useExecutionStore, canExecuteNode } from "@/stores/execution-store"
+import { useExecutionStore, canExecuteNode, getProjectWorkingDir } from "@/stores/execution-store"
+import { useToastStore } from "@/stores/toast-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
@@ -231,6 +232,19 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   const handleExecuteSelected = useCallback(() => {
     if (checkedIds.size === 0) return
+    if (!resolvedMachineId) {
+      useToastStore.getState().add({
+        type: "warning",
+        title: "No machine connected",
+        description: "Connect a machine in Environments before executing tasks.",
+      })
+      return
+    }
+    const dirCheck = getProjectWorkingDir(project)
+    if (!dirCheck.ok) {
+      setPathBrowserOpen(true)
+      return
+    }
     const { nodes: allNodes, edges: allEdges } = usePlanStore.getState()
     const nodesToExecute = projectNodes.filter(
       (n) => checkedIds.has(n.id) && canExecuteNode(n, allNodes, allEdges).ready
@@ -239,7 +253,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       startExecution(node.id, projectId)
     }
     setCheckedIds(new Set())
-  }, [checkedIds, projectNodes, startExecution, projectId])
+  }, [checkedIds, projectNodes, startExecution, projectId, project, resolvedMachineId])
 
   const handleSelectAll = useCallback(() => {
     const allIds = new Set(projectNodes.map((n) => n.id))
@@ -247,8 +261,21 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   }, [projectNodes])
 
   const handleExecuteAll = useCallback(() => {
+    if (!resolvedMachineId) {
+      useToastStore.getState().add({
+        type: "warning",
+        title: "No machine connected",
+        description: "Connect a machine in Environments before executing tasks.",
+      })
+      return
+    }
+    const dirCheck = getProjectWorkingDir(project)
+    if (!dirCheck.ok) {
+      setPathBrowserOpen(true)
+      return
+    }
     executeAllProject(projectId)
-  }, [executeAllProject, projectId])
+  }, [executeAllProject, projectId, project, resolvedMachineId])
 
   const handleStopBatch = useCallback(() => {
     stopBatchExecution(projectId)

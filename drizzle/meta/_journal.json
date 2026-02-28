@@ -57,6 +57,13 @@
       "when": 1772148018536,
       "tag": "0007_slippery_wonder_man",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1772246537004,
+      "tag": "0008_careful_vermin",
+      "breakpoints": true
     }
   ]
 }

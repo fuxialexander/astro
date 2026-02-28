@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Pencil, GitBranch, List, ChevronLeft, MoreVertical, FolderGit2, ExternalLink } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Pencil, GitBranch, List, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -27,10 +27,13 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore, type DisplaySettings, type ViewKey } from "@/stores/display-settings-store"
 import { useActivityStore } from "@/stores/activity-store"
-import { useExecutionStore } from "@/stores/execution-store"
+import { useExecutionStore, getProjectWorkingDir } from "@/stores/execution-store"
+import { useToastStore } from "@/stores/toast-store"
+import { useRealtimeStore } from "@/stores/realtime-store"
+import { useUIStore } from "@/stores/ui-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColors } from "@/lib/status-config"
-import { formatDueDateShort } from "@/lib/date-utils"
+import { formatDueDateShort, formatDuration } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { remoteTypeLabel } from "@/lib/project-source"
 import { cn } from "@/lib/utils"
@@ -63,6 +66,7 @@ const planListDisplayConfig: DisplayPopoverConfig = {
   propertyOptions: [
     { value: "priority", label: "Priority" },
     { value: "status", label: "Status" },
+    { value: "progress", label: "Progress" },
     { value: "dueDate", label: "Due date" },
     { value: "estimate", label: "Estimate" },
     { value: "milestone", label: "Milestone" },
@@ -165,43 +169,41 @@ function WorkdirBar({ project }: { project: Project }) {
     <>
       <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
       <div className="flex items-center gap-2 border-b border-border px-3 md:px-6 h-8 shrink-0 bg-muted/30 text-xs">
-        <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         {hasWorkdir ? (
           <>
-            {/* Git source info: repo name / branch */}
-            {project.source?.isGit && (
-              <div className="flex items-center gap-1 shrink-0 text-muted-foreground">
-                <span className="text-[10px] font-medium">
-                  {project.githubOwner && project.githubRepo
-                    ? `${project.githubOwner}/${project.githubRepo}`
-                    : project.source.remoteType !== 'none'
-                      ? remoteTypeLabel(project.source.remoteType)
-                      : 'Local Git'}
-                </span>
-                {project.source.baseBranch && (
-                  <>
-                    <span className="text-muted-foreground/40">/</span>
-                    <GitBranch className="h-3 w-3" />
-                    <span className="text-[10px] font-mono">{project.source.baseBranch}</span>
-                  </>
-                )}
-                <span className="text-muted-foreground/30 mx-0.5">|</span>
-              </div>
-            )}
-            <span className="text-muted-foreground font-mono truncate" title={project.workingDirectory || project.repository}>
-              {project.workingDirectory || project.repository}
-            </span>
-            {defaultMachine && (
-              <span className="text-muted-foreground/60 shrink-0">
-                ({defaultMachine.name || 'unknown'})
-              </span>
-            )}
             <button
               onClick={() => setRepoOpen(true)}
-              className="text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer shrink-0"
+              className="flex items-center gap-1.5 min-w-0 px-2 py-0.5 -ml-2 rounded-md hover:bg-muted hover:text-foreground transition-colors cursor-pointer text-xs font-mono text-muted-foreground"
               title="Edit working directory"
             >
-              <Pencil className="h-3 w-3" />
+              <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
+              {project.source?.isGit && (
+                <>
+                  <span className="shrink-0">
+                    {project.githubOwner && project.githubRepo
+                      ? `${project.githubOwner}/${project.githubRepo}`
+                      : project.source.remoteType !== 'none'
+                        ? remoteTypeLabel(project.source.remoteType)
+                        : 'Local Git'}
+                  </span>
+                  {project.source.baseBranch && (
+                    <>
+                      <span className="opacity-40">/</span>
+                      <GitBranch className="h-3 w-3 shrink-0" />
+                      <span className="shrink-0">{project.source.baseBranch}</span>
+                    </>
+                  )}
+                  <span className="opacity-30 mx-0.5">|</span>
+                </>
+              )}
+              <span className="truncate" title={project.workingDirectory || project.repository}>
+                {project.workingDirectory || project.repository}
+              </span>
+              {defaultMachine && (
+                <span className="opacity-60 shrink-0">
+                  ({defaultMachine.name || 'unknown'})
+                </span>
+              )}
             </button>
             <div className="flex items-center gap-1 ml-auto shrink-0">
               <Badge
@@ -234,6 +236,7 @@ function WorkdirBar({ project }: { project: Project }) {
             onClick={() => setRepoOpen(true)}
             className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
+            <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
             <span>Set working directory</span>
           </button>
         )}
@@ -243,7 +246,7 @@ function WorkdirBar({ project }: { project: Project }) {
 }
 
 // --- Bottom resizable chat panel ---
-function ChatBottomPanel({
+function ResizableChatPanel({
   projectId,
   visionDoc,
   initialMessage,
@@ -254,24 +257,37 @@ function ChatBottomPanel({
   initialMessage?: string
   onNodeSelect: (nodeId: string) => void
 }) {
+  const position = useUIStore((s) => s.chatPanelPosition)
+  const togglePosition = useUIStore((s) => s.toggleChatPanelPosition)
+  const isRight = position === "right"
+
   const [height, setHeight] = useState(300)
+  const [width, setWidth] = useState(400)
+  const size = isRight ? width : height
+  const setSize = isRight ? setWidth : setHeight
   const isDragging = useRef(false)
-  const startY = useRef(0)
-  const startHeight = useRef(0)
+  const startPos = useRef(0)
+  const startSize = useRef(0)
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     isDragging.current = true
-    startY.current = e.clientY
-    startHeight.current = height
+    startPos.current = isRight ? e.clientX : e.clientY
+    startSize.current = size
     e.preventDefault()
-  }, [height])
+  }, [size, isRight])
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return
-      const delta = startY.current - e.clientY
-      const newHeight = Math.max(200, Math.min(window.innerHeight * 0.6, startHeight.current + delta))
-      setHeight(newHeight)
+      if (isRight) {
+        const delta = startPos.current - e.clientX
+        const newWidth = Math.max(300, Math.min(window.innerWidth * 0.5, startSize.current + delta))
+        setSize(newWidth)
+      } else {
+        const delta = startPos.current - e.clientY
+        const newHeight = Math.max(200, Math.min(window.innerHeight * 0.6, startSize.current + delta))
+        setSize(newHeight)
+      }
     }
     const handleMouseUp = () => {
       isDragging.current = false
@@ -282,19 +298,47 @@ function ChatBottomPanel({
       document.removeEventListener("mousemove", handleMouseMove)
       document.removeEventListener("mouseup", handleMouseUp)
     }
-  }, [])
+  }, [isRight, setSize])
 
   return (
-    <div className="flex flex-col border-t border-border shrink-0" style={{ height }}>
+    <div
+      className={cn("flex shrink-0", isRight ? "flex-row border-l border-border" : "flex-col border-t border-border")}
+      style={isRight ? { width: size } : { height: size }}
+    >
       {/* Drag handle */}
       <div
-        className="h-1.5 cursor-row-resize flex items-center justify-center hover:bg-accent/50 transition-colors group"
+        className={cn(
+          "flex items-center justify-center hover:bg-accent/50 transition-colors group",
+          isRight ? "w-1.5 cursor-col-resize" : "h-1.5 cursor-row-resize"
+        )}
         onMouseDown={handleMouseDown}
       >
-        <div className="w-8 h-0.5 rounded-full bg-border group-hover:bg-muted-foreground transition-colors" />
+        <div className={cn(
+          "rounded-full bg-border group-hover:bg-muted-foreground transition-colors",
+          isRight ? "h-8 w-0.5" : "w-8 h-0.5"
+        )} />
       </div>
+      {/* Chat content */}
       <div className="flex-1 overflow-hidden">
-        <ChatPanel projectId={projectId} visionDoc={visionDoc} initialMessage={initialMessage} onNodeSelect={onNodeSelect} />
+        <ChatPanel
+          projectId={projectId}
+          visionDoc={visionDoc}
+          initialMessage={initialMessage}
+          onNodeSelect={onNodeSelect}
+          headerActions={
+            <button
+              onClick={togglePosition}
+              className="p-1 rounded-md hover:bg-muted/50 transition-colors"
+              title={isRight ? "Move chat to bottom" : "Move chat to right"}
+            >
+              {isRight ? (
+                <PanelBottom className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <PanelRight className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+            </button>
+          }
+        />
       </div>
     </div>
   )
@@ -332,6 +376,50 @@ function sortPlanNodes(nodes: PlanNode[], orderBy: string, dir: number): PlanNod
 }
 
 // LabelPicker extracted to @/components/label-picker
+
+// --- Progress cell (needs hooks, so it's a component) ---
+function ProgressCell({ node }: { node: PlanNode }) {
+  const stream = useRealtimeStore((s) =>
+    node.executionId ? s.taskStreams.get(node.executionId) : undefined
+  )
+  const progress = stream?.progress ?? 0
+  const isRunning = node.status === "in_progress" || node.status === "dispatched"
+  const hasStarted = !!node.executionStartedAt
+
+  if (!isRunning && !hasStarted) return null
+
+  const elapsed = hasStarted ? formatDuration(node.executionStartedAt, node.executionCompletedAt) : null
+
+  return (
+    <div className="flex items-center gap-1.5 w-full min-w-0">
+      {isRunning && progress > 0 ? (
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[40px]">
+            <div
+              className="h-full rounded-full bg-info transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="text-[10px] font-medium text-info tabular-nums shrink-0">{progress}%</span>
+        </div>
+      ) : isRunning ? (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex gap-0.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse" />
+            <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse [animation-delay:150ms]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse [animation-delay:300ms]" />
+          </div>
+        </div>
+      ) : null}
+      {elapsed && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground tabular-nums shrink-0">
+          <Clock className="h-2.5 w-2.5" />
+          {elapsed}
+        </span>
+      )}
+    </div>
+  )
+}
 
 // --- Plan List Column Definitions ---
 function makePlanColumns(
@@ -405,6 +493,12 @@ function makePlanColumns(
           </Badge>
         </PropertyPicker>
       ),
+    },
+    {
+      id: "progress",
+      label: "Progress",
+      width: "w-[120px]",
+      render: (node) => <ProgressCell node={node} />,
     },
     {
       id: "dueDate",
@@ -716,6 +810,24 @@ export function PlanListView({
       icon: <Play className="h-3.5 w-3.5" />,
       variant: "default",
       onAction: async (ids) => {
+        // Check machine + working directory before dispatching
+        if (!project?.defaultMachineId) {
+          useToastStore.getState().add({
+            type: "warning",
+            title: "No machine connected",
+            description: "Connect a machine in Environments before executing tasks.",
+          })
+          return
+        }
+        const dirCheck = getProjectWorkingDir(project)
+        if (!dirCheck.ok) {
+          useToastStore.getState().add({
+            type: "warning",
+            title: "No working directory",
+            description: "Set a working directory in the project settings before executing tasks.",
+          })
+          return
+        }
         const { startExecution } = useExecutionStore.getState()
         // Execute all selected tasks in parallel
         const executions = ids.map((id) => {
@@ -732,6 +844,21 @@ export function PlanListView({
           projectId,
           type: "task.bulk_executed",
           title: `Executing ${ids.length} task${ids.length > 1 ? 's' : ''}`,
+        })
+      },
+    },
+    {
+      id: "reset",
+      label: "Reset All",
+      icon: <RotateCcw className="h-3.5 w-3.5" />,
+      variant: "outline",
+      onAction: async (ids) => {
+        const { resetExecution } = useExecutionStore.getState()
+        await Promise.all(ids.map((id) => resetExecution(id)))
+        addActivity({
+          projectId,
+          type: "task.bulk_reset",
+          title: `Reset ${ids.length} task${ids.length > 1 ? 's' : ''}`,
         })
       },
     },
@@ -1257,6 +1384,8 @@ export function PlanView() {
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
+  const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
+  const isRightChat = chatPanelPosition === "right"
   const [isRenaming, setIsRenaming] = useState(false)
 
   const handleRename = useCallback((newName: string) => {
@@ -1503,41 +1632,43 @@ export function PlanView() {
       <WorkdirBar project={project} />
 
       {/* Canvas/List + Detail/Chat pane */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex flex-1 overflow-hidden relative">
-          {activeTab === "overview" ? (
-            <OverviewTab project={project} />
-          ) : viewMode === "graph" ? (
-            <div className="flex-1 relative overflow-hidden">
-              <div className="absolute inset-0 touch-pan-x touch-pan-y">
-                <PlanCanvas projectId={project.id} onNodeSelect={handleNodeSelect} onDecomposeNode={handleDecomposeNode} />
+      <div className={cn("flex flex-1 overflow-hidden", isRightChat ? "flex-row" : "flex-col")}>
+        <div className={cn("flex flex-1 overflow-hidden", isRightChat ? "flex-col" : "")}>
+          <div className="flex flex-1 overflow-hidden relative">
+            {activeTab === "overview" ? (
+              <OverviewTab project={project} />
+            ) : viewMode === "graph" ? (
+              <div className="flex-1 relative overflow-hidden">
+                <div className="absolute inset-0 touch-pan-x touch-pan-y">
+                  <PlanCanvas projectId={project.id} onNodeSelect={handleNodeSelect} onDecomposeNode={handleDecomposeNode} />
+                </div>
               </div>
-            </div>
-          ) : viewMode === "list" ? (
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <PlanListView projectId={project.id} onNodeSelect={handleNodeSelect} />
-            </div>
-          ) : viewMode === "board" ? (
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <PlanBoardView projectId={project.id} onNodeSelect={handleNodeSelect} />
-            </div>
-          ) : (
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <PlanTimelineView projectId={project.id} onNodeSelect={handleNodeSelect} />
-            </div>
-          )}
+            ) : viewMode === "list" ? (
+              <div className="flex flex-1 flex-col overflow-hidden">
+                <PlanListView projectId={project.id} onNodeSelect={handleNodeSelect} />
+              </div>
+            ) : viewMode === "board" ? (
+              <div className="flex flex-1 flex-col overflow-hidden">
+                <PlanBoardView projectId={project.id} onNodeSelect={handleNodeSelect} />
+              </div>
+            ) : (
+              <div className="flex flex-1 flex-col overflow-hidden">
+                <PlanTimelineView projectId={project.id} onNodeSelect={handleNodeSelect} />
+              </div>
+            )}
 
-          {/* Detail pane with Execution Panel — full-screen sheet on mobile, right sidebar on desktop */}
-          {inspectorProps && (
-            <>
-              {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
-              {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
-            </>
-          )}
+            {/* Detail pane with Execution Panel — full-screen sheet on mobile, right sidebar on desktop */}
+            {inspectorProps && (
+              <>
+                {isMobile && <NodeInspectorSheet open={!!selectedNode} {...inspectorProps} />}
+                {!isMobile && <NodeInspectorSidebar {...inspectorProps} />}
+              </>
+            )}
+          </div>
         </div>
 
-        {/* Chat panel — always visible as bottom resizable panel */}
-        <ChatBottomPanel
+        {/* Chat panel — resizable, toggleable between bottom and right */}
+        <ResizableChatPanel
           projectId={project.id}
           visionDoc={project.visionDoc}
           initialMessage={chatInitialMessage}

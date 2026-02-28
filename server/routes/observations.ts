@@ -7,14 +7,27 @@
 
 import { Hono } from 'hono'
 import { db } from '../lib/db/index.js'
-import { observationEvents, taskExecutions } from '../lib/db/schema.js'
-import { eq, and, sql, asc, gte, lte } from 'drizzle-orm'
-import { requireAuth } from '../middleware/auth.js'
+import { observationEvents, taskExecutions, projects } from '../lib/db/schema.js'
+import { eq, and, or, sql, asc, gte, lte, inArray, isNull } from 'drizzle-orm'
+import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
 const observationsRoute = new Hono()
 
 // All observation routes require authentication
 observationsRoute.use('/*', requireAuth)
+
+/**
+ * Get project IDs accessible by the current user (team-scoped).
+ */
+async function getUserProjectIds(user: AuthUser): Promise<string[]> {
+  const rows = await db.select({ id: projects.id }).from(projects).where(
+    or(
+      eq(projects.teamId, user.teamId),
+      and(isNull(projects.teamId), eq(projects.ownerId, user.id))
+    )
+  )
+  return rows.map(r => r.id)
+}
 
 /**
  * GET /api/observations
@@ -33,6 +46,7 @@ observationsRoute.use('/*', requireAuth)
  */
 observationsRoute.get('/', async (c) => {
   try {
+    const user = c.get('user') as AuthUser
     const {
       executionId,
       projectId,
@@ -48,9 +62,28 @@ observationsRoute.get('/', async (c) => {
     const limit = Math.min(Math.max(parseInt(limitStr || '100', 10) || 100, 1), 1000)
     const offset = Math.max(parseInt(offsetStr || '0', 10) || 0, 0)
 
+    // Scope to user's accessible projects
+    const accessibleProjectIds = await getUserProjectIds(user)
+    if (accessibleProjectIds.length === 0) {
+      return c.json({ data: [], limit, offset })
+    }
+
     const conditions = []
+    // Only return observations from user's accessible projects
+    conditions.push(
+      or(
+        inArray(observationEvents.projectId, accessibleProjectIds),
+        isNull(observationEvents.projectId)
+      )!
+    )
     if (executionId) conditions.push(eq(observationEvents.traceId, executionId))
-    if (projectId) conditions.push(eq(observationEvents.projectId, projectId))
+    if (projectId) {
+      // Verify requested projectId is accessible
+      if (!accessibleProjectIds.includes(projectId)) {
+        return c.json({ data: [], limit, offset })
+      }
+      conditions.push(eq(observationEvents.projectId, projectId))
+    }
     if (type) conditions.push(eq(observationEvents.type, type))
     if (level) conditions.push(eq(observationEvents.level, level))
     if (name) conditions.push(eq(observationEvents.name, name))
@@ -84,11 +117,29 @@ observationsRoute.get('/', async (c) => {
  */
 observationsRoute.get('/stats', async (c) => {
   try {
+    const user = c.get('user') as AuthUser
     const { executionId, projectId } = c.req.query()
 
+    // Scope to user's accessible projects
+    const accessibleProjectIds = await getUserProjectIds(user)
+    if (accessibleProjectIds.length === 0) {
+      return c.json({ totalEvents: 0, totalSpans: 0, totalGenerations: 0, totalTools: 0, totalEventType: 0, errorCount: 0, warningCount: 0, totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0 })
+    }
+
     const conditions = []
+    conditions.push(
+      or(
+        inArray(observationEvents.projectId, accessibleProjectIds),
+        isNull(observationEvents.projectId)
+      )!
+    )
     if (executionId) conditions.push(eq(observationEvents.traceId, executionId))
-    if (projectId) conditions.push(eq(observationEvents.projectId, projectId))
+    if (projectId) {
+      if (!accessibleProjectIds.includes(projectId)) {
+        return c.json({ totalEvents: 0, totalSpans: 0, totalGenerations: 0, totalTools: 0, totalEventType: 0, errorCount: 0, warningCount: 0, totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0 })
+      }
+      conditions.push(eq(observationEvents.projectId, projectId))
+    }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
 
@@ -121,10 +172,18 @@ observationsRoute.get('/stats', async (c) => {
  */
 observationsRoute.get('/:traceId', async (c) => {
   try {
+    const user = c.get('user') as AuthUser
     const { traceId } = c.req.param()
 
-    // Check if this looks like a summary request (handled by next route)
-    // Hono matches routes in order, so /stats and /:traceId/summary are handled first
+    // Verify the execution belongs to a project the user can access
+    const [execution] = await db.select({ projectId: taskExecutions.projectId })
+      .from(taskExecutions).where(eq(taskExecutions.executionId, traceId)).limit(1)
+    if (execution) {
+      const accessibleProjectIds = await getUserProjectIds(user)
+      if (!accessibleProjectIds.includes(execution.projectId)) {
+        return c.json({ data: [], traceId })
+      }
+    }
 
     const rows = await db
       .select()
@@ -145,13 +204,21 @@ observationsRoute.get('/:traceId', async (c) => {
  */
 observationsRoute.get('/:traceId/summary', async (c) => {
   try {
+    const user = c.get('user') as AuthUser
     const { traceId } = c.req.param()
 
-    // Try to get the pre-generated markdown summary from taskExecutions
+    // Verify the execution belongs to a project the user can access
     const [execution] = await db
-      .select({ markdownSummary: taskExecutions.markdownSummary })
+      .select({ markdownSummary: taskExecutions.markdownSummary, projectId: taskExecutions.projectId })
       .from(taskExecutions)
       .where(eq(taskExecutions.executionId, traceId))
+
+    if (execution) {
+      const accessibleProjectIds = await getUserProjectIds(user)
+      if (!accessibleProjectIds.includes(execution.projectId)) {
+        return c.text('Not found', 404)
+      }
+    }
 
     if (execution?.markdownSummary) {
       return c.text(execution.markdownSummary)

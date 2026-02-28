@@ -39,6 +39,8 @@ import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
 import { useGitHubStore } from "@/stores/github-store"
+import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
+import { useApiKeysStore } from "@/stores/api-keys-store"
 import { Settings } from "@/pages/settings"
 import { DeviceAuth } from "@/pages/device-auth"
 import { TaskDetail } from "@/pages/task-detail"
@@ -82,21 +84,26 @@ function resetAllStores() {
   useTeamStore.setState({ teams: [], teamMembers: {}, loaded: false })
   setActiveTeamId(undefined)
   setApiActiveTeamId(undefined)
-  useProjectStore.setState({ loaded: false })
-  usePlanStore.setState({ loaded: false })
+  // Clear all data arrays/maps to prevent cross-user data leakage
+  useProjectStore.setState({ projects: [], loaded: false })
+  usePlanStore.setState({ nodes: [], edges: [], loaded: false })
   useSettingsStore.setState({ loaded: false })
   useUserProfileStore.setState({ loaded: false })
   useDisplaySettingsStore.setState({ loaded: false })
   useTaskChatStore.setState({ loaded: false })
   useUsageStore.setState({ loaded: false })
-  useSessionStore.setState({ loaded: false })
-  useInitiativeStore.setState({ loaded: false })
-  useExecutionStore.setState({ loaded: false })
+  useSessionStore.setState({ sessions: new Map(), loaded: false })
+  useInitiativeStore.setState({ initiatives: [], loaded: false })
+  useExecutionStore.setState({ executions: new Map(), pendingApprovals: new Map(), batchExecutions: new Map(), loaded: false })
   useAgentStore.setState({ loaded: false })
-  useActivityStore.setState({ loaded: false })
+  useActivityStore.setState({ activities: [], loaded: false })
   useSidebarStore.setState({ loaded: false })
   usePluginStore.setState({ loaded: false })
   useSkillStore.setState({ loaded: false })
+  // Reset external integration stores
+  useGitHubStore.setState({ connected: false, user: null, connectedAt: null, repos: [], selectedRepoIds: [], lastSyncedAt: null })
+  useConnectedAccountsStore.setState({ accounts: [], loaded: false })
+  useApiKeysStore.setState({ encryptedKeys: [], decryptedKeys: new Map(), loaded: false })
 }
 
 function DataLoader({ children }: { children: React.ReactNode }) {
@@ -258,7 +265,7 @@ function RootRedirect() {
   }, [local, initialized, session])
 
   if (local) {
-    return <Navigate to="/projects/new/plan" replace />
+    return <Navigate to="/plan" replace />
   }
 
   if (!initialized || !session) {
@@ -271,7 +278,7 @@ function RootRedirect() {
     )
   }
 
-  return <Navigate to="/projects/new/plan" replace />
+  return <Navigate to="/plan" replace />
 }
 
 export default function App() {
@@ -305,8 +312,9 @@ export default function App() {
                 <Route path="welcome" element={<ProjectNewPlan />} />
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="projects" element={<Projects />} />
+                <Route path="plan" element={<ProjectNewPlan />} />
                 <Route path="projects/new" element={<Navigate to="/projects" replace />} />
-                <Route path="projects/new/plan" element={<ProjectNewPlan />} />
+                <Route path="projects/new/plan" element={<Navigate to="/plan" replace />} />
                 <Route path="project/:id" element={<PlanView />} />
                 <Route path="project/:id/graph" element={<PlanView />} />
                 <Route path="project/:id/list" element={<PlanView />} />

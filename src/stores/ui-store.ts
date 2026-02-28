@@ -3,11 +3,13 @@ import type { CommandItem, CommandHistory } from "@/types"
 
 interface UIState {
   sidebarCollapsed: boolean
+  chatPanelPosition: "bottom" | "right"
   commandPaletteOpen: boolean
   commandHistory: CommandHistory[]
   commandBreadcrumbs: CommandItem[]
   selectedCommands: string[]
   toggleSidebar: () => void
+  toggleChatPanelPosition: () => void
   setCommandPaletteOpen: (open: boolean) => void
   addCommandToHistory: (commandId: string) => Promise<void>
   loadCommandHistory: () => Promise<void>
@@ -19,12 +21,16 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set, get) => ({
   sidebarCollapsed: false,
+  chatPanelPosition: "bottom",
   commandPaletteOpen: false,
   commandHistory: [],
   commandBreadcrumbs: [],
   selectedCommands: [],
 
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+
+  toggleChatPanelPosition: () =>
+    set((s) => ({ chatPanelPosition: s.chatPanelPosition === "bottom" ? "right" : "bottom" })),
 
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
 

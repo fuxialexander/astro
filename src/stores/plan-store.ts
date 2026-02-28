@@ -475,9 +475,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   },
 
   resetNode: async (nodeId, projectId) => {
+    // Capture executionId before reset so we can clean up all associated state
+    const oldNode = get().nodes.find((n) => n.id === nodeId)
+    const oldExecutionId = oldNode?.executionId
+
     const { resetTask } = await import("@/lib/api-client")
     const result = await resetTask(nodeId, projectId)
     if (result.success) {
+      // Clean up all Zustand state for this node across all stores
+      const { cleanupNodeZustandState } = await import("@/stores/execution-store")
+      await cleanupNodeZustandState(nodeId, oldExecutionId)
+
       // Optimistically update local state
       const nextNodes = get().nodes.map((n) =>
         n.id === nodeId

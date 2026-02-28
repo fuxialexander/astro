@@ -147,7 +147,7 @@ export interface ChatPlanEdgeContext {
 }
 
 export async function chatWithAgent(
-  params: { message: string; sessionId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
+  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
   callbacks: {
     onText: (text: string) => void
     onDone: (sessionId: string) => void
@@ -175,7 +175,7 @@ export async function chatWithAgent(
 }
 
 export async function planChatWithAgent(
-  params: { message: string; sessionId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
+  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
   callbacks: {
     onText: (text: string) => void
     onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
@@ -219,6 +219,7 @@ export async function abortAgent(sessionId: string): Promise<void> {
 export interface TaskChatParams {
   message: string
   sessionId?: string
+  streamId?: string
   nodeId: string
   projectId: string
   taskTitle: string
@@ -227,12 +228,18 @@ export interface TaskChatParams {
   visionDoc?: string
   model?: string
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>
+  /** Branch name from the execution (for resumed session context) */
+  branchName?: string
+  /** PR URL from the execution (for resumed session context) */
+  prUrl?: string
 }
 
 export async function chatWithTask(
   params: TaskChatParams,
   callbacks: {
     onText: (text: string) => void
+    onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
+    onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onDone: (sessionId: string) => void
     onError: (error: string) => void
   },
@@ -252,6 +259,8 @@ export async function chatWithTask(
 
   await parseChatSSE(res, {
     onText: callbacks.onText,
+    onToolUse: callbacks.onToolUse,
+    onToolResult: callbacks.onToolResult,
     onDone: callbacks.onDone,
     onError: callbacks.onError,
   })
@@ -447,6 +456,37 @@ export async function resetTask(
     throw new Error(`Reset failed: ${response.status} ${text}`)
   }
 
+  return response.json()
+}
+
+// ============================================================================
+// Streaming Events Catch-Up API
+// ============================================================================
+
+export interface StreamingEventRow {
+  seq: number
+  executionId: string
+  eventType: string
+  data: unknown
+  createdAt: string
+}
+
+export async function fetchStreamingEventsCatchUp(
+  executionIds: string[],
+  afterSeq: number,
+  limit = 1000,
+): Promise<{ events: StreamingEventRow[]; lastSeq: number }> {
+  const params = new URLSearchParams({
+    executionIds: executionIds.join(','),
+    afterSeq: String(afterSeq),
+    limit: String(limit),
+  })
+  const response = await fetch(apiUrl(`/api/events/catch-up?${params}`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    return { events: [], lastSeq: afterSeq }
+  }
   return response.json()
 }
 

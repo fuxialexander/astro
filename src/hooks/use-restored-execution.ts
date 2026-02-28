@@ -6,9 +6,10 @@
  * After page refresh (events lost), reconstructs them from persisted observation data.
  */
 
-import { useMemo, useEffect, useState } from "react"
+import { useMemo, useEffect, useState, useRef } from "react"
 import type { TaskExecution, TaskActivityEvent, ToolTrace, FileChange } from "@/types"
 import type { TaskStream } from "@/stores/realtime-store"
+import { useRealtimeStore } from "@/stores/realtime-store"
 import { useObservationStore } from "@/stores/observation-store"
 import { reconstructActivityFromTrace } from "@/lib/observation-activity-bridge"
 
@@ -97,7 +98,19 @@ export function useRestoredExecution(
 
   const hasLiveEvents = liveActivityEvents.length > 0
 
-  // Observation store
+  // Streaming events fast path: try catch-up from streaming_events table first
+  const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
+  const catchUpAttempted = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!executionId || hasLiveEvents) return
+    if (catchUpAttempted.current === executionId) return
+    catchUpAttempted.current = executionId
+    console.log('[use-restored] trying streaming events catch-up for', executionId)
+    hydrateFromCatchUp([executionId], 0)
+  }, [executionId, hasLiveEvents, hydrateFromCatchUp])
+
+  // Observation store (fallback when streaming events are empty)
   const fetchTrace = useObservationStore((s) => s.fetchTrace)
   const getTrace = useObservationStore((s) => s.getTrace)
   const traceLoading = useObservationStore((s) => s.isLoading(executionId))
@@ -106,6 +119,7 @@ export function useRestoredExecution(
   // Fetch observations when needed:
   // - No live events in memory (post-refresh or completed execution)
   // - Has executionId to query
+  // - Streaming events catch-up didn't produce results
   // Note: we fetch even when isRunning — after page refresh, past activity
   // is only available from observations until new SSE events arrive.
   useEffect(() => {
@@ -116,6 +130,11 @@ export function useRestoredExecution(
       streamEventsLen: taskStream?.activityEvents?.length ?? 'undef',
     })
     if (!executionId || hasLiveEvents) return
+    // If streaming events catch-up produced data, skip observation fetch
+    if (taskStream && taskStream.activityEvents.length > 0) {
+      console.log('[use-restored] streaming catch-up has data, skipping observation fetch')
+      return
+    }
     // Check if already fetched
     const existing = getTrace(executionId)
     if (existing) {
@@ -124,7 +143,7 @@ export function useRestoredExecution(
     }
     console.log('[use-restored] fetching trace for', executionId)
     fetchTrace(executionId)
-  }, [executionId, hasLiveEvents, fetchTrace, getTrace])
+  }, [executionId, hasLiveEvents, fetchTrace, getTrace, taskStream])
 
   // Reconstruct from trace when available
   const trace = useObservationStore((s) => s.traces.get(executionId))
