@@ -151,6 +151,88 @@ Persistent context automatically injected into every AI session:
 - **Codebase Context**: Relevant code files and repository metadata automatically included
 - **Smart Filtering**: Only relevant context is included to stay within token budgets
 
+## Celltype/CLI Integration: Biomedical Research Toolkit
+
+Astro integrates with **celltype/cli**, an autonomous drug discovery and biomedical research platform with 190+ computational biology tools. This enables researchers to leverage advanced analysis capabilities directly within Astro tasks.
+
+### Available Research Tools
+
+**Target Discovery & Validation**
+- Score degradation targets from proteomics data
+- Predict degron motifs for protein degradation
+- Find co-essential and synthetic lethal partners (DepMap CRISPR)
+- Assess druggability via UniProt domains and structural coverage
+- Query tissue expression across GTEx and Human Protein Atlas
+- Retrieve disease associations from Open Targets
+
+**Structure & Molecular Design**
+- Fetch AlphaFold predicted structures
+- Generate 3D molecular conformers
+- Molecular docking and binding site detection
+- Ternary complex prediction (E3-compound-target)
+- Batch virtual screening for compound compatibility
+- Molecular dynamics and free energy perturbation calculations
+
+**Chemistry & SAR Analysis**
+- Compute molecular descriptors (MW, LogP, TPSA, Lipinski)
+- Similarity searching and scaffold hopping
+- Matched molecular pair analysis
+- Structure-activity relationship (SAR) analysis
+- Retrosynthesis planning
+- Pharmacophore modeling and synthetic accessibility scoring
+
+**Genomics & Variants**
+- GWAS catalog queries and eQTL lookup (GTEx)
+- Variant annotation via Ensembl VEP
+- Mendelian randomization evidence
+- GWAS-eQTL colocalization analysis
+
+**Transcriptomics & Expression**
+- Pathway enrichment from L1000 signatures
+- Differential expression analysis (DESeq2)
+- Immune cell scoring and deconvolution
+- Transcription factor activity inference
+- Connectivity map queries for compound signatures
+
+**Single-Cell & Spatial Analysis**
+- Leiden/Louvain clustering and trajectory inference
+- Cell type annotation via marker panels
+- Spatial transcriptomics clustering
+- Multi-omics integration (MOFA+)
+- CELLxGENE dataset search and analysis
+
+**Safety & ADMET**
+- Anti-target screening for off-target degradation
+- Multi-modal safety classification
+- ADMET property prediction
+- Drug-drug interaction prediction
+- FDA adverse event signal scanning (FAERS)
+
+**Clinical Development**
+- Indication mapping and population sizing (SEER)
+- Clinical trial search and benchmarking
+- Competitive landscape analysis
+- Trial design and protocol generation
+
+**Literature & Data Access**
+- PubMed and ChEMBL bioactivity queries
+- Patent and preprint searching
+- Academic publication discovery (OpenAlex)
+- Comprehensive protein and variant databases
+
+### Using Celltype Tools in Astro
+
+Create plan nodes that leverage these tools for structured biomedical research:
+
+1. **Target Discovery Task**: Query disease associations → validate with expression data → assess druggability
+2. **Molecular Design Task**: Predict structures → dock compounds → optimize via FEP
+3. **Clinical Development Task**: Indication mapping → population sizing → trial search → competitive analysis
+4. **Genomics Task**: GWAS associations → eQTL colocalization → variant annotation → causal prioritization
+
+Each task can specify which tool category it uses, and results from upstream analyses automatically feed downstream task contexts. This enables complex multi-step research workflows with full dependency tracking.
+
+For complete tool documentation, see the [celltype/cli documentation](https://github.com/celltype-ai/celltype) or the individual skill references below the Features section.
+
 ## Prerequisites
 
 - **Node.js** 25.6.0+ (managed via `.nvmrc` — use `nvm use`)
