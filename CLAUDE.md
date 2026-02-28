@@ -520,6 +520,9 @@ docs/
 - **Streaming events**: `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
 - **Usage metrics**: Execution results include `UsageMetrics` (cost, tokens, model, turns); accumulated in `usage-store` per session
 - **Device auth flow**: OAuth2 Device Authorization Grant (RFC 8628) for machine registration
+- **Activity reconstruction**: `useRestoredExecution` hook reconstructs activity events from persisted observation data after page refresh (when in-memory SSE events are lost); uses `reconstructActivityFromTrace` utility from `observation-activity-bridge.ts`
+- **maxTurns limiting**: Optional `maxTurns` parameter (1-200) passed through dispatch to control max agent turns per execution
+- **userId propagation**: userId flows through relay dispatch and machine selection for proper task attribution
 
 ## Key Concepts
 
@@ -530,7 +533,7 @@ docs/
 - **Branch pruning**: Killing a branch auto-cancels all downstream tasks
 - **Agent-agnostic execution**: Wraps existing agents (e.g., Claude Code), does not build custom agents
 - **Data flywheel**: Planning traces (decomposition, overrides, pruning decisions, outcomes) improve future plans via context engineering, not model retraining
-- **Activity Feed**: Real-time activity tracking system, captures all project/task events
+- **Activity Feed**: Real-time activity tracking system, captures all project/task events; persists execution traces via observation tree, allowing activity reconstruction after page refresh
 - **Approval System**: Dynamic tool-based approvals (`ask_user_question`) + procedure-level approvals with SSE notifications
 - **Realtime Sync**: Multi-device collaboration via Supabase Realtime with optimistic updates and conflict resolution
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
@@ -557,6 +560,9 @@ docs/
 - Display settings: `DisplayPopover` component with `DisplayPopoverConfig` for per-view groupBy/orderBy/properties
 - Usage tracking: `useUsageStore` accumulates session metrics (cost, tokens, task counts) from execution results
 - Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`
+- **Activity restoration**: Use `useRestoredExecution(executionId, execution, taskStream)` hook to get activity events, tool traces, and file changes; during live execution returns in-memory SSE events; after page refresh reconstructs from persisted observation data via `reconstructActivityFromTrace` utility
+- **maxTurns dispatch**: Pass optional `maxTurns` (1-200) in dispatch payload to limit agent execution turns; flows through to agent-runner via ASTRO_MAX_TURNS env var
+- **Plan extraction**: Use `extractPlanFromOutput` utility which handles multi-fence JSON blocks (```json...```); robustly finds plan JSON even when agent output includes multiple code fences
 
 ## Database
 
@@ -584,8 +590,9 @@ The relay server is a WebSocket hub that brokers communication between the platf
 
 ### Architecture
 - **WebSocket Server** (port 3002): Accepts connections from agent runners
-- **Machine Registry**: Tracks connected machines, their capabilities, and load
+- **Machine Registry**: Tracks connected machines, their capabilities, and load (includes userId context for proper task attribution)
 - **Redis Pub/Sub** (optional): Enables horizontal scaling across multiple relay instances
+- **userId Propagation**: userId flows from dispatch request through relay selection and machine assignment for correct task ownership and activity tracking
 
 ### Key Files
 - `server/lib/relay-server.ts` — WebSocket server, message routing, heartbeat
