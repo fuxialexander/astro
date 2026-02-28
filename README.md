@@ -98,7 +98,7 @@ Frontend: Render dependency graph in React Flow
 ## Features
 
 ### AI-Powered Planning
-Decompose complex goals into structured dependency graphs with AI assistance. Astro analyzes your project description and automatically generates a plan with explicit task dependencies, enabling strategic oversight and parallel execution planning.
+Decompose complex goals into structured dependency graphs. Astro analyzes your project description and generates a plan with explicit task dependencies, enabling strategic oversight and parallel execution.
 
 ### Multi-Environment Execution
 Run tasks across diverse compute environments without rewriting workflows:
@@ -111,127 +111,78 @@ Run tasks across diverse compute environments without rewriting workflows:
 The dispatch system automatically selects the optimal environment based on task requirements and machine availability.
 
 ### Real-time Streaming
-Monitor task execution in real-time with live SSE (Server-Sent Events) streaming:
+Monitor task execution with live SSE (Server-Sent Events) streaming:
 - **Task Output**: Live stdout/stderr with syntax highlighting and search
-- **Tool Traces**: Detailed timeline of tool calls (searches, API calls, file ops) with input/output inspection
-- **File Changes**: Track modified files and view inline diffs as the agent works
+- **Tool Traces**: Detailed timeline of tool calls with input/output inspection
+- **File Changes**: Track modified files and view inline diffs
 - **Progress Updates**: Real-time progress indicators and status changes
 
 ### Git Worktree Isolation
-Each task executes in its own isolated git worktree on a unique branch. This prevents concurrent tasks from interfering with each other and allows safe parallel execution. Branches are automatically cleaned up after task completion.
+Each task executes in an isolated git worktree on a unique branch, preventing conflicts between concurrent tasks. Branches are automatically cleaned up after completion.
 
 ### Automatic PR Creation
-Completed tasks automatically push their branches and create pull requests, streamlining code review workflows. The system respects your delivery mode preferences (PR, direct push, branch-only, etc.) and includes execution summaries in PR descriptions.
+Completed tasks automatically push branches and create pull requests. The system respects your delivery mode preferences (PR, direct push, branch-only, etc.) and includes execution summaries in PR descriptions.
 
 ### Safety System
-Built-in guardrails prevent unsafe concurrent execution:
-- **Git State Checks**: Verify clean working trees before task dispatch
+Built-in guardrails for concurrent execution:
+- **Git State Checks**: Verify clean working trees before dispatch
 - **Conflict Prevention**: Prevent concurrent writes to the same files
 - **Graceful Cancellation**: Cancel downstream tasks when dependencies fail
 - **Rollback Capability**: Revert changes if verification fails
 
 ### Device Authentication
 Secure machine registration using OAuth2 device code flow (RFC 8628):
-- **No Credential Passing**: Devices authenticate without exposing secrets
+- **No Credential Passing**: Authenticate without exposing secrets
 - **User Verification**: Browser-based verification during registration
-- **Token Management**: Automatic token lifecycle management (refresh, revoke)
-- **Multi-Device Support**: Register multiple machines to the same team account
+- **Token Management**: Automatic token lifecycle management
+- **Multi-Device Support**: Register multiple machines to a team account
 
 ### Visual Planning
-Interactive directed graph visualization of your plan:
+Interactive directed graph visualization:
 - **React Flow Canvas**: Pan, zoom, and explore the dependency graph
-- **Node Details**: Click nodes to view/edit task properties, estimates, and status
-- **Dynamic Layout**: Automatic graph layout with explicit dependency visualization
+- **Node Details**: View/edit task properties, estimates, and status
+- **Dynamic Layout**: Automatic graph layout with dependency visualization
 - **Real-time Updates**: Watch nodes update as tasks execute
 
 ### Context Injection
 Persistent context automatically injected into every AI session:
 - **Vision Document**: Project-level context describing product goals or research questions
-- **Dependency Outputs**: Results from upstream tasks feed into downstream task contexts
+- **Dependency Outputs**: Results from upstream tasks feed downstream task contexts
 - **Codebase Context**: Relevant code files and repository metadata automatically included
-- **Smart Filtering**: Only relevant context is included to stay within token budgets
+- **Smart Filtering**: Only relevant context is included to manage token limits
 
 ## Celltype/CLI Integration: Biomedical Research Toolkit
 
-Astro integrates with **celltype/cli**, an autonomous drug discovery and biomedical research platform with 190+ computational biology tools. This enables researchers to leverage advanced analysis capabilities directly within Astro tasks.
+Astro integrates with **celltype/cli**, a biomedical research platform with 190+ computational biology tools for drug discovery, genomics, transcriptomics, and clinical development. Researchers can leverage these tools directly within Astro tasks to build complex multi-step workflows.
 
-### Available Research Tools
+### Tool Categories
 
-**Target Discovery & Validation**
-- Score degradation targets from proteomics data
-- Predict degron motifs for protein degradation
-- Find co-essential and synthetic lethal partners (DepMap CRISPR)
-- Assess druggability via UniProt domains and structural coverage
-- Query tissue expression across GTEx and Human Protein Atlas
-- Retrieve disease associations from Open Targets
+**Target Discovery** — Score degradation targets, predict degrons, find co-essential partners (DepMap), assess druggability, query tissue expression (GTEx), retrieve disease associations (Open Targets)
 
-**Structure & Molecular Design**
-- Fetch AlphaFold predicted structures
-- Generate 3D molecular conformers
-- Molecular docking and binding site detection
-- Ternary complex prediction (E3-compound-target)
-- Batch virtual screening for compound compatibility
-- Molecular dynamics and free energy perturbation calculations
+**Structure & Design** — Fetch AlphaFold structures, generate conformers, molecular docking, ternary complex prediction, batch screening, molecular dynamics, FEP
 
-**Chemistry & SAR Analysis**
-- Compute molecular descriptors (MW, LogP, TPSA, Lipinski)
-- Similarity searching and scaffold hopping
-- Matched molecular pair analysis
-- Structure-activity relationship (SAR) analysis
-- Retrosynthesis planning
-- Pharmacophore modeling and synthetic accessibility scoring
+**Chemistry** — Molecular descriptors (MW, LogP, TPSA), similarity search, SAR analysis, scaffold hopping, retrosynthesis, synthetic accessibility
 
-**Genomics & Variants**
-- GWAS catalog queries and eQTL lookup (GTEx)
-- Variant annotation via Ensembl VEP
-- Mendelian randomization evidence
-- GWAS-eQTL colocalization analysis
+**Genomics** — GWAS queries, eQTL lookup (GTEx), variant annotation (VEP), Mendelian randomization, GWAS-eQTL colocalization
 
-**Transcriptomics & Expression**
-- Pathway enrichment from L1000 signatures
-- Differential expression analysis (DESeq2)
-- Immune cell scoring and deconvolution
-- Transcription factor activity inference
-- Connectivity map queries for compound signatures
+**Transcriptomics** — Pathway enrichment (L1000), differential expression (DESeq2), immune scoring, TF activity, connectivity map queries
 
-**Single-Cell & Spatial Analysis**
-- Leiden/Louvain clustering and trajectory inference
-- Cell type annotation via marker panels
-- Spatial transcriptomics clustering
-- Multi-omics integration (MOFA+)
-- CELLxGENE dataset search and analysis
+**Single-Cell** — Leiden/Louvain clustering, trajectory inference, cell type annotation, spatial transcriptomics, multi-omics integration
 
-**Safety & ADMET**
-- Anti-target screening for off-target degradation
-- Multi-modal safety classification
-- ADMET property prediction
-- Drug-drug interaction prediction
-- FDA adverse event signal scanning (FAERS)
+**Safety & ADMET** — Anti-target screening, safety classification, ADMET prediction, DDI prediction, FDA adverse event signals (FAERS)
 
-**Clinical Development**
-- Indication mapping and population sizing (SEER)
-- Clinical trial search and benchmarking
-- Competitive landscape analysis
-- Trial design and protocol generation
+**Clinical** — Indication mapping, population sizing (SEER), trial search, competitive landscape, protocol generation
 
-**Literature & Data Access**
-- PubMed and ChEMBL bioactivity queries
-- Patent and preprint searching
-- Academic publication discovery (OpenAlex)
-- Comprehensive protein and variant databases
+**Literature** — PubMed, ChEMBL queries, patent/preprint search, OpenAlex, protein/variant databases
 
-### Using Celltype Tools in Astro
+### Example Workflows
 
-Create plan nodes that leverage these tools for structured biomedical research:
+Build plan nodes that chain tools for structured research:
+- **Target Discovery**: Query associations → validate with expression → assess druggability
+- **Molecular Design**: Predict structure → dock compounds → optimize (FEP)
+- **Genomics**: GWAS associations → eQTL colocalization → variant annotation → causal prioritization
 
-1. **Target Discovery Task**: Query disease associations → validate with expression data → assess druggability
-2. **Molecular Design Task**: Predict structures → dock compounds → optimize via FEP
-3. **Clinical Development Task**: Indication mapping → population sizing → trial search → competitive analysis
-4. **Genomics Task**: GWAS associations → eQTL colocalization → variant annotation → causal prioritization
-
-Each task can specify which tool category it uses, and results from upstream analyses automatically feed downstream task contexts. This enables complex multi-step research workflows with full dependency tracking.
-
-For complete tool documentation, see the [celltype/cli documentation](https://github.com/celltype-ai/celltype) or the individual skill references below the Features section.
+Results from upstream tasks automatically feed downstream contexts, enabling full dependency tracking. See the [celltype/cli documentation](https://github.com/celltype-ai/celltype) for complete tool details.
 
 ## Prerequisites
 
@@ -240,7 +191,7 @@ For complete tool documentation, see the [celltype/cli documentation](https://gi
 - **Git**
 - **Claude CLI** authenticated (`claude login` — credentials in `~/.claude/`)
 
-Redis is **not required** for local development.
+*Note: Redis is not required for local development.*
 
 ## Quick Start: Two Workflows
 
@@ -389,7 +340,6 @@ lsof -ti:3002 | xargs kill -9
 - If `nvm` is not installed, see [nvm documentation](https://github.com/nvm-sh/nvm)
 
 **Issue: Claude CLI not authenticated**
-- Agent runner needs Claude credentials to execute tasks
 - Run `claude login` to authenticate (credentials saved to `~/.claude/`)
 - For server mode: set `ANTHROPIC_API_KEY` in `.env.prod`
 
@@ -416,7 +366,7 @@ lsof -ti:3002 | xargs kill -9
 
 ## Agent Runner
 
-The agent runner is the worker process that executes AI tasks. It lives in `packages/agent-runner/`, which is a **git submodule** pointing to [github.com/fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) (private). It will later be published as a standalone package (`@astroanywhere/agent`).
+The agent runner executes AI tasks. It lives in `packages/agent-runner/` as a **git submodule** pointing to [github.com/fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) (private) and will be published as `@astroanywhere/agent`.
 
 ```bash
 # Initialize the submodule (if you didn't clone with --recurse-submodules)
@@ -425,18 +375,18 @@ git submodule update --init --recursive
 
 ### Running the Agent Runner
 
-From the repo root, use `npx tsx` to run the CLI directly from source:
+From the repo root:
 
 ```bash
-# One-step: setup + start (recommended for first run)
+# One-step: setup + start
 npx tsx packages/agent-runner/src/cli.ts launch --force-setup
 
 # Or separate steps:
-npx tsx packages/agent-runner/src/cli.ts setup      # Interactive setup (detect providers, device auth)
-npx tsx packages/agent-runner/src/cli.ts start -f    # Start in foreground
+npx tsx packages/agent-runner/src/cli.ts setup      # Interactive setup
+npx tsx packages/agent-runner/src/cli.ts start -f   # Start in foreground
 ```
 
-For local development, the agent runner starts automatically with `npm run dev:local`. For manual control: `npm run dev:agent`.
+In local development, the runner starts automatically with `npm run dev:local`; for manual control, use `npm run dev:agent`.
 
 ### CLI Commands
 
