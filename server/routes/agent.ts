@@ -11,6 +11,8 @@ import { relayServer } from '../lib/relay-server.js'
 import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
+import { streamingEventLog } from '../lib/streaming-event-log.js'
+import { activeDispatchStreams } from '../lib/execution-context-store.js'
 import { requireAuth } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, TaskStdoutMessage } from '../types/relay.js'
@@ -114,13 +116,15 @@ async function streamChatViaRelay(
     const onText = (msg: TaskTextMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
+      streamingEventLog.appendText(opts.taskId, msg.text)
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: opts.taskId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }
 
-    const onResult = (msg: TaskResultMessage) => {
+    const onResult = async (msg: TaskResultMessage) => {
       if (!alive || msg.result.taskId !== opts.taskId) return
       lastActivity = Date.now()
+      await streamingEventLog.append(opts.taskId, 'result', { sessionId: opts.taskId })
       stream.writeSSE({
         event: 'done',
         data: JSON.stringify({ sessionId: opts.taskId }),
@@ -128,39 +132,47 @@ async function streamChatViaRelay(
       alive = false
     }
 
-    const onToolTrace = (msg: TaskToolTraceMessage) => {
+    const onToolTrace = async (msg: TaskToolTraceMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
+      const useSeq = await streamingEventLog.append(opts.taskId, 'tool_use', { toolName: msg.toolName, toolInput: msg.toolInput })
       stream.writeSSE({
         event: 'tool_use',
         data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
+        id: String(useSeq),
       }).catch(() => { alive = false })
       executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolInput: msg.toolInput })
       if (msg.toolResult !== undefined) {
+        const resultSeq = await streamingEventLog.append(opts.taskId, 'tool_result', { toolName: msg.toolName, success: msg.success, result: msg.toolResult })
         stream.writeSSE({
           event: 'tool_result',
           data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
+          id: String(resultSeq),
         }).catch(() => { alive = false })
         executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true })
       }
     }
 
-    const onFileChange = (msg: TaskFileChangeMessage) => {
+    const onFileChange = async (msg: TaskFileChangeMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
+      const seq = await streamingEventLog.append(opts.taskId, 'file_change', { path: msg.path, action: msg.action })
       stream.writeSSE({
         event: 'file_change',
         data: JSON.stringify({ path: msg.path, action: msg.action }),
+        id: String(seq),
       }).catch(() => { alive = false })
       executionEventBus.emit('task:file_change', { taskId: opts.taskId, path: msg.path, action: msg.action })
     }
 
-    const onSessionInit = (msg: TaskSessionInitMessage) => {
+    const onSessionInit = async (msg: TaskSessionInitMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
+      const seq = await streamingEventLog.append(opts.taskId, 'session_init', { sessionId: msg.sessionId, model: msg.model })
       stream.writeSSE({
         event: 'session_init',
         data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
+        id: String(seq),
       }).catch(() => { alive = false })
       executionEventBus.emit('task:session_init', { taskId: opts.taskId, sessionId: msg.sessionId, model: msg.model || 'unknown' })
     }
@@ -194,11 +206,19 @@ async function streamChatViaRelay(
     // Extract authenticated user for machine ownership filtering
     const user = c.get('user') as { id: string } | undefined
 
+    // Track active stream to prevent double-persistence from events.ts
+    activeDispatchStreams.add(opts.taskId)
+
+    const cleanupAll = () => {
+      cleanup()
+      activeDispatchStreams.delete(opts.taskId)
+    }
+
     // Dispatch after listeners are registered
     const dispatched = relayServer.dispatchTask(task, opts.targetMachineId, user?.id)
 
     if (!dispatched) {
-      cleanup()
+      cleanupAll()
       await stream.writeSSE({
         event: 'error',
         data: 'No agent runner connected. Start one with: npx astro-agent start --relay wss://<your-relay-url>',
@@ -226,14 +246,15 @@ async function streamChatViaRelay(
     stream.onAbort(() => {
       alive = false
       clearInterval(heartbeat)
-      cleanup()
+      cleanupAll()
+      streamingEventLog.flushText(opts.taskId).catch(() => {})
       // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 
     // Wait for completion
     await new Promise<void>((resolve) => {
       const check = setInterval(() => {
-        if (!alive) { clearInterval(check); clearInterval(heartbeat); cleanup(); resolve() }
+        if (!alive) { clearInterval(check); clearInterval(heartbeat); cleanupAll(); resolve() }
       }, 500)
     })
   })
@@ -428,9 +449,12 @@ agentRoute.post('/generate-plan', async (c) => {
     let planResultSent = false
     const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
-    const onResult = (msg: TaskResultMessage) => {
+    const onResult = async (msg: TaskResultMessage) => {
       if (!alive || msg.result.taskId !== taskId) return
       lastActivity = Date.now()
+
+      // Persist result event
+      await streamingEventLog.append(taskId, 'result', { sessionId: taskId })
 
       // Try to extract plan from accumulated text
       if (!planResultSent && assistantText) {
@@ -502,6 +526,7 @@ agentRoute.post('/generate-plan', async (c) => {
       if (!alive || msg.output.taskId !== taskId) return
       lastActivity = Date.now()
       assistantText += msg.output.data
+      streamingEventLog.appendText(taskId, msg.output.data)
       stream.writeSSE({ event: 'text', data: msg.output.data }).catch(() => { alive = false })
     }
 
@@ -509,6 +534,7 @@ agentRoute.post('/generate-plan', async (c) => {
       if (!alive || msg.taskId !== taskId) return
       lastActivity = Date.now()
       assistantText += msg.text
+      streamingEventLog.appendText(taskId, msg.text)
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
     }
 
@@ -527,11 +553,15 @@ agentRoute.post('/generate-plan', async (c) => {
     relayServer.on('task:text', onText)
     relayServer.on('machine:disconnected', onMachineDisconnected)
 
+    // Track active stream to prevent double-persistence from events.ts
+    activeDispatchStreams.add(taskId)
+
     const cleanup = () => {
       relayServer.off('task:result', onResult)
       relayServer.off('task:stdout', onStdout)
       relayServer.off('task:text', onText)
       relayServer.off('machine:disconnected', onMachineDisconnected)
+      activeDispatchStreams.delete(taskId)
     }
 
     // Extract authenticated user for machine ownership filtering
@@ -570,6 +600,7 @@ agentRoute.post('/generate-plan', async (c) => {
       alive = false
       clearInterval(heartbeat)
       cleanup()
+      streamingEventLog.flushText(taskId).catch(() => {})
       // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 

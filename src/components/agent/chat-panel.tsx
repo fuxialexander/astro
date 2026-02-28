@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { stripHtml, escapeHtml } from "@/lib/html-utils"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle, MessageSquare, Plus, History, Trash2 } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, GitBranch, PlusCircle, MessageSquare, Plus, History, Trash2, Activity } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -24,6 +24,8 @@ import { SessionDialog } from "@/components/session-dialog"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
+import { useRealtimeStore } from "@/stores/realtime-store"
+import { ChatActivityView } from "@/components/agent/chat-activity-view"
 import type { PlanNode, ProviderStatus, Session } from "@/types"
 
 /** A node update: nodeId + any properties to patch */
@@ -154,6 +156,8 @@ interface ChatPanelProps {
 export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }: ChatPanelProps) {
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
+  const [activeTab, setActiveTab] = useState<'chat' | 'activity'>('chat')
+  const [toolCallCount, setToolCallCount] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const initialMessageSent = useRef(false)
@@ -562,6 +566,12 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
     const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency"])
     let needsPlanRefresh = false
 
+    // Use the existing providerSessionId as the relay task ID for pushing activity events.
+    // On first message it's not set yet — we'll get it from onDone.
+    const sessionTaskId = hasCompletedExchange ? session.providerSessionId : undefined
+    let resolvedTaskId = sessionTaskId || ''
+    let localToolCount = 0
+
     try {
       await planChatWithAgent(
         {
@@ -584,14 +594,38 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
             if (PLAN_MUTATING_TOOLS.has(data.toolName)) {
               needsPlanRefresh = true
             }
+            localToolCount++
+            setToolCallCount(localToolCount)
+            if (resolvedTaskId) {
+              useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
+                type: 'tool_use',
+                id: `tool-${localToolCount}`,
+                toolName: data.toolName,
+                toolInput: data.toolInput,
+                timestamp: new Date(),
+              })
+            }
           },
           onToolResult: (data) => {
             if (PLAN_MUTATING_TOOLS.has(data.toolName)) {
               needsPlanRefresh = true
             }
+            if (resolvedTaskId) {
+              useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
+                type: 'tool_result',
+                id: `tool-${localToolCount}`,
+                toolName: data.toolName,
+                toolResult: data.result,
+                success: data.success,
+                timestamp: new Date(),
+              })
+            }
           },
           onDone: (newProviderSessionId) => {
-            if (newProviderSessionId) setProviderSessionId(sid, newProviderSessionId)
+            if (newProviderSessionId) {
+              setProviderSessionId(sid, newProviderSessionId)
+              resolvedTaskId = newProviderSessionId
+            }
 
             // Refresh plan from server if MCP tools modified the plan
             if (needsPlanRefresh) {
@@ -851,8 +885,46 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
         </div>
       </div>
 
-      {/* Messages */}
-      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+      {/* Chat / Activity tab bar */}
+      <div className="flex shrink-0 border-b border-border">
+        <button
+          onClick={() => setActiveTab('chat')}
+          className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === 'chat'
+              ? 'text-foreground border-b-2 border-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Chat
+        </button>
+        <button
+          onClick={() => setActiveTab('activity')}
+          className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors flex items-center justify-center gap-1.5 ${
+            activeTab === 'activity'
+              ? 'text-foreground border-b-2 border-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Activity className="h-3 w-3" />
+          Activity
+          {toolCallCount > 0 && (
+            <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 min-w-[16px]">
+              {toolCallCount}
+            </Badge>
+          )}
+        </button>
+      </div>
+
+      {/* Activity tab */}
+      {activeTab === 'activity' && (
+        <ChatActivityView
+          sessionId={currentSession?.providerSessionId || ''}
+          isStreaming={isStreaming}
+        />
+      )}
+
+      {/* Messages (Chat tab) */}
+      {activeTab === 'chat' && <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="flex flex-col gap-4">
           {messages.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-8">
@@ -979,7 +1051,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect }
             </div>
           ))}
         </div>
-      </ScrollArea>
+      </ScrollArea>}
 
       {/* Input */}
       <div className="flex items-end gap-2 border-t border-border p-3">

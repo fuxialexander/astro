@@ -10,6 +10,8 @@ import { realtimeClient, type RealtimeEvent } from '@/lib/realtime-client'
 import { apiUrl } from '@/lib/api-url'
 import { getAccessToken } from '@/lib/supabase-client'
 import { showApprovalNotification, showTaskNotification } from '@/lib/notifications'
+import { fetchStreamingEventsCatchUp } from '@/lib/api-client'
+import { hydrateStreamingEvents } from '@/lib/streaming-event-hydrator'
 import { usePlanStore } from './plan-store'
 import { useProjectStore } from './project-store'
 import { useExecutionStore } from './execution-store'
@@ -172,6 +174,8 @@ interface RealtimeState {
   getDynamicApproval: (requestId: string) => DynamicApprovalRequest | undefined
   respondToDynamicApproval: (taskId: string, requestId: string, answer: string) => Promise<void>
   respondToSafetyPrompt: (taskId: string, decision: string) => Promise<void>
+  hydrateFromCatchUp: (executionIds: string[], afterSeq?: number) => Promise<void>
+  pushActivityEvent: (executionId: string, event: TaskActivityEvent) => void
 }
 
 let activityCounter = 0
@@ -232,6 +236,22 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     })
     ;(window as unknown as Record<string, unknown>).__realtimeUnsub = unsub
 
+    // On SSE reconnect after network blip, catch up missed streaming events
+    realtimeClient.onReconnect = () => {
+      const { taskStreams, hydrateFromCatchUp } = get()
+      // Collect execution IDs from all active (non-terminal) task streams
+      const activeIds: string[] = []
+      for (const [execId, stream] of taskStreams) {
+        if (!stream.status || stream.status === 'running' || stream.status === 'in_progress') {
+          activeIds.push(execId)
+        }
+      }
+      if (activeIds.length > 0) {
+        console.log('[realtime] SSE reconnected, catching up', activeIds.length, 'active executions from seq', realtimeClient.lastSeq)
+        hydrateFromCatchUp(activeIds, realtimeClient.lastSeq)
+      }
+    }
+
     // Track connection state
     const checkConnection = setInterval(() => {
       set({ connected: realtimeClient.connected })
@@ -246,6 +266,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     unsub?.()
     ;(window as unknown as Record<string, unknown>).__realtimeUnsub = undefined
 
+    realtimeClient.onReconnect = null
     realtimeClient.disconnect()
     const interval = (window as unknown as Record<string, unknown>).__realtimeInterval as ReturnType<typeof setInterval>
     if (interval) clearInterval(interval)
@@ -458,6 +479,97 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       })
     }
   },
+
+  hydrateFromCatchUp: async (executionIds: string[], afterSeq = 0) => {
+    if (executionIds.length === 0) return
+    try {
+      const { events } = await fetchStreamingEventsCatchUp(executionIds, afterSeq)
+      if (events.length === 0) return
+
+      // Group events by executionId and hydrate into task streams
+      const byExecution = new Map<string, typeof events>()
+      for (const ev of events) {
+        const list = byExecution.get(ev.executionId) || []
+        list.push(ev)
+        byExecution.set(ev.executionId, list)
+      }
+
+      // afterSeq > 0 means reconnection catch-up: append missed events to existing data
+      // afterSeq === 0 means full hydration (page refresh): use hydrated data only if existing is empty
+      const isReconnect = afterSeq > 0
+
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        for (const [execId, execEvents] of byExecution) {
+          const existing = streams.get(execId) || createEmptyTaskStream(execId)
+          const hydrated = hydrateStreamingEvents(execEvents)
+
+          // Always apply metadata from hydrated events (status, output, error, sessionId, model)
+          const metadata: Partial<TaskStream> = {}
+          if (hydrated.status) metadata.status = hydrated.status
+          if (hydrated.output) metadata.output = hydrated.output
+          if (hydrated.error) metadata.error = hydrated.error
+          if (hydrated.sessionId) metadata.sessionId = hydrated.sessionId
+          if (hydrated.model) metadata.model = hydrated.model
+          if (hydrated.progress !== undefined) metadata.progress = hydrated.progress
+          if (hydrated.progressMessage) metadata.progressMessage = hydrated.progressMessage
+
+          if (isReconnect) {
+            // Append caught-up events to fill the gap from network blip
+            streams.set(execId, {
+              ...existing,
+              ...metadata,
+              stdout: existing.stdout + hydrated.stdout,
+              activityEvents: [...existing.activityEvents, ...hydrated.activityEvents],
+              toolTraces: [...existing.toolTraces, ...hydrated.toolTraces],
+              fileChanges: [...existing.fileChanges, ...hydrated.fileChanges],
+            })
+          } else {
+            // Full hydration: prefer existing live data if present
+            streams.set(execId, {
+              ...existing,
+              ...metadata,
+              stdout: existing.stdout || hydrated.stdout,
+              activityEvents: existing.activityEvents.length > 0
+                ? existing.activityEvents
+                : hydrated.activityEvents,
+              toolTraces: existing.toolTraces.length > 0
+                ? existing.toolTraces
+                : hydrated.toolTraces,
+              fileChanges: existing.fileChanges.length > 0
+                ? existing.fileChanges
+                : hydrated.fileChanges,
+            })
+          }
+        }
+        return { taskStreams: streams }
+      })
+
+      // Reconcile plan nodes and execution store with hydrated result data
+      for (const [execId, execEvents] of byExecution) {
+        const hydrated = hydrateStreamingEvents(execEvents)
+        if (hydrated.status) {
+          reconcileResultFromCatchUp(execId, hydrated)
+        }
+      }
+
+      console.log('[realtime] Hydrated', events.length, 'streaming events for', executionIds.length, 'executions')
+    } catch (err) {
+      console.warn('[realtime] Catch-up hydration failed:', err)
+    }
+  },
+
+  pushActivityEvent: (executionId: string, event: TaskActivityEvent) => {
+    set((state) => {
+      const streams = new Map(state.taskStreams)
+      const existing = streams.get(executionId) || createEmptyTaskStream(executionId)
+      streams.set(executionId, {
+        ...existing,
+        activityEvents: [...existing.activityEvents, event],
+      })
+      return { taskStreams: streams }
+    })
+  },
 }))
 
 function createEmptyTaskStream(taskId: string): TaskStream {
@@ -469,6 +581,64 @@ function createEmptyTaskStream(taskId: string): TaskStream {
     fileChanges: [],
     steerMessages: [],
     activityEvents: [],
+  }
+}
+
+/**
+ * After catch-up hydration, reconcile plan node and execution store
+ * with result data (status, output, prUrl, etc.) that may have been
+ * missed during a page refresh or network blip.
+ */
+function reconcileResultFromCatchUp(
+  executionId: string,
+  hydrated: import('@/lib/streaming-event-hydrator').HydratedStreamData,
+) {
+  if (!hydrated.status) return
+  const isSuccess = hydrated.status === 'success' || hydrated.status === 'completed'
+
+  // Find the result event data for PR/branch metadata
+  // The hydrated object has status/output/error but not prUrl etc.
+  // We need to look at the raw data — but since we already have the result fields
+  // on the hydrated object, we can only update what we have.
+
+  // Update execution store
+  const execStore = useExecutionStore.getState()
+  for (const [nid, exec] of execStore.executions) {
+    if (exec.executionId === executionId && exec.status !== 'success' && exec.status !== 'failure') {
+      execStore.executions.set(nid, {
+        ...exec,
+        status: isSuccess ? 'success' : 'failure',
+        completedAt: new Date(),
+        ...(hydrated.error ? { error: hydrated.error } : {}),
+        ...(hydrated.branchName ? { branchName: hydrated.branchName } : {}),
+        ...(hydrated.prUrl ? { prUrl: hydrated.prUrl } : {}),
+        ...(hydrated.prNumber ? { prNumber: hydrated.prNumber } : {}),
+        ...(hydrated.deliveryStatus ? { deliveryStatus: hydrated.deliveryStatus as "success" | "failed" | "skipped" } : {}),
+      })
+      useExecutionStore.setState({ executions: new Map(execStore.executions) })
+      execStore.persist()
+      break
+    }
+  }
+
+  // Update plan node status
+  const planStore = usePlanStore.getState()
+  const node = planStore.nodes.find((n) => n.executionId === executionId)
+  if (node && node.status !== 'completed' && node.status !== 'auto_verified' && node.status !== 'pruned') {
+    const deliveryOk = !hydrated.deliveryStatus || hydrated.deliveryStatus === 'success' || hydrated.deliveryStatus === 'skipped'
+    const finalStatus = isSuccess
+      ? (node.verification === 'auto' && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
+      : 'awaiting_judgment'
+    planStore.updateNode(node.id, {
+      status: finalStatus as import('@/types').PlanNode['status'],
+      executionOutput: hydrated.output,
+      executionError: hydrated.error,
+      executionCompletedAt: new Date(),
+      ...(hydrated.branchName ? { branchName: hydrated.branchName } : {}),
+      ...(hydrated.prUrl ? { prUrl: hydrated.prUrl } : {}),
+      ...(hydrated.prNumber ? { prNumber: hydrated.prNumber } : {}),
+    })
+    console.log('[realtime] Reconciled plan node', node.id, '→', finalStatus, 'from catch-up')
   }
 }
 
@@ -672,9 +842,10 @@ function handleRealtimeEvent(
       )
       if (node) {
         // Use finalStatus from server if provided
+        const deliveryOk = !data.deliveryStatus || data.deliveryStatus === 'success' || data.deliveryStatus === 'skipped'
         const finalStatus = (data.finalStatus as string) || (
           isSuccess
-            ? (node.verification === 'auto' ? 'auto_verified' : 'awaiting_judgment')
+            ? (node.verification === 'auto' && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
             : 'awaiting_judgment'
         )
         const completionTime = new Date()
