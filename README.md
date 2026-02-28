@@ -2,7 +2,7 @@
 
 > A planning-first platform for builders and scientists — AI-assisted task decomposition, multi-environment execution, and real-time progress tracking.
 
-Astro sits above execution tools (coding agents, analysis tools) to help users decompose complex goals into dependency graphs, dispatch tasks across environments (local, HPC, cloud), and focus human attention on strategic decisions.
+Astro sits above execution tools to help decompose complex goals into dependency graphs, dispatch tasks across environments, and focus human attention on strategic decisions.
 
 ## Architecture
 
@@ -98,35 +98,35 @@ Frontend: Render dependency graph in React Flow
 ## Features
 
 ### AI-Powered Planning
-Decompose complex goals into structured dependency graphs with AI assistance. Astro analyzes your project description and automatically generates a plan with explicit task dependencies, enabling strategic oversight and parallel execution planning.
+Decompose complex goals into structured dependency graphs with AI assistance. Astro analyzes your project description and generates a plan with explicit task dependencies for strategic oversight and parallel execution.
 
 ### Multi-Environment Execution
 Run tasks across diverse compute environments without rewriting workflows:
 - **Local**: Execute on your machine (laptop, workstation)
-- **Docker**: Containerized execution for reproducible environments
-- **HPC (SLURM)**: Submit jobs to high-performance computing clusters
+- **Docker**: Containerized execution
+- **HPC (SLURM)**: High-performance computing clusters
 - **Kubernetes**: Orchestrated container workloads
-- **Cloud**: AWS, GCP, or other cloud platforms
+- **Cloud**: AWS, GCP, or other platforms
 
 The dispatch system automatically selects the optimal environment based on task requirements and machine availability.
 
 ### Real-time Streaming
-Monitor task execution in real-time with live SSE (Server-Sent Events) streaming:
+Monitor task execution in real-time via SSE (Server-Sent Events):
 - **Task Output**: Live stdout/stderr with syntax highlighting and search
-- **Tool Traces**: Detailed timeline of tool calls (searches, API calls, file ops) with input/output inspection
-- **File Changes**: Track modified files and view inline diffs as the agent works
+- **Tool Traces**: Timeline of tool calls with input/output inspection
+- **File Changes**: Track modified files and view inline diffs
 - **Progress Updates**: Real-time progress indicators and status changes
 
 ### Git Worktree Isolation
-Each task executes in its own isolated git worktree on a unique branch. This prevents concurrent tasks from interfering with each other and allows safe parallel execution. Branches are automatically cleaned up after task completion.
+Each task executes in its own isolated git worktree on a unique branch, preventing concurrent task interference and enabling safe parallel execution. Branches are automatically cleaned up after task completion.
 
 ### Automatic PR Creation
-Completed tasks automatically push their branches and create pull requests, streamlining code review workflows. The system respects your delivery mode preferences (PR, direct push, branch-only, etc.) and includes execution summaries in PR descriptions.
+Completed tasks automatically push branches and create pull requests, streamlining code review workflows. The system respects delivery mode preferences and includes execution summaries in PR descriptions.
 
 ### Safety System
 Built-in guardrails prevent unsafe concurrent execution:
-- **Git State Checks**: Verify clean working trees before task dispatch
-- **Conflict Prevention**: Prevent concurrent writes to the same files
+- **Git State Checks**: Verify clean working trees before dispatch
+- **Conflict Prevention**: Prevent concurrent writes to same files
 - **Graceful Cancellation**: Cancel downstream tasks when dependencies fail
 - **Rollback Capability**: Revert changes if verification fails
 
@@ -140,98 +140,34 @@ Secure machine registration using OAuth2 device code flow (RFC 8628):
 ### Visual Planning
 Interactive directed graph visualization of your plan:
 - **React Flow Canvas**: Pan, zoom, and explore the dependency graph
-- **Node Details**: Click nodes to view/edit task properties, estimates, and status
-- **Dynamic Layout**: Automatic graph layout with explicit dependency visualization
+- **Node Details**: Click nodes to view and edit task properties, estimates, and status
+- **Dynamic Layout**: Automatic layout with explicit dependency visualization
 - **Real-time Updates**: Watch nodes update as tasks execute
 
 ### Context Injection
 Persistent context automatically injected into every AI session:
 - **Vision Document**: Project-level context describing product goals or research questions
-- **Dependency Outputs**: Results from upstream tasks feed into downstream task contexts
-- **Codebase Context**: Relevant code files and repository metadata automatically included
-- **Smart Filtering**: Only relevant context is included to stay within token budgets
+- **Dependency Outputs**: Upstream task results feed into downstream tasks
+- **Codebase Context**: Relevant code files and repository metadata
+- **Smart Filtering**: Only relevant context included to stay within token budgets
 
 ## Celltype/CLI Integration: Biomedical Research Toolkit
 
-Astro integrates with **celltype/cli**, an autonomous drug discovery and biomedical research platform with 190+ computational biology tools. This enables researchers to leverage advanced analysis capabilities directly within Astro tasks.
+Astro integrates with **celltype/cli**, a biomedical research platform with 190+ computational biology tools. Researchers can leverage these tools directly within Astro tasks:
 
-### Available Research Tools
+- **Target Discovery**: Degradation scoring, druggability assessment, tissue expression, disease associations
+- **Structure & Design**: AlphaFold structures, molecular docking, ternary complex prediction, virtual screening
+- **Chemistry**: Molecular descriptors, SAR analysis, scaffold hopping, retrosynthesis
+- **Genomics**: GWAS queries, eQTL lookup, variant annotation, colocalization
+- **Transcriptomics**: Pathway enrichment, differential expression, immune scoring, TF activity
+- **Single-Cell**: Clustering, trajectory inference, cell type annotation, spatial analysis
+- **Safety & ADMET**: Anti-target screening, ADMET prediction, drug-drug interactions
+- **Clinical**: Trial search, indication mapping, population sizing, competitive analysis
+- **Literature**: PubMed, ChEMBL, patent and preprint search
 
-**Target Discovery & Validation**
-- Score degradation targets from proteomics data
-- Predict degron motifs for protein degradation
-- Find co-essential and synthetic lethal partners (DepMap CRISPR)
-- Assess druggability via UniProt domains and structural coverage
-- Query tissue expression across GTEx and Human Protein Atlas
-- Retrieve disease associations from Open Targets
+Create plan nodes that leverage these tools for structured biomedical workflows. Results from upstream analyses automatically feed downstream task contexts, enabling complex multi-step research with full dependency tracking.
 
-**Structure & Molecular Design**
-- Fetch AlphaFold predicted structures
-- Generate 3D molecular conformers
-- Molecular docking and binding site detection
-- Ternary complex prediction (E3-compound-target)
-- Batch virtual screening for compound compatibility
-- Molecular dynamics and free energy perturbation calculations
-
-**Chemistry & SAR Analysis**
-- Compute molecular descriptors (MW, LogP, TPSA, Lipinski)
-- Similarity searching and scaffold hopping
-- Matched molecular pair analysis
-- Structure-activity relationship (SAR) analysis
-- Retrosynthesis planning
-- Pharmacophore modeling and synthetic accessibility scoring
-
-**Genomics & Variants**
-- GWAS catalog queries and eQTL lookup (GTEx)
-- Variant annotation via Ensembl VEP
-- Mendelian randomization evidence
-- GWAS-eQTL colocalization analysis
-
-**Transcriptomics & Expression**
-- Pathway enrichment from L1000 signatures
-- Differential expression analysis (DESeq2)
-- Immune cell scoring and deconvolution
-- Transcription factor activity inference
-- Connectivity map queries for compound signatures
-
-**Single-Cell & Spatial Analysis**
-- Leiden/Louvain clustering and trajectory inference
-- Cell type annotation via marker panels
-- Spatial transcriptomics clustering
-- Multi-omics integration (MOFA+)
-- CELLxGENE dataset search and analysis
-
-**Safety & ADMET**
-- Anti-target screening for off-target degradation
-- Multi-modal safety classification
-- ADMET property prediction
-- Drug-drug interaction prediction
-- FDA adverse event signal scanning (FAERS)
-
-**Clinical Development**
-- Indication mapping and population sizing (SEER)
-- Clinical trial search and benchmarking
-- Competitive landscape analysis
-- Trial design and protocol generation
-
-**Literature & Data Access**
-- PubMed and ChEMBL bioactivity queries
-- Patent and preprint searching
-- Academic publication discovery (OpenAlex)
-- Comprehensive protein and variant databases
-
-### Using Celltype Tools in Astro
-
-Create plan nodes that leverage these tools for structured biomedical research:
-
-1. **Target Discovery Task**: Query disease associations → validate with expression data → assess druggability
-2. **Molecular Design Task**: Predict structures → dock compounds → optimize via FEP
-3. **Clinical Development Task**: Indication mapping → population sizing → trial search → competitive analysis
-4. **Genomics Task**: GWAS associations → eQTL colocalization → variant annotation → causal prioritization
-
-Each task can specify which tool category it uses, and results from upstream analyses automatically feed downstream task contexts. This enables complex multi-step research workflows with full dependency tracking.
-
-For complete tool documentation, see the [celltype/cli documentation](https://github.com/celltype-ai/celltype) or the individual skill references below the Features section.
+For complete documentation, see [celltype/cli](https://github.com/celltype-ai/celltype).
 
 ## Prerequisites
 
@@ -248,7 +184,7 @@ Astro runs in two modes. Pick the one that fits your needs.
 
 ### Workflow A: Local Mode (single user, no auth)
 
-Everything runs on your machine with zero external dependencies. PGlite (Postgres-in-WASM) runs in-process — no Docker, no Supabase, no external services needed.
+Everything runs on your machine with zero external dependencies. PGlite (Postgres-in-WASM) runs in-process—no Docker, Supabase, or external services needed.
 
 **What you'll get:**
 - Full Astro UI at `http://localhost:5173`
@@ -293,7 +229,7 @@ The agent runner automatically connects to the local relay and uses your Claude 
 
 ### Workflow B: Server Mode (multi-user, deployed)
 
-For teams and production deployments. Backend runs on Fly.io, frontend on Cloudflare Pages, data in remote Supabase. Agent runners on user machines connect via WebSocket.
+For teams and production deployments. Backend on Fly.io, frontend on Cloudflare Pages, data on remote Supabase. Agent runners connect via WebSocket.
 
 > **Org deployment:** If multiple team members need to deploy independently from their own machines, see [docs/setup/org-deployment.md](docs/setup/org-deployment.md).
 
@@ -358,12 +294,12 @@ npm run dev:agent      # Agent subprocess (auto-connects to ws://localhost:3002)
 ```
 
 **When to use this:**
-- Debugging a specific component without restarting everything
-- Working on UI without touching the backend
-- Testing backend changes without rebuilding the frontend
-- Profiling or adding logging to specific processes
+- Debug a specific component without restarting everything
+- Work on UI without touching the backend
+- Test backend changes without rebuilding the frontend
+- Profile or add logging to specific processes
 
-**Note:** In local mode, `npm run dev:local` starts all three automatically in one process. Separating them is useful for more granular development.
+**Note:** In local mode, `npm run dev:local` starts all three in one process. Separating them is useful for granular development.
 
 ### Verify Setup
 
@@ -416,7 +352,7 @@ lsof -ti:3002 | xargs kill -9
 
 ## Agent Runner
 
-The agent runner is the worker process that executes AI tasks. It lives in `packages/agent-runner/`, which is a **git submodule** pointing to [github.com/fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) (private). It will later be published as a standalone package (`@astroanywhere/agent`).
+The agent runner executes AI tasks. It lives in `packages/agent-runner/` as a **git submodule** pointing to [github.com/fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) (private). It will later be published as `@astroanywhere/agent`.
 
 ```bash
 # Initialize the submodule (if you didn't clone with --recurse-submodules)
@@ -436,7 +372,7 @@ npx tsx packages/agent-runner/src/cli.ts setup      # Interactive setup (detect 
 npx tsx packages/agent-runner/src/cli.ts start -f    # Start in foreground
 ```
 
-For local development, the agent runner starts automatically with `npm run dev:local`. For manual control: `npm run dev:agent`.
+The agent runner starts automatically with `npm run dev:local` or manually via `npm run dev:agent`.
 
 ### CLI Commands
 
@@ -457,7 +393,7 @@ For local development, the agent runner starts automatically with `npm run dev:l
 
 ### Connecting to Different Backends
 
-The agent runner needs to know which Astro backend to connect to. There are three ways to specify this (highest priority first):
+Specify which Astro backend to connect to (highest priority first):
 
 **1. CLI flags** (one-time override):
 ```bash
@@ -556,11 +492,11 @@ npm run env:prod         # Symlink .env.local → .env.prod
 npm run env:switch       # Show current mode
 ```
 
-Vite and tsx both auto-load `.env.local`. The npm scripts just control which file `.env.local` points to — same build commands, different environment variables.
+Vite and tsx auto-load `.env.local`. The npm scripts control which file it points to—same build commands, different environment variables.
 
 ### Env File Layout
 
-Run `npm run env:init` after creating `.env` to generate the dev and prod profiles. The init script reads shared values from `.env` (JWT secrets, `CLOUDFLARED_DOMAIN`, `FLY_APP`) and generates the mode-specific files.
+Run `npm run env:init` to generate dev and prod profiles. The script reads shared values from `.env` (JWT secrets, `CLOUDFLARED_DOMAIN`, `FLY_APP`) and generates mode-specific files.
 
 ```
 .env                  ← Shared secrets (JWT keys, deploy targets) — create from .env.example
@@ -682,7 +618,7 @@ For multi-user org deployments (multiple people deploying to the same infrastruc
 
 ### Fly.io Backend Deployment
 
-The backend deploys as a single Docker container running both the Hono API server (port 3001) and the WebSocket relay (port 3002). Configuration is in `fly.toml` at the repo root.
+The backend deploys as a single Docker container running the Hono API server (port 3001) and WebSocket relay (port 3002). Configuration is in `fly.toml` at the repo root.
 
 #### First-time setup
 
@@ -750,7 +686,7 @@ See [docs/setup/fly-deployment.md](docs/setup/fly-deployment.md) for the full de
 
 ### Cloudflare Pages Frontend Deployment
 
-The frontend builds as a static SPA and deploys to Cloudflare Pages. The `VITE_*` env vars are baked into the JS bundle at build time.
+The frontend builds as a static SPA and deploys to Cloudflare Pages. `VITE_*` env vars are baked into the JS bundle at build time.
 
 ```bash
 npm run env:prod            # Ensure .env.local has VITE_API_BASE_URL, VITE_SUPABASE_URL, etc.
