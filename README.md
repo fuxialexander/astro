@@ -4,6 +4,19 @@
 
 Astro sits above execution tools (coding agents, analysis tools) to help users decompose complex goals into dependency graphs, dispatch tasks across environments (local, HPC, cloud), and focus human attention on strategic decisions.
 
+## Table of Contents
+
+- [Quick Start](#quick-start--two-workflows)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Operating Modes](#operating-modes)
+- [Agent Runner](#agent-runner)
+- [API Endpoints](#api-endpoints)
+- [Tech Stack](#tech-stack)
+- [Testing & Deployment](#building--deployment)
+- [Documentation](#documentation)
+
 ## Architecture
 
 Astro has four components. The server never calls AI directly — all AI work flows through the relay to agent runners.
@@ -244,175 +257,134 @@ Redis is **not required** for local development.
 
 ## Quick Start: Two Workflows
 
-Astro runs in two modes. Pick the one that fits your needs.
+Pick the workflow that fits your needs:
+
+| Mode | Use Case | Database | Setup Time |
+|------|----------|----------|------------|
+| **Local** | Solo development, rapid prototyping | PGlite (in-process) | ~2 minutes |
+| **Server** | Team deployment, production | Remote Supabase | ~15 minutes |
 
 ### Workflow A: Local Mode (single user, no auth)
 
-Everything runs on your machine with zero external dependencies. PGlite (Postgres-in-WASM) runs in-process — no Docker, no Supabase, no external services needed.
+Everything runs on your machine with zero external dependencies. PGlite (Postgres-in-WASM) runs in-process — no Docker needed.
 
-**What you'll get:**
-- Full Astro UI at `http://localhost:5173`
-- AI-powered planning and task execution
-- All data stored locally (no external DB)
-- Perfect for rapid prototyping and testing
+**Prerequisites:**
+```bash
+# Ensure Claude CLI is authenticated
+claude login    # Saves credentials to ~/.claude/
+```
 
-**Step 1.** Clone and install:
+**Setup (one-time):**
 ```bash
 git clone --recurse-submodules git@github.com:fuxialexander/astro.git
 cd astro
-nvm use         # Uses Node.js version from .nvmrc
-npm install
+nvm use && npm install
+cp .env.example .env
+npm run env:init
 ```
 
-**Step 2.** Initialize environment (one-time):
-```bash
-cp .env.example .env     # Create shared env file
-npm run env:init         # Generate env profiles (.env.local.dev, .env.prod)
-```
-
-**Step 3.** Start everything:
+**Start:**
 ```bash
 npm run dev:local
 ```
 
-This single command:
-- Switches to local mode (enables PGlite)
-- Starts the Vite dev server (frontend, port 5173)
-- Starts the Hono API server (backend, port 3001)
-- Starts the WebSocket relay (port 3002)
-- Automatically starts an agent runner subprocess
+This command starts all components automatically:
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:3001`
+- WebSocket relay: `http://localhost:3002`
+- Agent runner (subprocess)
 
-**Step 4.** Open `http://localhost:5173` and you're ready to go.
+Open `http://localhost:5173` and begin planning.
 
-**Before you start:** Ensure Claude CLI is authenticated locally:
-```bash
-claude login    # Saves credentials to ~/.claude/
-```
+### Workflow B: Server Mode (multi-user, production)
 
-The agent runner automatically connects to the local relay and uses your Claude CLI credentials for AI execution. You'll see it appear in the **Environments** section of the UI once it connects.
+For teams and production. Backend on Fly.io, frontend on Cloudflare Pages, data in remote Supabase.
 
-### Workflow B: Server Mode (multi-user, deployed)
-
-For teams and production deployments. Backend runs on Fly.io, frontend on Cloudflare Pages, data in remote Supabase. Agent runners on user machines connect via WebSocket.
-
-> **Org deployment:** If multiple team members need to deploy independently from their own machines, see [docs/setup/org-deployment.md](docs/setup/org-deployment.md).
-
-**Step 1.** Clone and install:
+**Setup:**
 ```bash
 git clone --recurse-submodules git@github.com:fuxialexander/astro.git
 cd astro
-nvm use
-npm install
-```
-
-**Step 2.** Create and fill environment files:
-```bash
+nvm use && npm install
 cp .env.example .env
+```
+
+**Configure production:**
+```bash
 # Edit .env with:
-#   - JWT secrets: openssl rand -hex 32
-#   - FLY_APP: your desired Fly.io app name (must be globally unique)
-#   - CLOUDFLARED_DOMAIN: your deployment domain
-npm run env:init       # Generates .env.local.dev and .env.prod
+# - JWT secrets: openssl rand -hex 32
+# - FLY_APP=<your-unique-app-name>
+# - CLOUDFLARED_DOMAIN=<your-domain>
+npm run env:init
+
+# Edit .env.prod with Supabase credentials:
+# - Supabase URL, anon key, service role key
+# - Frontend domain (Cloudflare Pages)
 ```
 
-**Step 3.** Fill in production credentials:
+**Deploy:**
 ```bash
-# Edit .env.prod and add:
-#   - Supabase URL, anon key, and service role key
-#   - Frontend domain (Cloudflare Pages URL)
+npm run env:prod
+npm run deploy
 ```
 
-**Step 4.** Deploy:
+**Verify:**
 ```bash
-npm run env:prod      # Symlink .env.local → .env.prod (activates prod mode)
-npm run deploy        # Deploys backend to Fly.io + frontend to Cloudflare Pages
+curl https://<your-fly-app>.fly.dev/api/health | python3 -m json.tool
 ```
 
-**Step 5.** Verify the deployment:
-```bash
-curl -s https://<your-fly-app>.fly.dev/api/health | python3 -m json.tool
-```
-
-**Step 6.** Connect agent runners from user machines:
+**Connect agent runners from user machines:**
 ```bash
 npx tsx packages/agent-runner/src/cli.ts launch --force-setup \
   --api https://<your-fly-app>.fly.dev \
   --relay wss://<your-fly-app>.fly.dev:3002
 ```
 
-This starts device authentication (opens a browser for secure verification) and launches the agent. Once connected, the agent appears in the **Environments** section of the web UI.
+**Multi-team deployment:** See [docs/setup/org-deployment.md](docs/setup/org-deployment.md) for deploying multiple independent instances.
 
 ### Running Components Separately
 
-You can start each component individually for debugging or selective development.
+For granular development, start components in separate terminals:
 
 ```bash
-# Terminal 1: Start the frontend dev server
-npm run dev:frontend   # Vite dev server only (http://localhost:5173)
+# Terminal 1: Frontend (Vite dev server)
+npm run dev:frontend   # Runs on http://localhost:5173
 
-# Terminal 2: Start the backend (API + relay)
-npm run dev:backend    # Hono API server + WebSocket relay (ports 3001, 3002)
+# Terminal 2: Backend (Hono API + Relay)
+npm run dev:backend    # API on :3001, Relay on :3002
 
-# Terminal 3: Start the agent runner separately
-npm run dev:agent      # Agent subprocess (auto-connects to ws://localhost:3002)
+# Terminal 3: Agent Runner
+npm run dev:agent      # Connects to ws://localhost:3002
 ```
 
-**When to use this:**
-- Debugging a specific component without restarting everything
-- Working on UI without touching the backend
-- Testing backend changes without rebuilding the frontend
-- Profiling or adding logging to specific processes
+**Use this for:**
+- Debugging a specific component
+- Developing UI without backend restarts
+- Testing backend changes in isolation
+- Profiling or adding logging
 
-**Note:** In local mode, `npm run dev:local` starts all three automatically in one process. Separating them is useful for more granular development.
+**Note:** `npm run dev:local` runs all three in one process — use separate terminals for selective development.
 
-### Verify Setup
-
+**Verify your setup:**
 ```bash
-npm run verify    # Check Node version, deps, ports, config
+npm run verify    # Checks Node version, dependencies, ports, and configuration
 ```
 
-### Troubleshooting Common Setup Issues
+### Troubleshooting
 
-**Issue: Port already in use (5173, 3001, 3002)**
-```bash
-# Kill processes on those ports (macOS/Linux)
-lsof -ti:5173 | xargs kill -9
-lsof -ti:3001 | xargs kill -9
-lsof -ti:3002 | xargs kill -9
+| Issue | Solution |
+|-------|----------|
+| **Port already in use** (5173, 3001, 3002) | `lsof -ti:PORT \| xargs kill -9` for each port, then restart |
+| **Node version mismatch** | Run `nvm use` to load `.nvmrc` version (25.6.0+) |
+| **Claude CLI not authenticated** | `claude login` (local), or set `ANTHROPIC_API_KEY` in `.env.prod` (server) |
+| **Agent runner fails to start** | Check ports are free, verify `which claude`, review logs from `npm run dev:local` |
+| **Supabase connection refused** | Start Docker, then retry `npm run dev:dev` (not needed for local mode) |
+| **Environment file errors** | Ensure `.env.local` is a symlink after mode switch: `ls -la .env.local*` |
 
-# Then restart with npm run dev:local
-```
-
-**Issue: Node version mismatch**
-- Ensure you've run `nvm use` to load the version from `.nvmrc`
-- Run `node --version` to verify (should be 25.6.0 or higher)
-- If `nvm` is not installed, see [nvm documentation](https://github.com/nvm-sh/nvm)
-
-**Issue: Claude CLI not authenticated**
-- Agent runner needs Claude credentials to execute tasks
-- Run `claude login` to authenticate (credentials saved to `~/.claude/`)
-- For server mode: set `ANTHROPIC_API_KEY` in `.env.prod`
-
-**Issue: Agent runner fails to start**
-- Check that ports 3002 (relay) and 3001 (API) are available
-- Verify Claude CLI is installed: `which claude`
-- Check logs: `npm run dev:local` shows stderr from subprocesses
-- Try running the agent manually: `npm run dev:agent`
-
-**Issue: Supabase not starting in dev mode**
-- Dev mode requires Docker running
-- If you see "connection refused", start Docker and retry: `npm run dev:dev`
-- For local-only development, use `npm run dev:local` (no Docker needed)
-
-**Issue: Environment file errors**
-- Ensure `.env` exists: `cp .env.example .env`
-- Verify `.env.local` is a symlink (not a copy) after mode switch
-- Check that mode-specific files exist: `ls -la .env.local*`
-
-**Still stuck?** See the full setup guides:
-- Local mode: [docs/setup/local-mode.md](docs/setup/local-mode.md)
-- Server mode: [docs/setup/server-mode.md](docs/setup/server-mode.md)
-- Environment variables: [docs/setup/environment-variables.md](docs/setup/environment-variables.md)
+**More help:**
+- [docs/setup/local-mode.md](docs/setup/local-mode.md) — Local development details
+- [docs/setup/server-mode.md](docs/setup/server-mode.md) — Server/team deployment
+- [docs/setup/environment-variables.md](docs/setup/environment-variables.md) — Env variable reference
+- [docs/setup/developer-setup.md](docs/setup/developer-setup.md) — Complete setup guide
 
 ## Agent Runner
 
@@ -541,36 +513,31 @@ npx @astroanywhere/agent config
 
 ## Operating Modes
 
-| Mode | Database | Auth | Network | Command |
-|------|----------|------|---------|---------|
-| **local** | PGlite (in-process) | None (single user) | All localhost | `npm run dev:local` |
-| **dev** | Local Supabase | WebAuthn/passkeys via tunnel | Cloudflare tunnel → localhost | `npm run dev:dev` |
-| **prod** | Remote Supabase | WebAuthn/passkeys | Fly.io + Cloudflare Pages | `npm run env:prod && npm run deploy` |
+Astro supports three modes, each with different infrastructure requirements:
 
-### Switching Modes
+| Mode | Database | Auth | Network | Use Case |
+|------|----------|------|---------|----------|
+| **local** | PGlite (in-process) | None | localhost | Solo development, no external deps |
+| **dev** | Local Supabase | WebAuthn/passkeys | Cloudflare tunnel | Team testing with auth |
+| **prod** | Remote Supabase | WebAuthn/passkeys | Fly.io + Cloudflare Pages | Production deployment |
 
+**Switch modes:**
 ```bash
-npm run env:local        # Switch to local (removes .env.local → PGlite auto-detected)
-npm run env:dev          # Symlink .env.local → .env.local.dev
-npm run env:prod         # Symlink .env.local → .env.prod
+npm run env:local        # PGlite, no auth
+npm run env:dev          # Local Supabase + tunnel
+npm run env:prod         # Remote Supabase + Fly.io
 npm run env:switch       # Show current mode
 ```
 
-Vite and tsx both auto-load `.env.local`. The npm scripts just control which file `.env.local` points to — same build commands, different environment variables.
-
-### Env File Layout
-
-Run `npm run env:init` after creating `.env` to generate the dev and prod profiles. The init script reads shared values from `.env` (JWT secrets, `CLOUDFLARED_DOMAIN`, `FLY_APP`) and generates the mode-specific files.
-
+**Environment files:**
 ```
-.env                  ← Shared secrets (JWT keys, deploy targets) — create from .env.example
-.env.local            ← Symlink → active profile (managed by npm run env:*)
-.env.local.dev        ← Dev profile (generated by env:init from CLOUDFLARED_DOMAIN)
-.env.prod             ← Prod profile (generated by env:init, you fill in Supabase creds)
-.env.example          ← Reference template — committed to git
-.env.example.dev      ← Dev mode template (reference only)
-.env.example.prod     ← Prod mode template (reference only)
+.env                 ← Shared secrets (JWT keys, domain settings) — create from .env.example
+.env.local           ← Active profile (symlink managed by npm run env:*)
+.env.local.dev       ← Dev profile (generated by env:init)
+.env.prod            ← Prod profile (generated by env:init)
 ```
+
+Run `npm run env:init` once to generate dev and prod profiles from your `.env` file.
 
 ## Project Structure
 
@@ -657,107 +624,88 @@ astro/
 - **Agent Runner**: @anthropic-ai/claude-agent-sdk, Claude CLI, Codex
 - **Deployment**: Cloudflare Pages (frontend) + Fly.io (backend)
 
-## Testing
+## Testing & Quality
 
 ```bash
-npm test              # Run all tests (vitest)
+npm test              # Run all tests (Vitest)
 npm run test:watch    # Watch mode
 npm run build         # TypeScript check + Vite build
 npm run lint          # ESLint
 ```
 
+**Note:** Integration tests auto-skip without a running server or API key.
+
 ## Building & Deployment
 
+**Build:**
 ```bash
 npm run build              # TypeScript check + Vite production build
-npm run build:frontend     # Same as build (explicit name)
-npm run build:server       # TypeScript check only (server runs via tsx, no compile needed)
-npm run build:all          # Build everything including agent runner
-npm run deploy             # Deploy backend (Fly.io) + frontend (Cloudflare Pages)
-npm run deploy:backend     # Deploy backend only
-npm run deploy:frontend    # Deploy frontend only
+npm run build:frontend     # Frontend only
+npm run build:server       # Backend only (TypeScript check)
+npm run build:all          # Everything including agent-runner
 ```
 
-For multi-user org deployments (multiple people deploying to the same infrastructure), see [docs/setup/org-deployment.md](docs/setup/org-deployment.md).
+**Deploy:**
+```bash
+npm run deploy             # Backend (Fly.io) + frontend (Cloudflare Pages)
+npm run deploy:backend     # Backend only
+npm run deploy:frontend    # Frontend only
+```
+
+**Multi-team deployment:** [docs/setup/org-deployment.md](docs/setup/org-deployment.md)
 
 ### Fly.io Backend Deployment
 
-The backend deploys as a single Docker container running both the Hono API server (port 3001) and the WebSocket relay (port 3002). Configuration is in `fly.toml` at the repo root.
+Deploys as a single Docker container running Hono API (port 3001) + WebSocket relay (port 3002).
 
-#### First-time setup
-
-**Step 1.** Install and authenticate the Fly CLI:
+**First-time setup:**
 ```bash
-brew install flyctl        # macOS
-fly auth login
-```
+# 1. Install Fly CLI and authenticate
+brew install flyctl && fly auth login
 
-**Step 2.** Create the Fly.io app (once):
-```bash
+# 2. Create your Fly app (globally unique name)
 fly apps create <your-app-name> --org personal
+
+# 3. Update configuration files
+# Edit fly.toml: set app = "<your-app-name>"
+# Edit .env.prod: set FLY_APP=<your-app-name> + Supabase creds
+
+# 4. Generate profiles and deploy
+npm run env:init
+npm run env:prod
+npm run deploy:backend
+
+# 5. Verify
+curl https://<your-app-name>.fly.dev/api/health
 ```
 
-**Step 3.** Update `fly.toml` to match your app name:
-```toml
-app = "<your-app-name>"
-```
-
-Also update `FLY_APP` in your `.env.prod` to match:
-```
-FLY_APP=<your-app-name>
-```
-
-> **Important:** The `app` field in `fly.toml` and `FLY_APP` in `.env.prod` must match. Fly.io app names are globally unique — if a name is taken by another user, you'll need to choose a different one. The deploy script reads `FLY_APP` from `.env.prod` to push secrets and run health checks.
-
-**Step 4.** Generate env profiles and fill in prod values:
+**Subsequent deploys:**
 ```bash
-npm run env:init       # Generates .env.prod (if not already present)
-# Edit .env.prod: Supabase creds, frontend domain, etc.
+npm run env:prod && npm run deploy:backend
+# Or deploy everything: npm run deploy
 ```
 
-**Step 5.** Switch to prod mode and deploy:
+**Debugging:**
 ```bash
-npm run env:prod           # Symlinks .env.local → .env.prod
-npm run deploy:backend     # Pushes secrets to Fly.io + deploys Docker image
+fly logs --app <your-app-name> --no-tail
+fly status --app <your-app-name>
 ```
 
-**Step 6.** Verify:
-```bash
-curl -s https://<your-app-name>.fly.dev/api/health | python3 -m json.tool
-```
+> **Important:** `FLY_APP` in `.env.prod` and `app` in `fly.toml` must match. App names are globally unique.
 
-#### Subsequent deploys
-
-```bash
-npm run env:prod           # Ensure prod mode is active
-npm run deploy:backend     # Rebuilds Docker image + deploys
-```
-
-Or deploy everything (backend + frontend) at once:
-```bash
-npm run deploy
-```
-
-#### Debugging
-
-```bash
-fly logs --app <your-app-name> --no-tail    # Recent logs
-fly status --app <your-app-name>            # App status
-fly ssh console --app <your-app-name>       # SSH into the VM
-```
-
-See [docs/setup/fly-deployment.md](docs/setup/fly-deployment.md) for the full deployment guide (custom domains, scaling, cost, troubleshooting).
+See [docs/setup/fly-deployment.md](docs/setup/fly-deployment.md) for detailed guidance on custom domains, scaling, and troubleshooting.
 
 ### Cloudflare Pages Frontend Deployment
 
-The frontend builds as a static SPA and deploys to Cloudflare Pages. The `VITE_*` env vars are baked into the JS bundle at build time.
+Builds as a static SPA with environment variables baked in at build time.
 
 ```bash
-npm run env:prod            # Ensure .env.local has VITE_API_BASE_URL, VITE_SUPABASE_URL, etc.
-npm run deploy:frontend     # Builds + deploys to Cloudflare Pages
+npm run env:prod            # Activate prod mode
+npm run deploy:frontend     # Build + deploy to Cloudflare Pages
 ```
 
-To use a custom domain (e.g., `astroanywhere.com`), add it in the Cloudflare Pages dashboard: Workers & Pages → your project → Custom domains.
+**Custom domain:**
+Add in Cloudflare Pages dashboard: Workers & Pages → Your Project → Custom Domains
 
 ## Documentation
 
