@@ -486,3 +486,43 @@ export async function fetchTraceSummary(traceId: string): Promise<string> {
   }
   return response.text()
 }
+
+/**
+ * Fetch streaming events for catch-up hydration on page refresh or reconnection.
+ * Retrieves persisted streaming events (tool_use, tool_result, file_change, etc.)
+ * from the realtime stream tables for one or more executions.
+ */
+export async function fetchStreamingEventsCatchUp(
+  executionIds: string[],
+  afterSeq: number = 0,
+): Promise<{
+  events: Array<{
+    seq: number
+    executionId: string
+    eventType: string
+    data: unknown
+    timestamp?: string
+  }>
+}> {
+  try {
+    const params = new URLSearchParams()
+    executionIds.forEach(id => params.append('executionId', id))
+    if (afterSeq > 0) {
+      params.set('afterSeq', afterSeq.toString())
+    }
+
+    const response = await fetch(apiUrl(`/api/events/catch-up?${params}`), {
+      headers: await authHeaders(),
+    })
+
+    if (!response.ok) {
+      console.warn(`[catch-up] Failed to fetch streaming events: ${response.status}`)
+      return { events: [] }
+    }
+
+    return await response.json()
+  } catch (err) {
+    console.warn('[catch-up] Error fetching streaming events:', err)
+    return { events: [] }
+  }
+}

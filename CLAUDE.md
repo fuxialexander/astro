@@ -213,7 +213,8 @@ src/
 │   │   └── backend-detail-dialog.tsx  # Backend detail dialog
 │   ├── generation-toasts.tsx     # Toast notifications during AI plan generation
 │   ├── agent/
-│   │   └── chat-panel.tsx        # Sidebar chat for plan refinement
+│   │   ├── chat-panel.tsx        # Sidebar chat for plan refinement with activity tab
+│   │   └── chat-activity-view.tsx # Activity view showing tool calls/file changes during streaming
 │   ├── activity-dialog.tsx       # Activity history dialog for projects
 │   ├── activity-blocks.tsx       # Activity block components
 │   ├── approval-card.tsx         # Approval/decision UI component
@@ -301,6 +302,7 @@ src/
 │   ├── plan-extraction.ts        # Plan extraction from AI output
 │   ├── notifications.ts          # Notification utilities
 │   ├── observation-activity-bridge.ts # Bridge between observations and activity
+│   ├── streaming-event-hydrator.ts # Hydrate persisted streaming events into structured task data
 │   ├── prosemirror-markdown.ts   # ProseMirror markdown integration
 │   ├── sse-parser.ts             # SSE stream parser
 │   ├── plugin-loader.ts          # Plugin loading
@@ -517,7 +519,7 @@ docs/
 - **Dispatch engine** (`server/lib/dispatch/`) routes tasks through a queue → machine selection → execution → result routing
 - **Dispatch logic shared** via `packages/core/src/dispatch/` (types, context assembly, result routing, branch management, payload construction)
 - **Context assembler** injects vision doc + dependency context into each task
-- **Streaming events**: `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
+- **Streaming events**: `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`; persisted in realtime store for activity view and page refresh recovery
 - **Usage metrics**: Execution results include `UsageMetrics` (cost, tokens, model, turns); accumulated in `usage-store` per session
 - **Device auth flow**: OAuth2 Device Authorization Grant (RFC 8628) for machine registration
 
@@ -549,7 +551,8 @@ docs/
 - Zustand stores: use `(s) => s.field` selectors, persist via `dataClient` → `/api/data/*`
 - React Flow: define node data type as `type TaskNodeData = Node<{ ... }>`, use `NodeProps<TaskNodeData>`, cast `nodeTypes` to `any`; wrap in `ReactFlowProvider` when using `useReactFlow()` hooks
 - Task creation: use `TaskCreationForm` component with `mode="inline"|"popover"|"dialog"`; creates nodes via `usePlanStore.addNode()` + `addEdge()`
-- SSE streaming: use `readSSE()` from `api-client.ts` for server-sent events
+- Plan chat tools: Read-only tools enabled (Read, Grep, Glob, WebSearch, WebFetch) for research and code exploration; full tool access restricted to execution context
+- SSE streaming: use `readSSE()` from `api-client.ts` for server-sent events; streaming events persisted in realtime store for activity view and recovery on refresh
 - Status types: `planned | dispatched | in_progress | auto_verified | awaiting_approval | awaiting_judgment | completed | pruned`
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
 - PlanNode execution fields: `executionId`, `executionOutput`, `executionError`, `executionStartedAt`, `executionCompletedAt`

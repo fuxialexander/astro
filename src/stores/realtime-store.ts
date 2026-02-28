@@ -520,7 +520,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               ...existing,
               ...metadata,
               stdout: existing.stdout + hydrated.stdout,
-              activityEvents: [...existing.activityEvents, ...hydrated.activityEvents],
+              activityEvents: [...existing.activityEvents, ...(hydrated.activityEvents as TaskActivityEvent[])],
               toolTraces: [...existing.toolTraces, ...hydrated.toolTraces],
               fileChanges: [...existing.fileChanges, ...hydrated.fileChanges],
             })
@@ -532,7 +532,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               stdout: existing.stdout || hydrated.stdout,
               activityEvents: existing.activityEvents.length > 0
                 ? existing.activityEvents
-                : hydrated.activityEvents,
+                : (hydrated.activityEvents as TaskActivityEvent[]),
               toolTraces: existing.toolTraces.length > 0
                 ? existing.toolTraces
                 : hydrated.toolTraces,
@@ -591,7 +591,7 @@ function createEmptyTaskStream(taskId: string): TaskStream {
  */
 function reconcileResultFromCatchUp(
   executionId: string,
-  hydrated: import('@/lib/streaming-event-hydrator').HydratedStreamData,
+  hydrated: import('@/lib/streaming-event-hydrator').HydratedStreamingData,
 ) {
   if (!hydrated.status) return
   const isSuccess = hydrated.status === 'success' || hydrated.status === 'completed'

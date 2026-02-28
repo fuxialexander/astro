@@ -49,6 +49,8 @@ export class RealtimeClient {
   private url: string
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private lastProjectId?: string
+  public lastSeq = 0
+  public onReconnect: (() => void) | null = null
 
   constructor(baseUrl = '/api/events/stream') {
     this.url = apiUrl(baseUrl)
@@ -83,6 +85,10 @@ export class RealtimeClient {
     this.eventSource.onopen = () => {
       this._connected = true
       this.emit({ type: 'heartbeat' as RealtimeEventType, data: { connected: true } })
+      // Trigger reconnection callback for catch-up logic
+      if (this.onReconnect) {
+        this.onReconnect()
+      }
     }
 
     this.eventSource.onerror = () => {
@@ -181,6 +187,14 @@ export class RealtimeClient {
   }
 
   private emit(event: RealtimeEvent): void {
+    // Track sequence number from event ID for catch-up
+    if (event.id) {
+      const seq = parseInt(event.id, 10)
+      if (!isNaN(seq)) {
+        this.lastSeq = Math.max(this.lastSeq, seq)
+      }
+    }
+
     // Type-specific handlers
     const typeHandlers = this.handlers.get(event.type)
     if (typeHandlers) {
