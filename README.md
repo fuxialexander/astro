@@ -111,76 +111,64 @@ Frontend: Render dependency graph in React Flow
 ## Features
 
 ### AI-Powered Planning
-Decompose complex goals into structured dependency graphs with AI assistance. Astro analyzes your project description and automatically generates a plan with explicit task dependencies, enabling strategic oversight and parallel execution planning.
+Decompose complex goals into structured dependency graphs. Astro analyzes your project and generates plans with explicit task dependencies for strategic oversight and parallel execution.
 
 ### Multi-Environment Execution
 Run tasks across diverse compute environments without rewriting workflows:
-- **Local**: Execute on your machine (laptop, workstation)
-- **Docker**: Containerized execution for reproducible environments
-- **HPC (SLURM)**: Submit jobs to high-performance computing clusters
-- **Kubernetes**: Orchestrated container workloads
-- **Cloud**: AWS, GCP, or other cloud platforms
+- **Local**: Execute on your machine
+- **Docker**: Containerized execution
+- **HPC (SLURM)**: High-performance computing clusters
+- **Kubernetes**: Orchestrated workloads
+- **Cloud**: AWS, GCP, and others
 
-The dispatch system automatically selects the optimal environment based on task requirements and machine availability.
+Dispatch automatically selects the optimal environment based on task requirements.
 
 ### Real-time Streaming
-Monitor task execution in real-time with live SSE (Server-Sent Events) streaming:
+Monitor task execution with live SSE streaming:
 - **Task Output**: Live stdout/stderr with syntax highlighting and search
-- **Tool Traces**: Detailed timeline of tool calls (searches, API calls, file ops) with input/output inspection
-- **File Changes**: Track modified files and view inline diffs as the agent works
-- **Progress Updates**: Real-time progress indicators and status changes
+- **Tool Traces**: Timeline of tool calls with input/output inspection
+- **File Changes**: View modified files and inline diffs as the agent works
+- **Progress Updates**: Real-time status indicators
 
 ### Git Worktree Isolation
-Each task executes in its own isolated git worktree on a unique branch. This prevents concurrent tasks from interfering with each other and allows safe parallel execution. Branches are automatically cleaned up after task completion.
+Each task executes in its own isolated git worktree on a unique branch, preventing concurrent interference and enabling safe parallel execution. Branches are automatically cleaned up after completion.
 
 ### Automatic PR Creation
-Completed tasks automatically push their branches and create pull requests, streamlining code review workflows. The system respects your delivery mode preferences (PR, direct push, branch-only, etc.) and includes execution summaries in PR descriptions.
+Completed tasks push their branches and create pull requests, streamlining code review. Respects delivery mode preferences and includes execution summaries.
 
 ### Safety System
 Built-in guardrails prevent unsafe concurrent execution:
-- **Git State Checks**: Verify clean working trees before task dispatch
+- **Git State Checks**: Verify clean working trees before dispatch
 - **Conflict Prevention**: Prevent concurrent writes to the same files
-- **Graceful Cancellation**: Cancel downstream tasks when dependencies fail
+- **Graceful Cancellation**: Cancel downstream tasks on dependency failure
 - **Rollback Capability**: Revert changes if verification fails
 
 ### Device Authentication
 Secure machine registration using OAuth2 device code flow (RFC 8628):
-- **No Credential Passing**: Devices authenticate without exposing secrets
-- **User Verification**: Browser-based verification during registration
-- **Token Management**: Automatic token lifecycle management (refresh, revoke)
-- **Multi-Device Support**: Register multiple machines to the same team account
+- **No Credential Passing**: Authenticate without exposing secrets
+- **User Verification**: Browser-based registration verification
+- **Token Management**: Automatic token lifecycle management
+- **Multi-Device Support**: Register multiple machines to one account
 
 ### Visual Planning
 Interactive directed graph visualization of your plan:
-- **React Flow Canvas**: Pan, zoom, and explore the dependency graph
-- **Node Details**: Click nodes to view/edit task properties, estimates, and status
-- **Dynamic Layout**: Automatic graph layout with explicit dependency visualization
+- **React Flow Canvas**: Pan, zoom, and explore the graph
+- **Node Details**: View/edit task properties, estimates, and status
+- **Dynamic Layout**: Automatic visualization with explicit dependencies
 - **Real-time Updates**: Watch nodes update as tasks execute
 
 ### Context Injection
 Persistent context automatically injected into every AI session:
-- **Vision Document**: Project-level context describing product goals or research questions
-- **Dependency Outputs**: Results from upstream tasks feed into downstream task contexts
-- **Codebase Context**: Relevant code files and repository metadata automatically included
-- **Smart Filtering**: Only relevant context is included to stay within token budgets
+- **Vision Document**: Project-level goals and research questions
+- **Dependency Outputs**: Results from upstream tasks flow to downstream tasks
+- **Codebase Context**: Relevant code and repository metadata
+- **Smart Filtering**: Only relevant context stays within token budgets
 
-## Celltype/CLI Integration: Biomedical Research Toolkit
+## Biomedical Research Integration
 
-Astro integrates with **celltype/cli**, a biomedical research platform with 190+ computational biology tools. Research domains include:
+Astro integrates **celltype/cli**, a biomedical research toolkit with 190+ computational biology tools for target discovery, molecular design, genomics, transcriptomics, safety assessment, and clinical development.
 
-- **Target Discovery**: Disease associations, druggability assessment, co-essentiality, tissue expression
-- **Structure & Design**: AlphaFold structures, molecular docking, ternary complex prediction, virtual screening, molecular dynamics
-- **Chemistry**: Molecular descriptors, similarity search, scaffold hopping, retrosynthesis, synthetic accessibility
-- **Genomics**: GWAS/eQTL queries, variant annotation, Mendelian randomization, colocalization
-- **Transcriptomics**: Pathway enrichment, differential expression, immune scoring, TF activity, connectivity mapping
-- **Single-Cell & Spatial**: Clustering, trajectory inference, cell type annotation, spatial analysis, multi-omics integration
-- **Safety & ADMET**: Anti-target screening, safety classification, ADMET prediction, drug-drug interactions
-- **Clinical**: Indication mapping, trial search, competitive analysis, protocol generation
-- **Literature & Data**: PubMed, ChEMBL, patent search, academic discovery, protein/variant databases
-
-Create plan nodes that leverage these capabilities: target discovery workflows, molecular design optimization, genomics analysis, and clinical development planning. Results from upstream analyses automatically feed into downstream task contexts.
-
-For complete documentation, see [celltype/cli docs](https://github.com/celltype-ai/celltype).
+See [celltype/cli docs](https://github.com/celltype-ai/celltype) for details.
 
 ## Prerequisites
 
@@ -193,16 +181,14 @@ Redis is **not required** for local development.
 
 ## Quick Start: Two Workflows
 
-Pick the workflow that fits your needs:
-
 | Mode | Use Case | Database | Setup Time |
 |------|----------|----------|------------|
-| **Local** | Solo development, rapid prototyping | PGlite (in-process) | ~2 minutes |
-| **Server** | Team deployment, production | Remote Supabase | ~15 minutes |
+| **Local** | Solo development | PGlite (in-process) | ~2 minutes |
+| **Server** | Team deployment | Remote Supabase | ~15 minutes |
 
-### Workflow A: Local Mode (single user, no auth)
+### Workflow A: Local Mode
 
-Everything runs on your machine with zero external dependencies. PGlite (Postgres-in-WASM) runs in-process — no Docker needed.
+Everything runs on your machine. PGlite (Postgres-in-WASM) runs in-process — no Docker needed.
 
 **Prerequisites:**
 ```bash
@@ -232,7 +218,7 @@ This command starts all components automatically:
 
 Open `http://localhost:5173` and begin planning.
 
-### Workflow B: Server Mode (multi-user, production)
+### Workflow B: Server Mode
 
 For teams and production. Backend on Fly.io, frontend on Cloudflare Pages, data in remote Supabase.
 
@@ -324,7 +310,7 @@ npm run verify    # Checks Node version, dependencies, ports, and configuration
 
 ## Agent Runner
 
-The agent runner is the worker process that executes AI tasks. It lives in `packages/agent-runner/`, which is a **git submodule** pointing to [github.com/fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) (private). It will later be published as a standalone package (`@astroanywhere/agent`).
+The agent runner is the worker process that executes AI tasks. It lives in `packages/agent-runner/`, a **git submodule** pointing to [github.com/fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) (private). It will be published as a standalone package (`@astroanywhere/agent`).
 
 ```bash
 # Initialize the submodule (if you didn't clone with --recurse-submodules)
@@ -350,18 +336,15 @@ For local development, the agent runner starts automatically with `npm run dev:l
 
 | Command | Description |
 |---------|-------------|
-| `launch` | Setup (if needed) + start in foreground. Use `--force-setup` to re-run setup. |
-| `setup` | Interactive setup: detect providers, configure relay URL, device auth |
-| `start` | Start the agent. Runs in background by default; use `-f` / `--foreground` for foreground |
-| `stop` | Stop background agent (finds process via `pgrep`, sends SIGTERM) |
-| `status` | Show agent status (running/stopped, config, connection) |
-| `connect` | Alias for `start --foreground` |
-| `config` | View or modify config. `--show` to display, `--set key=value` to change, `--reset` to clear |
-| `auth` | Set Claude OAuth token (`--token <token>` or interactive) |
-| `providers` | List detected AI providers (Claude Code, Codex, etc.) |
-| `resources` | Show machine resources (CPU, memory, GPU) |
-| `hosts` | Discover remote hosts from SSH config |
-| `mcp` | Start MCP server for Claude Code integration (stdio mode) |
+| `launch` | Setup (if needed) + start in foreground |
+| `setup` | Interactive setup: detect providers, configure relay, auth |
+| `start` / `stop` | Start/stop the agent background process |
+| `status` | Show agent status and connection |
+| `config` | View or modify config (`--show`, `--set key=value`, `--reset`) |
+| `auth` | Set Claude OAuth token |
+| `providers` | List detected AI providers |
+| `resources` | Show machine CPU, memory, GPU |
+| `mcp` | Start MCP server for Claude Code |
 
 ### Connecting to Different Backends
 
@@ -449,31 +432,23 @@ npx @astroanywhere/agent config
 
 ## Operating Modes
 
-Astro supports three modes, each with different infrastructure requirements:
+Astro supports three modes:
 
-| Mode | Database | Auth | Network | Use Case |
-|------|----------|------|---------|----------|
-| **local** | PGlite (in-process) | None | localhost | Solo development, no external deps |
-| **dev** | Local Supabase | WebAuthn/passkeys | Cloudflare tunnel | Team testing with auth |
-| **prod** | Remote Supabase | WebAuthn/passkeys | Fly.io + Cloudflare Pages | Production deployment |
+| Mode | Database | Auth | Use Case |
+|------|----------|------|----------|
+| **local** | PGlite (in-process) | None | Solo development |
+| **dev** | Local Supabase | WebAuthn/passkeys | Team testing |
+| **prod** | Remote Supabase | WebAuthn/passkeys | Production |
 
 **Switch modes:**
 ```bash
-npm run env:local        # PGlite, no auth
-npm run env:dev          # Local Supabase + tunnel
-npm run env:prod         # Remote Supabase + Fly.io
+npm run env:local        # Local mode (no auth)
+npm run env:dev          # Dev mode (local Supabase)
+npm run env:prod         # Production mode
 npm run env:switch       # Show current mode
 ```
 
-**Environment files:**
-```
-.env                 ← Shared secrets (JWT keys, domain settings) — create from .env.example
-.env.local           ← Active profile (symlink managed by npm run env:*)
-.env.local.dev       ← Dev profile (generated by env:init)
-.env.prod            ← Prod profile (generated by env:init)
-```
-
-Run `npm run env:init` once to generate dev and prod profiles from your `.env` file.
+Run `npm run env:init` once to generate dev and prod environment profiles.
 
 ## Project Structure
 
