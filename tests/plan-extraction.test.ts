@@ -61,10 +61,10 @@ That's the plan.`
     expect(result).toBeNull()
   })
 
-  it('returns null when first code fence lacks plan structure and second fence exists', () => {
-    // The regex only matches the first code fence (non-greedy).
-    // If the first fence doesn't have nodes, the raw JSON fallback also
-    // struggles with backtick-fenced content, so the result is null.
+  it('extracts plan from second code fence when first fence lacks plan structure', () => {
+    // The extraction now tries all code fences in reverse order (last first),
+    // so the plan JSON in the second fence is found even when the first fence
+    // contains unrelated JSON.
     const text = `Here is some config:
 \`\`\`json
 {
@@ -86,10 +86,14 @@ And here is the plan:
 Done.`
 
     const result = extractPlanJsonFromText(text)
-    expect(result).toBeNull()
+    expect(result).not.toBeNull()
+    expect(result!.projectName).toBe('Multi Fence')
+    expect(result!.nodes).toHaveLength(1)
   })
 
-  it('extracts from the first code fence when it has plan structure', () => {
+  it('extracts from the last code fence when multiple fences have plan structure', () => {
+    // When multiple code fences contain valid plan JSON, the last one wins
+    // (since the plan is typically the final output from the agent).
     const text = `Here is the plan:
 \`\`\`json
 {
@@ -115,7 +119,8 @@ Done.`
 
     const result = extractPlanJsonFromText(text)
     expect(result).not.toBeNull()
-    expect(result!.projectName).toBe('First Fence')
+    // Last fence wins (plan is typically the final output)
+    expect(result!.projectName).toBe('Second Fence')
     expect(result!.nodes).toHaveLength(1)
   })
 

@@ -1038,8 +1038,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             if (event === "result") {
               try {
                 const exec = get().executions.get(nodeId)
+                console.log(`[plan-session] Result event received for ${nodeId}, streamText length: ${exec?.streamText?.length ?? 0}`)
                 if (exec?.streamText) {
+                  // Log the tail of streamText to see if it contains the JSON fence
+                  const tail = exec.streamText.slice(-500)
+                  console.log(`[plan-session] streamText tail (last 500 chars):`, tail)
                   const planJson = extractPlanJsonFromText(exec.streamText)
+                  console.log(`[plan-session] extractPlanJsonFromText result:`, planJson ? `found ${planJson.nodes?.length} nodes` : 'null')
                   if (planJson) {
                     const prefix = projectId.slice(0, 8)
                     const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
@@ -1075,6 +1080,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                       type: (e.type as PlanEdge["type"]) || "dependency",
                     }))
 
+                    console.log(`[plan-session] Calling setProjectPlan with ${nodes.length} nodes, ${edges.length} edges for project ${projectId}`)
                     planStore.setProjectPlan(projectId, nodes, edges)
                     planStore.reorganizeProject(projectId)
 
@@ -1301,8 +1307,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             if (event === "result") {
               try {
                 const exec = get().executions.get(nodeId)
+                console.log(`[plan-session-forProject] Result event for ${nodeId}, streamText length: ${exec?.streamText?.length ?? 0}`)
                 if (exec?.streamText) {
+                  const tail = exec.streamText.slice(-500)
+                  console.log(`[plan-session-forProject] streamText tail:`, tail)
                   const planJson = extractPlanJsonFromText(exec.streamText)
+                  console.log(`[plan-session-forProject] extraction result:`, planJson ? `found ${planJson.nodes?.length} nodes` : 'null')
                   if (planJson) {
                     const prefix = projectId.slice(0, 8)
                     const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
@@ -1338,6 +1348,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                       type: (e.type as PlanEdge["type"]) || "dependency",
                     }))
 
+                    console.log(`[plan-session-forProject] setProjectPlan: ${nodes.length} nodes, ${edges.length} edges`)
                     planStore.setProjectPlan(projectId, nodes, edges)
                     planStore.reorganizeProject(projectId)
 
@@ -1347,7 +1358,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                   }
                 }
               } catch (e) {
-                console.error("[plan-session] Failed to extract plan:", e)
+                console.error("[plan-session-forProject] Failed to extract plan:", e)
               }
             }
           },

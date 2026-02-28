@@ -1,39 +1,79 @@
 /**
  * Extracts plan JSON (with nodes/edges) from streaming text output.
- * Tries code-fenced JSON first, then falls back to raw JSON detection with brace balancing.
+ * Tries ALL code-fenced JSON blocks (last match first, since the plan is
+ * typically the final output), then falls back to raw JSON detection
+ * searching backwards from the end of the text.
  */
 export function extractPlanJsonFromText(text: string): { projectName?: string; nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] } | null {
-  // Try to find JSON in a code fence
-  const fenceMatch = text.match(/```json\s*\n([\s\S]*?)\n```/)
-  if (fenceMatch) {
-    try {
-      const parsed = JSON.parse(fenceMatch[1])
-      if (parsed.nodes && Array.isArray(parsed.nodes)) return parsed
-    } catch { /* try next method */ }
+  // Collect ALL ```json code fences
+  const fenceRegex = /```json\s*\n([\s\S]*?)\n```/g
+  const fences: { content: string; index: number }[] = []
+  let match: RegExpExecArray | null
+  while ((match = fenceRegex.exec(text)) !== null) {
+    fences.push({ content: match[1], index: match.index! })
   }
 
-  // Try to find a raw JSON object with projectName and nodes
-  const jsonMatch = text.match(/\{[\s\S]*"projectName"[\s\S]*"nodes"[\s\S]*\}/)
-  if (jsonMatch) {
-    // Find the balanced braces
-    const startIdx = text.indexOf(jsonMatch[0])
-    let depth = 0
-    let endIdx = startIdx
-    for (let i = startIdx; i < text.length; i++) {
-      if (text[i] === '{') depth++
-      else if (text[i] === '}') {
-        depth--
-        if (depth === 0) {
-          endIdx = i + 1
-          break
-        }
+  console.log(`[plan-extraction] Found ${fences.length} json code fences in text of length ${text.length}`)
+
+  // Try fences in reverse order (last fence first — plan is typically the last output)
+  for (let i = fences.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(fences[i].content)
+      if (parsed.nodes && Array.isArray(parsed.nodes)) {
+        console.log(`[plan-extraction] Matched code fence #${i} (of ${fences.length}): ${parsed.nodes.length} nodes`)
+        return parsed
+      }
+    } catch {
+      // Try next fence
+    }
+  }
+
+  // Fallback: find raw JSON with "nodes" array by searching backwards from end of text.
+  // Look for the LAST occurrence of "projectName" to find the plan JSON.
+  const lastProjectNameIdx = text.lastIndexOf('"projectName"')
+  if (lastProjectNameIdx === -1) {
+    console.log(`[plan-extraction] No "projectName" found in text`)
+    return null
+  }
+
+  // Walk backwards from "projectName" to find the opening brace
+  let openBraceIdx = -1
+  for (let i = lastProjectNameIdx - 1; i >= 0; i--) {
+    if (text[i] === '{') {
+      openBraceIdx = i
+      break
+    }
+  }
+
+  if (openBraceIdx === -1) {
+    console.log(`[plan-extraction] No opening brace before "projectName"`)
+    return null
+  }
+
+  // Brace-balance forward from the opening brace to find the complete JSON object
+  let depth = 0
+  let endIdx = openBraceIdx
+  for (let i = openBraceIdx; i < text.length; i++) {
+    if (text[i] === '{') depth++
+    else if (text[i] === '}') {
+      depth--
+      if (depth === 0) {
+        endIdx = i + 1
+        break
       }
     }
-    try {
-      const parsed = JSON.parse(text.slice(startIdx, endIdx))
-      if (parsed.nodes && Array.isArray(parsed.nodes)) return parsed
-    } catch { /* no valid JSON found */ }
   }
 
+  try {
+    const parsed = JSON.parse(text.slice(openBraceIdx, endIdx))
+    if (parsed.nodes && Array.isArray(parsed.nodes)) {
+      console.log(`[plan-extraction] Matched raw JSON (last "projectName"): ${parsed.nodes.length} nodes`)
+      return parsed
+    }
+  } catch (e) {
+    console.log(`[plan-extraction] Raw JSON parse failed:`, e)
+  }
+
+  console.log(`[plan-extraction] No plan JSON found in text of length ${text.length}`)
   return null
 }

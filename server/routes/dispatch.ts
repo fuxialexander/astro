@@ -1075,6 +1075,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         if (!alive) { clearInterval(check); resolve() }
       }, 500)
     })
+
+    // Clean up relay listeners and activeDispatchStreams on normal completion
+    clearInterval(heartbeat)
+    cleanup()
   })
 }
 
