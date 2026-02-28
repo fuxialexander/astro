@@ -24,9 +24,10 @@ npm run dev:dev          # Dev mode: Supabase + tunnel + everything (switches en
 npm run dev              # Start with current env (no switch)
 npm run dev:frontend     # Vite dev server only (http://localhost:5173)
 npm run dev:backend      # Hono API server (port 3001) + WebSocket relay (port 3002)
+npm run dev:agent        # Start agent runner locally (connects to relay on ws://localhost:3002)
 npm run build            # TypeScript check + Vite production build
 npm run lint             # ESLint
-npm test                 # Vitest (29 test files, integration tests auto-skip without server/API key)
+npm test                 # Vitest (integration tests auto-skip without server/API key)
 npm run deploy           # Build + deploy to Fly.io + Cloudflare Pages
 ```
 
@@ -78,17 +79,23 @@ Everything runs locally — no Fly.io, Redis, or external services needed for de
 
 ## Tech Stack
 
-- **Frontend**: Vite 7 + React 19 + TypeScript (strict mode)
+- **Frontend**: Vite 7 + React 19 + TypeScript (strict mode, `erasableSyntaxOnly`)
 - **Styling**: Tailwind CSS v4 (`@tailwindcss/vite` plugin, NOT `@tailwindcss/postcss`)
 - **Routing**: React Router v7 (`react-router` package, not `react-router-dom`)
 - **State**: Zustand 5 stores, persisted via `dataClient` → `/api/data/*` → Drizzle ORM
 - **Database**: PGlite (local mode) or postgres-js (server mode) via Drizzle ORM (source of truth: `packages/core/src/db/`; `server/lib/db/` re-exports for backward compat)
 - **Graph**: @xyflow/react for plan graph visualization
 - **UI Components**: shadcn/ui pattern (manual Radix primitives, not CLI-installed)
+- **Rich Text**: @tiptap/* for rich text editing (vision docs, descriptions)
 - **Icons**: lucide-react
 - **Command Palette**: cmdk
+- **Drag & Drop**: @dnd-kit for sortable/draggable UI elements
+- **Search**: fuse.js for client-side fuzzy search
+- **Virtualization**: @tanstack/react-virtual for large lists
 - **Backend**: Hono.js on Node.js (port 3001), proxied via Vite `/api` → localhost:3001
+- **Security**: hono-rate-limiter for endpoint rate limiting, secureHeaders for CSP/HSTS
 - **AI**: @anthropic-ai/claude-agent-sdk for plan generation + chat
+- **Package Manager**: pnpm (workspace defined in `pnpm-workspace.yaml`)
 - **Deployment**: Cloudflare Tunnel (dev) + Fly.io (backend, production) + Cloudflare Pages (frontend, production)
 - **Landing Page**: Static HTML in `public/landing/` (served at `/landing/`)
 
@@ -106,11 +113,23 @@ public/
 ├── landing/
 │   ├── index.html                # Landing page (astro-landing.html)
 │   └── about.html                # "Why Astro?" page (astro-about.html)
+├── manifest.json                 # PWA manifest
+├── _redirects                    # Cloudflare Pages SPA redirect rules
+└── icon-*.png                    # PWA icons (32, 180, 192, 512)
 
 src/
 ├── app.tsx                       # Root: BrowserRouter, DataLoader, routes
 ├── main.tsx                      # React DOM entry point
 ├── globals.css                   # Tailwind v4 theme, CSS variables, light/dark tokens
+├── plugins/                      # Built-in plugin implementations
+│   ├── celltype/                 # Celltype Toolbox Plugin (190+ computational biology tools)
+│   │   ├── index.ts              # Plugin entry point, skill registration
+│   │   └── skills.ts             # Skill definitions for celltype/cli tools
+│   ├── example-theme/            # Example theme plugin stub
+│   │   └── index.ts
+│   └── gtd-workflow/             # GTD (Getting Things Done) workflow plugin
+│       ├── index.ts              # Plugin entry point, page + sidebar contributions
+│       └── gtd-page.tsx          # GTD page component
 ├── pages/
 │   ├── dashboard.tsx             # Home: stats, pending decisions, active projects, system health, usage metrics
 │   ├── projects.tsx              # Project list with table (grouped, sortable columns)
@@ -212,8 +231,14 @@ src/
 │   │   ├── machine-detail-dialog.tsx  # Machine detail dialog
 │   │   └── backend-detail-dialog.tsx  # Backend detail dialog
 │   ├── generation-toasts.tsx     # Toast notifications during AI plan generation
+│   ├── playground/
+│   │   ├── claude-session-browser.tsx # Right sidebar for discovering/forking Claude Code sessions
+│   │   ├── playground-file-sidebar.tsx # Inline file explorer for remote machine browsing
+│   │   ├── playground-header.tsx  # Compact header with session title, machine info, controls
+│   │   └── session-picker-dialog.tsx # Fuzzy search dialog for browsing/resuming sessions
 │   ├── agent/
-│   │   └── chat-panel.tsx        # Sidebar chat for plan refinement
+│   │   ├── chat-panel.tsx        # Sidebar chat for plan refinement
+│   │   └── chat-activity-view.tsx # Lightweight activity view for chat sessions (tool calls, file changes)
 │   ├── activity-dialog.tsx       # Activity history dialog for projects
 │   ├── activity-blocks.tsx       # Activity block components
 │   ├── approval-card.tsx         # Approval/decision UI component
@@ -226,6 +251,12 @@ src/
 │   ├── remote-path-browser.tsx   # Remote path browser
 │   ├── github-connect-button.tsx # GitHub connection button
 │   ├── github-project-linker.tsx # GitHub project linking
+│   ├── github-repo-picker-dialog.tsx # GitHub repo picker with fuzzy search (fuse.js)
+│   ├── label-manager-dialog.tsx  # Label management: create/edit/delete project-level labels
+│   ├── label-picker.tsx          # Label picker popover for assigning labels to plan nodes
+│   ├── node-inspector.tsx        # Full-featured task property editor panel
+│   ├── property-picker.tsx       # Generic property picker popover (priority, estimate, status)
+│   ├── repo-config-dialog.tsx    # Repository configuration (working dir, git URL, branch, delivery mode)
 │   ├── channel-account-card.tsx  # Channel account card
 │   ├── welcome-profile-dialog.tsx # Welcome profile dialog
 │   ├── passkey-nudge-banner.tsx  # Passkey registration nudge banner
@@ -252,7 +283,7 @@ src/
 │   ├── connected-accounts-store.ts # Connected external accounts (Slack, Telegram, GitHub webhooks, Linear)
 │   ├── display-settings-store.ts # Per-view display settings (groupBy, orderBy, properties)
 │   ├── environment-config-store.ts # Environment configuration state
-│   ├── execution-store.ts        # Task execution state, SSE stream processing, provider/machine management
+│   ├── execution-store.ts        # Task execution + playground session state, SSE stream processing, provider/machine management
 │   ├── github-store.ts           # GitHub integration: connection, repositories, selections
 │   ├── initiative-store.ts       # Initiatives/projects grouping
 │   ├── keyboard-nav-store.ts     # Keyboard navigation state (focused item, navigable items)
@@ -309,12 +340,15 @@ src/
 │   ├── skill-parser.ts           # Skill parsing
 │   ├── skill-provider.ts         # Skill provider
 │   ├── sharing/                  # Export/import shared bundles
-│   └── utils.ts                  # cn() = clsx + tailwind-merge
+│   └── utils.ts                  # cn() = clsx + tailwind-merge, compactGpuName(), getShortId()
 └── types/
-    └── index.ts                  # Project, PlanNode, PlanEdge, TaskExecution, ProviderStatus, UserProfile, etc.
+    ├── index.ts                  # Project, PlanNode, PlanEdge, TaskExecution, ProviderStatus, UserProfile, etc.
+    ├── observations.ts           # Trace viewer types: RawObservation, observation event rows
+    ├── plugin.ts                 # Plugin system types: AstroPlugin, PluginManifest, PluginContributions
+    └── skill.ts                  # OpenClaw-compatible skill types (re-exports from @astro/core)
 
 server/
-├── index.ts                      # Hono server setup, CORS, port 3001 + relay init
+├── index.ts                      # Hono server setup, CORS, secureHeaders, rate limiters, port 3001 + relay init
 ├── middleware/
 │   ├── auth.ts                   # Authentication middleware
 │   └── audit.ts                  # Audit logging middleware
@@ -415,6 +449,10 @@ server/
 │   ├── github.ts                 # GitHub type definitions
 │   └── device-auth.ts            # Device auth type definitions
 
+skills/
+└── astro-plan-bridge/
+    └── SKILL.md                  # OpenClaw skill: connects external AI assistants to Astro via MCP tools
+
 packages/
 ├── core/                         # @astro/core — shared DB schema, types, dispatch logic
 │   └── src/
@@ -476,8 +514,8 @@ docs/
 ### Routes
 | Path | Page | Status |
 |------|------|--------|
-| `/` | Dashboard | Implemented (auto-redirects to /welcome if no projects; stats, pending decisions, active projects, system health, usage metrics) |
-| `/dashboard` | Dashboard | Implemented (same as `/`) |
+| `/` | Root Redirect | Redirects to `/landing/` (unauthenticated) or `/projects/new/plan` (authenticated) |
+| `/dashboard` | Dashboard | Implemented (stats, pending decisions, active projects, system health, usage metrics) |
 | `/projects` | Projects list | Implemented (list view only, board/filter stubs) |
 | `/projects/new` | Redirect | Redirects to `/projects` |
 | `/projects/new/plan` | New Project + Plan | Implemented (project creation with plan generation) |
@@ -536,6 +574,10 @@ docs/
 - **MCP Integration**: Custom MCP server (`astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals
 - **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
 - **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
+- **Plugin System**: Built-in plugins (`src/plugins/`) extend functionality — celltype (biomedical research tools), GTD workflow, example theme. Plugins register page routes, sidebar items, and skills
+- **Playground Sessions**: Interactive AI sessions on connected machines via `execution-store.ts` — start, steer, cancel sessions with streaming output
+- **Security Hardening**: Dispatch request signing, rate limiting (per-endpoint tiers), CSP headers, auth enforcement on all API routes
+- **Skills**: OpenClaw-compatible skill definitions (`skills/`) that can be injected into agent contexts for specialized capabilities
 
 ## Target Users
 
@@ -577,6 +619,19 @@ docs/
 ## Planning
 
 **When referencing existing codebases or config paths for integration plans, verify the actual paths and file structure by reading the filesystem first. Do not assume paths like ~/.cyrus/ — check what actually exists.**
+
+## Security
+
+The backend implements layered security:
+- **Secure Headers**: CSP, HSTS, X-Frame-Options, X-Content-Type-Options via Hono `secureHeaders` middleware
+- **CORS**: Explicit allowlist (localhost:5173, CORS_ORIGIN, FRONTEND_URL)
+- **Rate Limiting** (via `hono-rate-limiter`):
+  - Global: 10,000 req/15min per IP
+  - Auth endpoints (`/api/auth/*`): 3,000 req/15min
+  - Device endpoints (`/api/device/*`): 2,000 req/15min
+  - AI endpoints (`/api/agent/*`): 1,000 req/hour
+- **Dispatch Signing**: Cryptographic request signing for dispatch operations (`src/lib/dispatch-signing.ts`)
+- **Auth Enforcement**: All API routes require authentication in server mode (local mode bypasses)
 
 ## Relay Server
 
@@ -709,8 +764,14 @@ git add packages/agent-runner && git commit -m "chore: update agent-runner submo
 - `docs/design/CURRENT_CONFLICT_VIEW.md` — Known conflicts between design docs and code
 - `docs/design/AGENT_PERFORMANCE.md` — Agent performance optimization
 - `docs/design/ATTENTION_TRIAGE.md` — Attention triage system
+- `docs/design/AUTH_AND_TEAMS.md` — Authentication and team architecture
+- `docs/design/COLOR_PALETTE.md` — Design system color palette
 - `docs/design/COST_TRACKING.md` — Cost tracking and budgets
 - `docs/design/CROSS_PROJECT_REFERENCES.md` — Cross-project reference system
+- `docs/design/EXECUTION_STRATEGIES.md` — Execution strategy patterns
+- `docs/design/FRONTEND_EPHEMERAL_CACHE.md` — Frontend caching strategy
+- `docs/design/PACKAGE_ARCHITECTURE.md` — Package/monorepo architecture
+- `docs/design/TAURI_APP.md` — Tauri desktop app design
 - `docs/design/WORKSPACE_V2.md` — Workspace model (directory detection, worktrees, delivery modes)
 
 ### Quick Links
@@ -723,6 +784,9 @@ git add packages/agent-runner && git commit -m "chore: update agent-runner submo
 - `docs/backend/authentication.md` — WebAuthn/passkey implementation
 - `docs/backend/device-authorization.md` — OAuth2 device code flow
 - `docs/backend/observability-and-safety.md` — Logging, metrics, safety
+- `docs/backend/machine-names.md` — Machine naming conventions
+- `docs/backend/prompt-caching.md` — Prompt caching strategy
+- `docs/backend/user-behavior-tracking.md` — User behavior tracking
 - `docs/backend/workspace-v2-data-model.md` — Workspace V2 types, schema, and storage
 - `docs/backend/workspace-v2-backend.md` — Workspace V2 API, dispatch, and context assembly
 
@@ -731,6 +795,9 @@ git add packages/agent-runner && git commit -m "chore: update agent-runner submo
 - `docs/frontend/component-architecture.md` — UI component organization
 - `docs/frontend/state-management.md` — Zustand stores
 - `docs/frontend/plan-graph.md` — React Flow graph visualization
+- `docs/frontend/keyboard-navigation.md` — Keyboard navigation system
+- `docs/frontend/routing.md` — Route architecture
+- `docs/frontend/ui-screen-list.md` — UI screen inventory
 - `docs/frontend/workspace-v2-frontend.md` — Workspace V2 store, component, and page changes
 
 **Relay Server:**
@@ -744,6 +811,12 @@ git add packages/agent-runner && git commit -m "chore: update agent-runner submo
 - `docs/setup/server-mode.md` — Supabase multi-user mode
 - `docs/setup/environment-variables.md` — Env var reference
 - `docs/setup/fly-deployment.md` — Fly.io deployment
+- `docs/setup/cloudflare-tunnel.md` — Cloudflare tunnel setup
+- `docs/setup/docker-setup.md` — Docker setup
+- `docs/setup/hpc-ssh-setup.md` — HPC SSH setup
+- `docs/setup/org-deployment.md` — Organization deployment guide
+- `docs/setup/security-checklist.md` — Security checklist
+- `docs/setup/supabase-local-dev.md` — Supabase local development
 
 **Features:**
 - `docs/features/approval-system.md` — Approval system architecture
@@ -755,11 +828,18 @@ git add packages/agent-runner && git commit -m "chore: update agent-runner submo
 - `docs/mcp/tools-reference.md` — MCP tools reference (15 tools)
 - `docs/mcp/installation.md` — MCP installation
 - `docs/integrations/github.md` — GitHub OAuth and API
+- `docs/integrations/github-oauth-local-setup.md` — GitHub OAuth local setup
+- `docs/integrations/merge-queue-setup.md` — Merge queue setup
+- `docs/integrations/overleaf-zotero.md` — Overleaf/Zotero integration
 
 **Testing:**
 - `docs/testing/testing.md` — Testing strategy
 - `docs/testing/approval-testing.md` — Approval system tests
-- `docs/testing/approval-testing-guide.md` — Approval testing scripts
+- `docs/testing/approval-quickstart.md` — Approval testing quickstart
+
+**Guides:**
+- `docs/guides/agent-runner-protocol.md` — Agent runner protocol
+- `docs/guides/git-pull-hook.md` — Git pull hook setup
 
 ## MCP Tools for Agents
 
