@@ -1,8 +1,8 @@
 # Astro
 
-> A planning-first platform for builders and scientists — AI-assisted task decomposition, multi-environment execution, and real-time progress tracking.
+> An AI-powered planning layer for ambitious projects — intelligently decompose complex goals, execute across any environment, and focus on what matters.
 
-Astro sits above execution tools (coding agents, analysis tools) to help users decompose complex goals into dependency graphs, dispatch tasks across environments (local, HPC, cloud), and focus human attention on strategic decisions.
+Astro integrates with AI agents (Claude, Codex, and others) to decompose goals into structured dependency graphs, dispatch tasks across diverse execution environments (local, HPC, cloud), and concentrate human attention on high-leverage decisions. No credential passing, no custom agent code — just bring your environment and let Astro handle the planning and coordination.
 
 ## Architecture
 
