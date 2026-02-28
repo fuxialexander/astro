@@ -577,9 +577,9 @@ Run `npm run env:init` after creating `.env` to generate the dev and prod profil
 ```
 astro/
 ├── src/                          # Frontend (React 19 + Vite 7)
-│   ├── pages/                    # Route pages (16 pages)
+│   ├── pages/                    # Route pages (19 pages)
 │   ├── components/               # UI components (shadcn/ui pattern)
-│   ├── stores/                   # Zustand state stores (27 stores)
+│   ├── stores/                   # Zustand state stores (30 stores)
 │   ├── lib/                      # API client, SSE parser, utilities
 │   └── types/                    # TypeScript type definitions
 │
@@ -587,7 +587,7 @@ astro/
 │   ├── routes/                   # API routes (agent, dispatch, events, data, relay)
 │   ├── middleware/                # Auth middleware
 │   └── lib/
-│       ├── db/                   # Drizzle ORM schema (28 tables) + migrations
+│       ├── db/                   # Drizzle ORM schema (38 tables) + migrations
 │       ├── relay-server.ts       # WebSocket relay server
 │       ├── machine-registry.ts   # Connected machine tracking
 │       ├── dispatch/             # Dispatch engine, queue, context assembler
@@ -596,8 +596,13 @@ astro/
 │       └── repo-context.ts       # Repository context reading
 │
 ├── packages/
-│   ├── core/                     # Shared code (db, schema, dispatch types, prompt templates)
+│   ├── core/                     # @astro/core — shared DB schema, dispatch types, prompt templates
 │   │   └── src/                  # Imported by both server/ and agent-runner
+│   ├── cli/                      # @astroanywhere/cli — CLI + TUI for projects, plans, tasks
+│   │   └── src/
+│   │       ├── index.ts          # CLI entry point (Commander.js)
+│   │       ├── commands/         # auth, project, plan, task, activity, search, trace
+│   │       └── tui/              # Terminal UI (Ink-based, vim mode, fuzzy search)
 │   └── agent-runner/             # Git submodule → github.com/fuxialexander/astro-agent
 │       └── src/                  # (private repo, ships as pre-built tarball)
 │           ├── cli.ts            # CLI entry (10 commands)
@@ -606,7 +611,7 @@ astro/
 │           ├── execution/        # Direct, Docker, SLURM, K8s strategies
 │           └── mcp/              # MCP server for Claude Code integration
 │
-├── tests/                        # Vitest test suite (34+ files, 550+ tests)
+├── tests/                        # Vitest test suite (80+ test files)
 ├── docs/design/                  # Architecture documentation
 ├── skills/                       # Skill definitions (SKILL.md files)
 └── drizzle/                      # Database migration files
@@ -628,6 +633,7 @@ astro/
 | POST | `/api/dispatch/task` | Dispatch task to agent runner (SSE stream) |
 | POST | `/api/dispatch/cancel` | Cancel running task |
 | POST | `/api/dispatch/steer` | Send guidance to running agent |
+| POST | `/api/dispatch/prune` | Prune downstream tasks from a branch |
 
 ### Data (CRUD)
 | Method | Endpoint | Description |
@@ -636,11 +642,12 @@ astro/
 | GET/PATCH/DELETE | `/api/data/projects/:id` | Get/update/delete project |
 | GET/PUT | `/api/data/projects/:id/plan` | Get/set plan nodes + edges |
 
-### Real-time
+### Real-time & System
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/events/stream` | SSE for real-time updates |
 | GET | `/api/health` | Health check + relay status |
+| GET | `/api/system/*` | System information |
 
 ### Device Authentication
 | Method | Endpoint | Description |
@@ -648,6 +655,26 @@ astro/
 | POST | `/api/device/authorize` | Request device code |
 | POST | `/api/device/token` | Poll/exchange for tokens |
 | POST | `/api/device/register` | Register machine |
+| POST | `/api/device/refresh` | Refresh tokens |
+| POST | `/api/device/revoke` | Revoke tokens |
+
+### Relay (Machine Management)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/relay/machines` | List connected machines |
+| GET | `/api/relay/best-machine` | Find optimal machine for task |
+| POST | `/api/relay/dispatch` | Dispatch task to agent runner |
+| POST | `/api/relay/cancel` | Cancel running task |
+
+### Integrations
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET/POST | `/api/github/*` | GitHub OAuth + repository operations |
+| GET/POST | `/api/teams/*` | Team management + invitations |
+| GET/POST | `/api/repo/*` | Repository detection + setup |
+| GET/POST | `/api/fs/*` | File system operations |
+| GET/POST | `/api/share/*` | Export/import shared bundles |
+| GET/POST | `/api/skills/*` | Skill registry |
 
 ## Tech Stack
 
@@ -765,7 +792,7 @@ Complete documentation is in `docs/`:
 - [Architecture](docs/design/ARCHITECTURE.md) — System design, data flow, scaling
 - [Agent Runner](docs/design/AGENT_RUNNER.md) — CLI, providers, safety, worktrees
 - [Relay Protocol](docs/design/RELAY.md) — WebSocket message types
-- [Data Model](docs/design/DATA_MODEL.md) — Database schema (28 tables)
+- [Data Model](docs/design/DATA_MODEL.md) — Database schema (38 tables)
 - [Full Index](docs/index.md) — All documentation
 
 ## Acknowledgments
