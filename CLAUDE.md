@@ -761,6 +761,65 @@ git add packages/agent-runner && git commit -m "chore: update agent-runner submo
 - `docs/testing/approval-testing.md` — Approval system tests
 - `docs/testing/approval-testing-guide.md` — Approval testing scripts
 
+## Celltype/CLI Integration: Biomedical Research Toolkit
+
+Astro integrates with **celltype/cli**, an autonomous drug discovery and biomedical research platform with 190+ computational biology tools. This enables researchers to leverage advanced analysis capabilities directly within Astro tasks for structured research workflows.
+
+### Key Research Capabilities
+
+**Target Discovery & Validation**
+- Score degradation targets, predict degron motifs, find co-essential/synthetic lethal partners (DepMap CRISPR)
+- Assess druggability via UniProt domains, ligands, and structural coverage
+- Query tissue expression (GTEx + Human Protein Atlas), retrieve disease associations (Open Targets)
+
+**Structure & Molecular Design**
+- Fetch AlphaFold predicted structures, generate 3D conformers
+- Molecular docking, binding site detection, ternary complex prediction
+- Batch virtual screening, molecular dynamics, free energy perturbation
+
+**Chemistry & SAR Analysis**
+- Compute molecular descriptors (MW, LogP, TPSA, Lipinski)
+- SAR analysis, matched molecular pair analysis, scaffold hopping
+- Retrosynthesis planning, pharmacophore modeling, synthetic accessibility scoring
+
+**Genomics & Variants**
+- GWAS catalog queries, eQTL lookup (GTEx), variant annotation (VEP)
+- Mendelian randomization evidence, GWAS-eQTL colocalization
+
+**Transcriptomics & Expression**
+- Pathway enrichment from L1000 signatures, differential expression (DESeq2)
+- Immune cell scoring, TF activity inference, connectivity map queries
+
+**Single-Cell & Spatial Analysis**
+- Leiden/Louvain clustering, trajectory inference, cell type annotation
+- Spatial transcriptomics clustering, multi-omics integration (MOFA+)
+- CELLxGENE dataset search and analysis
+
+**Safety & ADMET**
+- Anti-target screening, multi-modal safety classification
+- ADMET property prediction, drug-drug interaction prediction
+- FDA adverse event signal scanning (FAERS)
+
+**Clinical Development**
+- Indication mapping, patient population estimation (SEER)
+- Clinical trial search, trial design benchmarking, competitive landscape analysis
+
+**Literature & Data Access**
+- PubMed and ChEMBL bioactivity queries, patent and preprint searching
+- Comprehensive protein, variant, and pathway databases (UniProt, InterPro, STRING, Reactome)
+
+### Using Celltype Tools in Astro
+
+Create plan nodes that decompose complex research into structured tasks leveraging these tools:
+
+1. **Target Discovery Task** — Query disease associations → validate with expression data → assess druggability → find synthetic partners
+2. **Molecular Design Task** — Predict structures → identify binding sites → dock compounds → evaluate binding energy → optimize via FEP
+3. **Clinical Development Task** — Indication mapping → population sizing → trial search → competitive analysis → patient stratification
+4. **Genomics Task** — GWAS associations → eQTL colocalization → variant annotation → Mendelian randomization → causal prioritization
+5. **Transcriptomics Task** — Differential expression → pathway enrichment → TF activity → immune cell composition → compound signature matching
+
+Results from upstream analyses automatically feed downstream task contexts via dependency outputs. This enables complex multi-step research workflows with full dependency tracking and versioning.
+
 ## MCP Tools for Agents
 
 Agents running inside Astro tasks have access to **15 MCP tools** for self-directed work:
