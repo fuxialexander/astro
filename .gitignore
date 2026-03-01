@@ -188,3 +188,6 @@ docs/setup/xi-fu-deployment.md
 xcuserdata/
 *.xcworkspace/xcuserdata/
 trajectories.jsonl
+
+# Astro agent directory
+.astro/
