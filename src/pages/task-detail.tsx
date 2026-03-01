@@ -457,7 +457,7 @@ export function TaskDetail() {
       {/* Main content area: Tabs + optional Inspector sidebar */}
       <div className="flex flex-1 min-h-0">
         {/* Tabbed Content: Content + Activity + Files */}
-        <Tabs value={searchParams.get('tab') || "content"} onValueChange={(v) => setSearchParams((prev) => { const next = new URLSearchParams(prev); next.set('tab', v); return next }, { replace: true })} className="flex-1 flex flex-col min-h-0 min-w-0">
+        <Tabs value={searchParams.get('tab') || (node.executionId ? "activity" : "content")} onValueChange={(v) => setSearchParams((prev) => { const next = new URLSearchParams(prev); next.set('tab', v); return next }, { replace: true })} className="flex-1 flex flex-col min-h-0 min-w-0">
           <TabsList className="mx-4 md:mx-6 mt-3 md:mt-4 w-fit">
             <TabsTrigger value="content" className="text-xs md:text-sm">
               <FileText className="h-3.5 w-3.5 mr-1.5" />

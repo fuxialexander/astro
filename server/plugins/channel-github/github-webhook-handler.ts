@@ -209,8 +209,24 @@ export async function handlePullRequestEvent(
       if (merged) {
         console.log(`[github-channel] PR #${prNumber} merged in ${repoFullName}: "${prTitle}" → task completion for project ${projectId}`)
 
-        // Emit merge queue succeeded event for astro-managed PRs
-        const nodeId = extractNodeIdFromBranch(headRef)
+        // Try to find the node: first by branch name, then by prNumber
+        let nodeId = extractNodeIdFromBranch(headRef)
+
+        if (!nodeId) {
+          // Fallback: look up the node by prNumber in the database
+          const [nodeRow] = await db.select({ clientId: planNodes.clientId })
+            .from(planNodes)
+            .where(and(
+              eq(planNodes.projectId, projectId),
+              eq(planNodes.prNumber, prNumber)
+            ))
+            .limit(1)
+          if (nodeRow) {
+            nodeId = nodeRow.clientId
+            console.log(`[github-channel] Found node ${nodeId} by prNumber #${prNumber}`)
+          }
+        }
+
         if (nodeId) {
           await astroEventTransport.emitEvent({
             type: 'merge_queue.succeeded',
@@ -221,6 +237,8 @@ export async function handlePullRequestEvent(
             mergedSha,
             timestamp: new Date(),
           })
+        } else {
+          console.log(`[github-channel] No matching node found for merged PR #${prNumber} in ${repoFullName}`)
         }
       } else {
         console.log(`[github-channel] PR #${prNumber} closed (not merged) in ${repoFullName}: "${prTitle}"`)

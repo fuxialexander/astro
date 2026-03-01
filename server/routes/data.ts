@@ -27,7 +27,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 import { isServerMode } from '../lib/app-mode.js'
 import { getServiceClient } from '../lib/supabase.js'
-import { executionEventBus } from '../lib/execution-event-bus.js'
+import { autoDispatchDownstream } from '../lib/dispatch/auto-dispatch.js'
 
 /**
  * Build a team-scoped filter with legacy fallback.
@@ -700,37 +700,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   return c.json({ ok: true })
 })
 
-/**
- * Find downstream nodes whose dependencies are all completed, emit task:ready SSE events.
- */
-async function autoDispatchDownstream(projectId: string, completedNodeId: string): Promise<void> {
-  const allNodes = await db.select().from(planNodes)
-    .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
-  const allEdges = await db.select().from(planEdges)
-    .where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
-
-  const downstreamIds = allEdges
-    .filter(e => e.sourceClientId === completedNodeId)
-    .map(e => e.targetClientId)
-
-  const COMPLETED_STATUSES = ['completed', 'auto_verified']
-
-  for (const downId of downstreamIds) {
-    const downNode = allNodes.find(n => n.clientId === downId)
-    if (!downNode || downNode.type !== 'task') continue
-    if (downNode.status !== 'planned') continue
-
-    const depEdges = allEdges.filter(e => e.targetClientId === downId)
-    const allDepsMet = depEdges.every(depEdge => {
-      const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
-      return depNode && COMPLETED_STATUSES.includes(depNode.status)
-    })
-
-    if (allDepsMet) {
-      executionEventBus.emit('task:ready', { nodeId: downId, projectId })
-    }
-  }
-}
+// autoDispatchDownstream is imported from '../lib/dispatch/auto-dispatch.js'
 
 /**
  * Cascade prune: set all downstream dependents to 'pruned' recursively.
