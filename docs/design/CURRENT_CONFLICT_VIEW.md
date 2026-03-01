@@ -1,6 +1,6 @@
 # Current Conflicts: Design Docs vs. Code/Technical Docs
 
-This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-02-27.
+This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-03-01.
 
 ---
 
@@ -118,9 +118,31 @@ Inconsistent across docs: `astro.your-domain.com` (dev tunnel), `astroanywhere.c
 
 **Resolved (2026-02-27):** Both ARCHITECTURE.md and DATA_MODEL.md updated to 37 tables (the actual count in `packages/core/src/db/schema.ts`). ARCHITECTURE.md §4.2 now lists all 37 tables by category.
 
+**Updated (2026-03-01):** Count updated to 38 tables across ARCHITECTURE.md and DATA_MODEL.md after `streaming_events` table was added to documentation.
+
 ### 18. ~~Local data path inconsistency~~ ✅ RESOLVED
 
 **Resolved (2026-02-27):** All occurrences of `~/.astro/data/` in ARCHITECTURE.md replaced with `~/.astro/pglite/`. Three occurrences fixed (§2.4, §4.1 x2).
+
+---
+
+## Refresh Robustness Documentation (2026-03-01)
+
+The following documentation gaps were identified and resolved related to the page-refresh recovery system:
+
+### 19. ~~`streaming_events` table undocumented in design docs~~ ✅ RESOLVED
+
+**Resolved (2026-03-01):** The `streaming_events` table (append-only SSE event log for page-refresh recovery) was present in `packages/core/src/db/schema.ts` but missing from all design documents. Fixed:
+- ARCHITECTURE.md §4.2: Added `streaming_events` to "Execution detail" table listing, updated count to 38
+- DATA_MODEL.md §15.7: Added `streamingEvents` row to Activity & Audit Tables
+
+### 20. ~~FRONTEND.md — `use-restored-execution.ts` description outdated~~ ✅ RESOLVED
+
+**Resolved (2026-03-01):** The hook description said it "reconstructs from persisted observation data via `reconstructActivityFromTrace()`" but the actual implementation uses a two-path recovery: (1) fast `streaming_events` catch-up via `hydrateFromCatchUp()`, (2) slower observation fallback. Updated description and added `streaming-event-hydrator.ts` to library utilities section.
+
+### 21. ~~Missing REFRESH_ROBUSTNESS.md design document~~ ✅ RESOLVED
+
+**Resolved (2026-03-01):** Created `docs/design/REFRESH_ROBUSTNESS.md` documenting the three-layer refresh recovery architecture (live SSE → streaming_events DB → observation fallback), data lifecycle on reset, store initialization flow, and scenario matrix.
 
 ---
 
@@ -148,6 +170,15 @@ All 5 core design documents and CLAUDE.md were comprehensively updated to match 
 - **RELAY.md**: Added 3 new protocol sections (File/Repo Ops, Session Attachment, Slurm/HPC). Rewrote protocol gaps as implemented extensions. Added complete message type reference (50+ types).
 - **CLAUDE.md**: Updated project structure tree (removed non-existent files, added `packages/core/`, `packages/cli/`, new pages/stores/components/libs). Updated routes table, package names, tech stack references.
 
+## Refresh Robustness Documentation Pass (2026-03-01)
+
+Addressed documentation gaps around the page-refresh recovery system:
+
+- **REFRESH_ROBUSTNESS.md** (new): Created comprehensive design document covering the three-layer refresh recovery architecture, data lifecycle on reset, store initialization, and scenario matrix.
+- **FRONTEND.md**: Fixed outdated `use-restored-execution.ts` description (now documents streaming events catch-up as primary path). Added `streaming-event-hydrator.ts` to library utilities.
+- **ARCHITECTURE.md**: Added `streaming_events` to table listing. Updated table count from 37 to 38 (3 occurrences).
+- **DATA_MODEL.md**: Added `streamingEvents` table to §15.7 Activity & Audit Tables. Updated table count from 37 to 38 (2 occurrences).
+
 ---
 
 ## Summary
@@ -158,7 +189,8 @@ All 5 core design documents and CLAUDE.md were comprehensively updated to match 
 | Workspace V2 conflicts (resolved) | 5 (#9, #10, #11, #12, #13) |
 | Execution unification conflicts (resolved) | 3 (#14, #15, #16) |
 | Other issues (resolved) | 2 (#17, #18) |
+| Refresh robustness documentation (resolved) | 3 (#19, #20, #21) |
 | Other issues (open) | 1 (#6 — production domain references) |
 | Aspirational docs (low implementation) | 4 (AGENT_PERFORMANCE, ATTENTION_TRIAGE, COST_TRACKING, CROSS_PROJECT_REFERENCES) |
 | **Total open** | **1** |
-| **Total resolved** | **17** |
+| **Total resolved** | **20** |
