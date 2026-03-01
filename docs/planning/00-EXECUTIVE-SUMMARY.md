@@ -57,6 +57,7 @@ Major updates since the branch diverged (44 commits):
 | [10-DEFAULT-SKILL-LOADING.md](./10-DEFAULT-SKILL-LOADING.md) | Builtin skills in agent-runner, auto-detection, context injection |
 | [11-SKILLS-UI-AND-LIFECYCLE.md](./11-SKILLS-UI-AND-LIFECYCLE.md) | Skills UI, lifecycle, cross-machine sync, community sharing |
 | [12-PROVIDER-ADOPTION-OPENCLAW-OPENCODE.md](./12-PROVIDER-ADOPTION-OPENCLAW-OPENCODE.md) | OpenClaw/OpenCode adoption, SDK integration, social media, observability, future providers |
+| [13-PR-QUALITY-AND-GITHUB-WORKFLOW.md](./13-PR-QUALITY-AND-GITHUB-WORKFLOW.md) | PR message quality, summary generation robustness, multi-provider support |
 
 ## Skills Written
 
