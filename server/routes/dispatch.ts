@@ -22,7 +22,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, userProfiles } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, userProfiles, taskExecutions, streamingEvents } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -1665,6 +1665,33 @@ dispatchRoute.post('/reset', async (c) => {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
     console.error(`[dispatch/reset] Failed to reset node in DB: ${msg}`)
     return c.json({ success: false, error: `Database update failed: ${msg}` }, 500)
+  }
+
+  // 5. Delete task execution records from DB so they don't reappear after page refresh
+  try {
+    // Find execution records for this node
+    const nodeExecutions = await db.select({ executionId: taskExecutions.executionId })
+      .from(taskExecutions)
+      .where(eq(taskExecutions.nodeClientId, nodeId))
+
+    if (nodeExecutions.length > 0) {
+      const executionIds = nodeExecutions.map(e => e.executionId)
+
+      // Delete streaming events for these executions first (FK constraint)
+      await db.delete(streamingEvents)
+        .where(inArray(streamingEvents.executionId, executionIds))
+
+      // Delete the execution records themselves
+      await db.delete(taskExecutions)
+        .where(eq(taskExecutions.nodeClientId, nodeId))
+
+      console.log(`[dispatch/reset] Deleted ${nodeExecutions.length} execution record(s) and associated streaming events for node ${nodeId}`)
+    }
+  } catch (dbErr) {
+    // Non-fatal: log but don't fail the reset — the node is already reset
+    const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
+    console.warn(`[dispatch/reset] Failed to delete execution records: ${msg}`)
+    errors.push(`Failed to clean up execution records: ${msg}`)
   }
 
   return c.json({
