@@ -1,0 +1,100 @@
+name: Auto Assign Reviewer
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+jobs:
+  assign:
+    name: Assign Reviewer
+    runs-on: ubuntu-latest
+    if: "!github.event.pull_request.draft"
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Auto-assign reviewer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_AUTHOR=${{ github.event.pull_request.user.login }}
+
+          # Get changed files
+          FILES=$(gh pr diff "$PR_NUMBER" --name-only)
+
+          # Determine reviewers based on changed file paths
+          REVIEWERS=""
+
+          # Backend changes (server/, packages/core/)
+          if echo "$FILES" | grep -qE "^(server/|packages/core/)"; then
+            REVIEWERS="$REVIEWERS backend"
+          fi
+
+          # Frontend changes (src/)
+          if echo "$FILES" | grep -qE "^src/"; then
+            REVIEWERS="$REVIEWERS frontend"
+          fi
+
+          # Agent runner changes
+          if echo "$FILES" | grep -qE "^packages/agent-runner/"; then
+            REVIEWERS="$REVIEWERS agent-runner"
+          fi
+
+          # Infrastructure changes
+          if echo "$FILES" | grep -qE "^(\.github/|scripts/|fly\.toml|Dockerfile)"; then
+            REVIEWERS="$REVIEWERS infra"
+          fi
+
+          # Get repo collaborators (excluding PR author)
+          COLLABORATORS=$(gh api repos/${{ github.repository }}/collaborators --jq ".[].login" 2>/dev/null || echo "")
+
+          # If we have collaborators, pick one who isn't the author
+          REVIEWER=""
+          for collab in $COLLABORATORS; do
+            if [ "$collab" != "$PR_AUTHOR" ] && [ "$collab" != "dependabot[bot]" ]; then
+              REVIEWER="$collab"
+              break
+            fi
+          done
+
+          if [ -n "$REVIEWER" ]; then
+            gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER"
+            echo "Assigned reviewer: $REVIEWER"
+          else
+            echo "No eligible reviewer found (only collaborator is PR author or no collaborators)"
+          fi
+
+          # Add labels based on changed areas
+          LABELS=""
+          if echo "$FILES" | grep -qE "^server/"; then
+            LABELS="$LABELS,backend"
+          fi
+          if echo "$FILES" | grep -qE "^src/"; then
+            LABELS="$LABELS,frontend"
+          fi
+          if echo "$FILES" | grep -qE "^packages/"; then
+            LABELS="$LABELS,packages"
+          fi
+          if echo "$FILES" | grep -qE "^docs/"; then
+            LABELS="$LABELS,docs"
+          fi
+          if echo "$FILES" | grep -qE "^\.github/"; then
+            LABELS="$LABELS,ci"
+          fi
+
+          # Apply labels (remove leading comma, create if needed)
+          LABELS="${LABELS#,}"
+          if [ -n "$LABELS" ]; then
+            # Create labels if they don't exist (ignore errors)
+            for label in $(echo "$LABELS" | tr ',' ' '); do
+              gh label create "$label" --color "$(openssl rand -hex 3)" 2>/dev/null || true
+            done
+            gh pr edit "$PR_NUMBER" --add-label "$LABELS"
+            echo "Added labels: $LABELS"
+          fi
