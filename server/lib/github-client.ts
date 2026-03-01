@@ -304,6 +304,50 @@ export class GitHubClient {
   }
 
   /**
+   * Close a GitHub issue by setting its state to 'closed'
+   */
+  async closeIssue(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    options: { stateReason?: 'completed' | 'not_planned' } = {}
+  ): Promise<{ success: boolean; error?: string }> {
+    const { stateReason = 'completed' } = options;
+
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/repos/${owner}/${repo}/issues/${issueNumber}`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            state: 'closed',
+            state_reason: stateReason,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        return {
+          success: false,
+          error: `GitHub API error ${response.status}: ${errorBody}`,
+        };
+      }
+
+      return { success: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: msg };
+    }
+  }
+
+  /**
    * Get a specific repository
    */
   async getRepository(
