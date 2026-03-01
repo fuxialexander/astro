@@ -255,23 +255,7 @@ export function OverviewTab({
       <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
         {/* Description Section */}
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Description</h3>
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              {descriptionSaveStatus === "saving" && (
-                <>
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Saving...
-                </>
-              )}
-              {descriptionSaveStatus === "saved" && (
-                <>
-                  <CircleCheck className="h-3 w-3" />
-                  Saved
-                </>
-              )}
-            </span>
-          </div>
+          <h3 className="text-sm font-semibold">Description</h3>
           <RichTextEditor
             ref={descriptionEditorRef}
             content={descriptionDraft}
@@ -279,6 +263,22 @@ export function OverviewTab({
             placeholder="Describe your project — goals, context, and key details. Paste or drop images..."
             onImageUpload={handleDescriptionImageUpload}
             className="min-h-[200px]"
+            toolbarExtra={
+              <span className="text-xs text-muted-foreground flex items-center gap-1 min-w-[60px] justify-end">
+                {descriptionSaveStatus === "saving" && (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Saving...
+                  </>
+                )}
+                {descriptionSaveStatus === "saved" && (
+                  <>
+                    <CircleCheck className="h-3 w-3" />
+                    Saved
+                  </>
+                )}
+              </span>
+            }
           />
         </div>
 
