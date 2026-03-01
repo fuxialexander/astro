@@ -16,7 +16,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { usePlanStore } from "@/stores/plan-store"
-import { chatWithTask } from "@/lib/api-client"
+import { planChatWithAgent, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import {
   groupActivityEvents,
   TextBlock,
@@ -100,7 +100,32 @@ export function PlanChatPhase({
 
   // Plan data — select full array, filter in useMemo to avoid unstable getSnapshot
   const allPlanNodes = usePlanStore((s) => s.nodes)
+  const allPlanEdges = usePlanStore((s) => s.edges)
   const planNodes = useMemo(() => allPlanNodes.filter((n) => n.projectId === projectId), [allPlanNodes, projectId])
+
+  // Build lean plan context for the API (mirrors chat-panel.tsx)
+  const planNodeContext: ChatPlanNodeContext[] = useMemo(() => {
+    return planNodes.map((n) => ({
+      id: n.id,
+      title: n.title,
+      description: n.description ?? '',
+      status: n.status,
+      type: n.type,
+      priority: n.priority,
+      estimate: n.estimate,
+      milestoneId: n.milestoneId,
+      dependencies: n.dependencies,
+      startDate: n.startDate,
+      endDate: n.endDate,
+    }))
+  }, [planNodes])
+
+  const planEdgeContext: ChatPlanEdgeContext[] = useMemo(() => {
+    const projectNodeIds = new Set(planNodes.map((n) => n.id))
+    return allPlanEdges
+      .filter((e) => projectNodeIds.has(e.source) || projectNodeIds.has(e.target))
+      .map((e) => ({ source: e.source, target: e.target, type: e.type }))
+  }, [planNodes, allPlanEdges])
 
   // Check if this plan originated from a playground session
   const projectVisionDoc = useProjectStore((s) =>
@@ -224,21 +249,16 @@ export function PlanChatPhase({
 
     let rawText = ""
     try {
-      await chatWithTask(
+      await planChatWithAgent(
         {
           message: text,
           sessionId: chatSession.providerSessionId,
           streamId: executionId || undefined,
-          nodeId,
           projectId,
-          taskTitle: projectName,
-          taskDescription: `Plan generation session for project: ${projectName}`,
-          taskOutput: activityEvents
-            .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
-            .map((e) => e.content)
-            .join(''),
           visionDoc: project?.visionDoc,
           model,
+          planNodes: planNodeContext,
+          planEdges: planEdgeContext,
           messages: historyMessages,
         },
         {
