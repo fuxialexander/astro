@@ -42,4 +42,5 @@ export {
   encryptedApiKeys,
   environmentConfigs,
   streamingEvents,
+  useCaseTemplates,
 } from '../../../packages/core/src/db/schema.js'
