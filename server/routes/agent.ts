@@ -148,6 +148,20 @@ async function streamChatViaRelay(
       if (!alive || msg.result.taskId !== opts.taskId) return
       lastActivity = Date.now()
       const resolvedSessionId = providerSessionId || opts.taskId
+
+      // Forward agent runner errors to client instead of silently sending 'done'
+      if (msg.result.status === 'failed') {
+        const errorMsg = msg.result.error || 'Agent runner task failed'
+        console.error(`[chat] Task ${opts.taskId} failed: ${errorMsg}`)
+        await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId, error: errorMsg })
+        stream.writeSSE({
+          event: 'error',
+          data: errorMsg,
+        }).catch(() => {})
+        alive = false
+        return
+      }
+
       await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId })
       stream.writeSSE({
         event: 'done',
