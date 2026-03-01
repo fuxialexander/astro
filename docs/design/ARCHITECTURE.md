@@ -319,12 +319,12 @@ Frontend on CDN. Backend + Relay on cloud VM. Agent Runners on users' machines.
    └─────────────────────┘  └──────────────────────┘
 ```
 
-### 4.2 Database Schema (37 tables)
+### 4.2 Database Schema (38 tables)
 
 See `DATA_MODEL.md` for the complete schema. Key tables:
 
 **Core entities:** `projects`, `plan_nodes`, `plan_node_dependencies`, `plan_edges`, `task_executions`, `initiatives`
-**Execution detail:** `tool_traces`, `file_changes`, `activity_events`, `observation_events`, `machine_usage_logs`
+**Execution detail:** `tool_traces`, `file_changes`, `activity_events`, `observation_events`, `streaming_events`, `machine_usage_logs`
 **User/Team:** `user_profiles`, `teams`, `team_members`, `invite_tokens`, `project_members`, `display_settings`, `usage_metrics`
 **Auth (server only):** `passkey_credentials`, `connected_accounts`, `device_codes`, `webauthn_challenges`, `refresh_tokens`
 **Machine:** `registered_machines`, `environment_configs`
@@ -665,7 +665,7 @@ astro/
 │   │   ├── src/
 │   │   │   ├── index.ts           # Public API (types, utils, app-mode, skills, prompts)
 │   │   │   ├── types.ts           # Shared TypeScript interfaces
-│   │   │   ├── db/                # Drizzle schema (37 tables), migrations, connection factory
+│   │   │   ├── db/                # Drizzle schema (38 tables), migrations, connection factory
 │   │   │   ├── dispatch/          # Context assembler, result router, branch manager, machine selector
 │   │   │   ├── prompt-templates.ts
 │   │   │   ├── skill-parser.ts    # SKILL.md format parser
@@ -852,7 +852,7 @@ See `WORKSPACE_V2.md` for the complete design, including data model changes, API
 
 | Document | Topic |
 |----------|-------|
-| `DATA_MODEL.md` | Complete schema (37 tables), entity relationships, type definitions |
+| `DATA_MODEL.md` | Complete schema (38 tables), entity relationships, type definitions |
 | `BACKEND.md` | Backend startup, 19 routes, middleware, event system, dispatch, observability |
 | `FRONTEND.md` | 29 stores, 18 pages, user journeys, persistence patterns |
 | `RELAY.md` | WebSocket protocol, machine registry, event flow, authentication |

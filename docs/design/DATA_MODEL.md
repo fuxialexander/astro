@@ -7,7 +7,7 @@ This document describes all data types, their relationships, where they are defi
 **Type locations:**
 - **Core types**: `packages/core/src/types.ts` — All shared TypeScript types (no React/DOM dependencies)
 - **Core type modules**: `packages/core/src/types/` — Sub-module types (relay, device-auth, github, skill)
-- **Database schema**: `packages/core/src/db/schema.ts` — Drizzle ORM table definitions (37 tables)
+- **Database schema**: `packages/core/src/db/schema.ts` — Drizzle ORM table definitions (38 tables)
 - **Dispatch types**: `packages/core/src/dispatch/types.ts` — Task execution dispatch framework types
 - **Relay types**: `server/types/relay.ts` — Full WebSocket relay protocol types
 - **Device auth types**: `server/types/device-auth.ts` — OAuth2 device authorization types
@@ -1405,7 +1405,7 @@ interface MachineUsageLog {
 
 ## 15. Database Schema (Postgres)
 
-Defined in `packages/core/src/db/schema.ts` (37 tables). Re-exported from `server/lib/db/schema.ts` for backward compatibility.
+Defined in `packages/core/src/db/schema.ts` (38 tables). Re-exported from `server/lib/db/schema.ts` for backward compatibility.
 
 ### 15.1 Core Tables
 
@@ -1476,6 +1476,7 @@ Defined in `packages/core/src/db/schema.ts` (37 tables). Re-exported from `serve
 | `auditLogs` | `id` (UUID) | `userId` | Audit trail of user actions |
 | `activityEvents` | `id` (UUID) | `userId`, `projectId` -> projects | Activity feed events |
 | `observationEvents` | `id` (text) | `projectId` | Observability trace events (Langfuse-compatible) |
+| `streamingEvents` | `seq` (int, auto-increment) | -- | Append-only log of SSE events for page-refresh catch-up and reconnect recovery. See `REFRESH_ROBUSTNESS.md`. |
 
 ### 15.8 Storage Tables
 
