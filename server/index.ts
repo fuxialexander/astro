@@ -35,6 +35,7 @@ import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus, ensureMachineRegistered, resetAllConnectionStatuses, getMachine } from './lib/registered-machines-store.js'
 import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isLocalMode as isLocalModeEnv } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
+import { startPrPoller, stopPrPoller } from './lib/github-pr-poller.js'
 import { astroEventTransport } from './lib/events/astro-event-transport.js'
 import { sseNotificationHook } from './lib/events/hooks/sse-notification-hook.js'
 import { auditLogHook } from './lib/events/hooks/audit-log-hook.js'
@@ -398,6 +399,12 @@ async function start() {
     console.log('[cleanup] Cleanup scheduler started')
   }
 
+  // Start GitHub PR status poller (fallback for when webhooks aren't configured)
+  if (!isTest()) {
+    startPrPoller({ enabled: true, intervalMs: 60_000 })
+    console.log('[github-pr-poller] PR status poller started')
+  }
+
   // Periodic cleanup tasks
   if (!isTest()) {
     // Clean expired WebAuthn challenges every minute
@@ -471,6 +478,7 @@ async function shutdown(signal: string) {
 
   try {
     stopCleanupScheduler()
+    stopPrPoller()
     await observationCollector.stop()
     await streamingEventLog.flushAll()
     dispatchEngine.stop()

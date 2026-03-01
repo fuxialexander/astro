@@ -10,8 +10,9 @@
 
 import type { AstroEvent, EventHook } from '../types.js'
 import { db } from '../../db/index.js'
-import { planNodes, projects, githubConnections, teamMembers } from '../../db/schema.js'
+import { planNodes, projects } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
+import { findAccessToken } from '../../github-token-resolver.js'
 
 const GITHUB_API_BASE = 'https://api.github.com'
 
@@ -54,48 +55,6 @@ async function closeGitHubIssue(
     const msg = err instanceof Error ? err.message : String(err)
     return { success: false, error: msg }
   }
-}
-
-/**
- * Find a GitHub access token for the project.
- *
- * Priority:
- * 1. Project owner's GitHub connection
- * 2. Any team member's GitHub connection (if team-scoped project)
- */
-async function findAccessToken(
-  ownerId: string,
-  teamId: string | null,
-): Promise<string | null> {
-  // Try project owner first
-  const [ownerConn] = await db
-    .select({ accessToken: githubConnections.accessToken })
-    .from(githubConnections)
-    .where(eq(githubConnections.userId, ownerId))
-    .limit(1)
-
-  if (ownerConn?.accessToken) {
-    return ownerConn.accessToken
-  }
-
-  // Fall back to any team member with a GitHub connection
-  if (teamId) {
-    const [memberConn] = await db
-      .select({ accessToken: githubConnections.accessToken })
-      .from(githubConnections)
-      .innerJoin(
-        teamMembers,
-        eq(teamMembers.userId, githubConnections.userId),
-      )
-      .where(eq(teamMembers.teamId, teamId))
-      .limit(1)
-
-    if (memberConn?.accessToken) {
-      return memberConn.accessToken
-    }
-  }
-
-  return null
 }
 
 export const githubIssueCloseHook: EventHook = async (event: AstroEvent) => {
