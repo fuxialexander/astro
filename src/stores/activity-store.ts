@@ -10,6 +10,7 @@ export type ActivityType =
   | "task.deleted"
   | "task.bulk_deleted"
   | "task.bulk_executed"
+  | "task.bulk_reset"
   | "project.created"
   | "project.updated"
   | "milestone.created"

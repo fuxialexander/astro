@@ -11,6 +11,7 @@ import {
   FolderGit2,
   Sparkles,
   Filter,
+  RotateCcw,
 } from "lucide-react"
 import {
   Dialog,
@@ -41,6 +42,7 @@ const activityConfig: Record<
   "task.deleted": { icon: Trash2, color: "text-error", label: "Deleted" },
   "task.bulk_deleted": { icon: Trash2, color: "text-error", label: "Bulk Deleted" },
   "task.bulk_executed": { icon: Play, color: "text-info", label: "Bulk Executed" },
+  "task.bulk_reset": { icon: RotateCcw, color: "text-warning", label: "Bulk Reset" },
   "project.created": { icon: Sparkles, color: "text-primary", label: "Created" },
   "project.updated": { icon: Pencil, color: "text-muted-foreground", label: "Updated" },
   "milestone.created": { icon: Diamond, color: "text-primary", label: "Created" },

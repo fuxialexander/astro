@@ -14,6 +14,7 @@ import {
   Download,
   Link2,
   Check,
+  RotateCcw,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -773,6 +774,7 @@ export function OverviewTab({
                   "task.deleted": { Icon: User, color: "text-error" },
                   "task.bulk_deleted": { Icon: User, color: "text-error" },
                   "task.bulk_executed": { Icon: Play, color: "text-info" },
+                  "task.bulk_reset": { Icon: RotateCcw, color: "text-warning" },
                 }
 
                 const config = iconMap[activity.type] || { Icon: User, color: "text-muted-foreground" }
