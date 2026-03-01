@@ -429,6 +429,7 @@ function makePlanColumns(
   projectMap?: Map<string, string>,
   executionOrderMap?: Map<string, number>,
   onManageLabels?: () => void,
+  onExecute?: (node: PlanNode) => void,
 ): ListColumn<PlanNode>[] {
   return [
     {
@@ -439,9 +440,22 @@ function makePlanColumns(
       render: (node) => {
         const order = executionOrderMap?.get(node.id)
         return (
-          <span className={cn("text-sm truncate block", node.status === "pruned" && "line-through")}>
-            {order != null && <span className="text-muted-foreground tabular-nums mr-1.5">{order}</span>}
-            {node.title}
+          <span className={cn("text-sm truncate flex items-center gap-1.5", node.status === "pruned" && "line-through")}>
+            {onExecute && (
+              <button
+                type="button"
+                title="Execute task"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onExecute(node)
+                }}
+                className="shrink-0 flex items-center justify-center w-5 h-5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+              >
+                <Play className="h-3 w-3 fill-current" />
+              </button>
+            )}
+            {order != null && <span className="text-muted-foreground tabular-nums">{order}</span>}
+            <span className="truncate">{node.title}</span>
           </span>
         )
       },
@@ -803,6 +817,33 @@ export function PlanListView({
     setLabelManagerOpen(true)
   }, [])
 
+  const handleExecute = useCallback(async (node: PlanNode) => {
+    if (!project?.defaultMachineId) {
+      useToastStore.getState().add({
+        type: "warning",
+        title: "No machine connected",
+        description: "Connect a machine in Environments before executing tasks.",
+      })
+      return
+    }
+    const dirCheck = getProjectWorkingDir(project)
+    if (!dirCheck.ok) {
+      useToastStore.getState().add({
+        type: "warning",
+        title: "No working directory",
+        description: "Set a working directory in the project settings before executing tasks.",
+      })
+      return
+    }
+    const { startExecution } = useExecutionStore.getState()
+    await startExecution(node.id, node.projectId)
+    addActivity({
+      projectId: node.projectId,
+      type: "task.started",
+      title: `Executing task: ${node.title}`,
+    })
+  }, [project, addActivity])
+
   const planBatchActions: BatchAction[] = useMemo(() => [
     {
       id: "execute",
@@ -916,7 +957,7 @@ export function PlanListView({
     return map
   }, [allProjectNodes])
 
-  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels])
+  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute])
 
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
