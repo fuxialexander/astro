@@ -7,6 +7,7 @@ export * from './types/skill.js'
 export * from './types/github.js'
 export * from './types/relay.js'
 export * from './types/device-auth.js'
+export * from './types/use-case-template.js'
 
 // Utilities
 export * from './error-utils.js'
@@ -23,3 +24,6 @@ export { isLocalMode } from './app-mode.js'
 export { parseSkillMd } from './skill-parser.js'
 export { getEligibleSkills, buildSkillPromptInjection } from './skill-injector.js'
 export * from './prompt-templates.js'
+
+// Builtin templates
+export * from './templates/index.js'

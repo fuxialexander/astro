@@ -619,3 +619,62 @@ export const streamingEvents = pgTable('streaming_events', {
   data: jsonb('data').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+// ── Use Case Templates ──────────────────────────────────────────
+// Reusable planning templates that encapsulate domain-specific prompts,
+// parameter schemas, output format specs, and dispatch configuration.
+// Builtin templates are defined as TypeScript constants (not stored here).
+// Custom/community templates are persisted in this table.
+export const useCaseTemplates = pgTable('use_case_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').notNull(),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
+  slug: text('slug').notNull(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  category: text('category').notNull().default('general'), // UseCaseCategory
+  icon: text('icon'),
+  tags: text('tags').array().notNull().default([]),
+  // Core template configuration stored as JSONB
+  parameters: jsonb('parameters').$type<Array<{
+    id: string; name: string; description: string; type: string; required: boolean;
+    default?: unknown; placeholder?: string; options?: Array<{ label: string; value: string; description?: string }>;
+    validation?: { min?: number; max?: number; pattern?: string; message?: string };
+    group?: string; showWhen?: { parameterId: string; value: unknown }
+  }>>().notNull().default([]),
+  prompts: jsonb('prompts').$type<{
+    systemPrompt: string; planGenerationPrompt: string;
+    taskExecutionPrompt?: string; visionDocTemplate?: string
+  }>().notNull(),
+  outputFormat: jsonb('output_format').$type<{
+    nodeCountRange?: { min: number; max: number };
+    preferredNodeTypes?: string[];
+    defaultVerification?: string;
+    defaultEstimate?: string;
+    labels?: Array<{ id: string; name: string; color: string }>;
+    acceptanceCriteriaTemplates?: Array<{
+      id: string; description: string; type: string; command?: string; autoVerifiable: boolean
+    }>
+  }>(),
+  parallelization: jsonb('parallelization').$type<{
+    maxConcurrentTasks?: number; autoDispatch?: boolean; preferredBackend?: string;
+    machineSelectionPolicy?: string; defaultModel?: string; defaultMaxTurns?: number;
+    defaultDeliveryMode?: string; useWorktrees?: boolean; maxRetries?: number;
+    slurmDefaults?: { partition?: string; timeLimit?: string; memory?: string;
+      cpusPerTask?: number; gpus?: number; gpuType?: string; nodes?: number; account?: string }
+  }>(),
+  skills: jsonb('skills').$type<{
+    required?: string[]; recommended?: string[]; inlineInstructions?: string
+  }>(),
+  examples: jsonb('examples').$type<Array<{
+    name: string; description: string; parameterValues: Record<string, unknown>
+  }>>().default([]),
+  source: text('source').notNull().default('custom'), // 'custom' | 'community'
+  enabled: boolean('enabled').notNull().default(true),
+  metadata: jsonb('metadata').$type<{
+    version: string; author?: string; homepage?: string; license?: string;
+    lastUpdated?: string; minAstroVersion?: string; extra?: Record<string, unknown>
+  }>(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
