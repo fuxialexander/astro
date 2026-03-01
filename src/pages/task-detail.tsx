@@ -384,7 +384,13 @@ export function TaskDetail() {
 
               {/* Action buttons */}
               <div className="flex items-center gap-2 border-t px-5 py-4">
-                <Button size="sm" onClick={() => nodeId && updateNode(nodeId, { status: "completed" })} className="min-h-9">
+                <Button size="sm" onClick={() => {
+                  if (!nodeId) return
+                  updateNode(nodeId, { status: "completed" })
+                  // Navigate back to the originating view instead of staying on the Note tab
+                  const returnView = searchParams.get("from") || "list"
+                  if (projectId) navigate(`/project/${projectId}/${returnView}`)
+                }} className="min-h-9">
                   <Check className="h-3.5 w-3.5 mr-1" />
                   Approve
                 </Button>

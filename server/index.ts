@@ -41,6 +41,7 @@ import { auditLogHook } from './lib/events/hooks/audit-log-hook.js'
 import { usageMetricsHook } from './lib/events/hooks/usage-metrics-hook.js'
 import { prCreationHook } from './lib/events/hooks/pr-creation-hook.js'
 import { mergeQueueHook } from './lib/events/hooks/merge-queue-hook.js'
+import { prMergeHook } from './lib/events/hooks/pr-merge-hook.js'
 import { gitPullHook } from './lib/events/hooks/git-pull-hook.js'
 import { channelNotificationHook } from './lib/events/hooks/channel-notification-hook.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
@@ -264,6 +265,7 @@ async function start() {
     astroEventTransport.registerHook('usage-metrics', usageMetricsHook)
     astroEventTransport.registerHook('pr-creation', prCreationHook)
     astroEventTransport.registerHook('merge-queue', mergeQueueHook)
+    astroEventTransport.registerHook('pr-merge', prMergeHook)
     astroEventTransport.registerHook('git-pull', gitPullHook)
     astroEventTransport.registerHook('channel-notification', channelNotificationHook)
     astroEventTransport.registerHook('observability', observabilityHook)
