@@ -20,8 +20,9 @@ import {
   blobs,
   nodeComments,
   environmentConfigs,
+  streamingEvents,
 } from '../lib/db/schema.js'
-import { eq, and, or, sql, desc, isNull } from 'drizzle-orm'
+import { eq, and, or, sql, desc, isNull, inArray } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 import { isServerMode } from '../lib/app-mode.js'
@@ -1328,6 +1329,43 @@ app.post('/executions', async (c) => {
       turnsUsed: body.metrics?.turnsUsed || null,
     },
   })
+
+  return c.json({ ok: true })
+})
+
+app.delete('/executions/:nodeId', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const nodeId = c.req.param('nodeId')
+
+  // Find execution records for this node
+  const nodeExecutions = await db.select({
+    executionId: taskExecutions.executionId,
+    projectId: taskExecutions.projectId,
+  })
+    .from(taskExecutions)
+    .where(eq(taskExecutions.nodeClientId, nodeId))
+
+  if (nodeExecutions.length === 0) {
+    return c.json({ ok: true }) // Nothing to delete
+  }
+
+  // Verify user has access to the project via team scope
+  const projectId = nodeExecutions[0].projectId
+  const [project] = await db.select({ id: projects.id }).from(projects)
+    .where(and(eq(projects.id, projectId), teamScopeFilter(projects, user)))
+  if (!project) {
+    return c.json({ error: 'Not authorized' }, 403)
+  }
+
+  const executionIds = nodeExecutions.map(e => e.executionId)
+
+  // Delete streaming events first (references execution_id)
+  await db.delete(streamingEvents)
+    .where(inArray(streamingEvents.executionId, executionIds))
+
+  // Delete execution records
+  await db.delete(taskExecutions)
+    .where(eq(taskExecutions.nodeClientId, nodeId))
 
   return c.json({ ok: true })
 })

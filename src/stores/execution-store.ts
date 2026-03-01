@@ -1624,6 +1624,14 @@ export async function cleanupNodeZustandState(nodeId: string, executionId?: stri
     newExecutions.delete(nodeId)
     return { executions: newExecutions }
   })
+
+  // Delete execution record from DB so it doesn't reappear after page refresh
+  try {
+    const { dataClient } = await import("@/lib/data-client")
+    await dataClient.deleteExecution(nodeId)
+  } catch {
+    // Best effort — server-side reset also handles this
+  }
 }
 
 /** Clear text-batch state for a given nodeId (used by resetExecution). */

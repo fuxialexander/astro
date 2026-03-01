@@ -502,6 +502,10 @@ export const dataClient = {
     await post(`${BASE}/executions`, execution)
   },
 
+  async deleteExecution(nodeId: string): Promise<void> {
+    await del(`${BASE}/executions/${nodeId}`)
+  },
+
   // ── Settings ────────────────────────────────────────────────────────
   async getSettings(): Promise<Record<string, string>> {
     return json<Record<string, string>>(`${BASE}/settings`)
