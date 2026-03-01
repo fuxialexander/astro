@@ -23,3 +23,28 @@ export { isLocalMode } from './app-mode.js'
 export { parseSkillMd } from './skill-parser.js'
 export { getEligibleSkills, buildSkillPromptInjection } from './skill-injector.js'
 export * from './prompt-templates.js'
+
+// arXiv paper parsing (pure functions, no I/O)
+export {
+  parseArxivId,
+  isArxivReference,
+  buildMetadataUrl,
+  buildSourceUrl,
+  buildPdfUrl,
+  buildAbstractUrl,
+  parseArxivAtomResponse,
+  parseLatexFigures,
+  extractLatexText,
+} from './arxiv/index.js'
+export type {
+  ArxivPaperId,
+  ArxivPaperMetadata,
+  ArxivAuthor,
+  ArxivCategory,
+  ArxivLink,
+  ArxivSourceType,
+  ArxivDownloadResult,
+  ArxivFigure,
+  ArxivFetchOptions,
+  LatexFigureRef,
+} from './arxiv/index.js'

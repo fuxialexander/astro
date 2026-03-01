@@ -13,6 +13,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { fetchArxivMetadata, fetchArxivPaper, formatPaperSummary, formatDownloadReport } from '../arxiv/index.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // HTTP Client for Astro API
@@ -484,6 +485,42 @@ const TOOLS = [
     },
   },
 
+  // ── Research Tools ──────────────────────────────────────────────────────
+  {
+    name: 'fetch_arxiv_paper',
+    description:
+      'Fetch an arXiv paper by URL or ID. Returns paper metadata (title, authors, abstract, categories) ' +
+      'and optionally downloads LaTeX source with figures or PDF. ' +
+      'Use this when you need to reference, analyze, or extract content from an arXiv paper. ' +
+      'Accepts any arXiv URL format (abs, pdf, html) or raw IDs (e.g., "2301.07041", "2301.07041v2").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paper: {
+          type: 'string',
+          description: 'arXiv paper URL or ID (e.g., "2301.07041", "https://arxiv.org/abs/2301.07041v2")',
+        },
+        downloadSource: {
+          type: 'boolean',
+          description: 'Whether to download LaTeX source (default: false for metadata-only queries, true for full fetch)',
+        },
+        downloadPdf: {
+          type: 'boolean',
+          description: 'Whether to download PDF (default: false for metadata-only, true when source unavailable)',
+        },
+        extractFigures: {
+          type: 'boolean',
+          description: 'Whether to extract and catalog figures from LaTeX source (default: true when source is downloaded)',
+        },
+        outputDir: {
+          type: 'string',
+          description: 'Output directory for downloaded files (default: auto-generated temp directory)',
+        },
+      },
+      required: ['paper'],
+    },
+  },
+
   // ── Data Access ───────────────────────────────────────────────────────────
   {
     name: 'get_user_profile',
@@ -825,6 +862,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           {
             type: 'text',
             text: `Initiative ${initiativeId} updated successfully`,
+          },
+        ],
+      }
+    }
+
+    // ── Research Tools ────────────────────────────────────────────────────
+    if (toolName === 'fetch_arxiv_paper') {
+      const paper = args.paper as string
+      if (!paper || typeof paper !== 'string') {
+        throw new Error('paper must be a non-empty string (arXiv URL or ID)')
+      }
+
+      const downloadSource = args.downloadSource as boolean | undefined
+      const downloadPdf = args.downloadPdf as boolean | undefined
+
+      // If no download flags set, just return metadata
+      if (downloadSource === undefined && downloadPdf === undefined) {
+        const metadata = await fetchArxivMetadata(paper)
+        return {
+          content: [
+            {
+              type: 'text',
+              text: formatPaperSummary(metadata),
+            },
+          ],
+        }
+      }
+
+      // Full fetch with downloads
+      const result = await fetchArxivPaper(paper, {
+        downloadSource: downloadSource ?? true,
+        downloadPdf: downloadPdf ?? true,
+        extractFigures: (args.extractFigures as boolean | undefined) ?? true,
+        outputDir: args.outputDir as string | undefined,
+      })
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatDownloadReport(result),
           },
         ],
       }
