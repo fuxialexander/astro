@@ -62,13 +62,48 @@ export function useBarDragResize(config: UseBarDragResizeConfig) {
     [],
   )
 
+  const handleTouchStart = useCallback(
+    (
+      e: React.TouchEvent,
+      edge: "left" | "right",
+      itemId: string,
+      barEl: HTMLElement,
+      startDate: string,
+      endDate: string,
+    ) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      const touch = e.touches[0]
+      const start = parseDate(startDate)
+      const end = parseDate(endDate)
+      const rect = barEl.getBoundingClientRect()
+
+      dragRef.current = {
+        active: true,
+        edge,
+        itemId,
+        barEl,
+        startDate: start,
+        endDate: end,
+        initialMouseX: touch.clientX,
+        initialLeft: barEl.offsetLeft,
+        initialWidth: rect.width,
+      }
+
+      barEl.classList.add("dragging")
+      document.body.classList.add("timeline-dragging")
+    },
+    [],
+  )
+
   useEffect(() => {
-    function handleMouseMove(e: MouseEvent) {
+    function applyDragMove(clientX: number) {
       const drag = dragRef.current
       if (!drag?.active) return
 
       const ppd = getPpd()
-      const deltaX = e.clientX - drag.initialMouseX
+      const deltaX = clientX - drag.initialMouseX
       const deltaDays = Math.round(deltaX / ppd)
 
       if (drag.edge === "left") {
@@ -94,12 +129,12 @@ export function useBarDragResize(config: UseBarDragResizeConfig) {
       }
     }
 
-    function handleMouseUp(e: MouseEvent) {
+    function applyDragEnd(clientX: number) {
       const drag = dragRef.current
       if (!drag?.active) return
 
       const ppd = getPpd()
-      const deltaX = e.clientX - drag.initialMouseX
+      const deltaX = clientX - drag.initialMouseX
       const deltaDays = Math.round(deltaX / ppd)
 
       let finalStart = drag.startDate
@@ -140,13 +175,37 @@ export function useBarDragResize(config: UseBarDragResizeConfig) {
       }
     }
 
+    function handleMouseMove(e: MouseEvent) {
+      applyDragMove(e.clientX)
+    }
+
+    function handleMouseUp(e: MouseEvent) {
+      applyDragEnd(e.clientX)
+    }
+
+    function handleTouchMove(e: TouchEvent) {
+      if (!dragRef.current?.active) return
+      // Prevent page scroll while dragging a bar handle
+      e.preventDefault()
+      applyDragMove(e.touches[0].clientX)
+    }
+
+    function handleTouchEnd(e: TouchEvent) {
+      if (!dragRef.current?.active) return
+      applyDragEnd(e.changedTouches[0].clientX)
+    }
+
     window.addEventListener("mousemove", handleMouseMove)
     window.addEventListener("mouseup", handleMouseUp)
+    window.addEventListener("touchmove", handleTouchMove, { passive: false })
+    window.addEventListener("touchend", handleTouchEnd)
     return () => {
       window.removeEventListener("mousemove", handleMouseMove)
       window.removeEventListener("mouseup", handleMouseUp)
+      window.removeEventListener("touchmove", handleTouchMove)
+      window.removeEventListener("touchend", handleTouchEnd)
     }
   }, [getPpd, getTimelineStart, onCommit, minDurationDays])
 
-  return { handleMouseDown }
+  return { handleMouseDown, handleTouchStart }
 }

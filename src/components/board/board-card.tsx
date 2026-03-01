@@ -44,7 +44,7 @@ export function BoardCard({ node, visibleProperties, projectName, onNodeSelect, 
       }}
       className={cn(
         "rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm cursor-grab active:cursor-grabbing transition-shadow",
-        "hover:shadow-md",
+        "hover:shadow-md select-none",
         isDragging && "opacity-0"
       )}
     >

@@ -347,7 +347,7 @@ export function ItemTimelineView<T>({
   const timelineStartRef = useRef(timelineStart)
   useEffect(() => { timelineStartRef.current = timelineStart }, [timelineStart])
 
-  const { handleMouseDown: handleDragMouseDown } = useBarDragResize({
+  const { handleMouseDown: handleDragMouseDown, handleTouchStart: handleDragTouchStart } = useBarDragResize({
     getPpd: () => effectivePpdRef.current,
     getTimelineStart: () => timelineStartRef.current,
     onCommit: (itemId, startDate, endDate) => onDateChange?.(itemId, startDate, endDate),
@@ -549,6 +549,7 @@ export function ItemTimelineView<T>({
                         <div
                           className="drag-handle absolute top-0 bottom-0 w-3 -left-1.5 cursor-col-resize flex items-center justify-center z-10"
                           onMouseDown={(e) => { e.stopPropagation(); handleDragMouseDown(e, "left", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate) }}
+                          onTouchStart={(e) => { e.stopPropagation(); handleDragTouchStart(e, "left", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate) }}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="w-0.5 h-2 rounded-full bg-white/60" />
@@ -556,6 +557,7 @@ export function ItemTimelineView<T>({
                         <div
                           className="drag-handle absolute top-0 bottom-0 w-3 -right-1.5 cursor-col-resize flex items-center justify-center z-10"
                           onMouseDown={(e) => { e.stopPropagation(); handleDragMouseDown(e, "right", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate) }}
+                          onTouchStart={(e) => { e.stopPropagation(); handleDragTouchStart(e, "right", tl.id, e.currentTarget.parentElement!, tl.startDate, tl.endDate) }}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="w-0.5 h-2 rounded-full bg-white/60" />
