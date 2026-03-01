@@ -207,6 +207,28 @@ body {
 body.timeline-dragging {
   cursor: col-resize !important;
   user-select: none;
+  -webkit-user-select: none; /* Safari/iOS */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOUCH & DRAG — Prevent text selection on iOS/Safari during drag operations
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* React Flow: prevent text selection during node drag and canvas pan */
+.react-flow__pane,
+.react-flow__node,
+.react-flow__renderer {
+  -webkit-user-select: none;
+  user-select: none;
+  /* touch-action is managed by React Flow internally */
+}
+
+/* Timeline drag handles: prevent callout and selection on touch */
+.drag-handle {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none; /* Prevent iOS long-press callout */
+  touch-action: none;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
