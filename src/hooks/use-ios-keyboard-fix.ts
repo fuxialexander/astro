@@ -4,12 +4,26 @@ import { useEffect } from "react"
  * Prevents iOS/iPadOS from shifting the entire page when the virtual keyboard
  * (or toolbar/suggestions bar with external keyboard) appears.
  *
- * On iOS, focusing an input can cause `window.scrollTo` at the document level,
- * pushing the fixed-position app layout off-screen. This hook resets any
- * unwanted document-level scroll that iOS applies.
+ * ## Why this hook exists (not just CSS)
+ *
+ * On iOS WebKit, focusing a text input triggers the browser to programmatically
+ * scroll the document to bring the input "into view" — even when the html element
+ * has `overflow: hidden`. The only reliable CSS fix is `position: fixed` on html,
+ * but that's an iOS-specific workaround that could break scroll restoration on
+ * desktop browsers. So we scope it to iOS only:
+ *
+ * 1. Adds `.ios-viewport-fix` class to `<html>` → enables `position: fixed` (CSS)
+ * 2. Listens for VisualViewport resize/scroll events and resets `window.scrollTo(0,0)`
+ *
+ * The scroll-reset (layer 2) is NOT redundant with `position: fixed` (layer 1):
+ * iOS WebKit can still shift `window.scrollY` during visual viewport transitions
+ * (keyboard appearing/disappearing) even with `position: fixed`. This is a known
+ * WebKit behavior where the layout engine temporarily adjusts scroll offset during
+ * viewport geometry changes. The JS handler catches and immediately reverts these.
  *
  * Works alongside the `interactive-widget=resizes-visual` viewport meta tag
- * and `position: fixed` on html/body as a belt-and-suspenders approach.
+ * (which tells the browser to only resize the visual viewport, not the layout
+ * viewport, when the keyboard appears).
  */
 export function useIOSKeyboardFix() {
   useEffect(() => {
@@ -20,9 +34,14 @@ export function useIOSKeyboardFix() {
 
     if (!isIOS) return
 
+    // Apply iOS-specific CSS (position: fixed on html) via class toggle.
+    // This is scoped to iOS to avoid affecting desktop scroll restoration
+    // and Android keyboard behavior.
+    document.documentElement.classList.add("ios-viewport-fix")
+
     // Reset any document-level scrolling that iOS applies when focusing inputs.
-    // This runs on scroll because iOS may force-scroll the document even with
-    // overflow: hidden + position: fixed.
+    // Even with position: fixed + overflow: hidden, iOS WebKit can force-scroll
+    // the document during visual viewport transitions (keyboard show/hide).
     const preventDocumentScroll = () => {
       if (window.scrollX !== 0 || window.scrollY !== 0) {
         window.scrollTo(0, 0)
@@ -41,6 +60,7 @@ export function useIOSKeyboardFix() {
       visualViewport.addEventListener("scroll", handleViewportResize)
 
       return () => {
+        document.documentElement.classList.remove("ios-viewport-fix")
         visualViewport.removeEventListener("resize", handleViewportResize)
         visualViewport.removeEventListener("scroll", handleViewportResize)
       }
@@ -49,6 +69,7 @@ export function useIOSKeyboardFix() {
     // Fallback: listen for document scroll events
     window.addEventListener("scroll", preventDocumentScroll)
     return () => {
+      document.documentElement.classList.remove("ios-viewport-fix")
       window.removeEventListener("scroll", preventDocumentScroll)
     }
   }, [])
