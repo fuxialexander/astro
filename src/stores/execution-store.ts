@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project, ExecutionSummary } from "@/types"
 import { parseSSEStream } from "@/lib/sse-parser"
+import { fetchStreamingEventsCatchUp, type StreamingEventRow } from "@/lib/api-client"
 import { usePlanStore, isLive } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
@@ -1029,27 +1030,23 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
-        // 6. Process SSE stream using existing infrastructure
+        // 6. Process SSE stream using existing infrastructure (with reconnection)
         const planStore = usePlanStore.getState()
-        await parseSSEStream(response, {
-          onEvent: ({ event, data }) => {
-            handleSSEEvent(event, data, nodeId, set, get, planStore)
-
-            // On result, extract plan JSON
-            if (event === "result") {
-              try {
-                const exec = get().executions.get(nodeId)
-                if (exec?.streamText) {
-                  const result = applyPlanFromText(projectId, exec.streamText)
-                  if (result.applied) {
-                    console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
-                  }
+        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, (event) => {
+          // On result, extract plan JSON
+          if (event === "result") {
+            try {
+              const exec = get().executions.get(nodeId)
+              if (exec?.streamText) {
+                const result = applyPlanFromText(projectId, exec.streamText)
+                if (result.applied) {
+                  console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
                 }
-              } catch (e) {
-                console.error("[plan-session] Failed to extract plan:", e)
               }
+            } catch (e) {
+              console.error("[plan-session] Failed to extract plan:", e)
             }
-          },
+          }
         })
       } catch (error) {
         // Only update if entry still exists (cancelPlanSession/cleanupPlanSession may have already handled it)
@@ -1256,26 +1253,22 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
-        // Process SSE stream
+        // Process SSE stream (with reconnection)
         const planStore = usePlanStore.getState()
-        await parseSSEStream(response, {
-          onEvent: ({ event, data }) => {
-            handleSSEEvent(event, data, nodeId, set, get, planStore)
-
-            if (event === "result") {
-              try {
-                const exec = get().executions.get(nodeId)
-                if (exec?.streamText) {
-                  const result = applyPlanFromText(projectId, exec.streamText)
-                  if (result.applied) {
-                    console.log(`[plan-session-forProject] Plan extracted: ${result.nodeCount} nodes`)
-                  }
+        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, (event) => {
+          if (event === "result") {
+            try {
+              const exec = get().executions.get(nodeId)
+              if (exec?.streamText) {
+                const result = applyPlanFromText(projectId, exec.streamText)
+                if (result.applied) {
+                  console.log(`[plan-session-forProject] Plan extracted: ${result.nodeCount} nodes`)
                 }
-              } catch (e) {
-                console.error("[plan-session-forProject] Failed to extract plan:", e)
               }
+            } catch (e) {
+              console.error("[plan-session-forProject] Failed to extract plan:", e)
             }
-          },
+          }
         })
       } catch (error) {
         if (!get().executions.has(nodeId)) return
@@ -1389,13 +1382,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
-        // 5. Process SSE stream
+        // 5. Process SSE stream (with reconnection)
         const planStore = usePlanStore.getState()
-        await parseSSEStream(response, {
-          onEvent: ({ event, data }) => {
-            handleSSEEvent(event, data, nodeId, set, get, planStore)
-          },
-        })
+        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore)
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           set((state) => {
@@ -1538,11 +1527,206 @@ async function processExecutionStream(
   get: () => ExecutionState,
   planStore: ReturnType<typeof usePlanStore.getState>
 ) {
-  await parseSSEStream(response, {
-    onEvent: ({ event, data }) => {
-      handleSSEEvent(event, data, nodeId, set, get, planStore)
-    },
+  await processSSEStreamWithReconnect(response, nodeId, set, get, planStore)
+}
+
+// ─── SSE Reconnection Infrastructure ────────────────────────────────
+
+const MAX_RECONNECT_RETRIES = 5
+const RECONNECT_BACKOFF_BASE_MS = 1000
+const POLL_INTERVAL_MS = 5000
+
+/** Update connectionState on an execution entry */
+function setConnectionState(
+  nodeId: string,
+  connectionState: 'connected' | 'reconnecting' | 'polling' | undefined,
+  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
+) {
+  set((state) => {
+    const newExecutions = new Map(state.executions)
+    const exec = newExecutions.get(nodeId)
+    if (exec) {
+      newExecutions.set(nodeId, { ...exec, connectionState })
+    }
+    return { executions: newExecutions }
   })
+}
+
+/** Check if caught-up events contain a terminal event (result/done/error with terminal semantics) */
+function hasTerminalEvent(events: StreamingEventRow[]): boolean {
+  return events.some(e => e.eventType === 'result' || e.eventType === 'done')
+}
+
+/** Process caught-up events through handleSSEEvent, same as live stream */
+function processCatchUpEvents(
+  events: StreamingEventRow[],
+  nodeId: string,
+  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
+  get: () => ExecutionState,
+  planStore: ReturnType<typeof usePlanStore.getState>,
+  onResult?: (event: string, data: string) => void,
+) {
+  for (const row of events) {
+    const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+    handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
+    onResult?.(row.eventType, data)
+  }
+}
+
+/**
+ * Reusable SSE stream processor with automatic reconnection via catch-up.
+ *
+ * Flow:
+ * 1. Stream SSE normally, tracking lastSeq from `id:` fields
+ * 2. On normal completion (result/done): exit cleanly
+ * 3. On stream error (network drop):
+ *    a. If page hidden (unload): skip
+ *    b. Set connectionState: 'reconnecting'
+ *    c. Catch up via fetchStreamingEventsCatchUp
+ *    d. If caught-up events include terminal event: reconcile and exit
+ *    e. If task still running: exponential backoff retry
+ *    f. After MAX_RECONNECT_RETRIES: switch to polling mode
+ */
+async function processSSEStreamWithReconnect(
+  response: Response,
+  nodeId: string,
+  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
+  get: () => ExecutionState,
+  planStore: ReturnType<typeof usePlanStore.getState>,
+  /** Optional per-event callback for plan/chat sessions that need extra processing */
+  onEventCallback?: (event: string, data: string) => void,
+): Promise<void> {
+  let lastSeq = 0
+  let streamCompleted = false
+
+  // 1. Stream normally, tracking lastSeq
+  try {
+    await parseSSEStream(response, {
+      onEvent: ({ event, data }) => {
+        handleSSEEvent(event, data, nodeId, set, get, planStore)
+        onEventCallback?.(event, data)
+        // Terminal events mean the stream completed normally
+        if (event === 'result' || event === 'done') {
+          streamCompleted = true
+        }
+      },
+      onId: (id) => {
+        const seq = parseInt(id, 10)
+        if (!isNaN(seq) && seq > lastSeq) {
+          lastSeq = seq
+        }
+      },
+    })
+  } catch (streamError) {
+    // Stream errored — fall through to reconnection logic
+    if (streamCompleted) return // Already got the result, ignore trailing error
+    console.warn(`[sse-reconnect] Stream error for ${nodeId}:`, streamError)
+  }
+
+  // 2. If stream completed normally, we're done
+  if (streamCompleted) return
+
+  // 3. Check if we have an executionId to reconnect with
+  const execution = get().executions.get(nodeId)
+  if (!execution?.executionId) {
+    // No executionId means init event never arrived — can't catch up
+    console.warn(`[sse-reconnect] No executionId for ${nodeId}, cannot reconnect`)
+    return
+  }
+
+  // 3a. If page is hidden (unload/navigate away), skip reconnection
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    console.log(`[sse-reconnect] Page hidden, skipping reconnection for ${nodeId}`)
+    return
+  }
+
+  const executionId = execution.executionId
+
+  // 3b. Start reconnection loop
+  console.log(`[sse-reconnect] Starting reconnection for ${nodeId} (executionId: ${executionId}, lastSeq: ${lastSeq})`)
+  setConnectionState(nodeId, 'reconnecting', set)
+
+  let retryCount = 0
+
+  while (retryCount < MAX_RECONNECT_RETRIES) {
+    // Check if execution was cancelled/reset while we're reconnecting
+    const currentExec = get().executions.get(nodeId)
+    if (!currentExec || currentExec.status === 'cancelled') {
+      setConnectionState(nodeId, undefined, set)
+      return
+    }
+
+    try {
+      const { events, lastSeq: newLastSeq } = await fetchStreamingEventsCatchUp(
+        [executionId],
+        lastSeq,
+      )
+
+      if (events.length > 0) {
+        console.log(`[sse-reconnect] Caught up ${events.length} events for ${nodeId} (seq ${lastSeq} → ${newLastSeq})`)
+        processCatchUpEvents(events, nodeId, set, get, planStore, onEventCallback)
+        lastSeq = newLastSeq
+
+        // Check if task completed while disconnected
+        if (hasTerminalEvent(events)) {
+          console.log(`[sse-reconnect] Task completed during disconnect for ${nodeId}`)
+          setConnectionState(nodeId, undefined, set)
+          return
+        }
+
+        // Got events but no terminal — task still running, reset retry count
+        retryCount = 0
+      } else {
+        retryCount++
+      }
+    } catch (catchUpError) {
+      console.warn(`[sse-reconnect] Catch-up fetch failed for ${nodeId}:`, catchUpError)
+      retryCount++
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+    const backoffMs = RECONNECT_BACKOFF_BASE_MS * Math.pow(2, Math.min(retryCount - 1, 4))
+    await new Promise((resolve) => setTimeout(resolve, backoffMs))
+  }
+
+  // 3f. Switch to polling mode after exhausting retries
+  console.log(`[sse-reconnect] Switching to polling mode for ${nodeId}`)
+  setConnectionState(nodeId, 'polling', set)
+
+  // Poll until terminal event or execution is removed/cancelled
+  const pollLoop = async () => {
+    while (true) {
+      const currentExec = get().executions.get(nodeId)
+      if (!currentExec || currentExec.status === 'cancelled' || currentExec.status === 'success' || currentExec.status === 'failure') {
+        setConnectionState(nodeId, undefined, set)
+        return
+      }
+
+      try {
+        const { events, lastSeq: newLastSeq } = await fetchStreamingEventsCatchUp(
+          [executionId],
+          lastSeq,
+        )
+
+        if (events.length > 0) {
+          processCatchUpEvents(events, nodeId, set, get, planStore, onEventCallback)
+          lastSeq = newLastSeq
+
+          if (hasTerminalEvent(events)) {
+            console.log(`[sse-reconnect] Task completed via polling for ${nodeId}`)
+            setConnectionState(nodeId, undefined, set)
+            return
+          }
+        }
+      } catch {
+        // Polling fetch failed — keep trying
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+    }
+  }
+
+  await pollLoop()
 }
 
 // ─── Text Batching for Smooth Streaming ────────────────────────────
