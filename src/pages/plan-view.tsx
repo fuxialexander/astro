@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils"
 import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
+import { getVisualViewportHeight } from "@/hooks/use-visual-viewport"
 import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -285,7 +286,7 @@ function ResizableChatPanel({
         setSize(newWidth)
       } else {
         const delta = startPos.current - e.clientY
-        const newHeight = Math.max(200, Math.min(window.innerHeight * 0.6, startSize.current + delta))
+        const newHeight = Math.max(200, Math.min(getVisualViewportHeight() * 0.6, startSize.current + delta))
         setSize(newHeight)
       }
     }

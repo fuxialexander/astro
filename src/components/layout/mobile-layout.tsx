@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router';
 import { LayoutDashboard, Sparkles, GitBranch, Server } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -38,6 +39,24 @@ const tabs: TabItem[] = [
 
 export function MobileLayout() {
   const location = useLocation();
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  // Detect keyboard open/close via visualViewport resize.
+  // When the keyboard opens, the visual viewport height shrinks significantly.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const KEYBOARD_THRESHOLD = 100; // px — if viewport shrinks by more than this, keyboard is likely open
+
+    const onResize = () => {
+      const heightDiff = window.innerHeight - vv.height;
+      setKeyboardOpen(heightDiff > KEYBOARD_THRESHOLD);
+    };
+
+    vv.addEventListener('resize', onResize);
+    return () => vv.removeEventListener('resize', onResize);
+  }, []);
 
   const isTabActive = (tabPath: string) => {
     if (tabPath === '/dashboard') {
@@ -52,7 +71,7 @@ export function MobileLayout() {
         <Outlet />
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 z-50">
+      <div className={cn("fixed bottom-0 left-0 right-0 z-50 transition-transform duration-200", keyboardOpen && "translate-y-full")}>
         {/* Gradient overlay — sits behind tab bar, fades content into bottom */}
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none" />
 

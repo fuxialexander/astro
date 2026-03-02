@@ -11,6 +11,7 @@ import { createPortal } from "react-dom"
 import { FileCode2, Hash } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiUrl } from "@/lib/api-url"
+import { getVisualViewportHeight } from "@/hooks/use-visual-viewport"
 
 export interface SlashCommand {
   name: string
@@ -124,11 +125,13 @@ export function FileCompletionTextarea({
     if (!textarea) return null
     const rect = textarea.getBoundingClientRect()
     const maxDropdownHeight = hasMentionItems ? 280 : 240
-    const spaceBelow = window.innerHeight - rect.bottom
+    // Use visualViewport height to account for on-screen keyboards on iPad/iOS
+    const viewportHeight = getVisualViewportHeight()
+    const spaceBelow = viewportHeight - rect.bottom
     const showAbove = spaceBelow < maxDropdownHeight + 8
     if (showAbove) {
       return {
-        bottom: window.innerHeight - rect.top + 4,
+        bottom: viewportHeight - rect.top + 4,
         left: rect.left,
         width: Math.max(rect.width, opts?.minWidth ?? 0),
       }

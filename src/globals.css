@@ -186,6 +186,17 @@
   border-color: var(--border);
 }
 
+html, body {
+  /* Prevent iOS from scrolling the entire page when virtual keyboard
+     (or keyboard accessory bar) appears on iPad/iPhone.
+     This keeps the viewport fixed and lets inner scroll containers handle overflow. */
+  overflow: hidden;
+  overscroll-behavior: none;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
+
 body {
   background-color: var(--background);
   color: var(--foreground);
