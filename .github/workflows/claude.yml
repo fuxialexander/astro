@@ -52,8 +52,9 @@ jobs:
             Bash(git fetch *)
             Bash(git add *)
             Bash(git commit *)
-            Bash(git push *)
-            Bash(cd * && git *)
+            Bash(git push)
+            Bash(git push -u origin *)
+            Bash(git push origin *)
 
           additional_permissions: |
             actions: read
