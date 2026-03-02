@@ -271,6 +271,13 @@ export interface TaskDispatch {
   baseBranch?: string;
 
   /**
+   * Project-level accumulation branch (e.g., 'astro/7b19a9').
+   * When set, the agent runner creates the worktree from this branch instead of main,
+   * and per-task PRs target this branch for auto-merge.
+   */
+  projectBranch?: string;
+
+  /**
    * Worktree strategy for non-git or copy-based execution.
    * - 'copy': Copy project files to worktree dir (default for 'copy' deliveryMode)
    * - 'reference': Create empty dir with file map (for large datasets)
