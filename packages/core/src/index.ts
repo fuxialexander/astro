@@ -23,3 +23,6 @@ export { isLocalMode } from './app-mode.js'
 export { parseSkillMd } from './skill-parser.js'
 export { getEligibleSkills, buildSkillPromptInjection } from './skill-injector.js'
 export * from './prompt-templates.js'
+
+// Built-in skill definitions
+export * from './skills/index.js'
