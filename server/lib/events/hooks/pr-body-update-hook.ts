@@ -307,91 +307,115 @@ export const prBodyUpdateHook: EventHook = async (event: AstroEvent) => {
   const prNumber = node.prNumber ?? result.prNumber
   if (!prNumber) return
 
-  console.log(`${LOG_PREFIX} Processing PR #${prNumber} for node ${node.id}`)
-
-  // ── Step 1: Resolve owner/repo ────────────────────────────────────
-  // Try event.project context first, then fall back to DB lookup
-  let owner: string | undefined
-  let repo: string | undefined
-  let ownerId: string | undefined
-  let teamId: string | null | undefined
-
-  if (project?.githubOwner && project?.githubRepo) {
-    owner = project.githubOwner
-    repo = project.githubRepo
-  } else if (project?.repository) {
-    const parsed = parseRepository(project.repository)
-    if (parsed) {
-      owner = parsed.owner
-      repo = parsed.repo
-    }
-  }
-
-  // Always look up DB project — we need ownerId/teamId for token resolution
-  // and may need it for owner/repo if event.project didn't have them
+  // Top-level try-catch ensures this hook never breaks the task completion flow.
+  // The event transport also wraps hooks in try-catch, but hook-level handling
+  // provides better diagnostic messages and makes error resilience explicit.
   try {
-    const [dbProject] = await db
-      .select({
-        ownerId: projects.ownerId,
-        teamId: projects.teamId,
-        githubOwner: projects.githubOwner,
-        githubRepo: projects.githubRepo,
-        repository: projects.repository,
-      })
-      .from(projects)
-      .where(eq(projects.id, event.projectId))
-      .limit(1)
+    console.log(`${LOG_PREFIX} Processing PR #${prNumber} for node ${node.id}`)
 
-    if (!dbProject) {
-      console.warn(`${LOG_PREFIX} Project not found: ${event.projectId}`)
+    // ── Step 1: Resolve owner/repo ────────────────────────────────────
+    // Try event.project context first, then fall back to DB lookup
+    let owner: string | undefined
+    let repo: string | undefined
+    let ownerId: string | undefined
+    let teamId: string | null | undefined
+
+    if (project?.githubOwner && project?.githubRepo) {
+      owner = project.githubOwner
+      repo = project.githubRepo
+    } else if (project?.repository) {
+      const parsed = parseRepository(project.repository)
+      if (parsed) {
+        owner = parsed.owner
+        repo = parsed.repo
+      }
+    }
+
+    // Always look up DB project — we need ownerId/teamId for token resolution
+    // and may need it for owner/repo if event.project didn't have them
+    try {
+      const [dbProject] = await db
+        .select({
+          ownerId: projects.ownerId,
+          teamId: projects.teamId,
+          githubOwner: projects.githubOwner,
+          githubRepo: projects.githubRepo,
+          repository: projects.repository,
+        })
+        .from(projects)
+        .where(eq(projects.id, event.projectId))
+        .limit(1)
+
+      if (!dbProject) {
+        console.warn(`${LOG_PREFIX} Project not found: ${event.projectId}`)
+        return
+      }
+
+      ownerId = dbProject.ownerId
+      teamId = dbProject.teamId
+
+      // Fill in owner/repo from DB if not already resolved from event context
+      if (!owner || !repo) {
+        if (dbProject.githubOwner && dbProject.githubRepo) {
+          owner = dbProject.githubOwner
+          repo = dbProject.githubRepo
+        } else if (dbProject.repository) {
+          const parsed = parseRepository(dbProject.repository)
+          if (parsed) {
+            owner = parsed.owner
+            repo = parsed.repo
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`${LOG_PREFIX} Error looking up project:`, err instanceof Error ? err.message : err)
       return
     }
 
-    ownerId = dbProject.ownerId
-    teamId = dbProject.teamId
-
-    // Fill in owner/repo from DB if not already resolved from event context
     if (!owner || !repo) {
-      if (dbProject.githubOwner && dbProject.githubRepo) {
-        owner = dbProject.githubOwner
-        repo = dbProject.githubRepo
-      } else if (dbProject.repository) {
-        const parsed = parseRepository(dbProject.repository)
-        if (parsed) {
-          owner = parsed.owner
-          repo = parsed.repo
-        }
+      console.warn(`${LOG_PREFIX} Could not determine GitHub repository for project ${event.projectId}`)
+      return
+    }
+
+    // ── Step 2: Resolve GitHub token ──────────────────────────────────
+    let token: string | null = null
+    try {
+      token = await resolveGitHubToken(ownerId!, teamId ?? null)
+    } catch (err) {
+      console.error(`${LOG_PREFIX} Error resolving GitHub token:`, err instanceof Error ? err.message : err)
+      return
+    }
+    if (!token) {
+      console.warn(`${LOG_PREFIX} No GitHub token available for project ${event.projectId}`)
+      return
+    }
+
+    // ── Step 3: Build PR body via fallback chain ──────────────────────
+    let prBody: string | null = null
+    try {
+      prBody = await buildPrBody(event)
+    } catch (err) {
+      console.error(`${LOG_PREFIX} Error building PR body:`, err instanceof Error ? err.message : err)
+      return
+    }
+    if (!prBody) {
+      console.log(`${LOG_PREFIX} No content available for PR body, skipping`)
+      return
+    }
+
+    // ── Step 4: Update the PR ─────────────────────────────────────────
+    try {
+      const updateResult = await updatePullRequestBody(token, owner, repo, prNumber, prBody)
+      if (updateResult.success) {
+        console.log(`${LOG_PREFIX} Updated PR #${prNumber} body for ${owner}/${repo}`)
+      } else {
+        console.error(`${LOG_PREFIX} Failed to update PR #${prNumber}: ${updateResult.error}`)
       }
+    } catch (err) {
+      console.error(`${LOG_PREFIX} Error calling GitHub API to update PR #${prNumber}:`, err instanceof Error ? err.message : err)
     }
   } catch (err) {
-    console.error(`${LOG_PREFIX} Error looking up project:`, err instanceof Error ? err.message : err)
-    return
-  }
-
-  if (!owner || !repo) {
-    console.warn(`${LOG_PREFIX} Could not determine GitHub repository for project ${event.projectId}`)
-    return
-  }
-
-  // ── Step 2: Resolve GitHub token ──────────────────────────────────
-  const token = await resolveGitHubToken(ownerId!, teamId ?? null)
-  if (!token) {
-    console.warn(`${LOG_PREFIX} No GitHub token available for project ${event.projectId}`)
-    return
-  }
-
-  // ── Step 3: Build PR body via fallback chain ──────────────────────
-  const prBody = await buildPrBody(event)
-  if (!prBody) {
-    console.log(`${LOG_PREFIX} No content available for PR body, skipping`)
-    return
-  }
-
-  // ── Step 4: Update the PR ─────────────────────────────────────────
-  const updateResult = await updatePullRequestBody(token, owner, repo, prNumber, prBody)
-  if (updateResult.success) {
-    console.log(`${LOG_PREFIX} Updated PR #${prNumber} body for ${owner}/${repo}`)
-  } else {
-    console.error(`${LOG_PREFIX} Failed to update PR #${prNumber}: ${updateResult.error}`)
+    // Catch-all: log and swallow so the task completion flow is never interrupted
+    console.error(`${LOG_PREFIX} Unexpected error processing PR #${prNumber} for node ${node.id}:`, err instanceof Error ? err.message : err)
   }
 }
