@@ -17,7 +17,7 @@ export type ModelTier = "large" | "medium" | "small"
 export const defaultModelTierMap: Record<ModelTier, Record<string, string>> = {
   large: {
     "claude-sdk": "opus",
-    codex: "o3",
+    codex: "gpt-5.3-codex",
   },
   medium: {
     "claude-sdk": "sonnet",
@@ -25,7 +25,7 @@ export const defaultModelTierMap: Record<ModelTier, Record<string, string>> = {
   },
   small: {
     "claude-sdk": "haiku",
-    codex: "codex-mini",
+    codex: "gpt-5.3-codex",
   },
 }
 

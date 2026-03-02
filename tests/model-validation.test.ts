@@ -104,16 +104,16 @@ describe('Model alias validation', () => {
   })
 
   describe('codex models are full model IDs (not aliases)', () => {
-    it('codex large is "o3"', () => {
-      expect(defaultModelTierMap.large.codex).toBe('o3')
+    it('codex large is "gpt-5.3-codex"', () => {
+      expect(defaultModelTierMap.large.codex).toBe('gpt-5.3-codex')
     })
 
     it('codex medium is "gpt-5.3-codex"', () => {
       expect(defaultModelTierMap.medium.codex).toBe('gpt-5.3-codex')
     })
 
-    it('codex small is "codex-mini"', () => {
-      expect(defaultModelTierMap.small.codex).toBe('codex-mini')
+    it('codex small is "gpt-5.3-codex"', () => {
+      expect(defaultModelTierMap.small.codex).toBe('gpt-5.3-codex')
     })
   })
 })
