@@ -427,52 +427,50 @@ eventsRoute.get('/stream', async (c) => {
     const onRelayText = (msg: TaskTextMessage) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
-      // Buffer text for batch persistence (flushed on next structural event)
-      streamingEventLog.appendText(msg.taskId, msg.text)
+      // Persistence handled globally in relay-server.ts; only SSE delivery here
       throttle.write(msg.taskId, msg.text)
     }
-    const onRelaySessionInit = async (msg: RelayTaskSessionInitMessage) => {
+    const onRelaySessionInit = async (msg: RelayTaskSessionInitMessage & { _dbSeq?: number }) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
+      // Persistence handled globally in relay-server.ts; use DB seq for SSE ID when available
       const eventData = { taskId: msg.taskId, sessionId: msg.sessionId, model: msg.model }
-      const seq = await streamingEventLog.append(msg.taskId, 'session_init', eventData)
       const data = JSON.stringify(eventData)
-      const id = seq ? String(seq) : eventBuffer.push('task:session_init', data)
+      const id = msg._dbSeq ? String(msg._dbSeq) : eventBuffer.push('task:session_init', data)
       stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
     }
-    const onRelayProgress = async (msg: RelayTaskProgressMessage) => {
+    const onRelayProgress = async (msg: RelayTaskProgressMessage & { _dbSeq?: number }) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
+      // Persistence handled globally in relay-server.ts; use DB seq for SSE ID when available
       const eventData = { taskId: msg.taskId, progress: msg.progress, message: msg.message }
-      const seq = await streamingEventLog.append(msg.taskId, 'progress', eventData)
       const data = JSON.stringify(eventData)
-      const id = seq ? String(seq) : eventBuffer.push('task:progress', data)
+      const id = msg._dbSeq ? String(msg._dbSeq) : eventBuffer.push('task:progress', data)
       stream.writeSSE({ id, event: 'task:progress', data }).catch(() => { alive = false })
     }
-    const onRelayToolTrace = async (msg: RelayTaskToolTraceMessage) => {
+    const onRelayToolTrace = async (msg: RelayTaskToolTraceMessage & { _dbSeq?: number }) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
+      // Persistence handled globally in relay-server.ts; use DB seq for SSE ID when available
       const eventData = {
         taskId: msg.taskId, toolName: msg.toolName,
         toolInput: msg.toolInput, toolResult: msg.toolResult,
         success: msg.success, duration: msg.duration,
       }
-      const eventType = msg.toolInput !== undefined ? 'tool_use' : 'tool_result'
-      const seq = await streamingEventLog.append(msg.taskId, eventType, eventData)
       const data = JSON.stringify(eventData)
-      const id = seq ? String(seq) : eventBuffer.push('task:tool_trace', data)
+      const id = msg._dbSeq ? String(msg._dbSeq) : eventBuffer.push('task:tool_trace', data)
       stream.writeSSE({ id, event: 'task:tool_trace', data }).catch(() => { alive = false })
     }
-    const onRelayFileChange = async (msg: RelayTaskFileChangeMessage) => {
+    const onRelayFileChange = async (msg: RelayTaskFileChangeMessage & { _dbSeq?: number }) => {
       if (!alive || activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
+      // Persistence handled globally in relay-server.ts; use DB seq for SSE ID when available
       const eventData = {
         taskId: msg.taskId, path: msg.path, action: msg.action,
         linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved, diff: msg.diff,
       }
-      const seq = await streamingEventLog.append(msg.taskId, 'file_change', eventData)
       const data = JSON.stringify(eventData)
-      const id = seq ? String(seq) : eventBuffer.push('task:file_change', data)
+      const id = msg._dbSeq ? String(msg._dbSeq) : eventBuffer.push('task:file_change', data)
       stream.writeSSE({ id, event: 'task:file_change', data }).catch(() => { alive = false })
     }
     relayServer.on('task:text', onRelayText)
