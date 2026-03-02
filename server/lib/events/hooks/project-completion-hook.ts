@@ -255,7 +255,8 @@ export const projectCompletionHook: EventHook = async (event: AstroEvent) => {
 
   // Skip if project has an explicit "Push to GitHub" task node — that node handles PR creation
   const pushToGithubNode = nodes.find(n =>
-    n.type === 'task' && !n.deletedAt && /push\s+to\s+github|publish\s+to\s+github/i.test(n.title)
+    n.type === 'task' && !n.deletedAt && n.status !== 'pruned' &&
+    /push\s+to\s+github|publish\s+to\s+github/i.test(n.title)
   )
   if (pushToGithubNode) {
     console.log(`[project-completion-hook] Skipping — project has explicit Push to GitHub node (${pushToGithubNode.id})`)

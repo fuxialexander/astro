@@ -95,6 +95,24 @@ export interface GitHubContextForPrompt {
 }
 
 /**
+ * Whitelist-sanitize a GitHub owner or repo name.
+ * GitHub allows only [a-zA-Z0-9._-] for these fields.
+ * Returns empty string if nothing valid remains.
+ */
+export function sanitizeGitHubName(s: string): string {
+  return s.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 100)
+}
+
+/**
+ * Whitelist-sanitize a git branch name.
+ * Branches can contain [a-zA-Z0-9._/-] (includes slashes for namespaced branches).
+ * Returns empty string if nothing valid remains.
+ */
+export function sanitizeGitBranch(s: string): string {
+  return s.replace(/[^a-zA-Z0-9._/-]/g, '').slice(0, 200)
+}
+
+/**
  * Build the system prompt for plan generation.
  *
  * SECURITY NOTE (MEDIUM-002): Vision documents and repository context are user-provided
@@ -167,12 +185,11 @@ export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoCont
   // Build GitHub integration section
   let githubSection = ""
   if (githubContext?.hasRepo && githubContext.owner && githubContext.repo) {
-    // Sanitize GitHub context values to prevent prompt injection
-    // eslint-disable-next-line no-control-regex
-    const sanitize = (s: string) => s.replace(/[`\n\r\t]/g, '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200)
-    const ghOwner = sanitize(githubContext.owner)
-    const ghRepo = sanitize(githubContext.repo)
-    const target = sanitize(githubContext.baseBranch || 'main')
+    // Whitelist-sanitize: GitHub owner/repo allow [a-zA-Z0-9._-] only
+    const ghOwner = sanitizeGitHubName(githubContext.owner)
+    const ghRepo = sanitizeGitHubName(githubContext.repo)
+    const target = sanitizeGitBranch(githubContext.baseBranch || 'main')
+    if (!ghOwner || !ghRepo) return "" // invalid names → skip section
     githubSection = `\n\n## GitHub Integration
 This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
 The final step must open a pull request that merges all completed work into the \`${target}\` branch.
@@ -747,12 +764,11 @@ export function buildInteractivePlanPrompt(
   // Build GitHub integration section
   let githubSection = ""
   if (options?.githubContext?.hasRepo && options.githubContext.owner && options.githubContext.repo) {
-    // Sanitize GitHub context values to prevent prompt injection
-    // eslint-disable-next-line no-control-regex
-    const sanitize = (s: string) => s.replace(/[`\n\r\t]/g, '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200)
-    const ghOwner = sanitize(options.githubContext.owner)
-    const ghRepo = sanitize(options.githubContext.repo)
-    const target = sanitize(options.githubContext.baseBranch || 'main')
+    // Whitelist-sanitize: GitHub owner/repo allow [a-zA-Z0-9._-] only
+    const ghOwner = sanitizeGitHubName(options.githubContext.owner)
+    const ghRepo = sanitizeGitHubName(options.githubContext.repo)
+    const target = sanitizeGitBranch(options.githubContext.baseBranch || 'main')
+    if (!ghOwner || !ghRepo) return "" // invalid names → skip section
     githubSection = `\n## GitHub Integration
 This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
 The final step must open a pull request that merges all completed work into the \`${target}\` branch.

@@ -16,6 +16,8 @@ import { describe, it, expect } from 'vitest'
 import {
   buildPlanSystemPrompt,
   buildInteractivePlanPrompt,
+  sanitizeGitHubName,
+  sanitizeGitBranch,
   type GitHubContextForPrompt,
   type RepoContextForPrompt,
   type GitStateForPrompt,
@@ -758,14 +760,65 @@ describe('GitHubContextForPrompt — construction logic', () => {
   })
 })
 
-// ─── 9. Prompt sanitization ─────────────────────────────────────────────────
+// ─── 9. Whitelist sanitization functions ─────────────────────────────────────
 
-describe('Prompt sanitization — GitHub context values', () => {
-  it('strips backticks from owner/repo in system prompt', () => {
-    const ctx: GitHubContextForPrompt = { hasRepo: true, owner: 'ac`me', repo: 'a`pp', baseBranch: 'main' }
+describe('sanitizeGitHubName', () => {
+  it('allows valid owner/repo characters', () => {
+    expect(sanitizeGitHubName('acme-corp')).toBe('acme-corp')
+    expect(sanitizeGitHubName('my_repo.js')).toBe('my_repo.js')
+    expect(sanitizeGitHubName('User123')).toBe('User123')
+  })
+
+  it('strips shell metacharacters', () => {
+    expect(sanitizeGitHubName('widgets; rm -rf /')).toBe('widgetsrm-rf')
+    expect(sanitizeGitHubName('repo$(whoami)')).toBe('repowhoami')
+    expect(sanitizeGitHubName('repo | cat /etc/passwd')).toBe('repocatetcpasswd')
+  })
+
+  it('strips backticks and quotes', () => {
+    expect(sanitizeGitHubName('ac`me')).toBe('acme')
+    expect(sanitizeGitHubName("ac'me")).toBe('acme')
+    expect(sanitizeGitHubName('ac"me')).toBe('acme')
+  })
+
+  it('strips control characters', () => {
+    expect(sanitizeGitHubName('o\x00wner')).toBe('owner')
+    expect(sanitizeGitHubName('r\x1fepo')).toBe('repo')
+  })
+
+  it('truncates to 100 chars', () => {
+    const long = 'a'.repeat(200)
+    expect(sanitizeGitHubName(long)).toBe('a'.repeat(100))
+  })
+
+  it('returns empty string for completely invalid input', () => {
+    expect(sanitizeGitHubName('; $() | &')).toBe('')
+  })
+})
+
+describe('sanitizeGitBranch', () => {
+  it('allows slashes for namespaced branches', () => {
+    expect(sanitizeGitBranch('feature/my-branch')).toBe('feature/my-branch')
+    expect(sanitizeGitBranch('release/v1.0')).toBe('release/v1.0')
+  })
+
+  it('strips shell metacharacters', () => {
+    expect(sanitizeGitBranch('main; rm -rf /')).toBe('mainrm-rf/')
+  })
+
+  it('truncates to 200 chars', () => {
+    const long = 'a'.repeat(300)
+    expect(sanitizeGitBranch(long)).toBe('a'.repeat(200))
+  })
+})
+
+describe('Prompt sanitization — integration with buildPlanSystemPrompt', () => {
+  it('strips shell injection from owner/repo in system prompt', () => {
+    const ctx: GitHubContextForPrompt = { hasRepo: true, owner: 'acme; rm -rf /', repo: 'app$(whoami)', baseBranch: 'main' }
     const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
-    expect(prompt).not.toContain('ac`me')
-    expect(prompt).toContain('acme/app')
+    expect(prompt).not.toContain('; rm')
+    expect(prompt).not.toContain('$(whoami)')
+    expect(prompt).toContain('acmerm-rf/appwhoami')
   })
 
   it('strips newlines from baseBranch', () => {
@@ -775,18 +828,58 @@ describe('Prompt sanitization — GitHub context values', () => {
     expect(prompt).toContain('main')
   })
 
-  it('strips control characters', () => {
-    const ctx: GitHubContextForPrompt = { hasRepo: true, owner: 'o\x00wner', repo: 'r\x1fepo', baseBranch: 'main' }
+  it('returns empty prompt when owner sanitizes to empty string', () => {
+    const ctx: GitHubContextForPrompt = { hasRepo: true, owner: '; $()', repo: 'app', baseBranch: 'main' }
     const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
-    expect(prompt).toContain('owner/repo')
+    // Should skip the GitHub section entirely
+    expect(prompt).not.toContain('## GitHub Integration')
+  })
+})
+
+// ─── 10. Project-completion-hook — pruned Push node ─────────────────────────
+
+describe('project-completion-hook — pruned Push node', () => {
+  interface MockNode {
+    id: string
+    title: string
+    type: string
+    status: string
+    deletedAt?: Date | null
+  }
+
+  function shouldSkipHook(nodes: MockNode[]): boolean {
+    const pushNode = nodes.find(n =>
+      n.type === 'task' && !n.deletedAt && n.status !== 'pruned' &&
+      PUSH_TO_GITHUB_RE.test(n.title)
+    )
+    return !!pushNode
+  }
+
+  it('does NOT skip when Push node is pruned (allows fallback PR)', () => {
+    expect(shouldSkipHook([
+      { id: 'n1', title: 'Build API', type: 'task', status: 'completed' },
+      { id: 'n2', title: 'Push to GitHub', type: 'task', status: 'pruned' },
+    ])).toBe(false)
   })
 
-  it('truncates very long values', () => {
-    const longName = 'a'.repeat(500)
-    const ctx: GitHubContextForPrompt = { hasRepo: true, owner: longName, repo: 'r', baseBranch: 'main' }
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
-    // The sanitized owner should be truncated to 200 chars
-    expect(prompt).not.toContain(longName)
-    expect(prompt).toContain('a'.repeat(200))
+  it('still skips when Push node is completed (not pruned)', () => {
+    expect(shouldSkipHook([
+      { id: 'n1', title: 'Build API', type: 'task', status: 'completed' },
+      { id: 'n2', title: 'Push to GitHub', type: 'task', status: 'completed' },
+    ])).toBe(true)
+  })
+
+  it('still skips when Push node is planned (not yet executed)', () => {
+    expect(shouldSkipHook([
+      { id: 'n1', title: 'Build API', type: 'task', status: 'completed' },
+      { id: 'n2', title: 'Push to GitHub', type: 'task', status: 'planned' },
+    ])).toBe(true)
+  })
+
+  it('does NOT skip when Push node is both pruned and deleted', () => {
+    expect(shouldSkipHook([
+      { id: 'n1', title: 'Build API', type: 'task', status: 'completed' },
+      { id: 'n2', title: 'Push to GitHub', type: 'task', status: 'pruned', deletedAt: new Date() },
+    ])).toBe(false)
   })
 })

@@ -26,7 +26,7 @@ import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, u
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
-import { buildInteractivePlanPrompt } from '../lib/prompt-templates.js'
+import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 
@@ -604,9 +604,9 @@ async function dispatchViaRelay(
     // Push to GitHub nodes get special instructions — override delivery mode and workspace section
     if (isPushToGithub && githubContext?.hasRepo) {
       const projectBranchName = `astro/${shortProjectId}`
-      const targetBranch = baseBranch || githubContext.baseBranch || 'main'
-      const ghOwner = githubContext.owner || ''
-      const ghRepo = githubContext.repo || ''
+      const targetBranch = sanitizeGitBranch(baseBranch || githubContext.baseBranch || 'main')
+      const ghOwner = sanitizeGitHubName(githubContext.owner || '')
+      const ghRepo = sanitizeGitHubName(githubContext.repo || '')
 
       // Build explicit sub-PR listing from dependency outputs
       const subPrs = dependencyOutputs
