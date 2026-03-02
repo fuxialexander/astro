@@ -53,6 +53,7 @@ import { TeamInvite } from "@/pages/team-invite"
 import { ProjectNewPlan } from "@/pages/project-new-plan"
 import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
+import { Skills } from "@/pages/skills"
 
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
@@ -328,6 +329,7 @@ export default function App() {
 
                 <Route path="playground" element={<Playground />} />
                 <Route path="environments" element={<Environments />} />
+                <Route path="skills" element={<Skills />} />
                 <Route path="workflows" element={<Workflows />} />
                 <Route path="share/:id" element={<ShareImport />} />
                 <Route path="settings" element={<Settings />} />
