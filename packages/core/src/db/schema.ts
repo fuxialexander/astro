@@ -624,3 +624,25 @@ export const streamingEvents = pgTable('streaming_events', {
   data: jsonb('data').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+// ── Skills ───────────────────────────────────────────────────────
+// Reusable skill definitions that can be assigned to tasks/agents.
+// Skills define instructions, tools, and configurations for specific capabilities.
+export const skills = pgTable('skills', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  version: text('version').notNull().default('1.0.0'),
+  description: text('description').notNull().default(''),
+  instructions: text('instructions').notNull().default(''),
+  category: text('category'), // e.g. 'coding', 'research', 'analysis'
+  tags: text('tags').array().notNull().default([]),
+  source: text('source'), // 'builtin' | 'user' | 'marketplace'
+  sourceUrl: text('source_url'),
+  authorId: uuid('author_id').references(() => userProfiles.id, { onDelete: 'set null' }),
+  enabled: boolean('enabled').notNull().default(true),
+  allowedTools: text('allowed_tools').array().notNull().default([]),
+  config: jsonb('config').$type<Record<string, unknown>>().default({}),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
