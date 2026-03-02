@@ -87,9 +87,9 @@ jobs:
           `packages/agent-runner` is a git submodule pointing to [astro-anywhere/astro-agent](https://github.com/astro-anywhere/astro-agent). Changes to agent-runner code must NOT be submitted in this repo — they cause persistent submodule merge conflicts.
 
           **Correct workflow for agent-runner changes:**
-          1. Submit a separate PR to [astro-anywhere/astro-agent](https://github.com/astro-anywhere/astro-agent)
+          1. Submit a separate PR to [astro-anywhere/astro-agent](https://github.com/astro-anywhere/astro-agent) targeting the `dev` branch (the `main` branch is protected and does not accept direct PRs)
           2. Cross-reference the companion PR in this repo (if any server-side changes are needed)
-          3. After the astro-agent PR merges, the daily `update-submodules.yml` cron auto-creates a submodule pointer update PR here (or trigger it manually)
+          3. After changes are merged to `dev` and then released to `main` in astro-agent, the daily `update-submodules.yml` cron auto-creates a submodule pointer update PR here (or trigger it manually)
 
           **If a PR in this repo modifies files under `packages/agent-runner/`**, flag it as an **Important** issue:
           > Agent-runner is a submodule (`astro-anywhere/astro-agent`). Changes to `packages/agent-runner/` should be submitted as a PR to [astro-anywhere/astro-agent](https://github.com/astro-anywhere/astro-agent) instead, then merged via the `update-submodules.yml` workflow. Direct submodule modifications in this repo cause persistent merge conflicts.
