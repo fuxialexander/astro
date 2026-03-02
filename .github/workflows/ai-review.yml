@@ -2,6 +2,13 @@ name: AI Code Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review (for manual trigger)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -29,6 +36,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Support manual trigger via workflow_dispatch
+          if [ -n "${{ inputs.pr_number }}" ]; then
+            echo "pr_number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+            echo "Manual trigger for PR #${{ inputs.pr_number }}"
+            exit 0
+          fi
+
           # When a branch name is reused across PRs (e.g., project branches that get
           # merged and recreated), the event payload may reference a stale/merged PR.
           # Resolve the actual current open PR for this head branch.
@@ -73,13 +87,14 @@ jobs:
 
           # Detect sub-PRs: look for merged PRs whose base branch is this PR's head branch
           # (task PRs targeting the project branch)
-          SUB_PRS=$(gh pr list --base "${{ github.event.pull_request.head.ref }}" --state merged --json number,title,url,headRefName --jq '.' 2>/dev/null || echo "[]")
+          HEAD_REF=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+          SUB_PRS=$(gh pr list --base "$HEAD_REF" --state merged --json number,title,url,headRefName --jq '.' 2>/dev/null || echo "[]")
           echo "$SUB_PRS" > /tmp/sub_prs.json
           SUB_PR_COUNT=$(echo "$SUB_PRS" | jq 'length')
           echo "sub_pr_count=$SUB_PR_COUNT" >> "$GITHUB_OUTPUT"
 
           if [ "$SUB_PR_COUNT" -gt 0 ]; then
-            echo "::notice::Found $SUB_PR_COUNT sub-PRs merged into branch ${{ github.event.pull_request.head.ref }}"
+            echo "::notice::Found $SUB_PR_COUNT sub-PRs merged into branch $HEAD_REF"
             # Gather each sub-PR's diff summary for the reviewer
             echo "" > /tmp/sub_pr_summaries.txt
             echo "$SUB_PRS" | jq -r '.[].number' | while read -r SUB_NUM; do
@@ -220,14 +235,20 @@ jobs:
           - 🔴 **Request changes** — critical issues that must be fixed
           PROMPT
 
+          # Fetch PR metadata (works for both event-triggered and manual dispatch)
+          PR_TITLE=$(gh pr view "$PR_NUMBER" --json title --jq '.title')
+          PR_AUTHOR=$(gh pr view "$PR_NUMBER" --json author --jq '.author.login')
+          PR_BASE=$(gh pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName')
+          PR_HEAD=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+
           # Append PR context to prompt
           cat >> /tmp/review_prompt.txt <<EOF
 
           ## PR Information
 
-          **Title:** ${{ github.event.pull_request.title }}
-          **Author:** ${{ github.event.pull_request.user.login }}
-          **Base:** ${{ github.event.pull_request.base.ref }} ← **Head:** ${{ github.event.pull_request.head.ref }}
+          **Title:** ${PR_TITLE}
+          **Author:** ${PR_AUTHOR}
+          **Base:** ${PR_BASE} ← **Head:** ${PR_HEAD}
 
           **PR Description:**
           $(cat /tmp/pr_body.txt)
