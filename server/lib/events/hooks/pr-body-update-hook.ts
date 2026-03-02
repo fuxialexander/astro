@@ -187,7 +187,9 @@ async function buildPrBody(
       path: f.path,
       action: f.diff ? 'modified' : 'changed',
     })),
-    worktreePath: 'worktreePath' in result ? result.worktreePath as string : undefined,
+    worktreePath: 'worktreePath' in result && typeof (result as Record<string, unknown>).worktreePath === 'string'
+      ? (result as Record<string, unknown>).worktreePath as string
+      : undefined,
     generateGitDiffSummary,
   })
 

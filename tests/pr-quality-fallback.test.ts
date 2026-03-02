@@ -376,7 +376,12 @@ describe('PR Body Update Hook', () => {
           metrics: { durationMs: 1000 },
           stdout: `Some output here...
 ## Executive Summary
-This is the executive summary extracted from stdout. It describes what was done in detail.
+**Status:** success
+**What was done:** Implemented the executive summary feature extracted from stdout.
+- Added parsing for structured summaries
+- Updated test coverage
+**Follow-ups:**
+- Add edge case handling
 ## Other Section
 More content...`,
         },
@@ -387,10 +392,10 @@ More content...`,
       const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
       const body = JSON.parse(fetchCall[1].body as string)
 
-      expect(body.body).toContain('executive summary extracted from stdout')
+      expect(body.body).toContain('executive summary feature extracted from stdout')
     })
 
-    it('should format PR body with file changes (Layer 4)', async () => {
+    it('should format PR body with file changes when no summary or stdout', async () => {
       const updateResponse = {
         ok: true,
         json: async () => ({ id: 123 }),
@@ -416,8 +421,8 @@ More content...`,
       const body = JSON.parse(fetchCall[1].body as string)
 
       expect(body.body).toContain('## Summary')
-      expect(body.body).toContain('Completed task: Test Task')
-      expect(body.body).toContain('Modified 2 file(s)')
+      expect(body.body).toContain('Test Task')
+      expect(body.body).toContain('## Files Changed')
       expect(body.body).toContain('src/index.ts')
       expect(body.body).toContain('src/utils.ts')
     })
