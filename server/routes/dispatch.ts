@@ -129,23 +129,14 @@ dispatchRoute.post('/task', async (c) => {
   const {
     nodeId,
     projectId,
-    title,
-    description,
-    dependencies = [],
-    verification,
-    visionDoc,
     dependencyOutputs = [],
     priority = 'normal',
     preferredProvider,
-    targetMachineId,
     model,
-    workingDirectory,
     sourceDirectory,
     force = false,
     dryRun = false,
     computeBackend,
-    deliveryMode,
-    remoteType,
     agentDir,
     worktreeStrategy,
     useWorktree,
@@ -153,11 +144,24 @@ dispatchRoute.post('/task', async (c) => {
     isInteractivePlan,
     maxTurns,
     skipSafetyCheck,
-    acceptanceCriteria,
     dispatchSignature,
     dispatchSigningPayload,
     resumeSessionId,
     forkSession,
+  } = body
+
+  // These variables may be resolved from DB when not provided by the client
+  let {
+    title,
+    description,
+    dependencies = [],
+    verification,
+    visionDoc,
+    targetMachineId,
+    workingDirectory,
+    deliveryMode,
+    remoteType,
+    acceptanceCriteria,
   } = body
 
   // PR body enrichment fields (resolved from DB)
@@ -923,20 +927,34 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         console.error('[dispatch] Error emitting task.completed event:', err)
       })
 
-      // Persist PR/branch metadata directly to plan_nodes so it survives page refresh
-      const prPatch: Record<string, unknown> = { updatedAt: new Date() }
-      if (msg.result.branchName) prPatch.branchName = msg.result.branchName
-      if (msg.result.prUrl) prPatch.prUrl = msg.result.prUrl
-      if (msg.result.prNumber) prPatch.prNumber = msg.result.prNumber
-      if (Object.keys(prPatch).length > 1) {
-        db.update(planNodes)
-          .set(prPatch)
-          .where(eq(planNodes.clientId, nodeId))
-          .execute()
-          .catch((err: unknown) => {
-            console.error('[dispatch] Error persisting PR metadata to plan node:', err)
-          })
+      // Persist execution result + PR/branch metadata to plan_nodes (server-side)
+      // This ensures node status is updated even if the frontend SSE connection drops.
+      const isSuccess = msg.result.status === 'completed'
+      const deliveryOk = !msg.result.deliveryStatus ||
+        msg.result.deliveryStatus === 'success' ||
+        msg.result.deliveryStatus === 'skipped'
+      const finalNodeStatus = isSuccess
+        ? (verification === 'auto' && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
+        : 'awaiting_judgment'
+
+      const nodePatch: Record<string, unknown> = {
+        status: finalNodeStatus,
+        executionOutput: msg.result.output || null,
+        executionCompletedAt: new Date(),
+        executionError: msg.result.error || null,
+        updatedAt: new Date(),
       }
+      if (msg.result.branchName) nodePatch.branchName = msg.result.branchName
+      if (msg.result.prUrl) nodePatch.prUrl = msg.result.prUrl
+      if (msg.result.prNumber) nodePatch.prNumber = msg.result.prNumber
+
+      db.update(planNodes)
+        .set(nodePatch)
+        .where(eq(planNodes.clientId, nodeId))
+        .execute()
+        .catch((err: unknown) => {
+          console.error('[dispatch] Error persisting execution result to plan node:', err)
+        })
 
       // Auto-assign defaultMachineId on the project if not yet set
       if (msg.result.status === 'completed' && machineId) {
