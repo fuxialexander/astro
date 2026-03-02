@@ -212,6 +212,8 @@ dispatchRoute.post('/task', async (c) => {
           clientId: planNodes.clientId,
           title: planNodes.title,
           executionOutput: planNodes.executionOutput,
+          status: planNodes.status,
+          type: planNodes.type,
           projectId: planNodes.projectId,
         }).from(planNodes)
           .where(eq(planNodes.projectId, projectId))
@@ -223,6 +225,14 @@ dispatchRoute.post('/task', async (c) => {
               nodeId: depNode.clientId,
               title: depNode.title,
               output: depNode.executionOutput,
+            })
+          } else if (depNode && (depNode.status === 'completed' || depNode.status === 'auto_verified')) {
+            // Milestones and tasks without output but with completed status
+            // still satisfy dependencies
+            dependencyOutputs.push({
+              nodeId: depNode.clientId,
+              title: depNode.title,
+              output: `[${depNode.type || 'node'} ${depNode.status}]`,
             })
           }
         }

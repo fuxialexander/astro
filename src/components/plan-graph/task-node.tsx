@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useEffect, useRef } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle } from "lucide-react"
+import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, Diamond } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
@@ -44,6 +44,7 @@ type TaskNodeData = Node<{
   selectionActive?: boolean
   onDecompose?: (nodeId: string) => void
   onToggleSelect?: (nodeId: string) => void
+  governedCount?: number
 }>
 
 export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeData>) {
@@ -112,13 +113,118 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
     return due < today
   })()
 
+  // ── Milestone node ─────────────────────────────────────────────
+  if (isMilestone) {
+    const governedCount = data.governedCount ?? 0
+    return (
+      <div
+        className={cn(
+          "relative flex items-center gap-2 border-2 border-dashed px-4 shadow-sm transition-all duration-200",
+          "h-9 w-[240px] rounded-full",
+          highlight.border,
+          "bg-muted/40",
+          data.status === "completed" || data.status === "auto_verified"
+            ? "border-success/50 bg-success/5"
+            : "border-primary/30 bg-primary/[0.03]",
+          data.status === "pruned" && "opacity-50",
+          isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
+          isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50",
+          isRecentlyUpdated && "ring-2 ring-info/50 animate-pulse"
+        )}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <Handle
+          type="target"
+          position={Position.Top}
+          className={cn(
+            "!border-none !rounded-full transition-all duration-150",
+            hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+          )}
+        />
+        {hovered && (
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+            <Plus className="h-3 w-3 text-primary-foreground" />
+          </div>
+        )}
+
+        {showTooltip && (
+          <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-[280px] z-30 pointer-events-none bg-popover border shadow-lg rounded-lg p-3">
+            <p className="text-xs font-semibold text-foreground leading-snug">{data.title}</p>
+            {data.description && (
+              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed line-clamp-4">
+                {data.description.slice(0, 200)}{data.description.length > 200 ? "..." : ""}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Selection checkbox or diamond icon */}
+        {showCheckbox ? (
+          <button
+            type="button"
+            onClick={handleCheckboxClick}
+            className={cn(
+              "relative z-10 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors cursor-pointer p-1 -m-1",
+              isChecked
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-muted-foreground/40 bg-transparent hover:border-primary/60"
+            )}
+          >
+            {isChecked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+          </button>
+        ) : (
+          <Diamond className={cn(
+            "h-3.5 w-3.5 shrink-0 relative z-10",
+            data.status === "completed" || data.status === "auto_verified"
+              ? "text-success fill-success/20"
+              : "text-primary/60 fill-primary/10"
+          )} />
+        )}
+
+        <span className={cn(
+          "truncate text-[11px] font-semibold uppercase tracking-wider relative z-10",
+          data.status === "pruned"
+            ? "text-muted-foreground line-through"
+            : data.status === "completed" || data.status === "auto_verified"
+              ? "text-success/80"
+              : "text-foreground/70"
+        )}>
+          {data.title}
+        </span>
+
+        {/* Governed task count */}
+        {governedCount > 0 && (
+          <span className="ml-auto text-[10px] font-medium text-muted-foreground relative z-10 shrink-0">
+            {governedCount} {governedCount === 1 ? "task" : "tasks"}
+          </span>
+        )}
+
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className={cn(
+            "!border-none !rounded-full transition-all duration-150",
+            hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+          )}
+        />
+        {hovered && (
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+            <Plus className="h-3 w-3 text-primary-foreground" />
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Regular task node ──────────────────────────────────────────
   return (
     <div
       className={cn(
         "relative flex items-center gap-2.5 border px-3 shadow-sm transition-all duration-200",
         highlight.bg,
         highlight.border,
-        isMilestone ? "h-10 w-[200px] rounded-[20px]" : "h-[44px] w-[180px] rounded-xl",
+        "h-[44px] w-[180px] rounded-xl",
         data.status === "pruned" && "opacity-50",
         isOverdue && "border-l-error border-l-[3px]",
         isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
@@ -176,10 +282,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
 
       {/* Progress bar overlay for running tasks (clipped to node border) */}
       {isRunning && progress > 0 && (
-        <div className={cn(
-          "absolute inset-0 overflow-hidden pointer-events-none",
-          isMilestone ? "rounded-[20px]" : "rounded-xl"
-        )}>
+        <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-xl">
           <div
             className="absolute left-0 top-0 bottom-0 bg-info/10 transition-all duration-500"
             style={{ width: `${progress}%` }}

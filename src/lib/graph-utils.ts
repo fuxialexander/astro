@@ -2,8 +2,8 @@ import type { PlanNode, PlanEdge } from "@/types"
 
 export const NODE_WIDTH = 180
 export const NODE_HEIGHT = 44
-const MILESTONE_WIDTH = 200
-// const MILESTONE_HEIGHT = 40
+const MILESTONE_WIDTH = 240
+const MILESTONE_HEIGHT = 36
 const VERTICAL_GAP = 60
 const HORIZONTAL_GAP = 40
 
@@ -18,8 +18,8 @@ function overlapsAny(
   return allNodes.some((n) => {
     // Skip nodes without positions
     if (!n.position) return false
-    const w = n.type === "milestone" ? 200 : NODE_WIDTH
-    const h = n.type === "milestone" ? 40 : NODE_HEIGHT
+    const w = n.type === "milestone" ? MILESTONE_WIDTH : NODE_WIDTH
+    const h = n.type === "milestone" ? MILESTONE_HEIGHT : NODE_HEIGHT
     return (
       x < n.position.x + w + HORIZONTAL_GAP &&
       x + NODE_WIDTH + HORIZONTAL_GAP > n.position.x &&
