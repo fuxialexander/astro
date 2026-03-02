@@ -15,6 +15,7 @@ import {
   Link2,
   Check,
   RotateCcw,
+  GitPullRequest,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -421,6 +422,19 @@ export function OverviewTab({
                   <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-mono">
                     {project.source.baseBranch}
                   </Badge>
+                )}
+                {project.projectPrUrl && (
+                  <a
+                    href={project.projectPrUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex"
+                  >
+                    <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 text-primary hover:bg-primary/10 transition-colors">
+                      <GitPullRequest className="h-3 w-3" />
+                      PR #{project.projectPrNumber}
+                    </Badge>
+                  </a>
                 )}
               </div>
             )}

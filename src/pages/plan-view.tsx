@@ -189,6 +189,21 @@ function WorkdirBar({ project }: { project: Project }) {
                       <span className="shrink-0">{project.source.baseBranch}</span>
                     </>
                   )}
+                  {project.projectPrUrl && (
+                    <>
+                      <span className="opacity-30 mx-0.5">|</span>
+                      <a
+                        href={project.projectPrUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-0.5 text-primary hover:underline shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <GitPullRequest className="h-3 w-3" />
+                        <span>PR #{project.projectPrNumber}</span>
+                      </a>
+                    </>
+                  )}
                   <span className="opacity-30 mx-0.5">|</span>
                 </>
               )}
@@ -1566,7 +1581,7 @@ export function PlanView() {
 
         <div className="flex-1 min-w-0" />
 
-        {/* Display settings — right-aligned, only visible when Plan is active */}
+        {/* View mode toggle - right-aligned, only visible when Plan is active */}
         {activeTab === "plan" && (
           <div className="hidden md:flex items-center gap-2 shrink-0">
             <DisplayPopover config={{
