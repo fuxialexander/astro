@@ -445,6 +445,12 @@ agentRoute.post('/generate-plan', async (c) => {
   const { description, visionDoc, projectId, model, workingDirectory, fileTree, keyFiles, targetMachineId, gitState } = body
   const taskId = `gen-${projectId}-${Date.now()}`
 
+  // Verify project ownership
+  const user = c.get('user') as AuthUser
+  if (!await verifyProjectAccess(projectId, user)) {
+    return c.json({ error: 'Project not found' }, 404)
+  }
+
   console.log(`[plan-gen] Request received: projectId=${projectId}, targetMachineId=${targetMachineId || 'any'}, workingDirectory=${workingDirectory || 'none'}`)
 
   // Build repo context from provided data (key files + file tree from remote setup)

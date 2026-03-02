@@ -299,13 +299,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
             type: 'dependency',
           }
           get().addEdge(edge)
-
-          // Update Push node's local dependencies array
-          const updatedDeps = [...(pushNode.dependencies ?? []), nodeId]
-          const updatedNodes = get().nodes.map((n) =>
-            n.id === pushNode.id ? { ...n, dependencies: updatedDeps, updatedAt: new Date() } : n
-          )
-          set({ nodes: updatedNodes })
+          // No need to update pushNode.dependencies locally — it's rebuilt from edges on load()
         }
       }
     }
