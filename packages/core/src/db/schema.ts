@@ -619,3 +619,26 @@ export const streamingEvents = pgTable('streaming_events', {
   data: jsonb('data').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+// ── Skills ──────────────────────────────────────────────────────────
+// Reusable skill definitions (prompt templates, tool configs, MCP tool bundles)
+// that can be attached to plan nodes or used in agent sessions.
+export const skills = pgTable('skills', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  description: text('description').notNull().default(''),
+  category: text('category').notNull().default('general'), // 'general' | 'coding' | 'research' | 'analysis' | 'devops' | 'custom'
+  icon: text('icon').default('⚡'),
+  promptTemplate: text('prompt_template').notNull().default(''),
+  toolConfig: jsonb('tool_config').$type<Record<string, unknown>>().notNull().default({}),
+  mcpTools: jsonb('mcp_tools').$type<string[]>().notNull().default([]),
+  tags: jsonb('tags').$type<string[]>().notNull().default([]),
+  isBuiltin: boolean('is_builtin').notNull().default(false),
+  isPublic: boolean('is_public').notNull().default(false),
+  version: integer('version').notNull().default(1),
+  authorId: uuid('author_id').references(() => userProfiles.id, { onDelete: 'set null' }),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
