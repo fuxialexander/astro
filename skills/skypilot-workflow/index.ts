@@ -7,7 +7,7 @@
  * for resource specification, file mounting, setup, and execution.
  */
 
-import type { BuiltinSkillDefinition } from './types.js'
+import type { BuiltinSkillDefinition } from '../types.js'
 
 export const skypilotWorkflowSkill: BuiltinSkillDefinition = {
   name: 'skypilot-workflow',

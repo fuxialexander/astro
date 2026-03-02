@@ -6,7 +6,7 @@
  * and handling GPU workloads including multi-node distributed training.
  */
 
-import type { BuiltinSkillDefinition } from './types.js'
+import type { BuiltinSkillDefinition } from '../types.js'
 
 export const kubernetesWorkflowSkill: BuiltinSkillDefinition = {
   name: 'kubernetes-workflow',
