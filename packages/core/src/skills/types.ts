@@ -1,0 +1,31 @@
+/**
+ * Built-in Skill Definition Types
+ *
+ * These types define the full skill schema as specified in SKILL.md frontmatter,
+ * including all metadata for seeding and skill management.
+ */
+
+/**
+ * Allowed tools that a skill can request access to
+ */
+export type AllowedTool = 'Bash' | 'Read' | 'Write' | 'Glob' | 'Grep' | 'Edit' | string
+
+/**
+ * Full skill definition with all metadata
+ */
+export interface BuiltinSkillDefinition {
+  /** Skill identifier (kebab-case) */
+  name: string
+  /** Semantic version */
+  version: string
+  /** Description of when this skill should be used */
+  description: string
+  /** Full markdown instructions injected into agent prompts */
+  instructions: string
+  /** Skill category */
+  category: 'tools' | 'workflows' | 'templates' | 'integrations' | string
+  /** Searchable tags */
+  tags: string[]
+  /** Tools the skill is allowed to use */
+  allowedTools: AllowedTool[]
+}
