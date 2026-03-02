@@ -1,6 +1,6 @@
 [submodule "packages/agent-runner"]
 	path = packages/agent-runner
-	url = git@github.com:fuxialexander/astro-agent.git
+	url = git@github.com:astro-anywhere/astro-agent.git
 [submodule "packages/cli"]
 	path = packages/cli
 	url = git@github.com:astro-anywhere/cli.git
