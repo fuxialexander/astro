@@ -47,16 +47,20 @@ function getShortId(id: string): string {
  * Derive a unique short node ID that avoids collision with the project ID prefix.
  * AI-generated node IDs are prefixed with projectId.slice(0,8), so getShortId()
  * produces identical results for both project and node. This function uses the
- * server-assigned node number (compact, unique per project) or falls back to the
- * last 6 hex chars of the UUID (skips the shared project prefix).
+ * last 6 hex chars of the UUID (skips the shared project prefix) by default,
+ * falling back to the server-assigned node number when no UUID is available.
  */
 function getShortNodeId(nodeId: string, nodeNumber?: number | null): string {
+  // Use last 6 hex chars of the UUID — unique across nodes since the suffix differs
+  const hex = nodeId.replace(/-/g, '').toLowerCase()
+  if (hex.length >= 6) {
+    return hex.slice(-6)
+  }
+  // Fallback: use server-assigned node number
   if (nodeNumber != null) {
     return `n${nodeNumber}`
   }
-  // Use last 6 hex chars to skip the shared project prefix
-  const hex = nodeId.replace(/-/g, '').toLowerCase()
-  return hex.slice(-6)
+  return hex || 'unknown'
 }
 
 // Validation schemas
@@ -812,6 +816,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
   // Compute the project-level accumulation branch
   const projectBranch = `astro/${shortProjectId}`
+
+  // Persist projectBranch to the project record (idempotent — only sets if not already set)
+  try {
+    await db.update(projects)
+      .set({ projectBranch, updatedAt: new Date() })
+      .where(and(eq(projects.id, projectId), isNull(projects.projectBranch)))
+  } catch (err) {
+    console.warn(`[dispatch] Failed to persist projectBranch for project ${projectId}:`, err)
+  }
 
   // Dispatch via relay
   const taskDispatch = {
