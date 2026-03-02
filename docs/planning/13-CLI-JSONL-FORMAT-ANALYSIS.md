@@ -2,6 +2,19 @@
 
 This document provides a comprehensive analysis of the actual JSONL event formats output by OpenClaw and OpenCode CLIs, based on source code analysis. It identifies gaps between the actual formats and what the Astro adapters currently expect.
 
+**Last Updated:** 2025-03-02
+**Status:** ✅ VERIFIED against source code
+
+## Source Verification
+
+| CLI | Source Files Examined | Verification Date |
+|-----|----------------------|-------------------|
+| OpenClaw | `/tmp/openclaw/src/acp/runtime/types.ts` | 2025-03-02 |
+| OpenCode | `/tmp/opencode/packages/opencode/src/cli/cmd/run.ts` | 2025-03-02 |
+| Astro Adapters | `packages/agent-runner/src/providers/openclaw-adapter.ts`, `opencode-adapter.ts` | 2025-03-02 |
+
+---
+
 ## Executive Summary
 
 | CLI | Actual Format | Adapter Expectation | Gaps |
@@ -367,28 +380,67 @@ opencode run --format json --thinking "your prompt"
 
 ---
 
+## Current Adapter Implementation Status
+
+### Summary of Adapter vs CLI Format Compatibility
+
+| Adapter | CLI Invocation Used | Format CLI Outputs | Format Adapter Expects | Status |
+|---------|--------------------|--------------------|------------------------|--------|
+| OpenClaw | `openclaw agent --json --message "..."` | Batch JSON response OR Gateway EventFrame | ✅ Gateway EventFrame, ✅ Legacy flat, ✅ Batch | **PARTIAL** — ACP format not supported |
+| OpenCode | `opencode run --print --output-format json "..."` | SDK wrapper events (`text`, `tool_use`, `step_*`) | ❌ Claude-like events (`system`, `assistant`, `result`) | **BROKEN** — Complete mismatch |
+
+### Key Finding: OpenCode CLI Flag Discrepancy
+
+**The current OpenCode adapter uses incorrect CLI flags:**
+- Adapter invokes: `opencode run --print --output-format json`
+- Correct invocation: `opencode run --format json`
+
+The `--print` flag does not exist in OpenCode CLI. The `--format` flag (not `--output-format`) controls JSON output.
+
+---
+
 ## Current Adapter Expectations vs Actual Formats
 
 ### OpenClaw Adapter (`openclaw-adapter.ts`)
 
-**Current expectations:**
+**Current CLI invocation (from adapter source):**
+```bash
+openclaw agent --json --message "<task>"
+```
 
-1. **Gateway EventFrame format:**
+**Formats the adapter handles (lines 327-359):**
+
+1. **Gateway EventFrame format:** ✅ Supported
    ```typescript
    { type: "event", event: "chat"|"agent", payload: {...} }
    ```
 
-2. **Legacy flat format:**
+2. **Legacy flat format:** ✅ Supported
    ```typescript
    { type: "session.start"|"content.text"|"tool_use.start"|"tool_use.end"|"file.change"|"session.end" }
    ```
 
-3. **Batch response format:**
+3. **Batch response format:** ✅ Supported
    ```typescript
    { runId, status, summary, result: { payloads: [...], meta } }
    ```
 
-**Actual ACP format:** `{ type: "text_delta"|"status"|"tool_call"|"done"|"error", ... }`
+4. **ACP Runtime format:** ❌ NOT SUPPORTED
+   ```typescript
+   { type: "text_delta"|"status"|"tool_call"|"done"|"error", ... }
+   ```
+
+**Important:** The OpenClaw ACP runtime format (used by `openclaw acp --no-prefix-cwd`) is documented in the adapter header comments but **not actually handled** by any code path in `handleStreamLine()`.
+
+**Actual ACP format from source (`src/acp/runtime/types.ts`):**
+```typescript
+export type AcpRuntimeEvent =
+  | { type: "text_delta"; text: string; stream?: "output" | "thought"; tag?: AcpSessionUpdateTag; }
+  | { type: "status"; text: string; tag?: AcpSessionUpdateTag; used?: number; size?: number; }
+  | { type: "tool_call"; text: string; tag?: AcpSessionUpdateTag; toolCallId?: string; status?: string; title?: string; }
+  | { type: "done"; stopReason?: string; }
+  | { type: "error"; message: string; code?: string; retryable?: boolean; };
+```
 
 ### Gap Analysis — OpenClaw
 
@@ -404,7 +456,17 @@ opencode run --format json --thinking "your prompt"
 
 ### OpenCode Adapter (`opencode-adapter.ts`)
 
-**Current expectations:**
+**Current CLI invocation (from adapter source, line 149-155):**
+```bash
+opencode run --print --output-format json "<task>"
+```
+
+**⚠️ CRITICAL: These flags are WRONG.** The actual OpenCode CLI uses:
+```bash
+opencode run --format json "your prompt"
+```
+
+**What the adapter expects (lines 306-415):**
 
 ```typescript
 { type: "system"|"assistant"|"tool_result"|"result" }
@@ -415,7 +477,31 @@ opencode run --format json --thinking "your prompt"
 - `tool_result` → toolResult
 - `result` → final metrics
 
-**Actual format:** `{ type: "text"|"tool_use"|"step_start"|"step_finish"|"reasoning"|"error", timestamp, sessionID, part: {...} }`
+**What OpenCode CLI actually outputs (from `run.ts` lines 428-527):**
+
+```typescript
+{ type: "text"|"tool_use"|"step_start"|"step_finish"|"reasoning"|"error", timestamp, sessionID, part: {...} }
+```
+
+The `emit()` function in OpenCode (line 428-434) produces this format:
+```typescript
+function emit(type: string, data: Record<string, unknown>) {
+  if (args.format === "json") {
+    process.stdout.write(JSON.stringify({ type, timestamp: Date.now(), sessionID, ...data }) + EOL)
+    return true
+  }
+  return false
+}
+```
+
+**Actual format from source (`packages/opencode/src/cli/cmd/run.ts`):**
+
+1. `text` event (line 491-492): `{ type: "text", timestamp, sessionID, part: TextPart }`
+2. `tool_use` event (line 460): `{ type: "tool_use", timestamp, sessionID, part: ToolPart }`
+3. `step_start` event (line 484): `{ type: "step_start", timestamp, sessionID, part: StepStartPart }`
+4. `step_finish` event (line 488): `{ type: "step_finish", timestamp, sessionID, part: StepFinishPart }`
+5. `reasoning` event (line 505): `{ type: "reasoning", timestamp, sessionID, part: ReasoningPart }`
+6. `error` event (line 527): `{ type: "error", timestamp, sessionID, error: SessionError }`
 
 ### Gap Analysis — OpenCode
 
