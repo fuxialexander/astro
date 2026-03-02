@@ -126,7 +126,7 @@ dispatchRoute.post('/task', async (c) => {
     return c.json({ success: false, error: 'Invalid JSON' }, 400)
   }
 
-  let {
+  const {
     nodeId,
     projectId,
     title,

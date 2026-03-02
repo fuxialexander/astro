@@ -28,7 +28,7 @@ export function useRestoredExecution(
   executionId: string,
   execution?: TaskExecution,
   taskStream?: TaskStream,
-  _isRunning?: boolean,
+  _isRunning?: boolean, // eslint-disable-line @typescript-eslint/no-unused-vars -- kept for API compat; may be used for future optimizations
 ): RestoredExecution {
   const [restoredData, setRestoredData] = useState<{
     activityEvents: TaskActivityEvent[]
@@ -160,7 +160,7 @@ export function useRestoredExecution(
     const execEvents = execution?.activityEvents || []
     if (execEvents.length > 0) {
       console.log('[use-restored] clearing restored data — exec store has', execEvents.length, 'events')
-      setRestoredData(null)
+      setRestoredData(null) // eslint-disable-line react-hooks/set-state-in-effect -- intentional: clear restored cache when live data arrives
       return
     }
     const result = reconstructActivityFromTrace(trace)

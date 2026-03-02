@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { setupTestServer, postJson, request } from '../helpers/test-server.js'
+import { setupTestServer } from '../helpers/test-server.js'
 import {
   createCopyWorktree,
   applyChangesFromCopy,

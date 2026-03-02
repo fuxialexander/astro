@@ -59,7 +59,7 @@ eventsRoute.get('/stream', async (c) => {
   void c.req.query('projectId')
   const lastEventId = c.req.header('Last-Event-ID')
   // Client sends lastSeq on reconnect for DB-backed catch-up of streaming events
-  const lastSeqParam = c.req.query('lastSeq')
+  void c.req.query('lastSeq')
 
   // Extract authenticated user for filtering machine events
   const user = c.get('user') as AuthUser | undefined
