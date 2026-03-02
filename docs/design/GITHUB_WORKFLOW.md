@@ -243,6 +243,32 @@ This diagram shows the full lifecycle across two rounds of execution, including 
 | User resets Push node and re-runs | Works idempotently — checks for existing PR first |
 | Multiple rounds of execution | Each round creates clean delta PRs because the project branch rebases from `<base branch>` |
 
+## Branch Creation Timing
+
+The project branch is **lazily created** — it does NOT exist when the project is created in Astro. It only appears on GitHub when the first task is dispatched for execution.
+
+```
+Timeline:
+─────────────────────────────────────────────────────────────────────
+User creates project       First task dispatched       Task completes
+        │                          │                          │
+        ▼                          ▼                          ▼
+  DB: projectBranch=null    DB: projectBranch=           PR merged into
+  GitHub: no branch         "astro/7b19a9"               project branch
+                            GitHub: branch created
+                            from origin/<base branch>
+```
+
+### Where `projectBranch` is computed and stored
+
+1. **`dispatch.ts`** (server): Computes `projectBranch = astro/${shortProjectId}` when dispatching. Persists it to the `projects` table (idempotent — only sets if `projectBranch` is null).
+2. **`ensureProjectBranch()`** (agent-runner): On the machine executing the task. Checks if `origin/astro/{shortProjectId}` exists. If not, creates it from `origin/<base branch>` and pushes to GitHub.
+3. **`<base branch>` source**: Comes from `project.source.baseBranch` in the DB. Set when the project is created or when the repo is configured. Defaults to `main`.
+
+### GitHub Linked Projects
+
+For "GitHub linked" projects (where each task maps to a GitHub issue), the workflow is the same — `source.baseBranch` is set at project creation time from the repo's default branch. The project branch model is orthogonal to whether tasks have linked issues.
+
 ## Worktree Lifecycle
 
 ### First Task in a Project
@@ -328,6 +354,43 @@ If the final PR was merged and GitHub auto-deleted the project branch:
 - Resetting the Push node and re-running works because `ensureProjectBranch()` re-creates the branch from `<base branch>`
 - The new project branch already contains all prior work (it's on `<base branch>`)
 - Only new task work appears as a delta in the next final PR
+
+```
+GitHub branch state across rounds:
+
+Round 1:
+  <base branch>  ──A──B──C──────────────────────── (original)
+                         │
+                         └── astro/7b19a9 ──D──E──F  (project branch with tasks)
+                                                  │
+                              PR #5: astro/7b19a9 → <base branch>  [MERGED]
+                              GitHub deletes astro/7b19a9 ✂️
+
+  <base branch>  ──A──B──C──D──E──F──────────────── (now includes all Round 1)
+
+Round 2 (after user adds n5, resets Push node):
+  <base branch>  ──A──B──C──D──E──F──────────────── (has Round 1 work)
+                                    │
+                                    └── astro/7b19a9 ──G  (re-created, only new work)
+                                                       │
+                              PR #7: astro/7b19a9 → <base branch>  [OPEN]
+                              Diff shows ONLY "G" (Round 2 delta)
+```
+
+### Corner Case: Concurrent Projects on Same Repo
+
+Multiple Astro projects targeting the same GitHub repo get distinct project branches:
+- Project A: `astro/7b19a9` → `<base branch>`
+- Project B: `astro/3c4d5e` → `<base branch>`
+
+They operate independently. Per-task PRs merge into their own project branch, and each project has its own Push to GitHub node creating its own final PR.
+
+### Corner Case: Push Node Exists but CI Never Passes
+
+If CI fails 3 times, the Push node reports failure but does NOT close the PR. The user can:
+1. Fix the issue manually on GitHub
+2. Reset the Push node in Astro and re-run (agent will detect the open PR and retry CI)
+3. Close the PR manually and reset to create a fresh one
 
 ## Delivery Modes
 
