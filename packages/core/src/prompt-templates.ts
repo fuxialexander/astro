@@ -87,6 +87,13 @@ export interface GitStateForPrompt {
   }
 }
 
+export interface GitHubContextForPrompt {
+  hasRepo: boolean
+  owner?: string
+  repo?: string
+  baseBranch?: string
+}
+
 /**
  * Build the system prompt for plan generation.
  *
@@ -95,7 +102,7 @@ export interface GitStateForPrompt {
  * user content from instructions, the AI may still be influenced by adversarial inputs.
  * Always validate AI outputs (e.g., ensure valid JSON schema, check for malicious commands).
  */
-export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt, gitState?: GitStateForPrompt, skillsSummary?: string): string {
+export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt, gitState?: GitStateForPrompt, skillsSummary?: string, githubContext?: GitHubContextForPrompt): string {
   // SECURITY: Wrap user-provided content in clear delimiters to reduce prompt injection risk
   const visionSection = visionDoc
     ? `\n\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
@@ -157,6 +164,25 @@ export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoCont
     skillsSection = `\n\n## Available Agent Skills & Tools\n\nThe following tools and capabilities are available on the user's machine for task execution. When creating tasks, you can reference these capabilities and design tasks that leverage them.\n\n${skillsSummary}\n`
   }
 
+  // Build GitHub integration section
+  let githubSection = ""
+  if (githubContext?.hasRepo && githubContext.owner && githubContext.repo) {
+    const target = githubContext.baseBranch || 'main'
+    githubSection = `\n\n## GitHub Integration
+This project is connected to GitHub repository \`${githubContext.owner}/${githubContext.repo}\`.
+The final step must open a pull request that merges all completed work into the \`${target}\` branch.
+
+You MUST include a final task node titled "Push to GitHub" that:
+- Depends on ALL other task nodes (it is the very last step in the plan)
+- type: "task" (not milestone — an agent will execute this)
+- verification: "auto"
+- estimate: "XS"
+- labelIds: ["l4"] (Infrastructure)
+- description: "Open a pull request on ${githubContext.owner}/${githubContext.repo} that merges the project branch into \`${target}\`. The PR description should include a comprehensive summary of every completed task, link to per-task PRs where available, and list key changes. After creating the PR, wait for CI checks (tests, lint, type checks, AI code review) to finish. If any check fails or a reviewer requests changes, read the feedback, fix the issues, push to the project branch, and re-check — up to 3 retry cycles. The task succeeds when all required checks pass."
+- acceptanceCriteria: [{ id: "ci-pass", description: "All CI checks pass on the final PR", type: "command", command: "gh pr checks --required", autoVerifiable: true }]
+`
+  }
+
   const hasRepo = repoSection.length > 0
 
   const outputInstructions = hasRepo
@@ -171,7 +197,7 @@ You decompose the project into a directed acyclic graph of tasks and milestones.
 You decompose the project into a directed acyclic graph of tasks and milestones.`
 
   return `${outputInstructions}
-${visionSection}${repoSection}${gitStateSection}${skillsSection}
+${visionSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
 ## Node rules
 - Each node has a unique id: "n1", "n2", etc.
 - type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points.
@@ -656,6 +682,7 @@ export function buildInteractivePlanPrompt(
     repoContext?: RepoContextForPrompt
     gitState?: GitStateForPrompt
     skillsSummary?: string
+    githubContext?: GitHubContextForPrompt
   }
 ): string {
   const visionSection = options?.visionDoc
@@ -711,6 +738,25 @@ export function buildInteractivePlanPrompt(
     skillsSection = `\n## Available Agent Skills & Tools\n\nThe following tools and capabilities are available on the user's machine for task execution. When creating tasks, you can reference these capabilities and design tasks that leverage them.\n\n${options.skillsSummary}\n`
   }
 
+  // Build GitHub integration section
+  let githubSection = ""
+  if (options?.githubContext?.hasRepo && options.githubContext.owner && options.githubContext.repo) {
+    const target = options.githubContext.baseBranch || 'main'
+    githubSection = `\n## GitHub Integration
+This project is connected to GitHub repository \`${options.githubContext.owner}/${options.githubContext.repo}\`.
+The final step must open a pull request that merges all completed work into the \`${target}\` branch.
+
+You MUST include a final task node titled "Push to GitHub" that:
+- Depends on ALL other task nodes (it is the very last step in the plan)
+- type: "task" (not milestone — an agent will execute this)
+- verification: "auto"
+- estimate: "XS"
+- labelIds: ["l4"] (Infrastructure)
+- description: "Open a pull request on ${options.githubContext.owner}/${options.githubContext.repo} that merges the project branch into \`${target}\`. The PR description should include a comprehensive summary of every completed task, link to per-task PRs where available, and list key changes. After creating the PR, wait for CI checks (tests, lint, type checks, AI code review) to finish. If any check fails or a reviewer requests changes, read the feedback, fix the issues, push to the project branch, and re-check — up to 3 retry cycles. The task succeeds when all required checks pass."
+- acceptanceCriteria: [{ id: "ci-pass", description: "All CI checks pass on the final PR", type: "command", command: "gh pr checks --required", autoVerifiable: true }]
+`
+  }
+
   const hasCodebase = !!options?.repoContext
 
   return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
@@ -719,7 +765,7 @@ export function buildInteractivePlanPrompt(
 <user_goal>
 ${description}
 </user_goal>
-${visionSection}${repoSection}${gitStateSection}${skillsSection}
+${visionSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
 ## Your Approach
 ${hasCodebase ? `
 1. **Quick survey of the codebase** — Get a high-level understanding first. Read READMEs, CLAUDE.md, package.json, and use Glob to see the directory/file tree structure. Do NOT dive into individual source files yet — just get the lay of the land.
