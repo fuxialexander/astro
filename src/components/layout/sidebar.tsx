@@ -16,6 +16,7 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
+import { TERMINAL_NODE_STATUSES } from "@/lib/status-config"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -93,24 +94,33 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const executions = useExecutionStore((s) => s.executions)
   const agentSessions = useAgentStore((s) => s.sessions)
 
+  // O(1) lookup map for plan nodes by ID
+  const planNodesById = useMemo(() => {
+    const map = new Map<string, (typeof planNodes)[number]>()
+    for (const node of planNodes) map.set(node.id, node)
+    return map
+  }, [planNodes])
+
   // Count total active tasks + generations, and which projects have running work
   const { activeCount, projectsWithRunning } = useMemo(() => {
     let count = 0
     const running = new Set<string>()
 
-    // Count running executions
+    // Count running executions (filter out stale ones where node is already completed)
     for (const [nodeId, exec] of executions) {
       if (exec.status === "pending" || exec.status === "running") {
+        const node = planNodesById.get(nodeId)
+        // Skip stale executions: node has terminal status but execution still shows running
+        if (node && TERMINAL_NODE_STATUSES.has(node.status)) continue
         count++
-        const node = planNodes.find((n) => n.id === nodeId)
         if (node?.projectId) running.add(node.projectId)
         if (exec.projectId) running.add(exec.projectId)
       }
     }
 
-    // Count active plan generations
+    // Count active and generated plan generations
     for (const [projectId, session] of agentSessions) {
-      if (session.status === "active") {
+      if (session.status === "active" || session.status === "generated") {
         count++
         running.add(projectId)
       }
@@ -125,7 +135,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     }
 
     return { activeCount: count, projectsWithRunning: running }
-  }, [executions, agentSessions, planNodes])
+  }, [executions, agentSessions, planNodes, planNodesById])
 
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const longPressTimer = useRef<number | null>(null)
