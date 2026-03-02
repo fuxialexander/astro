@@ -275,36 +275,67 @@ describe('Push to GitHub — dispatch delivery mode', () => {
 
 describe('Push to GitHub — dispatch prompt assembly', () => {
   // Simulate the prompt parts that dispatch.ts builds for a Push node
+  interface MockDepOutput {
+    nodeId: string
+    title: string
+    output: string
+    prUrl?: string
+    prNumber?: number
+    branchName?: string
+  }
+
   function buildPushPrompt(opts: {
     shortProjectId: string
     baseBranch: string
     ghOwner: string
     ghRepo: string
+    dependencyOutputs?: MockDepOutput[]
   }) {
     const projectBranchName = `astro/${opts.shortProjectId}`
     const targetBranch = opts.baseBranch
+    const dependencyOutputs = opts.dependencyOutputs || []
+
+    // Build sub-PR listing (mirrors dispatch.ts logic)
+    const subPrs = dependencyOutputs
+      .filter(d => d.prUrl && d.prNumber)
+      .map(d => `- **${d.title}**: [PR #${d.prNumber}](${d.prUrl})`)
+    const subPrSection = subPrs.length > 0
+      ? `\n### Sub-PRs merged into \`${projectBranchName}\`\n\nThese task PRs have already been merged into the project branch:\n${subPrs.join('\n')}\n\nUse these PR links in the final PR body to give reviewers context on what changed.`
+      : `\n### Sub-PRs\n\nNo per-task PR links found in dependency outputs. You can discover them by running:\n\`\`\`bash\ngh pr list --base '${projectBranchName}' --state merged --json number,title,url\n\`\`\`\nInclude any found PRs in the final PR body.`
+
     return `## Push to GitHub — Open Final Project PR
 
 You are opening the FINAL pull request for this project on \`${opts.ghOwner}/${opts.ghRepo}\`.
-This merges **all** completed task work from \`${projectBranchName}\` into \`${targetBranch}\`.
+This merges **all** completed task work from the project branch \`${projectBranchName}\` into \`${targetBranch}\`.
+
+### Branch model
+
+- **Project branch:** \`${projectBranchName}\`
+- **Target branch:** \`${targetBranch}\`
+${subPrSection}
 
 ### Step-by-step
 
-1. **Check for an existing PR**
+1. **Discover sub-PRs** (if not all listed above)
    \`\`\`bash
-   gh pr list --head ${projectBranchName} --base ${targetBranch} --json number,state
+   gh pr list --base '${projectBranchName}' --state merged --json number,title,url
    \`\`\`
 
-2. **Create the PR** (when no open PR exists)
-   - Head branch: \`${projectBranchName}\`
-   - Base branch: \`${targetBranch}\`
+2. **Check for an existing final PR**
+   \`\`\`bash
+   gh pr list --head '${projectBranchName}' --base '${targetBranch}' --json number,state
+   \`\`\`
 
-3. **Wait for CI checks**
+3. **Create the PR** (when no open PR exists)
+   - Head: \`${projectBranchName}\`
+   - Base: \`${targetBranch}\`
+
+4. **Wait for CI checks**
    \`\`\`bash
    gh pr checks <PR_NUMBER> --watch
    \`\`\`
 
-4. **Fix failures & retry** (up to 3 cycles)
+5. **Fix failures & retry** (up to 3 cycles)
    - \`gh api repos/${opts.ghOwner}/${opts.ghRepo}/pulls/<PR_NUMBER>/reviews\`
    - Push fixes: \`git push origin HEAD:refs/heads/${projectBranchName}\``
   }
@@ -316,7 +347,7 @@ This merges **all** completed task work from \`${projectBranchName}\` into \`${t
 
   it('targets the configured base branch', () => {
     const prompt = buildPushPrompt({ shortProjectId: 'x', baseBranch: 'develop', ghOwner: 'o', ghRepo: 'r' })
-    expect(prompt).toContain('--base develop')
+    expect(prompt).toContain("--base 'develop'")
     expect(prompt).toContain('into `develop`')
   })
 
@@ -344,6 +375,65 @@ This merges **all** completed task work from \`${projectBranchName}\` into \`${t
   it('instructs to push fixes to the project branch via explicit refspec', () => {
     const prompt = buildPushPrompt({ shortProjectId: 'proj1', baseBranch: 'main', ghOwner: 'o', ghRepo: 'r' })
     expect(prompt).toContain('git push origin HEAD:refs/heads/astro/proj1')
+  })
+
+  it('includes branch model section explaining project vs target branch', () => {
+    const prompt = buildPushPrompt({ shortProjectId: 'abc', baseBranch: 'main', ghOwner: 'o', ghRepo: 'r' })
+    expect(prompt).toContain('### Branch model')
+    expect(prompt).toContain('**Project branch:** `astro/abc`')
+    expect(prompt).toContain('**Target branch:** `main`')
+  })
+
+  it('lists sub-PRs when dependency outputs have PR info', () => {
+    const prompt = buildPushPrompt({
+      shortProjectId: 'abc',
+      baseBranch: 'main',
+      ghOwner: 'acme',
+      ghRepo: 'app',
+      dependencyOutputs: [
+        { nodeId: 'n1', title: 'Build API', output: 'done', prUrl: 'https://github.com/acme/app/pull/10', prNumber: 10 },
+        { nodeId: 'n2', title: 'Add tests', output: 'done', prUrl: 'https://github.com/acme/app/pull/11', prNumber: 11 },
+      ],
+    })
+    expect(prompt).toContain('### Sub-PRs merged into `astro/abc`')
+    expect(prompt).toContain('- **Build API**: [PR #10](https://github.com/acme/app/pull/10)')
+    expect(prompt).toContain('- **Add tests**: [PR #11](https://github.com/acme/app/pull/11)')
+  })
+
+  it('shows fallback discovery command when no sub-PRs in dependency outputs', () => {
+    const prompt = buildPushPrompt({
+      shortProjectId: 'abc',
+      baseBranch: 'main',
+      ghOwner: 'o',
+      ghRepo: 'r',
+      dependencyOutputs: [
+        { nodeId: 'n1', title: 'Task 1', output: 'done' },
+      ],
+    })
+    expect(prompt).toContain('### Sub-PRs')
+    expect(prompt).toContain("gh pr list --base 'astro/abc' --state merged")
+  })
+
+  it('includes discover sub-PRs step in instructions', () => {
+    const prompt = buildPushPrompt({ shortProjectId: 'abc', baseBranch: 'main', ghOwner: 'o', ghRepo: 'r' })
+    expect(prompt).toContain('**Discover sub-PRs**')
+    expect(prompt).toContain("gh pr list --base 'astro/abc' --state merged --json number,title,url")
+  })
+
+  it('skips deps without prUrl in sub-PR listing', () => {
+    const prompt = buildPushPrompt({
+      shortProjectId: 'abc',
+      baseBranch: 'main',
+      ghOwner: 'o',
+      ghRepo: 'r',
+      dependencyOutputs: [
+        { nodeId: 'n1', title: 'Has PR', output: 'done', prUrl: 'https://github.com/o/r/pull/5', prNumber: 5 },
+        { nodeId: 'n2', title: 'No PR', output: 'done' },
+      ],
+    })
+    expect(prompt).toContain('### Sub-PRs merged into')
+    expect(prompt).toContain('**Has PR**: [PR #5]')
+    expect(prompt).not.toContain('**No PR**:')
   })
 })
 

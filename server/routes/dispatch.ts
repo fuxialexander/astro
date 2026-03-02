@@ -242,6 +242,9 @@ dispatchRoute.post('/task', async (c) => {
           status: planNodes.status,
           type: planNodes.type,
           projectId: planNodes.projectId,
+          prUrl: planNodes.prUrl,
+          prNumber: planNodes.prNumber,
+          branchName: planNodes.branchName,
         }).from(planNodes)
           .where(eq(planNodes.projectId, projectId))
 
@@ -252,6 +255,9 @@ dispatchRoute.post('/task', async (c) => {
               nodeId: depNode.clientId,
               title: depNode.title,
               output: depNode.executionOutput,
+              ...(depNode.prUrl && { prUrl: depNode.prUrl }),
+              ...(depNode.prNumber && { prNumber: depNode.prNumber }),
+              ...(depNode.branchName && { branchName: depNode.branchName }),
             })
           } else if (depNode && (depNode.status === 'completed' || depNode.status === 'auto_verified')) {
             // Milestones and tasks without output but with completed status
@@ -260,6 +266,9 @@ dispatchRoute.post('/task', async (c) => {
               nodeId: depNode.clientId,
               title: depNode.title,
               output: `[${depNode.type || 'node'} ${depNode.status}]`,
+              ...(depNode.prUrl && { prUrl: depNode.prUrl }),
+              ...(depNode.prNumber && { prNumber: depNode.prNumber }),
+              ...(depNode.branchName && { branchName: depNode.branchName }),
             })
           }
         }
@@ -583,7 +592,11 @@ async function dispatchViaRelay(
 
     if (dependencyOutputs.length > 0) {
       const depsSection = dependencyOutputs
-        .map((d) => `### ${d.title}\n\n${d.output}`)
+        .map((d) => {
+          const prInfo = d.prUrl ? `\n**PR:** [#${d.prNumber || '?'}](${d.prUrl})` : ''
+          const branchInfo = d.branchName ? `\n**Branch:** \`${d.branchName}\`` : ''
+          return `### ${d.title}${prInfo}${branchInfo}\n\n${d.output}`
+        })
         .join('\n\n---\n\n')
       promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
     }
@@ -595,36 +608,58 @@ async function dispatchViaRelay(
       const ghOwner = githubContext.owner || ''
       const ghRepo = githubContext.repo || ''
 
+      // Build explicit sub-PR listing from dependency outputs
+      const subPrs = dependencyOutputs
+        .filter(d => d.prUrl && d.prNumber)
+        .map(d => `- **${d.title}**: [PR #${d.prNumber}](${d.prUrl})`)
+      const subPrSection = subPrs.length > 0
+        ? `\n### Sub-PRs merged into \`${projectBranchName}\`\n\nThese task PRs have already been merged into the project branch:\n${subPrs.join('\n')}\n\nUse these PR links in the final PR body to give reviewers context on what changed.`
+        : `\n### Sub-PRs\n\nNo per-task PR links found in dependency outputs. You can discover them by running:\n\`\`\`bash\ngh pr list --base '${projectBranchName}' --state merged --json number,title,url\n\`\`\`\nInclude any found PRs in the final PR body.`
+
       promptParts.push(`## Push to GitHub — Open Final Project PR
 
 You are opening the FINAL pull request for this project on \`${ghOwner}/${ghRepo}\`.
-This merges **all** completed task work from \`${projectBranchName}\` into \`${targetBranch}\`.
+This merges **all** completed task work from the project branch \`${projectBranchName}\` into \`${targetBranch}\`.
+
+### Branch model
+
+- **Project branch:** \`${projectBranchName}\` — this is the accumulative branch where all task PRs have been merged.
+- **Target branch:** \`${targetBranch}\` — the final PR merges the project branch here.
+- Each task created its own branch (e.g. \`${projectBranchName}-n1\`, \`${projectBranchName}-n2\`) and merged into \`${projectBranchName}\` via sub-PRs.
+- Your job is to push \`${projectBranchName}\` → \`${targetBranch}\` as a single final PR.
+${subPrSection}
 
 ### Step-by-step
 
-1. **Check for an existing PR**
+1. **Discover sub-PRs** (if not all listed above)
+   \`\`\`bash
+   gh pr list --base '${projectBranchName}' --state merged --json number,title,url
+   \`\`\`
+   Collect all sub-PRs merged into the project branch. These are the per-task PRs.
+
+2. **Check for an existing final PR**
    \`\`\`bash
    gh pr list --head '${projectBranchName}' --base '${targetBranch}' --json number,state
    \`\`\`
    - If an **open** PR exists → update its body/title instead of creating a new one.
    - If a **closed/merged** PR exists → create a new one.
 
-2. **Create the PR** (when no open PR exists)
-   - Head branch: \`${projectBranchName}\` (already contains all task work)
-   - Base branch: \`${targetBranch}\`
+3. **Create the PR** (when no open PR exists)
+   - Head: \`${projectBranchName}\`
+   - Base: \`${targetBranch}\`
    - Title: \`[Astro] <project name>\`
-   - Body: comprehensive summary of every completed task, with links to per-task PRs (found in the dependency outputs above).
+   - Body: comprehensive summary of every completed task, referencing the sub-PRs above with links.
    \`\`\`bash
    gh pr create --base '${targetBranch}' --head '${projectBranchName}' --title "..." --body "..."
    \`\`\`
 
-3. **Wait for CI checks**
+4. **Wait for CI checks**
    \`\`\`bash
    gh pr checks <PR_NUMBER> --watch
    \`\`\`
    If all checks pass → report success and finish.
 
-4. **Fix failures & retry** (up to 3 cycles)
+5. **Fix failures & retry** (up to 3 cycles)
    - Read failure details: \`gh pr checks <PR_NUMBER>\`
    - For **test / lint / build** failures: fix the code, commit, and push to \`${projectBranchName}\`:
      \`\`\`bash
@@ -639,10 +674,10 @@ This merges **all** completed task work from \`${projectBranchName}\` into \`${t
    - After 3 failed cycles, report the remaining failures and stop.
 
 ### Important constraints
-- You are in a worktree that branched from the project branch. The PR targets \`${projectBranchName}\`.
+- You are in a worktree that branched from the project branch \`${projectBranchName}\`.
 - When pushing fixes, you MUST push to the project branch explicitly:
   \`git push origin HEAD:refs/heads/${projectBranchName}\`
-  A bare \`git push\` will push to the wrong branch.
+  A bare \`git push\` will push to the wrong (task-level) branch.
 - Do **not** create new branches or merge the PR yourself — only ensure checks pass.
 
 ### Executive Summary
