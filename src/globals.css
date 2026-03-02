@@ -186,7 +186,35 @@
   border-color: var(--border);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   VIEWPORT STABILIZATION — Prevent page shift on iPad/iOS when keyboard appears
+   ═══════════════════════════════════════════════════════════════════════════
+
+   On iPadOS, focusing a text input (even with an external keyboard) triggers a
+   toolbar/suggestions bar that resizes the viewport. Combined with `h-dvh`, this
+   caused the entire layout to shift up and become invisible.
+
+   Fix: `interactive-widget=resizes-visual` in the viewport meta tag tells the
+   browser to only resize the visual viewport (not layout viewport) when the
+   keyboard appears. The CSS below prevents the document-level scrolling that
+   iOS uses to "scroll the focused input into view", which was the proximate
+   cause of the page shifting up.
+   ═══════════════════════════════════════════════════════════════════════════ */
+html {
+  /* Prevent the document itself from scrolling — all scrolling happens inside app containers.
+     position: fixed prevents iOS Safari from scrolling the html element when inputs are focused,
+     which overflow: hidden alone does not reliably prevent on iOS. */
+  position: fixed;
+  overflow: hidden;
+  overscroll-behavior: none;
+  height: 100%;
+  width: 100%;
+}
+
 body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  height: 100%;
   background-color: var(--background);
   color: var(--foreground);
   font-family: "DM Sans", sans-serif;
