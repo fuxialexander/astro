@@ -13,20 +13,29 @@ export function applyPlanFromText(
   const planJson = extractPlanJsonFromText(text)
   if (!planJson) return { applied: false, nodeCount: 0 }
 
-  const prefix = projectId.slice(0, 8)
-  const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
+  // Map AI-generated short IDs (n1, n2, etc.) to proper UUIDs for consistency
+  // with manually created tasks which use crypto.randomUUID()
+  const idMap = new Map<string, string>()
+  const resolveId = (aiId: string): string => {
+    let uuid = idMap.get(aiId)
+    if (!uuid) {
+      uuid = crypto.randomUUID()
+      idMap.set(aiId, uuid)
+    }
+    return uuid
+  }
   const now = new Date()
 
   const nodes: PlanNode[] = planJson.nodes.map((n: Record<string, unknown>) => ({
-    id: prefixId(n.id as string),
+    id: resolveId(n.id as string),
     projectId,
     type: (n.type as PlanNode['type']) || 'task',
     title: (n.title as string) || '',
     description: (n.description as string) || '',
     content: n.description ? `<p>${n.description as string}</p>` : '',
     status: (n.status as PlanNode['status']) || 'planned',
-    parentId: n.parentId ? prefixId(n.parentId as string) : null,
-    dependencies: (n.dependencies as string[] || []).map(prefixId),
+    parentId: n.parentId ? resolveId(n.parentId as string) : null,
+    dependencies: (n.dependencies as string[] || []).map(resolveId),
     verification: (n.verification as PlanNode['verification']) || 'human',
     position: (n.position as { x: number; y: number }) || { x: 40, y: 40 },
     startDate: n.startDate as string | undefined,
@@ -35,15 +44,15 @@ export function applyPlanFromText(
     estimate: n.estimate as PlanNode['estimate'],
     dueDate: n.dueDate as string | undefined,
     labelIds: n.labelIds as string[] | undefined,
-    milestoneId: n.milestoneId ? prefixId(n.milestoneId as string) : undefined,
+    milestoneId: n.milestoneId ? resolveId(n.milestoneId as string) : undefined,
     createdAt: now,
     updatedAt: now,
   }))
 
   const edges: PlanEdge[] = (planJson.edges || []).map((e: Record<string, unknown>) => ({
-    id: prefixId(e.id as string),
-    source: prefixId(e.source as string),
-    target: prefixId(e.target as string),
+    id: crypto.randomUUID(),
+    source: resolveId(e.source as string),
+    target: resolveId(e.target as string),
     type: (e.type as PlanEdge['type']) || 'dependency',
   }))
 

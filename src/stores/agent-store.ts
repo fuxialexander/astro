@@ -222,21 +222,29 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           onPlanResult: (result) => {
             console.log(`[plan-gen] Plan result received for ${projectId}: ${result.nodes.length} nodes, ${result.edges.length} edges`)
 
-            // Prefix AI-generated IDs with project ID to ensure global uniqueness
-            const prefix = projectId.slice(0, 8)
-            const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
+            // Map AI-generated short IDs (n1, n2, etc.) to proper UUIDs for consistency
+            // with manually created tasks which use crypto.randomUUID()
+            const idMap = new Map<string, string>()
+            const resolveId = (aiId: string): string => {
+              let uuid = idMap.get(aiId)
+              if (!uuid) {
+                uuid = crypto.randomUUID()
+                idMap.set(aiId, uuid)
+              }
+              return uuid
+            }
 
             const now = new Date()
             const nodes: PlanNode[] = result.nodes.map((n) => ({
-              id: prefixId(n.id),
+              id: resolveId(n.id),
               projectId,
               type: n.type,
               title: n.title,
               description: n.description,
               content: n.description ? `<p>${escapeHtml(n.description)}</p>` : '',
               status: n.status,
-              parentId: n.parentId ? prefixId(n.parentId) : n.parentId,
-              dependencies: n.dependencies.map(prefixId),
+              parentId: n.parentId ? resolveId(n.parentId) : null,
+              dependencies: n.dependencies.map(resolveId),
               verification: n.verification,
               position: n.position,
               startDate: n.startDate,
@@ -245,15 +253,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               estimate: n.estimate as PlanNode["estimate"],
               dueDate: n.dueDate,
               labelIds: n.labelIds,
-              milestoneId: n.milestoneId ? prefixId(n.milestoneId) : n.milestoneId,
+              milestoneId: n.milestoneId ? resolveId(n.milestoneId) : n.milestoneId,
               createdAt: now,
               updatedAt: now,
             }))
 
             const edges: PlanEdge[] = result.edges.map((e) => ({
-              id: prefixId(e.id),
-              source: prefixId(e.source),
-              target: prefixId(e.target),
+              id: crypto.randomUUID(),
+              source: resolveId(e.source),
+              target: resolveId(e.target),
               type: e.type,
             }))
 

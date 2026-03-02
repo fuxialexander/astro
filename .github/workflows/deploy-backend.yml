@@ -1,0 +1,75 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'packages/**'
+      - 'fly.toml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Fly.io CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Set Fly.io secrets
+        run: |
+          flyctl secrets set --stage \
+            RELAY_WS_URL="${RELAY_WS_URL}" \
+            RELAY_JWT_SECRET="${RELAY_JWT_SECRET}" \
+            DEVICE_AUTH_JWT_SECRET="${DEVICE_AUTH_JWT_SECRET}" \
+            DEVICE_AUTH_REFRESH_SECRET="${DEVICE_AUTH_REFRESH_SECRET}" \
+            WEBAUTHN_RP_NAME="${WEBAUTHN_RP_NAME}" \
+            WEBAUTHN_RP_ID="${WEBAUTHN_RP_ID}" \
+            WEBAUTHN_ORIGIN="${WEBAUTHN_ORIGIN}" \
+            ALLOWED_HOSTS="${ALLOWED_HOSTS}" \
+            CORS_ORIGIN="${CORS_ORIGIN}" \
+            FRONTEND_URL="${FRONTEND_URL}" \
+            ASTRO_BASE_URL="${ASTRO_BASE_URL}" \
+            SUPABASE_URL="${SUPABASE_URL}" \
+            SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY}" \
+            SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY}" \
+            DATABASE_URL="${DATABASE_URL}" \
+            GITHUB_CLIENT_ID="${APP_GITHUB_CLIENT_ID}" \
+            GITHUB_CLIENT_SECRET="${APP_GITHUB_CLIENT_SECRET}" \
+            GITHUB_REDIRECT_URI="${APP_GITHUB_REDIRECT_URI}"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          RELAY_WS_URL: ${{ secrets.RELAY_WS_URL }}
+          RELAY_JWT_SECRET: ${{ secrets.RELAY_JWT_SECRET }}
+          DEVICE_AUTH_JWT_SECRET: ${{ secrets.DEVICE_AUTH_JWT_SECRET }}
+          DEVICE_AUTH_REFRESH_SECRET: ${{ secrets.DEVICE_AUTH_REFRESH_SECRET }}
+          WEBAUTHN_RP_NAME: ${{ secrets.WEBAUTHN_RP_NAME }}
+          WEBAUTHN_RP_ID: ${{ secrets.WEBAUTHN_RP_ID }}
+          WEBAUTHN_ORIGIN: ${{ secrets.WEBAUTHN_ORIGIN }}
+          ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
+          CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          ASTRO_BASE_URL: ${{ secrets.ASTRO_BASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APP_GITHUB_CLIENT_ID: ${{ secrets.APP_GITHUB_CLIENT_ID }}
+          APP_GITHUB_CLIENT_SECRET: ${{ secrets.APP_GITHUB_CLIENT_SECRET }}
+          APP_GITHUB_REDIRECT_URI: ${{ secrets.APP_GITHUB_REDIRECT_URI }}
+
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

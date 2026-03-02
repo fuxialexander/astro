@@ -122,10 +122,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView, zoomIn: rfZoomIn, zoomOut: rfZoomOut } = useReactFlow()
 
   const projectNodes = useMemo(() => {
-    let nodes = planNodes.filter((n) => n.projectId === projectId && n.type !== "milestone")
+    let nodes = planNodes.filter((n) => n.projectId === projectId)
     if (!graphDisplaySettings.showCompleted) {
       nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
+    // Hide milestones — edge bridging creates transitive edges through them
+    nodes = nodes.filter((n) => n.type !== "milestone")
     return nodes
   }, [planNodes, projectId, graphDisplaySettings.showCompleted])
 
@@ -166,16 +168,67 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
-    const filtered = planEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+    const allProjectEdges = planEdges.filter((e) => {
+      // Edge belongs to this project if either endpoint is a project node
+      // or if the edge connects through a hidden node (for bridging)
+      const allProjectNodeIds = new Set(planNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
+      return allProjectNodeIds.has(e.source) || allProjectNodeIds.has(e.target)
+    })
+
+    // Direct edges where both endpoints are visible
+    const directEdges = allProjectEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+
+    // Bridge edges through hidden nodes (e.g., completed milestones hidden by filter).
+    // For each hidden node H, for every edge A→H and H→B where A and B are visible,
+    // create a synthetic bridge edge A→B.
+    const hiddenNodeIds = new Set(
+      planNodes
+        .filter((n) => n.projectId === projectId && !nodeIds.has(n.id))
+        .map((n) => n.id)
+    )
+    const bridgeEdges: typeof directEdges = []
+    if (hiddenNodeIds.size > 0) {
+      // Build adjacency from all project edges
+      const incomingToHidden = new Map<string, string[]>() // hidden node → sources
+      const outgoingFromHidden = new Map<string, string[]>() // hidden node → targets
+      for (const e of allProjectEdges) {
+        if (hiddenNodeIds.has(e.target)) {
+          const sources = incomingToHidden.get(e.target) ?? []
+          sources.push(e.source)
+          incomingToHidden.set(e.target, sources)
+        }
+        if (hiddenNodeIds.has(e.source)) {
+          const targets = outgoingFromHidden.get(e.source) ?? []
+          targets.push(e.target)
+          outgoingFromHidden.set(e.source, targets)
+        }
+      }
+      for (const hiddenId of hiddenNodeIds) {
+        const sources = (incomingToHidden.get(hiddenId) ?? []).filter((s) => nodeIds.has(s))
+        const targets = (outgoingFromHidden.get(hiddenId) ?? []).filter((t) => nodeIds.has(t))
+        for (const s of sources) {
+          for (const t of targets) {
+            bridgeEdges.push({
+              id: `bridge-${s}-${t}`,
+              source: s,
+              target: t,
+              type: "dependency",
+            })
+          }
+        }
+      }
+    }
+
     // Deduplicate by source→target pair (keep first occurrence)
+    const all = [...directEdges, ...bridgeEdges]
     const seen = new Set<string>()
-    return filtered.filter((e) => {
+    return all.filter((e) => {
       const key = `${e.source}->${e.target}`
       if (seen.has(key)) return false
       seen.add(key)
       return true
     })
-  }, [planEdges, projectNodes])
+  }, [planEdges, planNodes, projectNodes, projectId])
 
   const updateNode = usePlanStore((s) => s.updateNode)
 
@@ -291,6 +344,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         position: n.position || { x: 0, y: 0 }, // Defensive: ensure position is always defined
         data: {
           title: n.title,
+          number: n.number,
           description: n.content ? stripHtml(n.content) : (n.description ?? ''),
           status: n.status,
           nodeType: n.type,

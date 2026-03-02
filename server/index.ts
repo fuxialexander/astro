@@ -44,6 +44,8 @@ import { mergeQueueHook } from './lib/events/hooks/merge-queue-hook.js'
 import { gitPullHook } from './lib/events/hooks/git-pull-hook.js'
 import { channelNotificationHook } from './lib/events/hooks/channel-notification-hook.js'
 import { githubIssueCloseHook } from './lib/events/hooks/github-issue-close-hook.js'
+import { prBodyUpdateHook } from './lib/events/hooks/pr-body-update-hook.js'
+import { projectCompletionHook } from './lib/events/hooks/project-completion-hook.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
 import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
@@ -264,8 +266,10 @@ async function start() {
     astroEventTransport.registerHook('audit-log', auditLogHook)
     astroEventTransport.registerHook('usage-metrics', usageMetricsHook)
     astroEventTransport.registerHook('pr-creation', prCreationHook)
+    astroEventTransport.registerHook('pr-body-update', prBodyUpdateHook)
     astroEventTransport.registerHook('github-issue-close', githubIssueCloseHook)
     astroEventTransport.registerHook('merge-queue', mergeQueueHook)
+    astroEventTransport.registerHook('project-completion', projectCompletionHook)
     astroEventTransport.registerHook('git-pull', gitPullHook)
     astroEventTransport.registerHook('channel-notification', channelNotificationHook)
     astroEventTransport.registerHook('observability', observabilityHook)
@@ -315,7 +319,7 @@ async function start() {
 
     // Set up relay event handlers
     relayServer.on('task:result', async (message) => {
-      console.log(`[relay] Task ${message.result.taskId} completed: ${message.result.status}`)
+      console.log(`[relay] Task ${message.result.taskId} completed: ${message.result.status}${message.result.error ? ` error=${message.result.error}` : ''}`)
       // Publish to Redis for other services to consume
       if (redisPubSub.isConnected()) {
         // Task machine mapping cleanup happens when task completes

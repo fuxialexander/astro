@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import type { TaskActivityEvent, ToolTrace, FileChange } from '../packages/core/src/types'
+import type { TaskActivityEvent } from '../packages/core/src/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 

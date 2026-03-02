@@ -15,6 +15,7 @@ Comprehensive design documentation for the Astro platform. Use these documents a
 | [USER_WORKFLOWS.md](./USER_WORKFLOWS.md) | End-to-end data flows: project creation, plan generation, task execution, chat, steering, approvals, batch execution, branch pruning, device auth, procedure pipeline |
 | [IMPLEMENTATION_PIPELINE.md](./IMPLEMENTATION_PIPELINE.md) | Implementation priorities and pipeline |
 | [REFRESH_ROBUSTNESS.md](./REFRESH_ROBUSTNESS.md) | Page-refresh recovery: three-layer architecture (live SSE → streaming_events DB → observation fallback), data lifecycle on reset, store initialization |
+| [AGENTIC_WORKFLOW.md](./AGENTIC_WORKFLOW.md) | Agentic workflow architecture: context flow, observability, event streaming pipeline, token budgets, parallel execution |
 | [CURRENT_CONFLICT_VIEW.md](./CURRENT_CONFLICT_VIEW.md) | Known conflicts between design docs and actual code/technical docs |
 
 ## How to Use

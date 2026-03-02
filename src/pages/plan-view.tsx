@@ -56,8 +56,7 @@ const planListDisplayConfig: DisplayPopoverConfig = {
     { value: "label", label: "Label" },
   ],
   orderByOptions: [
-    { value: "id", label: "ID" },
-    { value: "name", label: "Name" },
+    { value: "number", label: "Task number" },
     { value: "status", label: "Status" },
     { value: "priority", label: "Priority" },
     { value: "dueDate", label: "Due date" },
@@ -364,10 +363,8 @@ function sortPlanNodes(nodes: PlanNode[], orderBy: string, dir: number): PlanNod
   const sorted = [...nodes]
   sorted.sort((a, b) => {
     switch (orderBy) {
-      case "id":
-        return dir * a.id.localeCompare(b.id)
-      case "name":
-        return dir * a.title.localeCompare(b.title)
+      case "number":
+        return dir * ((a.number ?? Infinity) - (b.number ?? Infinity))
       case "status":
         return dir * a.status.localeCompare(b.status)
       case "priority": {
@@ -438,18 +435,17 @@ function makePlanColumns(
   milestoneMap: Map<string, string>,
   onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void,
   projectMap?: Map<string, string>,
-  executionOrderMap?: Map<string, number>,
+  _executionOrderMap?: Map<string, number>,
   onManageLabels?: () => void,
   onExecute?: (node: PlanNode) => void,
 ): ListColumn<PlanNode>[] {
   return [
     {
       id: "name",
-      label: "Name",
+      label: "Task",
       width: "flex-1 min-w-0",
-      sortKey: "name",
+      sortKey: "number",
       render: (node) => {
-        const order = executionOrderMap?.get(node.id)
         return (
           <span className={cn("text-sm truncate flex items-center gap-1.5", node.status === "pruned" && "line-through")}>
             {onExecute && (
@@ -465,7 +461,7 @@ function makePlanColumns(
                 <Play className="h-3 w-3 fill-current" />
               </button>
             )}
-            {order != null && <span className="text-muted-foreground tabular-nums">{order}</span>}
+            {node.number != null && <span className="text-muted-foreground tabular-nums">{node.number}</span>}
             <span className="truncate">{node.title}</span>
           </span>
         )

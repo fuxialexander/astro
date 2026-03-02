@@ -10,6 +10,7 @@
  * - User interaction (ask questions, approvals)
  */
 
+import { randomUUID } from 'node:crypto'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -581,7 +582,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error('No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set.')
       }
 
-      const nodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      const nodeId = randomUUID()
 
       const taskData = {
         id: nodeId,
@@ -605,7 +606,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // Create dependency edges if specified
       if (Array.isArray(args.dependencies) && args.dependencies.length > 0) {
         for (const depId of args.dependencies) {
-          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+          const edgeId = randomUUID()
           await apiRequest('POST', '/api/data/plan/edges', {
             id: edgeId,
             projectId: targetProjectId,
@@ -651,7 +652,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error('No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set.')
       }
 
-      const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      const edgeId = randomUUID()
 
       await apiRequest('POST', '/api/data/plan/edges', {
         id: edgeId,

@@ -1,0 +1,397 @@
+/**
+ * PR Body Update Hook
+ *
+ * Updates the PR description with a rich summary after task completion.
+ *
+ * Runs on task.completed events when result.prNumber exists.
+ * Runs AFTER pr-creation-hook (which sets prNumber on event.node).
+ *
+ * Fallback chain for PR body content:
+ * 1. Structured summary from agent (result.summary)
+ * 2. Executive summary parsed from execution output
+ * 3. Server-generated summary via Anthropic API
+ * 4. File changes summary from result.filesChanged
+ * 5. Task description fallback (node.title + node.description)
+ *
+ * Token priority:
+ * 1. GITHUB_TOKEN environment variable
+ * 2. Project owner's GitHub connection (OAuth)
+ * 3. Team member's GitHub connection (OAuth)
+ */
+
+import type { AstroEvent, EventHook } from '../types.js'
+import { updatePullRequestBody } from '../../../plugins/channel-github/github-api.js'
+import { generateServerSideSummary } from '../../../../packages/core/src/dispatch/summary-utils.js'
+import { db } from '../../db/index.js'
+import { projects, githubConnections, teamMembers } from '../../db/schema.js'
+import { eq } from 'drizzle-orm'
+
+const LOG_PREFIX = '[pr-body-update-hook]'
+
+// ── Token Resolution ────────────────────────────────────────────────────
+
+/**
+ * Resolve a GitHub access token.
+ *
+ * Priority:
+ * 1. GITHUB_TOKEN environment variable
+ * 2. Project owner's GitHub connection
+ * 3. Any team member's GitHub connection
+ */
+async function resolveGitHubToken(
+  ownerId: string,
+  teamId: string | null,
+): Promise<string | null> {
+  // 1. Environment variable (highest priority, used by merge-queue-hook too)
+  const envToken = process.env.GITHUB_TOKEN
+  if (envToken) return envToken
+
+  // 2. Project owner's OAuth token
+  const [ownerConn] = await db
+    .select({ accessToken: githubConnections.accessToken })
+    .from(githubConnections)
+    .where(eq(githubConnections.userId, ownerId))
+    .limit(1)
+
+  if (ownerConn?.accessToken) return ownerConn.accessToken
+
+  // 3. Any team member's OAuth token
+  if (teamId) {
+    const [memberConn] = await db
+      .select({ accessToken: githubConnections.accessToken })
+      .from(githubConnections)
+      .innerJoin(teamMembers, eq(teamMembers.userId, githubConnections.userId))
+      .where(eq(teamMembers.teamId, teamId))
+      .limit(1)
+
+    if (memberConn?.accessToken) return memberConn.accessToken
+  }
+
+  return null
+}
+
+// ── Repository Parsing ──────────────────────────────────────────────────
+
+/**
+ * Parse owner/repo from a repository string (owner/repo or git URL).
+ */
+function parseRepository(repository: string): { owner: string; repo: string } | null {
+  if (repository.includes('/') && !repository.includes('://')) {
+    // Simple owner/repo format
+    const [owner, repo] = repository.split('/')
+    if (owner && repo) return { owner, repo }
+  } else {
+    // URL format: extract owner/repo from git URL
+    const match = repository.match(/github\.com[/:]([^/]+)\/([^/.]+)/)
+    if (match?.[1] && match[2]) return { owner: match[1], repo: match[2] }
+  }
+  return null
+}
+
+// ── Executive Summary Parsing ───────────────────────────────────────────
+
+/**
+ * Parse an executive summary from execution output text.
+ * Looks for a "## Executive Summary" markdown section.
+ */
+function parseExecutiveSummaryFromOutput(output: string): string | null {
+  // Match "## Executive Summary" followed by content until next ## heading or end
+  const pattern = /## Executive Summary\s*\n([\s\S]*?)(?=\n## |\n---|$)/i
+  const match = output.match(pattern)
+  if (!match?.[1]) return null
+
+  const summary = match[1].trim()
+  // Must be at least 20 chars to be meaningful
+  return summary.length >= 20 ? summary : null
+}
+
+// ── PR Body Formatting ──────────────────────────────────────────────────
+
+interface PrBodyInput {
+  summary?: string
+  changes?: string[]
+  filesChanged?: string[]
+  testPlan?: string[]
+  astroUrl?: string
+  relatedIssue?: string
+}
+
+/**
+ * Format the PR body with structured sections.
+ */
+function formatPrBody(input: PrBodyInput): string {
+  const parts: string[] = []
+
+  // ## Summary
+  if (input.summary) {
+    parts.push(`## Summary\n\n${input.summary}`)
+  }
+
+  // ## Changes (key findings / bullet points)
+  if (input.changes && input.changes.length > 0) {
+    parts.push(`## Changes\n\n${input.changes.map((c) => `- ${c}`).join('\n')}`)
+  }
+
+  // ## Files Changed
+  if (input.filesChanged && input.filesChanged.length > 0) {
+    const fileList = input.filesChanged.slice(0, 30) // Cap at 30 files
+    parts.push(`## Files Changed\n\n${fileList.map((f) => `- \`${f}\``).join('\n')}`)
+    if (input.filesChanged.length > 30) {
+      parts.push(`\n_...and ${input.filesChanged.length - 30} more files_`)
+    }
+  }
+
+  // ## Test Plan (from follow-ups or verification hints)
+  if (input.testPlan && input.testPlan.length > 0) {
+    parts.push(`## Test Plan\n\n${input.testPlan.map((t) => `- [ ] ${t}`).join('\n')}`)
+  }
+
+  // ## Astro link
+  if (input.astroUrl) {
+    parts.push(`## Astro\n\n[View task in Astro](${input.astroUrl})`)
+  }
+
+  // ## Related Issue
+  if (input.relatedIssue) {
+    parts.push(`## Related Issue\n\nCloses ${input.relatedIssue}`)
+  }
+
+  // Footer
+  parts.push('---\n*PR description generated by [Astro](https://astroanywhere.com)*')
+
+  return parts.join('\n\n')
+}
+
+// ── Fallback Chain ──────────────────────────────────────────────────────
+
+/**
+ * Build the best PR body using a 5-layer fallback chain.
+ *
+ * 1. Structured summary (result.summary)
+ * 2. Executive summary parsed from stdout
+ * 3. Server-generated summary (Anthropic API)
+ * 4. File changes summary
+ * 5. Task description
+ */
+async function buildPrBody(
+  event: Extract<AstroEvent, { type: 'task.completed' }>,
+): Promise<string | null> {
+  const { result, node } = event
+  const summary = result.summary
+
+  // Build Astro link if possible
+  const baseUrl = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
+  const astroUrl = `${baseUrl}/project/${event.projectId}/task/${event.nodeId}`
+
+  // Build related issue reference
+  let relatedIssue: string | undefined
+  if (node.githubIssueUrl) {
+    relatedIssue = node.githubIssueUrl
+  } else if (node.githubIssueNumber) {
+    relatedIssue = `#${node.githubIssueNumber}`
+  }
+
+  // ── Layer 1: Structured summary from agent ────────────────────────
+  if (summary?.workCompleted) {
+    console.log(`${LOG_PREFIX} Using structured summary (Layer 1)`)
+
+    // Extract test plan from follow-ups that look like test actions
+    const testPlan = summary.followUps?.filter((f) =>
+      /test|verify|check|validate|confirm/i.test(f)
+    )
+    const nonTestFollowUps = summary.followUps?.filter((f) =>
+      !/test|verify|check|validate|confirm/i.test(f)
+    )
+
+    // Build summary text — prefer executiveSummary, fallback to workCompleted
+    const summaryText = (summary as Record<string, unknown>).executiveSummary
+      ? String((summary as Record<string, unknown>).executiveSummary)
+      : summary.workCompleted
+
+    // Merge keyFindings + non-test follow-ups as changes
+    const changes = [
+      ...(summary.keyFindings || []),
+      ...(nonTestFollowUps && nonTestFollowUps.length > 0
+        ? [`**Follow-ups:** ${nonTestFollowUps.join(', ')}`]
+        : []),
+    ]
+
+    return formatPrBody({
+      summary: summaryText,
+      changes: changes.length > 0 ? changes : undefined,
+      filesChanged: summary.filesChanged,
+      testPlan: testPlan && testPlan.length > 0 ? testPlan : undefined,
+      astroUrl,
+      relatedIssue,
+    })
+  }
+
+  // ── Layer 2: Parse executive summary from stdout ──────────────────
+  if (result.stdout) {
+    const execSummary = parseExecutiveSummaryFromOutput(result.stdout)
+    if (execSummary) {
+      console.log(`${LOG_PREFIX} Using parsed executive summary (Layer 2)`)
+      const filesChanged = result.filesChanged?.map((f) => f.path)
+      return formatPrBody({
+        summary: execSummary,
+        filesChanged,
+        astroUrl,
+        relatedIssue,
+      })
+    }
+  }
+
+  // ── Layer 3: Server-generated summary via Anthropic API ───────────
+  if (result.stdout || (result.filesChanged && result.filesChanged.length > 0)) {
+    console.log(`${LOG_PREFIX} Generating server-side summary (Layer 3)`)
+    try {
+      const serverSummary = await generateServerSideSummary({
+        taskTitle: node.title,
+        taskDescription: node.description || '',
+        executionOutput: result.stdout || '',
+        fileChanges: (result.filesChanged || []).map((f) => ({
+          path: f.path,
+          action: f.diff ? 'modified' : 'changed',
+        })),
+        status: result.status === 'success' ? 'success' : 'failure',
+      })
+
+      if (serverSummary) {
+        const summaryText = serverSummary.executiveSummary || serverSummary.workCompleted
+        return formatPrBody({
+          summary: summaryText,
+          changes: serverSummary.keyFindings.length > 0 ? serverSummary.keyFindings : undefined,
+          filesChanged: serverSummary.filesChanged,
+          astroUrl,
+          relatedIssue,
+        })
+      }
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} Server-side summary generation failed:`, err instanceof Error ? err.message : err)
+    }
+  }
+
+  // ── Layer 4: File changes summary ─────────────────────────────────
+  if (result.filesChanged && result.filesChanged.length > 0) {
+    console.log(`${LOG_PREFIX} Using file changes summary (Layer 4)`)
+    const filesChanged = result.filesChanged.map((f) => f.path)
+    return formatPrBody({
+      summary: `Completed task: ${node.title}`,
+      changes: [`Modified ${filesChanged.length} file(s)`],
+      filesChanged,
+      astroUrl,
+      relatedIssue,
+    })
+  }
+
+  // ── Layer 5: Task description fallback ────────────────────────────
+  console.log(`${LOG_PREFIX} Using task description fallback (Layer 5)`)
+  const description = node.description || node.title
+  if (!description) return null
+
+  return formatPrBody({
+    summary: description.length > 500 ? description.slice(0, 500) + '…' : description,
+    astroUrl,
+    relatedIssue,
+  })
+}
+
+// ── Hook ─────────────────────────────────────────────────────────────────
+
+export const prBodyUpdateHook: EventHook = async (event: AstroEvent) => {
+  if (event.type !== 'task.completed') return
+
+  const { result, node, project } = event
+
+  // Get prNumber — pr-creation-hook mutates event.node before we run
+  const prNumber = node.prNumber ?? result.prNumber
+  if (!prNumber) return
+
+  console.log(`${LOG_PREFIX} Processing PR #${prNumber} for node ${node.id}`)
+
+  // ── Step 1: Resolve owner/repo ────────────────────────────────────
+  // Try event.project context first, then fall back to DB lookup
+  let owner: string | undefined
+  let repo: string | undefined
+  let ownerId: string | undefined
+  let teamId: string | null | undefined
+
+  if (project?.githubOwner && project?.githubRepo) {
+    owner = project.githubOwner
+    repo = project.githubRepo
+  } else if (project?.repository) {
+    const parsed = parseRepository(project.repository)
+    if (parsed) {
+      owner = parsed.owner
+      repo = parsed.repo
+    }
+  }
+
+  // Always look up DB project — we need ownerId/teamId for token resolution
+  // and may need it for owner/repo if event.project didn't have them
+  try {
+    const [dbProject] = await db
+      .select({
+        ownerId: projects.ownerId,
+        teamId: projects.teamId,
+        githubOwner: projects.githubOwner,
+        githubRepo: projects.githubRepo,
+        repository: projects.repository,
+      })
+      .from(projects)
+      .where(eq(projects.id, event.projectId))
+      .limit(1)
+
+    if (!dbProject) {
+      console.warn(`${LOG_PREFIX} Project not found: ${event.projectId}`)
+      return
+    }
+
+    ownerId = dbProject.ownerId
+    teamId = dbProject.teamId
+
+    // Fill in owner/repo from DB if not already resolved from event context
+    if (!owner || !repo) {
+      if (dbProject.githubOwner && dbProject.githubRepo) {
+        owner = dbProject.githubOwner
+        repo = dbProject.githubRepo
+      } else if (dbProject.repository) {
+        const parsed = parseRepository(dbProject.repository)
+        if (parsed) {
+          owner = parsed.owner
+          repo = parsed.repo
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`${LOG_PREFIX} Error looking up project:`, err instanceof Error ? err.message : err)
+    return
+  }
+
+  if (!owner || !repo) {
+    console.warn(`${LOG_PREFIX} Could not determine GitHub repository for project ${event.projectId}`)
+    return
+  }
+
+  // ── Step 2: Resolve GitHub token ──────────────────────────────────
+  const token = await resolveGitHubToken(ownerId!, teamId ?? null)
+  if (!token) {
+    console.warn(`${LOG_PREFIX} No GitHub token available for project ${event.projectId}`)
+    return
+  }
+
+  // ── Step 3: Build PR body via fallback chain ──────────────────────
+  const prBody = await buildPrBody(event)
+  if (!prBody) {
+    console.log(`${LOG_PREFIX} No content available for PR body, skipping`)
+    return
+  }
+
+  // ── Step 4: Update the PR ─────────────────────────────────────────
+  const updateResult = await updatePullRequestBody(token, owner, repo, prNumber, prBody)
+  if (updateResult.success) {
+    console.log(`${LOG_PREFIX} Updated PR #${prNumber} body for ${owner}/${repo}`)
+  } else {
+    console.error(`${LOG_PREFIX} Failed to update PR #${prNumber}: ${updateResult.error}`)
+  }
+}

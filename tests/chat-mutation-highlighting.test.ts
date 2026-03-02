@@ -2,15 +2,15 @@
  * Chat Mutation Highlighting Tests
  *
  * Tests the pipeline: chat assistant message → extractMutations → applyMutations
- * → markNodesAsUpdating with correct (prefixed) node IDs.
+ * → markNodesAsUpdating with correct node IDs.
  *
  * This test file verifies a real bug fix: previously, markNodesAsUpdating was
- * called with raw AI-generated IDs that didn't match the actual prefixed IDs
+ * called with raw AI-generated IDs that didn't match the actual UUIDs
  * in the plan store. The fix makes applyMutations return the real IDs.
  *
  * Corner cases:
- *   1. New node IDs are prefixed with project ID prefix
- *   2. IDs that already have the prefix are not double-prefixed
+ *   1. New node IDs are proper UUIDs (crypto.randomUUID())
+ *   2. AI-generated IDs are mapped to fresh UUIDs via idMap
  *   3. Nodes without explicit IDs get generated UUIDs
  *   4. Node updates use existing (real) node IDs
  *   5. Mixed mutations: updates + new nodes return all affected IDs
@@ -44,24 +44,19 @@ interface AppliedMutations {
 
 /**
  * Simulates applyMutations from chat-panel.tsx.
- * Returns the real (prefixed) node IDs that were affected.
+ * Returns the real (UUID) node IDs that were affected.
+ * All new nodes get proper crypto.randomUUID() IDs regardless of AI-generated ID.
  */
 function simulateApplyMutations(
-  projectId: string,
+  _projectId: string,
   mutations: AppliedMutations,
 ): string[] {
   const { nodeUpdates, newNodes } = mutations
   const affectedNodeIds: string[] = []
 
-  const prefix = projectId.slice(0, 8)
-  const safePrefixId = (id: string) =>
-    id.startsWith(prefix) ? id : `${prefix}-${id}`
-
   const idMap = new Map<string, string>()
   for (const n of newNodes) {
-    const realId = n.id
-      ? safePrefixId(n.id)
-      : `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+    const realId = crypto.randomUUID()
     if (n.id) idMap.set(n.id, realId)
     affectedNodeIds.push(realId)
   }
@@ -84,39 +79,28 @@ function buggyComputeAffectedIds(mutations: AppliedMutations): string[] {
 }
 
 // ============================================================================
-// ID prefixing logic (safePrefixId)
+// UUID generation for node IDs
 // ============================================================================
 
-describe('safePrefixId', () => {
-  const projectId = 'abcdef12-3456-7890-abcd-ef1234567890'
-  const prefix = projectId.slice(0, 8) // 'abcdef12'
-
-  const safePrefixId = (id: string) =>
-    id.startsWith(prefix) ? id : `${prefix}-${id}`
-
-  it('prefixes an ID that does not start with the project prefix', () => {
-    expect(safePrefixId('setup-ci')).toBe('abcdef12-setup-ci')
+describe('UUID generation for node IDs', () => {
+  it('generates proper UUID format for new nodes', () => {
+    const uuid = crypto.randomUUID()
+    // UUID v4 format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    expect(uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 
-  it('does NOT double-prefix an ID that already starts with the prefix', () => {
-    expect(safePrefixId('abcdef12-existing')).toBe('abcdef12-existing')
+  it('generates unique IDs for each call', () => {
+    const id1 = crypto.randomUUID()
+    const id2 = crypto.randomUUID()
+    expect(id1).not.toBe(id2)
   })
 
-  it('prefixes a UUID-style ID from AI', () => {
-    expect(safePrefixId('task-123')).toBe('abcdef12-task-123')
-  })
-
-  it('handles empty string (edge case)', () => {
-    expect(safePrefixId('')).toBe('abcdef12-')
-  })
-
-  it('handles ID that partially matches prefix', () => {
-    expect(safePrefixId('abcdef1')).toBe('abcdef12-abcdef1')
-  })
-
-  it('handles ID that is exactly the prefix', () => {
-    // Starts with prefix, so no double-prefix
-    expect(safePrefixId('abcdef12')).toBe('abcdef12')
+  it('AI-generated IDs are replaced with UUIDs, not prefixed', () => {
+    const aiId = 'n1'
+    const realId = crypto.randomUUID()
+    // The real ID should be a UUID, not a prefixed version of the AI ID
+    expect(realId).not.toContain(aiId)
+    expect(realId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 })
 
@@ -126,9 +110,8 @@ describe('safePrefixId', () => {
 
 describe('applyMutations returns correct affected node IDs', () => {
   const projectId = 'abcdef12-3456-7890-abcd-ef1234567890'
-  const prefix = projectId.slice(0, 8)
 
-  it('returns prefixed IDs for new nodes', () => {
+  it('returns UUID IDs for new nodes', () => {
     const mutations: AppliedMutations = {
       nodeUpdates: [],
       edgeOps: [],
@@ -141,15 +124,22 @@ describe('applyMutations returns correct affected node IDs', () => {
     const ids = simulateApplyMutations(projectId, mutations)
 
     expect(ids).toHaveLength(2)
-    expect(ids[0]).toBe(`${prefix}-setup-ci`)
-    expect(ids[1]).toBe(`${prefix}-add-tests`)
+    // Both IDs should be proper UUIDs, not prefixed AI IDs
+    for (const id of ids) {
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    }
+    // Should NOT contain the original AI IDs
+    expect(ids[0]).not.toContain('setup-ci')
+    expect(ids[1]).not.toContain('add-tests')
   })
 
   it('returns existing node IDs for updates (already real)', () => {
+    const existingId1 = crypto.randomUUID()
+    const existingId2 = crypto.randomUUID()
     const mutations: AppliedMutations = {
       nodeUpdates: [
-        { nodeId: `${prefix}-existing-1`, status: 'completed' },
-        { nodeId: `${prefix}-existing-2`, title: 'Updated Title' },
+        { nodeId: existingId1, status: 'completed' },
+        { nodeId: existingId2, title: 'Updated Title' },
       ],
       edgeOps: [],
       newNodes: [],
@@ -158,17 +148,18 @@ describe('applyMutations returns correct affected node IDs', () => {
     const ids = simulateApplyMutations(projectId, mutations)
 
     expect(ids).toHaveLength(2)
-    expect(ids[0]).toBe(`${prefix}-existing-1`)
-    expect(ids[1]).toBe(`${prefix}-existing-2`)
+    expect(ids[0]).toBe(existingId1)
+    expect(ids[1]).toBe(existingId2)
   })
 
   it('returns mixed IDs for combined mutations', () => {
+    const existingTaskId = crypto.randomUUID()
     const mutations: AppliedMutations = {
       nodeUpdates: [
-        { nodeId: `${prefix}-task-1`, status: 'in_progress' },
+        { nodeId: existingTaskId, status: 'in_progress' },
       ],
       edgeOps: [
-        { action: 'add', source: `${prefix}-task-1`, target: `${prefix}-new-task` },
+        { action: 'add', source: existingTaskId, target: 'new-task-placeholder' },
       ],
       newNodes: [
         { id: 'new-task', title: 'New Task', description: 'From decomposition' },
@@ -177,10 +168,12 @@ describe('applyMutations returns correct affected node IDs', () => {
 
     const ids = simulateApplyMutations(projectId, mutations)
 
-    // Should have new-task (prefixed) + task-1 (update)
+    // Should have new-task (UUID) + existing task (UUID)
     expect(ids).toHaveLength(2)
-    expect(ids).toContain(`${prefix}-new-task`)
-    expect(ids).toContain(`${prefix}-task-1`)
+    expect(ids).toContain(existingTaskId)
+    // New node should have a UUID, not contain the AI ID 'new-task'
+    const newNodeId = ids.find((id) => id !== existingTaskId)!
+    expect(newNodeId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 
   it('does NOT include edge-only mutations in affected IDs', () => {
@@ -196,7 +189,7 @@ describe('applyMutations returns correct affected node IDs', () => {
     expect(ids).toHaveLength(0)
   })
 
-  it('handles new nodes without explicit IDs (auto-generated)', () => {
+  it('handles new nodes without explicit IDs (auto-generated UUID)', () => {
     const mutations: AppliedMutations = {
       nodeUpdates: [],
       edgeOps: [],
@@ -208,25 +201,29 @@ describe('applyMutations returns correct affected node IDs', () => {
     const ids = simulateApplyMutations(projectId, mutations)
 
     expect(ids).toHaveLength(1)
-    // Should start with prefix
-    expect(ids[0].startsWith(prefix)).toBe(true)
+    // Should be a proper UUID
+    expect(ids[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 
-  it('does not double-prefix IDs that AI generates with project prefix', () => {
+  it('all new nodes get unique UUIDs regardless of AI-provided IDs', () => {
     const mutations: AppliedMutations = {
       nodeUpdates: [],
       edgeOps: [],
       newNodes: [
-        { id: `${prefix}-already-prefixed`, title: 'Pre-prefixed', description: 'AI was smart' },
+        { id: 'n1', title: 'Task 1', description: 'First' },
+        { id: 'n2', title: 'Task 2', description: 'Second' },
       ],
     }
 
     const ids = simulateApplyMutations(projectId, mutations)
 
-    expect(ids).toHaveLength(1)
-    expect(ids[0]).toBe(`${prefix}-already-prefixed`)
-    // Should NOT be double-prefixed like "abcdef12-abcdef12-already-prefixed"
-    expect(ids[0]).not.toContain(`${prefix}-${prefix}`)
+    expect(ids).toHaveLength(2)
+    // Both should be proper UUIDs
+    for (const id of ids) {
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    }
+    // Should be unique
+    expect(ids[0]).not.toBe(ids[1])
   })
 })
 
@@ -234,9 +231,8 @@ describe('applyMutations returns correct affected node IDs', () => {
 // Bug demonstration: old code vs new code
 // ============================================================================
 
-describe('Bug fix: raw AI IDs vs prefixed IDs', () => {
+describe('Bug fix: raw AI IDs vs UUID IDs', () => {
   const projectId = 'abcdef12-3456-7890-abcd-ef1234567890'
-  const prefix = projectId.slice(0, 8)
 
   it('OLD CODE: returned raw AI IDs that did not match store IDs', () => {
     const mutations: AppliedMutations = {
@@ -248,12 +244,11 @@ describe('Bug fix: raw AI IDs vs prefixed IDs', () => {
     }
 
     const buggyIds = buggyComputeAffectedIds(mutations)
-    // Old code returned 'setup-ci', but the node in the store has 'abcdef12-setup-ci'
+    // Old code returned 'setup-ci', but the node in the store has a UUID
     expect(buggyIds).toEqual(['setup-ci'])
-    expect(buggyIds[0]).not.toBe(`${prefix}-setup-ci`)
   })
 
-  it('NEW CODE: returns prefixed IDs that match store IDs', () => {
+  it('NEW CODE: returns UUID IDs that match store IDs', () => {
     const mutations: AppliedMutations = {
       nodeUpdates: [],
       edgeOps: [],
@@ -263,7 +258,10 @@ describe('Bug fix: raw AI IDs vs prefixed IDs', () => {
     }
 
     const fixedIds = simulateApplyMutations(projectId, mutations)
-    expect(fixedIds).toEqual([`${prefix}-setup-ci`])
+    expect(fixedIds).toHaveLength(1)
+    // Should be a proper UUID, not the raw AI ID
+    expect(fixedIds[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(fixedIds[0]).not.toBe('setup-ci')
   })
 
   it('OLD CODE: returned undefined for nodes without IDs', () => {
@@ -280,7 +278,7 @@ describe('Bug fix: raw AI IDs vs prefixed IDs', () => {
     expect(buggyIds).toHaveLength(0)
   })
 
-  it('NEW CODE: generates and returns a real ID for nodes without explicit IDs', () => {
+  it('NEW CODE: generates and returns a UUID for nodes without explicit IDs', () => {
     const mutations: AppliedMutations = {
       nodeUpdates: [],
       edgeOps: [],
@@ -291,7 +289,7 @@ describe('Bug fix: raw AI IDs vs prefixed IDs', () => {
 
     const fixedIds = simulateApplyMutations(projectId, mutations)
     expect(fixedIds).toHaveLength(1)
-    expect(fixedIds[0].startsWith(prefix)).toBe(true)
+    expect(fixedIds[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 })
 

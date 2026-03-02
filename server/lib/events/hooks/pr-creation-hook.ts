@@ -17,23 +17,27 @@ import { planNodes } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
 
 /**
- * Persist branchName/prUrl/prNumber to the planNodes table and mutate event.node in-place.
+ * Persist branchName/prUrl/prNumber/commitSHAs to the planNodes table and mutate event.node in-place.
  */
 async function persistPrData(
   nodeId: string,
-  node: { branchName?: string; prUrl?: string; prNumber?: number },
-  data: { branchName?: string; prUrl?: string; prNumber?: number },
+  node: { branchName?: string; prUrl?: string; prNumber?: number; commitBeforeSha?: string; commitAfterSha?: string },
+  data: { branchName?: string; prUrl?: string; prNumber?: number; commitBeforeSha?: string; commitAfterSha?: string },
 ): Promise<void> {
   // Mutate event.node in-place so downstream hooks see the data
   if (data.branchName) node.branchName = data.branchName
   if (data.prUrl) node.prUrl = data.prUrl
   if (data.prNumber) node.prNumber = data.prNumber
+  if (data.commitBeforeSha) node.commitBeforeSha = data.commitBeforeSha
+  if (data.commitAfterSha) node.commitAfterSha = data.commitAfterSha
 
   // Build the DB update set (only include non-undefined fields)
   const updateSet: Record<string, unknown> = { updatedAt: new Date() }
   if (data.branchName) updateSet.branchName = data.branchName
   if (data.prUrl) updateSet.prUrl = data.prUrl
   if (data.prNumber !== undefined) updateSet.prNumber = data.prNumber
+  if (data.commitBeforeSha) updateSet.commitBeforeSha = data.commitBeforeSha
+  if (data.commitAfterSha) updateSet.commitAfterSha = data.commitAfterSha
 
   try {
     await db.update(planNodes)
@@ -63,6 +67,8 @@ export const prCreationHook: EventHook = async (event: AstroEvent) => {
       branchName: result.branchName,
       prUrl: result.prUrl,
       prNumber: result.prNumber,
+      commitBeforeSha: result.commitBeforeSha,
+      commitAfterSha: result.commitAfterSha,
     })
     return
   }

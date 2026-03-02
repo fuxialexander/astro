@@ -39,11 +39,10 @@ import {
   mkdirSync,
   readdirSync,
   realpathSync,
-  statSync,
 } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir, homedir } from 'node:os'
-import { join, dirname, relative } from 'node:path'
+import { join, dirname } from 'node:path'
 
 // Agent-runner imports
 import { localRepoSetup } from '../../packages/agent-runner/src/lib/repo-utils.js'
@@ -181,7 +180,7 @@ afterAll(async () => {
 
 describe('Git project + remote', { timeout: 30_000 }, () => {
   it('full workflow: setup → worktree → CLAUDE.md → cleanup', async () => {
-    const { repoDir, bareDir } = createGitRepo({
+    const { repoDir } = createGitRepo({
       withRemote: true,
       withFiles: { 'src/app.ts': 'console.log("hello")' },
     })
@@ -279,7 +278,7 @@ describe('Git project + no remote', { timeout: 30_000 }, () => {
 
 describe('Monorepo subdirectory', { timeout: 30_000 }, () => {
   it('full workflow: detects subdirectory, worktree at root, CWD at sub', async () => {
-    const { repoDir, subDir } = createMonorepo()
+    const { subDir } = createMonorepo()
 
     // Step 1: localRepoSetup detects monorepo subdirectory
     const setup = localRepoSetup({ workingDirectory: subDir })

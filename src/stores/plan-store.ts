@@ -441,9 +441,41 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   reorganizeProject: (projectId) => {
     const allNodes = get().nodes
     const allEdges = get().edges
-    const projectNodes = allNodes.filter((n) => n.projectId === projectId && isLive(n))
+    // Exclude milestones from layout — they're hidden in the graph view and
+    // edge bridging connects tasks through them. Including them would leave gaps.
+    const projectNodes = allNodes.filter((n) => n.projectId === projectId && isLive(n) && n.type !== "milestone")
     const nodeIds = new Set(projectNodes.map((n) => n.id))
-    const projectEdges = allEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+    // Include bridge edges: if A→M→B where M is a milestone, create A→B
+    const allProjectNodeIds = new Set(allNodes.filter((n) => n.projectId === projectId && isLive(n)).map((n) => n.id))
+    const allProjectEdges = allEdges.filter((e) => allProjectNodeIds.has(e.source) || allProjectNodeIds.has(e.target))
+    const directEdges = allProjectEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+    const milestoneIds = new Set(allNodes.filter((n) => n.projectId === projectId && isLive(n) && n.type === "milestone").map((n) => n.id))
+    const bridgeEdges: typeof directEdges = []
+    if (milestoneIds.size > 0) {
+      const inMap = new Map<string, string[]>()
+      const outMap = new Map<string, string[]>()
+      for (const e of allProjectEdges) {
+        if (milestoneIds.has(e.target)) {
+          const arr = inMap.get(e.target) ?? []; arr.push(e.source); inMap.set(e.target, arr)
+        }
+        if (milestoneIds.has(e.source)) {
+          const arr = outMap.get(e.source) ?? []; arr.push(e.target); outMap.set(e.source, arr)
+        }
+      }
+      for (const mId of milestoneIds) {
+        const sources = (inMap.get(mId) ?? []).filter((s) => nodeIds.has(s))
+        const targets = (outMap.get(mId) ?? []).filter((t) => nodeIds.has(t))
+        for (const s of sources) {
+          for (const t of targets) {
+            bridgeEdges.push({ id: `layout-bridge-${s}-${t}`, source: s, target: t, type: "dependency" })
+          }
+        }
+      }
+    }
+    const seen = new Set<string>()
+    const projectEdges = [...directEdges, ...bridgeEdges].filter((e) => {
+      const key = `${e.source}->${e.target}`; if (seen.has(key)) return false; seen.add(key); return true
+    })
 
     const positions = layoutGraph(projectNodes, projectEdges)
 

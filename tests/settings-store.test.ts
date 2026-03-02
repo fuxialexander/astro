@@ -8,7 +8,6 @@ import {
   resolveModel,
   defaultModelTierMap,
   getEffectiveModelTierMap,
-  type ModelTier,
   type CustomModelMap,
 } from "../src/stores/settings-store"
 

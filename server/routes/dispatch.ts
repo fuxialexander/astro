@@ -43,6 +43,26 @@ function getShortId(id: string): string {
   return id.replace(/-/g, '').slice(0, 6).toLowerCase()
 }
 
+/**
+ * Derive a unique short node ID that avoids collision with the project ID prefix.
+ * AI-generated node IDs are prefixed with projectId.slice(0,8), so getShortId()
+ * produces identical results for both project and node. This function uses the
+ * last 6 hex chars of the UUID (skips the shared project prefix) by default,
+ * falling back to the server-assigned node number when no UUID is available.
+ */
+function getShortNodeId(nodeId: string, nodeNumber?: number | null): string {
+  // Use last 6 hex chars of the UUID — unique across nodes since the suffix differs
+  const hex = nodeId.replace(/-/g, '').toLowerCase()
+  if (hex.length >= 6) {
+    return hex.slice(-6)
+  }
+  // Fallback: use server-assigned node number
+  if (nodeNumber != null) {
+    return `n${nodeNumber}`
+  }
+  return hex || 'unknown'
+}
+
 // Validation schemas
 const dispatchTaskSchema = z.object({
   nodeId: z.string().min(1).max(100),
@@ -126,26 +146,17 @@ dispatchRoute.post('/task', async (c) => {
     return c.json({ success: false, error: 'Invalid JSON' }, 400)
   }
 
-  let {
+  const {
     nodeId,
     projectId,
-    title,
-    description,
-    dependencies = [],
-    verification,
-    visionDoc,
     dependencyOutputs = [],
     priority = 'normal',
     preferredProvider,
-    targetMachineId,
     model,
-    workingDirectory,
     sourceDirectory,
     force = false,
     dryRun = false,
     computeBackend,
-    deliveryMode,
-    remoteType,
     agentDir,
     worktreeStrategy,
     useWorktree,
@@ -153,17 +164,31 @@ dispatchRoute.post('/task', async (c) => {
     isInteractivePlan,
     maxTurns,
     skipSafetyCheck,
-    acceptanceCriteria,
     dispatchSignature,
     dispatchSigningPayload,
     resumeSessionId,
     forkSession,
   } = body
 
+  // These variables may be resolved from DB when not provided by the client
+  let {
+    title,
+    description,
+    dependencies = [],
+    verification,
+    visionDoc,
+    targetMachineId,
+    workingDirectory,
+    deliveryMode,
+    remoteType,
+    acceptanceCriteria,
+  } = body
+
   // PR body enrichment fields (resolved from DB)
   let githubIssueUrl: string | undefined
   let githubIssueNumber: number | undefined
   let baseBranch: string | undefined
+  let nodeNumber: number | null | undefined
 
   // ── Server-side resolution: fill missing fields from DB ──────────
   // Always fetch plan node + project so that PR enrichment fields
@@ -188,6 +213,7 @@ dispatchRoute.post('/task', async (c) => {
     }
 
     if (dbNode) {
+      nodeNumber = dbNode.number
       title ??= dbNode.title
       description ??= dbNode.description || dbNode.content || dbNode.title
       verification ??= (dbNode.verification as 'auto' | 'human') || undefined
@@ -212,6 +238,8 @@ dispatchRoute.post('/task', async (c) => {
           clientId: planNodes.clientId,
           title: planNodes.title,
           executionOutput: planNodes.executionOutput,
+          status: planNodes.status,
+          type: planNodes.type,
           projectId: planNodes.projectId,
         }).from(planNodes)
           .where(eq(planNodes.projectId, projectId))
@@ -223,6 +251,14 @@ dispatchRoute.post('/task', async (c) => {
               nodeId: depNode.clientId,
               title: depNode.title,
               output: depNode.executionOutput,
+            })
+          } else if (depNode && (depNode.status === 'completed' || depNode.status === 'auto_verified')) {
+            // Milestones and tasks without output but with completed status
+            // still satisfy dependencies
+            dependencyOutputs.push({
+              nodeId: depNode.clientId,
+              title: depNode.title,
+              output: `[${depNode.type || 'node'} ${depNode.status}]`,
             })
           }
         }
@@ -375,6 +411,7 @@ dispatchRoute.post('/task', async (c) => {
     dispatchSignature,
     dispatchSigningPayload,
     dryRun,
+    nodeNumber,
   })
 })
 
@@ -417,6 +454,7 @@ async function dispatchViaRelay(
     dispatchSignature?: string
     dispatchSigningPayload?: { v: 1; nodeId: string; projectId: string; machineId: string; timestamp: string; nonce: string }
     dryRun?: boolean
+    nodeNumber?: number | null
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -456,11 +494,12 @@ async function dispatchViaRelay(
     dispatchSignature,
     dispatchSigningPayload,
     dryRun,
+    nodeNumber,
   } = params
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
   const shortProjectId = getShortId(projectId)
-  const shortNodeId = getShortId(nodeId)
+  const shortNodeId = getShortNodeId(nodeId, nodeNumber)
 
   // Extract user for ownership verification
   const user = c.get('user') as AuthUser | undefined
@@ -775,6 +814,18 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     console.warn('[dispatch] Failed to fetch project for event hooks:', err)
   }
 
+  // Compute the project-level accumulation branch
+  const projectBranch = `astro/${shortProjectId}`
+
+  // Persist projectBranch to the project record (idempotent — only sets if not already set)
+  try {
+    await db.update(projects)
+      .set({ projectBranch, updatedAt: new Date() })
+      .where(and(eq(projects.id, projectId), isNull(projects.projectBranch)))
+  } catch (err) {
+    console.warn(`[dispatch] Failed to persist projectBranch for project ${projectId}:`, err)
+  }
+
   // Dispatch via relay
   const taskDispatch = {
     taskId: executionId,
@@ -795,7 +846,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     sourceDirectory,
     deliveryMode: deliveryMode ?? 'pr',
     remoteType,
-    baseBranch,
+    baseBranch: baseBranch || undefined,
+    projectBranch,
     agentDir,
     worktreeStrategy,
     useWorktree,
@@ -913,20 +965,36 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         console.error('[dispatch] Error emitting task.completed event:', err)
       })
 
-      // Persist PR/branch metadata directly to plan_nodes so it survives page refresh
-      const prPatch: Record<string, unknown> = { updatedAt: new Date() }
-      if (msg.result.branchName) prPatch.branchName = msg.result.branchName
-      if (msg.result.prUrl) prPatch.prUrl = msg.result.prUrl
-      if (msg.result.prNumber) prPatch.prNumber = msg.result.prNumber
-      if (Object.keys(prPatch).length > 1) {
-        db.update(planNodes)
-          .set(prPatch)
-          .where(eq(planNodes.clientId, nodeId))
-          .execute()
-          .catch((err: unknown) => {
-            console.error('[dispatch] Error persisting PR metadata to plan node:', err)
-          })
+      // Persist execution result + PR/branch metadata to plan_nodes (server-side)
+      // This ensures node status is updated even if the frontend SSE connection drops.
+      const isSuccess = msg.result.status === 'completed'
+      const deliveryOk = !msg.result.deliveryStatus ||
+        msg.result.deliveryStatus === 'success' ||
+        msg.result.deliveryStatus === 'skipped'
+      // Failed executions also go to awaiting_judgment — human judgment is needed
+      // to decide whether to retry, fix, or abandon the task.
+      const finalNodeStatus = isSuccess
+        ? (verification === 'auto' && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
+        : 'awaiting_judgment'
+
+      const nodePatch: Partial<typeof planNodes.$inferInsert> = {
+        status: finalNodeStatus,
+        executionOutput: msg.result.output ?? null,
+        executionCompletedAt: new Date(),
+        executionError: msg.result.error ?? null,
+        updatedAt: new Date(),
       }
+      if (msg.result.branchName) nodePatch.branchName = msg.result.branchName
+      if (msg.result.prUrl) nodePatch.prUrl = msg.result.prUrl
+      if (msg.result.prNumber) nodePatch.prNumber = msg.result.prNumber
+
+      db.update(planNodes)
+        .set(nodePatch)
+        .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+        .execute()
+        .catch((err: unknown) => {
+          console.error('[dispatch] Error persisting execution result to plan node:', err)
+        })
 
       // Auto-assign defaultMachineId on the project if not yet set
       if (msg.result.status === 'completed' && machineId) {
@@ -1607,8 +1675,11 @@ dispatchRoute.post('/reset', async (c) => {
     }
   }
 
-  // 2. Delete remote branch via GitHub API (using user's token)
-  if (node.branchName && ghRepo && ghToken) {
+  // 2. Delete remote TASK branch via GitHub API (using user's token)
+  // Guard: never delete the project branch — it accumulates work across tasks.
+  // Project branches follow the pattern 'astro/{shortProjectId}' (no node suffix).
+  const isProjectBranch = node.branchName && project?.projectBranch && node.branchName === project.projectBranch
+  if (node.branchName && ghRepo && ghToken && !isProjectBranch) {
     try {
       const response = await fetch(
         `https://api.github.com/repos/${ghRepo}/git/refs/heads/${node.branchName}`,
@@ -1630,6 +1701,8 @@ dispatchRoute.post('/reset', async (c) => {
       const msg = err instanceof Error ? err.message : String(err)
       console.warn(`[dispatch/reset] Error deleting remote branch: ${msg}`)
     }
+  } else if (isProjectBranch) {
+    console.log(`[dispatch/reset] Skipping deletion of project branch ${node.branchName}`)
   }
 
   // 3. Send cleanup command to agent runner via relay
@@ -1651,6 +1724,8 @@ dispatchRoute.post('/reset', async (c) => {
         prUrl: null,
         prNumber: null,
         branchName: null,
+        commitBeforeSha: null,
+        commitAfterSha: null,
         executionId: null,
         executionOutput: null,
         executionError: null,

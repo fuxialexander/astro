@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router"
-import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu } from "lucide-react"
+import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, ExternalLink } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useAgentStore } from "@/stores/agent-store"
@@ -23,18 +23,18 @@ interface ActiveTask {
 }
 
 function ElapsedTimer({ startedAt }: { startedAt?: Date }) {
-  const [, setTick] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     if (!startedAt) return
-    const interval = setInterval(() => setTick((t) => t + 1), 1000)
+    const interval = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(interval)
   }, [startedAt])
 
   if (!startedAt || isNaN(startedAt.getTime())) {
     return <span className="text-xs text-muted-foreground">-</span>
   }
-  const seconds = Math.floor((Date.now() - startedAt.getTime()) / 1000)
+  const seconds = Math.floor((now - startedAt.getTime()) / 1000)
   if (seconds < 0) return <span className="text-xs text-muted-foreground">-</span>
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
@@ -163,6 +163,14 @@ function ProjectGroup({
         <span className="text-sm font-semibold text-foreground flex-1 truncate">
           {projectName}
         </span>
+        <Link
+          to={`/project/${projectId}`}
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors shrink-0"
+          title="Go to project"
+        >
+          <ExternalLink className="h-3 w-3" />
+        </Link>
         <span className="text-xs text-muted-foreground tabular-nums">
           {tasks.length} active
         </span>

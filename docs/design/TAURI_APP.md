@@ -1,5 +1,7 @@
 # Tauri Desktop App Vision
 
+> **Status: PROPOSED -- Not yet implemented.** This document describes a future Tauri desktop app architecture. No Tauri code exists in the codebase. See [PACKAGE_ARCHITECTURE.md](./PACKAGE_ARCHITECTURE.md) for the current monorepo structure.
+
 > **See also:** [PACKAGE_ARCHITECTURE.md](./PACKAGE_ARCHITECTURE.md) for the full monorepo package structure (`@astro/core`, `@astro/cli`, `server/`, `@astroanywhere/agent-runner`, Tauri desktop) and how they compose across deployment scenarios.
 
 ## Motivation
@@ -762,3 +764,12 @@ The Tauri app is a **power user upgrade** — same React frontend, better local 
 - Extension APIs are sandboxed and limited
 - Cross-browser maintenance burden
 - Can't run background tasks reliably
+
+---
+
+## Reflection: Potential Issues & Improvements
+
+1. **No implementation exists.** This is a pure proposal. The "What's Eliminated" table references "IndexedDB caching" which has already been replaced by PGlite/API persistence in the web app.
+2. **PGlite embedding in Rust** -- the doc assumes PGlite can be embedded via Rust FFI, but PGlite is a WASM library. The actual integration path (Node.js sidecar vs. native Postgres) needs investigation.
+3. **Scope creep risk** -- the document covers many scenarios (standalone, connected, team modes) which could make Phase 1 POC much larger than intended. Consider narrowing initial scope to standalone mode only.
+4. **Web app parity** -- the migration path assumes the web app refactors (Phase 0: server-side refactor) happen first, which creates a hard dependency between the Tauri app and web app improvements.

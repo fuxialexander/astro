@@ -375,12 +375,8 @@ describe('Claude Code adapter tool_use_id → tool name mapping', () => {
    * in the Claude Code adapter. Previously, tool_use_id (toolu_bdrk_*) was passed
    * as the toolName, causing raw IDs to appear in the UI.
    */
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fs = require('node:fs') as typeof import('node:fs')
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const path = require('node:path') as typeof import('node:path')
-  const adapterPath = path.join(process.cwd(), 'packages/agent-runner/src/providers/claude-code-adapter.ts')
-  const adapterSource = fs.readFileSync(adapterPath, 'utf-8')
+  // Note: adapter source verification skipped — all tests below are .todo()
+  // When implementing, read packages/agent-runner/src/providers/claude-code-adapter.ts
 
   it.todo('has a toolIdToName map for correlating tool_use with tool_result')
 

@@ -33,6 +33,7 @@ export interface DisplayBlock {
 
 // ─── Grouping ───────────────────────────────────────────────────────
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[] {
   const blocks: DisplayBlock[] = []
   let currentTextEvents: TaskActivityEvent[] = []
@@ -52,12 +53,23 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
     const toolPairs: TaskActivityEvent[][] = []
     const useEvents = currentToolEvents.filter((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
 
+    const pairedResultIds = new Set<string>()
     for (const useEvent of useEvents) {
       const pair: TaskActivityEvent[] = [useEvent]
-      const resultEvent = currentToolEvents.find(
-        e => e.type === 'tool_result' && e.id === useEvent.id
+      // Match by exact ID first, then fall back to toolName (handles hydrated events
+      // where tool_use and tool_result get different sequential IDs)
+      let resultEvent = currentToolEvents.find(
+        e => e.type === 'tool_result' && e.id === useEvent.id && !pairedResultIds.has(e.id)
       )
-      if (resultEvent) pair.push(resultEvent)
+      if (!resultEvent && 'toolName' in useEvent) {
+        resultEvent = currentToolEvents.find(
+          e => e.type === 'tool_result' && 'toolName' in e && e.toolName === useEvent.toolName && !pairedResultIds.has(e.id)
+        )
+      }
+      if (resultEvent && 'id' in resultEvent) {
+        pair.push(resultEvent)
+        pairedResultIds.add(resultEvent.id)
+      }
       toolPairs.push(pair)
     }
 
@@ -80,10 +92,31 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         currentTextEvents.push(event)
         break
       case 'tool_use':
-      case 'tool_result':
         flushText()
         currentToolEvents.push(event)
         break
+      case 'tool_result': {
+        flushText()
+        // If the matching tool_use was already flushed into a previous block,
+        // inject this result into that block instead of the current batch.
+        // This handles the common case where text events arrive between
+        // tool_use and tool_result, causing them to be in different blocks.
+        const resultEvent = event as Extract<TaskActivityEvent, { type: 'tool_result' }>
+        const matchingBlock = [...blocks].reverse().find(b =>
+          (b.type === 'tool' || b.type === 'tool_group') &&
+          b.events.some(e => e.type === 'tool_use' && (
+            e.id === resultEvent.id ||
+            ('toolName' in e && e.toolName === resultEvent.toolName &&
+              !b.events.some(r => r.type === 'tool_result' && r.id === e.id))
+          ))
+        )
+        if (matchingBlock) {
+          matchingBlock.events.push(event)
+        } else {
+          currentToolEvents.push(event)
+        }
+        break
+      }
       case 'steer':
         flushText()
         flushTools()
@@ -134,6 +167,7 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function getToolInputSummary(toolName: string, toolInput: unknown): string | null {
   if (!toolInput || typeof toolInput !== 'object') return null
   const input = toolInput as Record<string, unknown>
@@ -181,6 +215,7 @@ export function getToolInputSummary(toolName: string, toolInput: unknown): strin
  * 1. Its tool_result event has been paired (proper completion), OR
  * 2. The task has stopped running (no more results will ever arrive)
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function getToolStatus(hasResult: boolean, isRunning: boolean, success?: boolean) {
   const isComplete = hasResult || !isRunning
 
@@ -310,12 +345,21 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
   }> = []
 
   const useEvents = events.filter((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
+  const pairedResultIds = new Set<string>()
 
   for (const toolUse of useEvents) {
-    const toolResult = events.find(
+    // Match by exact ID first, then fall back to toolName
+    let toolResult = events.find(
       (e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> =>
-        e.type === 'tool_result' && e.id === toolUse.id
+        e.type === 'tool_result' && e.id === toolUse.id && !pairedResultIds.has(e.id)
     )
+    if (!toolResult) {
+      toolResult = events.find(
+        (e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> =>
+          e.type === 'tool_result' && e.toolName === toolUse.toolName && !pairedResultIds.has(e.id)
+      )
+    }
+    if (toolResult) pairedResultIds.add(toolResult.id)
     toolPairs.push({ toolUse, toolResult })
   }
 

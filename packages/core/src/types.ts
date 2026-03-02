@@ -150,6 +150,9 @@ export interface Project {
   githubOwner?: string
   githubRepo?: string
   githubRepoId?: number
+  projectBranch?: string
+  projectPrUrl?: string
+  projectPrNumber?: number
   createdAt: Date;
   updatedAt: Date;
 }
@@ -218,6 +221,8 @@ export interface PlanNode {
   prUrl?: string;
   prNumber?: number;
   mergeQueueStatus?: 'queued' | 'testing' | 'merged' | 'failed';
+  commitBeforeSha?: string;
+  commitAfterSha?: string;
   autoPr?: boolean;
   githubIssueNumber?: number;
   githubIssueUrl?: string;

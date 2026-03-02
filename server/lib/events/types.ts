@@ -21,6 +21,7 @@ export type AstroEvent =
   | ApprovalRespondedEvent
   | MergeQueueFailedEvent
   | MergeQueueSucceededEvent
+  | ProjectCompletedEvent
 
 export interface TaskStartedEvent {
   type: 'task.started'
@@ -128,6 +129,16 @@ export interface MergeQueueSucceededEvent {
   prNumber: number
   branchName: string
   mergedSha?: string
+  timestamp: Date
+}
+
+export interface ProjectCompletedEvent {
+  type: 'project.completed'
+  projectId: string
+  project: Project
+  projectBranch: string
+  projectPrUrl?: string
+  projectPrNumber?: number
   timestamp: Date
 }
 
