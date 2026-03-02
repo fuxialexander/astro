@@ -38,5 +38,16 @@ export type {
 } from './payload.js'
 
 // Summary generation (direct Anthropic API call)
-export { generateServerSideSummary } from './summary-utils.js'
-export type { SummaryInput } from './summary-utils.js'
+export {
+  generateServerSideSummary,
+  runPrSummaryFallbackChain,
+  parseInStreamExecutiveSummary,
+  generateGitDiffSummary,
+  formatStructuredSummary,
+} from './summary-utils.js'
+export type {
+  SummaryInput,
+  PrSummarySource,
+  PrSummaryResult,
+  PrSummaryInput,
+} from './summary-utils.js'
