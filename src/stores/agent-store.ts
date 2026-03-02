@@ -7,6 +7,14 @@ import { useSettingsStore } from "@/stores/settings-store"
 import type { PlanNode, PlanEdge, Project } from "@/types"
 
 export type GenerationPhase = 'idle' | 'repo_setup' | 'generating' | 'interactive_planning'
+
+/**
+ * Generation session lifecycle:
+ *   active → generated  (plan ready, awaiting user acknowledgment)
+ *   active → error      (generation failed)
+ *   generated → removed (user clicks "View plan" or auto-cleanup after 7 days)
+ *   error → removed     (auto-cleanup after 5 minutes)
+ */
 export type GenerationStatus = 'active' | 'generated' | 'completed' | 'error'
 
 export interface GenerationSession {
@@ -80,19 +88,28 @@ function persistGeneratedSessions(sessions: Map<string, GenerationSession>): voi
   }
 }
 
+function isValidSession(v: unknown): v is GenerationSession {
+  if (!v || typeof v !== "object") return false
+  const s = v as Record<string, unknown>
+  return typeof s.projectId === "string" &&
+    typeof s.status === "string" &&
+    typeof s.startedAt === "number"
+}
+
 function restoreGeneratedSessions(): Map<string, GenerationSession> {
   const sessions = new Map<string, GenerationSession>()
   try {
     const raw = localStorage.getItem(GENERATED_SESSIONS_KEY)
     if (raw) {
       const now = Date.now()
-      const parsed = JSON.parse(raw) as Record<string, GenerationSession>
-      for (const [projectId, session] of Object.entries(parsed)) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      for (const [projectId, value] of Object.entries(parsed)) {
+        if (!isValidSession(value)) continue
         // Only restore "generated" sessions that haven't expired (7-day TTL)
-        if (session.status === "generated") {
-          const age = session.completedAt ? now - session.completedAt : 0
+        if (value.status === "generated") {
+          const age = value.completedAt ? now - value.completedAt : 0
           if (age <= GENERATED_SESSION_TTL_MS) {
-            sessions.set(projectId, session)
+            sessions.set(projectId, value)
           }
         }
       }
@@ -477,14 +494,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   markPlanViewed: (projectId) => {
-    set((s) => {
-      const session = s.sessions.get(projectId)
-      if (!session || session.status !== "generated") return s
-      const sessions = new Map(s.sessions)
-      sessions.delete(projectId)
-      persistGeneratedSessions(sessions)
-      return { sessions }
-    })
+    // Only dismiss if the session is in "generated" state
+    const session = get().sessions.get(projectId)
+    if (session?.status === "generated") {
+      get().dismissSession(projectId)
+    }
   },
 
   startInteractiveSession: (projectId, projectName, executionId) => {

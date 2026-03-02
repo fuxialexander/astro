@@ -104,7 +104,13 @@ export const statusProgressColors: Record<string, string> = Object.fromEntries(
   Object.entries(STATUS_CONFIG).filter(([, v]) => v.progressClass).map(([k, v]) => [k, v.progressClass!])
 )
 
-/** Node statuses that indicate a task is no longer active (terminal states) */
+/**
+ * Node statuses where the associated execution has finished running.
+ * Used to filter out stale execution records that still show "running"
+ * after a page refresh. Includes `awaiting_judgment` and `awaiting_approval`
+ * because these statuses are set by the execution result — the execution
+ * itself has completed; only user review is pending.
+ */
 export const TERMINAL_NODE_STATUSES: Set<string> = new Set([
   "completed", "auto_verified", "awaiting_judgment", "awaiting_approval", "pruned",
 ])
