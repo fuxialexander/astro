@@ -40,6 +40,15 @@ import type { Task } from '../packages/agent-runner/src/types.js'
 const execAsync = promisify(exec)
 
 // =============================================================================
+// Module-level mock control variables (used by vi.mock at bottom of file)
+// =============================================================================
+// vi.hoisted ensures these exist when the hoisted vi.mock factories run.
+const { mockSpawnFn, mockGetProviderFn } = vi.hoisted(() => ({
+  mockSpawnFn: vi.fn(),
+  mockGetProviderFn: vi.fn().mockResolvedValue(null),
+}))
+
+// =============================================================================
 // CLI Availability Detection
 // =============================================================================
 
@@ -230,52 +239,50 @@ describe.skipIf(!opencodeAvailable)('OpenCode Provider Integration', () => {
   describe('Availability', () => {
     it('should detect opencode as available', async () => {
       // Mock the provider detection to avoid full system scan
-      vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-        getProvider: vi.fn(async (type: string) => {
-          if (type === 'opencode') {
-            return {
-              type: 'opencode',
-              name: 'OpenCode',
-              version: '1.0.0',
-              path: '/usr/local/bin/opencode',
-              available: true,
-              capabilities: {
-                streaming: true,
-                tools: true,
-                multiTurn: true,
-                maxConcurrentTasks: 1,
-              },
-            }
+      mockGetProviderFn.mockReset()
+      mockGetProviderFn.mockImplementation(async (type: string) => {
+        if (type === 'opencode') {
+          return {
+            type: 'opencode',
+            name: 'OpenCode',
+            version: '1.0.0',
+            path: '/usr/local/bin/opencode',
+            available: true,
+            capabilities: {
+              streaming: true,
+              tools: true,
+              multiTurn: true,
+              maxConcurrentTasks: 1,
+            },
           }
-          return null
-        }),
-      }))
+        }
+        return null
+      })
 
       const available = await adapter.isAvailable()
       expect(available).toBe(true)
     })
 
     it('should report correct status shape', async () => {
-      vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-        getProvider: vi.fn(async (type: string) => {
-          if (type === 'opencode') {
-            return {
-              type: 'opencode',
-              name: 'OpenCode',
-              version: '1.0.0',
-              path: '/usr/local/bin/opencode',
-              available: true,
-              capabilities: {
-                streaming: true,
-                tools: true,
-                multiTurn: true,
-                maxConcurrentTasks: 1,
-              },
-            }
+      mockGetProviderFn.mockReset()
+      mockGetProviderFn.mockImplementation(async (type: string) => {
+        if (type === 'opencode') {
+          return {
+            type: 'opencode',
+            name: 'OpenCode',
+            version: '1.0.0',
+            path: '/usr/local/bin/opencode',
+            available: true,
+            capabilities: {
+              streaming: true,
+              tools: true,
+              multiTurn: true,
+              maxConcurrentTasks: 1,
+            },
           }
-          return null
-        }),
-      }))
+        }
+        return null
+      })
 
       const status = await adapter.getStatus()
       expect(status).toHaveProperty('available')
@@ -429,15 +436,14 @@ describe.skipIf(!opencodeAvailable)('OpenCode Provider Integration', () => {
 
   describe('Error Handling', () => {
     it('should reject with descriptive error for non-existent working directory', async () => {
-      vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-        getProvider: vi.fn(async () => ({
-          type: 'opencode',
-          name: 'OpenCode',
-          version: '1.0.0',
-          path: '/usr/local/bin/opencode',
-          available: true,
-          capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
-        })),
+      mockGetProviderFn.mockReset()
+      mockGetProviderFn.mockImplementation(async () => ({
+        type: 'opencode',
+        name: 'OpenCode',
+        version: '1.0.0',
+        path: '/usr/local/bin/opencode',
+        available: true,
+        capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
       }))
 
       await adapter.isAvailable()
@@ -454,9 +460,8 @@ describe.skipIf(!opencodeAvailable)('OpenCode Provider Integration', () => {
     })
 
     it('should return failed result when provider is not available', async () => {
-      vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-        getProvider: vi.fn(async () => null),
-      }))
+      mockGetProviderFn.mockReset()
+      mockGetProviderFn.mockResolvedValue(null)
 
       const task = createTestTask()
       const controller = new AbortController()
@@ -502,52 +507,50 @@ describe.skipIf(!openclawAvailable)('OpenClaw Provider Integration', () => {
 
   describe('Availability', () => {
     it('should detect openclaw as available', async () => {
-      vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-        getProvider: vi.fn(async (type: string) => {
-          if (type === 'openclaw') {
-            return {
-              type: 'openclaw',
-              name: 'OpenClaw',
-              version: '1.0.0',
-              path: '/usr/local/bin/openclaw',
-              available: true,
-              capabilities: {
-                streaming: true,
-                tools: true,
-                multiTurn: true,
-                maxConcurrentTasks: 1,
-              },
-            }
+      mockGetProviderFn.mockReset()
+      mockGetProviderFn.mockImplementation(async (type: string) => {
+        if (type === 'openclaw') {
+          return {
+            type: 'openclaw',
+            name: 'OpenClaw',
+            version: '1.0.0',
+            path: '/usr/local/bin/openclaw',
+            available: true,
+            capabilities: {
+              streaming: true,
+              tools: true,
+              multiTurn: true,
+              maxConcurrentTasks: 1,
+            },
           }
-          return null
-        }),
-      }))
+        }
+        return null
+      })
 
       const available = await adapter.isAvailable()
       expect(available).toBe(true)
     })
 
     it('should report correct status shape', async () => {
-      vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-        getProvider: vi.fn(async (type: string) => {
-          if (type === 'openclaw') {
-            return {
-              type: 'openclaw',
-              name: 'OpenClaw',
-              version: '1.0.0',
-              path: '/usr/local/bin/openclaw',
-              available: true,
-              capabilities: {
-                streaming: true,
-                tools: true,
-                multiTurn: true,
-                maxConcurrentTasks: 1,
-              },
-            }
+      mockGetProviderFn.mockReset()
+      mockGetProviderFn.mockImplementation(async (type: string) => {
+        if (type === 'openclaw') {
+          return {
+            type: 'openclaw',
+            name: 'OpenClaw',
+            version: '1.0.0',
+            path: '/usr/local/bin/openclaw',
+            available: true,
+            capabilities: {
+              streaming: true,
+              tools: true,
+              multiTurn: true,
+              maxConcurrentTasks: 1,
+            },
           }
-          return null
-        }),
-      }))
+        }
+        return null
+      })
 
       const status = await adapter.getStatus()
       expect(status).toHaveProperty('available')
@@ -843,16 +846,15 @@ describe.skipIf(!openclawAvailable)('OpenClaw Provider Integration', () => {
 
   describe('Error Handling', () => {
     it('should reject with descriptive error for non-existent working directory', async () => {
-      vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-        getProvider: vi.fn(async () => ({
-          type: 'openclaw',
-          name: 'OpenClaw',
-          version: '1.0.0',
-          path: '/usr/local/bin/openclaw',
-          available: true,
-          capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
-        })),
-      }))
+      mockGetProviderFn.mockReset()
+      mockGetProviderFn.mockResolvedValue({
+        type: 'openclaw',
+        name: 'OpenClaw',
+        version: '1.0.0',
+        path: '/usr/local/bin/openclaw',
+        available: true,
+        capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
+      })
 
       await adapter.isAvailable()
 
@@ -869,9 +871,8 @@ describe.skipIf(!openclawAvailable)('OpenClaw Provider Integration', () => {
     })
 
     it('should return failed result when provider is not available', async () => {
-      vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-        getProvider: vi.fn(async () => null),
-      }))
+      mockGetProviderFn.mockReset()
+      mockGetProviderFn.mockResolvedValue(null)
 
       const task = createTestTask({ provider: 'openclaw' })
       const controller = new AbortController()
@@ -1007,36 +1008,29 @@ describe('OpenCode Execute Lifecycle (mocked spawn)', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'astro-opencode-exec-'))
     writeFileSync(join(tempDir, 'README.md'), '# Test\n')
 
-    // Mock the providers module to make the adapter think opencode is available
-    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-      getProvider: vi.fn(async (type: string) => {
-        if (type === 'opencode') {
-          return {
-            type: 'opencode',
-            name: 'OpenCode',
-            version: '1.0.0',
-            path: '/usr/local/bin/opencode',
-            available: true,
-            capabilities: {
-              streaming: true,
-              tools: true,
-              multiTurn: true,
-              maxConcurrentTasks: 1,
-            },
-          }
+    // Configure shared mocks for this section
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockImplementation(async (type: string) => {
+      if (type === 'opencode') {
+        return {
+          type: 'opencode',
+          name: 'OpenCode',
+          version: '1.0.0',
+          path: '/usr/local/bin/opencode',
+          available: true,
+          capabilities: {
+            streaming: true,
+            tools: true,
+            multiTurn: true,
+            maxConcurrentTasks: 1,
+          },
         }
-        return null
-      }),
-    }))
-
-    // Mock child_process.spawn to return our mock process
-    vi.mock('node:child_process', async (importOriginal) => {
-      const original = await importOriginal<typeof import('node:child_process')>()
-      return {
-        ...original,
-        spawn: vi.fn(() => mockProc),
       }
+      return null
     })
+
+    mockSpawnFn.mockReset()
+    mockSpawnFn.mockReturnValue(mockProc)
   })
 
   afterEach(() => {
@@ -1274,34 +1268,29 @@ describe('OpenClaw Execute Lifecycle (mocked spawn)', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'astro-openclaw-exec-'))
     writeFileSync(join(tempDir, 'README.md'), '# Test\n')
 
-    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-      getProvider: vi.fn(async (type: string) => {
-        if (type === 'openclaw') {
-          return {
-            type: 'openclaw',
-            name: 'OpenClaw',
-            version: '1.0.0',
-            path: '/usr/local/bin/openclaw',
-            available: true,
-            capabilities: {
-              streaming: true,
-              tools: true,
-              multiTurn: true,
-              maxConcurrentTasks: 1,
-            },
-          }
+    // Configure shared mocks for this section
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockImplementation(async (type: string) => {
+      if (type === 'openclaw') {
+        return {
+          type: 'openclaw',
+          name: 'OpenClaw',
+          version: '1.0.0',
+          path: '/usr/local/bin/openclaw',
+          available: true,
+          capabilities: {
+            streaming: true,
+            tools: true,
+            multiTurn: true,
+            maxConcurrentTasks: 1,
+          },
         }
-        return null
-      }),
-    }))
-
-    vi.mock('node:child_process', async (importOriginal) => {
-      const original = await importOriginal<typeof import('node:child_process')>()
-      return {
-        ...original,
-        spawn: vi.fn(() => mockProc),
       }
+      return null
     })
+
+    mockSpawnFn.mockReset()
+    mockSpawnFn.mockReturnValue(mockProc)
   })
 
   afterEach(() => {
@@ -1426,41 +1415,38 @@ describe('OpenClaw Execute Lifecycle (mocked spawn)', () => {
 
 describe('Timeout Configuration', () => {
   let mockProc: ReturnType<typeof createMockChildProcess>
+  let stream: ReturnType<typeof createMockStream>
   let tempDir: string
 
   beforeEach(() => {
     mockProc = createMockChildProcess()
+    stream = createMockStream()
     tempDir = mkdtempSync(join(tmpdir(), 'astro-timeout-'))
     writeFileSync(join(tempDir, 'README.md'), '# Test\n')
 
-    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-      getProvider: vi.fn(async (type: string) => {
-        if (type === 'opencode' || type === 'openclaw') {
-          return {
-            type,
-            name: type === 'opencode' ? 'OpenCode' : 'OpenClaw',
-            version: '1.0.0',
-            path: `/usr/local/bin/${type}`,
-            available: true,
-            capabilities: {
-              streaming: true,
-              tools: true,
-              multiTurn: true,
-              maxConcurrentTasks: 1,
-            },
-          }
+    // Configure shared mocks for this section
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockImplementation(async (type: string) => {
+      if (type === 'opencode' || type === 'openclaw') {
+        return {
+          type,
+          name: type === 'opencode' ? 'OpenCode' : 'OpenClaw',
+          version: '1.0.0',
+          path: `/usr/local/bin/${type}`,
+          available: true,
+          capabilities: {
+            streaming: true,
+            tools: true,
+            multiTurn: true,
+            maxConcurrentTasks: 1,
+          },
         }
-        return null
-      }),
-    }))
-
-    vi.mock('node:child_process', async (importOriginal) => {
-      const original = await importOriginal<typeof import('node:child_process')>()
-      return {
-        ...original,
-        spawn: vi.fn(() => mockProc),
       }
+      return null
     })
+
+    mockSpawnFn.mockReset()
+    mockSpawnFn.mockReturnValue(mockProc)
   })
 
   afterEach(() => {
@@ -1530,9 +1516,8 @@ describe('Concurrent Task Tracking', () => {
   })
 
   it('should track active tasks through OpenCode adapter status', async () => {
-    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-      getProvider: vi.fn(async () => null),
-    }))
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockResolvedValue(null)
 
     const adapter = new OpenCodeAdapter()
 
@@ -1543,9 +1528,8 @@ describe('Concurrent Task Tracking', () => {
   })
 
   it('should track active tasks through OpenClaw adapter status', async () => {
-    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-      getProvider: vi.fn(async () => null),
-    }))
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockResolvedValue(null)
 
     const adapter = new OpenClawAdapter()
 
@@ -1557,26 +1541,23 @@ describe('Concurrent Task Tracking', () => {
   it('should return activeTasks=0 after execution completes (OpenCode)', async () => {
     const mockProc = createMockChildProcess()
 
-    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-      getProvider: vi.fn(async (type: string) => {
-        if (type === 'opencode') {
-          return {
-            type: 'opencode',
-            name: 'OpenCode',
-            version: '1.0.0',
-            path: '/usr/local/bin/opencode',
-            available: true,
-            capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
-          }
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockImplementation(async (type: string) => {
+      if (type === 'opencode') {
+        return {
+          type: 'opencode',
+          name: 'OpenCode',
+          version: '1.0.0',
+          path: '/usr/local/bin/opencode',
+          available: true,
+          capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
         }
-        return null
-      }),
-    }))
-
-    vi.mock('node:child_process', async (importOriginal) => {
-      const original = await importOriginal<typeof import('node:child_process')>()
-      return { ...original, spawn: vi.fn(() => mockProc) }
+      }
+      return null
     })
+
+    mockSpawnFn.mockReset()
+    mockSpawnFn.mockReturnValue(mockProc)
 
     const adapter = new OpenCodeAdapter()
     await adapter.isAvailable()
@@ -1599,9 +1580,8 @@ describe('Concurrent Task Tracking', () => {
   }, 30_000)
 
   it('should return activeTasks=0 after failed execution (OpenCode)', async () => {
-    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-      getProvider: vi.fn(async () => null),
-    }))
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockResolvedValue(null)
 
     const adapter = new OpenCodeAdapter()
     const stream = createMockStream()
@@ -1642,21 +1622,17 @@ describe('Provider Adapter Contract', () => {
       })
 
       it('should implement isAvailable() returning a boolean promise', async () => {
-        vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-          getProvider: vi.fn(async () => null),
-        }))
+        mockGetProviderFn.mockReset()
+        mockGetProviderFn.mockResolvedValue(null)
 
         const adapter = createAdapter()
         const result = await adapter.isAvailable()
         expect(typeof result).toBe('boolean')
-
-        vi.restoreAllMocks()
       })
 
       it('should implement getStatus() returning a proper ProviderStatus', async () => {
-        vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-          getProvider: vi.fn(async () => null),
-        }))
+        mockGetProviderFn.mockReset()
+        mockGetProviderFn.mockResolvedValue(null)
 
         const adapter = createAdapter()
         const status = await adapter.getStatus()
@@ -1668,14 +1644,11 @@ describe('Provider Adapter Contract', () => {
         expect(typeof status.available).toBe('boolean')
         expect(typeof status.activeTasks).toBe('number')
         expect(typeof status.maxTasks).toBe('number')
-
-        vi.restoreAllMocks()
       })
 
       it('should return a TaskResult from execute() even on failure', async () => {
-        vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
-          getProvider: vi.fn(async () => null),
-        }))
+        mockGetProviderFn.mockReset()
+        mockGetProviderFn.mockResolvedValue(null)
 
         const adapter = createAdapter()
         const stream = createMockStream()
@@ -1690,8 +1663,6 @@ describe('Provider Adapter Contract', () => {
         expect(['completed', 'failed', 'cancelled']).toContain(result.status)
         expect(result).toHaveProperty('startedAt')
         expect(result).toHaveProperty('completedAt')
-
-        vi.restoreAllMocks()
       })
     })
   }
@@ -1747,4 +1718,21 @@ describe('Provider CLI Detection', () => {
     // At least one assertion so the test passes
     expect(providers).toHaveLength(2)
   })
+})
+
+// =============================================================================
+// Module-level vi.mock declarations (MUST be at bottom so they're the last
+// hoisted mock for each module path — vitest uses the last factory per path)
+// =============================================================================
+
+vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
+  getProvider: mockGetProviderFn,
+}))
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...original,
+    spawn: mockSpawnFn,
+  }
 })
