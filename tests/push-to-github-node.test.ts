@@ -605,12 +605,12 @@ describe('GitHubContextForPrompt — construction logic', () => {
     githubRepo?: string | null
     source?: { baseBranch?: string } | null
   }): GitHubContextForPrompt | undefined {
-    if (dbProject.githubOwner && dbProject.githubRepo) {
+    if (dbProject.githubOwner?.trim() && dbProject.githubRepo?.trim()) {
       return {
         hasRepo: true,
-        owner: dbProject.githubOwner,
-        repo: dbProject.githubRepo,
-        baseBranch: dbProject.source?.baseBranch || 'main',
+        owner: dbProject.githubOwner.trim(),
+        repo: dbProject.githubRepo.trim(),
+        baseBranch: dbProject.source?.baseBranch?.trim() || 'main',
       }
     }
     return undefined
@@ -652,5 +652,51 @@ describe('GitHubContextForPrompt — construction logic', () => {
 
   it('returns undefined when both are undefined', () => {
     expect(buildGitHubContext({})).toBeUndefined()
+  })
+
+  it('returns undefined when githubOwner is whitespace-only', () => {
+    expect(buildGitHubContext({ githubOwner: '  ', githubRepo: 'app' })).toBeUndefined()
+  })
+
+  it('returns undefined when githubRepo is whitespace-only', () => {
+    expect(buildGitHubContext({ githubOwner: 'acme', githubRepo: '  ' })).toBeUndefined()
+  })
+
+  it('trims whitespace from owner and repo', () => {
+    const ctx = buildGitHubContext({ githubOwner: ' acme ', githubRepo: ' app ', source: { baseBranch: ' develop ' } })
+    expect(ctx).toEqual({ hasRepo: true, owner: 'acme', repo: 'app', baseBranch: 'develop' })
+  })
+})
+
+// ─── 9. Prompt sanitization ─────────────────────────────────────────────────
+
+describe('Prompt sanitization — GitHub context values', () => {
+  it('strips backticks from owner/repo in system prompt', () => {
+    const ctx: GitHubContextForPrompt = { hasRepo: true, owner: 'ac`me', repo: 'a`pp', baseBranch: 'main' }
+    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    expect(prompt).not.toContain('ac`me')
+    expect(prompt).toContain('acme/app')
+  })
+
+  it('strips newlines from baseBranch', () => {
+    const ctx: GitHubContextForPrompt = { hasRepo: true, owner: 'o', repo: 'r', baseBranch: 'ma\nin' }
+    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    expect(prompt).not.toContain('ma\nin')
+    expect(prompt).toContain('main')
+  })
+
+  it('strips control characters', () => {
+    const ctx: GitHubContextForPrompt = { hasRepo: true, owner: 'o\x00wner', repo: 'r\x1fepo', baseBranch: 'main' }
+    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    expect(prompt).toContain('owner/repo')
+  })
+
+  it('truncates very long values', () => {
+    const longName = 'a'.repeat(500)
+    const ctx: GitHubContextForPrompt = { hasRepo: true, owner: longName, repo: 'r', baseBranch: 'main' }
+    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    // The sanitized owner should be truncated to 200 chars
+    expect(prompt).not.toContain(longName)
+    expect(prompt).toContain('a'.repeat(200))
   })
 })

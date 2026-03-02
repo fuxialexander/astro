@@ -167,8 +167,8 @@ export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoCont
   // Build GitHub integration section
   let githubSection = ""
   if (githubContext?.hasRepo && githubContext.owner && githubContext.repo) {
-    // Sanitize GitHub context values to prevent prompt injection via newlines/backticks
-    const sanitize = (s: string) => s.replace(/[`\n\r]/g, '')
+    // Sanitize GitHub context values to prevent prompt injection
+    const sanitize = (s: string) => s.replace(/[`\n\r\t]/g, '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200)
     const ghOwner = sanitize(githubContext.owner)
     const ghRepo = sanitize(githubContext.repo)
     const target = sanitize(githubContext.baseBranch || 'main')
@@ -746,8 +746,8 @@ export function buildInteractivePlanPrompt(
   // Build GitHub integration section
   let githubSection = ""
   if (options?.githubContext?.hasRepo && options.githubContext.owner && options.githubContext.repo) {
-    // Sanitize GitHub context values to prevent prompt injection via newlines/backticks
-    const sanitize = (s: string) => s.replace(/[`\n\r]/g, '')
+    // Sanitize GitHub context values to prevent prompt injection
+    const sanitize = (s: string) => s.replace(/[`\n\r\t]/g, '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200)
     const ghOwner = sanitize(options.githubContext.owner)
     const ghRepo = sanitize(options.githubContext.repo)
     const target = sanitize(options.githubContext.baseBranch || 'main')

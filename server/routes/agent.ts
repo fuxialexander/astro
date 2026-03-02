@@ -472,12 +472,12 @@ agentRoute.post('/generate-plan', async (c) => {
       githubRepo: projects.githubRepo,
       source: projects.source,
     }).from(projects).where(eq(projects.id, projectId)).limit(1)
-    if (dbProject?.githubOwner && dbProject?.githubRepo) {
+    if (dbProject?.githubOwner?.trim() && dbProject?.githubRepo?.trim()) {
       githubContext = {
         hasRepo: true,
-        owner: dbProject.githubOwner,
-        repo: dbProject.githubRepo,
-        baseBranch: (dbProject.source as { baseBranch?: string } | null)?.baseBranch || 'main',
+        owner: dbProject.githubOwner.trim(),
+        repo: dbProject.githubRepo.trim(),
+        baseBranch: (dbProject.source as { baseBranch?: string } | null)?.baseBranch?.trim() || 'main',
       }
     }
   } catch (err) {

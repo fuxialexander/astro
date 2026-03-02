@@ -274,12 +274,12 @@ dispatchRoute.post('/task', async (c) => {
       baseBranch = source?.baseBranch || undefined
 
       // Build GitHub context for plan prompts
-      if (dbProject.githubOwner && dbProject.githubRepo) {
+      if (dbProject.githubOwner?.trim() && dbProject.githubRepo?.trim()) {
         githubContext = {
           hasRepo: true,
-          owner: dbProject.githubOwner,
-          repo: dbProject.githubRepo,
-          baseBranch: baseBranch || 'main',
+          owner: dbProject.githubOwner.trim(),
+          repo: dbProject.githubRepo.trim(),
+          baseBranch: baseBranch?.trim() || 'main',
         }
       }
 
