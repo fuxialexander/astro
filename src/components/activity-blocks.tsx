@@ -68,7 +68,7 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
       }
       if (resultEvent) {
         pair.push(resultEvent)
-        pairedResultIds.add(resultEvent.id)
+        if ('id' in resultEvent) pairedResultIds.add(resultEvent.id)
       }
       toolPairs.push(pair)
     }
