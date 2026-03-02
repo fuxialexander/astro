@@ -724,8 +724,9 @@ describe('OpenClaw provider: handleStreamLine', () => {
 
     it('handles JSON number without crash', () => {
       handleStreamLine('42', stream, artifacts)
-      // JSON.parse("42") = 42 → accessing .type on number throws → stdout
-      expect(stream.stdout).toHaveBeenCalledWith('42\n')
+      // JSON.parse("42") = 42 → .type is undefined → falls through default case
+      expect(stream.stdout).not.toHaveBeenCalled()
+      expect(stream.text).not.toHaveBeenCalled()
     })
 
     it('handles JSON string without crash', () => {
