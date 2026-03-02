@@ -76,6 +76,8 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   let prNumber: number | undefined
   let deliveryStatus: string | undefined
   let summary: string | undefined
+  // Map toolName → queue of unpaired tool_use IDs for matching with tool_result
+  const unpairedToolUseIds = new Map<string, string[]>()
 
   for (const event of events) {
     const data = event.data as Record<string, unknown>
@@ -91,6 +93,9 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
       case 'tool_use': {
         const toolName = (data.toolName as string) || 'unknown'
         const id = `hydrated-${++idCounter}`
+        // Track unpaired tool_use IDs so matching tool_result gets the same ID
+        if (!unpairedToolUseIds.has(toolName)) unpairedToolUseIds.set(toolName, [])
+        unpairedToolUseIds.get(toolName)!.push(id)
         activityEvents.push({
           type: 'tool_use',
           id,
@@ -107,7 +112,10 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
       }
       case 'tool_result': {
         const toolName = (data.toolName as string) || 'unknown'
-        const id = `hydrated-${++idCounter}`
+        // Reuse ID from the matching tool_use so grouping pairs them correctly
+        const pendingIds = unpairedToolUseIds.get(toolName)
+        const id = pendingIds?.shift() ?? `hydrated-${++idCounter}`
+        if (pendingIds?.length === 0) unpairedToolUseIds.delete(toolName)
         activityEvents.push({
           type: 'tool_result',
           id,

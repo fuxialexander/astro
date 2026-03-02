@@ -126,6 +126,8 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     if (!graphDisplaySettings.showCompleted) {
       nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
+    // Hide milestones — edge bridging creates transitive edges through them
+    nodes = nodes.filter((n) => n.type !== "milestone")
     return nodes
   }, [planNodes, projectId, graphDisplaySettings.showCompleted])
 
@@ -334,19 +336,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
   const highlightBy = graphDisplaySettings.groupBy
 
-  // Count governed tasks per milestone (incoming edges)
-  const milestoneGovCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const n of projectNodes) {
-      if (n.type === "milestone") {
-        // Count incoming edges (tasks that flow into this milestone)
-        const incoming = projectEdges.filter((e) => e.target === n.id).length
-        counts.set(n.id, incoming)
-      }
-    }
-    return counts
-  }, [projectNodes, projectEdges])
-
   const rfNodes: Node[] = useMemo(
     () =>
       projectNodes.map((n) => ({
@@ -371,11 +360,10 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           selectionActive: selectionActive,
           onDecompose: onDecomposeNode,
           onToggleSelect: handleToggleSelect,
-          governedCount: milestoneGovCounts.get(n.id),
         },
         selected: n.id === selectedId,
       })),
-    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, milestoneGovCounts]
+    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy]
   )
 
   const rfEdges: Edge[] = useMemo(

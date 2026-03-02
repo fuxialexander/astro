@@ -53,12 +53,23 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
     const toolPairs: TaskActivityEvent[][] = []
     const useEvents = currentToolEvents.filter((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
 
+    const pairedResultIds = new Set<string>()
     for (const useEvent of useEvents) {
       const pair: TaskActivityEvent[] = [useEvent]
-      const resultEvent = currentToolEvents.find(
-        e => e.type === 'tool_result' && e.id === useEvent.id
+      // Match by exact ID first, then fall back to toolName (handles hydrated events
+      // where tool_use and tool_result get different sequential IDs)
+      let resultEvent = currentToolEvents.find(
+        e => e.type === 'tool_result' && e.id === useEvent.id && !pairedResultIds.has(e.id)
       )
-      if (resultEvent) pair.push(resultEvent)
+      if (!resultEvent && 'toolName' in useEvent) {
+        resultEvent = currentToolEvents.find(
+          e => e.type === 'tool_result' && 'toolName' in e && e.toolName === useEvent.toolName && !pairedResultIds.has(e.id)
+        )
+      }
+      if (resultEvent) {
+        pair.push(resultEvent)
+        pairedResultIds.add(resultEvent.id)
+      }
       toolPairs.push(pair)
     }
 
