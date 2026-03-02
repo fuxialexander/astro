@@ -1,0 +1,124 @@
+name: Update Submodules
+
+on:
+  schedule:
+    # Check daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-submodules:
+    name: Check for submodule updates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ssh-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+          fetch-depth: 0
+
+      - name: Check and update submodules
+        id: update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          UPDATED=""
+          DETAILS=""
+
+          git submodule foreach --quiet '
+            name=$(basename "$sm_path")
+            # Fetch latest from remote
+            git fetch origin main 2>/dev/null || git fetch origin master 2>/dev/null || true
+
+            # Get current and latest commits
+            CURRENT=$(git rev-parse HEAD)
+            LATEST=$(git rev-parse FETCH_HEAD 2>/dev/null || echo "$CURRENT")
+
+            if [ "$CURRENT" != "$LATEST" ]; then
+              # Count commits behind
+              BEHIND=$(git rev-list --count HEAD..FETCH_HEAD 2>/dev/null || echo "?")
+              # Get commit summaries
+              LOG=$(git log --oneline HEAD..FETCH_HEAD 2>/dev/null | head -10)
+
+              git checkout FETCH_HEAD 2>/dev/null
+
+              echo "UPDATED_${name}=true" >> "$GITHUB_ENV"
+              echo "--- $sm_path ($BEHIND commits) ---" >> /tmp/submodule_details.txt
+              echo "$LOG" >> /tmp/submodule_details.txt
+              echo "" >> /tmp/submodule_details.txt
+            fi
+          '
+
+          # Check if any submodule was updated
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No submodule updates found"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+
+            # Stage submodule pointer updates
+            git add -A
+
+            # Build summary
+            SUMMARY=$(cat /tmp/submodule_details.txt 2>/dev/null || echo "Submodule updates available")
+            echo "summary<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$SUMMARY" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="chore/update-submodules-$(date +%Y%m%d)"
+
+          # Check if branch already exists
+          if git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, updating it"
+            git checkout -B "$BRANCH" origin/"$BRANCH"
+            git merge main --no-edit || git checkout main -- .
+            git add -A
+            if git diff --cached --quiet; then
+              echo "No new changes to push"
+              exit 0
+            fi
+            git commit -m "chore: update submodules to latest"
+            git push origin "$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+            git commit -m "chore: update submodules to latest"
+            git push -u origin "$BRANCH"
+
+            gh pr create \
+              --title "chore: update submodules ($(date +%Y-%m-%d))" \
+              --body "$(cat <<PREOF
+          ## Submodule Updates
+
+          Automated update of git submodules to their latest \`main\` branch commits.
+
+          ### Changes
+
+          \`\`\`
+          ${{ steps.update.outputs.summary }}
+          \`\`\`
+
+          ### Submodules in this repo
+
+          | Package | Repository |
+          |---------|-----------|
+          | \`packages/agent-runner\` | [fuxialexander/astro-agent](https://github.com/fuxialexander/astro-agent) |
+          | \`packages/cli\` | [astro-anywhere/cli](https://github.com/astro-anywhere/cli) |
+
+          ---
+          <sub>Created automatically by the [Update Submodules](https://github.com/fuxialexander/astro/actions/workflows/update-submodules.yml) workflow</sub>
+          PREOF
+          )" \
+              --label "dependencies"
+          fi
