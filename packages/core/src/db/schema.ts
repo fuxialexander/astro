@@ -608,6 +608,30 @@ export const environmentConfigs = pgTable('environment_configs', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+// ── Skills ───────────────────────────────────────────────────────
+// OpenClaw-compatible skill definitions. Built-in skills are seeded on
+// startup; workspace/plugin/clawhub skills are registered via API.
+export const skills = pgTable('skills', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull().unique(),
+  description: text('description').notNull().default(''),
+  instructions: text('instructions').notNull().default(''),
+  source: text('source').notNull().default('workspace'), // 'builtin' | 'workspace' | 'clawhub' | 'plugin'
+  enabled: boolean('enabled').notNull().default(true),
+  userInvocable: boolean('user_invocable').notNull().default(true),
+  disableModelInvocation: boolean('disable_model_invocation').notNull().default(false),
+  commandDispatch: text('command_dispatch'),
+  commandTool: text('command_tool'),
+  homepage: text('homepage'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  pluginId: text('plugin_id'),
+  config: jsonb('config').$type<Record<string, unknown>>(),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
+  ownerId: uuid('owner_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
 // ── Streaming Events ─────────────────────────────────────────────
 // Append-only log of streaming events for SSE catch-up on reconnection.
 // Structural events (tool_use, tool_result, file_change, etc.) are persisted

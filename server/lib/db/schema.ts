@@ -41,5 +41,6 @@ export {
   githubConnections,
   encryptedApiKeys,
   environmentConfigs,
+  skills,
   streamingEvents,
 } from '../../../packages/core/src/db/schema.js'

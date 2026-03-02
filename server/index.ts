@@ -50,6 +50,7 @@ import { observationsRoute } from './routes/observations.js'
 import { cleanupExpiredChallenges } from './lib/challenge-store.js'
 import { cleanupExpiredDeviceCodes } from './lib/device-code-store.js'
 import { streamingEventLog } from './lib/streaming-event-log.js'
+import { skillManager } from './lib/skill-manager.js'
 
 // Validate environment variables on startup
 try {
@@ -251,6 +252,22 @@ async function start() {
     } catch (err) {
       console.error('[bootstrap] Local-mode bootstrap failed:', err)
     }
+  }
+
+  // Seed built-in skills into the database and load them into the in-memory registry
+  try {
+    const { seedBuiltinSkills } = await import('./lib/db/seed-skills.js')
+    const seededSkills = await seedBuiltinSkills()
+    if (seededSkills.length > 0) {
+      // Load seeded skills into the in-memory SkillManager so they're
+      // immediately available for prompt injection without an API round-trip
+      for (const skill of seededSkills) {
+        skillManager.addSkill(skill)
+      }
+      console.log(`[seed-skills] Loaded ${seededSkills.length} built-in skill(s) into SkillManager`)
+    }
+  } catch (err) {
+    console.error('[seed-skills] Built-in skill seeding failed:', err)
   }
 
   console.log('[backend] initializing server (relay-only mode)...')
