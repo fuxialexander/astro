@@ -36,3 +36,7 @@ export type {
   DispatchPayloadOptions,
   DispatchTaskPayload,
 } from './payload.js'
+
+// NOTE: Summary utilities (summary-utils.ts) are NOT exported from the main
+// barrel file because they use Node.js APIs (child_process, fs). They should
+// be imported directly via '@astro/core/dispatch/summary-utils' from server code only.

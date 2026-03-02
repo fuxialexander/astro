@@ -27,7 +27,8 @@
     "./dispatch/result-router": "./src/dispatch/result-router.ts",
     "./dispatch/branch-manager": "./src/dispatch/branch-manager.ts",
     "./dispatch/machine-selector": "./src/dispatch/machine-selector.ts",
-    "./dispatch/payload": "./src/dispatch/payload.ts"
+    "./dispatch/payload": "./src/dispatch/payload.ts",
+    "./dispatch/summary-utils": "./src/dispatch/summary-utils.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.1"
