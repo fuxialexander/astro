@@ -474,7 +474,6 @@ async function dispatchViaRelay(
     computeBackend,
     deliveryMode,
     remoteType,
-    baseBranch: _baseBranch,
     agentDir,
     worktreeStrategy,
     useWorktree,
