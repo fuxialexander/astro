@@ -832,7 +832,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     sourceDirectory,
     deliveryMode: deliveryMode ?? 'pr',
     remoteType,
-    baseBranch: projectBranch,
+    baseBranch: baseBranch || undefined,
     projectBranch,
     agentDir,
     worktreeStrategy,
