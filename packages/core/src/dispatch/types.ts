@@ -40,6 +40,8 @@ export interface TaskResult {
   summary?: {
     status: 'success' | 'partial' | 'failure'
     workCompleted: string
+    /** 1-2 paragraph executive summary: what was done, why, approach taken, and key decisions */
+    executiveSummary?: string
     keyFindings: string[]
     filesChanged: string[]
     followUps: string[]
