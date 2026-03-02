@@ -167,9 +167,13 @@ export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoCont
   // Build GitHub integration section
   let githubSection = ""
   if (githubContext?.hasRepo && githubContext.owner && githubContext.repo) {
-    const target = githubContext.baseBranch || 'main'
+    // Sanitize GitHub context values to prevent prompt injection via newlines/backticks
+    const sanitize = (s: string) => s.replace(/[`\n\r]/g, '')
+    const ghOwner = sanitize(githubContext.owner)
+    const ghRepo = sanitize(githubContext.repo)
+    const target = sanitize(githubContext.baseBranch || 'main')
     githubSection = `\n\n## GitHub Integration
-This project is connected to GitHub repository \`${githubContext.owner}/${githubContext.repo}\`.
+This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
 The final step must open a pull request that merges all completed work into the \`${target}\` branch.
 
 You MUST include a final task node titled "Push to GitHub" that:
@@ -178,7 +182,8 @@ You MUST include a final task node titled "Push to GitHub" that:
 - verification: "auto"
 - estimate: "XS"
 - labelIds: ["l4"] (Infrastructure)
-- description: "Open a pull request on ${githubContext.owner}/${githubContext.repo} that merges the project branch into \`${target}\`. The PR description should include a comprehensive summary of every completed task, link to per-task PRs where available, and list key changes. After creating the PR, wait for CI checks (tests, lint, type checks, AI code review) to finish. If any check fails or a reviewer requests changes, read the feedback, fix the issues, push to the project branch, and re-check — up to 3 retry cycles. The task succeeds when all required checks pass."
+- milestoneId: set to the last milestone in the plan (the one this final task contributes toward)
+- description: "Open a pull request on ${ghOwner}/${ghRepo} that merges the project branch into \`${target}\`. The PR description should include a comprehensive summary of every completed task, link to per-task PRs where available, and list key changes. After creating the PR, wait for CI checks (tests, lint, type checks, AI code review) to finish. If any check fails or a reviewer requests changes, read the feedback, fix the issues, push to the project branch, and re-check — up to 3 retry cycles. The task succeeds when all required checks pass."
 - acceptanceCriteria: [{ id: "ci-pass", description: "All CI checks pass on the final PR", type: "command", command: "gh pr checks --required", autoVerifiable: true }]
 `
   }
@@ -741,9 +746,13 @@ export function buildInteractivePlanPrompt(
   // Build GitHub integration section
   let githubSection = ""
   if (options?.githubContext?.hasRepo && options.githubContext.owner && options.githubContext.repo) {
-    const target = options.githubContext.baseBranch || 'main'
+    // Sanitize GitHub context values to prevent prompt injection via newlines/backticks
+    const sanitize = (s: string) => s.replace(/[`\n\r]/g, '')
+    const ghOwner = sanitize(options.githubContext.owner)
+    const ghRepo = sanitize(options.githubContext.repo)
+    const target = sanitize(options.githubContext.baseBranch || 'main')
     githubSection = `\n## GitHub Integration
-This project is connected to GitHub repository \`${options.githubContext.owner}/${options.githubContext.repo}\`.
+This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
 The final step must open a pull request that merges all completed work into the \`${target}\` branch.
 
 You MUST include a final task node titled "Push to GitHub" that:
@@ -752,7 +761,8 @@ You MUST include a final task node titled "Push to GitHub" that:
 - verification: "auto"
 - estimate: "XS"
 - labelIds: ["l4"] (Infrastructure)
-- description: "Open a pull request on ${options.githubContext.owner}/${options.githubContext.repo} that merges the project branch into \`${target}\`. The PR description should include a comprehensive summary of every completed task, link to per-task PRs where available, and list key changes. After creating the PR, wait for CI checks (tests, lint, type checks, AI code review) to finish. If any check fails or a reviewer requests changes, read the feedback, fix the issues, push to the project branch, and re-check — up to 3 retry cycles. The task succeeds when all required checks pass."
+- milestoneId: set to the last milestone in the plan (the one this final task contributes toward)
+- description: "Open a pull request on ${ghOwner}/${ghRepo} that merges the project branch into \`${target}\`. The PR description should include a comprehensive summary of every completed task, link to per-task PRs where available, and list key changes. After creating the PR, wait for CI checks (tests, lint, type checks, AI code review) to finish. If any check fails or a reviewer requests changes, read the feedback, fix the issues, push to the project branch, and re-check — up to 3 retry cycles. The task succeeds when all required checks pass."
 - acceptanceCriteria: [{ id: "ci-pass", description: "All CI checks pass on the final PR", type: "command", command: "gh pr checks --required", autoVerifiable: true }]
 `
   }
