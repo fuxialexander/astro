@@ -646,9 +646,22 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return { batchExecutions: newBatch }
     })
 
-    // Dispatch all ready nodes in parallel
-    for (const node of readyNodes) {
-      get().startExecution(node.id, projectId, options)
+    // Dispatch ready nodes with a staggered delay to avoid overwhelming
+    // the agent runner with too many simultaneous Claude Code processes
+    const DISPATCH_STAGGER_MS = 2000
+    for (let i = 0; i < readyNodes.length; i++) {
+      const node = readyNodes[i]
+      if (i === 0) {
+        get().startExecution(node.id, projectId, options)
+      } else {
+        setTimeout(() => {
+          // Re-check batch is still active before dispatching
+          const batch = get().batchExecutions.get(projectId)
+          if (batch?.active) {
+            get().startExecution(node.id, projectId, options)
+          }
+        }, i * DISPATCH_STAGGER_MS)
+      }
     }
   },
 

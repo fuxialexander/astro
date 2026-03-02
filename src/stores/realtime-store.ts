@@ -721,6 +721,9 @@ function addActivity(
   })
 }
 
+/** Stagger counter for auto-dispatching downstream tasks */
+let autoDispatchCounter = 0
+
 function handleRealtimeEvent(
   event: RealtimeEvent,
   set: (fn: (state: RealtimeState) => Partial<RealtimeState>) => void,
@@ -1466,11 +1469,16 @@ function handleRealtimeEvent(
 
       addActivity(set, 'info', `Auto-dispatching downstream task`)
 
-      // Dispatch with a small delay to avoid dispatching during SSE handler
+      // Stagger auto-dispatches to avoid overwhelming the agent runner
+      // when multiple downstream tasks become ready simultaneously
+      autoDispatchCounter++
+      const stagger = autoDispatchCounter
       setTimeout(() => {
         const executionStore = useExecutionStore.getState()
         executionStore.startExecution(nodeId, projectId)
-      }, 500)
+      }, 500 + (stagger - 1) * 2000)
+      // Reset counter after the stagger window passes
+      setTimeout(() => { autoDispatchCounter = 0 }, 500 + stagger * 2000 + 1000)
       break
     }
   }
