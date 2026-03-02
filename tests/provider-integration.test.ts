@@ -13,6 +13,7 @@
  * 5. Error handling for invalid working directories
  * 6. Concurrent task tracking
  * 7. Provider status reporting
+ * 8. Full execute() lifecycle via mocked child process (always runs)
  *
  * Auto-skip logic:
  *   Uses `describe.skipIf()` with a pre-check via `which openclaw` / `which opencode`
@@ -24,11 +25,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { exec } from 'node:child_process'
+import { exec, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { EventEmitter } from 'node:events'
+import { Readable, Writable } from 'node:stream'
 import { OpenCodeAdapter } from '../packages/agent-runner/src/providers/opencode-adapter.js'
 import { OpenClawAdapter } from '../packages/agent-runner/src/providers/openclaw-adapter.js'
 import type { TaskOutputStream } from '../packages/agent-runner/src/providers/base-adapter.js'
@@ -127,6 +130,69 @@ function createTestTask(overrides: Partial<Task> = {}): Task {
     timeout: 60_000, // 60s timeout for real CLI execution
     ...overrides,
   }
+}
+
+/**
+ * Create a mock ChildProcess for testing execute() without real CLI.
+ * Returns an EventEmitter-based mock that can simulate stdout/stderr/close events.
+ */
+function createMockChildProcess(): ChildProcess & {
+  _emitStdout: (data: string) => void
+  _emitStderr: (data: string) => void
+  _close: (code: number) => void
+  _emitError: (error: Error) => void
+} {
+  const proc = new EventEmitter() as ChildProcess & {
+    _emitStdout: (data: string) => void
+    _emitStderr: (data: string) => void
+    _close: (code: number) => void
+    _emitError: (error: Error) => void
+  }
+
+  // Create readable streams for stdout/stderr
+  const stdoutEmitter = new EventEmitter()
+  const stderrEmitter = new EventEmitter()
+
+  // Attach as readable streams with 'on' method
+  proc.stdout = stdoutEmitter as unknown as Readable
+  proc.stderr = stderrEmitter as unknown as Readable
+
+  // Create a writable stdin that does nothing
+  const stdinStream = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback()
+    },
+  })
+  proc.stdin = stdinStream
+
+  proc.pid = 12345
+  proc.killed = false
+  proc.kill = vi.fn(() => {
+    proc.killed = true
+    return true
+  })
+
+  // Helper to emit stdout data
+  proc._emitStdout = (data: string) => {
+    stdoutEmitter.emit('data', Buffer.from(data))
+  }
+
+  // Helper to emit stderr data
+  proc._emitStderr = (data: string) => {
+    stderrEmitter.emit('data', Buffer.from(data))
+  }
+
+  // Helper to close the process
+  proc._close = (code: number) => {
+    proc.emit('close', code)
+  }
+
+  // Helper to emit error
+  proc._emitError = (error: Error) => {
+    proc.emit('error', error)
+  }
+
+  return proc
 }
 
 // =============================================================================
@@ -919,6 +985,636 @@ describe.skipIf(!opencodeAvailable)('OpenCode Full Session JSONL Sequences', () 
     expect(stream.toolUse).toHaveBeenCalledTimes(1)
     expect(stream._calls.text[0]).toBe('First thought\n')
     expect(stream._calls.text[1]).toBe('After tool call\n')
+  })
+})
+
+// =============================================================================
+// Full Execute Lifecycle Tests (mocked child process — always runs)
+// =============================================================================
+
+describe('OpenCode Execute Lifecycle (mocked spawn)', () => {
+  let adapter: OpenCodeAdapter
+  let stream: ReturnType<typeof createMockStream>
+  let mockProc: ReturnType<typeof createMockChildProcess>
+  let tempDir: string
+
+  beforeEach(() => {
+    adapter = new OpenCodeAdapter()
+    stream = createMockStream()
+    mockProc = createMockChildProcess()
+
+    // Create isolated temp directory
+    tempDir = mkdtempSync(join(tmpdir(), 'astro-opencode-exec-'))
+    writeFileSync(join(tempDir, 'README.md'), '# Test\n')
+
+    // Mock the providers module to make the adapter think opencode is available
+    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
+      getProvider: vi.fn(async (type: string) => {
+        if (type === 'opencode') {
+          return {
+            type: 'opencode',
+            name: 'OpenCode',
+            version: '1.0.0',
+            path: '/usr/local/bin/opencode',
+            available: true,
+            capabilities: {
+              streaming: true,
+              tools: true,
+              multiTurn: true,
+              maxConcurrentTasks: 1,
+            },
+          }
+        }
+        return null
+      }),
+    }))
+
+    // Mock child_process.spawn to return our mock process
+    vi.mock('node:child_process', async (importOriginal) => {
+      const original = await importOriginal<typeof import('node:child_process')>()
+      return {
+        ...original,
+        spawn: vi.fn(() => mockProc),
+      }
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
+
+  it('should complete full lifecycle: create session → stream events → complete', async () => {
+    // Make adapter think it's available
+    await adapter.isAvailable()
+
+    const task = createTestTask({ workingDirectory: tempDir })
+    const controller = new AbortController()
+
+    // Start execution (returns a promise)
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    // Simulate JSONL output from the CLI
+    // Small delay to let the promise setup
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    mockProc._emitStdout(
+      JSON.stringify({ type: 'system', session_id: 'exec-sess-1', model: 'claude-sonnet-4-20250514' }) + '\n'
+    )
+    mockProc._emitStdout(
+      JSON.stringify({ type: 'assistant', content: [{ type: 'text', text: 'Hello!' }] }) + '\n'
+    )
+    mockProc._emitStdout(
+      JSON.stringify({
+        type: 'result',
+        total_cost_usd: 0.001,
+        num_turns: 1,
+        duration_ms: 2000,
+        usage: { input_tokens: 100, output_tokens: 50 },
+        model: 'claude-sonnet-4-20250514',
+      }) + '\n'
+    )
+
+    // Close the process with exit code 0
+    mockProc._close(0)
+
+    const result = await resultPromise
+
+    // Verify TaskResult structure
+    expect(result.taskId).toBe(task.id)
+    expect(result.status).toBe('completed')
+    expect(result.exitCode).toBe(0)
+    expect(result.startedAt).toBeDefined()
+    expect(result.completedAt).toBeDefined()
+
+    // Verify metrics were captured
+    expect(result.metrics).toBeDefined()
+    expect(result.metrics?.totalCost).toBe(0.001)
+    expect(result.metrics?.numTurns).toBe(1)
+    expect(result.metrics?.inputTokens).toBe(100)
+    expect(result.metrics?.outputTokens).toBe(50)
+
+    // Verify stream events were emitted
+    expect(stream.sessionInit).toHaveBeenCalledWith('exec-sess-1', 'claude-sonnet-4-20250514')
+    expect(stream.text).toHaveBeenCalledWith('Hello!\n')
+    expect(stream._calls.status.some((s) => s.message === 'Starting OpenCode')).toBe(true)
+    expect(stream._calls.status.some((s) => s.message?.includes('Completed'))).toBe(true)
+  }, 30_000) // 30s timeout for execute lifecycle
+
+  it('should return failed status on non-zero exit code', async () => {
+    await adapter.isAvailable()
+
+    const task = createTestTask({ workingDirectory: tempDir })
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    mockProc._emitStderr('Error: something went wrong\n')
+    mockProc._close(1)
+
+    const result = await resultPromise
+
+    expect(result.taskId).toBe(task.id)
+    expect(result.status).toBe('failed')
+    expect(result.exitCode).toBe(1)
+    expect(result.error).toContain('Error: something went wrong')
+  }, 30_000)
+
+  it('should handle abort/cancellation during execution', async () => {
+    await adapter.isAvailable()
+
+    const task = createTestTask({ workingDirectory: tempDir })
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // Simulate some initial output
+    mockProc._emitStdout(
+      JSON.stringify({ type: 'system', session_id: 'abort-sess' }) + '\n'
+    )
+
+    // Abort the execution
+    controller.abort()
+
+    // The mock kill should have been called
+    expect(mockProc.kill).toHaveBeenCalledWith('SIGTERM')
+
+    // Close the process (simulating the process exiting after SIGTERM)
+    mockProc._close(143) // SIGTERM exit code
+
+    const result = await resultPromise
+
+    // Even on abort, we should get a valid TaskResult
+    expect(result.taskId).toBe(task.id)
+    expect(result.startedAt).toBeDefined()
+    expect(result.completedAt).toBeDefined()
+  }, 30_000)
+
+  it('should process multi-turn session with tools through execute()', async () => {
+    await adapter.isAvailable()
+
+    const task = createTestTask({
+      workingDirectory: tempDir,
+      prompt: 'Read the README and summarize it.',
+    })
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // Simulate a multi-turn session
+    const events = [
+      { type: 'system', session_id: 'multi-turn-exec', model: 'claude-sonnet-4-20250514' },
+      { type: 'assistant', content: [
+        { type: 'text', text: 'Let me read the README.' },
+        { type: 'tool_use', id: 'tu-exec-1', name: 'bash', input: { command: 'cat README.md' } },
+      ]},
+      { type: 'tool_result', tool_name: 'bash', content: '# Test', is_error: false },
+      { type: 'assistant', content: [
+        { type: 'text', text: 'The README contains a test heading.' },
+      ]},
+      { type: 'result', total_cost_usd: 0.005, num_turns: 2, duration_ms: 3000, usage: { input_tokens: 200, output_tokens: 100 }, model: 'claude-sonnet-4-20250514' },
+    ]
+
+    for (const event of events) {
+      mockProc._emitStdout(JSON.stringify(event) + '\n')
+    }
+
+    mockProc._close(0)
+    const result = await resultPromise
+
+    expect(result.status).toBe('completed')
+    expect(result.metrics?.numTurns).toBe(2)
+    expect(stream._calls.text).toHaveLength(2)
+    expect(stream._calls.toolUse).toHaveLength(1)
+    expect(stream._calls.toolResult).toHaveLength(1)
+    expect(stream._calls.sessionInit).toHaveLength(1)
+    expect(stream._calls.sessionInit[0].sessionId).toBe('multi-turn-exec')
+  }, 30_000)
+
+  it('should handle stderr output alongside stdout', async () => {
+    await adapter.isAvailable()
+
+    const task = createTestTask({ workingDirectory: tempDir })
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // Emit some stderr (warnings) alongside stdout
+    mockProc._emitStderr('Warning: deprecated feature used\n')
+    mockProc._emitStdout(
+      JSON.stringify({ type: 'system', session_id: 'stderr-test' }) + '\n'
+    )
+    mockProc._emitStdout(
+      JSON.stringify({ type: 'assistant', content: [{ type: 'text', text: 'Done.' }] }) + '\n'
+    )
+    mockProc._emitStdout(
+      JSON.stringify({ type: 'result', total_cost_usd: 0.001, num_turns: 1 }) + '\n'
+    )
+
+    mockProc._close(0)
+    const result = await resultPromise
+
+    expect(result.status).toBe('completed')
+    expect(stream.stderr).toHaveBeenCalledWith('Warning: deprecated feature used\n')
+    expect(stream.sessionInit).toHaveBeenCalledWith('stderr-test', undefined)
+  }, 30_000)
+
+  it('should handle incomplete JSONL lines (line buffering)', async () => {
+    await adapter.isAvailable()
+
+    const task = createTestTask({ workingDirectory: tempDir })
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // Send a partial line, then the rest
+    const fullLine = JSON.stringify({ type: 'system', session_id: 'buffer-test', model: 'claude-sonnet-4-20250514' })
+    const halfway = Math.floor(fullLine.length / 2)
+
+    mockProc._emitStdout(fullLine.slice(0, halfway))
+    // The partial line should NOT have triggered sessionInit yet
+    expect(stream.sessionInit).not.toHaveBeenCalled()
+
+    // Now send the rest with a newline
+    mockProc._emitStdout(fullLine.slice(halfway) + '\n')
+
+    // Now it should have been processed
+    expect(stream.sessionInit).toHaveBeenCalledWith('buffer-test', 'claude-sonnet-4-20250514')
+
+    mockProc._emitStdout(
+      JSON.stringify({ type: 'result', total_cost_usd: 0.001, num_turns: 1 }) + '\n'
+    )
+    mockProc._close(0)
+
+    const result = await resultPromise
+    expect(result.status).toBe('completed')
+  }, 30_000)
+})
+
+describe('OpenClaw Execute Lifecycle (mocked spawn)', () => {
+  let adapter: OpenClawAdapter
+  let stream: ReturnType<typeof createMockStream>
+  let mockProc: ReturnType<typeof createMockChildProcess>
+  let tempDir: string
+
+  beforeEach(() => {
+    adapter = new OpenClawAdapter()
+    stream = createMockStream()
+    mockProc = createMockChildProcess()
+
+    tempDir = mkdtempSync(join(tmpdir(), 'astro-openclaw-exec-'))
+    writeFileSync(join(tempDir, 'README.md'), '# Test\n')
+
+    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
+      getProvider: vi.fn(async (type: string) => {
+        if (type === 'openclaw') {
+          return {
+            type: 'openclaw',
+            name: 'OpenClaw',
+            version: '1.0.0',
+            path: '/usr/local/bin/openclaw',
+            available: true,
+            capabilities: {
+              streaming: true,
+              tools: true,
+              multiTurn: true,
+              maxConcurrentTasks: 1,
+            },
+          }
+        }
+        return null
+      }),
+    }))
+
+    vi.mock('node:child_process', async (importOriginal) => {
+      const original = await importOriginal<typeof import('node:child_process')>()
+      return {
+        ...original,
+        spawn: vi.fn(() => mockProc),
+      }
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
+
+  it('should complete full lifecycle: create session → stream events → complete', async () => {
+    await adapter.isAvailable()
+
+    const task = createTestTask({ provider: 'openclaw', workingDirectory: tempDir })
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // Simulate OpenClaw JSONL output
+    const events = [
+      { type: 'session.start', session_id: 'claw-exec-1', model: 'claude-sonnet-4-20250514' },
+      { type: 'message.start' },
+      { type: 'content.text', text: 'Hello from OpenClaw!' },
+      { type: 'message.end' },
+      { type: 'session.end', cost: 0.002, input_tokens: 150, output_tokens: 60, turns: 1, model: 'claude-sonnet-4-20250514', duration_ms: 1500 },
+    ]
+
+    for (const event of events) {
+      mockProc._emitStdout(JSON.stringify(event) + '\n')
+    }
+
+    mockProc._close(0)
+    const result = await resultPromise
+
+    expect(result.taskId).toBe(task.id)
+    expect(result.status).toBe('completed')
+    expect(result.exitCode).toBe(0)
+    expect(result.startedAt).toBeDefined()
+    expect(result.completedAt).toBeDefined()
+
+    // Verify metrics
+    expect(result.metrics).toBeDefined()
+    expect(result.metrics?.totalCost).toBe(0.002)
+    expect(result.metrics?.numTurns).toBe(1)
+
+    // Verify stream events
+    expect(stream.sessionInit).toHaveBeenCalledWith('claw-exec-1', 'claude-sonnet-4-20250514')
+    expect(stream.text).toHaveBeenCalledWith('Hello from OpenClaw!')
+    expect(stream._calls.status.some((s) => s.message === 'Starting OpenClaw')).toBe(true)
+    expect(stream._calls.status.some((s) => s.message === 'Agent thinking...')).toBe(true)
+    expect(stream._calls.status.some((s) => s.message === 'Turn complete')).toBe(true)
+    expect(stream._calls.status.some((s) => s.message?.includes('Completed'))).toBe(true)
+  }, 30_000)
+
+  it('should handle abort/cancellation during execution', async () => {
+    await adapter.isAvailable()
+
+    const task = createTestTask({ provider: 'openclaw', workingDirectory: tempDir })
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    mockProc._emitStdout(
+      JSON.stringify({ type: 'session.start', session_id: 'claw-abort' }) + '\n'
+    )
+
+    // Abort
+    controller.abort()
+    expect(mockProc.kill).toHaveBeenCalledWith('SIGTERM')
+
+    mockProc._close(143)
+    const result = await resultPromise
+
+    expect(result.taskId).toBe(task.id)
+    expect(result.startedAt).toBeDefined()
+    expect(result.completedAt).toBeDefined()
+  }, 30_000)
+
+  it('should process session with file changes through execute()', async () => {
+    await adapter.isAvailable()
+
+    const task = createTestTask({ provider: 'openclaw', workingDirectory: tempDir })
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const events = [
+      { type: 'session.start', session_id: 'file-change-exec' },
+      { type: 'message.start' },
+      { type: 'tool_use.start', tool_name: 'write_file', tool_input: { path: 'test.ts', content: 'console.log("hi")' } },
+      { type: 'tool_use.end', tool_name: 'write_file', result: 'Written', success: true },
+      { type: 'file.change', path: 'test.ts', action: 'created', lines_added: 1, lines_removed: 0 },
+      { type: 'message.end' },
+      { type: 'session.end', cost: 0.003, input_tokens: 200, output_tokens: 80, turns: 1 },
+    ]
+
+    for (const event of events) {
+      mockProc._emitStdout(JSON.stringify(event) + '\n')
+    }
+
+    mockProc._close(0)
+    const result = await resultPromise
+
+    expect(result.status).toBe('completed')
+    expect(result.artifacts).toHaveLength(1)
+    expect(result.artifacts?.[0]).toEqual({
+      type: 'file',
+      name: 'test.ts',
+      path: 'test.ts',
+    })
+    expect(stream.fileChange).toHaveBeenCalledWith('test.ts', 'created', 1, 0)
+  }, 30_000)
+})
+
+// =============================================================================
+// Timeout Configuration Tests
+// =============================================================================
+
+describe('Timeout Configuration', () => {
+  let mockProc: ReturnType<typeof createMockChildProcess>
+  let tempDir: string
+
+  beforeEach(() => {
+    mockProc = createMockChildProcess()
+    tempDir = mkdtempSync(join(tmpdir(), 'astro-timeout-'))
+    writeFileSync(join(tempDir, 'README.md'), '# Test\n')
+
+    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
+      getProvider: vi.fn(async (type: string) => {
+        if (type === 'opencode' || type === 'openclaw') {
+          return {
+            type,
+            name: type === 'opencode' ? 'OpenCode' : 'OpenClaw',
+            version: '1.0.0',
+            path: `/usr/local/bin/${type}`,
+            available: true,
+            capabilities: {
+              streaming: true,
+              tools: true,
+              multiTurn: true,
+              maxConcurrentTasks: 1,
+            },
+          }
+        }
+        return null
+      }),
+    }))
+
+    vi.mock('node:child_process', async (importOriginal) => {
+      const original = await importOriginal<typeof import('node:child_process')>()
+      return {
+        ...original,
+        spawn: vi.fn(() => mockProc),
+      }
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
+
+  it('should use task timeout for CLI execution (OpenCode)', async () => {
+    const adapter = new OpenCodeAdapter()
+    await adapter.isAvailable()
+
+    const task = createTestTask({
+      workingDirectory: tempDir,
+      timeout: 120_000, // 2 minute timeout for real CLI
+    })
+
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // Complete normally before timeout
+    mockProc._emitStdout(JSON.stringify({ type: 'system', session_id: 'timeout-test' }) + '\n')
+    mockProc._emitStdout(JSON.stringify({ type: 'result', total_cost_usd: 0.001, num_turns: 1 }) + '\n')
+    mockProc._close(0)
+
+    const result = await resultPromise
+    expect(result.status).toBe('completed')
+    expect(result.taskId).toBe(task.id)
+  }, 30_000)
+
+  it('should accept configurable timeout values', () => {
+    // Verify task can be created with various timeout values
+    const shortTimeout = createTestTask({ timeout: 10_000 }) // 10s
+    const defaultTimeout = createTestTask({}) // 60s default
+    const longTimeout = createTestTask({ timeout: 300_000 }) // 5 minutes
+
+    expect(shortTimeout.timeout).toBe(10_000)
+    expect(defaultTimeout.timeout).toBe(60_000)
+    expect(longTimeout.timeout).toBe(300_000)
+  })
+})
+
+// =============================================================================
+// Concurrent Task Tracking Tests
+// =============================================================================
+
+describe('Concurrent Task Tracking', () => {
+  let tempDir: string
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'astro-concurrent-'))
+    writeFileSync(join(tempDir, 'README.md'), '# Test\n')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
+
+  it('should track active tasks through OpenCode adapter status', async () => {
+    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
+      getProvider: vi.fn(async () => null),
+    }))
+
+    const adapter = new OpenCodeAdapter()
+
+    // Initially no active tasks
+    const status1 = await adapter.getStatus()
+    expect(status1.activeTasks).toBe(0)
+    expect(status1.maxTasks).toBe(1)
+  })
+
+  it('should track active tasks through OpenClaw adapter status', async () => {
+    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
+      getProvider: vi.fn(async () => null),
+    }))
+
+    const adapter = new OpenClawAdapter()
+
+    const status1 = await adapter.getStatus()
+    expect(status1.activeTasks).toBe(0)
+    expect(status1.maxTasks).toBe(1)
+  })
+
+  it('should return activeTasks=0 after execution completes (OpenCode)', async () => {
+    const mockProc = createMockChildProcess()
+
+    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
+      getProvider: vi.fn(async (type: string) => {
+        if (type === 'opencode') {
+          return {
+            type: 'opencode',
+            name: 'OpenCode',
+            version: '1.0.0',
+            path: '/usr/local/bin/opencode',
+            available: true,
+            capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
+          }
+        }
+        return null
+      }),
+    }))
+
+    vi.mock('node:child_process', async (importOriginal) => {
+      const original = await importOriginal<typeof import('node:child_process')>()
+      return { ...original, spawn: vi.fn(() => mockProc) }
+    })
+
+    const adapter = new OpenCodeAdapter()
+    await adapter.isAvailable()
+    const stream = createMockStream()
+
+    const task = createTestTask({ workingDirectory: tempDir })
+    const controller = new AbortController()
+    const resultPromise = adapter.execute(task, stream, controller.signal)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    mockProc._emitStdout(JSON.stringify({ type: 'result', total_cost_usd: 0.001, num_turns: 1 }) + '\n')
+    mockProc._close(0)
+
+    await resultPromise
+
+    // After execution completes, activeTasks should be back to 0
+    const status = await adapter.getStatus()
+    expect(status.activeTasks).toBe(0)
+  }, 30_000)
+
+  it('should return activeTasks=0 after failed execution (OpenCode)', async () => {
+    vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
+      getProvider: vi.fn(async () => null),
+    }))
+
+    const adapter = new OpenCodeAdapter()
+    const stream = createMockStream()
+
+    const task = createTestTask({ workingDirectory: tempDir })
+    const controller = new AbortController()
+
+    // Execute will fail because provider is not available
+    await adapter.execute(task, stream, controller.signal)
+
+    // Even after failure, activeTasks should be 0
+    const status = await adapter.getStatus()
+    expect(status.activeTasks).toBe(0)
   })
 })
 
