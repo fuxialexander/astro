@@ -221,7 +221,7 @@ describe('Plan Session - Store', () => {
 
     const body = JSON.parse(options.body)
     expect(body.isInteractivePlan).toBe(true)
-    expect(body.maxTurns).toBe(200)
+    expect(body.maxTurns).toBeUndefined()
     expect(body.verification).toBe('human')
     expect(body.workingDirectory).toBe('/home/user/project')
     expect(body.model).toBe('claude-sonnet-4-6')
@@ -346,7 +346,6 @@ describe.skipIf(!serverAvailable)('Plan Session - API (requires server)', () => 
       verification: 'human',
       workingDirectory: '/tmp/e2e-test',
       isInteractivePlan: true,
-      maxTurns: 200,
     }
 
     const response = await fetch(`${API_BASE}/api/dispatch/task`, {

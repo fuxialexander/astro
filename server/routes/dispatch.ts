@@ -81,7 +81,7 @@ const dispatchTaskSchema = z.object({
   preferredProvider: z.string().max(100).optional(),
   targetMachineId: z.string().max(100).optional(),
   model: z.string().max(100).optional(),
-  maxTurns: z.number().int().min(1).max(200).optional(),
+  maxTurns: z.number().int().min(1).optional(),
   workingDirectory: z.string().max(1000).refine(
     (path) => !path.includes('..'),
     { message: 'Path traversal not allowed' }

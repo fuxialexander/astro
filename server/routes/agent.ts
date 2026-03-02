@@ -121,7 +121,7 @@ async function streamChatViaRelay(
     type: opts.type,
     messages: opts.messages,
     model: opts.model,
-    maxTurns: opts.maxTurns ?? 50,
+    maxTurns: opts.maxTurns,
     workingDirectory: opts.workingDirectory,
     useWorktree: false,
     ...(opts.resumeSessionId && { resumeSessionId: opts.resumeSessionId }),
@@ -474,7 +474,6 @@ agentRoute.post('/generate-plan', async (c) => {
     workingDirectory,
     prompt: fullPrompt,
     model: model || undefined,
-    maxTurns: 200,
     outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
     type: 'plan', // Mark as plan task to skip safety checks (no file system access)
     useWorktree: false,
@@ -692,7 +691,6 @@ agentRoute.post('/chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     model: model || undefined,
-    maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
     streamId,
   })
@@ -736,7 +734,6 @@ agentRoute.post('/plan-chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     model: model || 'haiku',  // Default to small model for plan chat
-    maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
     streamId,
   })
@@ -821,7 +818,6 @@ agentRoute.post('/task-chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     model: model || undefined,
-    maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
     // When we have a provider session ID, pass it so agent-runner can resume the Claude session
     resumeSessionId: existingSessionId || undefined,
@@ -908,7 +904,7 @@ agentRoute.post('/dispatch', async (c) => {
     visionDoc,
     dependencyOutputs,
     workingDirectory,
-    maxTurns = 100,
+    maxTurns,
   } = body
 
   const executionId = `exec-${nodeId}-${Date.now()}`
