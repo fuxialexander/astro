@@ -933,15 +933,17 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       const deliveryOk = !msg.result.deliveryStatus ||
         msg.result.deliveryStatus === 'success' ||
         msg.result.deliveryStatus === 'skipped'
+      // Failed executions also go to awaiting_judgment — human judgment is needed
+      // to decide whether to retry, fix, or abandon the task.
       const finalNodeStatus = isSuccess
         ? (verification === 'auto' && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
         : 'awaiting_judgment'
 
-      const nodePatch: Record<string, unknown> = {
+      const nodePatch: Partial<typeof planNodes.$inferInsert> = {
         status: finalNodeStatus,
-        executionOutput: msg.result.output || null,
+        executionOutput: msg.result.output ?? null,
         executionCompletedAt: new Date(),
-        executionError: msg.result.error || null,
+        executionError: msg.result.error ?? null,
         updatedAt: new Date(),
       }
       if (msg.result.branchName) nodePatch.branchName = msg.result.branchName
@@ -950,7 +952,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
       db.update(planNodes)
         .set(nodePatch)
-        .where(eq(planNodes.clientId, nodeId))
+        .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
         .execute()
         .catch((err: unknown) => {
           console.error('[dispatch] Error persisting execution result to plan node:', err)
