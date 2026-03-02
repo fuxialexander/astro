@@ -1,0 +1,216 @@
+# OpenCode JSONL Test Fixtures
+#
+# This file contains realistic OpenCode JSONL events based on the actual format
+# as defined in the OpenCode SDK (packages/opencode/src/cli/cmd/run.ts).
+#
+# Base event structure:
+#   {
+#     "type": "<event_type>",
+#     "timestamp": <unix_ms>,
+#     "sessionID": "<session_id>",
+#     ...additionalData
+#   }
+#
+# Event types:
+#   step_start   - Step begins (StepStartPart)
+#   text         - Completed text output (TextPart with time.end)
+#   tool_use     - Tool execution (ToolPart with status completed/error)
+#   reasoning    - Internal reasoning (ReasoningPart, requires --thinking flag)
+#   step_finish  - Step completes (StepFinishPart with cost/tokens/reason)
+#   error        - Session errors (SessionError)
+#
+# ==============================================================================
+# SCENARIO 1: Happy Path - Simple file read and analysis
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709234567700,"sessionID":"oc-sess-001","part":{"id":"p0","sessionID":"oc-sess-001","messageID":"m1","type":"step-start"}}
+{"type":"text","timestamp":1709234567890,"sessionID":"oc-sess-001","part":{"id":"p1","sessionID":"oc-sess-001","messageID":"m1","type":"text","text":"I'll analyze the project structure first.","time":{"start":1709234567750,"end":1709234567890}}}
+{"type":"tool_use","timestamp":1709234568200,"sessionID":"oc-sess-001","part":{"id":"p2","sessionID":"oc-sess-001","messageID":"m1","type":"tool","callID":"call-001","tool":"bash","state":{"status":"completed","input":{"command":"ls -la"},"output":"total 120\ndrwxr-xr-x  15 user staff  480 Mar  2 10:00 .\n-rw-r--r--   1 user staff 1200 Mar  2 09:55 package.json\n-rw-r--r--   1 user staff  850 Mar  2 09:55 tsconfig.json\ndrwxr-xr-x   8 user staff  256 Mar  2 09:55 src","title":"List directory contents","metadata":{},"time":{"start":1709234568000,"end":1709234568200}}}}
+{"type":"text","timestamp":1709234568500,"sessionID":"oc-sess-001","part":{"id":"p3","sessionID":"oc-sess-001","messageID":"m1","type":"text","text":"I can see the project has a standard structure with package.json, tsconfig.json, and a src directory.","time":{"start":1709234568250,"end":1709234568500}}}
+{"type":"tool_use","timestamp":1709234568900,"sessionID":"oc-sess-001","part":{"id":"p4","sessionID":"oc-sess-001","messageID":"m1","type":"tool","callID":"call-002","tool":"read","state":{"status":"completed","input":{"path":"package.json"},"output":"{\"name\":\"astro\",\"version\":\"1.0.0\",\"type\":\"module\"}","title":"Read package.json","metadata":{},"time":{"start":1709234568600,"end":1709234568900}}}}
+{"type":"text","timestamp":1709234569200,"sessionID":"oc-sess-001","part":{"id":"p5","sessionID":"oc-sess-001","messageID":"m1","type":"text","text":"The package.json shows this is an ES module project named 'astro' at version 1.0.0.","time":{"start":1709234569000,"end":1709234569200}}}
+{"type":"step_finish","timestamp":1709234569500,"sessionID":"oc-sess-001","part":{"id":"p6","sessionID":"oc-sess-001","messageID":"m1","type":"step-finish","reason":"end_turn","cost":0.0025,"tokens":{"input":150,"output":75,"reasoning":0,"cache":{"read":0,"write":0}}}}
+
+# ==============================================================================
+# SCENARIO 2: Multi-step task with file creation
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709235000000,"sessionID":"oc-sess-002","part":{"id":"s2-p0","sessionID":"oc-sess-002","messageID":"m2","type":"step-start"}}
+{"type":"text","timestamp":1709235000300,"sessionID":"oc-sess-002","part":{"id":"s2-p1","sessionID":"oc-sess-002","messageID":"m2","type":"text","text":"I'll create a new utility module for you.","time":{"start":1709235000100,"end":1709235000300}}}
+{"type":"tool_use","timestamp":1709235000800,"sessionID":"oc-sess-002","part":{"id":"s2-p2","sessionID":"oc-sess-002","messageID":"m2","type":"tool","callID":"call-010","tool":"write","state":{"status":"completed","input":{"path":"src/lib/utils.ts","content":"export function cn(...classes: string[]): string {\n  return classes.filter(Boolean).join(' ');\n}\n"},"output":"File written: src/lib/utils.ts (4 lines)","title":"Write src/lib/utils.ts","metadata":{"linesWritten":4},"time":{"start":1709235000400,"end":1709235000800}}}}
+{"type":"text","timestamp":1709235001100,"sessionID":"oc-sess-002","part":{"id":"s2-p3","sessionID":"oc-sess-002","messageID":"m2","type":"text","text":"Created the utility module. Now let me update the exports.","time":{"start":1709235000900,"end":1709235001100}}}
+{"type":"tool_use","timestamp":1709235001600,"sessionID":"oc-sess-002","part":{"id":"s2-p4","sessionID":"oc-sess-002","messageID":"m2","type":"tool","callID":"call-011","tool":"edit","state":{"status":"completed","input":{"path":"src/index.ts","old_string":"export {}","new_string":"export * from './lib/utils';"},"output":"File edited: src/index.ts","title":"Edit src/index.ts","metadata":{},"time":{"start":1709235001200,"end":1709235001600}}}}
+{"type":"tool_use","timestamp":1709235002100,"sessionID":"oc-sess-002","part":{"id":"s2-p5","sessionID":"oc-sess-002","messageID":"m2","type":"tool","callID":"call-012","tool":"bash","state":{"status":"completed","input":{"command":"npm run build"},"output":"> astro@1.0.0 build\n> tsc && vite build\n\nvite v5.0.0 building for production...\ndist/index.js  2.5 kB","title":"Run npm build","metadata":{},"time":{"start":1709235001700,"end":1709235002100}}}}
+{"type":"text","timestamp":1709235002400,"sessionID":"oc-sess-002","part":{"id":"s2-p6","sessionID":"oc-sess-002","messageID":"m2","type":"text","text":"The utility module has been created and exported. The build completed successfully.","time":{"start":1709235002200,"end":1709235002400}}}
+{"type":"step_finish","timestamp":1709235002700,"sessionID":"oc-sess-002","part":{"id":"s2-p7","sessionID":"oc-sess-002","messageID":"m2","type":"step-finish","reason":"end_turn","cost":0.0089,"tokens":{"total":450,"input":280,"output":170,"reasoning":0,"cache":{"read":50,"write":100}}}}
+
+# ==============================================================================
+# SCENARIO 3: Tool error handling
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709236000000,"sessionID":"oc-sess-003","part":{"id":"s3-p0","sessionID":"oc-sess-003","messageID":"m3","type":"step-start"}}
+{"type":"text","timestamp":1709236000300,"sessionID":"oc-sess-003","part":{"id":"s3-p1","sessionID":"oc-sess-003","messageID":"m3","type":"text","text":"I'll run the test suite to verify the changes.","time":{"start":1709236000100,"end":1709236000300}}}
+{"type":"tool_use","timestamp":1709236001200,"sessionID":"oc-sess-003","part":{"id":"s3-p2","sessionID":"oc-sess-003","messageID":"m3","type":"tool","callID":"call-020","tool":"bash","state":{"status":"error","input":{"command":"npm test"},"error":"npm ERR! code ELIFECYCLE\nnpm ERR! errno 1\nnpm ERR! astro@1.0.0 test: `vitest run`\nnpm ERR! Exit status 1\n\nFAIL  tests/utils.test.ts\n  ✕ cn() joins class names (3 ms)\n\nExpected: \"foo bar\"\nReceived: \"foobar\"","metadata":{},"time":{"start":1709236000400,"end":1709236001200}}}}
+{"type":"text","timestamp":1709236001500,"sessionID":"oc-sess-003","part":{"id":"s3-p3","sessionID":"oc-sess-003","messageID":"m3","type":"text","text":"The test failed. I can see the cn() function is not adding spaces between class names. Let me fix that.","time":{"start":1709236001300,"end":1709236001500}}}
+{"type":"tool_use","timestamp":1709236002000,"sessionID":"oc-sess-003","part":{"id":"s3-p4","sessionID":"oc-sess-003","messageID":"m3","type":"tool","callID":"call-021","tool":"read","state":{"status":"completed","input":{"path":"src/lib/utils.ts"},"output":"export function cn(...classes: string[]): string {\n  return classes.filter(Boolean).join('');\n}","title":"Read src/lib/utils.ts","metadata":{},"time":{"start":1709236001600,"end":1709236002000}}}}
+{"type":"text","timestamp":1709236002300,"sessionID":"oc-sess-003","part":{"id":"s3-p5","sessionID":"oc-sess-003","messageID":"m3","type":"text","text":"Found the bug - the join() call is missing the space separator.","time":{"start":1709236002100,"end":1709236002300}}}
+{"type":"step_finish","timestamp":1709236002600,"sessionID":"oc-sess-003","part":{"id":"s3-p6","sessionID":"oc-sess-003","messageID":"m3","type":"step-finish","reason":"end_turn","cost":0.0045,"tokens":{"input":200,"output":120,"reasoning":0,"cache":{"read":30,"write":0}}}}
+
+# ==============================================================================
+# SCENARIO 4: Session with reasoning/thinking (--thinking flag enabled)
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709237000000,"sessionID":"oc-sess-004","part":{"id":"s4-p0","sessionID":"oc-sess-004","messageID":"m4","type":"step-start"}}
+{"type":"reasoning","timestamp":1709237000500,"sessionID":"oc-sess-004","part":{"id":"s4-r1","sessionID":"oc-sess-004","messageID":"m4","type":"reasoning","text":"The user wants to refactor the authentication module. I should first understand the current implementation before making changes. Let me check what auth patterns are already in use...","time":{"start":1709237000100,"end":1709237000500}}}
+{"type":"reasoning","timestamp":1709237000800,"sessionID":"oc-sess-004","part":{"id":"s4-r2","sessionID":"oc-sess-004","messageID":"m4","type":"reasoning","text":"I need to consider: JWT vs session-based auth, where tokens are stored, and how middleware validates requests. This will help me make appropriate recommendations.","time":{"start":1709237000550,"end":1709237000800}}}
+{"type":"text","timestamp":1709237001100,"sessionID":"oc-sess-004","part":{"id":"s4-p1","sessionID":"oc-sess-004","messageID":"m4","type":"text","text":"I'll start by examining the current authentication implementation to understand the patterns in use.","time":{"start":1709237000900,"end":1709237001100}}}
+{"type":"tool_use","timestamp":1709237001600,"sessionID":"oc-sess-004","part":{"id":"s4-p2","sessionID":"oc-sess-004","messageID":"m4","type":"tool","callID":"call-030","tool":"glob","state":{"status":"completed","input":{"pattern":"**/auth/**/*.ts"},"output":"src/auth/index.ts\nsrc/auth/middleware.ts\nsrc/auth/jwt.ts\nsrc/auth/types.ts","title":"Find auth files","metadata":{},"time":{"start":1709237001200,"end":1709237001600}}}}
+{"type":"tool_use","timestamp":1709237002200,"sessionID":"oc-sess-004","part":{"id":"s4-p3","sessionID":"oc-sess-004","messageID":"m4","type":"tool","callID":"call-031","tool":"read","state":{"status":"completed","input":{"path":"src/auth/index.ts"},"output":"import { verifyJWT } from './jwt';\nimport type { AuthUser } from './types';\n\nexport async function authenticate(token: string): Promise<AuthUser | null> {\n  return verifyJWT(token);\n}","title":"Read src/auth/index.ts","metadata":{},"time":{"start":1709237001700,"end":1709237002200}}}}
+{"type":"reasoning","timestamp":1709237002500,"sessionID":"oc-sess-004","part":{"id":"s4-r3","sessionID":"oc-sess-004","messageID":"m4","type":"reasoning","text":"Good, they're using JWT-based authentication. The authenticate function is simple - it just verifies the token. I should check the middleware to see how this is integrated into the request flow.","time":{"start":1709237002300,"end":1709237002500}}}
+{"type":"text","timestamp":1709237002800,"sessionID":"oc-sess-004","part":{"id":"s4-p4","sessionID":"oc-sess-004","messageID":"m4","type":"text","text":"The project uses JWT-based authentication. The main authenticate function delegates to a JWT verifier. Let me check the middleware implementation.","time":{"start":1709237002600,"end":1709237002800}}}
+{"type":"step_finish","timestamp":1709237003100,"sessionID":"oc-sess-004","part":{"id":"s4-p5","sessionID":"oc-sess-004","messageID":"m4","type":"step-finish","reason":"end_turn","cost":0.0156,"tokens":{"total":620,"input":350,"output":150,"reasoning":120,"cache":{"read":80,"write":50}}}}
+
+# ==============================================================================
+# SCENARIO 5: Error event - API rate limit
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709238000000,"sessionID":"oc-sess-005","part":{"id":"s5-p0","sessionID":"oc-sess-005","messageID":"m5","type":"step-start"}}
+{"type":"text","timestamp":1709238000300,"sessionID":"oc-sess-005","part":{"id":"s5-p1","sessionID":"oc-sess-005","messageID":"m5","type":"text","text":"I'll analyze the large codebase","time":{"start":1709238000100,"end":1709238000300}}}
+{"type":"error","timestamp":1709238000600,"sessionID":"oc-sess-005","error":{"name":"APIError","data":{"message":"Rate limit exceeded. Please wait 60 seconds before retrying.","statusCode":429,"isRetryable":true}}}
+
+# ==============================================================================
+# SCENARIO 6: Error event - Authentication failure
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709239000000,"sessionID":"oc-sess-006","part":{"id":"s6-p0","sessionID":"oc-sess-006","messageID":"m6","type":"step-start"}}
+{"type":"error","timestamp":1709239000200,"sessionID":"oc-sess-006","error":{"name":"ProviderAuthError","data":{"message":"Invalid API key. Please check your OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable.","provider":"anthropic","isRetryable":false}}}
+
+# ==============================================================================
+# SCENARIO 7: Error event - Context overflow
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709240000000,"sessionID":"oc-sess-007","part":{"id":"s7-p0","sessionID":"oc-sess-007","messageID":"m7","type":"step-start"}}
+{"type":"text","timestamp":1709240000300,"sessionID":"oc-sess-007","part":{"id":"s7-p1","sessionID":"oc-sess-007","messageID":"m7","type":"text","text":"Let me read all the source files...","time":{"start":1709240000100,"end":1709240000300}}}
+{"type":"error","timestamp":1709240001000,"sessionID":"oc-sess-007","error":{"name":"ContextOverflowError","data":{"message":"Context window exceeded. The conversation history plus file contents exceeds the model's 128k token limit. Consider starting a new session or reducing context.","currentTokens":135000,"maxTokens":128000,"isRetryable":false}}}
+
+# ==============================================================================
+# SCENARIO 8: Error event - Message aborted
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709241000000,"sessionID":"oc-sess-008","part":{"id":"s8-p0","sessionID":"oc-sess-008","messageID":"m8","type":"step-start"}}
+{"type":"text","timestamp":1709241000300,"sessionID":"oc-sess-008","part":{"id":"s8-p1","sessionID":"oc-sess-008","messageID":"m8","type":"text","text":"I'll begin the refactoring process","time":{"start":1709241000100,"end":1709241000300}}}
+{"type":"tool_use","timestamp":1709241000800,"sessionID":"oc-sess-008","part":{"id":"s8-p2","sessionID":"oc-sess-008","messageID":"m8","type":"tool","callID":"call-040","tool":"bash","state":{"status":"running","input":{"command":"npm run build"},"time":{"start":1709241000400}}}}
+{"type":"error","timestamp":1709241001200,"sessionID":"oc-sess-008","error":{"name":"MessageAbortedError","data":{"message":"Operation was cancelled by user","isRetryable":false}}}
+
+# ==============================================================================
+# SCENARIO 9: Complete multi-turn session with cache usage
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709242000000,"sessionID":"oc-sess-009","part":{"id":"s9-p0","sessionID":"oc-sess-009","messageID":"m9-1","type":"step-start","snapshot":"snap-001"}}
+{"type":"text","timestamp":1709242000400,"sessionID":"oc-sess-009","part":{"id":"s9-p1","sessionID":"oc-sess-009","messageID":"m9-1","type":"text","text":"I'll help you implement the new feature. Let me first understand the existing codebase.","time":{"start":1709242000100,"end":1709242000400}}}
+{"type":"tool_use","timestamp":1709242001000,"sessionID":"oc-sess-009","part":{"id":"s9-p2","sessionID":"oc-sess-009","messageID":"m9-1","type":"tool","callID":"call-050","tool":"grep","state":{"status":"completed","input":{"pattern":"export function","path":"src"},"output":"src/index.ts:1:export function main() {}\nsrc/lib/utils.ts:1:export function cn(...classes: string[]): string {\nsrc/lib/parser.ts:3:export function parse(input: string): AST {","title":"Search for exports","metadata":{},"time":{"start":1709242000500,"end":1709242001000}}}}
+{"type":"text","timestamp":1709242001300,"sessionID":"oc-sess-009","part":{"id":"s9-p3","sessionID":"oc-sess-009","messageID":"m9-1","type":"text","text":"Found the main exports. The project has a main function, utility helpers, and a parser module.","time":{"start":1709242001100,"end":1709242001300}}}
+{"type":"step_finish","timestamp":1709242001600,"sessionID":"oc-sess-009","part":{"id":"s9-p4","sessionID":"oc-sess-009","messageID":"m9-1","type":"step-finish","reason":"end_turn","snapshot":"snap-002","cost":0.0032,"tokens":{"total":280,"input":180,"output":100,"reasoning":0,"cache":{"read":120,"write":60}}}}
+
+# Second turn (same session, cache hit)
+{"type":"step_start","timestamp":1709242010000,"sessionID":"oc-sess-009","part":{"id":"s9-p5","sessionID":"oc-sess-009","messageID":"m9-2","type":"step-start","snapshot":"snap-002"}}
+{"type":"text","timestamp":1709242010300,"sessionID":"oc-sess-009","part":{"id":"s9-p6","sessionID":"oc-sess-009","messageID":"m9-2","type":"text","text":"Now I'll implement the requested feature in the parser module.","time":{"start":1709242010100,"end":1709242010300}}}
+{"type":"tool_use","timestamp":1709242010900,"sessionID":"oc-sess-009","part":{"id":"s9-p7","sessionID":"oc-sess-009","messageID":"m9-2","type":"tool","callID":"call-051","tool":"edit","state":{"status":"completed","input":{"path":"src/lib/parser.ts","old_string":"export function parse(input: string): AST {","new_string":"export function parse(input: string, options?: ParseOptions): AST {"},"output":"File edited successfully","title":"Edit src/lib/parser.ts","metadata":{},"time":{"start":1709242010400,"end":1709242010900}}}}
+{"type":"text","timestamp":1709242011200,"sessionID":"oc-sess-009","part":{"id":"s9-p8","sessionID":"oc-sess-009","messageID":"m9-2","type":"text","text":"Added optional ParseOptions parameter to the parse function.","time":{"start":1709242011000,"end":1709242011200}}}
+{"type":"step_finish","timestamp":1709242011500,"sessionID":"oc-sess-009","part":{"id":"s9-p9","sessionID":"oc-sess-009","messageID":"m9-2","type":"step-finish","reason":"end_turn","snapshot":"snap-003","cost":0.0018,"tokens":{"total":200,"input":140,"output":60,"reasoning":0,"cache":{"read":180,"write":20}}}}
+
+# ==============================================================================
+# SCENARIO 10: Tool with file attachments
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709243000000,"sessionID":"oc-sess-010","part":{"id":"s10-p0","sessionID":"oc-sess-010","messageID":"m10","type":"step-start"}}
+{"type":"text","timestamp":1709243000300,"sessionID":"oc-sess-010","part":{"id":"s10-p1","sessionID":"oc-sess-010","messageID":"m10","type":"text","text":"I'll read the configuration files to understand the project setup.","time":{"start":1709243000100,"end":1709243000300}}}
+{"type":"tool_use","timestamp":1709243001000,"sessionID":"oc-sess-010","part":{"id":"s10-p2","sessionID":"oc-sess-010","messageID":"m10","type":"tool","callID":"call-060","tool":"read","state":{"status":"completed","input":{"path":"tsconfig.json"},"output":"{\"compilerOptions\":{\"target\":\"ES2022\",\"module\":\"ESNext\",\"strict\":true}}","title":"Read tsconfig.json","metadata":{"fileSize":89,"mimeType":"application/json"},"time":{"start":1709243000400,"end":1709243001000},"attachments":[{"id":"f1","sessionID":"oc-sess-010","messageID":"m10","type":"file","path":"tsconfig.json","mimeType":"application/json"}]}}}
+{"type":"text","timestamp":1709243001300,"sessionID":"oc-sess-010","part":{"id":"s10-p3","sessionID":"oc-sess-010","messageID":"m10","type":"text","text":"The project uses TypeScript with ES2022 target and ESNext modules in strict mode.","time":{"start":1709243001100,"end":1709243001300}}}
+{"type":"step_finish","timestamp":1709243001600,"sessionID":"oc-sess-010","part":{"id":"s10-p4","sessionID":"oc-sess-010","messageID":"m10","type":"step-finish","reason":"end_turn","cost":0.0021,"tokens":{"input":120,"output":65,"reasoning":0,"cache":{"read":0,"write":0}}}}
+
+# ==============================================================================
+# SCENARIO 11: Long running tool with compacted output
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709244000000,"sessionID":"oc-sess-011","part":{"id":"s11-p0","sessionID":"oc-sess-011","messageID":"m11","type":"step-start"}}
+{"type":"text","timestamp":1709244000300,"sessionID":"oc-sess-011","part":{"id":"s11-p1","sessionID":"oc-sess-011","messageID":"m11","type":"text","text":"Running the full test suite...","time":{"start":1709244000100,"end":1709244000300}}}
+{"type":"tool_use","timestamp":1709244015000,"sessionID":"oc-sess-011","part":{"id":"s11-p2","sessionID":"oc-sess-011","messageID":"m11","type":"tool","callID":"call-070","tool":"bash","state":{"status":"completed","input":{"command":"npm test"},"output":"✓ tests/utils.test.ts (5 tests) 120ms\n✓ tests/parser.test.ts (12 tests) 340ms\n✓ tests/auth.test.ts (8 tests) 210ms\n\nTest Files  3 passed (3)\n     Tests  25 passed (25)\n  Duration  1.52s","title":"Run test suite","metadata":{"exitCode":0},"time":{"start":1709244000400,"end":1709244015000,"compacted":1709244012000}}}}
+{"type":"text","timestamp":1709244015300,"sessionID":"oc-sess-011","part":{"id":"s11-p3","sessionID":"oc-sess-011","messageID":"m11","type":"text","text":"All 25 tests passed across 3 test files. The test suite completed in 1.52 seconds.","time":{"start":1709244015100,"end":1709244015300}}}
+{"type":"step_finish","timestamp":1709244015600,"sessionID":"oc-sess-011","part":{"id":"s11-p4","sessionID":"oc-sess-011","messageID":"m11","type":"step-finish","reason":"end_turn","cost":0.0028,"tokens":{"input":160,"output":85,"reasoning":0,"cache":{"read":40,"write":0}}}}
+
+# ==============================================================================
+# SCENARIO 12: Unicode and special characters in output
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709245000000,"sessionID":"oc-sess-012","part":{"id":"s12-p0","sessionID":"oc-sess-012","messageID":"m12","type":"step-start"}}
+{"type":"text","timestamp":1709245000400,"sessionID":"oc-sess-012","part":{"id":"s12-p1","sessionID":"oc-sess-012","messageID":"m12","type":"text","text":"Here's a summary with special characters:\n- Japanese: 日本語\n- Chinese: 中文\n- Emoji: ✅ ❌ 🚀\n- Math: π ≈ 3.14159, ∞\n- Quotes: \"double\" 'single' "smart"","time":{"start":1709245000100,"end":1709245000400}}}
+{"type":"tool_use","timestamp":1709245000900,"sessionID":"oc-sess-012","part":{"id":"s12-p2","sessionID":"oc-sess-012","messageID":"m12","type":"tool","callID":"call-080","tool":"write","state":{"status":"completed","input":{"path":"README.md","content":"# プロジェクト 项目 🎉\n\nMultilingual documentation with émojis and spëcial çharacters.\n"},"output":"File written: README.md","title":"Write README.md","metadata":{},"time":{"start":1709245000500,"end":1709245000900}}}}
+{"type":"step_finish","timestamp":1709245001200,"sessionID":"oc-sess-012","part":{"id":"s12-p3","sessionID":"oc-sess-012","messageID":"m12","type":"step-finish","reason":"end_turn","cost":0.0015,"tokens":{"input":90,"output":55,"reasoning":0,"cache":{"read":0,"write":0}}}}
+
+# ==============================================================================
+# SCENARIO 13: Empty/minimal parts (boundary testing)
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709246000000,"sessionID":"oc-sess-013","part":{"id":"s13-p0","sessionID":"oc-sess-013","messageID":"m13","type":"step-start"}}
+{"type":"text","timestamp":1709246000200,"sessionID":"oc-sess-013","part":{"id":"s13-p1","sessionID":"oc-sess-013","messageID":"m13","type":"text","text":"","time":{"start":1709246000100,"end":1709246000200}}}
+{"type":"text","timestamp":1709246000300,"sessionID":"oc-sess-013","part":{"id":"s13-p2","sessionID":"oc-sess-013","messageID":"m13","type":"text","text":" ","time":{"start":1709246000250,"end":1709246000300}}}
+{"type":"step_finish","timestamp":1709246000400,"sessionID":"oc-sess-013","part":{"id":"s13-p3","sessionID":"oc-sess-013","messageID":"m13","type":"step-finish","reason":"end_turn","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}
+
+# ==============================================================================
+# SCENARIO 14: Synthetic/ignored parts
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709247000000,"sessionID":"oc-sess-014","part":{"id":"s14-p0","sessionID":"oc-sess-014","messageID":"m14","type":"step-start"}}
+{"type":"text","timestamp":1709247000300,"sessionID":"oc-sess-014","part":{"id":"s14-p1","sessionID":"oc-sess-014","messageID":"m14","type":"text","text":"System message: Tool execution context initialized.","synthetic":true,"time":{"start":1709247000100,"end":1709247000300}}}
+{"type":"text","timestamp":1709247000500,"sessionID":"oc-sess-014","part":{"id":"s14-p2","sessionID":"oc-sess-014","messageID":"m14","type":"text","text":"[Debug info - this will be ignored]","ignored":true,"time":{"start":1709247000350,"end":1709247000500}}}
+{"type":"text","timestamp":1709247000700,"sessionID":"oc-sess-014","part":{"id":"s14-p3","sessionID":"oc-sess-014","messageID":"m14","type":"text","text":"I'm ready to help with your task.","time":{"start":1709247000550,"end":1709247000700}}}
+{"type":"step_finish","timestamp":1709247001000,"sessionID":"oc-sess-014","part":{"id":"s14-p4","sessionID":"oc-sess-014","messageID":"m14","type":"step-finish","reason":"end_turn","cost":0.0008,"tokens":{"input":40,"output":25,"reasoning":0,"cache":{"read":0,"write":0}}}}
+
+# ==============================================================================
+# SCENARIO 15: Error event - Output length exceeded
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709248000000,"sessionID":"oc-sess-015","part":{"id":"s15-p0","sessionID":"oc-sess-015","messageID":"m15","type":"step-start"}}
+{"type":"text","timestamp":1709248000300,"sessionID":"oc-sess-015","part":{"id":"s15-p1","sessionID":"oc-sess-015","messageID":"m15","type":"text","text":"Generating extensive documentation...","time":{"start":1709248000100,"end":1709248000300}}}
+{"type":"error","timestamp":1709248005000,"sessionID":"oc-sess-015","error":{"name":"MessageOutputLengthError","data":{"message":"Output exceeded maximum length of 8192 tokens. Response was truncated.","outputTokens":8500,"maxTokens":8192,"isRetryable":false}}}
+
+# ==============================================================================
+# SCENARIO 16: Error event - Unknown/generic error
+# ==============================================================================
+
+{"type":"step_start","timestamp":1709249000000,"sessionID":"oc-sess-016","part":{"id":"s16-p0","sessionID":"oc-sess-016","messageID":"m16","type":"step-start"}}
+{"type":"error","timestamp":1709249000500,"sessionID":"oc-sess-016","error":{"name":"UnknownError","data":{"message":"An unexpected error occurred during execution.","stack":"Error: Unexpected EOF\n    at Parser.parse (parser.js:42)\n    at Session.run (session.js:128)","isRetryable":true}}}
+
+# ==============================================================================
+# SCENARIO 17: Malformed/edge case lines (parser testing)
+# ==============================================================================
+
+# Incomplete JSON object (missing closing brace)
+{"type":"text","timestamp":1709250000000,"sessionID":"oc-sess-017","part":{"id":"p1","type":"text","text":"Truncated
+
+# Empty line (should be skipped)
+
+# Whitespace only
+
+
+# Invalid JSON - extra comma
+{"type":"step_start","timestamp":1709250001000,"sessionID":"oc-sess-017",}
+
+# Invalid JSON - single quotes
+{'type':'text','timestamp':1709250002000}
+
+# Valid JSON but array instead of object
+["text", 1709250003000, "oc-sess-017"]
+
+# Valid JSON object but missing type field
+{"timestamp":1709250004000,"sessionID":"oc-sess-017","part":{}}
+
+# Null value
+null
+
+# Boolean value
+true
+
+# Number value
+42
