@@ -3,6 +3,7 @@ import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
 import type { Activity } from "@/stores/activity-store"
+import type { SkillRow } from "@/stores/skill-store"
 import { getAccessToken } from "./supabase-client"
 import { snakeToCamel } from "./utils"
 import { apiUrl } from "./api-url"
@@ -198,6 +199,28 @@ function mapChatEntry(entry: { session: Record<string, unknown>; messages: Recor
       updatedAt: toDate(s.updatedAt),
     },
     messages: entry.messages.map(mapChatMessage),
+  }
+}
+
+function mapSkillRow(row: Record<string, unknown>): SkillRow {
+  const r = snakeToCamel(row)
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    description: (r.description as string) ?? '',
+    instructions: (r.instructions as string) ?? '',
+    source: (r.source as SkillRow['source']) ?? 'builtin',
+    enabled: (r.enabled as boolean) ?? true,
+    userInvocable: (r.userInvocable as boolean) ?? true,
+    pluginId: r.pluginId as string | undefined,
+    config: (r.config as Record<string, unknown>) ?? undefined,
+    version: (r.version as string) ?? '1.0.0',
+    category: (r.category as string) ?? undefined,
+    tags: (r.tags as string[]) ?? [],
+    allowedTools: (r.allowedTools as string[]) ?? [],
+    sourceUrl: (r.sourceUrl as string) ?? undefined,
+    createdAt: r.createdAt ? toDate(r.createdAt) : undefined,
+    updatedAt: r.updatedAt ? toDate(r.updatedAt) : undefined,
   }
 }
 
@@ -695,5 +718,30 @@ export const dataClient = {
 
   async deleteEnvironmentConfig(id: string): Promise<void> {
     await del(`${BASE}/environment-configs/${id}`)
+  },
+
+  // ── Skills (uses /api/skills, not /api/data) ─────────────────────────
+  async listSkills(): Promise<SkillRow[]> {
+    const data = await json<{ skills: Record<string, unknown>[] }>('/api/skills')
+    return (data.skills ?? []).map(mapSkillRow)
+  },
+
+  async createSkill(skill: Partial<SkillRow>): Promise<SkillRow> {
+    const row = await post('/api/skills', skill) as Record<string, unknown>
+    return mapSkillRow(row)
+  },
+
+  async updateSkill(id: string, updates: Partial<SkillRow>): Promise<SkillRow> {
+    const row = await put(`/api/skills/${id}`, updates) as Record<string, unknown>
+    return mapSkillRow(row)
+  },
+
+  async deleteSkill(id: string): Promise<void> {
+    await del(`/api/skills/${id}`)
+  },
+
+  async toggleSkill(id: string): Promise<SkillRow> {
+    const row = await put(`/api/skills/${id}/toggle`, {}) as Record<string, unknown>
+    return mapSkillRow(row)
   },
 }
