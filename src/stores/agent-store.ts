@@ -7,7 +7,7 @@ import { useSettingsStore } from "@/stores/settings-store"
 import type { PlanNode, PlanEdge, Project } from "@/types"
 
 export type GenerationPhase = 'idle' | 'repo_setup' | 'generating' | 'interactive_planning'
-export type GenerationStatus = 'active' | 'completed' | 'error'
+export type GenerationStatus = 'active' | 'generated' | 'completed' | 'error'
 
 export interface GenerationSession {
   projectId: string
@@ -52,11 +52,52 @@ interface AgentState {
   setGenerationPhase: (projectId: string, phase: GenerationPhase) => void
   abort: (projectId: string) => void
   dismissSession: (projectId: string) => void
+  markPlanViewed: (projectId: string) => void
   startInteractiveSession: (projectId: string, projectName: string, executionId: string) => void
   updateInteractiveSession: (projectId: string, updates: Partial<Pick<GenerationSession, 'streamText' | 'status' | 'error' | 'pendingApprovals'>>) => void
 }
 
 const abortControllers = new Map<string, AbortController>()
+
+// localStorage key for persisting "generated" sessions across page refresh
+const GENERATED_SESSIONS_KEY = "astro:generated-sessions"
+
+function persistGeneratedSessions(sessions: Map<string, GenerationSession>): void {
+  try {
+    const generated: Record<string, GenerationSession> = {}
+    for (const [projectId, session] of sessions) {
+      if (session.status === "generated") {
+        generated[projectId] = session
+      }
+    }
+    if (Object.keys(generated).length > 0) {
+      localStorage.setItem(GENERATED_SESSIONS_KEY, JSON.stringify(generated))
+    } else {
+      localStorage.removeItem(GENERATED_SESSIONS_KEY)
+    }
+  } catch {
+    // localStorage may be unavailable
+  }
+}
+
+function restoreGeneratedSessions(): Map<string, GenerationSession> {
+  const sessions = new Map<string, GenerationSession>()
+  try {
+    const raw = localStorage.getItem(GENERATED_SESSIONS_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, GenerationSession>
+      for (const [projectId, session] of Object.entries(parsed)) {
+        // Only restore "generated" sessions (not stale active/error)
+        if (session.status === "generated") {
+          sessions.set(projectId, session)
+        }
+      }
+    }
+  } catch {
+    // localStorage may be unavailable or corrupted
+  }
+  return sessions
+}
 
 // Cleanup timer for completed sessions
 let cleanupTimer: ReturnType<typeof setInterval> | null = null
@@ -81,9 +122,9 @@ function cleanupOldSessions(sessions: Map<string, GenerationSession>): Map<strin
   const now = Date.now()
   const next = new Map(sessions)
 
-  // Remove completed/error sessions older than TTL
+  // Remove completed/error sessions older than TTL (but keep "generated" sessions)
   for (const [projectId, session] of next.entries()) {
-    if (session.status !== "active" && session.completedAt) {
+    if (session.status !== "active" && session.status !== "generated" && session.completedAt) {
       const age = now - session.completedAt
       if (age > COMPLETED_SESSION_TTL_MS) {
         console.log(`[agent-store] Cleaning up old session for ${projectId}`)
@@ -129,8 +170,21 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   loaded: false,
 
   load: async () => {
-    // Generation sessions are ephemeral (in-memory only during active generation).
-    // Nothing to restore on load.
+    // Restore "generated" sessions from localStorage so they survive page refresh
+    const restored = restoreGeneratedSessions()
+    if (restored.size > 0) {
+      set((s) => {
+        const sessions = new Map(s.sessions)
+        for (const [projectId, session] of restored) {
+          // Don't overwrite active sessions
+          if (!sessions.has(projectId)) {
+            sessions.set(projectId, session)
+          }
+        }
+        return { sessions }
+      })
+      console.log(`[agent-store] Restored ${restored.size} generated session(s) from localStorage`)
+    }
     set({ loaded: true })
 
     // Start cleanup timer
@@ -349,13 +403,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             console.log(`[plan-gen] Generation completed for ${projectId}`)
             set((s) => {
               const session = s.sessions.get(projectId)
-              // Only mark completed if not already in error state
+              // Only mark generated if not already in error state
               if (session?.status === "error") return s
               const sessions = updateSession(s.sessions, projectId, {
-                status: "completed",
+                status: "generated",
                 phase: "idle",
                 completedAt: Date.now(),
               })
+              // Persist "generated" sessions to localStorage for page refresh survival
+              persistGeneratedSessions(sessions)
               return { sessions }
             })
           },
@@ -380,10 +436,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         const session = s.sessions.get(projectId)
         if (session?.status === "active") {
           const sessions = updateSession(s.sessions, projectId, {
-            status: "completed",
+            status: "generated",
             phase: "idle",
             completedAt: Date.now(),
           })
+          // Persist "generated" sessions to localStorage for page refresh survival
+          persistGeneratedSessions(sessions)
           return { sessions }
         }
         return s
@@ -407,6 +465,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set((s) => {
       const sessions = new Map(s.sessions)
       sessions.delete(projectId)
+      persistGeneratedSessions(sessions)
+      return { sessions }
+    })
+  },
+
+  markPlanViewed: (projectId) => {
+    set((s) => {
+      const session = s.sessions.get(projectId)
+      if (!session || session.status !== "generated") return s
+      const sessions = new Map(s.sessions)
+      sessions.delete(projectId)
+      persistGeneratedSessions(sessions)
       return { sessions }
     })
   },

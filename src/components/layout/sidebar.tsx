@@ -95,22 +95,27 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
   // Count total active tasks + generations, and which projects have running work
   const { activeCount, projectsWithRunning } = useMemo(() => {
+    const terminalNodeStatuses = new Set([
+      "completed", "auto_verified", "awaiting_judgment", "awaiting_approval", "pruned",
+    ])
     let count = 0
     const running = new Set<string>()
 
-    // Count running executions
+    // Count running executions (filter out stale ones where node is already completed)
     for (const [nodeId, exec] of executions) {
       if (exec.status === "pending" || exec.status === "running") {
-        count++
         const node = planNodes.find((n) => n.id === nodeId)
+        // Skip stale executions: node has terminal status but execution still shows running
+        if (node && terminalNodeStatuses.has(node.status)) continue
+        count++
         if (node?.projectId) running.add(node.projectId)
         if (exec.projectId) running.add(exec.projectId)
       }
     }
 
-    // Count active plan generations
+    // Count active and generated plan generations
     for (const [projectId, session] of agentSessions) {
-      if (session.status === "active") {
+      if (session.status === "active" || session.status === "generated") {
         count++
         running.add(projectId)
       }
