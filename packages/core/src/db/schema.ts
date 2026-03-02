@@ -619,3 +619,28 @@ export const streamingEvents = pgTable('streaming_events', {
   data: jsonb('data').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+// ── Skills ────────────────────────────────────────────────────────────
+// Persistent skill registry. Skills are agent-level extensions that inject
+// instructions into AI agent prompts during task execution.
+export const skills = pgTable('skills', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  description: text('description').notNull().default(''),
+  instructions: text('instructions').notNull().default(''),
+  source: text('source').notNull().default('workspace'), // 'builtin' | 'workspace' | 'clawhub' | 'plugin'
+  enabled: boolean('enabled').notNull().default(true),
+  userInvocable: boolean('user_invocable').notNull().default(true),
+  disableModelInvocation: boolean('disable_model_invocation').notNull().default(false),
+  commandDispatch: text('command_dispatch'),   // 'tool' | null
+  commandTool: text('command_tool'),
+  homepage: text('homepage'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  pluginId: text('plugin_id'),
+  config: jsonb('config').$type<Record<string, unknown>>().default({}),
+  authorId: uuid('author_id').references(() => userProfiles.id, { onDelete: 'set null' }),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
