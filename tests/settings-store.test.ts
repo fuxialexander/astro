@@ -30,7 +30,7 @@ describe("resolveModel", () => {
     })
 
     it("resolves large tier for codex", () => {
-      expect(resolveModel("large", "codex")).toBe("o3")
+      expect(resolveModel("large", "codex")).toBe("gpt-5.3-codex")
     })
 
     it("resolves medium tier for codex", () => {
@@ -38,7 +38,7 @@ describe("resolveModel", () => {
     })
 
     it("resolves small tier for codex", () => {
-      expect(resolveModel("small", "codex")).toBe("codex-mini")
+      expect(resolveModel("small", "codex")).toBe("gpt-5.3-codex")
     })
   })
 
@@ -100,7 +100,7 @@ describe("resolveModel", () => {
       // claude-code should still use default
       expect(resolveModel("large", "claude-sdk", custom)).toBe("opus")
       // codex should still use default
-      expect(resolveModel("large", "codex", custom)).toBe("o3")
+      expect(resolveModel("large", "codex", custom)).toBe("gpt-5.3-codex")
     })
 
     it("custom map does not affect other tiers", () => {
@@ -144,7 +144,7 @@ describe("getEffectiveModelTierMap", () => {
     const result = getEffectiveModelTierMap(custom)
     expect(result.large["claude-sdk"]).toBe("custom-opus")
     // Other entries should be unchanged
-    expect(result.large.codex).toBe("o3")
+    expect(result.large.codex).toBe("gpt-5.3-codex")
     expect(result.medium["claude-sdk"]).toBe("sonnet")
   })
 
@@ -257,7 +257,7 @@ describe("useSettingsStore", () => {
     store.setDefaultProvider("codex")
     store.setModelTier("large")
     const state = useSettingsStore.getState()
-    expect(state.model).toBe("o3")
+    expect(state.model).toBe("gpt-5.3-codex")
   })
 
   it("setDefaultProvider re-resolves model", () => {
@@ -265,7 +265,7 @@ describe("useSettingsStore", () => {
     store.setModelTier("large")
     expect(useSettingsStore.getState().model).toBe("opus")
     store.setDefaultProvider("codex")
-    expect(useSettingsStore.getState().model).toBe("o3")
+    expect(useSettingsStore.getState().model).toBe("gpt-5.3-codex")
   })
 
   it("getModelForProvider resolves for given provider", () => {
@@ -280,7 +280,7 @@ describe("useSettingsStore", () => {
     store.setDefaultProvider("codex")
     store.setModelTier("small")
     // No provider arg → uses default (codex)
-    expect(useSettingsStore.getState().getModelForProvider()).toBe("codex-mini")
+    expect(useSettingsStore.getState().getModelForProvider()).toBe("gpt-5.3-codex")
   })
 
   describe("custom model map", () => {
@@ -344,7 +344,7 @@ describe("useSettingsStore", () => {
       const map = useSettingsStore.getState().getEffectiveTierMap()
       expect(map.large["claude-sdk"]).toBe("custom-claude-large")
       expect(map.large.bedrock).toBe("bedrock-opus")
-      expect(map.large.codex).toBe("o3") // unchanged
+      expect(map.large.codex).toBe("gpt-5.3-codex") // unchanged
       expect(map.medium["claude-sdk"]).toBe("sonnet") // unchanged
     })
   })
