@@ -37,6 +37,15 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+// Check if @opencode-ai/sdk is installed (optional dependency)
+let sdkAvailable = false
+try {
+  await import('@opencode-ai/sdk')
+  sdkAvailable = true
+} catch {
+  // SDK not installed — tests that require it will be skipped
+}
+
 // =============================================================================
 // SDK Type Re-exports (from @opencode-ai/sdk)
 // =============================================================================
@@ -422,7 +431,7 @@ describe('OpenCode SDK Integration Path', () => {
   // 1. SDK Import and Availability Check
   // ===========================================================================
 
-  describe('SDK import and availability check', () => {
+  describe.skipIf(!sdkAvailable)('SDK import and availability check', () => {
     it('imports createOpencodeClient from @opencode-ai/sdk', async () => {
       const sdk = await import('@opencode-ai/sdk')
       expect(sdk.createOpencodeClient).toBeDefined()
