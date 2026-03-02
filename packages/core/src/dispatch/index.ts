@@ -41,5 +41,6 @@ export type {
 export {
   parseExecutiveSummaryFromOutput,
   hasExecutiveSummary,
+  generateGitDiffSummary,
 } from './summary-utils.js'
-export type { ExecutiveSummaryParsed } from './summary-utils.js'
+export type { ExecutiveSummaryParsed, GitDiffSummaryOptions } from './summary-utils.js'

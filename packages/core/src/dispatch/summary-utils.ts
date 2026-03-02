@@ -1,102 +1,58 @@
 /**
- * Summary Parsing Utilities
+ * Summary Utilities
  *
- * Server-side utilities for parsing structured Executive Summary blocks
- * from agent output text.
+ * Server-side utilities for:
+ * - Parsing structured Executive Summary blocks from agent output text
+ * - Generating git diff summaries for worktrees
  */
+
+import { execSync } from 'child_process'
 
 /**
  * Parsed result from an Executive Summary block.
- * All fields are optional to handle partial summaries.
  */
 export interface ExecutiveSummaryParsed {
-  /** Task outcome: success, partial, or failure */
   status?: 'success' | 'partial' | 'failure'
-  /** One-sentence summary of what was accomplished */
   workCompleted?: string
-  /** Key bullet points of findings/changes (between "What was done" and "Follow-ups") */
   keyFindings?: string[]
-  /** Suggested follow-up actions */
   followUps?: string[]
 }
 
 /**
  * Parse an Executive Summary block from agent output text.
- *
- * Looks for the structured "## Executive Summary" block and extracts:
- * - Status: success | partial | failure
- * - What was done: one-sentence summary
- * - Key findings: bullet points between "What was done" and "Follow-ups"
- * - Follow-ups: bullet points after "Follow-ups:"
- *
- * @param output - Raw agent output text
- * @returns Parsed summary object, or null if no valid summary found
- *
- * @example
- * ```typescript
- * const output = \`
- * ## Executive Summary
- * **Status:** success
- * **What was done:** Implemented the authentication flow.
- * - Added JWT validation
- * - Created refresh endpoint
- * **Follow-ups:**
- * - Add rate limiting
- * \`
- * const result = parseExecutiveSummaryFromOutput(output)
- * // { status: 'success', workCompleted: 'Implemented the authentication flow.', ... }
- * ```
  */
 export function parseExecutiveSummaryFromOutput(output: string): ExecutiveSummaryParsed | null {
   if (!output || typeof output !== 'string') {
     return null
   }
 
-  // Match the Executive Summary section header with flexible whitespace
-  // Handles: "## Executive Summary", "##Executive Summary", "##  Executive Summary"
-  // Also handles various markdown heading levels (##, ###)
   const headerMatch = output.match(/#{2,3}\s*Executive\s+Summary\s*\n/i)
   if (!headerMatch) {
     return null
   }
 
-  // Extract the block after the header until end of text or a code block/new section
   const startIndex = headerMatch.index! + headerMatch[0].length
   const remainder = output.slice(startIndex)
 
-  // Find the end of the summary block:
-  // - Another ## heading (new section)
-  // - A code fence (```)
-  // - End of string
-  const endMatch = remainder.match(/\n#{2,3}\s+[A-Z]|\n```|$/)
+  const endMatch = remainder.match(/\n#{2,3}\s+[A-Z]|\n\x60\x60\x60|$/)
   const block = endMatch
     ? remainder.slice(0, endMatch.index !== undefined ? endMatch.index : remainder.length)
     : remainder
 
-  // Parse status line with flexible formatting
-  // Handles: "**Status:** success", "**Status**: success", "* *Status:* * success", etc.
   const statusMatch = block.match(/\*\*Status:?\*\*:?\s*(success|partial|failure)/i)
-
-  // Parse "What was done" line - captures the rest of the line after the label
-  // Handles: "**What was done:** ...", "**What was done**: ...", etc.
   const whatMatch = block.match(/\*\*What\s+was\s+done:?\*\*:?\s*(.+?)(?:\n|$)/i)
 
-  // Split block into lines for bullet parsing
   const lines = block.split('\n')
   const keyFindings: string[] = []
   const followUps: string[] = []
 
-  // State machine for tracking which section we're in
   let inFollowUps = false
   let pastWhatWasDone = false
 
   for (const line of lines) {
     const trimmed = line.trim()
-
-    // Skip empty lines
     if (!trimmed) continue
 
-    // Check for section headers
     if (/\*\*Follow-?ups?:?\*\*/i.test(trimmed)) {
       inFollowUps = true
       continue
@@ -111,23 +67,19 @@ export function parseExecutiveSummaryFromOutput(output: string): ExecutiveSummar
       continue
     }
 
-    // Parse bullet points (- or *)
     const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/)
     if (bulletMatch) {
       const bulletText = bulletMatch[1].trim()
-      // Skip empty bullets
       if (!bulletText) continue
 
       if (inFollowUps) {
         followUps.push(bulletText)
       } else if (pastWhatWasDone) {
-        // Key findings are bullets between "What was done" and "Follow-ups"
         keyFindings.push(bulletText)
       }
     }
   }
 
-  // If we found nothing useful, return null
   const status = statusMatch?.[1]?.toLowerCase() as ExecutiveSummaryParsed['status']
   const workCompleted = whatMatch?.[1]?.trim()
 
@@ -135,34 +87,151 @@ export function parseExecutiveSummaryFromOutput(output: string): ExecutiveSummar
     return null
   }
 
-  // Build the result object, only including non-empty fields
   const result: ExecutiveSummaryParsed = {}
-
-  if (status) {
-    result.status = status
-  }
-  if (workCompleted) {
-    result.workCompleted = workCompleted
-  }
-  if (keyFindings.length > 0) {
-    result.keyFindings = keyFindings
-  }
-  if (followUps.length > 0) {
-    result.followUps = followUps
-  }
+  if (status) result.status = status
+  if (workCompleted) result.workCompleted = workCompleted
+  if (keyFindings.length > 0) result.keyFindings = keyFindings
+  if (followUps.length > 0) result.followUps = followUps
 
   return result
 }
 
 /**
  * Check if an output string contains a valid Executive Summary block.
- *
- * @param output - Raw agent output text
- * @returns true if a summary header is found
  */
 export function hasExecutiveSummary(output: string): boolean {
   if (!output || typeof output !== 'string') {
     return false
   }
   return /#{2,3}\s*Executive\s+Summary\s*\n/i.test(output)
+}
+
+// ============================================================================
+// Git Diff Summary Generation
+// ============================================================================
+
+const DEFAULT_GIT_TIMEOUT_MS = 10000
+
+/**
+ * Options for generating git diff summary
+ */
+export interface GitDiffSummaryOptions {
+  timeout?: number
+  commitCount?: number
+}
+
+/**
+ * Generate a summary of git changes in a worktree.
+ * 
+ * Runs:
+ * 1. git diff --stat HEAD~1 for file change summary
+ * 2. git log --oneline -5 for recent commits
+ * 
+ * Returns formatted markdown with ## Changes and ## Commits sections.
+ * Returns null on error (not a git repo, no commits, etc.)
+ */
+export function generateGitDiffSummary(
+  worktreePath: string,
+  options: GitDiffSummaryOptions = {}
+): string | null {
+  const timeout = options.timeout ?? DEFAULT_GIT_TIMEOUT_MS
+  const commitCount = options.commitCount ?? 5
+
+  try {
+    // Check if the path is a git repository
+    try {
+      execSync('git rev-parse --is-inside-work-tree', {
+        cwd: worktreePath,
+        timeout,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+    } catch {
+      return null
+    }
+
+    // Check if there are any commits
+    let hasCommits = true
+    try {
+      execSync('git rev-parse HEAD', {
+        cwd: worktreePath,
+        timeout,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+    } catch {
+      hasCommits = false
+    }
+
+    if (!hasCommits) {
+      return null
+    }
+
+    // Get file change summary (diff stat)
+    let diffStat = ''
+    try {
+      execSync('git rev-parse HEAD~1', {
+        cwd: worktreePath,
+        timeout,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+
+      diffStat = execSync('git diff --stat HEAD~1', {
+        cwd: worktreePath,
+        timeout,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim()
+    } catch {
+      // Only one commit, show diff against empty tree
+      diffStat = execSync('git diff --stat 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD', {
+        cwd: worktreePath,
+        timeout,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim()
+    }
+
+    // Get recent commits
+    let recentCommits = ''
+    try {
+      recentCommits = execSync('git log --oneline -' + commitCount, {
+        cwd: worktreePath,
+        timeout,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim()
+    } catch {
+      recentCommits = ''
+    }
+
+    // Build markdown output
+    const parts: string[] = []
+
+    parts.push('## Changes')
+    parts.push('')
+    if (diffStat) {
+      parts.push('\x60\x60\x60')
+      parts.push(diffStat)
+      parts.push('\x60\x60\x60')
+    } else {
+      parts.push('No file changes detected.')
+    }
+
+    parts.push('')
+    parts.push('## Commits')
+    parts.push('')
+    if (recentCommits) {
+      parts.push('\x60\x60\x60')
+      parts.push(recentCommits)
+      parts.push('\x60\x60\x60')
+    } else {
+      parts.push('No commits found.')
+    }
+
+    return parts.join('\n')
+  } catch {
+    return null
+  }
 }
