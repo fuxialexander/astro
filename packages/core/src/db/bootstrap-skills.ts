@@ -14,7 +14,7 @@
 import { db } from './index.js'
 import { skills } from './schema.js'
 import { eq, and } from 'drizzle-orm'
-import { builtinSkills } from '../skills/index.js'
+import { builtinSkills } from '../../../../skills/index.js'
 
 /**
  * Seed built-in skills into the database.
