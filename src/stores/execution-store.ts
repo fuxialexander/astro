@@ -430,7 +430,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }
 
       // Process SSE stream
-      await processExecutionStream(response, nodeId, set, get, planStore)
+      await processExecutionStream(response, nodeId, set, get, planStore, abortController.signal)
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         // Cancelled by user
@@ -1047,7 +1047,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
               console.error("[plan-session] Failed to extract plan:", e)
             }
           }
-        })
+        }, abortController.signal)
       } catch (error) {
         // Only update if entry still exists (cancelPlanSession/cleanupPlanSession may have already handled it)
         if (!get().executions.has(nodeId)) return
@@ -1269,7 +1269,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
               console.error("[plan-session-forProject] Failed to extract plan:", e)
             }
           }
-        })
+        }, abortController.signal)
       } catch (error) {
         if (!get().executions.has(nodeId)) return
         if (error instanceof Error && error.name === "AbortError") {
@@ -1384,7 +1384,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         // 5. Process SSE stream (with reconnection)
         const planStore = usePlanStore.getState()
-        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore)
+        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, undefined, abortController.signal)
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           set((state) => {
@@ -1525,9 +1525,10 @@ async function processExecutionStream(
   nodeId: string,
   set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
   get: () => ExecutionState,
-  planStore: ReturnType<typeof usePlanStore.getState>
+  planStore: ReturnType<typeof usePlanStore.getState>,
+  signal?: AbortSignal
 ) {
-  await processSSEStreamWithReconnect(response, nodeId, set, get, planStore)
+  await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, undefined, signal)
 }
 
 // ─── SSE Reconnection Infrastructure ────────────────────────────────
@@ -1552,9 +1553,14 @@ function setConnectionState(
   })
 }
 
-/** Check if caught-up events contain a terminal event (result/done/error with terminal semantics) */
+/** Check if caught-up events contain a terminal event (result/done/error/aborted) */
 function hasTerminalEvent(events: StreamingEventRow[]): boolean {
-  return events.some(e => e.eventType === 'result' || e.eventType === 'done')
+  return events.some(e =>
+    e.eventType === 'result' ||
+    e.eventType === 'done' ||
+    e.eventType === 'error' ||
+    e.eventType === 'aborted'
+  )
 }
 
 /** Process caught-up events through handleSSEEvent, same as live stream */
@@ -1567,9 +1573,13 @@ function processCatchUpEvents(
   onResult?: (event: string, data: string) => void,
 ) {
   for (const row of events) {
-    const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
-    handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
-    onResult?.(row.eventType, data)
+    try {
+      const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+      handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
+      onResult?.(row.eventType, data)
+    } catch (err) {
+      console.error(`[sse-catchup] Failed to process event ${row.eventType} for ${nodeId}:`, err)
+    }
   }
 }
 
@@ -1595,9 +1605,14 @@ async function processSSEStreamWithReconnect(
   planStore: ReturnType<typeof usePlanStore.getState>,
   /** Optional per-event callback for plan/chat sessions that need extra processing */
   onEventCallback?: (event: string, data: string) => void,
+  /** Optional AbortSignal to cancel reconnection/polling loops */
+  signal?: AbortSignal,
 ): Promise<void> {
   let lastSeq = 0
   let streamCompleted = false
+
+  // Set initial connection state
+  setConnectionState(nodeId, 'connected', set)
 
   // 1. Stream normally, tracking lastSeq
   try {
@@ -1623,8 +1638,11 @@ async function processSSEStreamWithReconnect(
     console.warn(`[sse-reconnect] Stream error for ${nodeId}:`, streamError)
   }
 
-  // 2. If stream completed normally, we're done
-  if (streamCompleted) return
+  // 2. If stream completed normally, clear connection state and exit
+  if (streamCompleted) {
+    setConnectionState(nodeId, undefined, set)
+    return
+  }
 
   // 3. Check if we have an executionId to reconnect with
   const execution = get().executions.get(nodeId)
@@ -1649,6 +1667,13 @@ async function processSSEStreamWithReconnect(
   let retryCount = 0
 
   while (retryCount < MAX_RECONNECT_RETRIES) {
+    // Check if aborted
+    if (signal?.aborted) {
+      console.log(`[sse-reconnect] Reconnection aborted for ${nodeId}`)
+      setConnectionState(nodeId, undefined, set)
+      return
+    }
+
     // Check if execution was cancelled/reset while we're reconnecting
     const currentExec = get().executions.get(nodeId)
     if (!currentExec || currentExec.status === 'cancelled') {
@@ -1674,8 +1699,8 @@ async function processSSEStreamWithReconnect(
           return
         }
 
-        // Got events but no terminal — task still running, reset retry count
-        retryCount = 0
+        // Got non-terminal events — task still running, don't increment retry count
+        // (but don't reset to 0 either, to avoid infinite reconnection on flaky streams)
       } else {
         retryCount++
       }
@@ -1696,6 +1721,13 @@ async function processSSEStreamWithReconnect(
   // Poll until terminal event or execution is removed/cancelled
   const pollLoop = async () => {
     while (true) {
+      // Check if aborted
+      if (signal?.aborted) {
+        console.log(`[sse-reconnect] Polling aborted for ${nodeId}`)
+        setConnectionState(nodeId, undefined, set)
+        return
+      }
+
       const currentExec = get().executions.get(nodeId)
       if (!currentExec || currentExec.status === 'cancelled' || currentExec.status === 'success' || currentExec.status === 'failure') {
         setConnectionState(nodeId, undefined, set)
@@ -1718,8 +1750,8 @@ async function processSSEStreamWithReconnect(
             return
           }
         }
-      } catch {
-        // Polling fetch failed — keep trying
+      } catch (pollError) {
+        console.warn(`[sse-reconnect] Polling fetch failed for ${nodeId}:`, pollError)
       }
 
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
