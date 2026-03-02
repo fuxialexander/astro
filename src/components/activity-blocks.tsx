@@ -33,6 +33,7 @@ export interface DisplayBlock {
 
 // ─── Grouping ───────────────────────────────────────────────────────
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[] {
   const blocks: DisplayBlock[] = []
   let currentTextEvents: TaskActivityEvent[] = []
@@ -134,6 +135,7 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function getToolInputSummary(toolName: string, toolInput: unknown): string | null {
   if (!toolInput || typeof toolInput !== 'object') return null
   const input = toolInput as Record<string, unknown>
@@ -181,6 +183,7 @@ export function getToolInputSummary(toolName: string, toolInput: unknown): strin
  * 1. Its tool_result event has been paired (proper completion), OR
  * 2. The task has stopped running (no more results will ever arrive)
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function getToolStatus(hasResult: boolean, isRunning: boolean, success?: boolean) {
   const isComplete = hasResult || !isRunning
 

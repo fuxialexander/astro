@@ -23,18 +23,18 @@ interface ActiveTask {
 }
 
 function ElapsedTimer({ startedAt }: { startedAt?: Date }) {
-  const [, setTick] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     if (!startedAt) return
-    const interval = setInterval(() => setTick((t) => t + 1), 1000)
+    const interval = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(interval)
   }, [startedAt])
 
   if (!startedAt || isNaN(startedAt.getTime())) {
     return <span className="text-xs text-muted-foreground">-</span>
   }
-  const seconds = Math.floor((Date.now() - startedAt.getTime()) / 1000)
+  const seconds = Math.floor((now - startedAt.getTime()) / 1000)
   if (seconds < 0) return <span className="text-xs text-muted-foreground">-</span>
   const m = Math.floor(seconds / 60)
   const s = seconds % 60

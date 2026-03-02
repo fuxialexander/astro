@@ -5,7 +5,7 @@
  * Claude Code sessions from connected machines, plus Astro playground sessions.
  */
 
-import { useState, useMemo, useEffect, useCallback, useRef } from "react"
+import { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from "react"
 import {
   Search,
   X,
@@ -114,12 +114,13 @@ export function SessionPickerDialog({
 
   // Reset query/selection when dialog opens
   const prevOpen = useRef(open)
-  if (open && !prevOpen.current) {
-    // Dialog just opened — reset state synchronously before render
-    if (query !== "") setQuery("")
-    if (selectedIndex !== 0) setSelectedIndex(0)
-  }
-  prevOpen.current = open
+  useLayoutEffect(() => {
+    if (open && !prevOpen.current) {
+      setQuery("") // eslint-disable-line react-hooks/set-state-in-effect -- intentional: reset on dialog open transition
+      setSelectedIndex(0)
+    }
+    prevOpen.current = open
+  }, [open])
 
   const handleRefresh = useCallback(() => {
     useClaudeSessionsStore.setState({ lastLoadedAt: null })

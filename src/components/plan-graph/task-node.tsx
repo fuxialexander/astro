@@ -63,7 +63,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
     if (hovered && (data.title.length > 25 || data.description)) {
       tooltipTimer.current = setTimeout(() => setShowTooltip(true), 150)
     } else {
-      setShowTooltip(false)
+      setShowTooltip(false) // eslint-disable-line react-hooks/set-state-in-effect -- synchronous tooltip dismiss on unhover
     }
     return () => {
       if (tooltipTimer.current) clearTimeout(tooltipTimer.current)

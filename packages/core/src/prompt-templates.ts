@@ -450,12 +450,12 @@ Be concise and helpful. Focus on the specific task at hand.`)
       'You are now working in the original project directory, NOT the isolated worktree.',
     ]
     if (context.branchName) {
-      contextLines.push(`The task\'s changes are on branch \`${context.branchName}\`. You can check out or diff against this branch.`)
+      contextLines.push(`The task's changes are on branch \`${context.branchName}\`. You can check out or diff against this branch.`)
     }
     if (context.prUrl) {
       contextLines.push(`A pull request was created: ${context.prUrl}`)
     }
-    contextLines.push('', 'If the user asks you to modify files, note that changes will be on the current branch, not the task\'s branch.')
+    contextLines.push('', "If the user asks you to modify files, note that changes will be on the current branch, not the task's branch.")
     parts.push(contextLines.join('\n'))
   }
 

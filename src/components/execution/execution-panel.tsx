@@ -90,9 +90,10 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   // Derive available providers directly from the machine's relay-reported providers.
   // The global `providers` list is unreliable (API returns `machines`, not `providers`),
   // so we build ProviderStatus objects from the machine data instead.
+  const machineProviders = resolvedMachine?.providers
   const availableProviders: ProviderStatus[] = useMemo(
-    () => deriveAvailableProviders(resolvedMachine?.providers, providers),
-    [resolvedMachine, providers],
+    () => deriveAvailableProviders(machineProviders, providers),
+    [machineProviders, providers],
   )
 
   // Derived: selected provider object (use availableProviders which may be machine-derived)
@@ -108,7 +109,8 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
         setSelectedModel("")
       }
     }
-  }, [resolvedMachineId]) // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on machine change
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only on machine change
+  }, [resolvedMachineId])
 
   // Resolve working directory
   const dirCheck = getProjectWorkingDir(project)

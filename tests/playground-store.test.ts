@@ -7,7 +7,8 @@
  * Run with: npx vitest run tests/playground-store.test.ts
  */
 
-import { describe, it, expect, beforeEach, vi, type Mock } from "vitest"
+import { describe, it, expect, beforeEach, vi } from "vitest"
+import type { TaskExecution } from "../packages/core/src/types"
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any store imports
@@ -324,7 +325,7 @@ describe("useExecutionStore — Playground Sessions", () => {
           fileChanges: [],
           activityEvents: [],
           startedAt: new Date(),
-        } as any)
+        } as unknown as TaskExecution)
         return { executions }
       })
 
@@ -362,7 +363,7 @@ describe("useExecutionStore — Playground Sessions", () => {
           fileChanges: [],
           activityEvents: [],
           startedAt: new Date(),
-        } as any)
+        } as unknown as TaskExecution)
         return { executions }
       })
 
@@ -401,7 +402,7 @@ describe("useExecutionStore — Playground Sessions", () => {
           fileChanges: [],
           activityEvents: [],
           startedAt: new Date(),
-        } as any)
+        } as unknown as TaskExecution)
         return { executions }
       })
 
@@ -445,7 +446,7 @@ describe("useExecutionStore — Playground Sessions", () => {
           fileChanges: [],
           activityEvents: [],
           startedAt: new Date(),
-        } as any)
+        } as unknown as TaskExecution)
         return { executions }
       })
 
@@ -474,7 +475,7 @@ describe("useExecutionStore — Playground Sessions", () => {
           fileChanges: [],
           activityEvents: [],
           startedAt: new Date(),
-        } as any)
+        } as unknown as TaskExecution)
         return { executions }
       })
 
@@ -512,7 +513,7 @@ describe("useExecutionStore — Playground Sessions", () => {
           fileChanges: [],
           activityEvents: [],
           startedAt: new Date(),
-        } as any)
+        } as unknown as TaskExecution)
         return { executions }
       })
 
@@ -546,7 +547,7 @@ describe("useExecutionStore — Playground Sessions", () => {
           fileChanges: [],
           activityEvents: [],
           startedAt: new Date(),
-        } as any)
+        } as unknown as TaskExecution)
         return { executions }
       })
 

@@ -16,7 +16,7 @@
  * Run with: npx vitest run tests/playground-file-sidebar.test.tsx
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // ============================================================================
 // Types matching the component
