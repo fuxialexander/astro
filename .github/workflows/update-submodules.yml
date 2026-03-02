@@ -18,12 +18,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
-          ssh-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
           fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Checkout submodules
+        run: git submodule update --init --recursive
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: url.https://${{ secrets.GH_PAT }}@github.com/.insteadOf
+          GIT_CONFIG_VALUE_0: "git@github.com:"
 
       - name: Check and update submodules
         id: update
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: url.https://${{ secrets.GH_PAT }}@github.com/.insteadOf
+          GIT_CONFIG_VALUE_0: "git@github.com:"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -75,7 +85,7 @@ jobs:
       - name: Create Pull Request
         if: steps.update.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           BRANCH="chore/update-submodules-$(date +%Y%m%d)"
 

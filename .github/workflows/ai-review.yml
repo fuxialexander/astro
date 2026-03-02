@@ -73,6 +73,15 @@ jobs:
              - Events: hook triggers → SSE → browser
           5. **Produce a structured review** with findings categorized by severity.
 
+          ## Astro-Specific Principles
+
+          Always apply these principles when reviewing Astro code:
+
+          1. **Provider parity**: Every feature must work equally well across all agent providers (Claude Code, Codex, Anthropic Direct, SLURM). If the change touches dispatch, execution, or streaming, verify it handles all provider adapters consistently — not just the one the author tested.
+          2. **Resilience under network blips and page refresh**: SSE connections drop, WebSocket reconnects happen, users refresh mid-task. Check that the change handles disconnection, reconnection, and state recovery gracefully. Streaming handlers should tolerate partial data. Frontend state should survive a page refresh without data loss.
+          3. **User isolation and scoping**: All data, secrets, API keys, and execution outputs must be scoped per-user and per-team. Check that queries filter by `userId`/`teamId`, that API endpoints enforce ownership, and that no cross-user data leakage is possible. Pay special attention to shared resources (machines, executions, relay connections).
+          4. **Consult design docs when uncertain**: If you're unsure how a system component should behave, read the design docs in `docs/design/` (especially ARCHITECTURE.md, BACKEND.md, FRONTEND.md, DATA_MODEL.md, WORKSPACE_V2.md). Flag inconsistencies between the code and design docs.
+
           ## What to Look For
 
           **Critical (must fix):**
@@ -80,17 +89,21 @@ jobs:
           - Data loss risks (missing error handling on DB writes, silent failures)
           - Race conditions in async code
           - Breaking changes to public APIs or WebSocket protocol
+          - User data isolation violations (cross-user/cross-team data leaks)
 
           **Important (should fix):**
           - Logic errors or incorrect control flow
           - Missing error propagation (catch blocks that swallow errors)
           - Type safety issues (unsafe casts, missing null checks)
           - Missing validation at system boundaries
+          - Provider-specific code that should be provider-agnostic
+          - Missing reconnection/recovery handling for SSE or WebSocket flows
 
           **Suggestions (nice to have):**
           - Code clarity improvements
           - Performance considerations
           - Test coverage gaps
+          - Opportunities to improve resilience under network instability
 
           ## What NOT to Flag
 
