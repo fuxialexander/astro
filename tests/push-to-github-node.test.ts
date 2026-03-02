@@ -306,7 +306,7 @@ This merges **all** completed task work from \`${projectBranchName}\` into \`${t
 
 4. **Fix failures & retry** (up to 3 cycles)
    - \`gh api repos/${opts.ghOwner}/${opts.ghRepo}/pulls/<PR_NUMBER>/reviews\`
-   - Push fixes directly to \`${projectBranchName}\`.`
+   - Push fixes: \`git push origin HEAD:refs/heads/${projectBranchName}\``
   }
 
   it('includes the correct project branch name', () => {
@@ -341,9 +341,9 @@ This merges **all** completed task work from \`${projectBranchName}\` into \`${t
     expect(prompt).toContain('3 cycles')
   })
 
-  it('instructs to push fixes to the project branch', () => {
+  it('instructs to push fixes to the project branch via explicit refspec', () => {
     const prompt = buildPushPrompt({ shortProjectId: 'proj1', baseBranch: 'main', ghOwner: 'o', ghRepo: 'r' })
-    expect(prompt).toContain('Push fixes directly to `astro/proj1`')
+    expect(prompt).toContain('git push origin HEAD:refs/heads/astro/proj1')
   })
 })
 

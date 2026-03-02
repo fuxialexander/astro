@@ -604,7 +604,7 @@ This merges **all** completed task work from \`${projectBranchName}\` into \`${t
 
 1. **Check for an existing PR**
    \`\`\`bash
-   gh pr list --head ${projectBranchName} --base ${targetBranch} --json number,state
+   gh pr list --head '${projectBranchName}' --base '${targetBranch}' --json number,state
    \`\`\`
    - If an **open** PR exists → update its body/title instead of creating a new one.
    - If a **closed/merged** PR exists → create a new one.
@@ -615,7 +615,7 @@ This merges **all** completed task work from \`${projectBranchName}\` into \`${t
    - Title: \`[Astro] <project name>\`
    - Body: comprehensive summary of every completed task, with links to per-task PRs (found in the dependency outputs above).
    \`\`\`bash
-   gh pr create --base ${targetBranch} --head ${projectBranchName} --title "..." --body "..."
+   gh pr create --base '${targetBranch}' --head '${projectBranchName}' --title "..." --body "..."
    \`\`\`
 
 3. **Wait for CI checks**
@@ -626,18 +626,39 @@ This merges **all** completed task work from \`${projectBranchName}\` into \`${t
 
 4. **Fix failures & retry** (up to 3 cycles)
    - Read failure details: \`gh pr checks <PR_NUMBER>\`
-   - For **test / lint / build** failures: fix the code, commit, and push to \`${projectBranchName}\`.
+   - For **test / lint / build** failures: fix the code, commit, and push to \`${projectBranchName}\`:
+     \`\`\`bash
+     git add -A && git commit -m "fix: ..."
+     git push origin HEAD:refs/heads/${projectBranchName}
+     \`\`\`
    - For **AI code-review feedback**: read comments via
      \`gh api repos/${ghOwner}/${ghRepo}/pulls/<PR_NUMBER>/reviews\`
      and \`gh api repos/${ghOwner}/${ghRepo}/pulls/<PR_NUMBER>/comments\`.
-     Address each suggestion, push fixes.
+     Address each suggestion, commit, and push with the same command above.
    - Re-run: \`gh pr checks <PR_NUMBER> --watch\`
    - After 3 failed cycles, report the remaining failures and stop.
 
 ### Important constraints
-- You are on the project branch \`${projectBranchName}\` directly — do **not** create a new branch.
-- Push fixes directly to \`${projectBranchName}\`.
-- Do **not** merge the PR yourself — only ensure checks pass.`)
+- You are in a worktree that branched from the project branch. The PR targets \`${projectBranchName}\`.
+- When pushing fixes, you MUST push to the project branch explicitly:
+  \`git push origin HEAD:refs/heads/${projectBranchName}\`
+  A bare \`git push\` will push to the wrong branch.
+- Do **not** create new branches or merge the PR yourself — only ensure checks pass.
+
+### Executive Summary
+
+**IMPORTANT: When you have finished the task, you MUST end your response with an executive summary in exactly this format:**
+
+## Executive Summary
+**Status:** success | partial | failure
+**What was done:** One sentence describing the overall outcome.
+- Key finding or change 1
+- Key finding or change 2
+- Key finding or change 3
+**Follow-ups:**
+- Suggested follow-up action (if any)
+
+This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
     } else {
 
     // Build delivery-mode-aware workspace instructions
