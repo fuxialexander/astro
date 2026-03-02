@@ -10,7 +10,33 @@ import { join } from 'node:path'
 
 const FILE_CAP = 15_000 // 15KB cap for CLAUDE.md and README
 const PKG_CAP = 5_000   // 5KB cap for package metadata
-const FILE_TREE_CAP = 200 // max files to show in tree summary
+const FILE_TREE_CAP = 3000 // max files to show in tree summary (after smart filtering)
+
+/**
+ * Sort and filter a file tree to prioritize relevant files.
+ * Source files come first; generated/junk files are excluded entirely.
+ */
+function prioritizeFileTree(files: string[]): string[] {
+  const junkPatterns = [
+    /package-lock\.json$/, /yarn\.lock$/, /pnpm-lock\.yaml$/, /bun\.lockb$/,
+    /\.d\.ts$/, /\.js\.map$/, /\.css\.map$/,
+    /^dist\//, /^build\//, /^coverage\//, /^\.next\//, /^out\//,
+    /node_modules\//,
+    /\.min\.js$/, /\.min\.css$/,
+  ]
+  const sourceExts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.go', '.java', '.rb', '.c', '.cpp', '.h']
+
+  const isJunk = (f: string) => junkPatterns.some(p => p.test(f))
+  const isSource = (f: string) => sourceExts.some(ext => f.endsWith(ext))
+
+  return files
+    .filter(f => !isJunk(f))
+    .sort((a, b) => {
+      const aSource = isSource(a) ? 0 : 1
+      const bSource = isSource(b) ? 0 : 1
+      return aSource - bSource || a.localeCompare(b)
+    })
+}
 
 export interface RepoContextResult {
   claudeMd?: string
@@ -60,14 +86,17 @@ export function readRepoContext(workingDirectory: string, fileTree?: string[]): 
     }
   }
 
-  // Format file tree summary
+  // Format file tree summary with smart filtering
   if (fileTree && fileTree.length > 0) {
     const total = fileTree.length
-    const shown = fileTree.slice(0, FILE_TREE_CAP)
+    const filtered = prioritizeFileTree(fileTree)
+    const shown = filtered.slice(0, FILE_TREE_CAP)
     const lines = shown.join('\n')
-    result.fileTreeSummary = total > FILE_TREE_CAP
-      ? `${lines}\n\n... and ${total - FILE_TREE_CAP} more files (${total} total)`
-      : lines
+    result.fileTreeSummary = filtered.length > FILE_TREE_CAP
+      ? `${lines}\n\n... and ${filtered.length - FILE_TREE_CAP} more files (${total} total)`
+      : total > filtered.length
+        ? `${lines}\n\n(${total - filtered.length} generated/junk files excluded)`
+        : lines
   }
 
   return result

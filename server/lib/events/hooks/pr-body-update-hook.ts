@@ -6,12 +6,16 @@
  * Runs on task.completed events when result.prNumber exists.
  * Runs AFTER pr-creation-hook (which sets prNumber on event.node).
  *
- * Fallback chain for PR body content:
- * 1. Structured summary from agent (result.summary)
- * 2. Executive summary parsed from execution output
- * 3. Server-generated summary via Anthropic API
- * 4. File changes summary from result.filesChanged
- * 5. Task description fallback (node.title + node.description)
+ * Summary generation is delegated to runPrSummaryFallbackChain() from @astro/core,
+ * which implements a 5-layer fallback chain:
+ * 1. Structured summary from agent (result.summary.executiveSummary)
+ * 2. Parsed in-stream executive summary (regex from stdout)
+ * 3. Server-generated summary via Anthropic API (claude-3-haiku)
+ * 4. Git diff summary from worktree (generateGitDiffSummary)
+ * 5. Task description fallback (always succeeds)
+ *
+ * The hook enriches the summary with PR-specific sections:
+ * key findings, files changed, test plan, Astro link, related issue.
  *
  * Token priority:
  * 1. GITHUB_TOKEN environment variable
@@ -21,7 +25,8 @@
 
 import type { AstroEvent, EventHook } from '../types.js'
 import { updatePullRequestBody } from '../../../plugins/channel-github/github-api.js'
-import { generateServerSideSummary } from '../../../../packages/core/src/dispatch/summary-utils.js'
+import { runPrSummaryFallbackChain } from '../../../../packages/core/src/dispatch/summary-utils.js'
+import { generateGitDiffSummary } from '../../../../packages/core/src/dispatch/git-diff-summary.js'
 import { db } from '../../db/index.js'
 import { projects, githubConnections, teamMembers } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
@@ -88,23 +93,6 @@ function parseRepository(repository: string): { owner: string; repo: string } | 
   return null
 }
 
-// ── Executive Summary Parsing ───────────────────────────────────────────
-
-/**
- * Parse an executive summary from execution output text.
- * Looks for a "## Executive Summary" markdown section.
- */
-function parseExecutiveSummaryFromOutput(output: string): string | null {
-  // Match "## Executive Summary" followed by content until next ## heading or end
-  const pattern = /## Executive Summary\s*\n([\s\S]*?)(?=\n## |\n---|$)/i
-  const match = output.match(pattern)
-  if (!match?.[1]) return null
-
-  const summary = match[1].trim()
-  // Must be at least 20 chars to be meaningful
-  return summary.length >= 20 ? summary : null
-}
-
 // ── PR Body Formatting ──────────────────────────────────────────────────
 
 interface PrBodyInput {
@@ -165,21 +153,18 @@ function formatPrBody(input: PrBodyInput): string {
 // ── Fallback Chain ──────────────────────────────────────────────────────
 
 /**
- * Build the best PR body using a 5-layer fallback chain.
+ * Build the best PR body using the core fallback chain.
  *
- * 1. Structured summary (result.summary)
- * 2. Executive summary parsed from stdout
- * 3. Server-generated summary (Anthropic API)
- * 4. File changes summary
- * 5. Task description
+ * Delegates summary generation to runPrSummaryFallbackChain() from @astro/core,
+ * then enriches the PR body with additional sections (files changed, test plan,
+ * Astro link, related issue) using structured data from result.summary.
  */
 async function buildPrBody(
   event: Extract<AstroEvent, { type: 'task.completed' }>,
 ): Promise<string | null> {
   const { result, node } = event
-  const summary = result.summary
 
-  // Build Astro link if possible
+  // Build Astro link
   const baseUrl = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
   const astroUrl = `${baseUrl}/project/${event.projectId}/task/${event.nodeId}`
 
@@ -191,106 +176,59 @@ async function buildPrBody(
     relatedIssue = `#${node.githubIssueNumber}`
   }
 
-  // ── Layer 1: Structured summary from agent ────────────────────────
-  if (summary?.workCompleted) {
-    console.log(`${LOG_PREFIX} Using structured summary (Layer 1)`)
+  // Use the core fallback chain for summary generation
+  // (5 layers: structured → parsed → server-generated → git diff → task description)
+  const summaryResult = await runPrSummaryFallbackChain({
+    taskResult: result,
+    taskTitle: node.title,
+    taskDescription: node.description || '',
+    executionOutput: result.stdout,
+    fileChanges: (result.filesChanged || []).map((f) => ({
+      path: f.path,
+      action: f.diff ? 'modified' : 'changed',
+    })),
+    worktreePath: 'worktreePath' in result && typeof (result as Record<string, unknown>).worktreePath === 'string'
+      ? (result as Record<string, unknown>).worktreePath as string
+      : undefined,
+    generateGitDiffSummary,
+  })
 
-    // Extract test plan from follow-ups that look like test actions
-    const testPlan = summary.followUps?.filter((f) =>
+  console.log(`${LOG_PREFIX} Using ${summaryResult.source} summary`)
+
+  // Extract additional PR sections from structured data when available
+  let changes: string[] | undefined
+  let filesChanged: string[] | undefined
+  let testPlan: string[] | undefined
+
+  if (result.summary?.workCompleted) {
+    // Extract test plan from follow-ups that look like test/verify actions
+    testPlan = result.summary.followUps?.filter((f) =>
       /test|verify|check|validate|confirm/i.test(f)
     )
-    const nonTestFollowUps = summary.followUps?.filter((f) =>
+    if (testPlan?.length === 0) testPlan = undefined
+
+    // Non-test follow-ups as change items alongside key findings
+    const nonTestFollowUps = result.summary.followUps?.filter((f) =>
       !/test|verify|check|validate|confirm/i.test(f)
     )
-
-    // Build summary text — prefer executiveSummary, fallback to workCompleted
-    const summaryText = (summary as Record<string, unknown>).executiveSummary
-      ? String((summary as Record<string, unknown>).executiveSummary)
-      : summary.workCompleted
-
-    // Merge keyFindings + non-test follow-ups as changes
-    const changes = [
-      ...(summary.keyFindings || []),
+    changes = [
+      ...(result.summary.keyFindings || []),
       ...(nonTestFollowUps && nonTestFollowUps.length > 0
         ? [`**Follow-ups:** ${nonTestFollowUps.join(', ')}`]
         : []),
     ]
+    if (changes.length === 0) changes = undefined
 
-    return formatPrBody({
-      summary: summaryText,
-      changes: changes.length > 0 ? changes : undefined,
-      filesChanged: summary.filesChanged,
-      testPlan: testPlan && testPlan.length > 0 ? testPlan : undefined,
-      astroUrl,
-      relatedIssue,
-    })
+    filesChanged = result.summary.filesChanged
+  } else if (result.filesChanged && result.filesChanged.length > 0) {
+    filesChanged = result.filesChanged.map((f) => f.path)
   }
-
-  // ── Layer 2: Parse executive summary from stdout ──────────────────
-  if (result.stdout) {
-    const execSummary = parseExecutiveSummaryFromOutput(result.stdout)
-    if (execSummary) {
-      console.log(`${LOG_PREFIX} Using parsed executive summary (Layer 2)`)
-      const filesChanged = result.filesChanged?.map((f) => f.path)
-      return formatPrBody({
-        summary: execSummary,
-        filesChanged,
-        astroUrl,
-        relatedIssue,
-      })
-    }
-  }
-
-  // ── Layer 3: Server-generated summary via Anthropic API ───────────
-  if (result.stdout || (result.filesChanged && result.filesChanged.length > 0)) {
-    console.log(`${LOG_PREFIX} Generating server-side summary (Layer 3)`)
-    try {
-      const serverSummary = await generateServerSideSummary({
-        taskTitle: node.title,
-        taskDescription: node.description || '',
-        executionOutput: result.stdout || '',
-        fileChanges: (result.filesChanged || []).map((f) => ({
-          path: f.path,
-          action: f.diff ? 'modified' : 'changed',
-        })),
-        status: result.status === 'success' ? 'success' : 'failure',
-      })
-
-      if (serverSummary) {
-        const summaryText = serverSummary.executiveSummary || serverSummary.workCompleted
-        return formatPrBody({
-          summary: summaryText,
-          changes: serverSummary.keyFindings.length > 0 ? serverSummary.keyFindings : undefined,
-          filesChanged: serverSummary.filesChanged,
-          astroUrl,
-          relatedIssue,
-        })
-      }
-    } catch (err) {
-      console.warn(`${LOG_PREFIX} Server-side summary generation failed:`, err instanceof Error ? err.message : err)
-    }
-  }
-
-  // ── Layer 4: File changes summary ─────────────────────────────────
-  if (result.filesChanged && result.filesChanged.length > 0) {
-    console.log(`${LOG_PREFIX} Using file changes summary (Layer 4)`)
-    const filesChanged = result.filesChanged.map((f) => f.path)
-    return formatPrBody({
-      summary: `Completed task: ${node.title}`,
-      changes: [`Modified ${filesChanged.length} file(s)`],
-      filesChanged,
-      astroUrl,
-      relatedIssue,
-    })
-  }
-
-  // ── Layer 5: Task description fallback ────────────────────────────
-  console.log(`${LOG_PREFIX} Using task description fallback (Layer 5)`)
-  const description = node.description || node.title
-  if (!description) return null
 
   return formatPrBody({
-    summary: description.length > 500 ? description.slice(0, 500) + '…' : description,
+    summary: summaryResult.summary,
+    changes,
+    filesChanged,
+    testPlan,
     astroUrl,
     relatedIssue,
   })
@@ -374,7 +312,11 @@ export const prBodyUpdateHook: EventHook = async (event: AstroEvent) => {
   }
 
   // ── Step 2: Resolve GitHub token ──────────────────────────────────
-  const token = await resolveGitHubToken(ownerId!, teamId ?? null)
+  if (!ownerId) {
+    console.warn(`${LOG_PREFIX} No ownerId found for project ${event.projectId}`)
+    return
+  }
+  const token = await resolveGitHubToken(ownerId, teamId ?? null)
   if (!token) {
     console.warn(`${LOG_PREFIX} No GitHub token available for project ${event.projectId}`)
     return

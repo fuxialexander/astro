@@ -430,11 +430,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     const affectedNodeIds: string[] = []
 
     // Create new nodes (from decomposition)
-    const prefix = projectId.slice(0, 8)
-    const safePrefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
-    const idMap = new Map<string, string>() // map AI-generated IDs to real IDs
+    // Map AI-generated IDs to proper UUIDs for consistency with manually created tasks
+    const idMap = new Map<string, string>() // map AI-generated IDs to real UUIDs
     for (const n of newNodes) {
-      const realId = n.id ? safePrefixId(n.id) : `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+      const realId = crypto.randomUUID()
       affectedNodeIds.push(realId)
       if (n.id) idMap.set(n.id, realId)
 
@@ -448,12 +447,12 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
         content: n.description ? `<p>${escapeHtml(n.description)}</p>` : '',
         status: "planned",
         parentId: null,
-        dependencies: (n.dependencies ?? []).map((d) => idMap.get(d) ?? safePrefixId(d)),
+        dependencies: (n.dependencies ?? []).map((d) => idMap.get(d) ?? d),
         verification: (n.verification as PlanNode["verification"]) ?? "auto",
         position: { x: 40, y: 40 },
         priority: (n.priority as PlanNode["priority"]) ?? "medium",
         estimate: (n.estimate as PlanNode["estimate"]) ?? undefined,
-        milestoneId: n.milestoneId ? safePrefixId(n.milestoneId) : undefined,
+        milestoneId: n.milestoneId ?? undefined,
         createdAt: now,
         updatedAt: now,
       }
@@ -461,7 +460,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
       // Add edges for dependencies
       for (const dep of node.dependencies) {
-        addEdge({ id: `e-${dep}-${realId}`, source: dep, target: realId, type: "dependency" })
+        addEdge({ id: crypto.randomUUID(), source: dep, target: realId, type: "dependency" })
       }
     }
 

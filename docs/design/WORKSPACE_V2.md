@@ -1,6 +1,6 @@
 # Workspace V2 — Claude Code-Aligned Execution Model
 
-> **Status: PARTIALLY IMPLEMENTED** — ProjectSource types, directory detection, and delivery mode derivation exist. Full workspace model (`.astro/` agent dir, worktree strategies) not yet implemented.
+> **Status: PARTIALLY IMPLEMENTED** — ProjectSource types, directory detection, delivery mode derivation, and per-project worktree location (`{projectDir}/.astro/worktrees/`) are implemented. Full workspace model (`.astro/` agent dir creation, non-git worktree strategies, copy-to-worktree, reference folder mode) not yet implemented.
 >
 > Supersedes: `PROJECT_WORKSPACE_DESIGN.md` (commit f5ace51) and `docs/relay/workspace-preparation.md`.
 
@@ -900,4 +900,13 @@ Legacy `Project` fields (`workingDirectory`, `sourceDirectory`, `repository`) re
 
 ## 15. Open Questions
 
-None. All questions resolved — see §14 Decisions Made.
+None. All questions resolved -- see section 14 Decisions Made.
+
+---
+
+## Reflection: Potential Issues & Improvements
+
+1. **Status accuracy** -- the per-project worktree location (`{projectDir}/.astro/worktrees/`) is now implemented in the agent runner (confirmed via CURRENT_CONFLICT_VIEW #13). The status banner was updated 2026-03-01 to reflect this.
+2. **Non-git strategies unimplemented** -- copy-to-worktree and reference folder mode are designed but not yet implemented. These are the most complex parts of this design and will need careful testing with large directories.
+3. **Agent dir name collision** -- if a user sets agentDir to `.claude`, Astro's `config.json` coexists with Claude Code's `settings.json`, but future Claude Code updates could introduce conflicting files. Consider namespacing Astro-specific files.
+4. **Form simplification** -- the design calls for reducing the creation form from 859 to ~200 lines, but the current form may have accumulated additional complexity since this design was written.

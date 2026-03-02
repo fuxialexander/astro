@@ -641,7 +641,7 @@ fly secrets list --app <your-fly-app>
 Common causes:
 - JWT secrets not 64+ hex chars → `openssl rand -hex 32` generates the right length
 - JWT secrets not all unique → the server enforces uniqueness in production
-- `SUPABASE_URL` / `SUPABASE_ANON_KEY` not set → server falls back to IndexedDB mode and logs `[env] IndexedDB mode: Supabase config skipped` (it won't crash, but it won't connect to your database either)
+- `SUPABASE_URL` / `SUPABASE_ANON_KEY` not set → server falls back to PGlite local mode (it won't crash, but it won't connect to your database either)
 
 #### 3. Database connection errors
 

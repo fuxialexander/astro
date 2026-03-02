@@ -485,7 +485,8 @@ export async function fetchStreamingEventsCatchUp(
     headers: await authHeaders(),
   })
   if (!response.ok) {
-    return { events: [], lastSeq: afterSeq }
+    const errorText = await response.text().catch(() => 'Unknown error')
+    throw new Error(`Failed to fetch streaming events catch-up: ${response.status} ${response.statusText} - ${errorText}`)
   }
   return response.json()
 }

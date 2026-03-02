@@ -131,9 +131,8 @@ in Environments UI    --->  Updates DB `name` column
   updates local state  ---> updates live machine entry
         |                   (if connected)
         v
-  IndexedDB cache
-  updated for offline
-  fallback
+  API persistence
+  via dataClient
 ```
 
 The rename does NOT propagate to:

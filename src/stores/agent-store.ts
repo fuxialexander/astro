@@ -7,7 +7,15 @@ import { useSettingsStore } from "@/stores/settings-store"
 import type { PlanNode, PlanEdge, Project } from "@/types"
 
 export type GenerationPhase = 'idle' | 'repo_setup' | 'generating' | 'interactive_planning'
-export type GenerationStatus = 'active' | 'completed' | 'error'
+
+/**
+ * Generation session lifecycle:
+ *   active → generated  (plan ready, awaiting user acknowledgment)
+ *   active → error      (generation failed)
+ *   generated → removed (user clicks "View plan" or auto-cleanup after 7 days)
+ *   error → removed     (auto-cleanup after 5 minutes)
+ */
+export type GenerationStatus = 'active' | 'generated' | 'completed' | 'error'
 
 export interface GenerationSession {
   projectId: string
@@ -52,16 +60,71 @@ interface AgentState {
   setGenerationPhase: (projectId: string, phase: GenerationPhase) => void
   abort: (projectId: string) => void
   dismissSession: (projectId: string) => void
+  markPlanViewed: (projectId: string) => void
   startInteractiveSession: (projectId: string, projectName: string, executionId: string) => void
   updateInteractiveSession: (projectId: string, updates: Partial<Pick<GenerationSession, 'streamText' | 'status' | 'error' | 'pendingApprovals'>>) => void
 }
 
 const abortControllers = new Map<string, AbortController>()
 
+// localStorage key for persisting "generated" sessions across page refresh
+const GENERATED_SESSIONS_KEY = "astro:generated-sessions"
+
+function persistGeneratedSessions(sessions: Map<string, GenerationSession>): void {
+  try {
+    const generated: Record<string, GenerationSession> = {}
+    for (const [projectId, session] of sessions) {
+      if (session.status === "generated") {
+        generated[projectId] = session
+      }
+    }
+    if (Object.keys(generated).length > 0) {
+      localStorage.setItem(GENERATED_SESSIONS_KEY, JSON.stringify(generated))
+    } else {
+      localStorage.removeItem(GENERATED_SESSIONS_KEY)
+    }
+  } catch {
+    // localStorage may be unavailable
+  }
+}
+
+function isValidSession(v: unknown): v is GenerationSession {
+  if (!v || typeof v !== "object") return false
+  const s = v as Record<string, unknown>
+  return typeof s.projectId === "string" &&
+    typeof s.status === "string" &&
+    typeof s.startedAt === "number"
+}
+
+function restoreGeneratedSessions(): Map<string, GenerationSession> {
+  const sessions = new Map<string, GenerationSession>()
+  try {
+    const raw = localStorage.getItem(GENERATED_SESSIONS_KEY)
+    if (raw) {
+      const now = Date.now()
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      for (const [projectId, value] of Object.entries(parsed)) {
+        if (!isValidSession(value)) continue
+        // Only restore "generated" sessions that haven't expired (7-day TTL)
+        if (value.status === "generated") {
+          const age = value.completedAt ? now - value.completedAt : 0
+          if (age <= GENERATED_SESSION_TTL_MS) {
+            sessions.set(projectId, value)
+          }
+        }
+      }
+    }
+  } catch {
+    // localStorage may be unavailable or corrupted
+  }
+  return sessions
+}
+
 // Cleanup timer for completed sessions
 let cleanupTimer: ReturnType<typeof setInterval> | null = null
 const CLEANUP_INTERVAL_MS = 60_000 // 1 minute
 const COMPLETED_SESSION_TTL_MS = 5 * 60_000 // 5 minutes
+const GENERATED_SESSION_TTL_MS = 7 * 24 * 60 * 60_000 // 7 days
 const MAX_SESSIONS = 10
 
 function updateSession(
@@ -81,14 +144,15 @@ function cleanupOldSessions(sessions: Map<string, GenerationSession>): Map<strin
   const now = Date.now()
   const next = new Map(sessions)
 
-  // Remove completed/error sessions older than TTL
+  // Remove completed/error sessions older than TTL, and generated sessions older than 7 days
   for (const [projectId, session] of next.entries()) {
-    if (session.status !== "active" && session.completedAt) {
-      const age = now - session.completedAt
-      if (age > COMPLETED_SESSION_TTL_MS) {
-        console.log(`[agent-store] Cleaning up old session for ${projectId}`)
-        next.delete(projectId)
-      }
+    if (session.status === "active") continue
+    if (!session.completedAt) continue
+    const age = now - session.completedAt
+    const ttl = session.status === "generated" ? GENERATED_SESSION_TTL_MS : COMPLETED_SESSION_TTL_MS
+    if (age > ttl) {
+      console.log(`[agent-store] Cleaning up old ${session.status} session for ${projectId}`)
+      next.delete(projectId)
     }
   }
 
@@ -129,8 +193,21 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   loaded: false,
 
   load: async () => {
-    // Generation sessions are ephemeral (in-memory only during active generation).
-    // Nothing to restore on load.
+    // Restore "generated" sessions from localStorage so they survive page refresh
+    const restored = restoreGeneratedSessions()
+    if (restored.size > 0) {
+      set((s) => {
+        const sessions = new Map(s.sessions)
+        for (const [projectId, session] of restored) {
+          // Don't overwrite active sessions
+          if (!sessions.has(projectId)) {
+            sessions.set(projectId, session)
+          }
+        }
+        return { sessions }
+      })
+      console.log(`[agent-store] Restored ${restored.size} generated session(s) from localStorage`)
+    }
     set({ loaded: true })
 
     // Start cleanup timer
@@ -222,21 +299,29 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           onPlanResult: (result) => {
             console.log(`[plan-gen] Plan result received for ${projectId}: ${result.nodes.length} nodes, ${result.edges.length} edges`)
 
-            // Prefix AI-generated IDs with project ID to ensure global uniqueness
-            const prefix = projectId.slice(0, 8)
-            const prefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
+            // Map AI-generated short IDs (n1, n2, etc.) to proper UUIDs for consistency
+            // with manually created tasks which use crypto.randomUUID()
+            const idMap = new Map<string, string>()
+            const resolveId = (aiId: string): string => {
+              let uuid = idMap.get(aiId)
+              if (!uuid) {
+                uuid = crypto.randomUUID()
+                idMap.set(aiId, uuid)
+              }
+              return uuid
+            }
 
             const now = new Date()
             const nodes: PlanNode[] = result.nodes.map((n) => ({
-              id: prefixId(n.id),
+              id: resolveId(n.id),
               projectId,
               type: n.type,
               title: n.title,
               description: n.description,
               content: n.description ? `<p>${escapeHtml(n.description)}</p>` : '',
               status: n.status,
-              parentId: n.parentId ? prefixId(n.parentId) : n.parentId,
-              dependencies: n.dependencies.map(prefixId),
+              parentId: n.parentId ? resolveId(n.parentId) : null,
+              dependencies: n.dependencies.map(resolveId),
               verification: n.verification,
               position: n.position,
               startDate: n.startDate,
@@ -245,15 +330,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               estimate: n.estimate as PlanNode["estimate"],
               dueDate: n.dueDate,
               labelIds: n.labelIds,
-              milestoneId: n.milestoneId ? prefixId(n.milestoneId) : n.milestoneId,
+              milestoneId: n.milestoneId ? resolveId(n.milestoneId) : n.milestoneId,
               createdAt: now,
               updatedAt: now,
             }))
 
             const edges: PlanEdge[] = result.edges.map((e) => ({
-              id: prefixId(e.id),
-              source: prefixId(e.source),
-              target: prefixId(e.target),
+              id: crypto.randomUUID(),
+              source: resolveId(e.source),
+              target: resolveId(e.target),
               type: e.type,
             }))
 
@@ -341,13 +426,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             console.log(`[plan-gen] Generation completed for ${projectId}`)
             set((s) => {
               const session = s.sessions.get(projectId)
-              // Only mark completed if not already in error state
+              // Only mark generated if not already in error state
               if (session?.status === "error") return s
               const sessions = updateSession(s.sessions, projectId, {
-                status: "completed",
+                status: "generated",
                 phase: "idle",
                 completedAt: Date.now(),
               })
+              // Persist "generated" sessions to localStorage for page refresh survival
+              persistGeneratedSessions(sessions)
               return { sessions }
             })
           },
@@ -372,10 +459,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         const session = s.sessions.get(projectId)
         if (session?.status === "active") {
           const sessions = updateSession(s.sessions, projectId, {
-            status: "completed",
+            status: "generated",
             phase: "idle",
             completedAt: Date.now(),
           })
+          // Persist "generated" sessions to localStorage for page refresh survival
+          persistGeneratedSessions(sessions)
           return { sessions }
         }
         return s
@@ -399,8 +488,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set((s) => {
       const sessions = new Map(s.sessions)
       sessions.delete(projectId)
+      persistGeneratedSessions(sessions)
       return { sessions }
     })
+  },
+
+  markPlanViewed: (projectId) => {
+    // Only dismiss if the session is in "generated" state
+    const session = get().sessions.get(projectId)
+    if (session?.status === "generated") {
+      get().dismissSession(projectId)
+    }
   },
 
   startInteractiveSession: (projectId, projectName, executionId) => {

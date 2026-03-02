@@ -126,33 +126,13 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
 
   return (
     <div className="p-4 md:p-6">
-      {/* Autosave status indicator */}
-      {saveStatus !== 'idle' && (
-        <div className="flex items-center justify-end mb-2">
-          <span className="text-xs text-muted-foreground flex items-center gap-1">
-            {saveStatus === 'saving' && (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Saving...
-              </>
-            )}
-            {saveStatus === 'saved' && (
-              <>
-                <CircleCheck className="h-3 w-3" />
-                Saved
-              </>
-            )}
-          </span>
-        </div>
-      )}
-
       <div className={cn(
         'space-y-6',
         isWide && 'grid grid-cols-3 gap-6 space-y-0'
       )}>
         {/* Main content area */}
         <div className={cn('space-y-8', isWide && 'col-span-2')}>
-          {/* Rich content editor */}
+          {/* Rich content editor — save status shown inline in toolbar */}
           <div>
             <RichTextEditor
               ref={editorRef}
@@ -165,6 +145,22 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
                 'min-h-[300px]',
                 isWide && 'min-h-[400px]'
               )}
+              toolbarExtra={
+                <span className="text-xs text-muted-foreground flex items-center gap-1 min-w-[60px] justify-end">
+                  {saveStatus === 'saving' && (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Saving...
+                    </>
+                  )}
+                  {saveStatus === 'saved' && (
+                    <>
+                      <CircleCheck className="h-3 w-3" />
+                      Saved
+                    </>
+                  )}
+                </span>
+              }
             />
           </div>
 

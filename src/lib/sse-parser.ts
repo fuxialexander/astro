@@ -8,6 +8,8 @@
 export interface SSEEvent {
   event: string
   data: string
+  /** SSE `id:` field — typically a seq number for reconnection tracking */
+  id?: string
 }
 
 /**
@@ -25,6 +27,8 @@ export async function parseSSEStream(
   response: Response,
   handlers: {
     onEvent: (event: SSEEvent) => void
+    /** Called whenever an SSE `id:` field is received — useful for tracking last seq */
+    onId?: (id: string) => void
   },
 ): Promise<void> {
   const reader = response.body?.getReader()
@@ -33,6 +37,7 @@ export async function parseSSEStream(
   const decoder = new TextDecoder()
   let buffer = ""
   let currentEvent = ""
+  let currentId: string | undefined = undefined
   let dataLines: string[] = []
 
   function flushEvent() {
@@ -40,8 +45,12 @@ export async function parseSSEStream(
     // Per SSE spec (RFC 8895 §9.2.6), events with no data lines are valid.
     // Emit with empty string data so heartbeats and signal-only events aren't dropped.
     const data = dataLines.join("\n")
-    handlers.onEvent({ event: currentEvent, data })
+    handlers.onEvent({ event: currentEvent, data, id: currentId })
+    if (currentId !== undefined) {
+      handlers.onId?.(currentId)
+    }
     currentEvent = ""
+    currentId = undefined
     dataLines = []
   }
 
@@ -51,6 +60,8 @@ export async function parseSSEStream(
       currentEvent = line.slice(6).trim()
     } else if (line.startsWith("data:")) {
       dataLines.push(stripOneLeadingSpace(line.slice(5)))
+    } else if (line.startsWith("id:")) {
+      currentId = stripOneLeadingSpace(line.slice(3))
     } else if (line === "") {
       flushEvent()
     }
