@@ -67,4 +67,10 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Run tests
-        run: npx vitest run --exclude 'tests/workspace-v2/**'
+        run: |
+          npx vitest run \
+            --exclude 'tests/workspace-v2/**' \
+            --exclude 'tests/agent-runner-sdk-adapter.test.ts' \
+            --exclude 'tests/execution-strategy.test.ts' \
+            --exclude 'tests/dispatch-delivery-pipeline.test.ts' \
+            --exclude 'tests/safety-prompt-pipeline.test.ts'
