@@ -558,7 +558,7 @@ Current status of API capabilities needed for each client platform:
 
 - [WebSocket Roadmap](./websocket.md) — Backend ↔ frontend WebSocket plan for mobile/desktop support
 - [API Reference](./backend/api-reference.md) — Detailed request/response examples per endpoint
-- [Database Schema](./backend/database-schema.md) — Drizzle schema (43 tables), relationships
+- [Database Schema](./backend/database-schema.md) — Drizzle schema (38 tables), relationships
 - [Data Flows](./backend/data-flows.md) — How data moves through the system
 - [Authentication](./backend/authentication.md) — WebAuthn/passkey implementation details
 - [Device Authorization](./backend/device-authorization.md) — OAuth2 device code flow
