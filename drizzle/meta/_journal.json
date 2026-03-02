@@ -64,6 +64,13 @@
       "when": 1772246537004,
       "tag": "0008_careful_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1772461172220,
+      "tag": "0009_silly_leech",
+      "breakpoints": true
     }
   ]
 }

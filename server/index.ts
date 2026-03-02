@@ -45,6 +45,7 @@ import { gitPullHook } from './lib/events/hooks/git-pull-hook.js'
 import { channelNotificationHook } from './lib/events/hooks/channel-notification-hook.js'
 import { githubIssueCloseHook } from './lib/events/hooks/github-issue-close-hook.js'
 import { prBodyUpdateHook } from './lib/events/hooks/pr-body-update-hook.js'
+import { projectCompletionHook } from './lib/events/hooks/project-completion-hook.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
 import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
@@ -268,6 +269,7 @@ async function start() {
     astroEventTransport.registerHook('pr-body-update', prBodyUpdateHook)
     astroEventTransport.registerHook('github-issue-close', githubIssueCloseHook)
     astroEventTransport.registerHook('merge-queue', mergeQueueHook)
+    astroEventTransport.registerHook('project-completion', projectCompletionHook)
     astroEventTransport.registerHook('git-pull', gitPullHook)
     astroEventTransport.registerHook('channel-notification', channelNotificationHook)
     astroEventTransport.registerHook('observability', observabilityHook)
