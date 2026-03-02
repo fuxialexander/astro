@@ -49,7 +49,13 @@ export default defineConfig(({ mode }) => {
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        timeout: 0,       // disable proxy timeout for SSE streams
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...(({ proxyTimeout: 0 }) as any), // disable proxy timeout for SSE streams
         configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setSocketKeepAlive(true)
+          })
           proxy.on('error', (err, _req, res) => {
             if ('code' in err && (err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {
               try {
