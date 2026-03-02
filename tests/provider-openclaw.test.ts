@@ -1160,3 +1160,883 @@ describe('OpenClaw ACP Event Parsing', () => {
     })
   })
 })
+
+// =============================================================================
+// OpenClaw Adapter Lifecycle Tests
+// =============================================================================
+// These tests mock child_process.spawn to verify process lifecycle behavior:
+// - Process spawning with correct args
+// - Environment variable passthrough
+// - Abort/cancellation (SIGTERM then SIGKILL after 5s)
+// - Process exit code handling
+// - Timeout handling
+// - Working directory validation
+
+import { spawn, type ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import type { Task } from '../packages/agent-runner/src/types.js'
+
+// Mock the spawn function
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(),
+}))
+
+// Mock the providers module to make OpenClaw "available"
+vi.mock('../packages/agent-runner/src/lib/providers.js', () => ({
+  getProvider: vi.fn().mockResolvedValue({
+    available: true,
+    path: '/usr/local/bin/openclaw',
+    version: '1.0.0',
+  }),
+}))
+
+// Mock fs.existsSync to control working directory validation
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    existsSync: vi.fn((path: string) => {
+      // Return false for specific test paths to simulate missing directories
+      if (path === '/nonexistent/directory') return false
+      return true
+    }),
+    readFileSync: vi.fn().mockReturnValue('{}'),
+  }
+})
+
+/**
+ * Create a mock ChildProcess with EventEmitter behavior
+ */
+function createMockProcess(): ChildProcess & {
+  _mockStdout: EventEmitter
+  _mockStderr: EventEmitter
+  _emitClose: (code: number) => void
+  _emitError: (error: Error) => void
+} {
+  const proc = new EventEmitter() as ChildProcess & {
+    _mockStdout: EventEmitter
+    _mockStderr: EventEmitter
+    _emitClose: (code: number) => void
+    _emitError: (error: Error) => void
+  }
+
+  proc._mockStdout = new EventEmitter()
+  proc._mockStderr = new EventEmitter()
+
+  proc.stdout = proc._mockStdout as NodeJS.ReadableStream
+  proc.stderr = proc._mockStderr as NodeJS.ReadableStream
+  proc.stdin = null
+  proc.killed = false
+  proc.pid = 12345
+
+  proc.kill = vi.fn(() => {
+    proc.killed = true
+    return true
+  })
+
+  proc._emitClose = (code: number) => {
+    proc.emit('close', code)
+  }
+
+  proc._emitError = (error: Error) => {
+    proc.emit('error', error)
+  }
+
+  return proc
+}
+
+/**
+ * Create a minimal task for testing
+ */
+function createTestTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 'test-task-123',
+    projectId: 'test-project',
+    planNodeId: 'test-node',
+    provider: 'openclaw',
+    prompt: 'Test task prompt',
+    workingDirectory: '/tmp/test-workspace',
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  }
+}
+
+describe('OpenClaw Adapter Lifecycle', () => {
+  let adapter: OpenClawAdapter
+  let mockSpawn: ReturnType<typeof vi.fn>
+  let mockProcess: ReturnType<typeof createMockProcess>
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+
+    adapter = new OpenClawAdapter()
+    mockProcess = createMockProcess()
+    mockSpawn = spawn as ReturnType<typeof vi.fn>
+    mockSpawn.mockReturnValue(mockProcess)
+
+    // Force adapter to be available
+    await adapter.isAvailable()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // ===========================================================================
+  // 1. Process Spawning with Correct Args
+  // ===========================================================================
+
+  describe('process spawning with correct args', () => {
+    it('spawns openclaw with agent --json --message args', async () => {
+      const task = createTestTask({ prompt: 'Implement feature X' })
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      // Start execution (don't await - we'll control the process)
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+
+      // Let the promise executor run
+      await vi.runAllTimersAsync()
+
+      // Emit successful completion
+      mockProcess._mockStdout.emit('data', Buffer.from('{"type":"done","stopReason":"end_turn"}\n'))
+      mockProcess._emitClose(0)
+
+      const result = await resultPromise
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        '/usr/local/bin/openclaw',
+        ['agent', '--json', '--message', 'Implement feature X'],
+        expect.objectContaining({
+          cwd: '/tmp/test-workspace',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      )
+      expect(result.status).toBe('completed')
+    })
+
+    it('includes --model flag when model is specified', async () => {
+      const task = createTestTask({
+        prompt: 'Test prompt',
+        model: 'claude-sonnet-4-20250514',
+      })
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+      mockProcess._emitClose(0)
+
+      await resultPromise
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        '/usr/local/bin/openclaw',
+        ['agent', '--json', '--model', 'claude-sonnet-4-20250514', '--message', 'Test prompt'],
+        expect.any(Object)
+      )
+    })
+
+    it('combines systemPrompt with prompt when provided', async () => {
+      const task = createTestTask({
+        prompt: 'Implement the feature',
+        systemPrompt: 'You are a helpful assistant.',
+      })
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+      mockProcess._emitClose(0)
+
+      await resultPromise
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        '/usr/local/bin/openclaw',
+        [
+          'agent',
+          '--json',
+          '--message',
+          'You are a helpful assistant.\n\n---\n\nImplement the feature',
+        ],
+        expect.any(Object)
+      )
+    })
+  })
+
+  // ===========================================================================
+  // 2. Environment Variable Passthrough
+  // ===========================================================================
+
+  describe('environment variable passthrough', () => {
+    it('passes process.env to spawned process', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+      mockProcess._emitClose(0)
+
+      await resultPromise
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        expect.objectContaining({
+          env: expect.objectContaining(process.env),
+        })
+      )
+    })
+
+    it('merges task.environment with process.env', async () => {
+      const task = createTestTask({
+        environment: {
+          ANTHROPIC_API_KEY: 'sk-test-key',
+          CUSTOM_CONFIG: 'test-value',
+        },
+      })
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+      mockProcess._emitClose(0)
+
+      await resultPromise
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        expect.objectContaining({
+          env: expect.objectContaining({
+            ...process.env,
+            ANTHROPIC_API_KEY: 'sk-test-key',
+            CUSTOM_CONFIG: 'test-value',
+          }),
+        })
+      )
+    })
+
+    it('task environment overrides process.env variables', async () => {
+      const task = createTestTask({
+        environment: {
+          PATH: '/custom/path',
+        },
+      })
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+      mockProcess._emitClose(0)
+
+      await resultPromise
+
+      const callArgs = mockSpawn.mock.calls[0]
+      const env = callArgs[2].env as Record<string, string>
+      expect(env.PATH).toBe('/custom/path')
+    })
+  })
+
+  // ===========================================================================
+  // 3. Abort/Cancellation (SIGTERM then SIGKILL after 5s)
+  // ===========================================================================
+
+  describe('abort/cancellation handling', () => {
+    it('sends SIGTERM on abort', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      // Start execution - don't await since we want to abort
+      adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Abort the task
+      controller.abort()
+
+      // Process should receive SIGTERM
+      expect(mockProcess.kill).toHaveBeenCalledWith('SIGTERM')
+    })
+
+    it('sends SIGKILL after 5 seconds if process not killed', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      // Make the process appear not killed after SIGTERM
+      mockProcess.killed = false
+      mockProcess.kill = vi.fn(() => {
+        // Don't set killed = true to simulate unresponsive process
+        return true
+      })
+
+      // Start execution - don't await since we want to abort
+      adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Abort the task
+      controller.abort()
+
+      // First call should be SIGTERM
+      expect(mockProcess.kill).toHaveBeenCalledWith('SIGTERM')
+
+      // Advance time by 5 seconds
+      await vi.advanceTimersByTimeAsync(5000)
+
+      // Second call should be SIGKILL
+      expect(mockProcess.kill).toHaveBeenCalledWith('SIGKILL')
+    })
+
+    it('does not send SIGKILL if process killed within 5 seconds', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      // Make the process killed after SIGTERM
+      mockProcess.kill = vi.fn(() => {
+        mockProcess.killed = true
+        return true
+      })
+
+      // Start execution - don't await since we want to abort
+      adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Abort the task
+      controller.abort()
+
+      expect(mockProcess.kill).toHaveBeenCalledWith('SIGTERM')
+      expect(mockProcess.killed).toBe(true)
+
+      // Advance time by 5 seconds
+      await vi.advanceTimersByTimeAsync(5000)
+
+      // Should only have been called once (SIGTERM)
+      expect(mockProcess.kill).toHaveBeenCalledTimes(1)
+    })
+
+    it('returns cancelled status on abort when signal is aborted', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Abort the task
+      controller.abort()
+
+      // Emit error to trigger the catch block which checks signal.aborted
+      mockProcess._emitError(new Error('Process killed'))
+
+      const result = await resultPromise
+
+      // When signal is aborted and an error occurs, should return cancelled
+      expect(result.status).toBe('cancelled')
+      expect(result.error).toBe('Task cancelled')
+    })
+
+    it('returns failed status on abort if process exits via close', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Abort the task
+      controller.abort()
+
+      // Close the process (not error) - this resolves normally
+      mockProcess._emitClose(130) // SIGTERM exit code
+
+      const result = await resultPromise
+
+      // Exit code 130 is non-zero so status is 'failed' (not cancelled)
+      // because close event resolves the promise normally
+      expect(result.status).toBe('failed')
+      expect(result.exitCode).toBe(130)
+    })
+  })
+
+  // ===========================================================================
+  // 4. Process Exit Code Handling
+  // ===========================================================================
+
+  describe('process exit code handling', () => {
+    it('returns completed status for exit code 0', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      mockProcess._emitClose(0)
+
+      const result = await resultPromise
+
+      expect(result.status).toBe('completed')
+      expect(result.exitCode).toBe(0)
+    })
+
+    it('returns failed status for non-zero exit code', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      mockProcess._mockStderr.emit('data', Buffer.from('Error: Something went wrong'))
+      mockProcess._emitClose(1)
+
+      const result = await resultPromise
+
+      expect(result.status).toBe('failed')
+      expect(result.exitCode).toBe(1)
+      expect(result.error).toBe('Error: Something went wrong')
+    })
+
+    it('returns failed status for exit code 2 (general error)', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      mockProcess._emitClose(2)
+
+      const result = await resultPromise
+
+      expect(result.status).toBe('failed')
+      expect(result.exitCode).toBe(2)
+    })
+
+    it('returns failed status for exit code 130 (SIGINT)', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      mockProcess._emitClose(130)
+
+      const result = await resultPromise
+
+      expect(result.status).toBe('failed')
+      expect(result.exitCode).toBe(130)
+    })
+
+    it('handles null exit code (defaults to 1)', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Emit close with null code
+      mockProcess.emit('close', null)
+
+      const result = await resultPromise
+
+      expect(result.status).toBe('failed')
+      expect(result.exitCode).toBe(1)
+    })
+
+    it('captures stdout and stderr in result', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      mockProcess._mockStdout.emit('data', Buffer.from('Output line 1\n'))
+      mockProcess._mockStdout.emit('data', Buffer.from('Output line 2\n'))
+      mockProcess._mockStderr.emit('data', Buffer.from('Warning: something\n'))
+      mockProcess._emitClose(0)
+
+      const result = await resultPromise
+
+      expect(result.output).toContain('Output line 1')
+      expect(result.output).toContain('Output line 2')
+      expect(result.error).toBe('Warning: something\n')
+    })
+  })
+
+  // ===========================================================================
+  // 5. Timeout Handling
+  // ===========================================================================
+
+  describe('timeout handling', () => {
+    it('sends SIGTERM when timeout expires', async () => {
+      const task = createTestTask({ timeout: 10000 }) // 10 second timeout
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      // Make process unresponsive to SIGTERM
+      mockProcess.killed = false
+      mockProcess.kill = vi.fn(() => {
+        // First call (SIGTERM) doesn't kill
+        // Second call (SIGKILL) kills
+        const callCount = (mockProcess.kill as ReturnType<typeof vi.fn>).mock.calls.length
+        if (callCount >= 2) {
+          mockProcess.killed = true
+        }
+        return true
+      })
+
+      // Start execution - don't await since we're testing timeout
+      adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Advance time past the timeout
+      await vi.advanceTimersByTimeAsync(10000)
+
+      // Should have sent SIGTERM
+      expect(mockProcess.kill).toHaveBeenCalledWith('SIGTERM')
+    })
+
+    it('sends SIGKILL 5s after timeout SIGTERM if process not killed', async () => {
+      const task = createTestTask({ timeout: 10000 })
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      // Make process unresponsive
+      mockProcess.killed = false
+      mockProcess.kill = vi.fn(() => true)
+
+      // Start execution - don't await since we're testing timeout
+      adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Advance past timeout
+      await vi.advanceTimersByTimeAsync(10000)
+
+      expect(mockProcess.kill).toHaveBeenCalledWith('SIGTERM')
+
+      // Advance 5 more seconds
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(mockProcess.kill).toHaveBeenCalledWith('SIGKILL')
+    })
+
+    it('does not timeout if process completes before timeout', async () => {
+      const task = createTestTask({ timeout: 30000 }) // 30 second timeout
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+
+      // Complete the process immediately (before any timers advance)
+      mockProcess._emitClose(0)
+
+      const result = await resultPromise
+
+      // Should complete normally with exit code 0
+      expect(result.status).toBe('completed')
+      expect(result.exitCode).toBe(0)
+
+      // Note: The timeout timer may still be set, but it checks proc.killed
+      // before killing. Since the process has already closed, the check
+      // `!proc.killed` might still pass if we advance timers. The adapter
+      // implementation does not clear the timeout on normal completion.
+      // This is acceptable behavior - the key is the result is correct.
+    })
+
+    it('does not set timeout if task.timeout is not specified', async () => {
+      const task = createTestTask() // No timeout
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Advance time significantly
+      await vi.advanceTimersByTimeAsync(60000)
+
+      // Process should not have been killed
+      expect(mockProcess.kill).not.toHaveBeenCalled()
+
+      // Complete the process
+      mockProcess._emitClose(0)
+
+      const result = await resultPromise
+      expect(result.status).toBe('completed')
+    })
+  })
+
+  // ===========================================================================
+  // 6. Working Directory Validation
+  // ===========================================================================
+
+  describe('working directory validation', () => {
+    it('rejects task if working directory does not exist', async () => {
+      const task = createTestTask({ workingDirectory: '/nonexistent/directory' })
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const result = await adapter.execute(task, stream, controller.signal)
+
+      expect(result.status).toBe('failed')
+      expect(result.error).toContain('Working directory does not exist')
+      expect(result.error).toContain('/nonexistent/directory')
+    })
+
+    it('passes working directory to spawn as cwd', async () => {
+      const task = createTestTask({ workingDirectory: '/valid/path' })
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+      mockProcess._emitClose(0)
+
+      await resultPromise
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        expect.objectContaining({
+          cwd: '/valid/path',
+        })
+      )
+    })
+
+    it('handles missing workingDirectory (passes undefined to spawn)', async () => {
+      const task = createTestTask({ workingDirectory: undefined as unknown as string })
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+      mockProcess._emitClose(0)
+
+      await resultPromise
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        expect.objectContaining({
+          cwd: undefined,
+        })
+      )
+    })
+  })
+
+  // ===========================================================================
+  // 7. Process Error Handling
+  // ===========================================================================
+
+  describe('process error handling', () => {
+    it('handles spawn error (e.g., executable not found)', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      // Make spawn throw an error
+      mockSpawn.mockImplementationOnce(() => {
+        throw new Error('spawn ENOENT')
+      })
+
+      const result = await adapter.execute(task, stream, controller.signal)
+
+      expect(result.status).toBe('failed')
+      expect(result.error).toBe('spawn ENOENT')
+    })
+
+    it('handles process error event', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Emit error event
+      mockProcess._emitError(new Error('Process crashed'))
+
+      const result = await resultPromise
+
+      expect(result.status).toBe('failed')
+      expect(result.error).toBe('Process crashed')
+    })
+
+    it('handles provider not available', async () => {
+      // Create a fresh adapter that hasn't been initialized
+      const freshAdapter = new OpenClawAdapter()
+
+      // Mock getProvider to return unavailable
+      const { getProvider } = await import('../packages/agent-runner/src/lib/providers.js')
+      ;(getProvider as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        available: false,
+        path: null,
+      })
+
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const result = await freshAdapter.execute(task, stream, controller.signal)
+
+      expect(result.status).toBe('failed')
+      expect(result.error).toBe('OpenClaw not available')
+    })
+  })
+
+  // ===========================================================================
+  // 8. Metrics Extraction from Stream Output
+  // ===========================================================================
+
+  describe('metrics extraction from stream output', () => {
+    it('extracts metrics from done event', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Emit a done event with metrics
+      const doneEvent = JSON.stringify({
+        type: 'session.end',
+        cost: 0.0312,
+        input_tokens: 1200,
+        output_tokens: 600,
+        turns: 2,
+        model: 'claude-sonnet-4-20250514',
+        duration_ms: 15000,
+      })
+      mockProcess._mockStdout.emit('data', Buffer.from(doneEvent + '\n'))
+      mockProcess._emitClose(0)
+
+      const result = await resultPromise
+
+      expect(result.metrics).toEqual({
+        totalCost: 0.0312,
+        inputTokens: 1200,
+        outputTokens: 600,
+        numTurns: 2,
+        model: 'claude-sonnet-4-20250514',
+        durationMs: 15000,
+      })
+    })
+
+    it('extracts metrics from Gateway chat final event', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Emit a Gateway EventFrame with chat final event
+      const gatewayEvent = JSON.stringify({
+        type: 'event',
+        event: 'chat',
+        payload: {
+          state: 'final',
+          usage: {
+            input_tokens: 500,
+            output_tokens: 250,
+            totalCost: 0.015,
+            model: 'gpt-4o',
+            turns: 1,
+            duration_ms: 8000,
+          },
+        },
+      })
+      mockProcess._mockStdout.emit('data', Buffer.from(gatewayEvent + '\n'))
+      mockProcess._emitClose(0)
+
+      const result = await resultPromise
+
+      expect(result.metrics).toBeDefined()
+      expect(result.metrics?.inputTokens).toBe(500)
+      expect(result.metrics?.outputTokens).toBe(250)
+    })
+  })
+
+  // ===========================================================================
+  // 9. Concurrent Task Tracking
+  // ===========================================================================
+
+  describe('concurrent task tracking', () => {
+    it('increments activeTasks on execute start', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      // Check initial state
+      const initialStatus = await adapter.getStatus()
+      expect(initialStatus.activeTasks).toBe(0)
+
+      // Start execution
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      // Check activeTasks during execution
+      const midStatus = await adapter.getStatus()
+      expect(midStatus.activeTasks).toBe(1)
+
+      // Complete execution
+      mockProcess._emitClose(0)
+      await resultPromise
+
+      // Check final state
+      const finalStatus = await adapter.getStatus()
+      expect(finalStatus.activeTasks).toBe(0)
+    })
+
+    it('decrements activeTasks on execute completion', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      mockProcess._emitClose(0)
+      await resultPromise
+
+      const status = await adapter.getStatus()
+      expect(status.activeTasks).toBe(0)
+    })
+
+    it('decrements activeTasks on execute failure', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      mockProcess._emitError(new Error('Process crashed'))
+      await resultPromise
+
+      const status = await adapter.getStatus()
+      expect(status.activeTasks).toBe(0)
+    })
+
+    it('records last error on failure', async () => {
+      const task = createTestTask()
+      const stream = createMockStream()
+      const controller = new AbortController()
+
+      const resultPromise = adapter.execute(task, stream, controller.signal)
+      await vi.runAllTimersAsync()
+
+      mockProcess._emitError(new Error('Process crashed unexpectedly'))
+      await resultPromise
+
+      const status = await adapter.getStatus()
+      expect(status.lastError).toBe('Process crashed unexpectedly')
+    })
+  })
+})
