@@ -828,11 +828,13 @@ describe('Prompt sanitization — integration with buildPlanSystemPrompt', () =>
     expect(prompt).toContain('main')
   })
 
-  it('returns empty prompt when owner sanitizes to empty string', () => {
+  it('skips GitHub section but returns full prompt when owner sanitizes to empty', () => {
     const ctx: GitHubContextForPrompt = { hasRepo: true, owner: '; $()', repo: 'app', baseBranch: 'main' }
     const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
-    // Should skip the GitHub section entirely
+    // Should skip the GitHub section but NOT return empty
     expect(prompt).not.toContain('## GitHub Integration')
+    expect(prompt.length).toBeGreaterThan(100) // rest of prompt still present
+    expect(prompt).toContain('## Node rules') // core section still present
   })
 })
 

@@ -189,8 +189,8 @@ export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoCont
     const ghOwner = sanitizeGitHubName(githubContext.owner)
     const ghRepo = sanitizeGitHubName(githubContext.repo)
     const target = sanitizeGitBranch(githubContext.baseBranch || 'main')
-    if (!ghOwner || !ghRepo) return "" // invalid names → skip section
-    githubSection = `\n\n## GitHub Integration
+    if (ghOwner && ghRepo) {
+      githubSection = `\n\n## GitHub Integration
 This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
 The final step must open a pull request that merges all completed work into the \`${target}\` branch.
 
@@ -204,6 +204,7 @@ You MUST include a final task node titled "Push to GitHub" that:
 - description: "Open a pull request on ${ghOwner}/${ghRepo} that merges the project branch into \`${target}\`. The PR description should include a comprehensive summary of every completed task, link to per-task PRs where available, and list key changes. After creating the PR, wait for CI checks (tests, lint, type checks, AI code review) to finish. If any check fails or a reviewer requests changes, read the feedback, fix the issues, push to the project branch, and re-check — up to 3 retry cycles. The task succeeds when all required checks pass."
 - acceptanceCriteria: [{ id: "ci-pass", description: "All CI checks pass on the final PR", type: "command", command: "gh pr checks --required", autoVerifiable: true }]
 `
+    }
   }
 
   const hasRepo = repoSection.length > 0
@@ -768,8 +769,8 @@ export function buildInteractivePlanPrompt(
     const ghOwner = sanitizeGitHubName(options.githubContext.owner)
     const ghRepo = sanitizeGitHubName(options.githubContext.repo)
     const target = sanitizeGitBranch(options.githubContext.baseBranch || 'main')
-    if (!ghOwner || !ghRepo) return "" // invalid names → skip section
-    githubSection = `\n## GitHub Integration
+    if (ghOwner && ghRepo) {
+      githubSection = `\n## GitHub Integration
 This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
 The final step must open a pull request that merges all completed work into the \`${target}\` branch.
 
@@ -783,6 +784,7 @@ You MUST include a final task node titled "Push to GitHub" that:
 - description: "Open a pull request on ${ghOwner}/${ghRepo} that merges the project branch into \`${target}\`. The PR description should include a comprehensive summary of every completed task, link to per-task PRs where available, and list key changes. After creating the PR, wait for CI checks (tests, lint, type checks, AI code review) to finish. If any check fails or a reviewer requests changes, read the feedback, fix the issues, push to the project branch, and re-check — up to 3 retry cycles. The task succeeds when all required checks pass."
 - acceptanceCriteria: [{ id: "ci-pass", description: "All CI checks pass on the final PR", type: "command", command: "gh pr checks --required", autoVerifiable: true }]
 `
+    }
   }
 
   const hasCodebase = !!options?.repoContext
