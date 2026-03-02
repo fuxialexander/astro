@@ -1,25 +1,26 @@
 /**
- * OpenClaw ACP (Agent Client Protocol) Event Parsing Tests
+ * OpenClaw Gateway EventFrame + Legacy Event Parsing Tests
  *
  * Comprehensive unit tests for parsing OpenClaw's JSONL streaming output.
- * Tests the ACP format event types: text_delta, tool_call, status, done, error.
+ * Tests the Gateway EventFrame format (chat/agent events) and Legacy flat format.
  *
  * These tests verify:
- * 1. Each JSONL event type parsing (text_delta, tool_call, status, done, error)
- * 2. Malformed JSON handling (should not crash, emit warning)
- * 3. Incomplete line buffering
- * 4. Event type mapping to StreamEvent (text(), toolUse(), toolResult(), sessionInit())
- * 5. Metadata extraction (tokens, cost, model from done event)
+ * 1. Gateway EventFrame parsing (chat delta/final/aborted/error, agent assistant/tool/lifecycle)
+ * 2. Legacy flat format parsing (session.start, content.text, tool_use.start/end, etc.)
+ * 3. Batch response parsing (openclaw agent --json)
+ * 4. Malformed JSON handling (should not crash, emit as raw stdout)
+ * 5. Delta text tracker (cumulative → incremental extraction)
+ * 6. Metadata extraction (tokens, cost, model from usage)
+ * 7. File change detection from tool args
+ * 8. Session init emission
  *
- * ACP Event Types:
- * - text_delta: Streaming text output (output or thought stream)
- * - status:     Progress/status updates with optional metrics
- * - tool_call:  Tool invocations (in_progress/completed/error)
- * - done:       Session completion with stop reason
- * - error:      Error reporting with code and retry info
+ * Gateway EventFrame format:
+ *   { type: "event", event: "chat"|"agent", payload: {...} }
  *
- * @see docs/planning/13-CLI-JSONL-FORMAT-ANALYSIS.md
- * @see tests/fixtures/openclaw-output.jsonl
+ * Legacy flat format:
+ *   { type: "session.start"|"content.text"|"tool_use.start"|... }
+ *
+ * @see packages/agent-runner/src/providers/openclaw-adapter.ts
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -47,59 +48,101 @@ function createMockStream(): TaskOutputStream {
 }
 
 // =============================================================================
-// ACP Event Type Definitions for Test Clarity
+// Helper: Gateway EventFrame builders
 // =============================================================================
 
-interface AcpTextDeltaEvent {
-  type: 'text_delta'
-  text: string
-  stream?: 'output' | 'thought'
-  tag?: string
+/** Build a Gateway chat delta event (cumulative text) */
+function chatDelta(text: string, opts?: { runId?: string; sessionKey?: string }) {
+  return {
+    type: 'event',
+    event: 'chat',
+    payload: {
+      state: 'delta',
+      message: { content: [{ type: 'text', text }] },
+      ...opts,
+    },
+  }
 }
 
-interface AcpStatusEvent {
-  type: 'status'
-  text: string
-  tag?: string
-  used?: number
-  size?: number
+/** Build a Gateway chat final event (completion with optional usage) */
+function chatFinal(usage?: Record<string, unknown>, opts?: { runId?: string }) {
+  return {
+    type: 'event',
+    event: 'chat',
+    payload: { state: 'final', usage, ...opts },
+  }
 }
 
-interface AcpToolCallEvent {
-  type: 'tool_call'
-  text: string
-  tag?: string
-  toolCallId?: string
-  status?: 'in_progress' | 'completed' | 'error'
-  title?: string
+/** Build a Gateway chat aborted event */
+function chatAborted() {
+  return {
+    type: 'event',
+    event: 'chat',
+    payload: { state: 'aborted' },
+  }
 }
 
-interface AcpDoneEvent {
-  type: 'done'
-  stopReason?: string
-  // Extended fields for metrics (if/when supported)
-  cost?: number
-  input_tokens?: number
-  output_tokens?: number
-  turns?: number
-  model?: string
-  duration_ms?: number
+/** Build a Gateway chat error event */
+function chatError(errorMessage: string, opts?: { runId?: string }) {
+  return {
+    type: 'event',
+    event: 'chat',
+    payload: { state: 'error', errorMessage, ...opts },
+  }
 }
 
-interface AcpErrorEvent {
-  type: 'error'
-  message: string
-  code?: string
-  retryable?: boolean
+/** Build a Gateway agent assistant text event (incremental) */
+function agentText(text: string, opts?: { runId?: string; sessionKey?: string }) {
+  return {
+    type: 'event',
+    event: 'agent',
+    payload: { stream: 'assistant', data: { text }, ...opts },
+  }
 }
 
-type AcpRuntimeEvent = AcpTextDeltaEvent | AcpStatusEvent | AcpToolCallEvent | AcpDoneEvent | AcpErrorEvent
+/** Build a Gateway agent tool start event */
+function agentToolStart(name: string, toolCallId: string, args?: Record<string, unknown>, opts?: { runId?: string }) {
+  return {
+    type: 'event',
+    event: 'agent',
+    payload: {
+      stream: 'tool',
+      data: { phase: 'start', name, toolCallId, args },
+      ...opts,
+    },
+  }
+}
+
+/** Build a Gateway agent tool result event */
+function agentToolResult(name: string, toolCallId: string, result: unknown, isError = false) {
+  return {
+    type: 'event',
+    event: 'agent',
+    payload: {
+      stream: 'tool',
+      data: { phase: 'result', name, toolCallId, result, isError },
+    },
+  }
+}
+
+/** Build a Gateway agent lifecycle event */
+function agentLifecycle(phase: 'start' | 'end' | 'fallback', opts?: { selectedModel?: string; runId?: string }) {
+  return {
+    type: 'event',
+    event: 'agent',
+    payload: {
+      stream: 'lifecycle',
+      data: { phase, ...opts },
+      ...(opts?.runId ? { runId: opts.runId } : {}),
+    },
+  }
+}
 
 // =============================================================================
 // Test Suite
 // =============================================================================
 
-describe('OpenClaw ACP Event Parsing', () => {
+describe('OpenClaw Gateway EventFrame Parsing', () => {
   let adapter: OpenClawAdapter
   let stream: TaskOutputStream
   let artifacts: TaskArtifact[]
@@ -111,613 +154,558 @@ describe('OpenClaw ACP Event Parsing', () => {
   })
 
   // ===========================================================================
-  // 1. text_delta Event Type Parsing
+  // 1. Agent Assistant Text Events (incremental)
   // ===========================================================================
 
-  describe('text_delta event parsing', () => {
-    it('emits text for output stream', () => {
-      const event: AcpTextDeltaEvent = {
-        type: 'text_delta',
-        text: 'Hello world',
-        stream: 'output',
-      }
-
+  describe('agent assistant text events', () => {
+    it('emits text for agent assistant stream', () => {
+      const event = agentText('Hello world')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
       expect(stream.text).toHaveBeenCalledWith('Hello world')
     })
 
-    it('emits text for thought stream', () => {
-      const event: AcpTextDeltaEvent = {
-        type: 'text_delta',
-        text: 'Let me think about this...',
-        stream: 'thought',
-        tag: 'agent_thought_chunk',
-      }
+    it('emits text for multiple incremental chunks', () => {
+      adapter.handleStreamLine(JSON.stringify(agentText('First ')), stream, artifacts)
+      adapter.handleStreamLine(JSON.stringify(agentText('Second ')), stream, artifacts)
+      adapter.handleStreamLine(JSON.stringify(agentText('Third')), stream, artifacts)
 
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // Thought text should also be emitted (implementation may vary)
-      expect(stream.text).toHaveBeenCalledWith('Let me think about this...')
+      expect(stream.text).toHaveBeenCalledTimes(3)
+      expect(stream.text).toHaveBeenNthCalledWith(1, 'First ')
+      expect(stream.text).toHaveBeenNthCalledWith(2, 'Second ')
+      expect(stream.text).toHaveBeenNthCalledWith(3, 'Third')
     })
 
-    it('handles text_delta without stream field', () => {
-      const event: AcpTextDeltaEvent = {
-        type: 'text_delta',
-        text: 'Default stream text',
-      }
-
+    it('does not emit for empty agent text', () => {
+      const event = agentText('')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.text).toHaveBeenCalledWith('Default stream text')
-    })
-
-    it('handles empty text_delta', () => {
-      const event: AcpTextDeltaEvent = {
-        type: 'text_delta',
-        text: '',
-        stream: 'output',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // Empty text should not emit
       expect(stream.text).not.toHaveBeenCalled()
     })
 
-    it('handles text_delta with agent_message_chunk tag', () => {
-      const event: AcpTextDeltaEvent = {
-        type: 'text_delta',
-        text: 'I will analyze the codebase',
-        stream: 'output',
-        tag: 'agent_message_chunk',
-      }
-
+    it('handles unicode and special characters', () => {
+      const event = agentText('日本語 中文 🚀 π ≈ 3.14159')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.text).toHaveBeenCalledWith('I will analyze the codebase')
-    })
-
-    it('handles unicode and special characters in text', () => {
-      const event: AcpTextDeltaEvent = {
-        type: 'text_delta',
-        text: '日本語 中文 🚀 π ≈ 3.14159',
-        stream: 'output',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
       expect(stream.text).toHaveBeenCalledWith('日本語 中文 🚀 π ≈ 3.14159')
     })
 
-    it('handles newlines and escape sequences in text', () => {
-      const event: AcpTextDeltaEvent = {
-        type: 'text_delta',
-        text: 'Line 1\nLine 2\tTabbed',
-        stream: 'output',
-      }
-
+    it('handles newlines and escape sequences', () => {
+      const event = agentText('Line 1\nLine 2\tTabbed')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
       expect(stream.text).toHaveBeenCalledWith('Line 1\nLine 2\tTabbed')
     })
 
-    it('handles plan tag for planning output', () => {
-      const event: AcpTextDeltaEvent = {
-        type: 'text_delta',
-        text: '1. Create the new API endpoint',
-        stream: 'output',
-        tag: 'plan',
-      }
-
+    it('emits sessionInit on first agent event with runId', () => {
+      const event = agentText('Hello', { runId: 'run-123' })
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.sessionInit).toHaveBeenCalledWith('run-123')
+      expect(stream.text).toHaveBeenCalledWith('Hello')
+    })
 
-      expect(stream.text).toHaveBeenCalledWith('1. Create the new API endpoint')
+    it('emits sessionInit on first agent event with sessionKey', () => {
+      const event = agentText('Hello', { sessionKey: 'session-abc' })
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.sessionInit).toHaveBeenCalledWith('session-abc')
+    })
+
+    it('emits sessionInit only once across multiple events', () => {
+      adapter.handleStreamLine(JSON.stringify(agentText('First', { runId: 'run-1' })), stream, artifacts)
+      adapter.handleStreamLine(JSON.stringify(agentText('Second', { runId: 'run-1' })), stream, artifacts)
+      expect(stream.sessionInit).toHaveBeenCalledTimes(1)
     })
   })
 
   // ===========================================================================
-  // 2. tool_call Event Type Parsing
+  // 2. Chat Delta Events (cumulative text with delta tracker)
   // ===========================================================================
 
-  describe('tool_call event parsing', () => {
-    it('emits toolUse for in_progress status', () => {
-      const event: AcpToolCallEvent = {
-        type: 'tool_call',
-        text: 'Reading project configuration',
-        toolCallId: 'call-001',
-        title: 'read_file: package.json',
-        status: 'in_progress',
-        tag: 'tool_call',
-      }
-
+  describe('chat delta events (cumulative text)', () => {
+    it('emits text from chat delta content blocks', () => {
+      const event = chatDelta('Hello world')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // Should emit toolUse when status is in_progress
-      expect(stream.toolUse).toHaveBeenCalledWith(
-        'read_file: package.json',
-        { toolCallId: 'call-001', text: 'Reading project configuration' }
-      )
+      expect(stream.text).toHaveBeenCalledWith('Hello world')
     })
 
-    it('emits toolResult for completed status', () => {
-      const event: AcpToolCallEvent = {
-        type: 'tool_call',
-        text: '{"name":"astro","version":"1.0.0"}',
-        toolCallId: 'call-001',
-        title: 'read_file: package.json',
-        status: 'completed',
-        tag: 'tool_call_update',
-      }
+    it('extracts only new text from cumulative delta', () => {
+      // First delta: "Hello "
+      adapter.handleStreamLine(JSON.stringify(chatDelta('Hello ')), stream, artifacts)
+      expect(stream.text).toHaveBeenCalledWith('Hello ')
 
+      // Second delta: "Hello world" (cumulative) → should only emit "world"
+      adapter.handleStreamLine(JSON.stringify(chatDelta('Hello world')), stream, artifacts)
+      expect(stream.text).toHaveBeenNthCalledWith(2, 'world')
+    })
+
+    it('does not emit for empty content', () => {
+      const event = chatDelta('')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.text).not.toHaveBeenCalled()
+    })
 
+    it('does not emit when no new text in cumulative delta', () => {
+      adapter.handleStreamLine(JSON.stringify(chatDelta('Hello')), stream, artifacts)
+      // Same text again (no new content)
+      adapter.handleStreamLine(JSON.stringify(chatDelta('Hello')), stream, artifacts)
+      expect(stream.text).toHaveBeenCalledTimes(1)
+    })
+
+    it('emits sessionInit on first chat event with runId', () => {
+      const event = chatDelta('Hello', { runId: 'chat-run-1' })
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.sessionInit).toHaveBeenCalledWith('chat-run-1')
+    })
+
+    it('handles chat delta with multiple content blocks', () => {
+      const event = {
+        type: 'event',
+        event: 'chat',
+        payload: {
+          state: 'delta',
+          message: {
+            content: [
+              { type: 'text', text: 'Part 1' },
+              { type: 'text', text: ' Part 2' },
+            ],
+          },
+        },
+      }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.text).toHaveBeenCalledWith('Part 1 Part 2')
+    })
+
+    it('skips non-text content blocks', () => {
+      const event = {
+        type: 'event',
+        event: 'chat',
+        payload: {
+          state: 'delta',
+          message: {
+            content: [
+              { type: 'image', url: 'http://example.com/img.png' },
+              { type: 'text', text: 'Only text' },
+            ],
+          },
+        },
+      }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.text).toHaveBeenCalledWith('Only text')
+    })
+
+    it('resets delta tracker between task executions', () => {
+      adapter.handleStreamLine(JSON.stringify(chatDelta('Hello')), stream, artifacts)
+      expect(stream.text).toHaveBeenCalledWith('Hello')
+
+      // Reset tracker (simulating new task execution)
+      adapter.resetDeltaTracker()
+
+      // Now "Hello" should be treated as new text again
+      adapter.handleStreamLine(JSON.stringify(chatDelta('Hello')), stream, artifacts)
+      expect(stream.text).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // ===========================================================================
+  // 3. Agent Tool Events
+  // ===========================================================================
+
+  describe('agent tool events', () => {
+    it('emits toolUse for tool start phase', () => {
+      const event = agentToolStart('read_file', 'call-001', { path: 'package.json' })
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.toolUse).toHaveBeenCalledWith('read_file', { path: 'package.json' })
+    })
+
+    it('emits toolResult for tool result phase (success)', () => {
+      const event = agentToolResult('read_file', 'call-001', '{"name":"astro","version":"1.0.0"}', false)
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
       expect(stream.toolResult).toHaveBeenCalledWith(
-        'read_file: package.json',
+        'read_file',
         '{"name":"astro","version":"1.0.0"}',
         true
       )
     })
 
-    it('emits toolResult with success=false for error status', () => {
-      const event: AcpToolCallEvent = {
-        type: 'tool_call',
-        text: 'npm ERR! code ELIFECYCLE\nnpm ERR! errno 1',
-        toolCallId: 'call-201',
-        title: 'bash: npm test',
-        status: 'error',
-        tag: 'tool_call_update',
-      }
-
+    it('emits toolResult with success=false for error result', () => {
+      const event = agentToolResult('bash', 'call-201', 'npm ERR! code ELIFECYCLE\nnpm ERR! errno 1', true)
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
       expect(stream.toolResult).toHaveBeenCalledWith(
-        'bash: npm test',
+        'bash',
         'npm ERR! code ELIFECYCLE\nnpm ERR! errno 1',
         false
       )
     })
 
-    it('handles tool_call without status field (defaults to in_progress)', () => {
-      const event: AcpToolCallEvent = {
-        type: 'tool_call',
-        text: 'Listing files',
-        toolCallId: 'call-102',
-        title: 'bash: ls -la',
+    it('uses "unknown" as fallback when tool name is missing', () => {
+      const event = {
+        type: 'event',
+        event: 'agent',
+        payload: {
+          stream: 'tool',
+          data: { phase: 'start', toolCallId: 'call-999', args: {} },
+        },
       }
-
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // Should treat as in_progress by default
-      expect(stream.toolUse).toHaveBeenCalledWith(
-        'bash: ls -la',
-        { toolCallId: 'call-102', text: 'Listing files' }
-      )
+      expect(stream.toolUse).toHaveBeenCalledWith('unknown', {})
     })
 
-    it('handles tool_call without title field', () => {
-      const event: AcpToolCallEvent = {
-        type: 'tool_call',
-        text: 'File content here',
-        toolCallId: 'call-999',
-        status: 'completed',
+    it('skips tool event without toolCallId', () => {
+      const event = {
+        type: 'event',
+        event: 'agent',
+        payload: {
+          stream: 'tool',
+          data: { phase: 'start', name: 'bash' },
+        },
       }
-
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // Should use 'unknown' as fallback
-      expect(stream.toolResult).toHaveBeenCalledWith(
-        'unknown',
-        'File content here',
-        true
-      )
+      // toolCallId is required for tool events
+      expect(stream.toolUse).not.toHaveBeenCalled()
     })
 
-    it('handles tool_call without toolCallId', () => {
-      const event: AcpToolCallEvent = {
-        type: 'tool_call',
-        text: 'Running command',
-        title: 'bash: echo hello',
-        status: 'in_progress',
-      }
-
+    it('handles tool start with empty args', () => {
+      const event = agentToolStart('bash', 'call-101')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.toolUse).toHaveBeenCalledWith(
-        'bash: echo hello',
-        { toolCallId: undefined, text: 'Running command' }
-      )
+      expect(stream.toolUse).toHaveBeenCalledWith('bash', {})
     })
 
-    it('handles bash command tool_call', () => {
-      const event: AcpToolCallEvent = {
-        type: 'tool_call',
-        text: 'file1.txt\nfile2.txt\nfile3.txt',
-        toolCallId: 'call-101',
-        title: 'bash: ls -la',
-        status: 'completed',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.toolResult).toHaveBeenCalledWith(
-        'bash: ls -la',
-        'file1.txt\nfile2.txt\nfile3.txt',
-        true
-      )
-    })
-
-    it('handles file operation tool_call', () => {
-      const event: AcpToolCallEvent = {
-        type: 'tool_call',
-        text: 'File created successfully (45 lines)',
-        toolCallId: 'call-501',
-        title: 'write_file: src/components/Modal.tsx',
-        status: 'completed',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.toolResult).toHaveBeenCalledWith(
-        'write_file: src/components/Modal.tsx',
-        'File created successfully (45 lines)',
-        true
-      )
-    })
-
-    it('handles long tool output', () => {
+    it('handles long tool result output', () => {
       const longOutput = Array(100).fill('line').join('\n') + '... (truncated)'
-      const event: AcpToolCallEvent = {
-        type: 'tool_call',
-        text: longOutput,
-        toolCallId: 'call-601',
-        title: 'bash: find . -type f',
-        status: 'completed',
-      }
-
+      const event = agentToolResult('bash', 'call-601', longOutput, false)
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.toolResult).toHaveBeenCalledWith('bash', longOutput, true)
+    })
 
-      expect(stream.toolResult).toHaveBeenCalledWith(
-        'bash: find . -type f',
-        longOutput,
-        true
-      )
+    it('handles multiple sequential tool start/result pairs', () => {
+      // Tool 1
+      adapter.handleStreamLine(JSON.stringify(agentToolStart('bash', 'call-1', { command: 'ls' })), stream, artifacts)
+      adapter.handleStreamLine(JSON.stringify(agentToolResult('bash', 'call-1', 'file1.txt\nfile2.txt', false)), stream, artifacts)
+      // Tool 2
+      adapter.handleStreamLine(JSON.stringify(agentToolStart('read_file', 'call-2', { path: 'file1.txt' })), stream, artifacts)
+      adapter.handleStreamLine(JSON.stringify(agentToolResult('read_file', 'call-2', 'contents', false)), stream, artifacts)
+      // Tool 3
+      adapter.handleStreamLine(JSON.stringify(agentToolStart('bash', 'call-3', { command: 'cat file2.txt' })), stream, artifacts)
+      adapter.handleStreamLine(JSON.stringify(agentToolResult('bash', 'call-3', 'more contents', false)), stream, artifacts)
+
+      expect(stream.toolUse).toHaveBeenCalledTimes(3)
+      expect(stream.toolResult).toHaveBeenCalledTimes(3)
     })
   })
 
   // ===========================================================================
-  // 3. status Event Type Parsing
+  // 4. File Change Detection from Tool Args
   // ===========================================================================
 
-  describe('status event parsing', () => {
-    it('emits status update for session_info_update', () => {
-      const event: AcpStatusEvent = {
-        type: 'status',
-        text: 'Starting session...',
-        tag: 'session_info_update',
-      }
-
+  describe('file change detection from tool args', () => {
+    it('detects file creation from write_file tool', () => {
+      const event = agentToolStart('write_file', 'call-501', { path: 'src/components/Modal.tsx' })
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Starting session...')
+      expect(stream.fileChange).toHaveBeenCalledWith('src/components/Modal.tsx', 'created')
+      expect(artifacts).toHaveLength(1)
+      expect(artifacts[0]).toEqual({ type: 'file', name: 'src/components/Modal.tsx', path: 'src/components/Modal.tsx' })
     })
 
-    it('emits status update with usage metrics', () => {
-      const event: AcpStatusEvent = {
-        type: 'status',
-        text: 'Processing complete',
-        tag: 'usage_update',
-        used: 1523,
-        size: 4096,
-      }
-
+    it('detects file modification from edit_file tool', () => {
+      const event = agentToolStart('edit_file', 'call-502', { file_path: 'src/index.ts' })
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Processing complete')
+      expect(stream.fileChange).toHaveBeenCalledWith('src/index.ts', 'modified')
     })
 
-    it('handles status without tag', () => {
-      const event: AcpStatusEvent = {
-        type: 'status',
-        text: 'Processing...',
-      }
-
+    it('detects file deletion from delete tool', () => {
+      const event = agentToolStart('delete_file', 'call-503', { path: 'temp.txt' })
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Processing...')
+      expect(stream.fileChange).toHaveBeenCalledWith('temp.txt', 'deleted')
     })
 
-    it('handles current_mode_update tag', () => {
-      const event: AcpStatusEvent = {
-        type: 'status',
-        text: 'Model: claude-sonnet-4-20250514',
-        tag: 'current_mode_update',
-      }
-
+    it('does not detect file change without path in args', () => {
+      const event = agentToolStart('bash', 'call-504', { command: 'echo hello' })
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalled()
+      expect(stream.fileChange).not.toHaveBeenCalled()
     })
 
-    it('handles available_commands_update tag', () => {
-      const event: AcpStatusEvent = {
-        type: 'status',
-        text: 'Available commands: /help, /clear, /exit',
-        tag: 'available_commands_update',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalled()
-    })
-
-    it('handles empty status text', () => {
-      const event: AcpStatusEvent = {
-        type: 'status',
-        text: '',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // Implementation choice: may or may not emit for empty text
-      // Just ensure it doesn't crash
-    })
-
-    it('extracts token usage from usage_update', () => {
-      const event: AcpStatusEvent = {
-        type: 'status',
-        text: 'Tokens used: 150 / 8192',
-        tag: 'usage_update',
-        used: 150,
-        size: 8192,
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // Metrics tracking - implementation may accumulate these
-      expect(stream.status).toHaveBeenCalled()
+    it('does not add duplicate artifacts for same file path', () => {
+      adapter.handleStreamLine(JSON.stringify(agentToolStart('write_file', 'call-1', { path: 'test.ts' })), stream, artifacts)
+      adapter.handleStreamLine(JSON.stringify(agentToolStart('edit_file', 'call-2', { path: 'test.ts' })), stream, artifacts)
+      expect(artifacts).toHaveLength(1)
     })
   })
 
   // ===========================================================================
-  // 4. done Event Type Parsing
+  // 5. Chat Final/Aborted/Error Events
   // ===========================================================================
 
-  describe('done event parsing', () => {
-    it('emits completion status for end_turn', () => {
-      const event: AcpDoneEvent = {
-        type: 'done',
-        stopReason: 'end_turn',
-      }
-
+  describe('chat completion events', () => {
+    it('emits completion status for chat final', () => {
+      const event = chatFinal()
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith('running', 100, expect.stringContaining('end_turn'))
-    })
-
-    it('handles cancelled stop reason', () => {
-      const event: AcpDoneEvent = {
-        type: 'done',
-        stopReason: 'cancelled',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith('running', 100, expect.stringContaining('cancelled'))
-    })
-
-    it('handles done without stop reason', () => {
-      const event: AcpDoneEvent = {
-        type: 'done',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
       expect(stream.status).toHaveBeenCalledWith('running', 100, 'Completed')
     })
 
-    it('returns metrics from done event when provided', () => {
-      const event: AcpDoneEvent = {
-        type: 'done',
-        stopReason: 'end_turn',
-        cost: 0.0523,
+    it('returns usage metrics from chat final event', () => {
+      const event = chatFinal({
         input_tokens: 1500,
         output_tokens: 800,
+        totalCost: 0.0523,
         turns: 3,
         model: 'claude-sonnet-4-20250514',
         duration_ms: 12000,
-      }
-
+      })
       const result = adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // If metrics are extracted, they should be returned
-      // The current implementation may not support all these fields
-      if (result) {
-        expect(result.totalCost).toBe(0.0523)
-        expect(result.inputTokens).toBe(1500)
-        expect(result.outputTokens).toBe(800)
-        expect(result.numTurns).toBe(3)
-        expect(result.model).toBe('claude-sonnet-4-20250514')
-        expect(result.durationMs).toBe(12000)
-      }
+      expect(result).toBeDefined()
+      expect(result?.inputTokens).toBe(1500)
+      expect(result?.outputTokens).toBe(800)
+      expect(result?.totalCost).toBe(0.0523)
+      expect(result?.numTurns).toBe(3)
+      expect(result?.model).toBe('claude-sonnet-4-20250514')
+      expect(result?.durationMs).toBe(12000)
     })
 
-    it('handles done with partial metrics', () => {
-      const event: AcpDoneEvent = {
-        type: 'done',
-        stopReason: 'end_turn',
-        cost: 0.01,
-        turns: 1,
-      }
+    it('returns partial metrics from chat final', () => {
+      const event = chatFinal({ input_tokens: 500, output_tokens: 250 })
+      const result = adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(result).toBeDefined()
+      expect(result?.inputTokens).toBe(500)
+      expect(result?.outputTokens).toBe(250)
+      expect(result?.totalCost).toBeUndefined()
+    })
 
+    it('emits aborted status for chat aborted', () => {
+      const event = chatAborted()
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Aborted')
+    })
 
-      expect(stream.status).toHaveBeenCalled()
+    it('emits error status for chat error', () => {
+      const event = chatError('API rate limit exceeded')
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Error: API rate limit exceeded')
+    })
+
+    it('handles chat error without message', () => {
+      const event = chatError('')
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      // Empty errorMessage falls through to fallback: "Unknown error"
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Error: Unknown error')
+    })
+
+    it('emits sessionInit on chat error with runId', () => {
+      adapter.resetDeltaTracker()
+      const event = chatError('Auth failed', { runId: 'err-run-1' })
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.sessionInit).toHaveBeenCalledWith('err-run-1')
     })
   })
 
   // ===========================================================================
-  // 5. error Event Type Parsing
+  // 6. Agent Lifecycle Events
   // ===========================================================================
 
-  describe('error event parsing', () => {
-    it('handles rate limit error (retryable)', () => {
-      const event: AcpErrorEvent = {
-        type: 'error',
-        message: 'API rate limit exceeded. Please wait 60 seconds before retrying.',
-        code: 'rate_limit',
-        retryable: true,
-      }
-
+  describe('agent lifecycle events', () => {
+    it('emits status for lifecycle start', () => {
+      const event = agentLifecycle('start')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith(
-        'running',
-        undefined,
-        'Error [rate_limit]: API rate limit exceeded. Please wait 60 seconds before retrying.'
-      )
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Agent thinking...')
     })
 
-    it('handles auth error (non-retryable)', () => {
-      const event: AcpErrorEvent = {
-        type: 'error',
-        message: 'Invalid API key. Please check your credentials.',
-        code: 'auth_error',
-        retryable: false,
-      }
-
+    it('emits status for lifecycle end', () => {
+      const event = agentLifecycle('end')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith(
-        'running',
-        undefined,
-        'Error [auth_error]: Invalid API key. Please check your credentials.'
-      )
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Turn complete')
     })
 
-    it('handles context overflow error', () => {
-      const event: AcpErrorEvent = {
-        type: 'error',
-        message: 'Context window exceeded. The conversation is too long.',
-        code: 'context_overflow',
-        retryable: false,
-      }
-
+    it('emits status for lifecycle fallback with model', () => {
+      const event = agentLifecycle('fallback', { selectedModel: 'gpt-4o-mini' })
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith(
-        'running',
-        undefined,
-        'Error [context_overflow]: Context window exceeded. The conversation is too long.'
-      )
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Fallback to gpt-4o-mini')
     })
 
-    it('handles error without code', () => {
-      const event: AcpErrorEvent = {
-        type: 'error',
-        message: 'Something went wrong',
-      }
-
+    it('emits status for lifecycle fallback without model', () => {
+      const event = agentLifecycle('fallback')
       adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith(
-        'running',
-        undefined,
-        'Error: Something went wrong'
-      )
-    })
-
-    it('handles error without retryable field', () => {
-      const event: AcpErrorEvent = {
-        type: 'error',
-        message: 'Unknown error occurred',
-        code: 'unknown',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalledWith(
-        'running',
-        undefined,
-        'Error [unknown]: Unknown error occurred'
-      )
-    })
-
-    it('handles empty error message', () => {
-      const event: AcpErrorEvent = {
-        type: 'error',
-        message: '',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // Should not crash on empty message
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Fallback to alternate model')
     })
   })
 
   // ===========================================================================
-  // 6. Malformed JSON Handling
+  // 7. Legacy Flat Format Events
+  // ===========================================================================
+
+  describe('legacy flat format events', () => {
+    it('emits sessionInit from session.start', () => {
+      const event = { type: 'session.start', session_id: 'legacy-session-1', model: 'gpt-4o' }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.sessionInit).toHaveBeenCalledWith('legacy-session-1', 'gpt-4o')
+    })
+
+    it('emits text from content.text', () => {
+      const event = { type: 'content.text', text: 'Hello from legacy format' }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.text).toHaveBeenCalledWith('Hello from legacy format')
+    })
+
+    it('does not emit for empty content.text', () => {
+      const event = { type: 'content.text', text: '' }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.text).not.toHaveBeenCalled()
+    })
+
+    it('emits toolUse from tool_use.start', () => {
+      const event = { type: 'tool_use.start', tool_name: 'bash', tool_input: { command: 'ls' } }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.toolUse).toHaveBeenCalledWith('bash', { command: 'ls' })
+    })
+
+    it('emits toolResult from tool_use.end', () => {
+      const event = { type: 'tool_use.end', tool_name: 'bash', result: 'file1.txt', success: true }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.toolResult).toHaveBeenCalledWith('bash', 'file1.txt', true)
+    })
+
+    it('emits failed toolResult from tool_use.end with success=false', () => {
+      const event = { type: 'tool_use.end', tool_name: 'bash', result: 'Error!', success: false }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.toolResult).toHaveBeenCalledWith('bash', 'Error!', false)
+    })
+
+    it('emits fileChange from file.change', () => {
+      const event = { type: 'file.change', path: 'src/index.ts', action: 'modified', lines_added: 5, lines_removed: 2 }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.fileChange).toHaveBeenCalledWith('src/index.ts', 'modified', 5, 2)
+      expect(artifacts).toHaveLength(1)
+    })
+
+    it('emits status from message.start', () => {
+      const event = { type: 'message.start' }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Agent thinking...')
+    })
+
+    it('emits status from message.end', () => {
+      const event = { type: 'message.end' }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Turn complete')
+    })
+
+    it('returns metrics from session.end', () => {
+      const event = {
+        type: 'session.end',
+        cost: 0.0312,
+        input_tokens: 1200,
+        output_tokens: 600,
+        turns: 2,
+        model: 'gpt-4o',
+        duration_ms: 15000,
+      }
+      const result = adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(result).toBeDefined()
+      expect(result?.totalCost).toBe(0.0312)
+      expect(result?.inputTokens).toBe(1200)
+      expect(result?.outputTokens).toBe(600)
+      expect(result?.numTurns).toBe(2)
+      expect(result?.model).toBe('gpt-4o')
+      expect(result?.durationMs).toBe(15000)
+    })
+
+    it('emits status with cost info from session.end', () => {
+      const event = { type: 'session.end', cost: 0.05, turns: 3 }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.status).toHaveBeenCalledWith('running', 100, 'Completed (3 turns, $0.0500)')
+    })
+
+    it('emits generic completion from session.end without cost', () => {
+      const event = { type: 'session.end' }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.status).toHaveBeenCalledWith('running', 100, 'Completed')
+    })
+  })
+
+  // ===========================================================================
+  // 8. Batch Response Format
+  // ===========================================================================
+
+  describe('batch response format', () => {
+    it('emits text from batch result payloads', () => {
+      const event = {
+        runId: 'batch-run-1',
+        status: 'completed',
+        result: { payloads: [{ text: 'Batch result text' }] },
+      }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.sessionInit).toHaveBeenCalledWith('batch-run-1')
+      expect(stream.text).toHaveBeenCalledWith('Batch result text')
+      expect(stream.status).toHaveBeenCalledWith('running', 100, 'Completed')
+    })
+
+    it('emits text from summary when no result payloads', () => {
+      const event = { summary: 'Task completed successfully', status: 'completed' }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.text).toHaveBeenCalledWith('Task completed successfully')
+    })
+
+    it('emits error status for batch error', () => {
+      const event = { status: 'error', summary: 'Something went wrong' }
+      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Error: Something went wrong')
+    })
+
+    it('extracts metrics from batch result meta', () => {
+      const event = {
+        result: {
+          payloads: [{ text: 'Hello' }],
+          meta: { usage: { input_tokens: 100, output_tokens: 50, totalCost: 0.001 } },
+        },
+      }
+      const result = adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      expect(result).toBeDefined()
+      expect(result?.inputTokens).toBe(100)
+      expect(result?.outputTokens).toBe(50)
+    })
+  })
+
+  // ===========================================================================
+  // 9. Malformed JSON Handling
   // ===========================================================================
 
   describe('malformed JSON handling', () => {
     it('handles incomplete JSON object (missing closing brace)', () => {
-      const malformed = '{"type":"text_delta","text":"Hello world"'
-
-      // Should not throw
+      const malformed = '{"type":"event","event":"chat"'
       expect(() => {
         adapter.handleStreamLine(malformed, stream, artifacts)
       }).not.toThrow()
-
-      // Should emit as raw stdout
       expect(stream.stdout).toHaveBeenCalledWith(malformed + '\n')
     })
 
     it('handles truncated JSON in middle of string', () => {
-      const truncated = '{"type":"tool_call","text":"Reading fi'
-
+      const truncated = '{"type":"event","event":"agen'
       expect(() => {
         adapter.handleStreamLine(truncated, stream, artifacts)
       }).not.toThrow()
-
       expect(stream.stdout).toHaveBeenCalledWith(truncated + '\n')
     })
 
     it('handles invalid JSON with extra comma', () => {
-      const invalid = '{"type":"status","text":"Processing",}'
-
+      const invalid = '{"type":"event","event":"chat",}'
       expect(() => {
         adapter.handleStreamLine(invalid, stream, artifacts)
       }).not.toThrow()
-
       expect(stream.stdout).toHaveBeenCalledWith(invalid + '\n')
     })
 
     it('handles invalid JSON with single quotes', () => {
-      const invalid = "{'type':'error','message':'Invalid'}"
-
+      const invalid = "{'type':'event','event':'chat'}"
       expect(() => {
         adapter.handleStreamLine(invalid, stream, artifacts)
       }).not.toThrow()
-
       expect(stream.stdout).toHaveBeenCalledWith(invalid + '\n')
     })
 
     it('handles JSON array instead of object', () => {
-      const array = '["text_delta", "hello"]'
-
+      const array = '["event", "hello"]'
       expect(() => {
         adapter.handleStreamLine(array, stream, artifacts)
       }).not.toThrow()
-
-      // Should not throw, may emit as stdout or ignore
     })
 
     it('handles JSON object missing type field', () => {
       const missingType = '{"text":"This has no type field","stream":"output"}'
-
       adapter.handleStreamLine(missingType, stream, artifacts)
-
-      // Should not crash, just ignore unknown event
       expect(stream.text).not.toHaveBeenCalled()
     })
 
@@ -743,8 +731,6 @@ describe('OpenClaw ACP Event Parsing', () => {
       expect(() => {
         adapter.handleStreamLine('', stream, artifacts)
       }).not.toThrow()
-
-      // Empty line should output newline
       expect(stream.stdout).toHaveBeenCalledWith('\n')
     })
 
@@ -756,231 +742,60 @@ describe('OpenClaw ACP Event Parsing', () => {
 
     it('handles non-JSON plain text', () => {
       const plainText = 'This is not JSON at all'
-
       expect(() => {
         adapter.handleStreamLine(plainText, stream, artifacts)
       }).not.toThrow()
-
       expect(stream.stdout).toHaveBeenCalledWith(plainText + '\n')
     })
 
     it('handles comment lines (starting with #)', () => {
       const comment = '# This is a comment'
-
       expect(() => {
         adapter.handleStreamLine(comment, stream, artifacts)
       }).not.toThrow()
-
-      // Comments are not valid JSON, should be emitted as stdout
       expect(stream.stdout).toHaveBeenCalledWith(comment + '\n')
     })
   })
 
   // ===========================================================================
-  // 7. Incomplete Line Buffering
+  // 10. Full Gateway Session Sequences (Integration-style)
   // ===========================================================================
 
-  describe('incomplete line buffering', () => {
-    it('buffers incomplete lines across multiple chunks', () => {
-      // This tests the line buffering logic in the actual runOpenClaw method
-      // Here we test the handleStreamLine behavior with partial data
-
-      // First chunk: partial JSON
-      const partial1 = '{"type":"text_'
-      adapter.handleStreamLine(partial1, stream, artifacts)
-      expect(stream.stdout).toHaveBeenCalledWith(partial1 + '\n')
-
-      // Reset mock
-      vi.clearAllMocks()
-
-      // Full event should work normally
-      const fullEvent = '{"type":"text_delta","text":"Hello"}'
-      adapter.handleStreamLine(fullEvent, stream, artifacts)
-      expect(stream.text).toHaveBeenCalledWith('Hello')
-    })
-
-    it('handles multiple events received in sequence', () => {
-      const events = [
-        { type: 'text_delta', text: 'First ' },
-        { type: 'text_delta', text: 'Second ' },
-        { type: 'text_delta', text: 'Third' },
-      ]
-
-      for (const event of events) {
-        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-      }
-
-      expect(stream.text).toHaveBeenCalledTimes(3)
-      expect(stream.text).toHaveBeenNthCalledWith(1, 'First ')
-      expect(stream.text).toHaveBeenNthCalledWith(2, 'Second ')
-      expect(stream.text).toHaveBeenNthCalledWith(3, 'Third')
-    })
-  })
-
-  // ===========================================================================
-  // 8. Event Type Mapping to StreamEvent
-  // ===========================================================================
-
-  describe('event type mapping', () => {
-    it('maps text_delta to text()', () => {
-      const event = { type: 'text_delta', text: 'Hello', stream: 'output' }
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-      expect(stream.text).toHaveBeenCalledWith('Hello')
-    })
-
-    it('maps tool_call (in_progress) to toolUse()', () => {
-      const event = {
-        type: 'tool_call',
-        text: 'Starting',
-        title: 'bash: ls',
-        status: 'in_progress',
-        toolCallId: 'call-1',
-      }
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-      expect(stream.toolUse).toHaveBeenCalled()
-    })
-
-    it('maps tool_call (completed) to toolResult()', () => {
-      const event = {
-        type: 'tool_call',
-        text: 'file.txt',
-        title: 'bash: ls',
-        status: 'completed',
-        toolCallId: 'call-1',
-      }
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-      expect(stream.toolResult).toHaveBeenCalledWith('bash: ls', 'file.txt', true)
-    })
-
-    it('maps status events to status()', () => {
-      const event = { type: 'status', text: 'Processing...' }
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-      expect(stream.status).toHaveBeenCalled()
-    })
-
-    it('maps done events to status()', () => {
-      const event = { type: 'done', stopReason: 'end_turn' }
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-      expect(stream.status).toHaveBeenCalled()
-    })
-
-    it('maps error events to status()', () => {
-      const event = { type: 'error', message: 'Something failed' }
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-      expect(stream.status).toHaveBeenCalled()
-    })
-
-    it('emits sessionInit on first event (when session_id available)', () => {
-      // Note: ACP format doesn't have session.start, but we may emit sessionInit
-      // based on first event or status with session_info_update tag
-      const event = { type: 'status', text: 'Session initialized', tag: 'session_info_update' }
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // Implementation may emit sessionInit here or later
-      expect(stream.status).toHaveBeenCalled()
-    })
-  })
-
-  // ===========================================================================
-  // 9. Metadata Extraction
-  // ===========================================================================
-
-  describe('metadata extraction', () => {
-    it('extracts metrics from done event with cost and tokens', () => {
-      const event = {
-        type: 'done',
-        stopReason: 'end_turn',
-        cost: 0.0312,
-        input_tokens: 1200,
-        output_tokens: 600,
-        turns: 2,
-        model: 'gpt-4o',
-        duration_ms: 15000,
-      }
-
-      const result = adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      // If implementation extracts metrics, verify them
-      if (result) {
-        expect(result.totalCost).toBe(0.0312)
-        expect(result.inputTokens).toBe(1200)
-        expect(result.outputTokens).toBe(600)
-        expect(result.numTurns).toBe(2)
-        expect(result.model).toBe('gpt-4o')
-        expect(result.durationMs).toBe(15000)
-      }
-    })
-
-    it('accumulates usage from status updates', () => {
-      // Multiple status events with usage_update tag
-      const events = [
-        { type: 'status', text: 'Progress 1', tag: 'usage_update', used: 100, size: 8192 },
-        { type: 'status', text: 'Progress 2', tag: 'usage_update', used: 500, size: 8192 },
-        { type: 'status', text: 'Progress 3', tag: 'usage_update', used: 1000, size: 8192 },
-      ]
-
-      for (const event of events) {
-        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-      }
-
-      // Usage tracking implementation may accumulate these
-      expect(stream.status).toHaveBeenCalledTimes(3)
-    })
-
-    it('extracts model from status with current_mode_update', () => {
-      const event = {
-        type: 'status',
-        text: 'Model: claude-sonnet-4-20250514',
-        tag: 'current_mode_update',
-      }
-
-      adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-
-      expect(stream.status).toHaveBeenCalled()
-    })
-  })
-
-  // ===========================================================================
-  // 10. Full Session Sequences (Integration-style)
-  // ===========================================================================
-
-  describe('full ACP session sequences', () => {
+  describe('full Gateway session sequences', () => {
     it('processes a complete happy path session', () => {
-      const events: AcpRuntimeEvent[] = [
-        { type: 'status', text: 'Starting session...', tag: 'session_info_update' },
-        { type: 'text_delta', text: "I'll analyze the codebase", stream: 'output', tag: 'agent_message_chunk' },
-        { type: 'text_delta', text: ' structure and make', stream: 'output', tag: 'agent_message_chunk' },
-        { type: 'text_delta', text: ' the requested changes.', stream: 'output', tag: 'agent_message_chunk' },
-        { type: 'tool_call', text: 'Reading project configuration', toolCallId: 'call-001', title: 'read_file: package.json', status: 'in_progress', tag: 'tool_call' },
-        { type: 'tool_call', text: '{"name":"astro","version":"1.0.0"}', toolCallId: 'call-001', title: 'read_file: package.json', status: 'completed', tag: 'tool_call_update' },
-        { type: 'text_delta', text: '\n\nI found the package.json. ', stream: 'output', tag: 'agent_message_chunk' },
-        { type: 'status', text: 'Processing complete', tag: 'usage_update', used: 1523, size: 4096 },
-        { type: 'done', stopReason: 'end_turn' },
+      const events = [
+        agentLifecycle('start', { runId: 'run-happy-1' }),
+        agentText("I'll analyze the codebase"),
+        agentText(' structure and make'),
+        agentText(' the requested changes.'),
+        agentToolStart('read_file', 'call-001', { path: 'package.json' }),
+        agentToolResult('read_file', 'call-001', '{"name":"astro","version":"1.0.0"}', false),
+        agentText('\n\nI found the package.json.'),
+        chatFinal({ input_tokens: 1523, output_tokens: 800 }),
       ]
 
       for (const event of events) {
         adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
       }
 
-      // Verify sequence of calls
-      expect(stream.status).toHaveBeenCalled()
+      expect(stream.sessionInit).toHaveBeenCalledWith('run-happy-1')
       expect(stream.text).toHaveBeenCalled()
       expect(stream.toolUse).toHaveBeenCalled()
       expect(stream.toolResult).toHaveBeenCalled()
+      expect(stream.status).toHaveBeenCalledWith('running', 100, 'Completed')
     })
 
     it('processes a multi-tool session', () => {
-      const events: AcpRuntimeEvent[] = [
-        { type: 'status', text: 'Initializing agent...', tag: 'session_info_update' },
-        { type: 'text_delta', text: 'Let me check the directory structure.', stream: 'output' },
-        { type: 'tool_call', text: 'Listing files', toolCallId: 'call-101', title: 'bash: ls -la', status: 'in_progress' },
-        { type: 'tool_call', text: 'total 120\npackage.json\ntsconfig.json', toolCallId: 'call-101', title: 'bash: ls -la', status: 'completed' },
-        { type: 'tool_call', text: 'Finding files', toolCallId: 'call-102', title: "bash: find src -name '*.ts'", status: 'in_progress' },
-        { type: 'tool_call', text: 'src/index.ts\nsrc/lib/utils.ts', toolCallId: 'call-102', title: "bash: find src -name '*.ts'", status: 'completed' },
-        { type: 'tool_call', text: 'Reading entry point', toolCallId: 'call-103', title: 'read_file: src/index.ts', status: 'in_progress' },
-        { type: 'tool_call', text: "export * from './lib/utils';", toolCallId: 'call-103', title: 'read_file: src/index.ts', status: 'completed' },
-        { type: 'status', text: 'Analysis complete', tag: 'usage_update', used: 2847, size: 8192 },
-        { type: 'done', stopReason: 'end_turn' },
+      const events = [
+        agentLifecycle('start', { runId: 'run-multi-1' }),
+        agentText('Let me check the directory structure.'),
+        agentToolStart('bash', 'call-101', { command: 'ls -la' }),
+        agentToolResult('bash', 'call-101', 'total 120\npackage.json\ntsconfig.json', false),
+        agentToolStart('bash', 'call-102', { command: "find src -name '*.ts'" }),
+        agentToolResult('bash', 'call-102', 'src/index.ts\nsrc/lib/utils.ts', false),
+        agentToolStart('read_file', 'call-103', { path: 'src/index.ts' }),
+        agentToolResult('read_file', 'call-103', "export * from './lib/utils';", false),
+        chatFinal({ input_tokens: 2847 }),
       ]
 
       for (const event of events) {
@@ -992,75 +807,65 @@ describe('OpenClaw ACP Event Parsing', () => {
     })
 
     it('processes a session with tool failure', () => {
-      const events: AcpRuntimeEvent[] = [
-        { type: 'status', text: 'Starting task...', tag: 'session_info_update' },
-        { type: 'text_delta', text: "I'll run the tests.", stream: 'output' },
-        { type: 'tool_call', text: 'Running test suite', toolCallId: 'call-201', title: 'bash: npm test', status: 'in_progress' },
-        { type: 'tool_call', text: 'npm ERR! Exit status 1', toolCallId: 'call-201', title: 'bash: npm test', status: 'error' },
-        { type: 'text_delta', text: '\n\nThe tests failed. Let me investigate.', stream: 'output' },
-        { type: 'done', stopReason: 'end_turn' },
+      const events = [
+        agentLifecycle('start'),
+        agentText("I'll run the tests."),
+        agentToolStart('bash', 'call-201', { command: 'npm test' }),
+        agentToolResult('bash', 'call-201', 'npm ERR! Exit status 1', true),
+        agentText('\n\nThe tests failed. Let me investigate.'),
+        chatFinal(),
       ]
 
       for (const event of events) {
         adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
       }
 
-      // Should have one toolUse and one failed toolResult
       expect(stream.toolUse).toHaveBeenCalledTimes(1)
-      expect(stream.toolResult).toHaveBeenCalledWith(
-        'bash: npm test',
-        'npm ERR! Exit status 1',
-        false
-      )
+      expect(stream.toolResult).toHaveBeenCalledWith('bash', 'npm ERR! Exit status 1', false)
     })
 
     it('processes a session with error event', () => {
-      const events: AcpRuntimeEvent[] = [
-        { type: 'status', text: 'Processing request...', tag: 'session_info_update' },
-        { type: 'text_delta', text: "I'll analyze", stream: 'output' },
-        { type: 'error', message: 'API rate limit exceeded.', code: 'rate_limit', retryable: true },
+      const events = [
+        agentLifecycle('start'),
+        agentText("I'll analyze"),
+        chatError('API rate limit exceeded.'),
       ]
 
       for (const event of events) {
         adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
       }
 
-      // Should handle error gracefully
       expect(stream.text).toHaveBeenCalled()
-      expect(stream.status).toHaveBeenCalled()
+      expect(stream.status).toHaveBeenCalledWith('running', undefined, 'Error: API rate limit exceeded.')
     })
 
-    it('processes a session with thought stream', () => {
-      const events: AcpRuntimeEvent[] = [
-        { type: 'status', text: 'Agent thinking...', tag: 'session_info_update' },
-        { type: 'text_delta', text: 'Let me think about this problem...', stream: 'thought', tag: 'agent_thought_chunk' },
-        { type: 'text_delta', text: ' The user wants to refactor.', stream: 'thought', tag: 'agent_thought_chunk' },
-        { type: 'text_delta', text: "I'll start by reviewing the module.", stream: 'output', tag: 'agent_message_chunk' },
-        { type: 'done', stopReason: 'end_turn' },
+    it('processes a session with mixed agent text and chat delta', () => {
+      const events = [
+        agentText('Agent text first'),
+        chatDelta('Chat cumulative text'),
+        agentText('More agent text'),
       ]
 
       for (const event of events) {
         adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
       }
 
-      // Both thought and output text should be emitted
       expect(stream.text).toHaveBeenCalledTimes(3)
     })
 
-    it('processes a cancelled session', () => {
-      const events: AcpRuntimeEvent[] = [
-        { type: 'status', text: 'Starting long operation...', tag: 'session_info_update' },
-        { type: 'text_delta', text: "I'll begin refactoring", stream: 'output' },
-        { type: 'tool_call', text: 'Analyzing project', toolCallId: 'call-401', title: 'bash: find . -name *.ts', status: 'in_progress' },
-        { type: 'done', stopReason: 'cancelled' },
+    it('processes an aborted session', () => {
+      const events = [
+        agentLifecycle('start'),
+        agentText("I'll begin refactoring"),
+        agentToolStart('bash', 'call-401', { command: 'find . -name *.ts' }),
+        chatAborted(),
       ]
 
       for (const event of events) {
         adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
       }
 
-      // Session ended with cancellation
-      expect(stream.status).toHaveBeenLastCalledWith('running', 100, expect.stringContaining('cancelled'))
+      expect(stream.status).toHaveBeenLastCalledWith('running', undefined, 'Aborted')
     })
   })
 
@@ -1069,94 +874,113 @@ describe('OpenClaw ACP Event Parsing', () => {
   // ===========================================================================
 
   describe('edge cases and boundary conditions', () => {
-    it('handles empty event fields gracefully', () => {
-      const events = [
-        { type: 'text_delta', text: '', stream: 'output' },
-        { type: 'tool_call', text: '', toolCallId: '', title: '', status: '' },
-        { type: 'status', text: '' },
-        { type: 'done' },
-        { type: 'error', message: '' },
-      ]
-
-      for (const event of events) {
-        expect(() => {
-          adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
-        }).not.toThrow()
-      }
-    })
-
-    it('handles very large text content', () => {
-      const largeText = 'A'.repeat(100000)
-      const event = { type: 'text_delta', text: largeText, stream: 'output' }
-
+    it('handles Gateway event with missing payload', () => {
+      const event = { type: 'event', event: 'chat' }
       expect(() => {
         adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
       }).not.toThrow()
     })
 
-    it('handles deeply nested JSON in tool output', () => {
-      const nestedJson = JSON.stringify({
-        level1: {
-          level2: {
-            level3: {
-              level4: {
-                data: 'deep value',
-              },
-            },
-          },
-        },
-      })
+    it('handles Gateway event with unknown event type', () => {
+      const event = { type: 'event', event: 'unknown_type', payload: { data: 'test' } }
+      expect(() => {
+        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      }).not.toThrow()
+      expect(stream.text).not.toHaveBeenCalled()
+    })
 
+    it('handles agent event with unknown stream type', () => {
       const event = {
-        type: 'tool_call',
-        text: nestedJson,
-        toolCallId: 'call-nested',
-        title: 'read_file: deep.json',
-        status: 'completed',
+        type: 'event',
+        event: 'agent',
+        payload: { stream: 'unknown_stream', data: { text: 'test' } },
       }
+      expect(() => {
+        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      }).not.toThrow()
+      expect(stream.text).not.toHaveBeenCalled()
+    })
 
+    it('handles agent event with missing data', () => {
+      const event = {
+        type: 'event',
+        event: 'agent',
+        payload: { stream: 'assistant' },
+      }
+      expect(() => {
+        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      }).not.toThrow()
+    })
+
+    it('handles very large text content', () => {
+      const largeText = 'A'.repeat(100000)
+      const event = agentText(largeText)
+      expect(() => {
+        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      }).not.toThrow()
+    })
+
+    it('handles deeply nested JSON in tool result', () => {
+      const nestedResult = {
+        level1: { level2: { level3: { level4: { data: 'deep value' } } } },
+      }
+      const event = agentToolResult('read_file', 'call-nested', nestedResult, false)
       expect(() => {
         adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
       }).not.toThrow()
     })
 
     it('handles concurrent rapid events', () => {
-      // Simulate rapid-fire events
       for (let i = 0; i < 100; i++) {
-        const event = { type: 'text_delta', text: `chunk-${i}`, stream: 'output' }
-        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+        adapter.handleStreamLine(JSON.stringify(agentText(`chunk-${i}`)), stream, artifacts)
       }
-
       expect(stream.text).toHaveBeenCalledTimes(100)
     })
 
-    it('handles unknown event types silently', () => {
+    it('handles unknown top-level event types silently', () => {
       const unknownEvent = { type: 'unknown_future_event', data: 'some data' }
-
       expect(() => {
         adapter.handleStreamLine(JSON.stringify(unknownEvent), stream, artifacts)
       }).not.toThrow()
-
-      // Should not emit any known event
       expect(stream.text).not.toHaveBeenCalled()
       expect(stream.stdout).not.toHaveBeenCalled()
     })
 
-    it('handles extra fields in events gracefully', () => {
-      const eventWithExtras = {
-        type: 'text_delta',
-        text: 'Hello',
-        stream: 'output',
-        extra_field_1: 'ignored',
-        extra_field_2: 12345,
-        nested_extra: { foo: 'bar' },
+    it('handles extra fields in Gateway events gracefully', () => {
+      const event = {
+        type: 'event',
+        event: 'agent',
+        payload: {
+          stream: 'assistant',
+          data: { text: 'Hello' },
+          extra_field: 'ignored',
+        },
+        meta: { version: '2.0' },
       }
-
       expect(() => {
-        adapter.handleStreamLine(JSON.stringify(eventWithExtras), stream, artifacts)
+        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
       }).not.toThrow()
-
       expect(stream.text).toHaveBeenCalledWith('Hello')
+    })
+
+    it('handles chat delta with missing message field', () => {
+      const event = { type: 'event', event: 'chat', payload: { state: 'delta' } }
+      expect(() => {
+        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      }).not.toThrow()
+      expect(stream.text).not.toHaveBeenCalled()
+    })
+
+    it('handles chat delta with empty content array', () => {
+      const event = {
+        type: 'event',
+        event: 'chat',
+        payload: { state: 'delta', message: { content: [] } },
+      }
+      expect(() => {
+        adapter.handleStreamLine(JSON.stringify(event), stream, artifacts)
+      }).not.toThrow()
+      expect(stream.text).not.toHaveBeenCalled()
     })
   })
 })
