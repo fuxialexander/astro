@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router"
-import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu } from "lucide-react"
+import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, ExternalLink } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useAgentStore } from "@/stores/agent-store"
@@ -163,6 +163,14 @@ function ProjectGroup({
         <span className="text-sm font-semibold text-foreground flex-1 truncate">
           {projectName}
         </span>
+        <Link
+          to={`/project/${projectId}`}
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors shrink-0"
+          title="Go to project"
+        >
+          <ExternalLink className="h-3 w-3" />
+        </Link>
         <span className="text-xs text-muted-foreground tabular-nums">
           {tasks.length} active
         </span>

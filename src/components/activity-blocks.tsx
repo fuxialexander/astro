@@ -92,10 +92,31 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         currentTextEvents.push(event)
         break
       case 'tool_use':
-      case 'tool_result':
         flushText()
         currentToolEvents.push(event)
         break
+      case 'tool_result': {
+        flushText()
+        // If the matching tool_use was already flushed into a previous block,
+        // inject this result into that block instead of the current batch.
+        // This handles the common case where text events arrive between
+        // tool_use and tool_result, causing them to be in different blocks.
+        const resultEvent = event as Extract<TaskActivityEvent, { type: 'tool_result' }>
+        const matchingBlock = [...blocks].reverse().find(b =>
+          (b.type === 'tool' || b.type === 'tool_group') &&
+          b.events.some(e => e.type === 'tool_use' && (
+            e.id === resultEvent.id ||
+            ('toolName' in e && e.toolName === resultEvent.toolName &&
+              !b.events.some(r => r.type === 'tool_result' && r.id === e.id))
+          ))
+        )
+        if (matchingBlock) {
+          matchingBlock.events.push(event)
+        } else {
+          currentToolEvents.push(event)
+        }
+        break
+      }
       case 'steer':
         flushText()
         flushTools()
@@ -324,12 +345,21 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
   }> = []
 
   const useEvents = events.filter((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
+  const pairedResultIds = new Set<string>()
 
   for (const toolUse of useEvents) {
-    const toolResult = events.find(
+    // Match by exact ID first, then fall back to toolName
+    let toolResult = events.find(
       (e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> =>
-        e.type === 'tool_result' && e.id === toolUse.id
+        e.type === 'tool_result' && e.id === toolUse.id && !pairedResultIds.has(e.id)
     )
+    if (!toolResult) {
+      toolResult = events.find(
+        (e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> =>
+          e.type === 'tool_result' && e.toolName === toolUse.toolName && !pairedResultIds.has(e.id)
+      )
+    }
+    if (toolResult) pairedResultIds.add(toolResult.id)
     toolPairs.push({ toolUse, toolResult })
   }
 
