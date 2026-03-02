@@ -10,6 +10,7 @@
  */
 
 import { execSync } from 'child_process'
+import { resolve, isAbsolute } from 'path'
 
 /** Default timeout for git commands (ms) */
 const GIT_COMMAND_TIMEOUT_MS = 10_000
@@ -54,8 +55,15 @@ export function generateGitDiffSummary(worktreePath: string): string | null {
     return null
   }
 
+  // Validate path: must be absolute and not contain traversal segments
+  const resolved = resolve(worktreePath)
+  if (!isAbsolute(resolved) || worktreePath.includes('..')) {
+    console.warn(`[git-diff-summary] Rejecting path with traversal segments: ${worktreePath}`)
+    return null
+  }
+
   const execOptions: { cwd: string; encoding: 'utf-8'; timeout: number } = {
-    cwd: worktreePath,
+    cwd: resolved,
     encoding: 'utf-8',
     timeout: GIT_COMMAND_TIMEOUT_MS,
   }
@@ -82,8 +90,8 @@ export function generateGitDiffSummary(worktreePath: string): string | null {
       if (staged) {
         diffStat = diffStat ? `${diffStat}\n\n**Staged:**\n${staged}` : `**Staged:**\n${staged}`
       }
-    } catch {
-      // Still failed - likely not a git repo
+    } catch (fallbackErr) {
+      console.warn(`[git-diff-summary] git diff failed for ${resolved}:`, fallbackErr instanceof Error ? fallbackErr.message : fallbackErr)
       diffStat = null
     }
   }
@@ -93,10 +101,8 @@ export function generateGitDiffSummary(worktreePath: string): string | null {
   try {
     const result = execSync('git log --oneline -5', execOptions)
     commitLog = result.trim()
-  } catch {
-    // This can fail if:
-    // - Not a git repository
-    // - No commits yet
+  } catch (logErr) {
+    console.warn(`[git-diff-summary] git log failed for ${resolved}:`, logErr instanceof Error ? logErr.message : logErr)
     commitLog = null
   }
 

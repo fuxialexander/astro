@@ -8,10 +8,11 @@
  *
  * Fallback chain for PR body content:
  * 1. Structured summary from agent (result.summary)
- * 2. Executive summary parsed from execution output
+ * 2. Executive summary parsed from execution output (core parser)
  * 3. Server-generated summary via Anthropic API
- * 4. File changes summary from result.filesChanged
- * 5. Task description fallback (node.title + node.description)
+ * 4. Git diff summary from worktree (generateGitDiffSummary)
+ * 5. File changes summary from result.filesChanged
+ * 6. Task description fallback (node.title + node.description)
  *
  * Token priority:
  * 1. GITHUB_TOKEN environment variable
@@ -21,7 +22,8 @@
 
 import type { AstroEvent, EventHook } from '../types.js'
 import { updatePullRequestBody } from '../../../plugins/channel-github/github-api.js'
-import { generateServerSideSummary } from '../../../../packages/core/src/dispatch/summary-utils.js'
+import { generateServerSideSummary, parseExecutiveSummaryFromOutput } from '../../../../packages/core/src/dispatch/summary-utils.js'
+import { generateGitDiffSummary } from '../../../../packages/core/src/dispatch/git-diff-summary.js'
 import { db } from '../../db/index.js'
 import { projects, githubConnections, teamMembers } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
@@ -89,21 +91,8 @@ function parseRepository(repository: string): { owner: string; repo: string } | 
 }
 
 // ── Executive Summary Parsing ───────────────────────────────────────────
-
-/**
- * Parse an executive summary from execution output text.
- * Looks for a "## Executive Summary" markdown section.
- */
-function parseExecutiveSummaryFromOutput(output: string): string | null {
-  // Match "## Executive Summary" followed by content until next ## heading or end
-  const pattern = /## Executive Summary\s*\n([\s\S]*?)(?=\n## |\n---|$)/i
-  const match = output.match(pattern)
-  if (!match?.[1]) return null
-
-  const summary = match[1].trim()
-  // Must be at least 20 chars to be meaningful
-  return summary.length >= 20 ? summary : null
-}
+// Uses parseExecutiveSummaryFromOutput from @astro/core/dispatch/summary-utils
+// (imported above) to avoid duplicate implementations.
 
 // ── PR Body Formatting ──────────────────────────────────────────────────
 
@@ -228,12 +217,13 @@ async function buildPrBody(
 
   // ── Layer 2: Parse executive summary from stdout ──────────────────
   if (result.stdout) {
-    const execSummary = parseExecutiveSummaryFromOutput(result.stdout)
-    if (execSummary) {
+    const parsed = parseExecutiveSummaryFromOutput(result.stdout)
+    if (parsed) {
       console.log(`${LOG_PREFIX} Using parsed executive summary (Layer 2)`)
       const filesChanged = result.filesChanged?.map((f) => f.path)
       return formatPrBody({
-        summary: execSummary,
+        summary: parsed.workCompleted,
+        changes: parsed.keyFindings.length > 0 ? parsed.keyFindings : undefined,
         filesChanged,
         astroUrl,
         relatedIssue,
@@ -271,9 +261,26 @@ async function buildPrBody(
     }
   }
 
-  // ── Layer 4: File changes summary ─────────────────────────────────
+  // ── Layer 4: Git diff summary from worktree ──────────────────────
+  if (result.worktreePath) {
+    try {
+      const gitDiff = generateGitDiffSummary(result.worktreePath)
+      if (gitDiff) {
+        console.log(`${LOG_PREFIX} Using git diff summary (Layer 4)`)
+        return formatPrBody({
+          summary: `Completed task: ${node.title}\n\n${gitDiff}`,
+          astroUrl,
+          relatedIssue,
+        })
+      }
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} Git diff summary failed:`, err instanceof Error ? err.message : err)
+    }
+  }
+
+  // ── Layer 5: File changes summary ─────────────────────────────────
   if (result.filesChanged && result.filesChanged.length > 0) {
-    console.log(`${LOG_PREFIX} Using file changes summary (Layer 4)`)
+    console.log(`${LOG_PREFIX} Using file changes summary (Layer 5)`)
     const filesChanged = result.filesChanged.map((f) => f.path)
     return formatPrBody({
       summary: `Completed task: ${node.title}`,
@@ -284,8 +291,8 @@ async function buildPrBody(
     })
   }
 
-  // ── Layer 5: Task description fallback ────────────────────────────
-  console.log(`${LOG_PREFIX} Using task description fallback (Layer 5)`)
+  // ── Layer 6: Task description fallback ────────────────────────────
+  console.log(`${LOG_PREFIX} Using task description fallback (Layer 6)`)
   const description = node.description || node.title
   if (!description) return null
 
@@ -374,7 +381,11 @@ export const prBodyUpdateHook: EventHook = async (event: AstroEvent) => {
   }
 
   // ── Step 2: Resolve GitHub token ──────────────────────────────────
-  const token = await resolveGitHubToken(ownerId!, teamId ?? null)
+  if (!ownerId) {
+    console.warn(`${LOG_PREFIX} No ownerId found for project ${event.projectId}`)
+    return
+  }
+  const token = await resolveGitHubToken(ownerId, teamId ?? null)
   if (!token) {
     console.warn(`${LOG_PREFIX} No GitHub token available for project ${event.projectId}`)
     return
