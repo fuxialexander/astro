@@ -8,12 +8,7 @@ import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
-import { statusBadgeVariants } from "@/lib/status-config"
-
-/** Terminal node statuses — if a node has one of these, its execution is no longer active */
-const TERMINAL_NODE_STATUSES = new Set([
-  "completed", "auto_verified", "awaiting_judgment", "awaiting_approval", "pruned",
-])
+import { statusBadgeVariants, TERMINAL_NODE_STATUSES } from "@/lib/status-config"
 
 interface ActiveTask {
   nodeId: string

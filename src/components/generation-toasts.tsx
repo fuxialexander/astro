@@ -207,10 +207,28 @@ function SessionCard({ session }: { session: GenerationSession }) {
 
 // Track which generated sessions have been auto-hidden from the toast
 const TOAST_AUTO_HIDE_MS = 10_000
+const TOAST_HIDDEN_KEY = "astro:toast-hidden-sessions"
+
+function loadHiddenFromStorage(): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(TOAST_HIDDEN_KEY)
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function saveHiddenToStorage(hidden: Set<string>): void {
+  try {
+    sessionStorage.setItem(TOAST_HIDDEN_KEY, JSON.stringify([...hidden]))
+  } catch {
+    // sessionStorage may be unavailable
+  }
+}
 
 export function GenerationToasts() {
   const sessions = useAgentStore((s) => s.sessions)
-  const [hiddenFromToast, setHiddenFromToast] = useState<Set<string>>(new Set())
+  const [hiddenFromToast, setHiddenFromToast] = useState<Set<string>>(loadHiddenFromStorage)
 
   // Auto-hide "generated" sessions from the toast after a delay
   // (they remain visible on the Active page)
@@ -219,7 +237,11 @@ export function GenerationToasts() {
     for (const [projectId, session] of sessions) {
       if (session.status === "generated" && !hiddenFromToast.has(projectId)) {
         const timer = setTimeout(() => {
-          setHiddenFromToast((prev) => new Set(prev).add(projectId))
+          setHiddenFromToast((prev) => {
+            const next = new Set(prev).add(projectId)
+            saveHiddenToStorage(next)
+            return next
+          })
         }, TOAST_AUTO_HIDE_MS)
         timers.push(timer)
       }

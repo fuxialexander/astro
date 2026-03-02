@@ -85,11 +85,15 @@ function restoreGeneratedSessions(): Map<string, GenerationSession> {
   try {
     const raw = localStorage.getItem(GENERATED_SESSIONS_KEY)
     if (raw) {
+      const now = Date.now()
       const parsed = JSON.parse(raw) as Record<string, GenerationSession>
       for (const [projectId, session] of Object.entries(parsed)) {
-        // Only restore "generated" sessions (not stale active/error)
+        // Only restore "generated" sessions that haven't expired (7-day TTL)
         if (session.status === "generated") {
-          sessions.set(projectId, session)
+          const age = session.completedAt ? now - session.completedAt : 0
+          if (age <= GENERATED_SESSION_TTL_MS) {
+            sessions.set(projectId, session)
+          }
         }
       }
     }
@@ -103,6 +107,7 @@ function restoreGeneratedSessions(): Map<string, GenerationSession> {
 let cleanupTimer: ReturnType<typeof setInterval> | null = null
 const CLEANUP_INTERVAL_MS = 60_000 // 1 minute
 const COMPLETED_SESSION_TTL_MS = 5 * 60_000 // 5 minutes
+const GENERATED_SESSION_TTL_MS = 7 * 24 * 60 * 60_000 // 7 days
 const MAX_SESSIONS = 10
 
 function updateSession(
@@ -122,14 +127,15 @@ function cleanupOldSessions(sessions: Map<string, GenerationSession>): Map<strin
   const now = Date.now()
   const next = new Map(sessions)
 
-  // Remove completed/error sessions older than TTL (but keep "generated" sessions)
+  // Remove completed/error sessions older than TTL, and generated sessions older than 7 days
   for (const [projectId, session] of next.entries()) {
-    if (session.status !== "active" && session.status !== "generated" && session.completedAt) {
-      const age = now - session.completedAt
-      if (age > COMPLETED_SESSION_TTL_MS) {
-        console.log(`[agent-store] Cleaning up old session for ${projectId}`)
-        next.delete(projectId)
-      }
+    if (session.status === "active") continue
+    if (!session.completedAt) continue
+    const age = now - session.completedAt
+    const ttl = session.status === "generated" ? GENERATED_SESSION_TTL_MS : COMPLETED_SESSION_TTL_MS
+    if (age > ttl) {
+      console.log(`[agent-store] Cleaning up old ${session.status} session for ${projectId}`)
+      next.delete(projectId)
     }
   }
 

@@ -103,3 +103,8 @@ export const statusBarColors: Record<string, string> = Object.fromEntries(
 export const statusProgressColors: Record<string, string> = Object.fromEntries(
   Object.entries(STATUS_CONFIG).filter(([, v]) => v.progressClass).map(([k, v]) => [k, v.progressClass!])
 )
+
+/** Node statuses that indicate a task is no longer active (terminal states) */
+export const TERMINAL_NODE_STATUSES: Set<string> = new Set([
+  "completed", "auto_verified", "awaiting_judgment", "awaiting_approval", "pruned",
+])
