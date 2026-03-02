@@ -22,7 +22,7 @@ jobs:
       (github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
       issues: write
       id-token: write
@@ -45,6 +45,15 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           use_bedrock: "true"
+
+          allowed_tools: |
+            Bash(git submodule *)
+            Bash(git merge *)
+            Bash(git fetch *)
+            Bash(git add *)
+            Bash(git commit *)
+            Bash(git push *)
+            Bash(cd * && git *)
 
           additional_permissions: |
             actions: read
