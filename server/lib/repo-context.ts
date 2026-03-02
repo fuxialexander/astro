@@ -10,7 +10,6 @@ import { join } from 'node:path'
 
 const FILE_CAP = 15_000 // 15KB cap for CLAUDE.md and README
 const PKG_CAP = 5_000   // 5KB cap for package metadata
-const FILE_TREE_CAP = 200 // max files to show in tree summary
 
 export interface RepoContextResult {
   claudeMd?: string
@@ -60,14 +59,9 @@ export function readRepoContext(workingDirectory: string, fileTree?: string[]): 
     }
   }
 
-  // Format file tree summary
+  // Format file tree summary — include all files, no truncation
   if (fileTree && fileTree.length > 0) {
-    const total = fileTree.length
-    const shown = fileTree.slice(0, FILE_TREE_CAP)
-    const lines = shown.join('\n')
-    result.fileTreeSummary = total > FILE_TREE_CAP
-      ? `${lines}\n\n... and ${total - FILE_TREE_CAP} more files (${total} total)`
-      : lines
+    result.fileTreeSummary = fileTree.join('\n')
   }
 
   return result
