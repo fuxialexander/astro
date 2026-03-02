@@ -344,6 +344,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         position: n.position || { x: 0, y: 0 }, // Defensive: ensure position is always defined
         data: {
           title: n.title,
+          number: n.number,
           description: n.content ? stripHtml(n.content) : (n.description ?? ''),
           status: n.status,
           nodeType: n.type,

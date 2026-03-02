@@ -28,6 +28,7 @@ const neutralHighlight = { bg: "bg-card", border: "border-border" }
 
 type TaskNodeData = Node<{
   title: string
+  number?: number | null
   description?: string
   status: string
   nodeType: string
@@ -312,6 +313,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         "truncate text-xs font-medium relative z-10",
         data.status === "pruned" ? "text-muted-foreground line-through" : "text-foreground"
       )}>
+        {data.number != null && <span className="text-muted-foreground mr-1">#{data.number}</span>}
         {data.title}
       </span>
 
