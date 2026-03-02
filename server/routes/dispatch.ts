@@ -186,6 +186,24 @@ dispatchRoute.post('/task', async (c) => {
   let baseBranch: string | undefined
   let nodeNumber: number | null | undefined
 
+  // ── Early serial execution check for 'direct' delivery mode ──────
+  // This must run before the DB lookups so that we reject duplicates
+  // even if the project/node records are not found. The deliveryMode
+  // from the request body is sufficient for the check.
+  if (deliveryMode === 'direct' && !dryRun && !force) {
+    const stats = await dispatchEngine.getStats()
+    const activeForProject = stats.activePerProject?.[projectId] ?? 0
+    if (activeForProject > 0) {
+      return c.json(
+        {
+          success: false,
+          error: 'Serial execution required: this project uses direct delivery mode (no git). Only one task can run at a time to prevent file conflicts.',
+        },
+        409
+      )
+    }
+  }
+
   // ── Server-side resolution: fill missing fields from DB ──────────
   // Always fetch plan node + project so that PR enrichment fields
   // (githubIssueUrl, githubIssueNumber) are resolved even when the
@@ -354,7 +372,10 @@ dispatchRoute.post('/task', async (c) => {
 
   // Serial execution constraint for 'direct' delivery mode (non-git directories).
   // Without git isolation, parallel execution on the same directory is unsafe.
-  if (deliveryMode === 'direct') {
+  // Note: if deliveryMode was already 'direct' from the request body, the early
+  // check above already ran. This catch handles the case where deliveryMode was
+  // resolved from the project's DB record (i.e., wasn't in the original body).
+  if (deliveryMode === 'direct' && !body.deliveryMode) {
     const stats = await dispatchEngine.getStats()
     const activeForProject = stats.activePerProject?.[projectId] ?? 0
     if (activeForProject > 0) {
