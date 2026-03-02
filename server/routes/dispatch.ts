@@ -43,6 +43,22 @@ function getShortId(id: string): string {
   return id.replace(/-/g, '').slice(0, 6).toLowerCase()
 }
 
+/**
+ * Derive a unique short node ID that avoids collision with the project ID prefix.
+ * AI-generated node IDs are prefixed with projectId.slice(0,8), so getShortId()
+ * produces identical results for both project and node. This function uses the
+ * server-assigned node number (compact, unique per project) or falls back to the
+ * last 6 hex chars of the UUID (skips the shared project prefix).
+ */
+function getShortNodeId(nodeId: string, nodeNumber?: number | null): string {
+  if (nodeNumber != null) {
+    return `n${nodeNumber}`
+  }
+  // Use last 6 hex chars to skip the shared project prefix
+  const hex = nodeId.replace(/-/g, '').toLowerCase()
+  return hex.slice(-6)
+}
+
 // Validation schemas
 const dispatchTaskSchema = z.object({
   nodeId: z.string().min(1).max(100),
@@ -168,6 +184,7 @@ dispatchRoute.post('/task', async (c) => {
   let githubIssueUrl: string | undefined
   let githubIssueNumber: number | undefined
   let baseBranch: string | undefined
+  let nodeNumber: number | null | undefined
 
   // ── Server-side resolution: fill missing fields from DB ──────────
   // Always fetch plan node + project so that PR enrichment fields
@@ -192,6 +209,7 @@ dispatchRoute.post('/task', async (c) => {
     }
 
     if (dbNode) {
+      nodeNumber = dbNode.number
       title ??= dbNode.title
       description ??= dbNode.description || dbNode.content || dbNode.title
       verification ??= (dbNode.verification as 'auto' | 'human') || undefined
@@ -389,6 +407,7 @@ dispatchRoute.post('/task', async (c) => {
     dispatchSignature,
     dispatchSigningPayload,
     dryRun,
+    nodeNumber,
   })
 })
 
@@ -431,6 +450,7 @@ async function dispatchViaRelay(
     dispatchSignature?: string
     dispatchSigningPayload?: { v: 1; nodeId: string; projectId: string; machineId: string; timestamp: string; nonce: string }
     dryRun?: boolean
+    nodeNumber?: number | null
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -454,7 +474,6 @@ async function dispatchViaRelay(
     computeBackend,
     deliveryMode,
     remoteType,
-    baseBranch,
     agentDir,
     worktreeStrategy,
     useWorktree,
@@ -470,11 +489,12 @@ async function dispatchViaRelay(
     dispatchSignature,
     dispatchSigningPayload,
     dryRun,
+    nodeNumber,
   } = params
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
   const shortProjectId = getShortId(projectId)
-  const shortNodeId = getShortId(nodeId)
+  const shortNodeId = getShortNodeId(nodeId, nodeNumber)
 
   // Extract user for ownership verification
   const user = c.get('user') as AuthUser | undefined
@@ -789,6 +809,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     console.warn('[dispatch] Failed to fetch project for event hooks:', err)
   }
 
+  // Compute the project-level accumulation branch
+  const projectBranch = `astro/${shortProjectId}`
+
   // Dispatch via relay
   const taskDispatch = {
     taskId: executionId,
@@ -809,7 +832,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     sourceDirectory,
     deliveryMode: deliveryMode ?? 'pr',
     remoteType,
-    baseBranch,
+    baseBranch: projectBranch,
+    projectBranch,
     agentDir,
     worktreeStrategy,
     useWorktree,
@@ -1637,8 +1661,11 @@ dispatchRoute.post('/reset', async (c) => {
     }
   }
 
-  // 2. Delete remote branch via GitHub API (using user's token)
-  if (node.branchName && ghRepo && ghToken) {
+  // 2. Delete remote TASK branch via GitHub API (using user's token)
+  // Guard: never delete the project branch — it accumulates work across tasks.
+  // Project branches follow the pattern 'astro/{shortProjectId}' (no node suffix).
+  const isProjectBranch = node.branchName && project?.projectBranch && node.branchName === project.projectBranch
+  if (node.branchName && ghRepo && ghToken && !isProjectBranch) {
     try {
       const response = await fetch(
         `https://api.github.com/repos/${ghRepo}/git/refs/heads/${node.branchName}`,
@@ -1660,6 +1687,8 @@ dispatchRoute.post('/reset', async (c) => {
       const msg = err instanceof Error ? err.message : String(err)
       console.warn(`[dispatch/reset] Error deleting remote branch: ${msg}`)
     }
+  } else if (isProjectBranch) {
+    console.log(`[dispatch/reset] Skipping deletion of project branch ${node.branchName}`)
   }
 
   // 3. Send cleanup command to agent runner via relay
@@ -1681,6 +1710,8 @@ dispatchRoute.post('/reset', async (c) => {
         prUrl: null,
         prNumber: null,
         branchName: null,
+        commitBeforeSha: null,
+        commitAfterSha: null,
         executionId: null,
         executionOutput: null,
         executionError: null,

@@ -33,6 +33,9 @@ export const projects = pgTable('projects', {
   githubRepo: text('github_repo'),
   githubRepoId: integer('github_repo_id'),
   references: jsonb('references').default([]),
+  projectBranch: text('project_branch'),
+  projectPrUrl: text('project_pr_url'),
+  projectPrNumber: integer('project_pr_number'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
@@ -120,6 +123,8 @@ export const planNodes = pgTable('plan_nodes', {
   prUrl: text('pr_url'),
   prNumber: integer('pr_number'),
   mergeQueueStatus: text('merge_queue_status'),
+  commitBeforeSha: text('commit_before_sha'),
+  commitAfterSha: text('commit_after_sha'),
   autoPr: boolean('auto_pr').default(false),
   content: text('content'), // Rich text content (TipTap HTML)
   attachments: jsonb('attachments').$type<Array<{
