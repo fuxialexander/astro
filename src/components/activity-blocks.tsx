@@ -66,7 +66,7 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
           e => e.type === 'tool_result' && 'toolName' in e && e.toolName === useEvent.toolName && !pairedResultIds.has(e.id)
         )
       }
-      if (resultEvent) {
+      if (resultEvent && resultEvent.type === 'tool_result') {
         pair.push(resultEvent)
         pairedResultIds.add(resultEvent.id)
       }
