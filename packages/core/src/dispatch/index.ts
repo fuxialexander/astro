@@ -36,3 +36,7 @@ export type {
   DispatchPayloadOptions,
   DispatchTaskPayload,
 } from './payload.js'
+
+// Summary generation (direct Anthropic API call)
+export { generateServerSideSummary } from './summary-utils.js'
+export type { SummaryInput } from './summary-utils.js'
