@@ -81,7 +81,10 @@ const dispatchTaskSchema = z.object({
   preferredProvider: z.string().max(100).optional(),
   targetMachineId: z.string().max(100).optional(),
   model: z.string().max(100).optional(),
-  maxTurns: z.number().int().min(1).optional(),
+  maxTurns: z.number().int().min(1).refine(
+    (value) => Number.isSafeInteger(value),
+    { message: 'maxTurns must be a safe integer' }
+  ).optional(),
   workingDirectory: z.string().max(1000).refine(
     (path) => !path.includes('..'),
     { message: 'Path traversal not allowed' },

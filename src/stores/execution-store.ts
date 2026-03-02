@@ -5,6 +5,7 @@ import { fetchStreamingEventsCatchUp, type StreamingEventRow } from "@/lib/api-c
 import { usePlanStore, isLive } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useUsageStore } from "./usage-store"
+import { useToastStore } from "./toast-store"
 import { getAccessToken } from "@/lib/supabase-client"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { dataClient } from "@/lib/data-client"
@@ -2180,6 +2181,16 @@ function handleSSEEvent(
         // Accumulate metrics in usage store
         if (metrics) {
           useUsageStore.getState().addTaskMetrics(metrics, isSuccess)
+        }
+
+        // Show notification if task used more than 500 turns
+        if (metrics?.turnsUsed && metrics.turnsUsed > 500) {
+          useToastStore.getState().add({
+            type: 'warning',
+            title: 'High Turn Count',
+            description: `Task used ${metrics.turnsUsed} turns (${Math.round(metrics.turnsUsed / 10) * 10}+). This may indicate a complex task or potential issue.`,
+            duration: 8000,
+          })
         }
 
         // Determine final node status based on verification type (use fresh state, not stale snapshot)
