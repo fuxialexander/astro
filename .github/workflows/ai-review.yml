@@ -56,8 +56,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           CLAUDE_CODE_USE_BEDROCK: "1"
+          GH_TOKEN: ${{ github.token }}
         run: |
-          REVIEW=$(claude -p "$(cat <<'PROMPT'
+          # Build the review prompt
+          cat <<'PROMPT' > /tmp/review_prompt.txt
           You are a senior code reviewer for the Astro platform — a planning-first AI platform for software developers and researchers.
 
           ## Your Review Process
@@ -123,9 +125,10 @@ jobs:
           - 🟢 **Approve** — no issues found
           - 🟡 **Approve with changes** — non-blocking issues to address
           - 🔴 **Request changes** — critical issues that must be fixed
-
           PROMPT
-          )
+
+          # Append PR context to prompt
+          cat >> /tmp/review_prompt.txt <<EOF
 
           ## PR Information
 
@@ -144,21 +147,24 @@ jobs:
 
           **Diff:**
           $(cat /tmp/pr_diff.txt)
-          " --output-format text 2>&1) || true
+          EOF
+
+          # Run Claude review
+          REVIEW=$(claude -p "$(cat /tmp/review_prompt.txt)" --output-format text 2>&1) || true
 
           # Post as PR comment
           if [ -n "$REVIEW" ]; then
-            # Wrap in a collapsible section for long reviews
-            COMMENT="## 🤖 AI Code Review
+            COMMENT=$(cat <<COMMENT_EOF
+          ## 🤖 AI Code Review
 
           $REVIEW
 
           ---
-          <sub>Reviewed by Claude (Bedrock) via [Astro CI](https://github.com/fuxialexander/astro)</sub>"
+          <sub>Reviewed by Claude (Bedrock) via [Astro CI](https://github.com/fuxialexander/astro)</sub>
+          COMMENT_EOF
+          )
 
             gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"
           else
             echo "Warning: AI review produced no output"
           fi
-        env:
-          GH_TOKEN: ${{ github.token }}
