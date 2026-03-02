@@ -20,7 +20,7 @@ AI Planning Session
 Frontend: agent-store.ts
   ├─ Parse SSE events
   ├─ Update plan-store (nodes + edges)
-  └─ Persist to IndexedDB (cache)
+  └─ Persist via dataClient → /api/data/*
   ↓
 User navigates to /project/:id/plan
   ↓
@@ -31,7 +31,7 @@ Frontend: plan-view.tsx renders React Flow graph
 - **Repo-aware**: If repository URL provided, backend clones repo → reads key files → injects into system prompt
 - **Tool-augmented**: Agent can explore codebase with Read/Glob/Grep tools
 - **Streaming**: Partial results stream via SSE for immediate feedback
-- **Caching**: IndexedDB caches plan for instant re-render
+- **Persistence**: Data persisted via dataClient → /api/data/* → Drizzle ORM
 
 ## Task Dispatch Flow
 
@@ -88,7 +88,7 @@ User A (Browser 1): Creates project
 Frontend: project-store.ts
   ├─ Optimistic update (immediate UI feedback)
   ├─ POST /api/data/projects (Supabase)
-  └─ IndexedDB cache update
+  └─ API persistence
   ↓
 Supabase: projects table INSERT
   ├─ RLS policy check (user is owner)
@@ -100,14 +100,13 @@ User B (Browser 2): Realtime subscription active
 Frontend: realtime-store.ts
   ├─ Receives Supabase Realtime event
   ├─ Updates project-store
-  ├─ Updates IndexedDB cache
   └─ UI re-renders automatically (Zustand subscription)
 ```
 
 **Key Points:**
 - **Optimistic updates**: UI updates immediately, syncs in background
 - **Conflict resolution**: Last-write-wins based on `updated_at` timestamp
-- **Offline resilience**: IndexedDB cache enables offline reads
+- **API-backed**: All data persisted via backend API
 - **Multi-device**: Changes sync across all logged-in sessions
 
 ## Approval Flow
@@ -157,7 +156,7 @@ Event Transport: server/lib/events/astro-event-transport.ts
 Frontend: activity-store.ts
   ├─ Receives SSE event
   ├─ Adds to in-memory activity list
-  └─ Persists to IndexedDB
+  └─ Persists via dataClient
   ↓
 User opens Activity Dialog
   ↓
@@ -170,7 +169,7 @@ Frontend: activity-dialog.tsx
 **Key Points:**
 - **Automatic tracking**: All significant events auto-logged
 - **SSE distribution**: Real-time activity feed updates
-- **Persistent cache**: IndexedDB stores activity history
+- **Persistent**: Activity history stored via API
 - **Project-scoped**: Activity filtered by project ID
 
 ## Usage Metrics Flow
@@ -233,27 +232,26 @@ Frontend: Realtime sync
 
 ## Cache Hierarchy
 
-### Local Mode (IndexedDB Only)
+### Local Mode (PGlite)
 ```
-User Action → Zustand Store → IndexedDB (persistence)
+User Action → Zustand Store → dataClient → /api/data/* → PGlite
 ```
 
-### Server Mode (Supabase + IndexedDB)
+### Server Mode (Supabase)
 ```
 User Action
   ↓
 Zustand Store (optimistic update)
-  ├─ IndexedDB (immediate cache write)
-  └─ Supabase (async network write)
+  └─ dataClient → /api/data/* → Postgres (Supabase)
       ↓
-  Success: Cache confirmed
-  Failure: Rollback optimistic update
+  Success: Confirmed
+  Failure: Show error state
 ```
 
-**Cache Invalidation:**
-- **On login**: Clear IndexedDB, fetch fresh from Supabase
-- **On conflict**: Supabase wins (updated_at comparison)
-- **On realtime event**: Merge into cache
+**Data Refresh:**
+- **On login**: Fetch fresh from API
+- **On conflict**: Last-write-wins (updated_at comparison)
+- **On realtime event**: Merge into store
 
 ## Related Documentation
 

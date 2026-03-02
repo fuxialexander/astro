@@ -13,7 +13,7 @@ Implemented a functioning recent activity feed for the project overview page tha
   - Milestone events: `milestone.created`, `milestone.updated`, `milestone.deleted`
   - Resource events: `vision.updated`, `repo.configured`
 - Features:
-  - IndexedDB persistence
+  - API persistence via `dataClient`
   - Keeps last 1000 activities
   - Project-filtered queries
   - Auto-cleanup for deleted projects
@@ -106,12 +106,12 @@ const recentActivities = useActivityStore((s) =>
 
 ## Design Decisions
 
-1. **IndexedDB Storage**: Activities persist locally for offline access
+1. **API Persistence**: Activities persist via `dataClient` → `/api/data/*` → Drizzle ORM
 2. **Ring Buffer**: Keep last 1000 activities to prevent unbounded growth
 3. **Project-Scoped**: All activities tied to specific projects
 4. **Relative Timestamps**: More intuitive than absolute dates
 5. **Type Safety**: Strict ActivityType enum prevents invalid events
-6. **Lightweight**: No external dependencies beyond idb-keyval
+6. **Lightweight**: No external dependencies beyond the existing data layer
 
 ## Next Steps
 

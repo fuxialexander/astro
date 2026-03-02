@@ -321,23 +321,22 @@ curl http://localhost:3001/api/health
 
 ---
 
-## IndexedDB Mode (Alternative to Supabase)
+## Local Mode (Alternative to Supabase)
 
-If you want to skip Supabase entirely and use browser-only storage:
+If you want to skip Supabase entirely and use PGlite (Postgres-in-WASM):
 
 ```bash
 npm run dev:local
-# Or: ASTRO_LOCAL_MODE=true VITE_ASTRO_LOCAL_MODE=true npm run dev
 ```
 
-No authentication required, single-user, all data in browser IndexedDB.
+No authentication required, single-user, all data persisted via PGlite.
 
 **Mode detection priority:**
-1. `ASTRO_LOCAL_MODE=true` -> IndexedDB (explicit override)
-2. No Supabase env vars -> IndexedDB (auto-detected)
-3. Supabase env vars set -> Supabase mode
+1. `ASTRO_LOCAL_MODE=true` -> PGlite local mode (explicit override)
+2. No Supabase env vars -> PGlite local mode (auto-detected)
+3. Supabase env vars set -> Supabase server mode
 
-**Visual indicator:** Sidebar shows "IndexedDB Mode (Local Only)" badge.
+**Visual indicator:** Sidebar shows "Local Mode" badge.
 
 ---
 
@@ -386,7 +385,7 @@ npm run clear-data         # Clear user data only (preserves schema)
 npm run clear-data:force   # Clear without confirmation
 npm run db:reset           # Full reset (all modes)
 npm run db:reset:supabase  # Supabase only
-npm run db:reset:indexeddb  # Shows IndexedDB reset instructions
+npm run db:reset:local     # Reset PGlite local database
 ```
 
 ---
