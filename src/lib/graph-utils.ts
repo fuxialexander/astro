@@ -115,6 +115,7 @@ export function calculateChildPosition(
  * Uses topological sort to assign ranks, then arranges nodes to prefer
  * vertical distribution for dependent nodes (showing clear sequential flow)
  * while keeping independent nodes horizontal.
+ * Isolated nodes (no edges) are packed compactly below the main graph.
  * Returns a map of nodeId → new position.
  */
 export function layoutGraph(
@@ -138,10 +139,23 @@ export function layoutGraph(
     inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1)
   }
 
-  // Topological sort to assign ranks (BFS from roots)
+  // Save original in-degree BEFORE the BFS modifies it — needed for chain detection
+  const origInDegree = new Map(inDegree)
+
+  // Identify truly isolated nodes (no incoming or outgoing edges within this graph)
+  const isolatedIds = new Set<string>(
+    nodes
+      .filter((n) => origInDegree.get(n.id) === 0 && (children.get(n.id)?.length ?? 0) === 0)
+      .map((n) => n.id)
+  )
+
+  // Main nodes: exclude isolated ones from the rank/column layout
+  const mainNodes = nodes.filter((n) => !isolatedIds.has(n.id))
+
+  // Topological sort to assign ranks (BFS from roots of mainNodes)
   const rank = new Map<string, number>()
   const queue: string[] = []
-  for (const n of nodes) {
+  for (const n of mainNodes) {
     if ((inDegree.get(n.id) ?? 0) === 0) {
       queue.push(n.id)
       rank.set(n.id, 0)
@@ -153,6 +167,7 @@ export function layoutGraph(
     const id = queue[head++]
     const r = rank.get(id) ?? 0
     for (const child of children.get(id) ?? []) {
+      if (isolatedIds.has(child)) continue
       const existing = rank.get(child)
       // Assign deepest rank (longest path)
       if (existing === undefined || r + 1 > existing) {
@@ -166,47 +181,47 @@ export function layoutGraph(
     }
   }
 
-  // Handle any unranked nodes (cycles or disconnected)
-  for (const n of nodes) {
+  // Handle any unranked non-isolated nodes (cycles or disconnected)
+  for (const n of mainNodes) {
     if (!rank.has(n.id)) {
       rank.set(n.id, 0)
     }
   }
 
-  // Group nodes by rank
+  // Group main nodes by rank
   const ranks = new Map<number, PlanNode[]>()
-  for (const n of nodes) {
+  for (const n of mainNodes) {
     const r = rank.get(n.id) ?? 0
     if (!ranks.has(r)) ranks.set(r, [])
     ranks.get(r)!.push(n)
   }
 
-  // Identify dependency chains: nodes that have exactly one child and that child has exactly one parent
-  // These form linear chains that should be in the same column
+  // Identify dependency chains: nodes that have exactly one child and that child has exactly
+  // one parent — these form linear chains that should be in the same column.
+  // IMPORTANT: use origInDegree (before BFS) for correct parent-count detection.
   const chainColumn = new Map<string, number>() // nodeId → column index
   let nextColumn = 0
-
-  // Assign columns to nodes
   const assignedToColumn = new Set<string>()
 
-  // Process ranks top-down to assign columns
-  const maxRank = Math.max(...ranks.keys())
+  const maxRank = mainNodes.length > 0 ? Math.max(...mainNodes.map((n) => rank.get(n.id) ?? 0)) : -1
 
+  // Assign columns top-down: linear chains share a column, branching nodes get new columns
   for (let r = 0; r <= maxRank; r++) {
     const row = ranks.get(r) ?? []
 
     for (const node of row) {
       if (assignedToColumn.has(node.id)) continue
 
-      const nodeInDegree = inDegree.get(node.id) ?? 0
+      // Use ORIGINAL in-degree (not the BFS-modified version which is always 0)
+      const nodeOrigInDegree = origInDegree.get(node.id) ?? 0
 
-      // If this node has a parent that assigned it a column, use that
+      // If this node has a parent that assigned it a column, inherit it (linear chain)
       let assignedColumn: number | undefined
       for (const [nodeId, col] of chainColumn) {
         const nodeChildrenList = children.get(nodeId) ?? []
         if (nodeChildrenList.includes(node.id)) {
-          // Check if this is a linear chain (parent has only one child, this node has only one parent)
-          if (nodeChildrenList.length === 1 && nodeInDegree === 1) {
+          // Linear chain: parent has only one child AND this node has only one parent
+          if (nodeChildrenList.length === 1 && nodeOrigInDegree === 1) {
             assignedColumn = col
             break
           }
@@ -297,6 +312,38 @@ export function layoutGraph(
       if (curr.x < minX) {
         curr.x = minX
       }
+    }
+  }
+
+  // Place isolated nodes compactly below (or beside) the main graph.
+  // Arrange them in a 2-column grid so they don't spread too far.
+  if (isolatedIds.size > 0) {
+    // Compute bounding box of the main graph
+    let mainMaxX = 0
+    let mainMaxY = 0
+    for (const pos of positions.values()) {
+      mainMaxX = Math.max(mainMaxX, pos.x + NODE_WIDTH)
+      mainMaxY = Math.max(mainMaxY, pos.y)
+    }
+
+    // Isolated nodes go in a compact 2-column grid.
+    // If there's a main graph, place them below it with a gap; otherwise top-left.
+    const ISOLATED_COLS = Math.min(2, isolatedIds.size)
+    const itemsPerCol = Math.ceil(isolatedIds.size / ISOLATED_COLS)
+    const isolatedStartX = margin
+    const isolatedStartY = mainMaxY > 0
+      ? mainMaxY + NODE_HEIGHT + VERTICAL_GAP * 2
+      : margin
+
+    let idx = 0
+    for (const id of isolatedIds) {
+      const col = Math.floor(idx / itemsPerCol)
+      const row = idx % itemsPerCol
+      positions.set(id, {
+        x: isolatedStartX + col * columnWidth,
+        y: isolatedStartY + row * (NODE_HEIGHT + VERTICAL_GAP),
+      })
+      idx++
     }
   }
 

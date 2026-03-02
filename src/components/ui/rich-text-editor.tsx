@@ -9,7 +9,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import Typography from '@tiptap/extension-typography'
 import Mention from '@tiptap/extension-mention'
 import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion'
-import { useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react'
 import tippy, { type Instance } from 'tippy.js'
 import {
   Bold,
@@ -55,10 +55,12 @@ interface RichTextEditorProps {
   mentionItems?: MentionSuggestionItem[]
   /** Called when an image is pasted/dropped - should upload and return URL */
   onImageUpload?: (file: File) => Promise<string | null>
+  /** Extra content rendered in the toolbar (e.g. save status indicator) */
+  toolbarExtra?: React.ReactNode
 }
 
 export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
-  ({ content = '', onChange, placeholder = 'Start writing...', className, editable = true, autofocus = false, onBlur, mentionItems, onImageUpload }, ref) => {
+  ({ content = '', onChange, placeholder = 'Start writing...', className, editable = true, autofocus = false, onBlur, mentionItems, onImageUpload, toolbarExtra }, ref) => {
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     // Use a ref for mentionItems so the suggestion closure always reads the latest value
@@ -445,6 +447,9 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
             </ToolbarGroup>
 
             <div className="flex-1" />
+
+            {/* Extra toolbar content (e.g. save status) */}
+            {toolbarExtra}
 
             {/* Undo/redo */}
             <ToolbarGroup>

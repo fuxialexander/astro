@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Pencil, GitBranch, List, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -101,18 +101,6 @@ const planTimelineDisplayConfig: DisplayPopoverConfig = {
   showZoom: true,
 }
 
-const planGraphDisplayConfig: DisplayPopoverConfig = {
-  viewKey: "plan-graph",
-  groupByLabel: "Highlight by",
-  groupByOptions: [
-    { value: "status", label: "Status" },
-    { value: "priority", label: "Priority" },
-    { value: "none", label: "None" },
-  ],
-  orderByOptions: [],
-  propertyOptions: [],
-}
-
 const planBoardDisplayConfig: DisplayPopoverConfig = {
   viewKey: "plan-board",
   columnByOptions: [
@@ -136,6 +124,14 @@ const planBoardDisplayConfig: DisplayPopoverConfig = {
     { value: "pr", label: "PR" },
   ],
 }
+
+/** Shared "View as" options — all four view modes listed in logical order */
+const PLAN_VIEW_AS_OPTIONS = [
+  { value: "list", label: "List" },
+  { value: "board", label: "Board" },
+  { value: "timeline", label: "Timeline" },
+  { value: "graph", label: "Graph" },
+]
 
 // --- Compact workdir bar shown below the header ---
 function WorkdirBar({ project }: { project: Project }) {
@@ -1462,17 +1458,17 @@ export function PlanView() {
       return { viewMode: lastPart as ViewMode, activeTab: 'plan' as const }
     }
 
-    // Default to graph view in plan tab
-    return { viewMode: 'graph' as ViewMode, activeTab: 'plan' as const }
+    // Default to list view in plan tab
+    return { viewMode: 'list' as ViewMode, activeTab: 'plan' as const }
   }, [location.pathname])
 
-  // Redirect bare /project/:id to /project/:id/graph
+  // Redirect bare /project/:id to /project/:id/list
   useEffect(() => {
     if (!id) return
     const pathParts = location.pathname.split('/')
     const lastPart = pathParts[pathParts.length - 1]
     if (lastPart === id) {
-      navigate(`/project/${id}/graph`, { replace: true })
+      navigate(`/project/${id}/list`, { replace: true })
     }
   }, [location.pathname, id, navigate])
 
@@ -1553,10 +1549,10 @@ export function PlanView() {
           <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0 hidden md:block" />
         </div>
 
-        {/* To Do | Prompt Toggle — desktop only */}
+        {/* Tasks | Description Toggle — desktop only */}
         <div className="hidden md:flex items-center gap-1 shrink-0">
           <button
-            onClick={() => navigate(`/project/${project.id}/graph`)}
+            onClick={() => navigate(`/project/${project.id}/list`)}
             className={cn(
               "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
               activeTab === "plan"
@@ -1564,7 +1560,7 @@ export function PlanView() {
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            To Do
+            Tasks
           </button>
           <button
             onClick={() => navigate(`/project/${project.id}/overview`)}
@@ -1575,7 +1571,7 @@ export function PlanView() {
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            Prompt
+            Description
           </button>
         </div>
 
@@ -1583,54 +1579,16 @@ export function PlanView() {
 
         {/* View mode toggle - right-aligned, only visible when Plan is active */}
         {activeTab === "plan" && (
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Toggle switch: Graph | List — click anywhere to swap */}
-            <button
-              type="button"
-              onClick={() => {
-                const isGraph = viewMode === "graph"
-                navigate(`/project/${project.id}/${isGraph ? "list" : "graph"}`)
-              }}
-              className="flex items-center h-7 rounded-lg bg-muted p-0.5 cursor-pointer"
-            >
-              {(
-                [
-                  { mode: "graph" as ViewMode, icon: GitBranch, label: "Graph" },
-                  { mode: "list" as ViewMode, icon: List, label: "List" },
-                ] as const
-              ).map(({ mode, icon: ModeIcon, label }) => {
-                const isActive = viewMode === mode || (mode === "list" && (viewMode === "timeline" || viewMode === "board"))
-                return (
-                  <span
-                    key={mode}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-md px-2.5 h-6 text-xs font-medium transition-all",
-                      isActive
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground"
-                    )}
-                  >
-                    <ModeIcon className="h-3.5 w-3.5" />
-                    <span className="hidden md:inline">{label}</span>
-                  </span>
-                )
-              })}
-            </button>
-            <div className="hidden md:flex items-center gap-2">
-              {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
-              {(viewMode === "list" || viewMode === "timeline" || viewMode === "board") && (
-                <DisplayPopover config={{
-                  ...(viewMode === "list" ? planListDisplayConfig : viewMode === "timeline" ? planTimelineDisplayConfig : planBoardDisplayConfig),
-                  viewAsOptions: [
-                    { value: "list", label: "List" },
-                    { value: "timeline", label: "Timeline" },
-                    { value: "board", label: "Board" },
-                  ],
-                  activeViewAs: viewMode,
-                  onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
-                }} />
-              )}
-            </div>
+          <div className="hidden md:flex items-center gap-2 shrink-0">
+            <DisplayPopover config={{
+              ...(viewMode === "list" ? planListDisplayConfig
+                : viewMode === "timeline" ? planTimelineDisplayConfig
+                : viewMode === "board" ? planBoardDisplayConfig
+                : planListDisplayConfig),
+              viewAsOptions: PLAN_VIEW_AS_OPTIONS,
+              activeViewAs: viewMode,
+              onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
+            }} />
           </div>
         )}
 
@@ -1642,12 +1600,12 @@ export function PlanView() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            {/* To Do/Prompt toggle */}
-            <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/graph`)}>
-              To Do
+            {/* Tasks/Description toggle */}
+            <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/list`)}>
+              Tasks
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/overview`)}>
-              Prompt
+              Description
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {/* Rename */}
@@ -1660,19 +1618,15 @@ export function PlanView() {
               <>
                 <DropdownMenuSeparator />
                 <div className="px-2 py-1.5">
-                  {viewMode === "graph" && <DisplayPopover config={planGraphDisplayConfig} />}
-                  {(viewMode === "list" || viewMode === "timeline" || viewMode === "board") && (
-                    <DisplayPopover config={{
-                      ...(viewMode === "list" ? planListDisplayConfig : viewMode === "timeline" ? planTimelineDisplayConfig : planBoardDisplayConfig),
-                      viewAsOptions: [
-                        { value: "list", label: "List" },
-                        { value: "timeline", label: "Timeline" },
-                        { value: "board", label: "Board" },
-                      ],
-                      activeViewAs: viewMode,
-                      onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
-                    }} />
-                  )}
+                  <DisplayPopover config={{
+                    ...(viewMode === "list" ? planListDisplayConfig
+                      : viewMode === "timeline" ? planTimelineDisplayConfig
+                      : viewMode === "board" ? planBoardDisplayConfig
+                      : planListDisplayConfig),
+                    viewAsOptions: PLAN_VIEW_AS_OPTIONS,
+                    activeViewAs: viewMode,
+                    onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
+                  }} />
                 </div>
               </>
             )}
